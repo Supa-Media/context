@@ -49,6 +49,8 @@ export type DecideAsk = {
   running: boolean;
   waitingAsks: string[];
   newest: string;
+  /** Tex's name opens or closes the newest message: its turn already runs, and decide may still hold its answer (`decideBeside`). */
+  addressed?: true;
 };
 
 export type ControlDeps = { fetch: Fetch; controlPlaneOrigin: string; workerSecret: string };

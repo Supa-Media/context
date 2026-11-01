@@ -28,6 +28,7 @@ import { createEgressWorld, request, toolReplies } from "./agentEgressFixtures.m
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { PENDING_PREFIX } from "../src/tools/approvals.js";
 import { GROUP_MEMORY_PREFIX } from "../src/agent/groupTurn.js";
+import { EMPTY_FALLBACK } from "../src/agent/replyChecks.js";
 
 const TOKEN_GROUP_EGRESS = `cat_group_act_egress_${"0".repeat(19)}`;
 const TOKEN_GROUP_MEMBER = `cat_group_act_member_${"0".repeat(19)}`;
@@ -173,4 +174,25 @@ test("an ask already shown isn't re-posted as the answer to the next question (2
 
   const yes = await tagged(TOKEN_GROUP_MEMBER, "Tex, yes", "cy");
   assert.match(yes.body?.answer ?? "", /^Done, I sent an email/, "the earlier ask still sends on their yes");
+});
+
+// Dev2, 2026-11-01: a message for Instinct that only named Tex got "my answer got lost", sent and kept as Tex's reply.
+test("a group's SKIP texts nothing and keeps nothing; an empty answer there still gets the fallback", async () => {
+  const memory = () => live(GROUP_MEMORY_PREFIX).map((key) => String(world.team.get(key)?.body ?? "")).join("");
+  world.model.install([{ text: "SKIP" }, { text: "SKIP" }]);
+  const skipped = await tagged(TOKEN_GROUP_EGRESS, "Instinct, run the speed test with Tex like last time?", "ada");
+  assert.equal(skipped.status, 200, JSON.stringify(skipped.body));
+  assert.equal(skipped.body.answer, "");
+  assert.equal(skipped.body.quiet, true, "nothing to text, as the flag the Worker reads");
+  assert.doesNotMatch(memory(), /speed test/, "nothing of it is kept as Tex's reply");
+
+  world.model.install([{ text: "" }, { text: "" }]);
+  const empty = await tagged(TOKEN_GROUP_EGRESS, "Tex what's the plan for saturday?", "ada");
+  assert.equal(empty.status, 200, JSON.stringify(empty.body));
+  assert.equal(empty.body.answer, EMPTY_FALLBACK, "an empty answer is still never sent as nothing");
+  assert.equal(empty.body.quiet, undefined);
+
+  world.model.install([{ text: "Quiet." }]);
+  const quiet = await tagged(TOKEN_GROUP_EGRESS, "Tex, loud or quiet for the intro?", "ada");
+  assert.equal(quiet.body.answer, "Quiet.", "only a bare SKIP is silence: a word that answers the question is sent");
 });

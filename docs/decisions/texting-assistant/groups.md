@@ -12,6 +12,8 @@ This is how that is built, and the decisions the owner made on the way.
 
 > **Superseded in part (Dev2, 2026-10-27):** an inline reply to one of Tex's texts is no longer addressed by itself. Tex answered replies meant for the people in the chat ("Yea, don't use the API"), so a reply that says more than thanks now always reaches decide, whatever the style, and decide judges it; with decide down, it is answered only if it is a question. Its name opening or closing a message, or in a question, still always gets an answer.
 
+> **Superseded in part (Dev2, 2026-11-01):** its name in a question no longer addresses Tex, and decide judges every message: an addressed one's turn starts at once with decide asked beside it, and decide's silent drops the answer unsent. See [chat-state-machine](./chat-state-machine.md#decide-judges-every-message-an-addressed-one-beside-its-turn-dev2-2026-11-01).
+
 Tex answers in a group only when it is addressed: its name ("Tex" or
 "Context") opening or closing the message, its name in a question, or an
 inline reply to one of Tex's own texts in that group that says more than

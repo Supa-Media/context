@@ -20,7 +20,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { TRANSCRIBE_WORKER_SECRET_ENV_VAR, TRANSCRIBE_WORKER_URL_ENV_VAR } from "../functions/meetings/transcribe";
 import { utcDay } from "../functions/lib/jev/meter";
-import { OTHER_ASSISTANT_RULE, decideRequest } from "../functions/lib/gatewayRoutes/textDecide";
+import { ADDRESSED_RULE, OTHER_ASSISTANT_RULE, decideRequest, readDecideBody } from "../functions/lib/gatewayRoutes/textDecide";
 import { groupKeyOf } from "../functions/textGroups";
 import { addMember, asUser, createUser, createWorkspace, setupTest, TEST_GATEWAY_SECRET } from "./fixtures.helpers";
 
@@ -313,9 +313,9 @@ test("every request it builds passes the inference Worker's request rules", () =
   const NAME = /^[a-z][a-z0-9_]{0,39}$/;
   const OPTION = /^[a-z0-9][a-z0-9_-]{0,59}$/;
   const ids = Array.from({ length: 3 }, (_, n) => `1761619442000-00000${n}`);
-  for (const running of [false, true]) {
+  for (const [running, addressed] of [[false, false], [true, false], [false, true]] as const) {
     for (const candidates of [ids.slice(0, 1), ids]) {
-      const { state, questions } = decideRequest({ chat: GROUP, line: LINE, style: "helpful", transcript: "x", running, waitingAsks: ids.slice(0, 2), candidates, newest: candidates.at(-1)! });
+      const { state, questions } = decideRequest({ chat: GROUP, line: LINE, style: "helpful", transcript: "x", running, waitingAsks: ids.slice(0, 2), candidates, newest: candidates.at(-1)!, ...(addressed ? { addressed: true as const } : {}) });
       expect(state.length).toBeGreaterThan(0);
       const entries = Object.entries(questions as Record<string, { type: string; instructions: string; criteria: Record<string, string> }>);
       expect(entries.length).toBeLessThanOrEqual(16);
@@ -339,6 +339,15 @@ test("every style tells decide a message for another assistant is silent, never 
     expect(act.instructions).toContain(OTHER_ASSISTANT_RULE);
     expect(act.instructions.length).toBeLessThanOrEqual(1_000);
   }
+});
+
+// Dev2, 2026-11-01: an addressed message's turn runs while decide judges it, so decide is told it looks addressed.
+test("decide is told when the newest message looks addressed to Tex, and only then", () => {
+  const body = { chat: GROUP, line: LINE, style: "followAlong", transcript: "x", running: false, waitingAsks: [], candidates: ["1761619442000-000001"], newest: "1761619442000-000001" };
+  const act = (read: Record<string, unknown>) => (decideRequest(readDecideBody(read)!).questions as Record<string, { instructions: string }>).act!.instructions;
+  expect(act({ ...body, addressed: true })).toContain(ADDRESSED_RULE);
+  expect(act(body)).not.toContain(ADDRESSED_RULE);
+  expect(act({ ...body, addressed: "yes" })).not.toContain(ADDRESSED_RULE);
 });
 
 // 2026-11-01: in a chat that reaches no shared workspace (home-only, like Tex Devs), every decide was refused as no_group,

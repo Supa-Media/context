@@ -6,8 +6,10 @@
  * (docs/decisions/texting-assistant/groups.md).
  *
  * Tex answers in a group when it is addressed: its name opening or closing
- * the message, its name in a question, or an inline reply to one of Tex's
- * own texts in this group. Which untagged messages decide also reads is the
+ * the message starts a turn at once, and decide, asked beside it, can still
+ * keep its answer from going (`decideBeside`, Dev2, 2026-11-01). An inline
+ * reply to one of Tex's own texts in this group always reaches decide, which
+ * judges it first (Dev2, 2026-10-27). Which untagged messages decide also reads is the
  * group's style (`groupStyle.ts`); which waiting messages one turn answers,
  * and what a message during a running turn does, is decide's
  * (`groupTurn.ts`, Dev2, 2026-10-26, reversing "two people's texts are two
@@ -72,7 +74,7 @@ import { armBy, flushChat, pruneEvents, type Conversation } from "./events";
 import { reactionFor } from "./reactEmoji";
 import { runningTurn } from "./steer";
 import { canWait, chatEvent, readChatState, stillGathering } from "./chatState";
-import { chooseGroupTurn, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
+import { chooseGroupTurn, coversOf, decideBeside, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
 import { chooseStyle } from "./groupChoose";
 import { handedTurnWaits, handOff, TURN_KEY, type HandedTurn } from "./groupTurnRun";
 import { answerBesideTurn } from "./groupBeside";
@@ -551,7 +553,8 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const covered = entries.map(([, entry]) => entry.message);
   const contextUntil = Math.max(acceptedAt, item.contextUntil ?? acceptedAt);
   const upTo = Math.max(acceptedAt, ...entries.map(([, entry]) => entry.at ?? 0));
-  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, upTo, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken });
+  // Addressed: decide is asked now, beside the turn, and its verdict is waited on only before anything is sent.
+  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, upTo, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken, silenced: decideBeside(storage, deps, entries) });
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   return outcome;
 }

@@ -7,8 +7,9 @@
  *
  * Sabotage record (applied, run, observed failing, reverted):
  *  1. `chooseGroupTurn` without the floor on a decided silent/react → "a
- *     message addressed to Tex is answered, with the link after it, when
- *     decide says silent" fails.
+ *     message addressed to Tex starts its turn, with the link after it…"
+ *     fails (Dev2, 2026-11-01: the floor is now the turn starting at once;
+ *     decide's silent, asked beside it, keeps its answer unsent).
  *  2. `withJoins` returning the head alone → the same test and "decide down:
  *     a picture after the tag…" fail.
  *  3. the fallback answering the tag alone (`[burst[first]]`) → "decide
@@ -24,7 +25,7 @@
  *  8. `engagementChoice` read on an SMS → "an SMS never sets the style…" fails;
  *     `followsOwnTag` without its SMS check → "…nor joins a waiting tag" fails.
  *  9. `ownTurn` taking every sender's covered entries into the asker's turn →
- *     "the Seyi/Dev2 burst…" fails.
+ *     "the two-person burst…" fails.
  * 10. `logGroupInbound` filing under `peopleKey` instead of `eventPeople` →
  *     "inbound events, Tex's events and the members…" fails.
  * 11. `keepQuestionAlarm` not called after the drain → "the style question's
@@ -39,7 +40,7 @@ import { acceptGroup, drainGroup } from "./groupInbox";
 import { AlarmStorage, MemoryStorage } from "./memoryStorage.testing";
 import { keptEvents } from "./events";
 import { ENGAGEMENT_QUESTION, QUESTION_OPEN_MS } from "./groupStyle";
-import { ADA, answerAll, BO, CY, decidedWords, LINES, setup, silent, type Answer } from "./groupWorld.testing";
+import { ADA, answerAll, BO, CY, decidedWords, LINES, setup, silent, untaggedSilent, type Answer } from "./groupWorld.testing";
 
 const PICTURE = { attachments: [{ url: "https://cdn.example.test/shot.png", filename: "shot.png", mimeType: "image/png", size: null }] };
 const ASK_ID = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -47,7 +48,7 @@ const down = (): Answer => ({ ok: false, reason: "unavailable" });
 
 for (const { name, groupId } of LINES) {
   describe(`a group's turns after review, ${name}`, () => {
-    it("a message addressed to Tex is answered, with the link after it, when decide says silent", async () => {
+    it("a message addressed to Tex starts its turn, with the link after it, and decide's silent keeps the answer unsent", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { decide: silent });
       await acceptGroup(storage, w.message("Tex check this link"), 0);
@@ -55,6 +56,7 @@ for (const { name, groupId } of LINES) {
       await drainGroup(storage, w.deps);
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex check this link\nhttps://reasonmachines.example/page"]);
       expect(w.asks[0].covers).toHaveLength(2);
+      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual([]);
     });
 
     it("addressed while a turn runs, Ada's and Bo's are answered after it even when decide says silent", async () => {
@@ -150,7 +152,7 @@ for (const { name, groupId } of LINES) {
       const storage = new MemoryStorage();
       const w = setup(groupId, {
         control: { engagement: "helpful", engagementChosen: true },
-        decide: (body) => ({ ...silent(), stale: body.waitingAsks }) as Answer,
+        decide: (body) => (body.addressed ? answerAll(body) : ({ ...silent(), stale: body.waitingAsks } as Answer)),
         agent: (body) =>
           String(body.question).startsWith("Tex draft")
             ? { answer: "Here's the email. Give it a 👍 and I'll send it.", verbatim: ["Give it a 👍 and I'll send it."], askIds: [ASK_ID] }
@@ -160,11 +162,13 @@ for (const { name, groupId } of LINES) {
       await drainGroup(storage, w.deps);
       await acceptGroup(storage, w.message("nah forget it", { from: BO }), 10);
       await drainGroup(storage, w.deps);
-      expect(w.decided[0].waitingAsks).toEqual([]);
+      // The untagged texts' decides (each tag's is asked beside its turn).
+      const judged = () => w.decided.filter((body) => !body.addressed);
+      expect(judged()[0].waitingAsks).toEqual([]);
       // Ada's own words are shown her ask.
       await acceptGroup(storage, w.message("actually wait"), 20);
       await drainGroup(storage, w.deps);
-      expect(w.decided[1].waitingAsks).toHaveLength(1);
+      expect(judged()[1].waitingAsks).toHaveLength(1);
       // Owed now, and disarmed only with Ada's own session, the next time she tags Tex.
       await acceptGroup(storage, w.message("Tex what's on tonight", { from: BO }), 30);
       await drainGroup(storage, w.deps);
@@ -192,10 +196,10 @@ for (const { name, groupId } of LINES) {
       expect(v.asks.map((ask) => ask.question)).toEqual(["Tex check this link"]);
     });
 
-    it("the Seyi/Dev2 burst: Dev2's untagged complaint after Seyi's ask gets its own decide, and silent means one answer", async () => {
+    it("the two-person burst: Bo's untagged complaint after Ada's ask gets its own decide, and silent means one answer", async () => {
       const storage = new MemoryStorage();
-      // Tags are never put to decide: Seyi's is answered at once, and Dev2's complaint, after it, is decided on its own.
-      const w = setup(groupId, { control: { engagement: "helpful", engagementChosen: true }, decide: silent });
+      // Tags never wait on decide: Ada's turn starts at once (decide, beside it, answers), and Bo's complaint, after it, is decided on its own.
+      const w = setup(groupId, { control: { engagement: "helpful", engagementChosen: true }, decide: untaggedSilent });
       await acceptGroup(storage, w.message("Tex hi"), 0);
       await drainGroup(storage, w.deps);
       await acceptGroup(storage, w.message("Tex make the poster"), 10);
@@ -204,6 +208,7 @@ for (const { name, groupId } of LINES) {
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex hi", "Tex make the poster"]);
       expect((await decidedWords(storage, w, groupId)).slice(-1)).toEqual(["this never works"]);
       expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA]);
+      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex hi", "answer to Tex make the poster"]);
     });
 
     it("inbound events, Tex's events and the members named to the gateway carry one people hash", async () => {

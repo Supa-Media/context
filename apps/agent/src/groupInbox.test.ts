@@ -96,17 +96,24 @@ function deps(
 const world = (members: (string[] | null)[] | null = [[ADA, BO]]): World => ({ sends: [], control: [], asks: [], reactions: 0, reacted: [], members });
 
 describe("what wakes Tex in a group", () => {
-  it("its name opening or closing the message, or in a question", () => {
+  it("its name opening or closing the message", () => {
     expect(addressesTex("Tex, what's on the setlist", false)).toBe(true);
     expect(addressesTex("hey tex can you check", false)).toBe(true);
     expect(addressesTex("what do you think tex?", false)).toBe(true);
     expect(addressesTex("@Context find the setlist", false)).toBe(true);
-    expect(addressesTex("is tex going to know this?", false)).toBe(true);
     expect(addressesTex("Tex what time is load in", false)).toBe(true);
     expect(addressesTex("tex stop", false)).toBe(true);
     // Any ask, not only the words on a list (2026-10-23: this one went unanswered).
     expect(addressesTex("Tex turn this guy into a cat", false)).toBe(true);
     expect(addressesTex("Tex draw me a dog", false)).toBe(true);
+  });
+  // Dev2, 2026-11-01: its name inside a question is decide's to judge, first (the Instinct speed test).
+  it("never its name inside a question", () => {
+    expect(addressesTex("is tex going to know this?", false)).toBe(false);
+    expect(addressesTex("Instinct, can you do a speed test with Tex just like last time? can you test it?", false)).toBe(false);
+    // Opening or closing it still is.
+    expect(addressesTex("Tex, what's 15% of 80?", false)).toBe(true);
+    expect(addressesTex("can you check this, tex?", false)).toBe(true);
   });
   it("never a mention in passing, Tex-Mex or Texas", () => {
     expect(addressesTex("tex got that wrong lol", false)).toBe(false);
