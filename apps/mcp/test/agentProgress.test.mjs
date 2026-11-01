@@ -204,7 +204,7 @@ test("progress texts are bounded per line, never per turn: no repeats, as many a
   (39 doing or finding lines, 44 done claims), then lines added with the fix:
   verbs a noun list must not swallow, a leading adverb or contraction, a
   link, and done claims with a doing clause tacked on (the last 7 and the
-  last 6). `claimsDone` reads a line's shape (it opens with what Tex is
+  last 9). `claimsDone` reads a line's shape (it opens with what Tex is
   doing), and these pin what it gets wrong, so a change to it shows here.
 */
 const DOING_LINES = [
@@ -229,6 +229,7 @@ const DONE_LINES = [
   "Moved it to Thursday.", "Booked Nopa for 7.", "Done.", "Sent the email to Bo.", "Booked it for 7pm.", "Your table is booked.", "Email sent!",
   "I've added it to your list.", "It\u2019s all set.", "Emailed Bo, checking for a reply.", "Booked the 7pm, reading the confirmation.", "Sent it, waiting on Bo.",
   "Added it to your calendar and checking the next one.", "Cancelled your 3pm, looking for a new slot.", "Booked: https://opentable.example/r/1",
+  "Checking OpenTable. Booked the 7pm.", "Found and booked a table at Nopa.", "Opening the site, all set for Friday.",
 ];
 
 test("a progress line opens with what Tex is doing; one that says something is done is refused, by its shape", async () => {

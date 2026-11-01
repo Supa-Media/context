@@ -86,7 +86,7 @@ export const PROGRESS_PROMPT =
 /*
   A line opens with what Tex is doing ("Opening OpenTable for Friday.", "Now
   checking Bo's calendar"), names what it found ("Found 3 tables at Nopa."),
-  or carries a link; one that opens with a change made ("Emailed Bo",
+  or carries a link; one with any clause opening with a change made ("Emailed Bo",
   "Booked the 7pm") never goes, whatever follows it. Checked by its shape,
   not by the turn's tool results: a true "Emailed Bo." is the answer's too.
   Measured on the three reviews' probes (2026-11-01, 39 doing or finding
@@ -99,10 +99,11 @@ const NOT_A_VERB = /^(?:nothing|something|anything|everything|morning|evening|th
 
 export function claimsDone(text) {
   const said = String(text ?? "").replace(/[\u2018\u2019]/g, "'").trim();
-  if (CHANGED.test(said)) return true;
+  const clauses = said.split(/[,;.!?]+|\band\b|\bthen\b/i).map((clause) => clause.trim());
+  if (clauses.some((clause) => CHANGED.test(clause) || /^all set\b/i.test(clause))) return true;
   if (/https?:\/\//i.test(said) || /^found\b/i.test(said)) return false;
-  return !said.split(/[,;.!?]+|\band\b|\bthen\b/i).some((clause) => {
-    const doing = DOING.exec(clause.trim());
+  return !clauses.some((clause) => {
+    const doing = DOING.exec(clause);
     return doing !== null && !NOT_A_VERB.test(doing[1]);
   });
 }
