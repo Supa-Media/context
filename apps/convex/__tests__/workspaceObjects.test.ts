@@ -401,3 +401,78 @@ describe("measuring revisions", () => {
     });
   });
 });
+
+describe("older revisions stay in the bucket", () => {
+  const v1 = ".context/collaboration/v1/";
+  const state = `${v1}documents/d1.json`;
+  const current = `${v1}revisions/d1/r2.json`;
+  const pending = `${v1}revisions/d1/r3.json`;
+  const older = `${v1}revisions/d1/r1.json`;
+  const orphan = `${v1}revisions/gone/r0.json`;
+  const seeded = () =>
+    bucketWith({
+      [state]: JSON.stringify({ documentId: "d1", revision: "r2", pending: { revision: "r3" } }),
+      [current]: "current",
+      [pending]: "pending",
+      [older]: "older bytes",
+      [orphan]: "no state",
+    });
+
+  async function copyAll(bucket: BodyStore, object: BodyStore) {
+    let at: Parameters<typeof copyPage>[2]["at"] | null = { prefix: 0 };
+    const totals = { copied: 0, olderRevisions: 0, removedOlder: 0 };
+    while (at !== null) {
+      const page = await copyPage(bucket, object, { at, limit: 2, dryRun: false });
+      totals.copied += page.counts.copied;
+      totals.olderRevisions += page.counts.olderRevisions;
+      totals.removedOlder += page.counts.removedOlder;
+      at = page.next;
+    }
+    return totals;
+  }
+
+  test("copy moves the state, its current and pending revisions, and no other revision", async () => {
+    const bucket = seeded() as unknown as BodyStore;
+    const { bodies } = objectFor();
+    expect(await copyAll(bucket, bodies)).toEqual({ copied: 3, olderRevisions: 2, removedOlder: 0 });
+    expect(await text(bodies, current)).toBe("current");
+    expect(await text(bodies, pending)).toBe("pending");
+    expect(await bodies.get(older)).toBeNull();
+    expect(await bodies.get(orphan)).toBeNull();
+  });
+
+  test("an older revision an earlier copy put in the object is taken out again", async () => {
+    const bucket = seeded() as unknown as BodyStore;
+    const { bodies } = objectFor();
+    await bodies.put(older, new TextEncoder().encode("older bytes"));
+    const totals = await copyAll(bucket, bodies);
+    expect(totals.removedOlder).toBe(1);
+    expect(await bodies.get(older)).toBeNull();
+    expect(await text(bucket, older)).toBe("older bytes");
+  });
+
+  test("parity does not count the bucket's older revisions as missing, and still counts a missing current one", async () => {
+    const bucket = seeded() as unknown as BodyStore;
+    const { bodies } = objectFor();
+    await copyAll(bucket, bodies);
+    const walk = async () => {
+      const total = { bucketKeys: 0, missingInObject: 0, extraInObject: 0, differ: 0 };
+      let at: Parameters<typeof parityPage>[2]["at"] | null = { side: 0, prefix: 0 };
+      while (at !== null) {
+        const page = await parityPage(bucket, bodies, { at, limit: 2, recheckMs: 0, sleep: noSleep });
+        for (const key of Object.keys(total) as Array<keyof typeof total>) total[key] += page.parity[key];
+        at = page.next;
+      }
+      return total;
+    };
+    expect(await walk()).toEqual({ bucketKeys: 3, missingInObject: 0, extraInObject: 0, differ: 0 });
+    await bodies.delete(pending);
+    expect((await walk()).missingInObject).toBe(1);
+  });
+
+  test("the size held to the cap leaves revisions out but reports them by part", async () => {
+    const size = await objectBytesPage(seeded() as unknown as BodyStore, { prefix: 0, keys: 0, bytes: 0 }, 1_000, Number.POSITIVE_INFINITY);
+    expect(size.keys).toBe(1);
+    expect(size.parts.revisions).toEqual({ keys: 4, bytes: 7 + 7 + 11 + 8, largest: 11 });
+  });
+});

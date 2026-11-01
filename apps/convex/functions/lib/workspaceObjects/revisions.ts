@@ -7,7 +7,7 @@
  */
 
 import type { BodyStore } from "./bodies";
-import { historyPart } from "./bodies";
+import { currentNames, historyPart } from "./bodies";
 
 const ROOT = ".context/collaboration/v1/";
 const DOCUMENT_PREFIX = `${ROOT}documents/`;
@@ -37,17 +37,6 @@ function add(tally: Tally, size: number): void {
   tally.keys += 1;
   tally.bytes += size;
   if (size > tally.largest) tally.largest = size;
-}
-
-/** The revision names a document's state points at: its accepted one and any pending one. */
-function currentNames(state: unknown): Set<string> {
-  const names = new Set<string>();
-  if (state && typeof state === "object") {
-    const record = state as { revision?: unknown; pending?: { revision?: unknown } | null };
-    if (typeof record.revision === "string") names.add(record.revision);
-    if (record.pending && typeof record.pending.revision === "string") names.add(record.pending.revision);
-  }
-  return names;
 }
 
 async function measureDocument(bucket: BodyStore, key: string, into: RevisionCounts): Promise<void> {

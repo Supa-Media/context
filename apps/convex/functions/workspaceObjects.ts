@@ -236,6 +236,8 @@ const copyCountsValidator = v.object({
   goneMeanwhile: v.number(),
   wouldCopy: v.number(),
   failed: v.number(),
+  olderRevisions: v.number(),
+  removedOlder: v.number(),
 });
 
 /** The switch, for the flip workflow and by hand. `object` waits for a clean, fresh parity check unless forced. */
