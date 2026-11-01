@@ -293,6 +293,16 @@ export interface IngestConfig {
    * authentication refusal left to ride on.
    */
   arcDiagnostics?: boolean;
+  /**
+   * Re-encodes a picture before it is stored (the owner's 2026-11-01 rule:
+   * pictures are kept compressed; `packages/shared/src/pictureCompression.cjs`).
+   * Injected like `matcher`, so this file still does no I/O of its own. Absent,
+   * a picture is stored as it came.
+   */
+  compressPicture?: (
+    bytes: Uint8Array,
+    type: { contentType: string; extension: string },
+  ) => Promise<{ bytes: Uint8Array; contentType: string; extension: string }>;
 }
 
 export interface IngestInput {
@@ -500,12 +510,18 @@ export async function decideCapture(
       // is for never happened. And there is no longer any place in the key for
       // a sender-chosen string, which makes a traversal or an overwrite
       // structurally impossible rather than merely sanitized.
+      //
+      // The hash is of the bytes that arrived, so a repeat is still one object;
+      // what is stored is the compressed copy, whose type names the extension.
       const digest = await sha256HexBytes(attachment.bytes);
-      storedPath = `${IMAGE_STORE_PREFIX}${digest}.${extension}`;
+      const picture = config.compressPicture
+        ? await config.compressPicture(attachment.bytes, { contentType: attachment.contentType, extension })
+        : { bytes: attachment.bytes, contentType: attachment.contentType, extension };
+      storedPath = `${IMAGE_STORE_PREFIX}${digest}.${picture.extension}`;
       writes.push({
         key: storedPath,
-        bytes: attachment.bytes,
-        contentType: attachment.contentType,
+        bytes: picture.bytes,
+        contentType: picture.contentType,
       });
     }
     rendered.push({

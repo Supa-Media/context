@@ -232,6 +232,13 @@ entrypoint = "TexRoutines"
 [ai]
 binding = "AI"
 
+# Pictures are kept compressed (`packages/shared/src/pictureCompression.cjs`,
+# `docs/decisions/storage-and-credentials/files-bucket.md`): Cloudflare's Images
+# binding re-encodes each one to WebP before it is stored. Self-hosting without
+# it: delete this block, and pictures are stored as they came.
+[images]
+binding = "IMAGES"
+
 # Staging shares code with production, but owns its presence objects.
 [env.staging]
 name = "context-mcp-staging"
@@ -273,3 +280,6 @@ entrypoint = "TexRoutines"
 
 [env.staging.ai]
 binding = "AI"
+
+[env.staging.images]
+binding = "IMAGES"

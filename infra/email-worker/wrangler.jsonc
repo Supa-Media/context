@@ -173,9 +173,19 @@
   "observability": {
     "enabled": true
   },
+  // Pictures are kept compressed: Cloudflare's Images binding re-encodes an
+  // attached picture to WebP before it is stored (`compressPicture` in
+  // src/ingest.ts). Self-hosting without it: delete this, and pictures are
+  // stored as they came.
+  "images": {
+    "binding": "IMAGES"
+  },
   "env": {
     "staging": {
       "name": "context-email-staging",
+      "images": {
+        "binding": "IMAGES"
+      },
       "vars": {
         "INGEST_DOMAIN": "staging.context.lc",
         "NATIVE_BINDINGS": "",
