@@ -273,6 +273,8 @@ export const backfill = internalAction({
     historyBytes: v.number(),
     historyKeys: v.number(),
     largest: v.number(),
+    /** Editing history by part (heads, documents, operations, revisions, structural, other): counts only. */
+    historyParts: v.record(v.string(), v.object({ keys: v.number(), bytes: v.number(), largest: v.number() })),
     finished: v.number(),
     rows: v.number(),
     bodies: copyCountsValidator,
@@ -283,12 +285,13 @@ export const backfill = internalAction({
   handler: async (ctx, { step, dryRun, cursor, only }) => {
     const counts = { workspaces: 0, armed: 0, alreadyArmed: 0, notArmed: 0, unreachable: 0, failed: 0, heldBack: 0, bytes: 0, noteBytes: 0, historyBytes: 0, historyKeys: 0, largest: 0, finished: 0, rows: 0 };
     const bodies: CopyCounts = emptyCopyCounts();
+    const historyParts: Record<string, { keys: number; bytes: number; largest: number }> = {};
     const state = await startState(ctx, cursor, only);
-    if (state === "NO_WORKSPACE") return { ...counts, bodies, refused: "NO_WORKSPACE", cursor: "", done: true };
+    if (state === "NO_WORKSPACE") return { ...counts, bodies, historyParts, refused: "NO_WORKSPACE", cursor: "", done: true };
     const started = Date.now();
     while (Date.now() - started < PAGE_BUDGET_MS) {
       const workspaceId = await nextWorkspace(ctx, state);
-      if (workspaceId === null) return { ...counts, bodies, cursor: "", done: true };
+      if (workspaceId === null) return { ...counts, bodies, historyParts, cursor: "", done: true };
       const home = await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId });
       if (step === "arm") {
         counts.workspaces += 1;
@@ -339,6 +342,12 @@ export const backfill = internalAction({
           counts.historyBytes += size.byPrefix[1]?.bytes ?? 0;
           counts.historyKeys += size.byPrefix[1]?.keys ?? 0;
           counts.largest = Math.max(counts.largest, size.largest);
+          for (const [name, part] of Object.entries(size.parts)) {
+            const into = (historyParts[name] ??= { keys: 0, bytes: 0, largest: 0 });
+            into.keys += part.keys;
+            into.bytes += part.bytes;
+            into.largest = Math.max(into.largest, part.largest);
+          }
           if (size.bytes > OBJECT_BYTES_CAP) {
             counts.heldBack += 1;
             console.warn(JSON.stringify({ event: "workspace_object_held_back", workspaceId, keys: size.keys, bytes: size.bytes }));
@@ -374,7 +383,7 @@ export const backfill = internalAction({
         state.sizing = undefined;
       }
     }
-    return { ...counts, bodies, cursor: JSON.stringify(state), done: false };
+    return { ...counts, bodies, historyParts, cursor: JSON.stringify(state), done: false };
   },
 });
 

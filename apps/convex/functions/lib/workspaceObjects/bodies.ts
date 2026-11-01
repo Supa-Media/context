@@ -228,6 +228,34 @@ export interface SizeCursor {
   /** Keys and bytes under each of `OBJECT_PREFIXES`, in order, and the largest single key's size. */
   byPrefix?: Array<{ keys: number; bytes: number }>;
   largest?: number;
+  /** Editing history split by what it is (`historyPart`). */
+  parts?: Record<string, PartCount>;
+}
+
+export interface PartCount {
+  keys: number;
+  bytes: number;
+  largest: number;
+}
+
+/**
+ * Which part of the editing history `key` is, by the layout in
+ * `packages/collaboration/src/storage.js`: `heads`, `documents` (a current
+ * document, `documents/<id>.json`), `operations` (`documents/<id>/operations/`),
+ * `revisions`, `structural`, else `other`. `null` for a key outside the history.
+ */
+export function historyPart(key: string): string | null {
+  const root = ".context/collaboration/v1/";
+  if (!key.startsWith(".context/collaboration/")) return null;
+  if (!key.startsWith(root)) return "other";
+  const rest = key.slice(root.length);
+  const [top, ...tail] = rest.split("/");
+  if (top === "heads" || top === "revisions" || top === "structural") return top;
+  if (top === "documents") {
+    if (tail.length === 1) return "documents";
+    if (tail[1] === "operations") return "operations";
+  }
+  return "other";
 }
 
 export interface SizeCount {
@@ -235,6 +263,7 @@ export interface SizeCount {
   bytes: number;
   byPrefix: Array<{ keys: number; bytes: number }>;
   largest: number;
+  parts: Record<string, PartCount>;
 }
 
 /**
@@ -252,9 +281,10 @@ export async function objectBytesPage(
   let { prefix, cursor, keys, bytes } = at;
   const byPrefix = OBJECT_PREFIXES.map((_, index) => ({ ...(at.byPrefix?.[index] ?? { keys: 0, bytes: 0 }) }));
   let largest = at.largest ?? 0;
-  const done = () => ({ keys, bytes, byPrefix, largest, next: null });
+  const parts: Record<string, PartCount> = Object.fromEntries(Object.entries(at.parts ?? {}).map(([name, count]) => [name, { ...count }]));
+  const done = () => ({ keys, bytes, byPrefix, largest, parts, next: null });
   while (prefix < OBJECT_PREFIXES.length) {
-    if (Date.now() >= deadline) return { keys, bytes, byPrefix, largest, next: { prefix, ...(cursor ? { cursor } : {}), keys, bytes, byPrefix, largest } };
+    if (Date.now() >= deadline) return { keys, bytes, byPrefix, largest, parts, next: { prefix, ...(cursor ? { cursor } : {}), keys, bytes, byPrefix, largest, parts } };
     const page = await store.list({ prefix: OBJECT_PREFIXES[prefix], ...(cursor ? { cursor } : {}), limit: 1000 });
     for (const entry of page.objects ?? []) {
       if (!isWorkspaceObjectKey(entry.key)) continue;
@@ -264,6 +294,13 @@ export async function objectBytesPage(
       byPrefix[prefix]!.keys += 1;
       byPrefix[prefix]!.bytes += size;
       if (size > largest) largest = size;
+      const part = historyPart(entry.key);
+      if (part !== null) {
+        const count = (parts[part] ??= { keys: 0, bytes: 0, largest: 0 });
+        count.keys += 1;
+        count.bytes += size;
+        if (size > count.largest) count.largest = size;
+      }
     }
     if (bytes > cap) return done();
     if (page.truncated === true && typeof page.cursor === "string") cursor = page.cursor;

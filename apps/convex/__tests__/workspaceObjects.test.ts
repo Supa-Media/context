@@ -25,7 +25,7 @@ import { texObjects } from "../../mcp/src/texStore/objects.js";
 import { workspaceRows } from "../../mcp/src/workspaceStore/rows.js";
 import { serveWorkspaceStore } from "../../mcp/src/workspaceStore/serve.js";
 import { workspaceClient } from "../../mcp/src/workspaceStore/api.js";
-import { copyKey, copyPage, objectBytes, objectBytesPage, parityPage, type BodyStore } from "../functions/lib/workspaceObjects/bodies";
+import { copyKey, copyPage, historyPart, objectBytes, objectBytesPage, parityPage, type BodyStore } from "../functions/lib/workspaceObjects/bodies";
 import { convexVisible, noteRows, objectRowOf, rowsDigest, samplePrincipals, type ObjectRow } from "../functions/lib/workspaceObjects/rows";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 
@@ -171,7 +171,19 @@ describe("copying bodies", () => {
       result = await objectBytesPage(bucket, at, 1_000, Number.POSITIVE_INFINITY);
       at = result.next!;
     }
-    expect(result).toEqual({ keys: 3, bytes: 10, byPrefix: [{ keys: 2, bytes: 8 }, { keys: 1, bytes: 2 }], largest: 5, next: null });
+    expect(result).toMatchObject({ keys: 3, bytes: 10, byPrefix: [{ keys: 2, bytes: 8 }, { keys: 1, bytes: 2 }], largest: 5, next: null });
+    expect(result.parts).toEqual({ other: { keys: 1, bytes: 2, largest: 2 } });
+  });
+
+  test("editing history keys are told apart by part", () => {
+    const v1 = ".context/collaboration/v1/";
+    expect(historyPart(`${v1}heads/abc.json`)).toBe("heads");
+    expect(historyPart(`${v1}documents/doc1.json`)).toBe("documents");
+    expect(historyPart(`${v1}documents/doc1/operations/h.json`)).toBe("operations");
+    expect(historyPart(`${v1}revisions/doc1/r.json`)).toBe("revisions");
+    expect(historyPart(`${v1}structural/x.json`)).toBe("structural");
+    expect(historyPart(`${v1}documents/doc1/else.json`)).toBe("other");
+    expect(historyPart(A)).toBeNull();
   });
 });
 
