@@ -260,6 +260,11 @@ export const backfill = internalAction({
     failed: v.number(),
     heldBack: v.number(),
     bytes: v.number(),
+    /** Of `bytes`: note texts, editing history and its key count, and the largest single key. */
+    noteBytes: v.number(),
+    historyBytes: v.number(),
+    historyKeys: v.number(),
+    largest: v.number(),
     finished: v.number(),
     rows: v.number(),
     bodies: copyCountsValidator,
@@ -268,7 +273,7 @@ export const backfill = internalAction({
     done: v.boolean(),
   }),
   handler: async (ctx, { step, dryRun, cursor, only }) => {
-    const counts = { workspaces: 0, armed: 0, alreadyArmed: 0, notArmed: 0, unreachable: 0, failed: 0, heldBack: 0, bytes: 0, finished: 0, rows: 0 };
+    const counts = { workspaces: 0, armed: 0, alreadyArmed: 0, notArmed: 0, unreachable: 0, failed: 0, heldBack: 0, bytes: 0, noteBytes: 0, historyBytes: 0, historyKeys: 0, largest: 0, finished: 0, rows: 0 };
     const bodies: CopyCounts = emptyCopyCounts();
     const state = await startState(ctx, cursor, only);
     if (state === "NO_WORKSPACE") return { ...counts, bodies, refused: "NO_WORKSPACE", cursor: "", done: true };
@@ -312,7 +317,9 @@ export const backfill = internalAction({
         if (state.at === undefined) {
           // Counted before a byte is copied: one that would not fit is held back whole and named by count.
           // Counting is paged too: a workspace's history can run to hundreds of thousands of keys.
-          const size = await objectBytesPage(bucket, state.sizing ?? { prefix: 0, keys: 0, bytes: 0 }, OBJECT_BYTES_CAP, started + PAGE_BUDGET_MS);
+          // A dry run counts to the end, so a workspace held back is measured whole and by part.
+          const cap = dryRun ? Number.POSITIVE_INFINITY : OBJECT_BYTES_CAP;
+          const size = await objectBytesPage(bucket, state.sizing ?? { prefix: 0, keys: 0, bytes: 0 }, cap, started + PAGE_BUDGET_MS);
           if (size.next !== null) {
             state.sizing = size.next;
             continue;
@@ -320,6 +327,10 @@ export const backfill = internalAction({
           state.sizing = undefined;
           counts.workspaces += 1;
           counts.bytes += size.bytes;
+          counts.noteBytes += size.byPrefix[0]?.bytes ?? 0;
+          counts.historyBytes += size.byPrefix[1]?.bytes ?? 0;
+          counts.historyKeys += size.byPrefix[1]?.keys ?? 0;
+          counts.largest = Math.max(counts.largest, size.largest);
           if (size.bytes > OBJECT_BYTES_CAP) {
             counts.heldBack += 1;
             console.warn(JSON.stringify({ event: "workspace_object_held_back", workspaceId, keys: size.keys, bytes: size.bytes }));
