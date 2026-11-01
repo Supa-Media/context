@@ -117,6 +117,14 @@ export function routineTimeZone(settings, fallback) {
   return isTimeZone(fallback) ? fallback : "UTC";
 }
 
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Sat 2026-10-31 21:00", in their zone: when an earlier text went, so its day words have a day. */
+export function localStamp(ms, timeZone) {
+  const w = wallClock(ms, timeZone);
+  return `${WEEKDAY_SHORT[w.weekday]} ${localTime(ms, timeZone).replace(/ \(.*\)$/, "")}`;
+}
+
 function localTime(ms, timeZone) {
   const w = wallClock(ms, timeZone);
   const date = `${w.year}-${String(w.month).padStart(2, "0")}-${String(w.day).padStart(2, "0")}`;
@@ -150,15 +158,19 @@ function senderOf(turns, i, path) {
  * them. A turn that read something from outside is left out, so a routine's
  * question is never someone else's words.
  */
-export function recentTextsSection(history, path) {
+export function recentTextsSection(history, path, timeZone = null) {
   const turns = Array.isArray(history) ? history : [];
   const lines = [];
+  // A text's time is its question's (only a person's side is kept with one, `conversation.js`).
+  let at = null;
   for (let i = 0; i < turns.length; i += 1) {
     const turn = turns[i];
+    if (turn?.role === "user") at = Number.isFinite(turn.at) ? turn.at : null;
     if (typeof turn?.text !== "string" || turn.tainted === true) continue;
     if (turn.role === "user" && (ROUTINE_LINE.test(turn.text) || CHECK_IN_LINE.test(turn.text))) continue;
     const who = turn.role === "user" ? "Them" : senderOf(turns, i, path);
-    lines.push(`${who}: ${clip(turn.text.replace(/\s+/g, " ").trim(), RECENT_TEXT_CHARS)}`);
+    const when = at !== null && timeZone !== null ? `(${localStamp(at, timeZone)}) ` : "";
+    lines.push(`${when}${who}: ${clip(turn.text.replace(/\s+/g, " ").trim(), RECENT_TEXT_CHARS)}`);
   }
   const shown = lines.slice(-RECENT_TEXTS_SHOWN);
   if (shown.length === 0) return "";
@@ -177,10 +189,11 @@ export function recentTextsSection(history, path) {
 export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", recent = "" }) {
   const lines = [
     "This is a scheduled routine, not a text from a person. Nobody is waiting on this turn.",
-    `Routine: ${routine.path}. Schedule: ${describeSchedule(routine.cadence, routine.settings)}. It is now ${localTime(now, timeZone)}.`,
+    `Routine: ${routine.path}. Schedule: ${describeSchedule(routine.cadence, routine.settings)}. It is now ${localStamp(now, timeZone)} (${timeZone}).`,
   ];
   if (lastRun && typeof lastRun.text === "string" && lastRun.text !== "") {
-    lines.push(`Last time (${new Date(lastRun.at).toISOString()}) you answered:\n${clip(lastRun.text, MAX_LAST_RUN_IN_PROMPT)}`);
+    // In their zone, with its weekday (2026-11-01: a Saturday 9 pm run stamped in UTC read as Sunday's).
+    lines.push(`Last time (${localStamp(lastRun.at, timeZone)}) you answered:\n${clip(lastRun.text, MAX_LAST_RUN_IN_PROMPT)}`);
   }
   if (recent) lines.push(recent);
   if (routine.cadence.unit === "once") {
@@ -232,12 +245,13 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", re
 export async function routineRunQuestion(store, routine, runs, givenTimeZone) {
   const mailboxes = await readMailHealth(store);
   const now = Date.now();
+  const timeZone = routineTimeZone(routine.settings, givenTimeZone);
   return routineQuestion(routine, {
     now,
-    timeZone: routineTimeZone(routine.settings, givenTimeZone),
+    timeZone,
     lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
     mail: routineMailSection(mailboxes, now),
-    recent: recentTextsSection(await readConversation(store, "texts", { entries: RECENT_TEXTS_SHOWN * 2 }), routine.path),
+    recent: recentTextsSection(await readConversation(store, "texts", { entries: RECENT_TEXTS_SHOWN * 2 }), routine.path, timeZone),
   });
 }
 
