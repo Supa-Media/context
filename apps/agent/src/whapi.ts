@@ -27,6 +27,7 @@
  */
 
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
+import type { InboxStorage } from "./inbox";
 
 export const WHAPI_API = "https://gate.whapi.cloud";
 /** The header Whapi's webhook settings send with every delivery, holding `WHAPI_WEBHOOK_SECRET`. */
@@ -221,6 +222,29 @@ export async function startWhapiTyping(fetcher: Fetch, keys: WhapiKeys, to: stri
   const address = addressOf(to);
   const status = address === null ? null : await quick(fetcher, keys, "PUT", `/presences/${encodeURIComponent(address)}`, { presence: "typing" }, QUICK_TIMEOUT_MS);
   logRefused("whapi_typing", status);
+}
+
+/**
+ * Ask Whapi to send a group's presences (typing) to the webhook: `POST /presences/{groupJid}`.
+ * 409 means already subscribed. Best effort and quick; never throws. An experiment (Jhonatan, 2026-11-01;
+ * `docs/decisions/texting-assistant/whapi-presence-probe.md`).
+ */
+export async function watchWhapiPresence(fetcher: Fetch, keys: WhapiKeys, groupJid: string): Promise<boolean> {
+  const address = addressOf(groupJid);
+  const status = address === null ? null : await quick(fetcher, keys, "POST", `/presences/${encodeURIComponent(address)}`, undefined, QUICK_TIMEOUT_MS);
+  if (status === 409) return true;
+  logRefused("whapi_presence_watch", status);
+  return isOk(status);
+}
+
+const PRESENCE_WATCHED_KEY = "gpresence";
+
+/** Watch a WhatsApp group's presences at most once a UTC day, from its first message that day. Never throws. */
+export async function watchGroupPresenceDaily(storage: InboxStorage, fetcher: Fetch, keys: WhapiKeys, groupJid: string, now: number): Promise<void> {
+  if (!isWhapiGroup(groupJid)) return;
+  const day = new Date(now).toISOString().slice(0, 10);
+  if ((await storage.get<string>(PRESENCE_WATCHED_KEY)) === day) return;
+  if (await watchWhapiPresence(fetcher, keys, groupJid.slice(CHAT_PREFIX.length))) await storage.put(PRESENCE_WATCHED_KEY, day);
 }
 
 /** Blue ticks on one message. Best effort and quick; never throws. */

@@ -54,7 +54,7 @@ import { jobUpdate } from "./jobTexts";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
 import { appCardConfig } from "./appCards";
-import { phoneOfJid, readWhapiMessage, verifyWhapiSecret, whapiKeys, type WhapiKeys } from "./whapi";
+import { phoneOfJid, readWhapiMessage, verifyWhapiSecret, watchGroupPresenceDaily, whapiKeys, type WhapiKeys } from "./whapi";
 import { parseWhapiWebhook } from "./whapiInbound";
 import { groupLineFor } from "./groupLine";
 import { noteCardDrawer } from "./noteCards";
@@ -505,6 +505,9 @@ export class SenderInbox implements DurableObject {
       const { routine: _routine, ...message } = (await request.json()) as GroupMessage;
       await this.keepWhere(message);
       const outcome = await acceptGroup(this.state.storage, message, Date.now());
+      // The group-typing experiment: ask Whapi for this group's presences once a day (`whapi.ts`); never blocks a message.
+      const whapi = whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE);
+      if (whapi !== null && !message.sms) await watchGroupPresenceDaily(this.state.storage, (input, init) => fetch(input, init), whapi, message.groupId, Date.now());
       return Response.json({ outcome });
     }
     // A group turn's workflow (`groupTurnWorkflow.ts`): only this Worker's workflow reaches these.
