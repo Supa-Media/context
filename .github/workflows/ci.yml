@@ -167,6 +167,7 @@ jobs:
           - 'apps/mcp/src/tree/**'
           - 'apps/mcp/src/vault/**'
           - 'apps/mcp/src/workspacePath.js'
+          - 'apps/mcp/src/workspaceStore/**'
           - 'apps/mcp/test/attachmentsCore.test.mjs'
           - 'packages/**'
           - 'infra/**'
@@ -757,6 +758,7 @@ jobs:
             apps/mcp/src/tree/**
             apps/mcp/src/vault/**
             apps/mcp/src/workspacePath.js
+            apps/mcp/src/workspaceStore/**
             apps/mcp/test/attachmentsCore.test.mjs
             packages/**
             .github/workflows/ci.yml
