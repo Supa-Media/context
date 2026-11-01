@@ -27,6 +27,7 @@ import { serveWorkspaceStore } from "../../mcp/src/workspaceStore/serve.js";
 import { workspaceClient } from "../../mcp/src/workspaceStore/api.js";
 import { copyKey, copyPage, historyPart, objectBytes, objectBytesPage, parityPage, type BodyStore } from "../functions/lib/workspaceObjects/bodies";
 import { convexVisible, noteRows, objectRowOf, rowsDigest, samplePrincipals, type ObjectRow } from "../functions/lib/workspaceObjects/rows";
+import { addRevisionCounts, emptyRevisionCounts, revisionsPage } from "../functions/lib/workspaceObjects/revisions";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
@@ -367,5 +368,36 @@ describe("failure logs", () => {
     expect(failureOf(new Error("note body here"))).toEqual({ error: "Error" });
     expect(failureOf(new ConvexError({ code: "has spaces and is long enough to be text" }))).toEqual({ error: "ConvexError" });
     expect(JSON.stringify(failureOf(new ConvexError({ code: "X", message: "secret words" })))).not.toContain("secret");
+  });
+});
+
+describe("measuring revisions", () => {
+  test("a document's accepted and pending revisions count as current, every other revision as older", async () => {
+    const v1 = ".context/collaboration/v1/";
+    const bucket = bucketWith({
+      [`${v1}documents/d1.json`]: JSON.stringify({ documentId: "d1", revision: "r2", pending: { revision: "r3" } }),
+      [`${v1}documents/d1/operations/o.json`]: "{}",
+      [`${v1}documents/d2.json`]: JSON.stringify({ documentId: "d2", revision: "r0" }),
+      [`${v1}documents/d3.json`]: "not json",
+      [`${v1}revisions/d1/r1.json`]: "1",
+      [`${v1}revisions/d1/r2.json`]: "22",
+      [`${v1}revisions/d1/r3.json`]: "333",
+      [`${v1}revisions/d2/r0.json`]: "4444",
+      [`${v1}revisions/d2/old.json`]: "55555",
+    }) as unknown as BodyStore;
+    const total = emptyRevisionCounts();
+    let cursor: string | undefined;
+    for (let step = 0; step < 20; step += 1) {
+      const page = await revisionsPage(bucket, { ...(cursor ? { cursor } : {}), limit: 1 });
+      addRevisionCounts(total, page.counts);
+      if (page.next === null) break;
+      cursor = page.next;
+    }
+    expect(total).toEqual({
+      documents: 3,
+      unreadable: 1,
+      current: { keys: 3, bytes: 9, largest: 4 },
+      older: { keys: 2, bytes: 6, largest: 5 },
+    });
   });
 });

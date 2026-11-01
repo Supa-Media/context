@@ -22,11 +22,12 @@ on:
           - production
         default: staging
       step:
-        description: "arm: put workspaces on dual. copy: copy bodies, rows and rules."
+        description: "arm: put workspaces on dual. copy: copy bodies, rows and rules. revisions: measure current vs older revisions (reads only)."
         type: choice
         options:
           - arm
           - copy
+          - revisions
         default: arm
       dry_run:
         description: "Count only; change nothing."
