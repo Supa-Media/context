@@ -532,6 +532,12 @@ export const groupDecideWorkspace = internalQuery({
       .query("textGroups")
       .withIndex("by_key", (q) => q.eq("groupKey", args.groupKey))
       .unique();
-    return chat === null ? null : ((await chatWorkspace(ctx, chat))?._id ?? null);
+    if (chat === null) return null;
+    const reached = await chatWorkspace(ctx, chat);
+    if (reached !== null) return reached._id;
+    // A chat that reaches no shared workspace (a home-only chat, 2026-11-01) is metered to its sponsor, as its turns are
+    // (`lib/textGroupUsage.ts`); without this every decide there was refused as no_group and untagged texts went unjudged.
+    const sponsor = chat.sponsorId ?? chat.boundBy;
+    return sponsor === undefined ? null : await personalWorkspaceOf(ctx, sponsor);
   },
 });
