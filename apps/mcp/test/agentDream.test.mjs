@@ -45,6 +45,7 @@ import {
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-dream.test";
 const TOKEN_DREAMS = `cat_dream_dreams_${"0".repeat(22)}`;
@@ -243,7 +244,7 @@ export async function runAgentDreamChecks(check) {
     bucket.set("todo.md", { body: "# To do\n\n- Pay rent\n", etag: "d1" });
     bucket.set("tex/about-me.md", { body: "# About them\n\n- Lives in Leeds\n- Likes tea\n", etag: "d2" });
     bucket.set(today, { body: "# Tex\n\n**Them:** I moved to York last week, and the dog says hi\n", etag: "d3" });
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
     controlPlane.serveTreesFrom(env, { s3 });
     const log = () => bucket.get(dreamPath(Date.now(), "UTC"))?.body ?? "";
     const dream = (since = Date.now() - DAY_MS) => ({ dream: { timeZone: "UTC", since } });

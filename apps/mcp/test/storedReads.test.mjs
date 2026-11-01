@@ -28,6 +28,7 @@
 import { READ_LOG_MAX_SPAN_MS, readsBetween, storageBudget } from "../src/live/readLog.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { activityRequest, callTool, createBucket, createLiveNamespace } from "./agentActivityFixtures.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const T = (name) => `cat_storedreads_${name}_`.padEnd(32, "0");
 const OWNER = T("owner");
@@ -181,7 +182,7 @@ export async function runStoredReadsChecks(check) {
     otherBucket.seed("1-projects/elsewhere.md", "another workspace's note");
 
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "READS_BUCKET,READS_OTHER",
       READS_BUCKET: bucket,

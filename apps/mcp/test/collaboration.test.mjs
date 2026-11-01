@@ -5,6 +5,7 @@ import {
   GATEWAY_SECRET,
   createControlPlaneStub,
 } from "./controlPlaneStub.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const encoder = new TextEncoder();
 
@@ -178,7 +179,7 @@ export async function runCollaborationChecks(check) {
     });
 
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "COLLAB_BUCKET,OTHER_BUCKET,UNSUPPORTED_BUCKET",
       COLLAB_BUCKET: primary,

@@ -1,0 +1,70 @@
+# Move every workspace's one-to-one Tex history and turn records from its
+# bucket into its Tex Durable Object (owner, 2026-11-01;
+# `docs/decisions/texting-assistant/one-to-one-history.md`).
+#
+# Manual only. Run it with `dry_run` first: that counts what would move and
+# changes nothing. It pages through `functions/texHistoryMigration:run`, which
+# answers with counts and a cursor, never a path, a key or a word: this
+# repository is public, and so is this job's log. Running it again moves
+# nothing already moved, and nothing in a bucket is deleted.
+name: Tex history into its object
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to move in."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      dry_run:
+        description: "Count only; move nothing."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Move history
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          page=0
+          total='{}'
+          while :; do
+            page=$((page + 1))
+            if [ -z "$cursor" ]; then
+              args=$(jq -cn --argjson dry "$DRY_RUN" '{dryRun: $dry}')
+            else
+              args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" '{dryRun: $dry, cursor: $cursor}')
+            fi
+            answer=$(npx convex run functions/texHistoryMigration:run "$args")
+            echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
+            total=$(jq -cn --argjson a "$total" --argjson b "$(echo "$answer" | jq -c 'del(.cursor, .done)')" '$b | to_entries | map({key, value: (.value + ($a[.key] // 0))}) | from_entries')
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+            if [ "$page" -ge 2000 ]; then echo "stopped after $page pages"; exit 1; fi
+          done
+          echo "total: $total"

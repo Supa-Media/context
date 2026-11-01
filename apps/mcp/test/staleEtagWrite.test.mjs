@@ -22,10 +22,11 @@ import { after, before, test } from "node:test";
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-stale-etag.test";
 const AGENT = `cat_stale_etag_agent_${"0".repeat(19)}`;
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 const PATH = "website/notes/beneath-the-chaos.md";
 const FRONT = "---\ntitle: beneath the chaos\ndate: 2026-01-05\n---\n\n";
 const POEM = `${FRONT}beneath the chaos\nthere is a quiet\nthat waits for me\n`;

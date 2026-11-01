@@ -21,6 +21,7 @@ import {
   GATEWAY_SECRET,
   createControlPlaneStub,
 } from "./controlPlaneStub.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 // --- in-memory R2 stub, wrapped in the same adapter the worker builds ---
 //
@@ -309,7 +310,7 @@ await controlPlane.addGrant({
 });
 
 const env = {
-  CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+  CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
   GATEWAY_SECRET,
   // The one binding name this deployment will honour from a control-plane
   // answer. Anything else is refused even if it exists on `env`.

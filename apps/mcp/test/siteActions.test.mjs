@@ -21,6 +21,7 @@ import { approving } from "./egressApproval.mjs";
 import { CONTROL_PLANE_SITE_TIMEOUT_MS, CONTROL_PLANE_TIMEOUT_MS } from "../src/controlPlane/client.js";
 import { ControlPlaneError, createControlPlane } from "../src/controlPlane.js";
 import { toolSiteAction } from "../src/tools/notes/site.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const EDITOR_TOKEN = `cat_site_editor_${"0".repeat(16)}`;
 const MEMBER_TOKEN = `cat_site_member_${"0".repeat(16)}`;
@@ -164,7 +165,7 @@ export async function runSiteActionChecks(check) {
     const shots = [];
     let shotAnswer = null;
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "SITE_BUCKET",
       SITE_BUCKET: bucket,

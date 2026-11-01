@@ -33,6 +33,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationText } from "./agentConversationFixture.mjs";
+import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-steer.test";
 const TOKEN_TEXTS = `cat_steer_texts_${"0".repeat(24)}`;
@@ -163,7 +164,8 @@ let script = [];
 const controlPlane = createControlPlaneStub();
 let bucket;
 const restore = [];
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+const tex = texStoreNamespace();
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 
 function reply(step) {
   const content = [];
@@ -234,7 +236,7 @@ before(async () => {
     });
   }
   controlPlane.serveTreesFrom(env, { s3 });
-  bucket = s3.bucketFor("tenant-steer");
+  bucket = withAgentHome(s3.bucketFor("tenant-steer"), tex, "ws_steer"); // the bookkeeping is the person's object's (`texStoreFixture.mjs`)
 });
 
 after(() => {

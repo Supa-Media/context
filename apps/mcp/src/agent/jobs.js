@@ -26,11 +26,13 @@ export const MAX_JOBS_LINES = 60;
  * notes, and who they are by their account when `account` (`{ controlPlane,
  * session }`) is given (`identity.js`). Never throws (`readTexNote`).
  */
-export async function readTexNotes(callTool, account = null) {
+export async function readTexNotes(callTool, account = null, desk = {}, identityPart = (read) => read()) {
+  // `desk`: the notes the person's object answered with the history (`texDesk.js`); one it didn't is read as a note.
+  // `identityPart`: who they are by their account, from the warm copy when it has it (`warmCopy.js`), never About me.
   const [aboutMe, jobs, identity] = await Promise.all([
-    readAboutMe(callTool),
-    readTexNote(callTool, JOBS_PATH),
-    account === null ? null : texterIdentity(account.controlPlane, account.session),
+    typeof desk.about === "string" ? desk.about : readAboutMe(callTool),
+    typeof desk.jobs === "string" ? desk.jobs : readTexNote(callTool, JOBS_PATH),
+    account === null ? null : identityPart(() => texterIdentity(account.controlPlane, account.session)),
   ]);
   return { aboutMe, jobs, identity };
 }

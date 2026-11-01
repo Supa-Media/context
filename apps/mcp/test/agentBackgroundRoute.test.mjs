@@ -46,6 +46,7 @@ import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationTurns } from "./agentConversationFixture.mjs";
 import { MAX_JOB_ATTEMPTS } from "../src/agent/background.js";
+import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-background.test";
 const TOKEN_TEXTS = `cat_backgr_texts_${"0".repeat(23)}`;
@@ -150,8 +151,9 @@ export async function runAgentBackgroundRouteChecks(check) {
     await grant(TOKEN_TEXTS, "context_texts");
     await grant(TOKEN_APP, "context_console");
     controlPlane.setBuiltinVerdict("ws_maya", BUILTIN_ALLOWED);
-    const bucket = s3.bucketFor("tenant-background");
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const tex = texStoreNamespace();
+    const bucket = withAgentHome(s3.bucketFor("tenant-background"), tex, "ws_maya");
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
     controlPlane.serveTreesFrom(env, { s3 });
 
     /* ---------------- a text starts a job and is answered at once ---------------- */

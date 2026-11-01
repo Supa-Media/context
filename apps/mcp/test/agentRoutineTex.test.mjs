@@ -39,6 +39,7 @@ import {
   GATEWAY_SECRET,
 } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-routine-tex.test";
 const TOKEN_RUNNER = `cat_texroutine_runner_${"0".repeat(18)}`;
@@ -156,7 +157,7 @@ export async function runAgentRoutineTexChecks(check) {
       body: "---\nat: 2026-10-15 9:00 am\n---\nRemind me to call Sam.\n",
       etag: "g4",
     });
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
     controlPlane.serveTreesFrom(env, { s3 });
     const runsAt = (key) => {
       const object = bucket.get(key);

@@ -28,6 +28,7 @@ import { translateFetch, translateSearch } from "../src/tools/v2/searchFetch.js"
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const GPT = { client: "chatgpt" };
 const OPENAI = { client: "openai-mcp" };
@@ -516,7 +517,7 @@ describe("end to end through callToolForSession", { concurrency: false }, () => 
       userId: "user_seyi",
     });
     env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "V2SF_BUCKET",
       V2SF_BUCKET: bucket,

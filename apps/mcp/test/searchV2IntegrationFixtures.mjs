@@ -6,6 +6,7 @@ import worker from "../src/index.js";
 import { MANIFEST_KEY, parseManifest, parseShard, shardKey } from "../src/search/shards.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 /** Mirrors `SEARCH_SUBREQUEST_BUDGET` / `SEARCH_RESULT_LIMIT` in src/index.js. */
 export const SEARCH_SUBREQUEST_BUDGET = 40;
@@ -265,7 +266,7 @@ export async function seedV2World(controlPlane) {
   });
 
   const env = {
-    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
     GATEWAY_SECRET,
     NATIVE_BINDINGS: "V2_MAIN_BUCKET,V2_WIDE_BUCKET,V2_SPREAD_BUCKET",
     V2_MAIN_BUCKET: main,

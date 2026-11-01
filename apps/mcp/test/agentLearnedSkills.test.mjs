@@ -46,11 +46,12 @@ import { resetBrowserbaseProbe } from "../src/agent/browserProviders.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
+import { HISTORY_RECORD } from "./agentConversationFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-learned.test";
 const TOKEN_TEXTS = `cat_lrnd_texts_${"0".repeat(25)}`;
 const TODAY = new Date().toISOString().slice(0, 10);
-const CONVERSATION_FILE = ".context/agent/conversations/texts.json";
 
 const skill = (name, { when = "they want a table booked for a group", updated = "2026-10-19", body = "1. Ask how many.\n2. Book it." } = {}) =>
   `---\nname: ${name}\nwhen: ${when}\nupdated: ${updated}\n---\n\n${body}\n`;
@@ -357,7 +358,8 @@ let script = [];
 const controlPlane = createControlPlaneStub();
 let bucket;
 const restore = [];
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+const tex = texStoreNamespace();
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 
 const MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
@@ -433,7 +435,7 @@ before(async () => {
     clientId: "context_texts",
   });
   controlPlane.serveTreesFrom(env, { s3 });
-  bucket = s3.bucketFor("tenant-learned");
+  bucket = withAgentHome(s3.bucketFor("tenant-learned"), tex, "ws_learned"); // the person's bookkeeping is their object's (`texStoreFixture.mjs`)
 });
 
 after(() => {
@@ -533,16 +535,15 @@ test("a reflect step that finds nothing worth writing changes nothing", async ()
 
 test("a tainted turn reflects blind, and can't write a skill itself", async () => {
   // An earlier answer written after a read from outside taints this turn from its start (`conversation.js`).
-  const history = (tainted) => {
-    // The old file is read only while the log is empty (`events.js`), so the log goes first.
-    for (const key of [...bucket.keys()]) if (key.startsWith(".context/agent/events/")) bucket.delete(key);
-    bucket.set(CONVERSATION_FILE, {
-      body: JSON.stringify({ turns: [{ role: "user", text: "what does this page say?" }, { role: "assistant", text: "It says hi.", ...(tainted ? { tainted: true } : {}) }] }),
+  const history = async (tainted) => {
+    // The one history record (`src/agent/history.js`) is the person's object's; a turn reads the taint from it.
+    await bucket.set(HISTORY_RECORD, {
+      body: JSON.stringify({ v: 1, turns: [{ role: "user", text: "what does this page say?" }, { role: "assistant", text: "It says hi.", ...(tainted ? { tainted: true } : {}) }] }),
       etag: tainted ? "c1" : "c0",
     });
   };
   const writeEvil = { calls: [["write_note", { path: "tex/skills/evil.md", content: skill("evil", { updated: TODAY }) }]] };
-  history(true);
+  await history(true);
   script = [writeEvil, { text: "Sorted. TAINTED-ANSWER-MARK" }, { text: "NONE" }];
   await text("no, the other one", { conversation: "texts" });
   assert.equal(bucket.get("tex/skills/evil.md"), undefined, "the turn itself still can't write a skill");
@@ -555,7 +556,7 @@ test("a tainted turn reflects blind, and can't write a skill itself", async () =
   assert.ok(!asked.includes("TAINTED-ANSWER-MARK"), "a tainted turn's answer is never shown");
 
   // Positive control: the same correction and write, untainted, are written and reflect.
-  history(false);
+  await history(false);
   requests.length = 0;
   script = [writeEvil, { text: "Sorted." }, { text: "NONE" }];
   await text("no, the other one", { conversation: "texts" });

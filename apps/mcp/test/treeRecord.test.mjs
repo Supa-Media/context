@@ -34,6 +34,7 @@ import { projectWrittenNoteAfterResponse } from "../src/search/writeProjection.j
 import { CURSOR_KEY } from "../src/search/d1/backfill.js";
 import { treeTouchOf } from "../src/tree/record.js";
 import { approving } from "./egressApproval.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const TOKEN = `cat_tree_${"0".repeat(28)}`;
 const WS = "ws_tree";
@@ -81,7 +82,7 @@ const CONSOLE_TOKEN = `cat_tree_console_${"0".repeat(20)}`;
 
 async function call(name, args) {
   const result = await approving(async () => (await callOnce(name, args)).result, {
-    env: { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET },
+    env: { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET },
     consoleToken: CONSOLE_TOKEN,
     origin: "https://gateway.test",
   });
@@ -97,7 +98,7 @@ async function callOnce(name, args) {
       headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
     }),
-    { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET },
+    { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET },
     harness.ctx,
   );
   const body = await response.json();

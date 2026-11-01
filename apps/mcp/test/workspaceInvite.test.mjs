@@ -24,6 +24,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { isHeld, releaseNewest } from "./egressApproval.mjs";
 import { fakeModel } from "./agentEgressFixtures.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-workspace-invite.test";
 const OWNER = `cat_wsinvite_owner_${"0".repeat(22)}`;
@@ -31,7 +32,7 @@ const READONLY = `cat_wsinvite_ro_${"0".repeat(25)}`;
 const MEMBER = `cat_wsinvite_member_${"0".repeat(21)}`;
 const CONSOLE = `cat_wsinvite_console_${"0".repeat(20)}`;
 const TEXTS = `cat_wsinvite_texts_${"0".repeat(22)}`;
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 const model = fakeModel();
 
 function binding(bucket) {

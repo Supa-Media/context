@@ -23,10 +23,11 @@ import worker from "../src/index.js";
 import { outcomeOf } from "../src/mcp/outcome.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-outcome.test";
 const AGENT = `cat_outcome_agent_${"0".repeat(22)}`;
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 
 async function call(token, name, args) {
   const { ctx, settle } = createWorkerCtx();

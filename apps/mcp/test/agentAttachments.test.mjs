@@ -53,6 +53,18 @@ const ATTACHED = [
 
 const lastUser = (body) => body.messages.filter((message) => message.role === "user").at(-1);
 
+/**
+ * What the person's saved conversation holds, as one string: the bucket's live
+ * objects under `.context/`, and the Tex object's keys (the history record is
+ * there now, `store/texRouting.js`), read through the object.
+ */
+const savedWords = (world, { except = () => false } = {}) => {
+  const home = "person:ws_egress";
+  const inHome = world.tex.keysIn(home).map((key) => world.tex.textIn(home, key) ?? "");
+  const inBucket = world.objectsUnder(".context/").filter((key) => !except(key)).map((key) => String(world.bucket.get(key)?.body ?? ""));
+  return [...inBucket, ...inHome].join("\n");
+};
+
 test("a texted picture, PDF and file reach the model as its own blocks", async () => {
   const world = await createEgressWorld();
   try {
@@ -89,7 +101,9 @@ test("the saved conversation names what was sent, never its bytes", async () => 
     // the conversation never carries it.
     const keys = world.objectsUnder(".context/");
     assert.ok(keys.includes(KEPT_PHOTOS_PATH));
-    const saved = keys.filter((key) => key !== KEPT_PHOTOS_PATH).map((key) => String(world.bucket.get(key)?.body ?? "")).join("\n");
+    // The conversation is the history record and what it names. The picture's stored file (`.context/assets/`,
+    // the transcript's image) is named by it, never copied into it; the kept photo (`KEPT_PHOTOS_PATH`) is apart.
+    const saved = savedWords(world, { except: (key) => key === KEPT_PHOTOS_PATH || key.startsWith(".context/assets/") });
     // The picture is named with where today's transcript keeps it, so a later text can look again.
     assert.match(saved, /look\\n\[Sent with this text: meme\.png \(image upload-[0-9a-f]{16}\.png in tex\/transcripts\/\d{4}-\d{2}-\d{2}\.md\)\. Seen only on that turn\. read_image with that note and image shows it again; to email one, attach takes the same words \(<image> in <note>\), never the browser\.\]/);
     assert.doesNotMatch(saved, new RegExp(PNG.slice(0, 40).replace(/[+/]/g, "\\$&")));
@@ -234,7 +248,7 @@ test("a texted voice message reaches the model as what was said, and is kept as 
     });
     assert.match(content.at(-1).text, /1\. Audio Message\.caf: a voice message; what they said is transcribed above/);
     assert.ok(!JSON.stringify(world.model.requests.at(-1)).includes(VOICE.data), "the audio itself never reaches the model");
-    const saved = world.objectsUnder(".context/").map((key) => String(world.bucket.get(key)?.body ?? "")).join("\n");
+    const saved = savedWords(world);
     assert.match(saved, /Voice message Audio Message\.caf: \\"Pick up oat milk on the way home\.\\"/);
     assert.ok(!saved.includes(VOICE.data));
   } finally {

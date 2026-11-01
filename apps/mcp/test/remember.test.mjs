@@ -33,12 +33,13 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
 import { fullToolList } from "./fullToolList.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-remember.test";
 const OWNER = `cat_remember_owner_${"0".repeat(21)}`;
 const READ_ONLY = `cat_remember_readonly_${"0".repeat(18)}`;
 const RAW = `cat_remember_raw_${"0".repeat(23)}`;
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 const PREFS = "3-resources/working-preferences.md";
 const PREFS_TEXT = "# Working preferences\n\n- Prefer concise but complete answers.\n- Use plain language.\n";
 

@@ -20,6 +20,13 @@
  *   tex/chat:<chatKey>/state/<64 hex>.json (`isTexStateKey`), its memory
  *   record. No row names it and only a chat's object holds one: the same
  *   shape under `person:`, or anything else under `state/`, is refused.
+ * - One set of plumbing besides, a person's Tex bookkeeping
+ *   (`isAgentHomeKey`): the one-to-one history record and the turn records,
+ *   running, cancel and steer marks under `.context/agent/`. Those keys keep
+ *   their names for every caller and live in the workspace's own
+ *   `person:<workspaceId>` object at `state/agent/...` (the owner,
+ *   2026-11-01: one copy, in the object, never the bucket), fail closed like
+ *   a Tex key, and a listing under one of their prefixes is the object's.
  * - Below the id layer and above the bucket's own wrappers (logical deletes,
  *   managed encryption): the object keeps plain text, encrypted at rest by
  *   Cloudflare, and answers conditional writes itself.
@@ -39,6 +46,16 @@ export class TexStoreUnavailable extends Error {
 
 /** Anything shaped as a Tex owner's `state/`, so a near miss is refused rather than sent to the bucket. */
 const STATE_SHAPED = /^tex\/[^/]*:[^/]*\/state(?:\/|$)/;
+
+/** The `.context/agent/` folders a person's Tex bookkeeping lives under, in their object. */
+export const AGENT_HOME_FOLDERS = ["history", "turns", "running", "cancel", "steer"];
+const AGENT_HOME = /^\.context\/agent\/(history|turns|running|cancel|steer)\/((?:[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}\/){0,2}[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127})$/;
+const AGENT_HOME_PREFIX = /^\.context\/agent\/(history|turns|running|cancel|steer)\/((?:[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}\/){0,2})$/;
+
+/** Whether `key` is a person's Tex bookkeeping, kept in their object (`state/agent/...`). No `..`, no empty segment. */
+export function isAgentHomeKey(key) {
+  return typeof key === "string" && AGENT_HOME.test(key) && !key.includes("..");
+}
 
 /** `{owner, key}` for a Tex key or a chat's state key: whose object, and the key inside it. */
 export function splitTexKey(key) {
@@ -75,7 +92,7 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
 
   /** The object's store and the key inside it, or `null` for a bucket key. */
   const route = (key) => {
-    const split = splitTexKey(key);
+    const split = isAgentHomeKey(key) ? { owner: `person:${workspaceId}`, key: `state/agent/${key.slice(".context/agent/".length)}` } : splitTexKey(key);
     if (split === null) {
       if (typeof key === "string" && STATE_SHAPED.test(key)) throw new TexStoreUnavailable("not a key a chat's state is kept at");
       return null;
@@ -92,6 +109,18 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
   const wrapped = Object.create(Object.getPrototypeOf(store), Object.getOwnPropertyDescriptors(store));
   // The chats this store was built for (a group turn's grant names its own), so a turn knows where its chat's state lives.
   Object.defineProperty(wrapped, "texChats", { value: Object.freeze([...chats]), enumerable: false, writable: false, configurable: false });
+  // A person's texted turn's first reads, in one call to their object (`texStore/desk.js`); null when the object has no desk.
+  Object.defineProperty(wrapped, "texDesk", {
+    value: async () => {
+      const { target } = route(".context/agent/history/texts.json");
+      return typeof target.desk === "function" ? await target.desk() : null;
+    },
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+  // The bucket beneath, for the one move of the old bookkeeping into the object (`agent/agentHomeMove.js`) and nothing else.
+  Object.defineProperty(wrapped, "agentHomeBucket", { value: store, enumerable: false, writable: false, configurable: false });
 
   const byKey = (method, fallback) => async (key, ...rest) => {
     const routed = route(key);
@@ -129,6 +158,7 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
     // A listing under `tex/<owner>/` is that object's, with the prefix put back on each key; any other is the bucket's.
     wrapped.list = async (options = {}) => {
       const prefix = typeof options.prefix === "string" ? options.prefix : "";
+      if (AGENT_HOME_PREFIX.test(prefix) && !prefix.includes("..")) return await listAgentHome(options, prefix);
       const match = /^tex\/((?:person|chat):[A-Za-z0-9_-]{1,64})\/(.*)$/.exec(prefix);
       if (!match) return await store.list(options);
       const head = `tex/${match[1]}/`;
@@ -143,6 +173,20 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
         objects: (page.objects ?? []).map((object) => ({ ...object, key: `${head}${object.key}` })),
         delimitedPrefixes: (page.delimitedPrefixes ?? []).map((folded) => `${head}${folded}`),
       };
+    };
+  }
+
+  /** A listing under a bookkeeping folder: the person's object's, with the `.context/agent/` names put back. */
+  async function listAgentHome(options, prefix) {
+    const inner = `state/agent/${prefix.slice(".context/agent/".length)}`;
+    const { target } = route(`${prefix}x`);
+    const after = typeof options.startAfter === "string" && options.startAfter.startsWith(".context/agent/") ? { startAfter: `state/agent/${options.startAfter.slice(".context/agent/".length)}` } : {};
+    const page = await target.list({ ...options, prefix: inner, ...after });
+    const back = (key) => `.context/agent/${key.slice("state/agent/".length)}`;
+    return {
+      ...page,
+      objects: (page.objects ?? []).map((object) => ({ ...object, key: back(object.key) })),
+      delimitedPrefixes: (page.delimitedPrefixes ?? []).map(back),
     };
   }
 

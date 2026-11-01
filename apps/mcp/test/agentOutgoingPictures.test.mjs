@@ -34,6 +34,13 @@ import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.m
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 const image = (data = PNG) => ({ type: "image", data, mimeType: "image/png" });
 
+/** What the person's saved conversation holds: the bucket's live `.context/` objects and the Tex object's keys (the history record, `store/texRouting.js`). */
+const savedWords = (world) => {
+  const home = "person:ws_egress";
+  const inHome = world.tex.keysIn(home).map((key) => world.tex.textIn(home, key) ?? "");
+  return [...world.objectsUnder(".context/").map((key) => String(world.bucket.get(key)?.body ?? "")), ...inHome].join("\n");
+};
+
 test("a picture a tool showed is numbered, and its line names it", async () => {
   const outgoing = outgoingPictures({ enabled: true });
   const call = outgoing.wrap(async () => ({ content: [{ type: "text", text: "image: x" }, image()] }));
@@ -118,7 +125,7 @@ test("a picture read from their notes is texted back", async () => {
     assert.equal(asked.body.pictures[0].mediaType, "image/png");
     assert.match(asked.body.pictures[0].data, /^[A-Za-z0-9+/]{40,}={0,2}$/);
     assert.match(JSON.stringify(world.model.requests.at(-1).messages), /This is picture 1/, "the model was told the number");
-    const history = world.objectsUnder(".context/").map((key) => String(world.bucket.get(key)?.body ?? "")).join("\n");
+    const history = savedWords(world);
     assert.match(history, /Sent a picture with this answer/);
     assert.ok(!history.includes(asked.body.pictures[0].data), "the saved conversation never holds the bytes");
   } finally {

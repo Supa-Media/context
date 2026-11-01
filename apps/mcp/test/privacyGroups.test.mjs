@@ -55,6 +55,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
 import { FTS_TABLE, upsertStatements } from "../src/search/d1/project.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const OWNER_TOKEN = `cat_groups_owner_${"0".repeat(16)}`;
 const TEAM_TOKEN = `cat_groups_team_${"0".repeat(17)}`;
@@ -242,7 +243,7 @@ export async function runPrivacyGroupChecks(check) {
     });
 
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "GROUPS_BUCKET",
       GROUPS_BUCKET: bucket,
