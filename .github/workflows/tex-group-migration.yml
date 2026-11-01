@@ -42,15 +42,15 @@ jobs:
         run: |
           set -euo pipefail
           case "$STEP" in
-            homes) fn=homeEveryChat ;;
-            sweep) fn=sweep ;;
+            homes) fn=texGroupMigrationRows:homeEveryChat ;;
+            sweep) fn=texGroupMigration:sweep ;;
             *) echo "unknown step"; exit 1 ;;
           esac
           case "$DRY_RUN" in
             true) args='{"dryRun":true}' ;;
             *) args='{"dryRun":false}' ;;
           esac
-          npx convex run "functions/texGroupMigration:$fn" "$args"
+          npx convex run "functions/$fn" "$args"
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           STEP: ${{ inputs.step }}

@@ -31,18 +31,18 @@ describe("homes for every chat", () => {
       await ctx.db.insert("textGroups", { groupKey: "f".repeat(64), lastSeenAt: Date.now() });
     });
 
-    const dry = await w.t.mutation(internal.functions.texGroupMigration.homeEveryChat, { dryRun: true });
+    const dry = await w.t.mutation(internal.functions.texGroupMigrationRows.homeEveryChat, { dryRun: true });
     expect(dry).toEqual({ chats: 2, homed: 0, wouldHome: 1, made: 0, refused: { no_person: 1 } });
     expect((await w.t.run(async (ctx) => await ctx.db.get(chatId)))?.homeWords).toBeUndefined();
 
-    const real = await w.t.mutation(internal.functions.texGroupMigration.homeEveryChat, { dryRun: false });
+    const real = await w.t.mutation(internal.functions.texGroupMigrationRows.homeEveryChat, { dryRun: false });
     expect(real).toEqual({ chats: 2, homed: 0, wouldHome: 1, made: 1, refused: { no_person: 1 } });
     const chat = await w.t.run(async (ctx) => await ctx.db.get(chatId));
     expect(chat?.homeWords).toMatch(/^[a-z]+-[a-z]+-[a-z]+$/);
     expect(chat?.homeUsers).toEqual([ada]);
     expect(JSON.stringify(real)).not.toMatch(/eeee|tex\/groups|@/);
 
-    expect(await w.t.mutation(internal.functions.texGroupMigration.homeEveryChat, { dryRun: false })).toEqual({ chats: 2, homed: 1, wouldHome: 0, made: 0, refused: { no_person: 1 } });
+    expect(await w.t.mutation(internal.functions.texGroupMigrationRows.homeEveryChat, { dryRun: false })).toEqual({ chats: 2, homed: 1, wouldHome: 0, made: 0, refused: { no_person: 1 } });
   });
 });
 
