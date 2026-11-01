@@ -180,7 +180,7 @@ export function texBucket(stub) {
 }
 
 /** One call to the object: its answer, or a refusal as `TexObjectRefused`. */
-async function callTexStore(stub, op, fields = {}, body = undefined) {
+export async function callTexStore(stub, op, fields = {}, body = undefined) {
   const response = await stub.fetch(
     new Request(`${ORIGIN}/${op}`, { method: "POST", headers: { [CALL]: pack({ op, ...fields }) }, body }),
   );

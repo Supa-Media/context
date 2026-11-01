@@ -79,6 +79,7 @@ import { S3Store } from "./s3.js";
 import { withLogicalDelete } from "./logicalDelete.js";
 import { withIdLayout } from "./idLayout.js";
 import { withTexRouting } from "./texRouting.js";
+import { withWorkspaceRouting } from "./workspaceRouting.js";
 import { withNoteCap } from "./noteCap.js";
 import { managedEncryptionFor, withManagedEncryption } from "./managedEncryption.js";
 
@@ -211,7 +212,18 @@ export function storeForBinding(binding, env, options = {}) {
   // Tex's notes (`texRouting.js`): a row's key of the Tex form goes to its
   // Durable Object, under the id layer so every holder of a row's key reaches
   // it, and refused when `options.texStore` cannot open one.
-  const routed = withTexRouting(withLogicalDelete(probed), { workspaceId: options.texWorkspaceId ?? binding.workspaceId, chats: options.texChats ?? [], texStore: options.texStore ?? null });
+  const texRouted = withTexRouting(withLogicalDelete(probed), { workspaceId: options.texWorkspaceId ?? binding.workspaceId, chats: options.texChats ?? [], texStore: options.texStore ?? null });
+  // Note texts and shared-editing history, to the workspace's object by its home (`workspaceRouting.js`). Only when
+  // the caller passed `workspaceStore`: a caller that must see the bucket alone (the copy and compare) leaves it out.
+  const routed = typeof options.workspaceStore === "function"
+    ? withWorkspaceRouting(texRouted, {
+        workspaceId: binding.workspaceId,
+        client: options.workspaceStore(binding.workspaceId),
+        known: { home: binding.notesHome, backfilledAt: binding.notesBackfilledAt ?? null },
+        defer: options.defer ?? null,
+        log: options.log ?? (() => {}),
+      })
+    : texRouted;
   return withNoteCap(withNoteLayout(routed, options.idLayout), options.noteCap, options.noteCount ?? null);
 }
 
