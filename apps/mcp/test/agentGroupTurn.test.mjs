@@ -239,37 +239,14 @@ const folderShares = () =>
     .filter((entry) => entry.path === "/gateway/privacy" && entry.body?.op === "setAccess" && entry.body?.kind === "folder")
     .map((entry) => `${entry.body.path}: ${entry.body.base}`);
 
-test("the chat's memory is a note in tex/groups/ that people can read and fix (the owner, 2026-10-23)", async () => {
+test("the chat's memory is kept with the chat, never as a note in tex/groups/ (the owner, 2026-11-01)", async () => {
   const people = chat({ members: "e".repeat(64) });
-  world.model.install([{ text: "Noted: the gig is Friday." }]);
+  world.model.install([{ text: "Noted: the gig is Friday." }, { text: "Friday." }]);
   await ask(TOKEN_GROUP, { question: "the gig is friday", group: people });
-  // Nobody had to make the folder: the first note shared tex/groups/ (never tex/) with the workspace.
-  assert.deepEqual(folderShares(), ["tex/groups: team"]);
-  const [path] = [...world.team.keys()].filter((key) => key.startsWith("tex/groups/chat-"));
-  assert.ok(path, "the chat's note was written");
-  const note = bodyAt(world.team, path);
-  assert.match(note, /# Tex's memory of this group chat/);
-  assert.match(note, /@ada: the gig is friday\n\n\*\*Tex:\*\* Noted: the gig is Friday\./);
-  assert.doesNotMatch(path, /e{12}|a{12}/, "named by a hash, never the chat's key");
-
-  // Somebody fixes it, here through the same writes the app's editor makes.
-  world.model.install([
-    { toolCalls: [{ name: "read_note", args: { path } }] },
-    (request) => {
-      const read = toolResults(request).at(-1);
-      const etag = /etag: (\S+)/.exec(read)?.[1];
-      const body = read.slice(read.indexOf("\n\n") + 2).replace("the gig is friday", "the gig is saturday").replace("the gig is Friday", "the gig is Saturday");
-      return { toolCalls: [{ name: "write_note", args: { path, content: body, expected_etag: etag } }] };
-    },
-    { text: "Fixed." },
-    { text: "Saturday, like the note says." },
-  ]);
-  await ask(TOKEN_GROUP, { question: "fix your memory: it's saturday", group: chat({ members: "9".repeat(64) }) });
-  await ask(TOKEN_GROUP, { question: "when's the gig?", group: people });
-  const remembered = JSON.stringify(world.model.requests.at(-1).messages);
-  assert.match(remembered, /the gig is saturday/);
-  assert.doesNotMatch(remembered, /the gig is friday/, "the fix is what Tex goes by");
-  assert.match(bodyAt(world.team, path), /the gig is saturday[\s\S]*Saturday, like the note says\./, "and the next exchange is added to the fixed note");
+  assert.deepEqual(folderShares(), [], "no folder is shared for it");
+  assert.deepEqual(live(world.team, "tex/groups/"), [], "no note in the workspace");
+  await ask(TOKEN_GROUP, { question: "when's the gig?", group: chat({ members: "9".repeat(64) }) });
+  assert.match(JSON.stringify(world.model.requests.at(-1).messages), /the gig is friday/, "the next turn remembers it");
 });
 
 test("a tagger who can't write still has the chat's memory, and an untouched note never hides it", async () => {
@@ -294,18 +271,6 @@ test("a tex/ folder someone made private is never shared for the chat's note, an
   assert.deepEqual(folderShares(), [], "the owner's private tex/ is left as they set it");
   assert.deepEqual([...world.team.keys()].filter((key) => key.startsWith("tex/groups/")), []);
   assert.match(JSON.stringify(world.model.requests.at(-1).messages), /the gig is friday/, "kept in the hidden file instead");
-});
-
-test("a member who can't write never shares tex/groups/", async () => {
-  const people = chat({ members: "b".repeat(64), from: "bo" });
-  world.model.install([{ text: "Noted." }, { text: "6." }]);
-  await ask(TOKEN_GROUP_READER, { question: "load-in is at 6", group: people });
-  assert.deepEqual([...world.team.keys()].filter((key) => key.startsWith("tex/groups/")), []);
-  const tried = folderShares().length;
-  // The control plane refused the read-only grant, so the folder was still unset when an editor came.
-  await ask(TOKEN_GROUP, { question: "when's load-in?", group: chat({ members: "b".repeat(64) }) });
-  assert.equal(folderShares().length, tried + 1, "the editor found tex/groups/ unshared and shared it");
-  assert.equal([...world.team.keys()].filter((key) => key.startsWith("tex/groups/")).length, 1);
 });
 
 test("a stale etag changes nothing, and routines and hidden paths are refused in a group", async () => {
@@ -352,7 +317,7 @@ test("the chat remembers as one: somebody added to the chat reads what came befo
   const files = live(world.team, GROUP_MEMORY_PREFIX);
   assert.equal(files.length, 1, "one record per chat");
   for (const file of files) assert.doesNotMatch(file, /a{64}|b{64}|c{64}/, "the file name is a hash of the chat, not its key");
-  assert.equal(live(world.team, "tex/groups/chat-").length, 1, "one note per chat, whoever is in it");
+  assert.equal(live(world.team, "tex/groups/").length, 0, "and no note in the workspace");
 });
 
 test("what the chat said before a tag reaches the turn and is kept", async () => {
@@ -450,36 +415,6 @@ test("a streamed group turn texts its progress to the chat, as a text does (2026
   bytes live at `notes/<noteId>.md` with its folder in a row, so it found
   nothing however much was in the folder. It reads the tree instead.
 */
-test("a note already filed in tex/groups/ stops Tex sharing the folder", async () => {
-  const { shareGroupNotesFolder } = await import("../src/agent/groupMemoryNote.js");
-  const { PRE_PARSED_RULES, PrivacyOverrides } = await import("../src/privacy/engine.js");
-  const held = { rules: [], overrides: new PrivacyOverrides() };
-  const holding = (paths) => {
-    const shared = [];
-    return {
-      shared,
-      get: async () => ({ etag: "e1", [PRE_PARSED_RULES]: held }),
-      // The bucket keys a note by its id, so no key carries the folder's path.
-      list: async () => ({ objects: [] }),
-      treeManifest: async () => ({ served: true, cursor: null, entries: paths.map((path) => ({ path })) }),
-      rowAccess: { setTier: async (path, tier) => (shared.push(`${path}: ${tier}`), { ok: true }) },
-    };
-  };
-
-  const empty = holding([]);
-  assert.equal(await shareGroupNotesFolder(empty), true, "an empty folder is Tex's to share");
-  assert.deepEqual(empty.shared, ["tex/groups: team"]);
-
-  const filed = holding(["tex/groups/what ada wrote.md"]);
-  assert.equal(await shareGroupNotesFolder(filed), false);
-  assert.deepEqual(filed.shared, [], "somebody's own note in the folder is never widened to the workspace");
-
-  const unreachable = holding([]);
-  delete unreachable.treeManifest;
-  assert.equal(await shareGroupNotesFolder(unreachable), false, "a tree that cannot answer shares nothing");
-  assert.deepEqual(unreachable.shared, []);
-});
-
 // Tex Devs, 2026-10-26: "redo the diagram" got "the only graphic I made was the Reason Network one".
 // The chat's memory kept the words and never the card, so the next turn could not see it.
 test("a card sent in a group is kept in the chat's memory with what it showed", async () => {

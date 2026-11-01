@@ -2,12 +2,11 @@
  * A CHAT HOME'S OWN NOTES ARE READ STRAIGHT FROM THE CHAT'S DURABLE OBJECT (Dev2, 2026-10-31: "let's skip those
  * steps"; `src/agent/groupDirectNotes.js`).
  *
- * Once a kept exchange has noted the keys of the home's memory, voice and about-us notes, the next turn asks the
- * chat's object for them by key, never the note-reading tool, and the memory note only for its version. Anything that
- * does not match is read the old way.
+ * Once a kept exchange has noted the keys of the home's voice and about-us notes, the next turn asks the chat's object
+ * for them by key, never the note-reading tool. Anything that does not match is read the old way. The chat's history
+ * is its record alone, so no memory note is read at all once carried (`groupMemoryCarry.js`, 2026-11-01).
  *
  * Sabotage record (2026-10-31), each fails a test here:
- *  - `memoryUnedited` answering true without comparing the version: "a memory note somebody edited is read";
  *  - `ownKey` accepting any key: "a key outside this chat's own object is never read directly";
  *  - `readGroupMemory` ignoring the kept keys: "with the keys kept, the turn reads no note through the tool".
  */
@@ -44,20 +43,20 @@ function object(entries) {
   };
 }
 
-function setup({ direct, objectEntries, noteEtag = "tool-etag-1" }) {
+function setup({ direct, objectEntries }) {
   const reads = [];
   const dispatch = async (name, args) => {
     reads.push(args?.path);
     return { isError: true, content: [{ type: "text", text: "not found" }] };
   };
-  const record = JSON.stringify({ version: 1, turns: TURNS, noteEtag, direct });
+  const record = JSON.stringify({ version: 1, turns: TURNS, carried: 1, direct });
   const store = { get: async () => ({ text: async () => record }) };
   const homeStore = object(objectEntries);
   const group = { key: KEY, members: "b".repeat(64), from: "seyi", chat: [], people: [], home: { folder: HOME, dispatch, store: homeStore } };
   return { group, store, reads, homeStore, dispatch };
 }
 
-const KEPT = { memory: { key: OWN("m1"), version: "v-memory" }, voice: OWN("v1"), about: OWN("a1") };
+const KEPT = { voice: OWN("v1"), about: OWN("a1") };
 const ENTRIES = {
   [OWN("m1")]: { etag: "v-memory", text: "# Chat memory\n" },
   [OWN("v1")]: { etag: "v-voice", text: "- dry humor\n- lowercase" },
@@ -71,13 +70,7 @@ test("with the keys kept, the turn reads no note through the tool, and the recor
   assert.equal(group.voice, "- dry humor\n- lowercase");
   assert.equal(group.aboutUs, "We plan the studio's launches.");
   assert.deepEqual(reads.filter((path) => typeof path === "string" && path.startsWith(HOME)), [], "nothing in the home is read through the tool");
-  assert.ok(homeStore.gets.includes(OWN("m1")), "the memory note's version is asked of the object");
-});
-
-test("a memory note somebody edited is read the old way", async () => {
-  const { group, store, reads, dispatch } = setup({ direct: KEPT, objectEntries: { ...ENTRIES, [OWN("m1")]: { etag: "v-edited", text: "x" } } });
-  await readGroupMemory(store, group, dispatch);
-  assert.ok(reads.some((path) => typeof path === "string" && path.startsWith(`${HOME}/`) && !/voice-|about-us/.test(path)), "the memory note is read through the tool");
+  assert.ok(!homeStore.gets.includes(OWN("m1")), "and the memory note not at all: the record is the history");
 });
 
 test("a key outside this chat's own object is never read directly", async () => {
@@ -96,19 +89,19 @@ test("no kept keys: every note is read the old way", async () => {
   assert.ok(reads.some((path) => /about-us/.test(path ?? "")));
 });
 
-test("after an exchange, the three keys are learned in one lookup, with the memory note's object version", async () => {
+test("after an exchange, the two keys are learned in one lookup", async () => {
   const lookups = [];
   const homeStore = {
     ...object(ENTRIES),
     async keysAt(paths) {
       lookups.push(paths);
-      return { [`${HOME}/memory.md`]: OWN("m1"), [`${HOME}/voice.md`]: OWN("v1"), [`${HOME}/about-us.md`]: `tex/chat:${"c".repeat(64)}/notes/${ID.a1}.md` };
+      return { [`${HOME}/voice.md`]: OWN("v1"), [`${HOME}/about-us.md`]: `tex/chat:${"c".repeat(64)}/notes/${ID.a1}.md` };
     },
   };
   const group = { key: KEY, home: { folder: HOME, store: homeStore } };
-  const direct = await learnDirect(group, { memory: `${HOME}/memory.md`, voice: `${HOME}/voice.md`, about: `${HOME}/about-us.md` });
+  const direct = await learnDirect(group, { voice: `${HOME}/voice.md`, about: `${HOME}/about-us.md` });
   assert.equal(lookups.length, 1);
-  assert.deepEqual(direct, { memory: { key: OWN("m1"), version: "v-memory" }, voice: OWN("v1") }, "another chat's key is not kept");
+  assert.deepEqual(direct, { voice: OWN("v1") }, "another chat's key is not kept");
 });
 
 test("the id layer names the keys of keyed notes at several paths in one lookup", async () => {
