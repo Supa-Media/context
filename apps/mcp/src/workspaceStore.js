@@ -11,12 +11,17 @@
  * It also keeps the app's live file tree (`workspaceStore/treeSockets.js`): a
  * socket the gateway's `/tree` route opened, told again whenever a call here
  * changes a folder it watches.
+ *
+ * And the app's access screens (`workspaceStore/accessSockets.js`): members,
+ * invitations, connected apps and "shared with me", on a socket the gateway's
+ * `/presence/access` route opened.
  */
 
 import { texObjects } from "./texStore/objects.js";
 import { workspaceRows } from "./workspaceStore/rows.js";
 import { serveWorkspaceStore } from "./workspaceStore/serve.js";
 import { treeSockets } from "./workspaceStore/treeSockets.js";
+import { accessSockets } from "./workspaceStore/accessSockets.js";
 
 const CALL = "x-tex-call";
 
@@ -34,6 +39,7 @@ export class WorkspaceStore {
     this.env = env;
     this.store = null;
     this.tree = null;
+    this.access = null;
   }
 
   ready() {
@@ -48,12 +54,15 @@ export class WorkspaceStore {
     const tree = treeSockets(this.state, sql, this.store);
     this.store.onTreeChange = (change) => tree.changed(change);
     this.tree = tree;
+    this.access = accessSockets(this.state, sql);
     return this.store;
   }
 
   async fetch(request) {
     const store = this.ready();
-    if ((request.headers.get("Upgrade") || "").toLowerCase() === "websocket") return this.tree.accept(request);
+    if ((request.headers.get("Upgrade") || "").toLowerCase() === "websocket") {
+      return new URL(request.url).pathname === "/access" ? this.access.accept(request) : this.tree.accept(request);
+    }
     const response = await serveWorkspaceStore(store, request);
     // Where the tree is read from changed: watchers of a workspace switched back are told to read Convex.
     if (opOf(request) === "ws.home" && response.ok) this.tree.notice({ all: true });
@@ -62,16 +71,19 @@ export class WorkspaceStore {
 
   async webSocketMessage(ws, raw) {
     this.ready();
+    if (this.access.owns(ws)) return await this.access.message(ws, raw);
     await this.tree.message(ws, raw);
   }
 
   async webSocketClose(ws) {
     this.ready();
+    if (this.access.owns(ws)) return this.access.closed(ws);
     this.tree.closed(ws);
   }
 
   async webSocketError(ws) {
     this.ready();
+    if (this.access.owns(ws)) return this.access.closed(ws);
     this.tree.closed(ws);
   }
 }

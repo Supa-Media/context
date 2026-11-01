@@ -30,6 +30,7 @@ import { presenceDisplayName } from "./presence.js";
 import { roomKey } from "../presence.js";
 
 export { handleTree, TREE_SOCKET_PATH } from "./treeRoute.js";
+export { handleAccess, ACCESS_SOCKET_PATH } from "./accessRoute.js";
 
 /**
  * `GET /presence?note=<path>` — the socket that says who else has this note
