@@ -38,6 +38,7 @@ type Counts = {
   turnsKept: number;
   turnsWould: number;
   failed: number;
+  failedCodes: Record<string, number>;
   cursor: string;
   done: boolean;
 };
@@ -49,6 +50,13 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise
   // Opened as every console store is, workspace object routing included (`lib/rowWatch/consoleRouting.ts`).
   const routing = await consoleWorkspaceRouting(ctx, workspaceId);
   return storeForBinding(routing.credential(credential), undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId, { ticketOwners: [`person:${workspaceId}`] }), ...routing.options });
+}
+
+/** A failure as a fixed code: the error's own code or name when it is a plain word, never its message. */
+export function failureCode(error: unknown): string {
+  const named = error as { code?: unknown; name?: unknown } | null;
+  for (const value of [named?.code, named?.name]) if (typeof value === "string" && /^[A-Za-z][A-Za-z0-9_]{0,47}$/.test(value)) return value;
+  return "unknown";
 }
 
 /** One page: up to `WORKSPACES_PER_CALL` workspaces. `only` names one workspace by id. */
@@ -65,11 +73,12 @@ export const run = internalAction({
     turnsKept: v.number(),
     turnsWould: v.number(),
     failed: v.number(),
+    failedCodes: v.record(v.string(), v.number()),
     cursor: v.string(),
     done: v.boolean(),
   }),
   handler: async (ctx, args): Promise<Counts> => {
-    const counts: Counts = { workspaces: 0, noBinding: 0, historyMoved: 0, historyAlready: 0, historyNone: 0, historyWould: 0, turnsCopied: 0, turnsKept: 0, turnsWould: 0, failed: 0, cursor: "", done: false };
+    const counts: Counts = { workspaces: 0, noBinding: 0, historyMoved: 0, historyAlready: 0, historyNone: 0, historyWould: 0, turnsCopied: 0, turnsKept: 0, turnsWould: 0, failed: 0, failedCodes: {}, cursor: "", done: false };
     const page: { workspaceIds: Id<"workspaces">[]; cursor: string; done: boolean } =
       args.only !== undefined
         ? { workspaceIds: [args.only], cursor: "", done: true }
@@ -90,9 +99,12 @@ export const run = internalAction({
         counts.turnsCopied += moved.turns.copied;
         counts.turnsKept += moved.turns.kept;
         counts.turnsWould += moved.turns.would;
-      } catch {
-        // Counted, never named: the workflow's log is public. A failed workspace's first text moves its history itself.
+      } catch (error) {
+        // Counted by a fixed code, never named: the workflow's log is public. A failed workspace's first text moves its history itself.
+        const code = failureCode(error);
         counts.failed += 1;
+        counts.failedCodes[code] = (counts.failedCodes[code] ?? 0) + 1;
+        console.error(JSON.stringify({ event: "tex_history_migration_failed", workspaceId, code }));
       }
     }
     return { ...counts, cursor: page.cursor, done: page.done };
