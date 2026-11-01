@@ -26,6 +26,74 @@ import { isWorkspaceObjectKey } from "../../../../mcp/src/workspaceStore/api.js"
 /** The prefixes a workspace object holds, walked in this order. */
 export const OBJECT_PREFIXES = ["notes/", ".context/collaboration/"] as const;
 
+const HISTORY_ROOT = ".context/collaboration/v1/";
+const REVISIONS_PREFIX = `${HISTORY_ROOT}revisions/`;
+
+/** A revision key's document id and revision name, or `null` for any other key. */
+export function revisionOf(key: string): { documentId: string; name: string } | null {
+  if (!key.startsWith(REVISIONS_PREFIX) || !key.endsWith(".json")) return null;
+  const rest = key.slice(REVISIONS_PREFIX.length, -".json".length);
+  const slash = rest.indexOf("/");
+  if (slash <= 0 || rest.indexOf("/", slash + 1) !== -1) return null;
+  return { documentId: rest.slice(0, slash), name: rest.slice(slash + 1) };
+}
+
+/** The revision names a document's state points at: its accepted one and any pending one. */
+export function currentNames(state: unknown): Set<string> {
+  const names = new Set<string>();
+  if (state && typeof state === "object") {
+    const record = state as { revision?: unknown; pending?: { revision?: unknown } | null };
+    if (typeof record.revision === "string") names.add(record.revision);
+    if (record.pending && typeof record.pending.revision === "string") names.add(record.pending.revision);
+  }
+  return names;
+}
+
+/**
+ * Whether the workspace object holds `key`. Every note text and history key,
+ * except a revision its document's state no longer names: older revisions stay
+ * in the bucket, read only as an offline-merge base (decided by the owner,
+ * 2026-11-01). The state is read from the bucket, once per document per
+ * `cache`; a revision of a document with no readable state is not held.
+ */
+export function objectHolds(bucket: BodyStore, cache = new Map<string, Promise<Set<string> | null>>()) {
+  const namesOf = (documentId: string) => {
+    let names = cache.get(documentId);
+    if (names === undefined) {
+      names = (async () => {
+        const state = await bucket.get(`${HISTORY_ROOT}documents/${documentId}.json`);
+        if (state === null) return null;
+        try {
+          return currentNames(JSON.parse(new TextDecoder().decode(await state.arrayBuffer())));
+        } catch {
+          return null;
+        }
+      })();
+      cache.set(documentId, names);
+    }
+    return names;
+  };
+  return async (key: string): Promise<boolean> => {
+    if (!isWorkspaceObjectKey(key)) return false;
+    const revision = revisionOf(key);
+    if (revision === null) return true;
+    return (await namesOf(revision.documentId))?.has(revision.name) === true;
+  };
+}
+
+/** `items` whose `test` answers true, tested `width` at a time, in order. */
+async function filterInWaves<T>(items: T[], width: number, test: (item: T) => Promise<boolean>): Promise<T[]> {
+  const kept: T[] = [];
+  for (let start = 0; start < items.length; start += width) {
+    const slice = items.slice(start, start + width);
+    const answers = await Promise.all(slice.map(test));
+    slice.forEach((item, index) => {
+      if (answers[index]) kept.push(item);
+    });
+  }
+  return kept;
+}
+
 export interface StoredObject {
   etag?: string;
   contentType?: string;
@@ -53,9 +121,13 @@ export interface CopyCounts {
   goneMeanwhile: number;
   wouldCopy: number;
   failed: number;
+  /** Revisions their document no longer names: left in the bucket, never copied. */
+  olderRevisions: number;
+  /** Of those, copies an earlier run had put in the object, taken out again. */
+  removedOlder: number;
 }
 
-export const emptyCopyCounts = (): CopyCounts => ({ listed: 0, copied: 0, same: 0, raced: 0, goneMeanwhile: 0, wouldCopy: 0, failed: 0 });
+export const emptyCopyCounts = (): CopyCounts => ({ listed: 0, copied: 0, same: 0, raced: 0, goneMeanwhile: 0, wouldCopy: 0, failed: 0, olderRevisions: 0, removedOlder: 0 });
 
 /** `more`'s counts added into `into`, field by field. */
 export function addCounts<T extends object>(into: T, more: T): T {
@@ -132,8 +204,29 @@ export async function copyPage(
   const prefix = OBJECT_PREFIXES[at.prefix];
   if (prefix === undefined) return { counts, next: null };
   const page = await bucket.list({ prefix, ...(at.cursor ? { cursor: at.cursor } : {}), limit });
-  const keys = (page.objects ?? []).map((entry) => entry.key).filter(isWorkspaceObjectKey);
-  counts.listed = keys.length;
+  const listed = (page.objects ?? []).map((entry) => entry.key).filter(isWorkspaceObjectKey);
+  counts.listed = listed.length;
+  const keys = await filterInWaves(listed, width, objectHolds(bucket));
+  counts.olderRevisions = listed.length - keys.length;
+  if (!dryRun && keys.length < listed.length) {
+    // An older revision an earlier copy put in the object comes out again, on the etag seen: a reader that
+    // misses it there reads it from the bucket.
+    const kept = new Set(keys);
+    await inWaves(
+      listed.filter((key) => !kept.has(key)),
+      width,
+      async (key) => {
+        try {
+          const held = await object.get(key);
+          if (held === null) return;
+          await object.delete(key, typeof held.etag === "string" ? { onlyIf: { etagMatches: held.etag } } : {});
+          counts.removedOlder += 1;
+        } catch {
+          counts.failed += 1;
+        }
+      },
+    );
+  }
   await inWaves(keys, width, async (key) => {
     try {
       counts[await copyKey(bucket, object, key, dryRun)] += 1;
@@ -193,7 +286,9 @@ export async function parityPage(
   if (prefix === undefined) return { parity, next: null };
   const walked = at.side === 0 ? bucket : object;
   const page = await walked.list({ prefix, ...(at.cursor ? { cursor: at.cursor } : {}), limit });
-  const keys = (page.objects ?? []).map((entry) => entry.key).filter(isWorkspaceObjectKey);
+  const listed = (page.objects ?? []).map((entry) => entry.key).filter(isWorkspaceObjectKey);
+  // The bucket's older revisions are not the object's to hold; the object's own keys are all compared.
+  const keys = at.side === 0 ? await filterInWaves(listed, width, objectHolds(bucket)) : listed;
   if (at.side === 0) parity.bucketKeys = keys.length;
   else parity.objectKeys = keys.length;
   const suspects: string[] = [];
@@ -204,7 +299,10 @@ export async function parityPage(
   });
   if (suspects.length > 0) {
     await sleep(recheckMs);
+    // Asked again with the state as it is now: a save meanwhile may have made a revision older.
+    const holds = objectHolds(bucket);
     for (const key of suspects) {
+      if (at.side === 0 && !(await holds(key))) continue;
       const verdict = await verdictOf(bucket, object, key);
       // Side 1 counts only what side 0 cannot see: a key the object holds and the bucket does not.
       if (at.side === 1 && verdict !== "extraInObject") continue;
@@ -289,11 +387,6 @@ export async function objectBytesPage(
     for (const entry of page.objects ?? []) {
       if (!isWorkspaceObjectKey(entry.key)) continue;
       const size = typeof entry.size === "number" ? entry.size : 0;
-      keys += 1;
-      bytes += size;
-      byPrefix[prefix]!.keys += 1;
-      byPrefix[prefix]!.bytes += size;
-      if (size > largest) largest = size;
       const part = historyPart(entry.key);
       if (part !== null) {
         const count = (parts[part] ??= { keys: 0, bytes: 0, largest: 0 });
@@ -301,6 +394,14 @@ export async function objectBytesPage(
         count.bytes += size;
         if (size > count.largest) count.largest = size;
       }
+      // Revisions are left out of the sum the cap is held to: only current ones are copied, one per
+      // document beside its state, and telling them apart takes a read per document, not a listing.
+      if (part === "revisions") continue;
+      keys += 1;
+      bytes += size;
+      byPrefix[prefix]!.keys += 1;
+      byPrefix[prefix]!.bytes += size;
+      if (size > largest) largest = size;
     }
     if (bytes > cap) return done();
     if (page.truncated === true && typeof page.cursor === "string") cursor = page.cursor;
