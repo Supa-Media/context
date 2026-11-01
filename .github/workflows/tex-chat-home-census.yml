@@ -1,0 +1,46 @@
+# Which group chats keep their memory in their home in @context-lc, and which
+# are still kept in their bound workspace (2026-11-01). Read only, manual only.
+# It prints `functions/texChatHomeCensus.ts`'s answer: counts and fixed codes,
+# never an id, a path or a name, because this repository is public and so is
+# this job's log. `match` is the first characters of the hash a chat's memory
+# note is named by (`chat-<12 hex>.md`), to see how that one chat stands.
+name: Tex chat homes census
+
+on:
+  workflow_dispatch:
+    inputs:
+      match:
+        description: "Optional: the 12 hex characters of one chat's memory note name."
+        required: false
+        default: ""
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Census
+        run: |
+          set -euo pipefail
+          case "$MATCH" in
+            "") args='{}' ;;
+            *[!0-9a-f]*) echo "match must be hex"; exit 1 ;;
+            *) args="{\"match\":\"$MATCH\"}" ;;
+          esac
+          npx convex run functions/texChatHomeCensus:census "$args"
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          MATCH: ${{ inputs.match }}

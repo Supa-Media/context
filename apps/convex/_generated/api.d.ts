@@ -18,6 +18,7 @@ import type * as functions_accountDeletion from "../functions/accountDeletion.js
 import type * as functions_accountSetup from "../functions/accountSetup.js";
 import type * as functions_audit from "../functions/audit.js";
 import type * as functions_billing from "../functions/billing.js";
+import type * as functions_texChatHomeCensus from "../functions/texChatHomeCensus.js";
 import type * as functions_texReviewScoresRebuild from "../functions/texReviewScoresRebuild.js";
 import type * as functions_texTriageWatch from "../functions/texTriageWatch.js";
 import type * as functions_jev from "../functions/jev.js";
@@ -248,6 +249,7 @@ declare const fullApi: ApiFromModules<{
   "functions/accountSetup": typeof functions_accountSetup;
   "functions/audit": typeof functions_audit;
   "functions/billing": typeof functions_billing;
+  "functions/texChatHomeCensus": typeof functions_texChatHomeCensus;
   "functions/texReviewScoresRebuild": typeof functions_texReviewScoresRebuild;
   "functions/texTriageWatch": typeof functions_texTriageWatch;
   "functions/jev": typeof functions_jev;
