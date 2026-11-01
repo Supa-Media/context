@@ -49,6 +49,7 @@ import {
   type SizeCursor,
   type WalkCursor,
 } from "./lib/workspaceObjects/bodies";
+import { addRevisionCounts, emptyRevisionCounts, revisionsPage, type RevisionCounts } from "./lib/workspaceObjects/revisions";
 import { consoleWorkspaceClient, type WorkspaceObjectClient } from "./lib/workspaceObjects/door";
 import { convexVisible, noteRows, objectRowOf, rowsDigest, samplePrincipals, type ObjectRow, type ReaderRules } from "./lib/workspaceObjects/rows";
 import type { NotesHome } from "./workspaceObjectsRows";
@@ -193,6 +194,8 @@ interface RunCursor {
   at?: WalkCursor;
   /** Counting the first workspace's size, carried across pages until it is known. */
   sizing?: SizeCursor;
+  /** Measuring the first workspace's revisions: the listing cursor under `documents/`, and the sums so far. */
+  revisions?: { cursor?: string; counts: RevisionCounts };
   /** The parity walk inside the first workspace, and what it has found so far. */
   check?: ParityCursor;
   found?: BodyParity;
@@ -221,6 +224,9 @@ async function startState(ctx: ActionCtx, cursor: string | undefined, only: stri
   const id = await ctx.runQuery(internal.functions.workspaceObjectsRows.workspaceBySlug, { slug: only });
   return id === null ? "NO_WORKSPACE" : { page: null, queue: [String(id)], exhausted: true };
 }
+
+const tallyValidator = v.object({ keys: v.number(), bytes: v.number(), largest: v.number() });
+const revisionCountsValidator = v.object({ documents: v.number(), unreadable: v.number(), current: tallyValidator, older: tallyValidator });
 
 const copyCountsValidator = v.object({
   listed: v.number(),
@@ -253,7 +259,8 @@ export const setHomeBySlug = internalAction({
 /** One page of the backfill. Counts only. `dryRun` writes nothing, the switch included. */
 export const backfill = internalAction({
   args: {
-    step: v.union(v.literal("arm"), v.literal("copy")),
+    /** `revisions` measures how much of the history is current revisions; it reads only, whatever `dryRun` says. */
+    step: v.union(v.literal("arm"), v.literal("copy"), v.literal("revisions")),
     dryRun: v.boolean(),
     cursor: v.optional(v.string()),
     /** A handle: this workspace alone. */
@@ -278,6 +285,8 @@ export const backfill = internalAction({
     finished: v.number(),
     rows: v.number(),
     bodies: copyCountsValidator,
+    /** Step `revisions`: the running totals for the workspace being measured, then the run's. */
+    revisions: v.optional(revisionCountsValidator),
     refused: v.optional(v.string()),
     cursor: v.string(),
     done: v.boolean(),
@@ -286,12 +295,13 @@ export const backfill = internalAction({
     const counts = { workspaces: 0, armed: 0, alreadyArmed: 0, notArmed: 0, unreachable: 0, failed: 0, heldBack: 0, bytes: 0, noteBytes: 0, historyBytes: 0, historyKeys: 0, largest: 0, finished: 0, rows: 0 };
     const bodies: CopyCounts = emptyCopyCounts();
     const historyParts: Record<string, { keys: number; bytes: number; largest: number }> = {};
+    const revisions = emptyRevisionCounts();
     const state = await startState(ctx, cursor, only);
     if (state === "NO_WORKSPACE") return { ...counts, bodies, historyParts, refused: "NO_WORKSPACE", cursor: "", done: true };
     const started = Date.now();
     while (Date.now() - started < PAGE_BUDGET_MS) {
       const workspaceId = await nextWorkspace(ctx, state);
-      if (workspaceId === null) return { ...counts, bodies, historyParts, cursor: "", done: true };
+      if (workspaceId === null) return { ...counts, bodies, historyParts, ...(step === "revisions" ? { revisions } : {}), cursor: "", done: true };
       const home = await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId });
       if (step === "arm") {
         counts.workspaces += 1;
@@ -302,6 +312,31 @@ export const backfill = internalAction({
           if (set.ok) counts.armed += 1;
           else counts.unreachable += 1;
         }
+        state.queue.shift();
+        continue;
+      }
+      if (step === "revisions") {
+        try {
+          const bucket = await openBucket(ctx, workspaceId);
+          if (bucket === null) {
+            counts.unreachable += 1;
+            state.queue.shift();
+            continue;
+          }
+          const measuring = state.revisions ?? { counts: emptyRevisionCounts() };
+          const page = await revisionsPage(bucket, { ...(measuring.cursor ? { cursor: measuring.cursor } : {}), limit: KEYS_PER_PAGE });
+          addRevisionCounts(measuring.counts, page.counts);
+          if (page.next !== null) {
+            state.revisions = { cursor: page.next, counts: measuring.counts };
+            continue;
+          }
+          counts.workspaces += 1;
+          addRevisionCounts(revisions, measuring.counts);
+        } catch (error) {
+          counts.failed += 1;
+          console.warn(JSON.stringify({ event: "workspace_revisions_failed", workspaceId, error: error instanceof Error ? error.name : "unknown" }));
+        }
+        state.revisions = undefined;
         state.queue.shift();
         continue;
       }
@@ -383,7 +418,8 @@ export const backfill = internalAction({
         state.sizing = undefined;
       }
     }
-    return { ...counts, bodies, historyParts, cursor: JSON.stringify(state), done: false };
+    const running = step === "revisions" ? addRevisionCounts(addRevisionCounts(emptyRevisionCounts(), revisions), state.revisions?.counts ?? emptyRevisionCounts()) : null;
+    return { ...counts, bodies, historyParts, ...(running ? { revisions: running } : {}), cursor: JSON.stringify(state), done: false };
   },
 });
 
