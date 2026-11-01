@@ -43,7 +43,7 @@
  * it when the turn does, and it closes itself when idle anyway.
  */
 
-import { BUILT_FORM_LINK_ERROR, builtFormLink, passkeyLine } from "./pageWalls.js";
+import { BUILT_FORM_LINK_ERROR, builtFormLink, passkeyLine, passkeyMarks } from "./pageWalls.js";
 import { addressesIn, canonicalUrl } from "./computer.js";
 import { keptLine } from "./downloads.js";
 import { captchaLadder } from "./captchaLadder.js";
@@ -334,7 +334,7 @@ function readingText(reading, ran, { from = null } = {}) {
     body || "(no text)",
     "",
     ...(reading.popup === true ? [POPUP_LINE, ""] : []),
-    ...(passkeyLine(reading.text) ? [passkeyLine(reading.text), ""] : []),
+    ...(passkeyLine(reading.text, reading.url) ? [passkeyLine(reading.text, reading.url), ""] : []),
     Number.isInteger(from) ? `What you can press or type into, from [${from}]:` : "What you can press or type into:",
     shown.map(elementLine).join("\n") || "(nothing)",
     ...(more ? [more] : []),
@@ -620,6 +620,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       result.sources = [done.reading.url];
       // For the answer check: a captcha that outlasted every try is the only one the person may be asked to solve (`claimCheck.js`).
       if (captchas.stuck() || submits.stuck()) result.captchaStuck = true;
+      Object.assign(result, passkeyMarks(done.reading)); // A passkey wall met, or Google's other ways reached (`browserWalls.js`).
       // A look's picture, after the words: what the page shows, for a click at a point on it.
       const shot = done.reading.shot;
       if (typeof shot?.data === "string" && shot.data.length > 0 && shot.data.length <= MAX_SHOT_CHARS) {

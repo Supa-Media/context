@@ -20,12 +20,37 @@ const PASSKEY_WALL = /\b(?:complete sign-?in using your passkey|use your passkey
 
 export const PASSKEY_LINE =
   "This page asks for a passkey. A passkey sits on the person's own devices, and a request from this browser never reaches their phone, " +
-  "so never ask them to approve it. Pick another way on this page now: \"Try another way\", then their password (fill_login), or a code by text or email they can text you. " +
+  "so never ask them to approve it. Pick another way on this page now: press \"Try another way\" (a click by its words), then their password (fill_login), a code by text or email they can text you, or a \"tap Yes\" prompt Google sends to their phone. " +
   "Only if the page offers nothing else, hand them the browser to finish.";
 
-/** The line a reading carries when its page is a passkey wall; empty otherwise. */
-export function passkeyLine(text) {
+/** Google's list of ways to sign in, and its steps past the passkey one (a password, a code, a prompt on their phone). */
+const GOOGLE_WAYS = /^https:\/\/accounts\.google\.com\/.*\/challenge\/(?:selection|pwd|ipp|dp|az|totp|bc|sk|iap)\b/i;
+const WAYS_WORDS = /\bchoose how you want to sign in\b/i;
+
+export const WAYS_LINE =
+  "This is Google's list of ways to sign in. Pick \"Enter your password\" and fill it with their saved Google login (fill_login); else a code by text or email they can text you, " +
+  "or \"Tap Yes on your phone\", which Google sends to their own phone, so tell them to tap Yes. Never pick a passkey: it can't reach them from this browser.";
+
+const onGoogle = (url) => /^https:\/\/accounts\.google\.com\//i.test(String(url ?? ""));
+/** Whether a page is Google's list of ways to sign in. */
+const googleWays = (text, url) => onGoogle(url) && (/\/challenge\/selection\b/i.test(String(url)) || WAYS_WORDS.test(String(text ?? "")));
+/** Whether a page is past Google's passkey step: its list of other ways, or one of them. */
+const pastThePasskey = (text, url) => GOOGLE_WAYS.test(String(url ?? "")) || googleWays(text, url);
+
+/** The line a reading carries on a passkey wall, or on Google's list of other ways; empty otherwise. */
+export function passkeyLine(text, url = "") {
+  if (googleWays(text, url)) return WAYS_LINE;
+  if (pastThePasskey(text, url)) return "";
   return PASSKEY_WALL.test(String(text ?? "")) ? PASSKEY_LINE : "";
+}
+
+/**
+ * The marks a browser result carries for the answer check (`browserWalls.js`):
+ * a passkey wall met, and Google's other ways reached.
+ */
+export function passkeyMarks(reading) {
+  if (pastThePasskey(reading?.text, reading?.url)) return { passkeyWaysSeen: true };
+  return PASSKEY_WALL.test(String(reading?.text ?? "")) ? { passkeyWall: true } : {};
 }
 
 /** A published form id (`1FAIpQL…`) in an editor or responses address, or a published address with /edit or /responses. */

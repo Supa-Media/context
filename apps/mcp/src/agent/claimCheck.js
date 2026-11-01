@@ -66,6 +66,8 @@ import { ASK_FIRST_NOTICE, announcesNextStep, fewerThanAsked, finishNotice, pick
 import { KEEPS_A_PROMISE, givesUp, laterNotice, otherRoutesNotice, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
 import { figureCheck } from "./sourcedFigures.js";
+import { browserWalls } from "./browserWalls.js";
+export { CAPTCHA_NOTICE, handsOverACaptcha } from "./browserWalls.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 
@@ -281,32 +283,6 @@ export const HANDBACK_NOTICE =
   "If those words were not asking them to do anything (their own to-do list, or what someone else said), send your answer again as it was.";
 
 /*
-  A captcha is the person's only after the browser tried every way past it
-  (the owner, 2026-10-22: "make sure agents try using those bypasses and
-  other browserbase hacks before handing back"). The browse tool runs those
-  tries itself (`captchaLadder.js`) and marks a result whose captcha outlasted
-  them; an answer that hands them a captcha with no such result this turn
-  gets one more round.
-*/
-/** "captcha", and what Tex calls one in plain words: "a picture check keeps rejecting my answers" (2026-10-24, Instacart). */
-const CAPTCHA_WORDS = String.raw`(?:captcha|not a robot|robot check|bot check|human check|security check|(?:picture|image|photo|slider) (?:check|test|puzzle|challenge))`;
-const CAPTCHA_ASK = new RegExp(
-  String.raw`\b(?:solve|tick|check|complete|pass|clear|get (?:past|through)|click|do)\b[^.?!\n]{0,40}\b${CAPTCHA_WORDS}|\b${CAPTCHA_WORDS}[^.?!\n]{0,60}\b(?:you|your|tap|solve|tick|complete)\b`,
-  "i",
-);
-
-/** Whether an answer asks them to get past a captcha. */
-export function handsOverACaptcha(answer) {
-  return CAPTCHA_ASK.test(String(answer ?? "").replace(/[\u2018\u2019]/g, "'"));
-}
-
-export const CAPTCHA_NOTICE =
-  "Before this goes: your answer asks them to get past a captcha, but none outlasted the browser's tries this turn. " +
-  "Whenever a page shows a captcha, browse tries Browserbase's solver, a reload and a fresh browser with a new address by itself, so open the page with browse and carry on. " +
-  "Only a captcha the browse result says is still there after every try is theirs, and then only with everything else on the page done. " +
-  "If those words weren't asking them to solve anything, send your answer again as it was.";
-
-/*
   ONE FAILED BROWSER CALL IS NOT "IT WON'T OPEN" (2026-10-24). Tex texted
   "Instacart's cart won't open in my browser right now" four times, offered
   "say try again", and the plain retry the person then asked for worked.
@@ -443,8 +419,8 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   let hadWeb = false;
   let triedWeb = false;
   let handedBack = false;
-  let captchaStuck = false;
-  let captchaNoticed = false;
+  // A captcha handed over before every try, or a passkey page given up on before Google's other ways (`browserWalls.js`).
+  const walls = browserWalls();
   // Whether the turn's last browser call failed, and whether Tex was told to run it again (`BROWSER_RETRY_NOTICE`).
   let browserFailedLast = false;
   let retryNoticed = false;
@@ -504,7 +480,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
             browserTried = true;
             browserFailedLast = result?.isError === true;
           }
-          if (result?.captchaStuck === true) captchaStuck = true;
+          walls.read(result);
           return result;
         },
       };
@@ -596,6 +572,8 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
       const untried = untriedRoutes(steps);
       if (untried.length > 0) return otherRoutesNotice(untried);
     }
+    const passkey = walls.passkey(answer);
+    if (passkey !== null) return passkey;
     // Handing work back is checked on its own, once, beside the others: an
     // answer that offers an email can still ask them to go and find it.
     if (!handedBack && handsWorkBack(answer, { held })) {
@@ -620,10 +598,8 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
       askFirstNoticed = true;
       return ASK_FIRST_NOTICE;
     }
-    if (!captchaNoticed && !captchaStuck && handsOverACaptcha(answer)) {
-      captchaNoticed = true;
-      return CAPTCHA_NOTICE;
-    }
+    const captcha = walls.captcha(answer);
+    if (captcha !== null) return captcha;
     // A promise to text later, or to check in at a set time, that nothing in the turn keeps.
     const later = !laterNoticed && !keptPromise ? laterNotice(answer) : null;
     if (later !== null) {
