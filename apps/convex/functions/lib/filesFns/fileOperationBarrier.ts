@@ -434,15 +434,12 @@ export async function runFileOperationHandler(
     // on exactly the backends where it is not; the observed capability makes
     // `writeFile` fall back to a read-compare and say so.
     //
-    // That used to be applied here, on the next line, by hand — and only
-    // here, so the gateway's own stores claimed a guarantee they did not
-    // have. `storeForBinding` reads the binding's probed capability itself
-    // now, for every caller and every backend.
-    // Note texts to the workspace's object where they live there (`lib/rowWatch/consoleRouting.ts`).
+    // That used to be applied here, by hand and only here, so the gateway's own stores claimed a guarantee they
+    // did not have. `storeForBinding` reads the probed capability itself now, for every caller and every backend.
+    // Note texts go to the workspace's object where they live there (`lib/rowWatch/consoleRouting.ts`).
     const routing = await consoleWorkspaceRouting(ctx, args.workspaceId);
     store = storeForBinding(routing.credential(credential), undefined, {
-      ...routing.options,
-      fetchImpl: timeoutFetch,
+      ...routing.options, fetchImpl: timeoutFetch,
       noteCap,
       // The cap counts the tree's rows, never the bucket (`store/noteCap.js`).
       noteCount: async () => (await servedNoteCount(ctx, args.workspaceId))?.notes ?? null,

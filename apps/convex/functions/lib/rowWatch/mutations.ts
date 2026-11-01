@@ -71,3 +71,6 @@ export const mutation = ((definition: unknown) => convexMutation(watched(definit
 /** Convex's `internalMutation`, with its row writes told to the workspace's object. */
 export const internalMutation = ((definition: unknown) =>
   convexInternalMutation(watched(definition) as never)) as typeof convexInternalMutation;
+
+// The rest of the builders and contexts, so a file that takes its mutations from here needs one import.
+export { action, internalAction, internalQuery, query, type ActionCtx, type MutationCtx, type QueryCtx } from "../../../_generated/server";
