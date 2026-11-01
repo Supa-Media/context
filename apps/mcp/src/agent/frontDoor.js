@@ -1,5 +1,5 @@
 /**
- * TEX'S FRONT DOOR (Dev2, 2026-10-31: "go", on the drawing at
+ * TEX'S FRONT DOOR (Seyi, 2026-10-31: "go", on the drawing at
  * `@supa projects/tex/front-door-plan.md`).
  *
  * The new architecture makes Haiku the front door: a text comes in, Haiku
