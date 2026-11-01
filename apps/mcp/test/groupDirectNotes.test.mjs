@@ -9,6 +9,9 @@
  * Sabotage record (2026-10-31), each fails a test here:
  *  - `ownKey` accepting any key: "a key outside this chat's own object is never read directly";
  *  - `readGroupMemory` ignoring the kept keys: "with the keys kept, the turn reads no note through the tool".
+ * Sabotage record (2026-11-01):
+ *  - `directNote` reading a known-missing note the old way: "a voice and about-us note known missing are read as empty";
+ *  - `learnDirect` keeping a missing memory page as `false`: "a missing memory page is never kept as missing".
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -114,5 +117,26 @@ test("the id layer names the keys of keyed notes at several paths in one lookup"
   const store = withIdLayout({ get: async () => null, put: async () => null, delete: async () => {}, list: async () => ({ objects: [] }) }, { lookup, wrote: async () => {}, adopt: async () => {}, removed: async () => {} });
   const keys = await store.keysAt(["a.md", "b.md", ".context/x.json"]);
   assert.deepEqual(asked, [["a.md", "b.md"]], "one lookup, plumbing never asked");
-  assert.deepEqual(Object.keys(keys), ["a.md"]);
+  assert.deepEqual(keys, { "a.md": "notes/01900000-0000-7000-8000-00000000000a.md", "b.md": false }, "a gone row is known missing");
+});
+
+test("a voice and about-us note known missing are read as empty, with no read through the tool", async () => {
+  const { group, store, reads, dispatch } = setup({ direct: { voice: false, about: false, memory: OWN("m1") }, objectEntries: ENTRIES, onPage: true });
+  await readGroupMemory(store, group, dispatch);
+  assert.equal(group.voice, "");
+  assert.equal(group.aboutUs, "");
+  assert.deepEqual(reads.filter((path) => typeof path === "string" && path.startsWith(HOME)), [], "nothing in the home read through the tool");
+});
+
+test("after an exchange, a missing voice and about-us note are kept as missing; a missing memory page is never kept as missing", async () => {
+  const homeStore = { ...object(ENTRIES), keysAt: async () => ({ [`${HOME}/voice.md`]: false, [`${HOME}/about-us.md`]: false, [`${HOME}/chat-x.md`]: false }) };
+  const group = { key: KEY, home: { folder: HOME, store: homeStore } };
+  const direct = await learnDirect(group, { voice: `${HOME}/voice.md`, about: `${HOME}/about-us.md`, memory: `${HOME}/chat-x.md` });
+  assert.deepEqual(direct, { voice: false, about: false });
+});
+
+test("a lookup that cannot say keeps nothing, so every note is read the old way", async () => {
+  const homeStore = { ...object(ENTRIES), keysAt: async () => ({}) };
+  const group = { key: KEY, home: { folder: HOME, store: homeStore } };
+  assert.deepEqual(await learnDirect(group, { voice: `${HOME}/voice.md`, about: `${HOME}/about-us.md`, memory: `${HOME}/chat-x.md` }), {});
 });

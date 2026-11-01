@@ -36,9 +36,13 @@ function keptDirect(group, record) {
   return group?.home?.store && direct && typeof direct === "object" ? direct : null;
 }
 
-/** `{etag, body}` of a kept note (`which`: "voice", "about" or "memory"), or null to read it the old way. */
+/**
+ * `{etag, body}` of a kept note (`which`: "voice", "about" or "memory"), or null to read it the old way. A voice or
+ * about-us note the last lookup found missing (`false`) is an empty one, not a slow read every turn (2026-11-01).
+ */
 export async function directNote(group, record, which) {
   const key = keptDirect(group, record)?.[which];
+  if (key === false && which !== "memory") return { etag: null, body: "" };
   if (!ownKey(group, key)) return null;
   try {
     const object = await group.home.store.get(key);
@@ -50,7 +54,12 @@ export async function directNote(group, record, which) {
 
 /**
  * The keys to keep for next turn, after an exchange: one lookup for the paths (`store.keysAt`, `idLayout.js`).
- * `{}` when the home's store cannot say, which leaves every read the old way.
+ * `{}` when the home's store cannot say, which leaves every read the old way. A voice or about-us note the lookup
+ * did not find is kept as `false`: most homes have neither, and each turn read both the old way, about 1.3 to 3 s of
+ * a group reply on 2026-11-01. Every exchange looks again, so a note made since is read from the next turn on. The
+ * first `false` is only ever kept after a turn that read the old way, so the voice note's move into the home
+ * (`moveVoice`) has run. The memory page is never kept as missing: it is written after this lookup, in the same
+ * exchange, and a missing page read as empty would lose the chat's history.
  */
 export async function learnDirect(group, { voice, about, memory }) {
   const store = group?.home?.store;
@@ -58,7 +67,8 @@ export async function learnDirect(group, { voice, about, memory }) {
   try {
     const keys = await store.keysAt([voice, about, memory].filter((path) => typeof path === "string"));
     const own = (path) => (ownKey(group, keys?.[path]) ? keys[path] : undefined);
-    const direct = { voice: own(voice), about: own(about), memory: own(memory) };
+    const missing = (path) => (keys?.[path] === false ? false : undefined);
+    const direct = { voice: own(voice) ?? missing(voice), about: own(about) ?? missing(about), memory: own(memory) };
     return Object.fromEntries(Object.entries(direct).filter(([, value]) => value !== undefined));
   } catch {
     return {};
