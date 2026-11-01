@@ -183,6 +183,26 @@ export const resolveGrantByAccessTokenReturns = v.union(
  * to. Two fields for two questions: which context did this person approve, and
  * which may this connection reach.
  */
+/** How often a grant's `lastUsedAt` is stamped at most (`grants.ts` `touchGrant`). */
+export const TOUCH_GRANT_EVERY_MS = 5 * 60 * 1000;
+
+/**
+ * The session, and whether `touchGrant` would write anything now: the same
+ * test `touchGrant` makes, read in this query so `/gateway/session` skips the
+ * mutation round trip on the requests where it would write nothing.
+ */
+export async function resolveGatewaySessionHandler(
+  ctx: QueryCtx,
+  args: ObjectType<typeof resolveGrantByAccessTokenArgs>,
+) {
+  const session = await resolveGrantByAccessTokenHandler(ctx, args);
+  if (session === null) return { session: null, touchDue: false };
+  const grant = await ctx.db.get(session.grantId);
+  const lastUsedAt = grant?.lastUsedAt;
+  const touchDue = lastUsedAt === undefined || Date.now() - lastUsedAt >= TOUCH_GRANT_EVERY_MS;
+  return { session, touchDue };
+}
+
 export async function resolveGrantByAccessTokenHandler(
   ctx: QueryCtx,
   args: ObjectType<typeof resolveGrantByAccessTokenArgs>,
