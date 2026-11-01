@@ -108,8 +108,9 @@ export function workspaceRows(sql) {
         // the object rewrites its descendants' paths in the same call, or they would be judged under the old folder.
         if (held && Number(held.gone) === 0 && held.kind === "folder" && held.path !== "" && held.path !== row.path) {
           sql.exec(
-            "UPDATE ws_rows SET path = ? || substr(path, length(?) + 1) WHERE gone = 0 AND substr(path, 1, length(?) + 1) = ? || '/'",
-            row.path, held.path, held.path, held.path,
+            // Each moved row takes the folder's clock too, so a push of it read before the move is older and ignored.
+            "UPDATE ws_rows SET path = ? || substr(path, length(?) + 1), at = MAX(at, ?) WHERE gone = 0 AND substr(path, 1, length(?) + 1) = ? || '/'",
+            row.path, held.path, row.at, held.path, held.path,
           );
         }
         sql.exec(

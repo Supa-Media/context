@@ -255,3 +255,14 @@ test("lookup by path and resolve by note id answer like a read: one the caller m
   const resolved = await ws.rows.resolve({ noteIds: [ID(1), ID(2)], scope: "private" });
   assert.deepEqual(resolved.rows.map((row) => row.path), ["1-projects/open.md", "1-projects/held.md"]);
 });
+
+test("a push of a note read before its folder moved lands after the move and is ignored, so the note stays under the new folder", { skip }, async () => {
+  const { ws } = await seeded();
+  await ws.rows.put([{ id: "f1", path: "1-projects", kind: "folder", at: 10 }]);
+  // B: the folder, read after the move, lands first.
+  await ws.rows.put([{ id: "f1", path: "1-projects/secret/old", kind: "folder", at: 40 }]);
+  // A: the note, read before the move with its old path, lands late.
+  await ws.rows.put([{ id: "n1", noteId: ID(1), path: "1-projects/open.md", kind: "file", at: 30 }]);
+  assert.equal((await ws.rows.get(["n1"])).rows[0].path, "1-projects/secret/old/open.md");
+  assert.equal((await ws.read({ ids: [ID(1)], scope: "team" })).notes[0].found, false);
+});
