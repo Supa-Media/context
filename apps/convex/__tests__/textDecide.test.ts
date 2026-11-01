@@ -21,6 +21,7 @@ import { api } from "../_generated/api";
 import { TRANSCRIBE_WORKER_SECRET_ENV_VAR, TRANSCRIBE_WORKER_URL_ENV_VAR } from "../functions/meetings/transcribe";
 import { utcDay } from "../functions/lib/jev/meter";
 import { OTHER_ASSISTANT_RULE, decideRequest } from "../functions/lib/gatewayRoutes/textDecide";
+import { groupKeyOf } from "../functions/textGroups";
 import { addMember, asUser, createUser, createWorkspace, setupTest, TEST_GATEWAY_SECRET } from "./fixtures.helpers";
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
@@ -151,7 +152,9 @@ describe("the door", () => {
 describe("the decision", () => {
   test("asks typed questions over the transcript and maps the answers", async () => {
     const t = setupTest();
-    const { studio } = await boundGroup(t);
+    // Metered to the sponsor (Ada, whose turn minted the grant), not the shared workspace (Jhonatan, 2026-11-01).
+    const { ada } = await boundGroup(t);
+    const studio = ada.workspaceId;
     const sent = clef(ANSWER);
     const logs: string[] = [];
     vi.spyOn(console, "info").mockImplementation((line: unknown) => void logs.push(String(line)));
@@ -222,7 +225,8 @@ describe("the decision", () => {
 
   test("off and capped: ok false, and nothing is sent", async () => {
     const t = setupTest();
-    const { studio } = await boundGroup(t);
+    const { ada } = await boundGroup(t);
+    const studio = ada.workspaceId;
     const sent = clef(ANSWER);
     await t.run((ctx) => ctx.db.insert("jevSwitches", { feature: "textDecide", off: true, updatedAt: Date.now() }));
     expect((await decide(t)).json).toEqual({ ok: false, reason: "off", cause: "switched_off" });
@@ -335,4 +339,22 @@ test("every style tells decide a message for another assistant is silent, never 
     expect(act.instructions).toContain(OTHER_ASSISTANT_RULE);
     expect(act.instructions.length).toBeLessThanOrEqual(1_000);
   }
+});
+
+// 2026-11-01: in a chat that reaches no shared workspace (home-only, like Tex Devs), every decide was refused as no_group,
+// so untagged texts and reactions were never judged. Decide is metered to the sponsor in every group, as turns are.
+test("decide is metered to the chat's sponsor, including a chat that reaches no shared workspace", async () => {
+  const t = setupTest();
+  const ada = await texter(t, "ada", ADA);
+  const groupKey = await groupKeyOf(LINE, GROUP);
+  await t.run((ctx) => ctx.db.insert("textGroups", { groupKey, sponsorId: ada.userId, lastSeenAt: Date.now() } as never));
+  clef(ANSWER);
+  expect((await decide(t)).json).toMatchObject({ ok: true });
+  vi.unstubAllGlobals();
+  await t.run(async (ctx) => {
+    const row = await ctx.db.query("textGroups").withIndex("by_key", (q) => q.eq("groupKey", groupKey)).unique();
+    await ctx.db.patch(row!._id, { sponsorId: undefined });
+  });
+  clef(ANSWER);
+  expect((await decide(t)).json).toMatchObject({ ok: false, cause: "no_group" });
 });
