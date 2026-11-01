@@ -533,11 +533,11 @@ export const groupDecideWorkspace = internalQuery({
       .withIndex("by_key", (q) => q.eq("groupKey", args.groupKey))
       .unique();
     if (chat === null) return null;
-    const reached = await chatWorkspace(ctx, chat);
-    if (reached !== null) return reached._id;
-    // A chat that reaches no shared workspace (a home-only chat, 2026-11-01) is metered to its sponsor, as its turns are
-    // (`lib/textGroupUsage.ts`); without this every decide there was refused as no_group and untagged texts went unjudged.
+    // Decide is metered to the chat's sponsor, as its turns are (`lib/textGroupUsage.ts`; Jhonatan, 2026-11-01), in every
+    // group: a home-only chat reaches no shared workspace, and before this every decide there was refused as no_group.
     const sponsor = chat.sponsorId ?? chat.boundBy;
-    return sponsor === undefined ? null : await personalWorkspaceOf(ctx, sponsor);
+    if (sponsor !== undefined) return await personalWorkspaceOf(ctx, sponsor);
+    // A row from before sponsors (written on its next mint): the chat's shared workspace, as before.
+    return (await chatWorkspace(ctx, chat))?._id ?? null;
   },
 });

@@ -152,7 +152,9 @@ describe("the door", () => {
 describe("the decision", () => {
   test("asks typed questions over the transcript and maps the answers", async () => {
     const t = setupTest();
-    const { studio } = await boundGroup(t);
+    // Metered to the sponsor (Ada, whose turn minted the grant), not the shared workspace (Jhonatan, 2026-11-01).
+    const { ada } = await boundGroup(t);
+    const studio = ada.workspaceId;
     const sent = clef(ANSWER);
     const logs: string[] = [];
     vi.spyOn(console, "info").mockImplementation((line: unknown) => void logs.push(String(line)));
@@ -223,7 +225,8 @@ describe("the decision", () => {
 
   test("off and capped: ok false, and nothing is sent", async () => {
     const t = setupTest();
-    const { studio } = await boundGroup(t);
+    const { ada } = await boundGroup(t);
+    const studio = ada.workspaceId;
     const sent = clef(ANSWER);
     await t.run((ctx) => ctx.db.insert("jevSwitches", { feature: "textDecide", off: true, updatedAt: Date.now() }));
     expect((await decide(t)).json).toEqual({ ok: false, reason: "off", cause: "switched_off" });
@@ -339,8 +342,8 @@ test("every style tells decide a message for another assistant is silent, never 
 });
 
 // 2026-11-01: in a chat that reaches no shared workspace (home-only, like Tex Devs), every decide was refused as no_group,
-// so untagged texts and reactions were never judged. Such a chat is metered to its sponsor, as its turns are.
-test("a chat that reaches no shared workspace decides on its sponsor's meter", async () => {
+// so untagged texts and reactions were never judged. Decide is metered to the sponsor in every group, as turns are.
+test("decide is metered to the chat's sponsor, including a chat that reaches no shared workspace", async () => {
   const t = setupTest();
   const ada = await texter(t, "ada", ADA);
   const groupKey = await groupKeyOf(LINE, GROUP);
