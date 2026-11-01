@@ -97,12 +97,15 @@ export async function pruneTurns(store, now = Date.now()) {
  * fixed words are the Worker's `system` event); a turn that threw, or whose
  * `clean` was never set, is not clean.
  */
-export async function recordedTurn(store, run) {
+export async function recordedTurn(store, run, { defer = () => false } = {}) {
   const outcome = { turn: undefined, clean: false };
   try {
     return await run(outcome);
   } finally {
-    await recordTurn(store, outcome.turn, outcome.clean === true).catch(() => {});
+    // After the response on a chat's lean text (`texEntryPoint.js`): until it lands the turn has no record, which reads as not clean, so late fails closed.
+    const recorded = recordTurn(store, outcome.turn, outcome.clean === true).catch(() => {});
+    if (defer() && typeof store.defer === "function") store.defer(recorded);
+    else await recorded;
   }
 }
 
@@ -119,7 +122,11 @@ async function cleanTurn(store, turn) {
 }
 
 /** Whether any of Tex's events shown is not proven clean; logs how many had no readable record, by count only. */
-async function showsTainted(store, events, workspace, warm = null) {
+async function showsTainted(store, events, workspace, warm = null, records = (read) => read()) {
+  return records(() => readsTainted(store, events, workspace, warm));
+}
+
+async function readsTainted(store, events, workspace, warm) {
   const turns = [...new Set(events.filter((event) => event.from?.kind === "tex").map((event) => event.turn))];
   const records = await Promise.all(turns.map((turn) => (warm === null ? cleanTurn(store, turn) : warm.clean(turn, () => cleanTurn(store, turn)))));
   const count = records.filter((clean) => clean === null).length;
@@ -145,7 +152,7 @@ export async function turnHistory(store, session, body, { runner, group, dispatc
 }
 
 /** The log's history and question for a turn that names what it covers, or null for today's turn. */
-export async function loggedTurn(store, body, { group = null, timeZone = "UTC", workspace, warm = null } = {}) {
+export async function loggedTurn(store, body, { group = null, timeZone = "UTC", workspace, warm = null, records } = {}) {
   const covers = body?.covers;
   if (!Array.isArray(covers) || covers.length === 0 || covers.length > MAX_COVERS || !covers.every((id) => typeof id === "string" && EVENT_ID.test(id))) return null;
   if (!isChatKey(body.chat)) return null;
@@ -160,7 +167,7 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   if (question === "") return null;
   const shown = seenBy(events.filter((event) => !wanted.has(event.id)), group?.members ?? null);
   const transcript = renderEvents(shown, { timeZone, answeredBy: events });
-  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: await showsTainted(store, shown, workspace, warm) };
+  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: await showsTainted(store, shown, workspace, warm, records) };
 }
 
 /**
@@ -173,6 +180,6 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
 export const JOB_HISTORY_ENTRIES = 30;
 
 /** Today's history and the chat's event log, side by side: what a turn reads before its model (`route.js`). */
-export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false }) {
-  return Promise.all([turnHistory(store, session, body, { runner, group, dispatch, warm, job }), runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm })]);
+export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, records }) {
+  return Promise.all([turnHistory(store, session, body, { runner, group, dispatch, warm, job }), runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records })]);
 }
