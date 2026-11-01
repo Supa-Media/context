@@ -254,6 +254,7 @@ export const backfill = internalAction({
     alreadyArmed: v.number(),
     notArmed: v.number(),
     unreachable: v.number(),
+    failed: v.number(),
     heldBack: v.number(),
     bytes: v.number(),
     finished: v.number(),
@@ -264,7 +265,7 @@ export const backfill = internalAction({
     done: v.boolean(),
   }),
   handler: async (ctx, { step, dryRun, cursor, only }) => {
-    const counts = { workspaces: 0, armed: 0, alreadyArmed: 0, notArmed: 0, unreachable: 0, heldBack: 0, bytes: 0, finished: 0, rows: 0 };
+    const counts = { workspaces: 0, armed: 0, alreadyArmed: 0, notArmed: 0, unreachable: 0, failed: 0, heldBack: 0, bytes: 0, finished: 0, rows: 0 };
     const bodies: CopyCounts = emptyCopyCounts();
     const state = await startState(ctx, cursor, only);
     if (state === "NO_WORKSPACE") return { ...counts, bodies, refused: "NO_WORKSPACE", cursor: "", done: true };
@@ -294,43 +295,51 @@ export const backfill = internalAction({
         state.at = undefined;
         continue;
       }
-      const bucket = await openBucket(ctx, workspaceId);
-      const client = consoleWorkspaceClient(ctx, workspaceId);
-      if (bucket === null || client === null) {
-        counts.unreachable += 1;
-        state.queue.shift();
-        state.at = undefined;
-        continue;
-      }
-      if (state.at === undefined) {
-        counts.workspaces += 1;
-        // Counted before a byte is copied: one that would not fit is held back whole and named by count.
-        const size = await objectBytes(bucket, OBJECT_BYTES_CAP);
-        counts.bytes += size.bytes;
-        if (size.bytes > OBJECT_BYTES_CAP) {
-          counts.heldBack += 1;
-          console.warn(JSON.stringify({ event: "workspace_object_held_back", workspaceId, keys: size.keys, bytes: size.bytes }));
+      try {
+        const bucket = await openBucket(ctx, workspaceId);
+        const client = consoleWorkspaceClient(ctx, workspaceId);
+        if (bucket === null || client === null) {
+          counts.unreachable += 1;
           state.queue.shift();
+          state.at = undefined;
           continue;
         }
+        if (state.at === undefined) {
+          counts.workspaces += 1;
+          // Counted before a byte is copied: one that would not fit is held back whole and named by count.
+          const size = await objectBytes(bucket, OBJECT_BYTES_CAP);
+          counts.bytes += size.bytes;
+          if (size.bytes > OBJECT_BYTES_CAP) {
+            counts.heldBack += 1;
+            console.warn(JSON.stringify({ event: "workspace_object_held_back", workspaceId, keys: size.keys, bytes: size.bytes }));
+            state.queue.shift();
+            continue;
+          }
+        }
+        const page = await copyPage(bucket, client.bodies as unknown as BodyStore, { at: state.at ?? { prefix: 0 }, limit: KEYS_PER_PAGE, dryRun });
+        addCounts(bodies, page.counts);
+        if (page.next !== null) {
+          state.at = page.next;
+          continue;
+        }
+        // Every body is across: the rows and rules whole, then the mark.
+        if (!dryRun) {
+          const pushed = await pushRows(ctx, workspaceId, client, "replace");
+          counts.rows += pushed.rows;
+          const now = Date.now();
+          await client.markBackfilled(now);
+          await ctx.runMutation(internal.functions.workspaceObjectsRows.recordCopy, { workspaceId, backfilledAt: now });
+        }
+        counts.finished += 1;
+        state.queue.shift();
+        state.at = undefined;
+      } catch (error) {
+        // One workspace that cannot be read (a revoked or broken binding) is counted and passed over, never the run's end.
+        counts.failed += 1;
+        console.warn(JSON.stringify({ event: "workspace_backfill_failed", workspaceId, error: error instanceof Error ? error.name : "unknown" }));
+        state.queue.shift();
+        state.at = undefined;
       }
-      const page = await copyPage(bucket, client.bodies as unknown as BodyStore, { at: state.at ?? { prefix: 0 }, limit: KEYS_PER_PAGE, dryRun });
-      addCounts(bodies, page.counts);
-      if (page.next !== null) {
-        state.at = page.next;
-        continue;
-      }
-      // Every body is across: the rows and rules whole, then the mark.
-      if (!dryRun) {
-        const pushed = await pushRows(ctx, workspaceId, client, "replace");
-        counts.rows += pushed.rows;
-        const now = Date.now();
-        await client.markBackfilled(now);
-        await ctx.runMutation(internal.functions.workspaceObjectsRows.recordCopy, { workspaceId, backfilledAt: now });
-      }
-      counts.finished += 1;
-      state.queue.shift();
-      state.at = undefined;
     }
     return { ...counts, bodies, cursor: JSON.stringify(state), done: false };
   },
@@ -467,14 +476,14 @@ export const parity = internalAction({
         }
         counts.workspaces += 1;
       }
-      const bucket = await openBucket(ctx, workspaceId);
-      const client = consoleWorkspaceClient(ctx, workspaceId);
-      if (bucket === null || client === null) {
-        counts.unreachable += 1;
-        finishWorkspace();
-        continue;
-      }
       try {
+        const bucket = await openBucket(ctx, workspaceId);
+        const client = consoleWorkspaceClient(ctx, workspaceId);
+        if (bucket === null || client === null) {
+          counts.unreachable += 1;
+          finishWorkspace();
+          continue;
+        }
         const page = await parityPage(bucket, client.bodies as unknown as BodyStore, {
           at: state.check ?? { side: 0, prefix: 0 },
           limit: KEYS_PER_PAGE,
