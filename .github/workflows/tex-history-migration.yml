@@ -5,7 +5,8 @@
 # Manual only. Run it with `dry_run` first: that counts what would move and
 # changes nothing. It pages through `functions/texHistoryMigration:run`, which
 # answers with counts and a cursor, never a path, a key or a word: this
-# repository is public, and so is this job's log. Running it again moves
+# repository is public, and so is this job's log. With `report_key`, the
+# workspaces that failed are printed only sealed to that public key. Running it again moves
 # nothing already moved, and nothing in a bucket is deleted.
 name: Tex history into its object
 
@@ -23,6 +24,10 @@ on:
         description: "Count only; move nothing."
         type: boolean
         default: true
+      report_key:
+        description: "Optional: a base64 RSA public key (PEM). The failed workspaces are printed only encrypted to it."
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -48,21 +53,35 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           DRY_RUN: ${{ inputs.dry_run }}
+          REPORT_KEY: ${{ inputs.report_key }}
         run: |
           set -euo pipefail
           cursor=""
           page=0
           total='{}'
+          report=false
+          if [ -n "$REPORT_KEY" ]; then
+            echo "$REPORT_KEY" | base64 -d > "$RUNNER_TEMP/report.pub"
+            openssl pkey -pubin -in "$RUNNER_TEMP/report.pub" -noout
+            report=true
+          fi
           while :; do
             page=$((page + 1))
             if [ -z "$cursor" ]; then
-              args=$(jq -cn --argjson dry "$DRY_RUN" '{dryRun: $dry}')
+              args=$(jq -cn --argjson dry "$DRY_RUN" --argjson report "$report" '{dryRun: $dry, report: $report}')
             else
-              args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" '{dryRun: $dry, cursor: $cursor}')
+              args=$(jq -cn --argjson dry "$DRY_RUN" --argjson report "$report" --arg cursor "$cursor" '{dryRun: $dry, report: $report, cursor: $cursor}')
             fi
             answer=$(npx convex run functions/texHistoryMigration:run "$args")
-            echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
-            total=$(jq -cn --argjson a "$total" --argjson b "$(echo "$answer" | jq -c '(.failedCodes // {} | with_entries(.key |= "failed_" + .)) + del(.cursor, .done, .failedCodes)')" '$a + ($b | to_entries | map({key, value: (.value + ($a[.key] // 0))}) | from_entries)')
+            # Who failed is never printed in the clear: only sealed to the caller's key (a fresh AES key, wrapped by RSA-OAEP).
+            if [ "$report" = true ] && [ "$(echo "$answer" | jq '.failures // [] | length')" != "0" ]; then
+              secret=$(openssl rand -hex 32)
+              sealed=$(echo "$answer" | jq -c '.failures' | openssl enc -aes-256-cbc -pbkdf2 -salt -pass "pass:$secret" | base64 -w0)
+              wrapped=$(printf %s "$secret" | openssl pkeyutl -encrypt -pubin -inkey "$RUNNER_TEMP/report.pub" -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 | base64 -w0)
+              echo "sealed report, page $page: $wrapped.$sealed"
+            fi
+            echo "page $page: $(echo "$answer" | jq -c 'del(.cursor, .failures)')"
+            total=$(jq -cn --argjson a "$total" --argjson b "$(echo "$answer" | jq -c '(.failedCodes // {} | with_entries(.key |= "failed_" + .)) + del(.cursor, .done, .failedCodes, .failures)')" '$a + ($b | to_entries | map({key, value: (.value + ($a[.key] // 0))}) | from_entries)')
             if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
             cursor=$(echo "$answer" | jq -r '.cursor')
             if [ "$page" -ge 2000 ]; then echo "stopped after $page pages"; exit 1; fi

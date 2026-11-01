@@ -27,6 +27,9 @@ import { consoleWorkspaceRouting } from "./lib/rowWatch/consoleRouting";
 
 const WORKSPACES_PER_CALL = 20;
 
+/** One failed workspace, returned only to a workflow that encrypts it before printing (`report`). */
+type Failure = { workspaceId: string; slug: string; kind: string; owners: string[]; provider: string; bucket: string; message: string };
+
 type Counts = {
   workspaces: number;
   noBinding: number;
@@ -39,6 +42,7 @@ type Counts = {
   turnsWould: number;
   failed: number;
   failedCodes: Record<string, number>;
+  failures?: Failure[];
   cursor: string;
   done: boolean;
 };
@@ -50,6 +54,13 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise
   // Opened as every console store is, workspace object routing included (`lib/rowWatch/consoleRouting.ts`).
   const routing = await consoleWorkspaceRouting(ctx, workspaceId);
   return storeForBinding(routing.credential(credential), undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId, { ticketOwners: [`person:${workspaceId}`] }), ...routing.options });
+}
+
+async function describeFailure(ctx: ActionCtx, workspaceId: Id<"workspaces">, error: unknown): Promise<Failure> {
+  const who = await ctx.runQuery(internal.functions.texHistoryMigrationRows.describe, { workspaceId });
+  const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
+  // The provider and bucket name only: never a key or secret of the credential.
+  return { workspaceId, ...who, provider: String(credential?.provider ?? "none"), bucket: String(credential?.bucket ?? ""), message: String((error as { message?: unknown } | null)?.message ?? error).slice(0, 500) };
 }
 
 /** A failure as a fixed code: the error's own code or name when it is a plain word, never its message. */
@@ -64,7 +75,7 @@ export function failureCode(error: unknown): string {
 
 /** One page: up to `WORKSPACES_PER_CALL` workspaces. `only` names one workspace by id. */
 export const run = internalAction({
-  args: { dryRun: v.boolean(), cursor: v.optional(v.string()), only: v.optional(v.id("workspaces")) },
+  args: { dryRun: v.boolean(), cursor: v.optional(v.string()), only: v.optional(v.id("workspaces")), report: v.optional(v.boolean()) },
   returns: v.object({
     workspaces: v.number(),
     noBinding: v.number(),
@@ -77,6 +88,7 @@ export const run = internalAction({
     turnsWould: v.number(),
     failed: v.number(),
     failedCodes: v.record(v.string(), v.number()),
+    failures: v.optional(v.array(v.object({ workspaceId: v.string(), slug: v.string(), kind: v.string(), owners: v.array(v.string()), provider: v.string(), bucket: v.string(), message: v.string() }))),
     cursor: v.string(),
     done: v.boolean(),
   }),
@@ -108,6 +120,8 @@ export const run = internalAction({
         counts.failed += 1;
         counts.failedCodes[code] = (counts.failedCodes[code] ?? 0) + 1;
         console.error(JSON.stringify({ event: "tex_history_migration_failed", workspaceId, code }));
+        // `report`: who it is and what the bucket said, for a workflow that prints it only encrypted to a key of its caller's.
+        if (args.report === true) (counts.failures ??= []).push(await describeFailure(ctx, workspaceId, error));
       }
     }
     return { ...counts, cursor: page.cursor, done: page.done };
