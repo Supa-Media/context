@@ -70,22 +70,29 @@ export function workspaceStub(env, workspaceId) {
  *
  * - `bodies`: a ContextStore (`store/r2.js`) over the object's keys.
  * - `read({ids, scope, groups})` → `{notes: Array<{id, found: true, path, etag, contentType, text}|{id, found: false}>, accessVersion}`
+ * - `visible({ids, scope, groups})` → booleans, the same check (for the parity checker)
  * - `rows.put(rows)`, `rows.remove(ids, at)`, `rows.get(ids)`, `rows.list({after, limit})`
+ * - `rows.snapshot({epoch, rows, last, mode})`: a whole copy in pages; `replace` swaps on the last page, `merge` upserts
+ * - `rows.digest()` → `{rows, sha256}` over the live rows in id order (fields: id, noteId, path, kind, storageKey, etag, size, collaborates)
+ * Every `ws.*` call names its workspace; the object pins the first it sees and refuses any other.
  * - `rules.put(heldRules)`, `rules.get()`
  * - `state()` → `{home, backfilledAt, rows, objects, accessVersion}`; `setHome(home)`; `markBackfilled(at)`
  */
 export function workspaceClient(env, workspaceId) {
   const stub = workspaceStub(env, workspaceId);
   if (stub === null) return null;
-  const ask = async (op, fields = {}) => await (await callTexStore(stub, op, {}, new TextEncoder().encode(JSON.stringify(fields)))).json();
+  const ask = async (op, fields = {}) => await (await callTexStore(stub, op, {}, new TextEncoder().encode(JSON.stringify({ ...fields, workspaceId })))).json();
   return {
     bodies: new R2Store(texBucket(stub)),
     read: async ({ ids, scope, groups = [] }) => await ask("ws.read", { ids, scope, groups }),
+    visible: async ({ ids, scope, groups = [] }) => (await ask("ws.visible", { ids, scope, groups })).visible,
     rows: {
       put: async (rows) => await ask("ws.rows.put", { rows }),
       remove: async (ids, at) => await ask("ws.rows.remove", { ids, at }),
       get: async (ids) => await ask("ws.rows.get", { ids }),
       list: async ({ after = null, limit = 1000 } = {}) => await ask("ws.rows.list", { after, limit }),
+      snapshot: async ({ epoch, rows, last = false, mode = "replace" }) => await ask("ws.rows.snapshot", { epoch, rows, last, mode }),
+      digest: async () => await ask("ws.rows.digest"),
     },
     rules: {
       put: async (rules) => await ask("ws.rules.put", { rules }),

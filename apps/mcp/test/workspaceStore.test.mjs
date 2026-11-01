@@ -170,3 +170,57 @@ test("only note texts and shared-editing history are kept in the object", () => 
     assert.equal(isWorkspaceObjectKey(key), false, key);
   }
 });
+
+test("a whole copy in pages replaces the rows on its last page, and the digest matches across two objects holding the same rows", { skip }, async () => {
+  const { ws } = await seeded();
+  const other = workspaceClient({ WORKSPACE_STORE: namespace() }, "ws_one");
+  const copy = (await ws.rows.list()).rows;
+  await other.rows.snapshot({ epoch: "e1", rows: [{ id: "stale", path: "gone.md", kind: "file", at: 1 }], last: true });
+  await other.rows.snapshot({ epoch: "e2", rows: copy.slice(0, 2) });
+  assert.equal((await other.rows.get(["stale"])).rows.length, 1, "nothing changes before the last page");
+  await other.rows.snapshot({ epoch: "e2", rows: copy.slice(2), last: true });
+  assert.deepEqual((await other.rows.get(["stale"])).rows, []);
+  assert.deepEqual(await other.rows.digest(), await ws.rows.digest());
+  await other.rows.put([{ ...copy[0], path: "elsewhere.md", at: 99 }]);
+  assert.notEqual((await other.rows.digest()).sha256, (await ws.rows.digest()).sha256);
+});
+
+test("visible answers the read's own check, as booleans", { skip }, async () => {
+  const { ws } = await seeded();
+  assert.deepEqual(await ws.visible({ ids: [ID(1), ID(2), ID(4)], scope: "team", groups: ["@team-a"] }), [true, false, true]);
+});
+
+test("an object pins the first workspace that calls it and refuses any other", { skip }, async () => {
+  const space = namespace();
+  const id = space.idFromName("workspace:ws_a");
+  const stub = space.get(id);
+  const own = workspaceClient({ WORKSPACE_STORE: { idFromName: () => id, get: () => stub } }, "ws_a");
+  await own.rows.put([{ id: "n1", path: "a.md", kind: "file", at: 1 }]);
+  const intruder = workspaceClient({ WORKSPACE_STORE: { idFromName: () => id, get: () => stub } }, "ws_b");
+  await assert.rejects(() => intruder.rows.list());
+  await assert.rejects(() => intruder.rows.put([{ id: "n2", path: "b.md", kind: "file", at: 1 }]));
+});
+
+test("the control plane's door opens only the ticket's workspace, whatever the body names", { skip }, async () => {
+  const { handleWorkspaceStoreDoor } = await import("../src/workspaceStore/door.js");
+  const space = namespace();
+  const env = { WORKSPACE_STORE: space, GATEWAY_SECRET: "test-secret" };
+  await workspaceClient(env, "ws_a").rows.put([{ id: "n1", path: "a.md", kind: "file", at: 1 }]);
+  const controlPlane = { openTexStoreTicket: async (ticket) => (ticket === "good" ? { workspaceId: "ws_b", owners: [] } : null) };
+  const call = (ticket, fields, secret = "test-secret") =>
+    handleWorkspaceStoreDoor(
+      new Request("https://gw/internal/workspace-store", {
+        method: "POST",
+        headers: { authorization: `Bearer ${secret}`, "x-workspace-ticket": ticket, "x-tex-call": encodeURIComponent(JSON.stringify({ op: "ws.rows.list" })) },
+        body: JSON.stringify(fields),
+      }),
+      env,
+      { controlPlane },
+    );
+  assert.equal((await call("good", {}, "wrong")).status, 401);
+  assert.equal((await call("bad", {})).status, 403);
+  const answer = await call("good", { workspaceId: "ws_a" });
+  assert.equal(answer.status, 200);
+  assert.deepEqual((await answer.json()).rows, [], "ws_b's object, empty, not ws_a's");
+  assert.deepEqual(space.names().sort(), ["workspace:ws_a", "workspace:ws_b"]);
+});

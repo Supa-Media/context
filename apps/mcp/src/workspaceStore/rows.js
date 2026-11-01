@@ -27,7 +27,11 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS ws_rows_note ON ws_rows (note_id)`,
   `CREATE INDEX IF NOT EXISTS ws_rows_path ON ws_rows (path)`,
   `CREATE TABLE IF NOT EXISTS ws_meta (name TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS ws_stage (epoch TEXT NOT NULL, id TEXT NOT NULL, row TEXT NOT NULL, PRIMARY KEY (epoch, id))`,
 ];
+
+/** The fields a row's digest covers, in order. */
+const DIGEST_FIELDS = ["id", "noteId", "path", "kind", "storageKey", "etag", "size", "collaborates"];
 
 /** Thrown for a row or rule write the object will not keep. */
 export class WorkspaceRowRefused extends Error {
@@ -132,6 +136,40 @@ export function workspaceRows(sql) {
       const more = page.length > size;
       const rows = more ? page.slice(0, size) : page;
       return { rows, ...(more ? { after: rows[rows.length - 1].id } : {}) };
+    },
+    /**
+     * One page of a whole copy of the rows. `replace`: pages are staged under
+     * `epoch`, and the last page swaps the staged set in as the rows, dropping
+     * any row the copy does not name. `merge`: each page is an ordinary `put`.
+     */
+    snapshot({ epoch, last = false, rows: page, mode = "replace" } = {}) {
+      if (mode === "merge") return { ...this.put(page), swapped: false };
+      if (mode !== "replace" || !text(epoch, 64)) throw new WorkspaceRowRefused("a snapshot needs its epoch and a mode");
+      if (!Array.isArray(page) || page.length > MAX_ROWS_PER_PUT) throw new WorkspaceRowRefused("rows come as a list of at most " + MAX_ROWS_PER_PUT);
+      for (const row of page.map(checkRow)) {
+        sql.exec("INSERT INTO ws_stage (epoch, id, row) VALUES (?, ?, ?) ON CONFLICT(epoch, id) DO UPDATE SET row = excluded.row", epoch, row.id, JSON.stringify(row));
+      }
+      if (last !== true) return { staged: page.length, swapped: false };
+      const staged = all(sql.exec("SELECT row FROM ws_stage WHERE epoch = ?", epoch)).map((entry) => JSON.parse(entry.row));
+      sql.exec("DELETE FROM ws_rows");
+      for (let at = 0; at < staged.length; at += MAX_ROWS_PER_PUT) this.put(staged.slice(at, at + MAX_ROWS_PER_PUT));
+      sql.exec("DELETE FROM ws_stage");
+      return { staged: page.length, swapped: true, rows: staged.length };
+    },
+    /** Live rows counted, and a SHA-256 over them in id order, so a copy can be compared without pulling every row. */
+    async digest() {
+      const live = all(sql.exec("SELECT * FROM ws_rows WHERE gone = 0 ORDER BY id")).map(rowOut);
+      const canonical = live.map((row) => JSON.stringify(DIGEST_FIELDS.map((field) => row[field] ?? null))).join("\n");
+      const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
+      return { rows: live.length, sha256: Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("") };
+    },
+    /** The workspace this object belongs to: pinned on the first call that names one, refused on any other. */
+    pinWorkspace(workspaceId) {
+      if (!text(workspaceId, 64)) throw new WorkspaceRowRefused("a call names its workspace");
+      const held = meta("workspaceId");
+      if (held === null) setMeta("workspaceId", workspaceId);
+      else if (held !== workspaceId) throw new WorkspaceRowRefused("this object belongs to another workspace");
+      return workspaceId;
     },
     count() {
       return Number(all(sql.exec("SELECT COUNT(*) AS n FROM ws_rows WHERE gone = 0"))[0]?.n ?? 0);

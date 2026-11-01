@@ -77,9 +77,16 @@ export async function serveWorkspaceStore(store, request) {
   }
   const { rows } = store;
   try {
+    rows.pinWorkspace(fields.workspaceId);
     switch (op) {
       case "ws.read":
         return Response.json(await readNotes(store, fields));
+      case "ws.visible":
+        return Response.json({ visible: (await readNotes(store, fields)).notes.map((note) => note.found === true || typeof note.elsewhere === "string") });
+      case "ws.rows.snapshot":
+        return Response.json(rows.snapshot(fields));
+      case "ws.rows.digest":
+        return Response.json(await rows.digest());
       case "ws.rows.put":
         return Response.json(rows.put(fields.rows));
       case "ws.rows.remove":
