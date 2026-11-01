@@ -102,6 +102,7 @@ import {
   storableImageExtension,
   type MimeLimits,
 } from "./mime";
+import { sniffImageType } from "../../../packages/shared/src/remoteImage.cjs";
 import type { IngestionPolicy, SenderMatcher } from "./policy";
 import { renderCaptureNote, type AttachmentPolicy, type RenderedAttachment } from "./note";
 
@@ -498,10 +499,21 @@ export async function decideCapture(
     // them would put a stranger's files in the customer's storage to produce a
     // link nothing can follow. Those stay described-only, exactly as under
     // `list`.
-    const extension = attachment.bytes
-      ? storableImageExtension(attachment.contentType)
-      : null;
-    if (config.attachmentPolicy === "store" && attachment.bytes && extension) {
+    //
+    // A sender writes the Content-Type, so the bytes have the last word. The
+    // allow-list's reason holds only while what is stored really is the picture
+    // its headers claim: otherwise a stranger's arbitrary bytes sit in the
+    // customer's storage, and `read_image` hands a model a type that does not
+    // match them. An attachment that lies stays described-only, exactly as an
+    // unstorable type does, and the sniffed type is what `compressPicture` is
+    // given, as its contract requires.
+    const declared = attachment.bytes ? storableImageExtension(attachment.contentType) : null;
+    const sniffed = attachment.bytes ? sniffImageType(attachment.bytes) : null;
+    const stored =
+      declared !== null && sniffed !== null && storableImageExtension(sniffed.contentType) === declared
+        ? { contentType: sniffed.contentType, extension: declared }
+        : null;
+    if (config.attachmentPolicy === "store" && attachment.bytes && stored) {
       // The key is the full sha256 of the bytes and nothing else.
       //
       // Two things follow, and both are the point. The same screenshot arriving
@@ -515,8 +527,8 @@ export async function decideCapture(
       // what is stored is the compressed copy, whose type names the extension.
       const digest = await sha256HexBytes(attachment.bytes);
       const picture = config.compressPicture
-        ? await config.compressPicture(attachment.bytes, { contentType: attachment.contentType, extension })
-        : { bytes: attachment.bytes, contentType: attachment.contentType, extension };
+        ? await config.compressPicture(attachment.bytes, stored)
+        : { bytes: attachment.bytes, ...stored };
       storedPath = `${IMAGE_STORE_PREFIX}${digest}.${picture.extension}`;
       writes.push({
         key: storedPath,
