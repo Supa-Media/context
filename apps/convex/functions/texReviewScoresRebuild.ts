@@ -12,7 +12,7 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalQuery } from "../_generated/server";
+import { internalAction, internalMutation, internalQuery } from "../_generated/server";
 import { fileTeamNote } from "./bugNotes";
 import { renderScoresNote, reviewFolder, scoresNotePath } from "./lib/feedback/texReviewNote";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
@@ -70,3 +70,30 @@ export const rebuildScoresNote = internalAction({
   },
 });
 
+
+const MINUTE = /^\d{4}$/;
+
+/** The UTC `HHMM` a score row was filed in, as its review note is named (`2026-11-01 0036 goal 3 <id>.md`). */
+const minuteOf = (at: number) => new Date(at).toISOString().slice(11, 16).replace(":", "");
+
+/**
+ * Drop a day's score rows of one kind filed in the given UTC minutes: repeat reviews of a conversation already scored
+ * (2026-11-01: one group chat was filed as a full review five more times after the first, because its history kept
+ * being rebuilt from a stale note; `docs/decisions/texting-assistant/group-memory-one-copy.md`). `dryRun` counts and
+ * drops nothing. Then `rebuildScoresNote` renders the day again. Counts only: the workflow's log is public.
+ */
+export const dropRepeatScores = internalMutation({
+  args: { day: v.string(), kind: v.union(v.literal("one"), v.literal("group")), minutes: v.array(v.string()), dryRun: v.boolean() },
+  returns: v.object({ matched: v.number(), dropped: v.number() }),
+  handler: async (ctx, { day, kind, minutes, dryRun }) => {
+    if (!DAY.test(day) || minutes.length === 0 || minutes.length > 20 || !minutes.every((minute) => MINUTE.test(minute))) throw new Error("day must be YYYY-MM-DD and minutes HHMM");
+    const wanted = new Set(minutes);
+    const rows = await ctx.db
+      .query("texReviewScores")
+      .withIndex("by_day", (q) => q.eq("day", day))
+      .take(MAX_SCORES_PER_DAY);
+    const matched = rows.filter((row) => row.kind === kind && wanted.has(minuteOf(row.at)));
+    if (!dryRun) for (const row of matched) await ctx.db.delete(row._id);
+    return { matched: matched.length, dropped: dryRun ? 0 : matched.length };
+  },
+});

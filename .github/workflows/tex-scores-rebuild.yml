@@ -12,6 +12,14 @@ on:
       day:
         description: "The UTC day to rebuild (YYYY-MM-DD)."
         required: true
+      drop_group_minutes:
+        description: "Optional: UTC minutes (HHMM, space-separated) of repeat group reviews whose score rows to drop first."
+        required: false
+        default: ""
+      dry_run:
+        description: "With drop_group_minutes: count the rows only, drop and rebuild nothing."
+        type: boolean
+        default: true
 
 jobs:
   rebuild:
@@ -33,11 +41,27 @@ jobs:
 
       - name: Rebuild
         run: |
+          set -euo pipefail
           case "$DAY" in
             [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
             *) echo "day must be YYYY-MM-DD"; exit 1 ;;
           esac
+          if [ -n "$MINUTES" ]; then
+            list=""
+            for minute in $MINUTES; do
+              case "$minute" in
+                [0-9][0-9][0-9][0-9]) list="$list${list:+,}\"$minute\"" ;;
+                *) echo "minutes must be HHMM"; exit 1 ;;
+              esac
+            done
+            dry=true
+            [ "$DRY_RUN" = "true" ] || dry=false
+            npx convex run functions/texReviewScoresRebuild:dropRepeatScores "{\"day\":\"$DAY\",\"kind\":\"group\",\"minutes\":[$list],\"dryRun\":$dry}"
+            [ "$dry" = "true" ] && exit 0
+          fi
           npx convex run functions/texReviewScoresRebuild:rebuildScoresNote "{\"day\":\"$DAY\"}"
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           DAY: ${{ inputs.day }}
+          MINUTES: ${{ inputs.drop_group_minutes }}
+          DRY_RUN: ${{ inputs.dry_run }}

@@ -1,0 +1,57 @@
+# Every Tex group chat's memory out of the workspace folders (2026-11-01;
+# `apps/convex/functions/texGroupMigration.ts`). Manual only. `step` picks
+# `homes` (make a home in @context-lc for each chat that has none) or `sweep`
+# (trash old memory notes in workspace folders whose words the chat's record
+# carried). `dry_run` counts what would happen and writes nothing. It prints
+# counts and fixed codes only, never an id, a path or a name, because this
+# repository is public and so is this job's log.
+name: Tex group chats migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: "homes or sweep"
+        type: choice
+        options: [homes, sweep]
+        default: homes
+      dry_run:
+        description: "Count only, write nothing"
+        type: boolean
+        default: true
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Migrate
+        run: |
+          set -euo pipefail
+          case "$STEP" in
+            homes) fn=texGroupMigrationRows:homeEveryChat ;;
+            sweep) fn=texGroupMigration:sweep ;;
+            *) echo "unknown step"; exit 1 ;;
+          esac
+          case "$DRY_RUN" in
+            true) args='{"dryRun":true}' ;;
+            *) args='{"dryRun":false}' ;;
+          esac
+          npx convex run "functions/$fn" "$args"
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          STEP: ${{ inputs.step }}
+          DRY_RUN: ${{ inputs.dry_run }}
