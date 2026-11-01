@@ -54,7 +54,10 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise
 
 /** A failure as a fixed code: the error's own code or name when it is a plain word, never its message. */
 export function failureCode(error: unknown): string {
-  const named = error as { code?: unknown; name?: unknown } | null;
+  const named = error as { code?: unknown; name?: unknown; message?: unknown } | null;
+  // A bucket's refusal (`apps/mcp/src/store/s3.js` `s3Error`): its operation and status, never the key it names.
+  const s3 = typeof named?.message === "string" ? /^S3 ([A-Za-z]{1,24}) .* failed with (\d{3})\b/s.exec(named.message) : null;
+  if (s3) return `S3_${s3[1]}_${s3[2]}`;
   for (const value of [named?.code, named?.name]) if (typeof value === "string" && /^[A-Za-z][A-Za-z0-9_]{0,47}$/.test(value)) return value;
   return "unknown";
 }
