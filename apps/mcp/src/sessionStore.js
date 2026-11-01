@@ -12,6 +12,7 @@
  */
 
 import { gatewayTexStore } from "./texStore/wire.js";
+import { workspaceClient } from "./workspaceStore/api.js";
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
@@ -136,6 +137,7 @@ async function openSessionStore(session, env, controlPlane) {
       managedEncryption: managedEncryptionForStore(opened, binding),
       idLayout: hooks,
       texStore: gatewayTexStore(env),
+      workspaceStore: (workspaceId) => workspaceClient(env, workspaceId),
       texChats: texChatsOf(session),
     }),
     authority,
@@ -336,7 +338,7 @@ export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
-  const store = storeForBinding(binding, env, { managedEncryption: managedEncryptionForStore(opened, binding), texStore: gatewayTexStore(env) });
+  const store = storeForBinding(binding, env, { managedEncryption: managedEncryptionForStore(opened, binding), texStore: gatewayTexStore(env), workspaceStore: (workspaceId) => workspaceClient(env, workspaceId) });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
   attachSearchIndexes(store, { searchIndex: opened?.searchIndex, meaningIndex: opened?.meaningIndex }, env?.AI);
   Object.defineProperty(store, "encryptionKey", {
