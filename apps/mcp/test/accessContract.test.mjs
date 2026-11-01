@@ -134,5 +134,5 @@ test("a connection digest ignores when it was last used and the order of its sco
   assert.notEqual((await accessDigest("connections", [{ ...row, status: "revoked" }])).sha, same.sha);
   assert.equal(checkConnectionRow({ ...row, previousRefreshHash: "c".repeat(64) }).previousRefreshHash, "c".repeat(64));
   assert.throws(() => checkConnectionRow({ ...row, previousRefreshHash: "crt_x" }), AccessRowRefused);
-  assert.throws(() => checkConnectionRow({ ...row, clientId: "context_texts" }) && checkConnectionRow({ ...row, clientId: "" }), AccessRowRefused);
+  assert.throws(() => checkConnectionRow({ ...row, clientId: "" }), AccessRowRefused);
 });
