@@ -1,0 +1,80 @@
+# Copy every workspace's note texts, editing history, rows and access rules
+# into its workspace object (owner, 2026-11-01;
+# `docs/decisions/storage-and-credentials/workspace-objects.md`).
+#
+# Manual only. Run step `arm` first: it puts every workspace on `dual`, so each
+# save from then on is mirrored into its object. Then step `copy`, which copies
+# what was already there and never overwrites a newer mirrored save. `dry_run`
+# counts and changes nothing. It pages through `functions/workspaceObjects:backfill`,
+# which answers with counts and a cursor, never a path, a key or a body: this
+# repository is public, and so is this job's log. Running it again copies
+# nothing already copied.
+name: Workspace objects backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to copy in."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      step:
+        description: "arm: put workspaces on dual. copy: copy bodies, rows and rules."
+        type: choice
+        options:
+          - arm
+          - copy
+        default: arm
+      dry_run:
+        description: "Count only; change nothing."
+        type: boolean
+        default: true
+      only:
+        description: "A handle: this workspace alone (empty for every workspace)."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Backfill
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          STEP: ${{ inputs.step }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          page=0
+          while :; do
+            page=$((page + 1))
+            args=$(jq -cn --arg step "$STEP" --argjson dry "$DRY_RUN" '{step: $step, dryRun: $dry}')
+            if [ -n "$cursor" ]; then args=$(echo "$args" | jq -c --arg cursor "$cursor" '. + {cursor: $cursor}'); fi
+            if [ -n "$ONLY" ]; then args=$(echo "$args" | jq -c --arg only "$ONLY" '. + {only: $only}'); fi
+            answer=$(npx convex run functions/workspaceObjects:backfill "$args")
+            echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+            if [ "$page" -ge 2000 ]; then echo "stopped after $page pages"; exit 1; fi
+          done

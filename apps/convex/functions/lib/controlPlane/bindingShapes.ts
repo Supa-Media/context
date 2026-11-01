@@ -221,6 +221,9 @@ export const s3BindingValidator = v.object({
   forcePathStyle: v.optional(v.boolean()),
   capabilities: capabilitiesValidator,
   status: v.string(),
+  /** Where the note texts are read from while they move into the workspace object (`functions/workspaceObjects.ts`). */
+  notesHome: v.optional(v.union(v.literal("dual"), v.literal("object"))),
+  notesBackfilledAt: v.optional(v.number()),
 });
 
 export const encryptionKeyValidator = v.object({

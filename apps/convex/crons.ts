@@ -547,4 +547,11 @@ crons.interval(
   {},
 );
 
+/**
+ * Keep each `dual` workspace's object copy of its rows and access rules current (`functions/workspaceObjects.ts`):
+ * pushed whole only when the object's digest or rules version is not Convex's. Convex decides access while a
+ * workspace is `dual`; a workspace at `object` is never pushed from here.
+ */
+crons.interval("copy dual workspaces' rows into their objects", { minutes: 1 }, internal.functions.workspaceObjects.syncRows, {});
+
 export default crons;

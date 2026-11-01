@@ -23,6 +23,8 @@ import type * as functions_texGroupMigration from "../functions/texGroupMigratio
 import type * as functions_texGroupMigrationRows from "../functions/texGroupMigrationRows.js";
 import type * as functions_texReviewScoresRebuild from "../functions/texReviewScoresRebuild.js";
 import type * as functions_texTriageWatch from "../functions/texTriageWatch.js";
+import type * as functions_workspaceObjects from "../functions/workspaceObjects.js";
+import type * as functions_workspaceObjectsRows from "../functions/workspaceObjectsRows.js";
 import type * as functions_jev from "../functions/jev.js";
 import type * as functions_billingStripe from "../functions/billingStripe.js";
 import type * as functions_billingWindDown from "../functions/billingWindDown.js";
@@ -256,6 +258,8 @@ declare const fullApi: ApiFromModules<{
   "functions/texGroupMigrationRows": typeof functions_texGroupMigrationRows;
   "functions/texReviewScoresRebuild": typeof functions_texReviewScoresRebuild;
   "functions/texTriageWatch": typeof functions_texTriageWatch;
+  "functions/workspaceObjects": typeof functions_workspaceObjects;
+  "functions/workspaceObjectsRows": typeof functions_workspaceObjectsRows;
   "functions/jev": typeof functions_jev;
   "functions/billingStripe": typeof functions_billingStripe;
   "functions/billingWindDown": typeof functions_billingWindDown;
