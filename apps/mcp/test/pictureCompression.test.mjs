@@ -108,6 +108,39 @@ export async function runPictureCompressionChecks() {
     });
     const linked = await contextStore.get(LINKED_NOTE).then((o) => o?.text());
     check("write_note finds the uploaded picture by the sha256 the agent declared", !embedded?.isError && linked?.includes(`![[${linkLeaf}]]`));
+
+    // -- a write's pictures are compressed all at once, not one after another
+    let running = 0;
+    let most = 0;
+    env.IMAGES = {
+      input() {
+        const chain = {
+          transform: () => chain,
+          output: async () => {
+            running += 1;
+            most = Math.max(most, running);
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            running -= 1;
+            return { response: () => new Response(WEBP) };
+          },
+        };
+        return chain;
+      },
+    };
+    const three = [1, 2, 3].map((n) => bytesOf([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 3000, 20 + n));
+    const many = await call("priv-token", "write_note", {
+      path: "1-projects/portable/three-pictures.md",
+      content: "# Three\n\n![[a.png]]\n\n![[b.png]]\n\n![[c.png]]\n",
+      images: three.map((bytes, i) => ({ name: `${"abc"[i]}.png`, data: Buffer.from(bytes).toString("base64") })),
+    });
+    const manyBody = await contextStore.get("1-projects/portable/three-pictures.md").then((o) => o?.text());
+    check(
+      "a write's pictures are compressed at the same time, each stored and embedded in its own place",
+      !many?.isError && most === 3 &&
+        three.every((bytes, i) => manyBody?.includes(`![[upload-${sha(bytes).slice(0, 16)}.webp]]`) && manyBody.indexOf(sha(bytes).slice(0, 16)) > manyBody.indexOf("# Three")) &&
+        manyBody.indexOf(sha(three[0]).slice(0, 16)) < manyBody.indexOf(sha(three[1]).slice(0, 16)) &&
+        manyBody.indexOf(sha(three[1]).slice(0, 16)) < manyBody.indexOf(sha(three[2]).slice(0, 16)),
+    );
   } finally {
     delete env.IMAGES;
   }
