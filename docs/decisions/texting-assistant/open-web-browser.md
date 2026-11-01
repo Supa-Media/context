@@ -76,3 +76,32 @@ window; reloading every passkey step on attach would reload a page Tex is in
 the middle of. The tests that fail are in
 `infra/site-shots/src/passkeys.test.ts` and the jar test in
 `browserbase.test.ts` that expects the passkey script first.
+
+### The browser presses past Google's passkey step (2026-11-01)
+
+With passkeys off, a job signing in to a site with "Continue with Google"
+still stopped on Google's passkey step and texted that there was "no other
+route". The browser was already signed in to Google; this was Google checking
+it was really them before handing the site their account. The logs showed
+passkeys off on every step and no typing at all: nothing says "Try another
+way" was ever pressed.
+
+- After the steps (never while the person holds the browser), site-shots
+  presses "Try another way" on Google's passkey step and, on the list that
+  follows, "Enter your password" when it is there, then reads the page again
+  (`infra/site-shots/src/googleChallenge.ts`). With no password way, the list
+  is left for Tex: a code, or Google's "tap Yes" prompt, which reaches the
+  person's phone as a passkey request from this browser cannot.
+- It logs `site_shots_google_step`: the step Google stopped on and the kinds
+  of way it listed, never an option's words (they carry the end of a phone
+  number).
+- The gateway marks a browse result that met the passkey wall or reached
+  Google's other ways (`pageWalls.js` `passkeyMarks`), and an answer that
+  stops at a passkey on a turn that never reached them gets one more round
+  (`browserWalls.js`). Google's list gets its own reading line.
+
+**What a simplification would cost:** leaving it to the model's reading line
+is what failed twice. Pressing on any site's passkey page would press on pages
+we have never seen; this is Google's sign-in only. The tests that fail are in
+`infra/site-shots/src/googleChallenge.test.ts`, the route test in
+`browserbase.test.ts`, and `apps/mcp/test/agentPasskeyWays.test.mjs`.

@@ -291,6 +291,7 @@ test/cards.test.mjs
 test/googleAiAccess.test.mjs
 test/storageUnavailableLog.test.mjs
 test/agentLosesTrack.test.mjs
+test/agentPasskeyWays.test.mjs
 test/googleChatConversation.test.mjs
 test/agentSourcedFigures.test.mjs
 test/agentReadClaims.test.mjs
