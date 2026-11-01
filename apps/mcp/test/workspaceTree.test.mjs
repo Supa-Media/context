@@ -365,3 +365,14 @@ test("the control plane's door never forwards an upgrade or a reader to a worksp
   assert.equal(seen[0].headers.get("Upgrade"), null);
   assert.equal(seen[0].headers.get(TREE_READER_HEADER), null);
 });
+
+test("a socket that went without a close event leaves no rows behind once another opens", { skip }, async () => {
+  const w = socketWorld();
+  const gone = w.open(reader("team")).server;
+  await w.tree.message(gone, JSON.stringify({ t: "watch", folders: ["projects"] }));
+  gone.readyState = 3;
+  w.open(reader("team"));
+  const held = w.sql.exec("SELECT COUNT(*) AS n FROM ws_tree_watch").toArray()[0].n;
+  assert.equal(held, 0);
+  assert.equal(w.sql.exec("SELECT COUNT(*) AS n FROM ws_tree_sockets").toArray()[0].n, 1);
+});

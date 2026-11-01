@@ -184,6 +184,9 @@ export function treeSockets(state, sql, store, deps = {}) {
         close(server, TREE_CLOSE_NOT_SERVED, "not served");
         return upgraded(client);
       }
+      // A socket that went without a close event left its rows: drop every one no open socket holds.
+      const live = new Set(openSockets().map(socketId).filter((held) => held !== null));
+      for (const { id: held } of all(sql.exec("SELECT id FROM ws_tree_sockets"))) if (!live.has(held)) forget(held);
       const id = crypto.randomUUID();
       const deadline = Math.min(reader.deadline, now() + TREE_SOCKET_MAX_MS);
       sql.exec("INSERT INTO ws_tree_sockets (id, reader) VALUES (?, ?)", id, JSON.stringify({ ...reader, deadline }));
