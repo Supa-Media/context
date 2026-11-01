@@ -61,6 +61,7 @@ import { noteCardDrawer } from "./noteCards";
 import { answerHanded, failHanded } from "./groupTurnRun";
 import type { GroupTurnParams } from "./groupTurnWorkflow";
 import type { TimingDataset } from "./textTiming";
+import { objectById, objectByName } from "./objectPlace";
 export { GroupTurnWorkflow } from "./groupTurnWorkflow";
 export { JobRunWorkflow } from "./jobWorkflow";
 
@@ -194,7 +195,7 @@ export default {
         inbound.reaction = { ...inbound.reaction, words: (words ?? "").slice(0, 500) };
         delete inbound.on;
       }
-      const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(inbound.from));
+      const stub = objectByName(env.SENDER_INBOX, inbound.from);
       const result = await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(inbound) });
       return new Response(null, { status: result.ok ? 200 : 503 });
     }
@@ -208,7 +209,7 @@ export default {
       if (keys !== null) Object.assign(message, await threadContext((input, init) => fetch(input, init), keys, replyTo, threadRoot, message.chatId));
     }
 
-    const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(inbound.from));
+    const stub = objectByName(env.SENDER_INBOX, inbound.from);
     // The Worker's own address goes along, for pictures served back to Sendblue (`media.ts`).
     const result = await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(url.origin)}`, {
       method: "POST",
@@ -282,7 +283,7 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
     logWebhook(line, "ignored", `group_${grouped.reason}`);
     return new Response(null, { status: 200 });
   }
-  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(groupInboxName(grouped.groupId)));
+  const stub = objectByName(env.SENDER_INBOX, groupInboxName(grouped.groupId));
   // The Worker's own address goes along, as for a 1:1 text: without it the group's pictures had nowhere to be
   // served from, and every answer with a card failed after its words went out (2026-10-26).
   const result = await stub.fetch(`https://inbox/group-accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(grouped) });
@@ -359,13 +360,13 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
       delete event.on;
     }
     logWebhook("whapi", "accepted", "reaction");
-    const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(event.from));
+    const stub = objectByName(env.SENDER_INBOX, event.from);
     const result = await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(event) });
     return new Response(null, { status: result.ok ? 200 : 503 });
   }
   logWebhook("whapi", "accepted");
   const { replyTo: _reply, threadRoot: _root, ...message } = event;
-  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(event.from));
+  const stub = objectByName(env.SENDER_INBOX, event.from);
   const result = await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(message) });
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
@@ -378,13 +379,9 @@ async function media(request: Request, env: Env, url: URL): Promise<Response> {
   if (request.method !== "GET") return new Response(null, { status: 405 });
   const match = /^\/media\/([0-9a-f]{64})\/([0-9a-f]{64})\.[a-z]{3,4}$/.exec(url.pathname);
   if (!match || !OBJECT_ID.test(match[1])) return new Response(null, { status: 404 });
-  let id: DurableObjectId;
-  try {
-    id = env.SENDER_INBOX.idFromString(match[1]);
-  } catch {
-    return new Response(null, { status: 404 });
-  }
-  return env.SENDER_INBOX.get(id).fetch(`https://inbox/media/${match[2]}`);
+  const stub = objectById(env.SENDER_INBOX, match[1]);
+  if (stub === null) return new Response(null, { status: 404 });
+  return stub.fetch(`https://inbox/media/${match[2]}`);
 }
 
 /**
@@ -396,13 +393,9 @@ async function threads(request: Request, env: Env, url: URL): Promise<Response> 
   if (request.method !== "GET") return new Response(null, { status: 405 });
   const match = /^\/threads\/([0-9a-f]{64})\/([0-9a-f]{64})$/.exec(url.pathname);
   if (!match || !OBJECT_ID.test(match[1])) return new Response(null, { status: 404 });
-  let id: DurableObjectId;
-  try {
-    id = env.SENDER_INBOX.idFromString(match[1]);
-  } catch {
-    return new Response(null, { status: 404 });
-  }
-  return env.SENDER_INBOX.get(id).fetch(`https://inbox/threads/${match[2]}`);
+  const stub = objectById(env.SENDER_INBOX, match[1]);
+  if (stub === null) return new Response(null, { status: 404 });
+  return stub.fetch(`https://inbox/threads/${match[2]}`);
 }
 
 /**
@@ -423,7 +416,7 @@ async function newLine(request: Request, env: Env): Promise<Response> {
       controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
       workerSecret: env.AGENT_WORKER_SECRET,
       tellPhone: async (phone, body) => {
-        const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
+        const stub = objectByName(env.SENDER_INBOX, phone);
         const response = await stub.fetch("https://inbox/new-line", { method: "POST", body: JSON.stringify(body) });
         if (!response.ok) return "failed";
         return ((await response.json()) as { told: Told }).told;
@@ -439,11 +432,11 @@ async function newLine(request: Request, env: Env): Promise<Response> {
 async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat" | "failed"> {
   const phone = run.phones[0];
   if (run.chat === undefined || phone === undefined) return "no_chat";
-  const directory = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(chatDirectoryName(run.chat)));
+  const directory = objectByName(env.SENDER_INBOX, chatDirectoryName(run.chat));
   const found = await directory.fetch("https://inbox/chat-where", { method: "GET" });
   const where = found.ok ? chatWhereOf(await found.json()) : null;
   if (where === null) return "no_chat";
-  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(groupInboxName(where.groupId)));
+  const stub = objectByName(env.SENDER_INBOX, groupInboxName(where.groupId));
   const body = { ...where, runId: run.runId, path: run.path, phone, timeZone: run.timeZone, ...(run.since !== undefined ? { since: run.since } : {}) };
   const response = await stub.fetch("https://inbox/group-routine", { method: "POST", body: JSON.stringify(body) });
   if (!response.ok) return "failed";
@@ -602,7 +595,7 @@ export class SenderInbox implements DurableObject {
 
   /** A job's word to the inbox it belongs to: taken once it answers 200. */
   private async reportJob(inbox: string, update: JobUpdate): Promise<boolean> {
-    const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(inbox));
+    const stub = objectByName(this.env.SENDER_INBOX, inbox);
     const response = await stub.fetch("https://inbox/job-update", { method: "POST", body: JSON.stringify(update) });
     return response.ok;
   }
@@ -611,7 +604,7 @@ export class SenderInbox implements DurableObject {
   private async keepWhere(message: GroupMessage): Promise<void> {
     if (message.sms || (await this.state.storage.get(WHERE_KEPT_KEY)) !== undefined) return;
     const key = await sha256Hex(`${message.line}:${message.groupId}`);
-    const directory = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(chatDirectoryName(key)));
+    const directory = objectByName(this.env.SENDER_INBOX, chatDirectoryName(key));
     const where = { line: message.line, groupId: message.groupId };
     const response = await directory.fetch("https://inbox/chat-where", { method: "POST", body: JSON.stringify(where) });
     if (response.ok) await this.state.storage.put(WHERE_KEPT_KEY, true);
@@ -653,12 +646,12 @@ export class SenderInbox implements DurableObject {
       images: this.env.IMAGES,
       now: () => Date.now(),
       spawnJob: async (id: string, run: JobRun) => {
-        const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(`job:${id}`));
+        const stub = objectByName(this.env.SENDER_INBOX, `job:${id}`);
         const response = await stub.fetch("https://inbox/job-start", { method: "POST", body: JSON.stringify(run) });
         if (!response.ok) throw new Error("job not started");
       },
       steerJob: async (id: string, steer: JobSteer) => {
-        const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(`job:${id}`));
+        const stub = objectByName(this.env.SENDER_INBOX, `job:${id}`);
         const response = await stub.fetch("https://inbox/job-steer", { method: "POST", body: JSON.stringify(steer) });
         return response.ok && ((await response.json()) as { taken?: unknown }).taken === true;
       },

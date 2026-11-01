@@ -35,6 +35,7 @@
  */
 
 import { R2Store } from "../store/r2.js";
+import { objectByName } from "../objectPlace.js";
 import { callTexStore, texBucket } from "../texStore/wire.js";
 
 /** Where a workspace's note bodies are read from. */
@@ -76,8 +77,7 @@ export function workspaceObjectName(workspaceId) {
 export function workspaceStub(env, workspaceId) {
   const namespace = env?.WORKSPACE_STORE;
   if (!namespace || typeof namespace.idFromName !== "function") return null;
-  const id = namespace.idFromName(workspaceObjectName(workspaceId));
-  return namespace.get(id, { locationHint: "enam" });
+  return objectByName(namespace, workspaceObjectName(workspaceId));
 }
 
 /**

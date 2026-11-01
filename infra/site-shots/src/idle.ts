@@ -100,14 +100,15 @@ export class IdleTimer {
 
 export interface IdleNamespace {
   idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): { touch(owner: string, ms?: number): Promise<void> };
+  get(id: DurableObjectId, options?: { locationHint?: "enam" }): { touch(owner: string, ms?: number): Promise<void> };
 }
 
 /** Pushes this person's browser's end five minutes out (or `ms`). Never fails the step it rides on. */
 export async function touchIdle(namespace: IdleNamespace | undefined, owner: string, ms: number = IDLE_MS): Promise<void> {
   if (!namespace) return;
   try {
-    await namespace.get(namespace.idFromName(owner)).touch(owner, ms);
+    // Placed in eastern North America like every object of ours (decided by the owner, 2026-11-01).
+    await namespace.get(namespace.idFromName(owner), { locationHint: "enam" }).touch(owner, ms);
   } catch (error) {
     console.log(JSON.stringify({ event: "site_shots_idle_touch_failed", error: error instanceof Error ? error.name : "unknown" }));
   }
