@@ -53,9 +53,12 @@ test it?" was taken as Tex's, because Tex's name in a question addressed it;
 the model rightly said nothing, and the gateway texted "Sorry, my answer to
 that one got lost" and kept it in the chat's memory as Tex's reply.
 
-- **Its name in a question no longer addresses Tex** (`groupWords.ts`
+- **Its bare name in a question no longer addresses Tex** (`groupWords.ts`
   `addressesTex`): such a message is untagged, so decide reads it first.
-  Tex's name opening or closing a message still addresses it.
+  Tex's name opening or closing a message still addresses it, and so does an
+  @-tag of Tex anywhere ("can @Tex check this for us?") and a swipe-reply to
+  one of Tex's texts that says more than thanks (Dev2, 2026-11-01,
+  superseding 2026-10-27's "replies are decided first").
 - **An addressed message's turn starts at once and decide runs beside it**
   (`groupTurn.ts` `decideBeside`, started in `answerGroup`), told the
   message looks addressed (`addressed` on `/agent-texts/decide`, one more
@@ -65,8 +68,7 @@ that one got lost" and kept it in the chat's memory as Tex's reply.
   `group_turn` `decide_vetoed`; answer or wait sends it. Decide down or past
   its 3 s sends it, as before. A command, a yes, a routine and a retried turn
   (`byCode`) never get one, nor does a reaction answering Tex's question
-  (never left silent, [reactions-as-input](./reactions-as-input.md)); an
-  inline reply to Tex stays decide-first.
+  (never left silent, [reactions-as-input](./reactions-as-input.md)).
 - **A group's SKIP is silence** (`route.js`): an answer that is only SKIP
   in a group sends nothing (only SKIP: "Quiet." can answer a question), keeps nothing in the chat's memory and comes back
   `quiet`; the Worker then sends nothing, keeps the chat's lines and does

@@ -114,6 +114,11 @@ describe("what wakes Tex in a group", () => {
     // Opening or closing it still is.
     expect(addressesTex("Tex, what's 15% of 80?", false)).toBe(true);
     expect(addressesTex("can you check this, tex?", false)).toBe(true);
+    // An @-tag anywhere still addresses it (Dev2, 2026-11-01); an address with "@tex." in it does not.
+    expect(addressesTex("can @Tex check this for us?", false)).toBe(true);
+    expect(addressesTex("so @context, thoughts on the plan?", false)).toBe(true);
+    expect(addressesTex("write to bo@tex.example about it", false)).toBe(false);
+    expect(addressesTex("@texas trip was fun", false)).toBe(false);
   });
   it("never a mention in passing, Tex-Mex or Texas", () => {
     expect(addressesTex("tex got that wrong lol", false)).toBe(false);
@@ -456,16 +461,19 @@ describe("a group's queue", () => {
     expect(w.sends.map((sent) => sent.reply_to)).toEqual([{ message_handle: "h_in" }, { message_handle: "h_in" }]);
   });
 
-  it("wakes on an inline reply to its own text, with that text quoted", async () => {
+  // Dev2, 2026-11-01, superseding 2026-10-27's decide-first: a reply to Tex starts its turn at once, decide beside it.
+  it("wakes on an inline reply to its own text, with that text quoted; decide's silent keeps a reply meant for the chat unsent", async () => {
     const storage = new MemoryStorage();
     const w = world();
     await acceptGroup(storage, message("Tex, when's the gig?"), 0);
     await drainGroup(storage, deps(w));
-    expect(await acceptGroup(storage, message("and load in?", { messageId: "h_in2", replyTo: "h_out_1" }), 0)).toBe("kept");
+    expect(await acceptGroup(storage, message("and load in?", { messageId: "h_in2", replyTo: "h_out_1" }), 0)).toBe("queued");
     await drainGroup(storage, deps(w));
     expect(w.asks[1]).toMatchObject({ question: "and load in?", quoted: "Friday at 6." });
-    await acceptGroup(storage, message("yea, don't use the API", { messageId: "h_in4", replyTo: "h_out_1" }), 0).then(() => drainGroup(storage, deps(w)));
-    expect(w.asks).toHaveLength(2);
+    const texted = () => w.sends.filter((sent) => sent.content !== undefined).length, before = texted();
+    await acceptGroup(storage, message("yea, don't use the API", { messageId: "h_in4", replyTo: "h_out_1" }), 0).then(() => drainGroup(storage, deps(w, { decide: () => ({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 }) })));
+    expect(w.asks).toHaveLength(3);
+    expect(texted()).toBe(before);
     expect(await acceptGroup(storage, message("and more?", { messageId: "h_in3", replyTo: "h_someone_elses" }), 0)).toBe("kept");
   });
 

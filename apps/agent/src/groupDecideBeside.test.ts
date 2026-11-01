@@ -6,7 +6,8 @@
  * it) starts its turn at once, and decide is asked beside it
  * (`groupTurn.ts` `decideBeside`): its silent drops the answer unsent, its
  * answer or wait sends it, and decide down or slow sends it. Its name inside
- * a question is decide's first, as any untagged text. A turn the gateway
+ * a question is decide's first, as any untagged text; an @-tag of Tex
+ * anywhere, or a reply to Tex, starts at once like its name. A turn the gateway
  * answers with nothing (a group's SKIP, `apps/mcp/src/agent/route.js`) sends
  * nothing and leaves the chat as if Tex never spoke.
  *
@@ -23,6 +24,10 @@
  *     tagged turn sends nothing…" fails.
  *  5. `decideBeside` without its `addressesTex` check → "a reaction
  *     answering Tex's question is answered with no decide beside it" fails.
+ *  6. `addressesTex` without its @-tag rule → "an @-tag of Tex mid-message
+ *     starts its turn at once…" fails.
+ *  7. `acceptGroup` passing `false` for a reply again, as on 2026-10-27 → "a
+ *     reply to Tex starts its turn at once…" fails.
  */
 
 import { describe, expect, it, vi, afterEach } from "vitest";
@@ -115,14 +120,31 @@ for (const { name, groupId } of LINES) {
       expect(answers(w.texts)).toEqual(["answer to Tex, what's 15% of 80?"]);
     });
 
-    it("a reply to Tex is decided first, as any untagged text, never a turn of its own before decide", async () => {
+    // Dev2, 2026-11-01, superseding 2026-10-27's decide-first: a reply to Tex starts at once, decide beside it.
+    it("a reply to Tex starts its turn at once with decide beside it, and decide's silent keeps it unsent", async () => {
       const storage = new MemoryStorage();
-      const w = setup(groupId, { decide: untaggedSilent, control: { engagement: "helpful", engagementChosen: true } });
+      const w = setup(groupId, { decide: (body) => (w.decided.length === 1 ? answerAll(body) : silent()), control: { engagement: "helpful", engagementChosen: true } });
       await acceptGroup(storage, w.message("Tex hi"), 0);
       await drainGroup(storage, w.deps);
       const [handle] = (await storage.get<string[]>(SENT_KEY)) ?? [];
       expect(handle).toBeTruthy();
-      expect(await acceptGroup(storage, w.message("and saturday?", { replyTo: handle }), 10)).toBe("kept");
+      expect(await acceptGroup(storage, w.message("and saturday?", { replyTo: handle }), 10)).toBe("queued");
+      await drainGroup(storage, w.deps);
+      expect(w.decided.at(-1)).toMatchObject({ addressed: true, running: false });
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex hi", "and saturday?"]);
+      expect(answers(w.texts)).toEqual(["answer to Tex hi"]);
+      // A thanks in Tex's thread is still nothing to answer.
+      expect(await acceptGroup(storage, w.message("thanks!", { replyTo: handle }), 20)).toBe("kept");
+    });
+
+    it("an @-tag of Tex mid-message starts its turn at once with decide beside it; a bare Tex mid-message is decided first", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { decide: untaggedSilent, control: { engagement: "helpful", engagementChosen: true } });
+      await acceptGroup(storage, w.message("can @Tex check this for us?"), 0);
+      await drainGroup(storage, w.deps);
+      expect(w.decided).toEqual([expect.objectContaining({ addressed: true })]);
+      expect(answers(w.texts)).toEqual(["answer to can @Tex check this for us?"]);
+      expect(await acceptGroup(storage, w.message("can Tex check this for us?"), 10)).toBe("kept");
       await drainGroup(storage, w.deps);
       expect(w.decided.at(-1)!.addressed).toBeUndefined();
       expect(w.asks).toHaveLength(1);

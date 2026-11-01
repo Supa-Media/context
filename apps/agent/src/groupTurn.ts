@@ -98,7 +98,7 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       // Only the sender's own asks: nobody else's "nah forget it" can end somebody's ask.
       waitingAsks: await waitingAsks(storage, deps.now(), await sha256Hex(newest.from)),
       newest: candidates.at(-1) ?? "",
-      // Tex's name opens or closes it: decide is told, so a real ask is not read as chatter (`addressesTex`).
+      // It looks addressed (`addressesTex`): decide is told, so a real ask is not read as chatter.
       ...(addressed ? { addressed: true as const } : {}),
     },
     running ? RUNNING_DECIDE_MS : GROUP_DECIDE_MS,
@@ -145,7 +145,7 @@ function withJoins(burst: GroupEntry[], head: GroupEntry): GroupEntry[] {
 
 /**
  * What the next turn answers out of `burst` (waiting messages, none code's,
- * oldest first). A message addressed to Tex (its name opening or closing it)
+ * oldest first). A message addressed to Tex (its name opening or closing it, an @-tag, a reply to Tex)
  * starts its turn at once, with what joined it, so a burst holding one is
  * chosen by code (`addressedTurn`), never waiting on decide: decide is asked
  * beside the turn, and only its silent keeps the answer from going
@@ -212,7 +212,7 @@ export function addressedTurn(burst: GroupEntry[]): GroupChoice | null {
  * chat's workspace.
  */
 export function decideBeside(storage: InboxStorage, deps: ControlDeps & { now: () => number }, entries: GroupEntry[]): Promise<boolean> | undefined {
-  const head = entries.filter(([, item]) => !item.soft && !item.byCode && addressesTex(item.message.text, false)).at(-1);
+  const head = entries.filter(([, item]) => !item.soft && !item.byCode && addressesTex(item.message.text, item.message.replyTo !== undefined)).at(-1);
   // Up to the newest addressed message, so decide judges that one, not a picture that joined it.
   const ids = head === undefined ? [] : entries.slice(0, entries.indexOf(head) + 1).flatMap(([, item]) => (item.ev ? [item.ev] : []));
   if (head === undefined || ids.length === 0) return undefined;

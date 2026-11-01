@@ -86,7 +86,7 @@ export function setup(
         reactions.push(body.emoji);
         return Response.json({ success: true });
       }
-      if (path.startsWith("/messages/")) {
+      if (path.startsWith("/messages/") && init?.method === "POST") { // a GET is the quoted message read, never a send
         texts.push(body.body ?? body.media);
         return Response.json({ sent: true, message: { id: `wa_out_${texts.length}` } });
       }

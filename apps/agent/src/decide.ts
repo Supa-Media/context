@@ -49,7 +49,7 @@ export type DecideAsk = {
   running: boolean;
   waitingAsks: string[];
   newest: string;
-  /** Tex's name opens or closes the newest message: its turn already runs, and decide may still hold its answer (`decideBeside`). */
+  /** The newest message looks addressed (its name opens or closes it, an @-tag, a reply to Tex): its turn already runs, and decide may still hold its answer (`decideBeside`). */
   addressed?: true;
 };
 
