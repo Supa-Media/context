@@ -1,6 +1,7 @@
 /** Types for `treeFrames.cjs`; see that file for the protocol. */
 
 export declare const TREE_PROTOCOL: "context.tree";
+export declare const TREE_SOCKET_PATH: "/presence/tree";
 export declare const TREE_WATCH_MAX: number;
 export declare const TREE_SOCKET_MAX_MS: number;
 export declare const TREE_CLOSE_REAUTH: number;
