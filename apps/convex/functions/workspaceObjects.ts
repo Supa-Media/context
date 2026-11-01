@@ -40,12 +40,13 @@ import {
   copyPage,
   emptyBodyParity,
   emptyCopyCounts,
-  objectBytes,
+  objectBytesPage,
   parityPage,
   type BodyParity,
   type BodyStore,
   type CopyCounts,
   type ParityCursor,
+  type SizeCursor,
   type WalkCursor,
 } from "./lib/workspaceObjects/bodies";
 import { consoleWorkspaceClient, type WorkspaceObjectClient } from "./lib/workspaceObjects/door";
@@ -56,9 +57,9 @@ const homeValidator = v.union(v.literal("bucket"), v.literal("dual"), v.literal(
 /** Rows per snapshot call: well under the object's 2,000 and the door's body size. */
 const SNAPSHOT_CHUNK = 1000;
 /** How long one page of a run may work before it hands back its cursor. */
-const PAGE_BUDGET_MS = 4 * 60 * 1000;
-/** Bucket keys listed per body page. */
-const KEYS_PER_PAGE = 250;
+const PAGE_BUDGET_MS = 2 * 60 * 1000;
+/** Bucket keys listed per body page: small enough that one page never runs far past the budget. */
+const KEYS_PER_PAGE = 100;
 /** How recent a clean parity check must be for a workspace to be read from its object. */
 const PARITY_FRESH_MS = 60 * 60 * 1000;
 /** A difference is asked again after this long: a save in flight is mirrored by then. */
@@ -182,6 +183,8 @@ interface RunCursor {
   queue: string[];
   exhausted: boolean;
   at?: WalkCursor;
+  /** Counting the first workspace's size, carried across pages until it is known. */
+  sizing?: SizeCursor;
   /** The parity walk inside the first workspace, and what it has found so far. */
   check?: ParityCursor;
   found?: BodyParity;
@@ -293,6 +296,7 @@ export const backfill = internalAction({
         else counts.alreadyArmed += 1;
         state.queue.shift();
         state.at = undefined;
+        state.sizing = undefined;
         continue;
       }
       try {
@@ -302,12 +306,19 @@ export const backfill = internalAction({
           counts.unreachable += 1;
           state.queue.shift();
           state.at = undefined;
+          state.sizing = undefined;
           continue;
         }
         if (state.at === undefined) {
-          counts.workspaces += 1;
           // Counted before a byte is copied: one that would not fit is held back whole and named by count.
-          const size = await objectBytes(bucket, OBJECT_BYTES_CAP);
+          // Counting is paged too: a workspace's history can run to hundreds of thousands of keys.
+          const size = await objectBytesPage(bucket, state.sizing ?? { prefix: 0, keys: 0, bytes: 0 }, OBJECT_BYTES_CAP, started + PAGE_BUDGET_MS);
+          if (size.next !== null) {
+            state.sizing = size.next;
+            continue;
+          }
+          state.sizing = undefined;
+          counts.workspaces += 1;
           counts.bytes += size.bytes;
           if (size.bytes > OBJECT_BYTES_CAP) {
             counts.heldBack += 1;
@@ -315,8 +326,9 @@ export const backfill = internalAction({
             state.queue.shift();
             continue;
           }
+          state.at = { prefix: 0 };
         }
-        const page = await copyPage(bucket, client.bodies as unknown as BodyStore, { at: state.at ?? { prefix: 0 }, limit: KEYS_PER_PAGE, dryRun });
+        const page = await copyPage(bucket, client.bodies as unknown as BodyStore, { at: state.at, limit: KEYS_PER_PAGE, dryRun });
         addCounts(bodies, page.counts);
         if (page.next !== null) {
           state.at = page.next;
@@ -333,12 +345,14 @@ export const backfill = internalAction({
         counts.finished += 1;
         state.queue.shift();
         state.at = undefined;
+        state.sizing = undefined;
       } catch (error) {
         // One workspace that cannot be read (a revoked or broken binding) is counted and passed over, never the run's end.
         counts.failed += 1;
         console.warn(JSON.stringify({ event: "workspace_backfill_failed", workspaceId, error: error instanceof Error ? error.name : "unknown" }));
         state.queue.shift();
         state.at = undefined;
+        state.sizing = undefined;
       }
     }
     return { ...counts, bodies, cursor: JSON.stringify(state), done: false };
