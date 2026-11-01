@@ -68,3 +68,9 @@ lasts 8 seconds, counted from when it was decided (or from the sender's
 newest message, which starts it again), and happens at most once. Counting it
 from the newest message alone let a wait decided late end before it began,
 which made three decides run within two seconds.
+
+Superseded in part by Jhonatan, 2026-11-01
+([chat-state-machine](./chat-state-machine.md)): reacting is its own decision,
+with any act, and replaces the ack tapback when chosen; a wait lasts the
+seconds decide chooses (1 to 8), at most twice per burst and never past 8
+seconds after its first message, and a new message decides again at once.

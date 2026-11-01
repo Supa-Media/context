@@ -113,7 +113,7 @@ export async function openQuestion<T>(storage: InboxStorage, now: number, origin
 
 /**
  * The alarm for a question still holding a message stays set, whatever set a
- * sooner one since (a message waiting `GROUP_TEXT_WAIT_MS`): a Durable Object
+ * sooner one since (a burst decide held, `chatState.ts`): a Durable Object
  * has one alarm, so it is put back after each drain.
  */
 export async function keepQuestionAlarm(storage: InboxStorage, now: number): Promise<void> {

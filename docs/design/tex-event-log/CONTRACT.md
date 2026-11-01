@@ -75,8 +75,10 @@ Runs Clef through `withJev(ctx, { feature: "textDecide", workspaceId }, …)`
 workspace per day). Typed questions only. Returns:
 
 ```ts
-{ ok: true; act: "silent" | "react" | "answer"; covers: string[];
-  midTurn?: "fold" | "queue" | "restart"; stale: string[]; movedOn: boolean; confidence: number }
+{ ok: true; act: "silent" | "react" | "answer" | "wait"; covers: string[];
+  midTurn?: "fold" | "queue" | "restart"; stale: string[]; movedOn: boolean; confidence: number;
+  emoji?: string;        // with any act when Tex also reacts (2026-11-01); "react" is silent plus a reaction
+  waitSeconds?: number } // with "wait": 1 to 8; the Worker caps the burst (chat-state-machine.md)
 | { ok: false; reason: "capped" | "off" | "unavailable" }
 ```
 

@@ -159,7 +159,7 @@ describe("the decision", () => {
     expect(response.json).toEqual({ ok: true, act: "answer", covers: [id(2), NEWEST], stale: [], movedOn: false, confidence: 0.83 });
     expect(sent).toHaveLength(1);
     expect(sent[0]!.state).toContain(SECRET_WORDS);
-    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "start", "moved_on", "emoji"]);
+    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "also_react", "wait_seconds", "start", "moved_on", "emoji"]);
     expect(Object.keys(sent[0]!.questions.start!.criteria)).toEqual([id(1), id(2), NEWEST]);
     // Never the transcript in the answer or the log.
     expect(response.text).not.toContain("pineapple");
@@ -205,7 +205,7 @@ describe("the decision", () => {
     });
     const response = await decide(t, { running: true, waitingAsks: asks });
     expect(response.json).toMatchObject({ ok: true, midTurn: "restart", stale: [id(20), id(22)], movedOn: true });
-    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "start", "mid_turn", "stale_0", "stale_1", "stale_2", "moved_on", "emoji"]);
+    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "also_react", "wait_seconds", "start", "mid_turn", "stale_0", "stale_1", "stale_2", "moved_on", "emoji"]);
     expect(Object.keys(sent[0]!.questions.mid_turn!.criteria)).toEqual(["fold", "queue", "restart"]);
   });
 
