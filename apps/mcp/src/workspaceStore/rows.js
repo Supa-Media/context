@@ -21,6 +21,10 @@ const SCHEMA = [
     etag TEXT,
     size INTEGER,
     collaborates INTEGER NOT NULL DEFAULT 0,
+    uploaded INTEGER,
+    role TEXT,
+    ord REAL,
+    archive_of TEXT,
     at INTEGER NOT NULL,
     gone INTEGER NOT NULL DEFAULT 0
   )`,
@@ -30,8 +34,11 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS ws_stage (epoch TEXT NOT NULL, id TEXT NOT NULL, row TEXT NOT NULL, PRIMARY KEY (epoch, id))`,
 ];
 
+/** The readers the control plane renders rules for, kept apart. A Tex guest chat's rules are not kept here. */
+export const AUDIENCES = new Set(["member", "guest"]);
+
 /** The fields a row's digest covers, in order. */
-const DIGEST_FIELDS = ["id", "noteId", "path", "kind", "storageKey", "etag", "size", "collaborates"];
+const DIGEST_FIELDS = ["id", "noteId", "path", "kind", "storageKey", "etag", "size", "collaborates", "uploaded", "role", "order", "archiveOf"];
 
 /** Thrown for a row or rule write the object will not keep. */
 export class WorkspaceRowRefused extends Error {
@@ -54,6 +61,10 @@ function rowOut(row) {
     etag: row.etag ?? null,
     size: row.size === null || row.size === undefined ? null : Number(row.size),
     collaborates: Number(row.collaborates) === 1,
+    uploaded: row.uploaded === null || row.uploaded === undefined ? null : Number(row.uploaded),
+    role: row.role ?? null,
+    order: row.ord === null || row.ord === undefined ? null : Number(row.ord),
+    archiveOf: row.archive_of ?? null,
     at: Number(row.at),
   };
 }
@@ -66,6 +77,7 @@ function checkRow(row) {
   if (!Number.isFinite(row.at)) throw new WorkspaceRowRefused("a row needs its writer's clock");
   if (row.noteId !== undefined && row.noteId !== null && !text(row.noteId, 64)) throw new WorkspaceRowRefused("not a note id");
   if (row.storageKey !== undefined && row.storageKey !== null && !text(row.storageKey, 1024)) throw new WorkspaceRowRefused("not a storage key");
+  for (const field of ["role", "archiveOf"]) if (row[field] !== undefined && row[field] !== null && !text(row[field], 1024)) throw new WorkspaceRowRefused(`not a ${field}`);
   return row;
 }
 
@@ -90,14 +102,25 @@ export function workspaceRows(sql) {
       if (!Array.isArray(rows) || rows.length > MAX_ROWS_PER_PUT) throw new WorkspaceRowRefused("rows come as a list of at most " + MAX_ROWS_PER_PUT);
       let kept = 0;
       for (const row of rows.map(checkRow)) {
-        const held = all(sql.exec("SELECT at FROM ws_rows WHERE id = ?", row.id))[0];
+        const held = all(sql.exec("SELECT at, path, kind, gone FROM ws_rows WHERE id = ?", row.id))[0];
         if (held && Number(held.at) > row.at) continue;
+        // A folder that moved carries everything under it: the tree's move is one row (paths are built on read), so
+        // the object rewrites its descendants' paths in the same call, or they would be judged under the old folder.
+        if (held && Number(held.gone) === 0 && held.kind === "folder" && held.path !== "" && held.path !== row.path) {
+          sql.exec(
+            "UPDATE ws_rows SET path = ? || substr(path, length(?) + 1) WHERE gone = 0 AND substr(path, 1, length(?) + 1) = ? || '/'",
+            row.path, held.path, held.path, held.path,
+          );
+        }
         sql.exec(
-          `INSERT INTO ws_rows (id, note_id, path, kind, storage_key, etag, size, collaborates, at, gone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+          `INSERT INTO ws_rows (id, note_id, path, kind, storage_key, etag, size, collaborates, uploaded, role, ord, archive_of, at, gone)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
            ON CONFLICT(id) DO UPDATE SET note_id = excluded.note_id, path = excluded.path, kind = excluded.kind, storage_key = excluded.storage_key,
-             etag = excluded.etag, size = excluded.size, collaborates = excluded.collaborates, at = excluded.at, gone = 0`,
+             etag = excluded.etag, size = excluded.size, collaborates = excluded.collaborates, uploaded = excluded.uploaded, role = excluded.role,
+             ord = excluded.ord, archive_of = excluded.archive_of, at = excluded.at, gone = 0`,
           row.id, row.noteId ?? null, row.path, row.kind, row.storageKey ?? null, row.etag ?? null,
-          Number.isFinite(row.size) ? row.size : null, row.collaborates === true ? 1 : 0, row.at,
+          Number.isFinite(row.size) ? row.size : null, row.collaborates === true ? 1 : 0,
+          Number.isFinite(row.uploaded) ? row.uploaded : null, row.role ?? null, Number.isFinite(row.order) ? row.order : null, row.archiveOf ?? null, row.at,
         );
         kept += 1;
       }
@@ -174,17 +197,27 @@ export function workspaceRows(sql) {
     count() {
       return Number(all(sql.exec("SELECT COUNT(*) AS n FROM ws_rows WHERE gone = 0"))[0]?.n ?? 0);
     },
-    /** Keep the rules unless the ones held are at a later access version. */
-    putRules(rules) {
+    /**
+     * Keep one audience's rules unless the ones held are at a later access version. The control plane renders
+     * rules per reader (`member`, `guest`): a guest never sees a `team` row, so each is kept and judged apart.
+     */
+    putRules(rules, audience = "member") {
       checkRules(rules);
-      const held = this.rules();
+      if (!AUDIENCES.has(audience)) throw new WorkspaceRowRefused("not an audience");
+      const held = this.rules(audience);
       if (held !== null && held.accessVersion > rules.accessVersion) return { kept: false, accessVersion: held.accessVersion };
-      setMeta("rules", JSON.stringify(rules));
+      setMeta(`rules:${audience}`, JSON.stringify(rules));
       return { kept: true, accessVersion: rules.accessVersion };
     },
-    rules() {
-      const value = meta("rules");
+    rules(audience = "member") {
+      if (!AUDIENCES.has(audience)) return null;
+      const value = meta(`rules:${audience}`);
       return value === null ? null : JSON.parse(value);
+    },
+    /** The live row at a path, or null. */
+    byPath(path) {
+      const row = all(sql.exec("SELECT * FROM ws_rows WHERE path = ? AND gone = 0 ORDER BY at DESC LIMIT 1", path))[0];
+      return row ? rowOut(row) : null;
     },
     home() {
       const value = meta("home");

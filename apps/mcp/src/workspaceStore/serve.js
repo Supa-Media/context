@@ -9,9 +9,19 @@
 import { canSee, PrivacyOverrides } from "../privacy/engine.js";
 import { serveTexStore } from "../texStore/wire.js";
 import { isWorkspaceObjectKey, MAX_READ_IDS } from "./api.js";
-import { WorkspaceRowRefused } from "./rows.js";
+import { AUDIENCES, WorkspaceRowRefused } from "./rows.js";
 
 const CALL = "x-tex-call";
+
+/** Tell a tree watcher what changed (`paths: null` is everything); a watcher's failure is never the call's. */
+function changed(store, change) {
+  if (typeof store.onTreeChange !== "function") return;
+  try {
+    store.onTreeChange(change);
+  } catch {
+    // The watcher catches up on its next change; the write has landed.
+  }
+}
 const SCOPES = new Set(["private", "team"]);
 
 function opOf(request) {
@@ -34,17 +44,14 @@ export function parsedRules(rules) {
  * refused note and a missing one answer alike, after the same storage read.
  * No rules held means nothing is shown: the object fails closed.
  */
-export async function readNotes({ rows, objects }, { ids, scope, groups }) {
+export async function readNotes({ rows, objects }, { ids, scope, groups, audience = "member" }) {
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_READ_IDS) throw new WorkspaceRowRefused(`a read names 1 to ${MAX_READ_IDS} notes`);
-  if (!SCOPES.has(scope)) throw new WorkspaceRowRefused("a read needs its scope");
-  const tokens = new Set(Array.isArray(groups) ? groups.filter((group) => typeof group === "string") : []);
-  const held = rows.rules();
-  const parsed = held === null ? null : parsedRules(held);
+  const judge = judgeFor(rows, { scope, groups, audience });
   const notes = [];
   for (const id of ids) {
     const row = typeof id === "string" ? rows.byNoteId(id) : null;
     const key = row?.storageKey ?? (typeof id === "string" ? `notes/${id}.md` : null);
-    const visible = row !== null && parsed !== null && canSee(row.path, scope, parsed.rules, parsed.overrides, tokens);
+    const visible = judge.sees(row);
     const local = key !== null && isWorkspaceObjectKey(key);
     // Read whether or not the caller may see it, so a refusal costs what a miss costs.
     const found = local ? objects.get(key, {}) : null;
@@ -62,10 +69,50 @@ export async function readNotes({ rows, objects }, { ids, scope, groups }) {
       });
     }
   }
-  return { notes, accessVersion: held?.accessVersion ?? null };
+  return { notes, accessVersion: judge.accessVersion };
 }
 
-/** `store` is `{rows: workspaceRows(sql), objects: texObjects(sql)}`. */
+/**
+ * The check every answer about a note goes through: the audience's rules (fail closed when none are held) and
+ * `canSee` over the row's path, with the grant's scope and row tokens.
+ */
+function judgeFor(rows, { scope, groups, audience = "member" }) {
+  if (!SCOPES.has(scope)) throw new WorkspaceRowRefused("a read needs its scope");
+  if (!AUDIENCES.has(audience)) throw new WorkspaceRowRefused("not an audience");
+  const tokens = new Set(Array.isArray(groups) ? groups.filter((group) => typeof group === "string") : []);
+  const held = rows.rules(audience);
+  const parsed = held === null ? null : parsedRules(held);
+  return {
+    accessVersion: held?.accessVersion ?? null,
+    sees: (row) => row !== null && parsed !== null && canSee(row.path, scope, parsed.rules, parsed.overrides, tokens),
+  };
+}
+
+/** Rows by path or by note id, as the gateway's note-id lookup and resolve answer them; one it may not see is absent. */
+function lookUp(rows, fields, by) {
+  const asked = Array.isArray(fields[by === "path" ? "paths" : "noteIds"]) ? fields[by === "path" ? "paths" : "noteIds"] : null;
+  if (asked === null || asked.length === 0 || asked.length > MAX_READ_IDS) throw new WorkspaceRowRefused(`a lookup names 1 to ${MAX_READ_IDS}`);
+  const judge = judgeFor(rows, fields);
+  return {
+    accessVersion: judge.accessVersion,
+    rows: asked.map((value) => {
+      const row = typeof value === "string" ? (by === "path" ? rows.byPath(value) : rows.byNoteId(value)) : null;
+      if (!judge.sees(row)) return { [by === "path" ? "path" : "noteId"]: value, found: false };
+      return { found: true, path: row.path, noteId: row.noteId, key: row.storageKey ?? (row.noteId ? `notes/${row.noteId}.md` : null), etag: row.etag, kind: row.kind, collaborates: row.collaborates };
+    }),
+  };
+}
+
+/** The paths a row change touches, before and after, for a tree watcher (`store.onTreeChange`). */
+function pathsTouched(rows, ids, incoming = []) {
+  const before = rows.get(ids).map((row) => row.path);
+  return [...new Set([...before, ...incoming.map((row) => row?.path).filter((path) => typeof path === "string")])];
+}
+
+/**
+ * `store` is `{rows: workspaceRows(sql), objects: texObjects(sql), onTreeChange?}`. `onTreeChange({paths, rules})`
+ * runs after a row or rules change lands (the app's live tree), and never fails the call.
+ */
 export async function serveWorkspaceStore(store, request) {
   const op = opOf(request);
   if (typeof op !== "string" || !op.startsWith("ws.")) return await serveTexStore(store.objects, request);
@@ -83,22 +130,40 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(await readNotes(store, fields));
       case "ws.visible":
         return Response.json({ visible: (await readNotes(store, fields)).notes.map((note) => note.found === true || typeof note.elsewhere === "string") });
-      case "ws.rows.snapshot":
-        return Response.json(rows.snapshot(fields));
+      case "ws.rows.snapshot": {
+        const answer = rows.snapshot(fields);
+        if (answer.swapped || fields.mode === "merge") changed(store, { paths: null, rules: false });
+        return Response.json(answer);
+      }
       case "ws.rows.digest":
         return Response.json(await rows.digest());
-      case "ws.rows.put":
-        return Response.json(rows.put(fields.rows));
-      case "ws.rows.remove":
-        return Response.json(rows.remove(fields.ids, fields.at));
+      case "ws.rows.put": {
+        const paths = Array.isArray(fields.rows) ? pathsTouched(rows, fields.rows.map((row) => row?.id), fields.rows) : [];
+        const answer = rows.put(fields.rows);
+        changed(store, { paths, rules: false });
+        return Response.json(answer);
+      }
+      case "ws.rows.remove": {
+        const paths = Array.isArray(fields.ids) ? pathsTouched(rows, fields.ids) : [];
+        const answer = rows.remove(fields.ids, fields.at);
+        changed(store, { paths, rules: false });
+        return Response.json(answer);
+      }
+      case "ws.rows.lookup":
+        return Response.json(lookUp(rows, fields, "path"));
+      case "ws.rows.resolve":
+        return Response.json(lookUp(rows, fields, "noteId"));
       case "ws.rows.get":
         return Response.json({ rows: rows.get(fields.ids) });
       case "ws.rows.list":
         return Response.json(rows.list(fields));
-      case "ws.rules.put":
-        return Response.json(rows.putRules(fields.rules));
+      case "ws.rules.put": {
+        const answer = rows.putRules(fields.rules, fields.audience ?? "member");
+        if (answer.kept) changed(store, { paths: null, rules: true });
+        return Response.json(answer);
+      }
       case "ws.rules.get":
-        return Response.json({ rules: rows.rules() });
+        return Response.json({ rules: rows.rules(fields.audience ?? "member") });
       case "ws.state":
         return Response.json({
           home: rows.home(),

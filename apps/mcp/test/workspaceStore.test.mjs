@@ -224,3 +224,34 @@ test("the control plane's door opens only the ticket's workspace, whatever the b
   assert.deepEqual((await answer.json()).rows, [], "ws_b's object, empty, not ws_a's");
   assert.deepEqual(space.names().sort(), ["workspace:ws_a", "workspace:ws_b"]);
 });
+
+test("a guest is judged by the guest rules, never the members': no guest rules held means nothing is shown", { skip }, async () => {
+  const { ws } = await seeded();
+  assert.equal((await ws.read({ ids: [ID(1)], scope: "team", audience: "guest" })).notes[0].found, false);
+  await ws.rules.put({ ...RULES(1), folders: [{ prefix: "1-projects", visibility: "private" }] }, "guest");
+  assert.equal((await ws.read({ ids: [ID(1)], scope: "team", audience: "guest" })).notes[0].found, false);
+  assert.equal((await ws.read({ ids: [ID(1)], scope: "team" })).notes[0].found, true);
+  await assert.rejects(() => ws.read({ ids: [ID(1)], scope: "team", audience: "chat:x" }));
+});
+
+test("a folder moved under a private folder takes its notes with it, so they are judged there", { skip }, async () => {
+  const { ws } = await seeded();
+  await ws.rows.put([{ id: "f1", path: "1-projects", kind: "folder", at: 10 }]);
+  await ws.rows.put([{ id: "f1", path: "1-projects/secret/old", kind: "folder", at: 20 }]);
+  assert.equal((await ws.rows.get(["n1"])).rows[0].path, "1-projects/secret/old/open.md");
+  assert.equal((await ws.read({ ids: [ID(1)], scope: "team" })).notes[0].found, false);
+  // A sibling whose name only starts the same is not under the folder.
+  await ws.rows.put([{ id: "f2", path: "a", kind: "folder", at: 10 }, { id: "x1", path: "ab/c.md", kind: "file", at: 10 }]);
+  await ws.rows.put([{ id: "f2", path: "z", kind: "folder", at: 30 }]);
+  assert.equal((await ws.rows.get(["x1"])).rows[0].path, "ab/c.md");
+});
+
+test("lookup by path and resolve by note id answer like a read: one the caller may not see is absent", { skip }, async () => {
+  const { ws } = await seeded();
+  const looked = await ws.rows.lookup({ paths: ["1-projects/open.md", "1-projects/held.md", "nope.md"], scope: "team" });
+  assert.equal(looked.rows[0].noteId, ID(1));
+  assert.equal(looked.rows[0].key, `notes/${ID(1)}.md`);
+  assert.deepEqual(looked.rows.slice(1), [{ path: "1-projects/held.md", found: false }, { path: "nope.md", found: false }]);
+  const resolved = await ws.rows.resolve({ noteIds: [ID(1), ID(2)], scope: "private" });
+  assert.deepEqual(resolved.rows.map((row) => row.path), ["1-projects/open.md", "1-projects/held.md"]);
+});

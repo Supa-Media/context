@@ -12,12 +12,16 @@
  * - **Bodies**: `notes/<noteId>.md` and everything under `.context/collaboration/`,
  *   R2-shaped (keys, etags, conditional writes, chunked values), the same
  *   storage as Tex's objects (`texStore/objects.js`). Files (`files/…`) do not.
- * - **Rows**: one per tree row: `{id, noteId, path, kind, storageKey, etag, size, collaborates, at}`.
+ * - **Rows**: one per tree row: `{id, noteId, path, kind, storageKey, etag, size, collaborates, uploaded, role, order, archiveOf, at}`.
  *   `at` is the writer's clock; a row older than the one held is ignored, so
  *   replays and out-of-order pushes cannot roll a row back.
  * - **Rules**: the workspace's access rules exactly as the control plane renders
- *   them for the gateway today (`store/privacyAuthority.js` `HeldRules`), with
- *   `accessVersion`; an older version is ignored.
+ *   them for the gateway today (`store/privacyAuthority.js` `HeldRules`), one
+ *   copy per audience (`member`, `guest`: a guest never sees a `team` row), with
+ *   `accessVersion`; an older version is ignored. A Tex guest chat's rules are
+ *   not kept: those reads stay on the control plane's path.
+ * - **Paths**: each row's full path. A folder whose path changes (a move is one
+ *   row) rewrites every row under it in the same call.
  * - **State**: `home` (where bodies are read from: `bucket` | `dual` | `object`),
  *   `backfilledAt`, counts.
  *
@@ -69,11 +73,12 @@ export function workspaceStub(env, workspaceId) {
  * The gateway's client for one workspace's object. `null` without the binding.
  *
  * - `bodies`: a ContextStore (`store/r2.js`) over the object's keys.
- * - `read({ids, scope, groups})` → `{notes: Array<{id, found: true, path, etag, contentType, text}|{id, found: false}>, accessVersion}`
+ * - `rows.lookup({paths, scope, groups, audience})`, `rows.resolve({noteIds, ...})` → `{rows: [{found, path, noteId, key, etag, kind, collaborates}], accessVersion}`
+ * - `read({ids, scope, groups, audience})` → `{notes: Array<{id, found: true, path, etag, contentType, text}|{id, found: false}>, accessVersion}`
  * - `visible({ids, scope, groups})` → booleans, the same check (for the parity checker)
  * - `rows.put(rows)`, `rows.remove(ids, at)`, `rows.get(ids)`, `rows.list({after, limit})`
  * - `rows.snapshot({epoch, rows, last, mode})`: a whole copy in pages; `replace` swaps on the last page, `merge` upserts
- * - `rows.digest()` → `{rows, sha256}` over the live rows in id order (fields: id, noteId, path, kind, storageKey, etag, size, collaborates)
+ * - `rows.digest()` → `{rows, sha256}` over the live rows in id order (fields: id, noteId, path, kind, storageKey, etag, size, collaborates, uploaded, role, order, archiveOf)
  * Every `ws.*` call names its workspace; the object pins the first it sees and refuses any other.
  * - `rules.put(heldRules)`, `rules.get()`
  * - `state()` → `{home, backfilledAt, rows, objects, accessVersion}`; `setHome(home)`; `markBackfilled(at)`
@@ -84,19 +89,21 @@ export function workspaceClient(env, workspaceId) {
   const ask = async (op, fields = {}) => await (await callTexStore(stub, op, {}, new TextEncoder().encode(JSON.stringify({ ...fields, workspaceId })))).json();
   return {
     bodies: new R2Store(texBucket(stub)),
-    read: async ({ ids, scope, groups = [] }) => await ask("ws.read", { ids, scope, groups }),
-    visible: async ({ ids, scope, groups = [] }) => (await ask("ws.visible", { ids, scope, groups })).visible,
+    read: async ({ ids, scope, groups = [], audience = "member" }) => await ask("ws.read", { ids, scope, groups, audience }),
+    visible: async ({ ids, scope, groups = [], audience = "member" }) => (await ask("ws.visible", { ids, scope, groups, audience })).visible,
     rows: {
       put: async (rows) => await ask("ws.rows.put", { rows }),
       remove: async (ids, at) => await ask("ws.rows.remove", { ids, at }),
       get: async (ids) => await ask("ws.rows.get", { ids }),
+      lookup: async ({ paths, scope, groups = [], audience = "member" }) => await ask("ws.rows.lookup", { paths, scope, groups, audience }),
+      resolve: async ({ noteIds, scope, groups = [], audience = "member" }) => await ask("ws.rows.resolve", { noteIds, scope, groups, audience }),
       list: async ({ after = null, limit = 1000 } = {}) => await ask("ws.rows.list", { after, limit }),
       snapshot: async ({ epoch, rows, last = false, mode = "replace" }) => await ask("ws.rows.snapshot", { epoch, rows, last, mode }),
       digest: async () => await ask("ws.rows.digest"),
     },
     rules: {
-      put: async (rules) => await ask("ws.rules.put", { rules }),
-      get: async () => await ask("ws.rules.get"),
+      put: async (rules, audience = "member") => await ask("ws.rules.put", { rules, audience }),
+      get: async (audience = "member") => await ask("ws.rules.get", { audience }),
     },
     state: async () => await ask("ws.state"),
     setHome: async (home) => await ask("ws.home", { home }),
