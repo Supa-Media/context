@@ -100,7 +100,7 @@ export function reasonOf(error: unknown): string {
   if (message.startsWith("unsafe storage prefix")) return "unsafe_prefix";
   const name = (error as { name?: unknown } | null)?.name;
   if (name === "ManagedEncryptionError") return "sealed";
-  if (name === "TypeError" && /fetch|network/i.test(message)) return "network";
+  if (name === "TypeError") return /fetch|network|connection|socket|reset|abort|internal error|disconnect/i.test(message) ? "network" : "type_error";
   if (/timed? ?out|timeout/i.test(message)) return "timeout";
   if (/too many|rate/i.test(message)) return "rate_limited";
   return "other";
@@ -448,7 +448,7 @@ export const backfill = internalAction({
         stage = "copy";
         // A key that will not copy is counted; why, by fixed reason only, is logged once per page.
         const keyFailures: Record<string, number> = {};
-        const page = await copyPage(bucket, client.bodies as unknown as BodyStore, {
+        const page = await copyPage(bucket, withRetries(client.bodies as unknown as BodyStore, sleep), {
           at: state.at,
           limit: KEYS_PER_PAGE,
           dryRun,
@@ -542,6 +542,11 @@ async function visibilityParity(
   const principals = samplePrincipals(readerRules);
   let checked = 0;
   let differ = 0;
+  // Which way each difference goes: Convex shows it and the object does not (`hidden`: also what a body
+  // missing from the object looks like, since the object answers no for a note it cannot read), or the reverse
+  // (`shown`, a privacy difference). Counts only, logged.
+  let hidden = 0;
+  let shown = 0;
   for (const principal of principals) {
     const expected = convexVisible(notes, readerRules, principal);
     for (let start = 0; start < notes.length; start += MAX_READ_IDS) {
@@ -551,10 +556,15 @@ async function visibilityParity(
       const seen = (await client.visible(ask)) as boolean[];
       chunk.forEach((_, index) => {
         checked += 1;
-        if (seen[index] !== expected[start + index]) differ += 1;
+        if (seen[index] !== expected[start + index]) {
+          differ += 1;
+          if (expected[start + index]) hidden += 1;
+          else shown += 1;
+        }
       });
     }
   }
+  if (differ > 0) console.warn(JSON.stringify({ event: "workspace_visibility_differs", workspaceId, principals: principals.length, checked, hidden, shown }));
   return { principals: principals.length, checked, differ };
 }
 
@@ -630,7 +640,7 @@ export const parity = internalAction({
           finishWorkspace();
           continue;
         }
-        const page = await parityPage(bucket, client.bodies as unknown as BodyStore, {
+        const page = await parityPage(bucket, withRetries(client.bodies as unknown as BodyStore, sleep), {
           at: state.check ?? { side: 0, prefix: 0 },
           limit: KEYS_PER_PAGE,
           recheckMs: RECHECK_MS,
@@ -645,6 +655,7 @@ export const parity = internalAction({
         const tree = await treeParity(ctx, workspaceId, client);
         const result = { at: Date.now(), bodies, ...tree };
         await ctx.runMutation(internal.functions.workspaceObjectsRows.recordParity, { workspaceId, parity: result });
+        console.log(JSON.stringify({ event: "workspace_parity_result", workspaceId, bodies, rows: tree.rows, rules: tree.rules, visibility: tree.visibility }));
         const bodiesDiffer = bodies.missingInObject + bodies.extraInObject + bodies.differ > 0;
         if (bodiesDiffer) counts.bodiesDiffer += 1;
         if (!tree.rows.match) counts.rowsDiffer += 1;

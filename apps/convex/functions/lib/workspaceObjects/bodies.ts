@@ -86,7 +86,7 @@ async function filterInWaves<T>(items: T[], width: number, test: (item: T) => Pr
   const kept: T[] = [];
   for (let start = 0; start < items.length; start += width) {
     const slice = items.slice(start, start + width);
-    const answers = await Promise.all(slice.map(test));
+    const answers = await settled(slice.map(test));
     slice.forEach((item, index) => {
       if (answers[index]) kept.push(item);
     });
@@ -166,7 +166,15 @@ async function present(store: BodyStore, key: string): Promise<boolean> {
 
 /** Runs `work` over `items`, `width` at a time. */
 async function inWaves<T>(items: T[], width: number, work: (item: T) => Promise<void>): Promise<void> {
-  for (let start = 0; start < items.length; start += width) await Promise.all(items.slice(start, start + width).map(work));
+  for (let start = 0; start < items.length; start += width) await settled(items.slice(start, start + width).map(work));
+}
+
+/** Every promise run to its end before the first failure is thrown: none left in flight behind a rejection. */
+async function settled<T>(promises: Promise<T>[]): Promise<T[]> {
+  const results = await Promise.allSettled(promises);
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failed) throw failed.reason;
+  return results.map((result) => (result as PromiseFulfilledResult<T>).value);
 }
 
 /** One key copied from the bucket into the object, by the rule in the header. */
@@ -271,7 +279,7 @@ export interface ParityCursor {
 type Verdict = "same" | "missingInObject" | "extraInObject" | "differ" | "neither";
 
 async function verdictOf(bucket: BodyStore, object: BodyStore, key: string): Promise<Verdict> {
-  const [left, right] = await Promise.all([bucket.get(key), object.get(key)]);
+  const [left, right] = await settled([bucket.get(key), object.get(key)]);
   if (left === null && right === null) return "neither";
   if (right === null) return "missingInObject";
   if (left === null) return "extraInObject";

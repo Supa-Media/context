@@ -386,6 +386,30 @@ describe("failure logs", () => {
     expect(seen).toHaveLength(1);
   });
 
+  test("one read failing in a parity wave waits for the others before it is thrown", async () => {
+    const bucket = bucketWith({ [A]: "# A", [B]: "# B", [C]: "# C" });
+    const { bodies } = objectFor();
+    let pending = 0;
+    let maxAfter = -1;
+    const slow = {
+      ...bucket,
+      list: bucket.list.bind(bucket),
+      get: async (key: string) => {
+        if (key === A) throw new TypeError("Network connection lost.");
+        pending += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        pending -= 1;
+        return bucket.get(key);
+      },
+    } as unknown as BodyStore;
+    await expect(parityPage(slow, bodies, { at: { side: 0, prefix: 0 }, limit: 10, recheckMs: 0, sleep: noSleep })).rejects.toThrow("Network");
+    maxAfter = pending;
+    expect(maxAfter).toBe(0);
+    const { reasonOf } = await import("../functions/workspaceObjects");
+    expect(reasonOf(new TypeError("Network connection lost."))).toBe("network");
+    expect(reasonOf(new TypeError("x is not a function"))).toBe("type_error");
+  });
+
   test("a busy bucket's listing is asked again, a refusal is not", async () => {
     const { withRetries } = await import("../functions/workspaceObjects");
     let calls = 0;
