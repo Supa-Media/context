@@ -369,3 +369,20 @@ time already gone, paused), so a wrong day is fixed before Tex answers
 (`apps/mcp/src/agent/routineWhen.js`). The reply stays "Will do." unless the
 owner decides otherwise. Undo: drop `withRunTime` from `textingWrites.js`;
 `agentRoutineWhen.test.mjs` fails.
+
+## Day words are worked out, and dated in Tex's own records (a review, 2026-11-01)
+
+An hourly routine ran at 2:00 am on the Sunday an application closed and
+texted "closes tomorrow night"; the run three hours later said "tonight".
+The clock line already named Sunday, and the earlier text gave the date, so
+the arithmetic is now done for the model: the clock line says what today,
+tonight, tomorrow and yesterday are, and between midnight and 5 am that the
+previous day is over (`apps/mcp/src/agent/dayWords.js`). A routine's "last
+time" and its recent texts are stamped with their local weekday and time,
+not UTC. A day word Tex writes into its own record notes under `tex/` is
+saved with the date it meant ("tomorrow night (Sunday, November 1)"), so a
+note written yesterday cannot say "tomorrow" today; routines, skills and
+check-in instructions keep their words, because their "today" is each run's,
+and routines are told to write a deadline as its date. Undo: drop
+`dayWordsPrompt` from `localNowPrompt` or `withDatedDayWords` from
+`textingAwareCallTool`; `agentDayWords.test.mjs` fails.
