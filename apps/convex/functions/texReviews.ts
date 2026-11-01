@@ -23,7 +23,8 @@
 import { v } from "convex/values";
 import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { userIsStaff } from "./lib/admin";
 import { usernameOf } from "./lib/adminFns/people";
 import { TEXTS_CLIENT_ID } from "./lib/feedback/agentReport";

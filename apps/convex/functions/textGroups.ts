@@ -1,5 +1,6 @@
 import { v, type Infer } from "convex/values";
-import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
+import { internalQuery, type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { Doc, Id } from "../_generated/dataModel";
 import { phoneSignInPaused } from "./lib/emailProof";
 import { recordAudit } from "./lib/audit";

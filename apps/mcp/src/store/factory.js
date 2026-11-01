@@ -79,6 +79,7 @@ import { S3Store } from "./s3.js";
 import { withLogicalDelete } from "./logicalDelete.js";
 import { withIdLayout } from "./idLayout.js";
 import { withTexRouting } from "./texRouting.js";
+import { withWorkspaceRouting } from "./workspaceRouting.js";
 import { withNoteCap } from "./noteCap.js";
 import { managedEncryptionFor, withManagedEncryption } from "./managedEncryption.js";
 
@@ -154,7 +155,7 @@ const BUILDERS = new Map([
  *
  * @param {object} binding the binding exactly as the control plane returned it
  * @param {object} [env] the Worker environment, for a native R2 binding only
- * @param {{texStore?: ((owner: string) => unknown)|null, texWorkspaceId?: string, texChats?: string[], fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, sealedObjects?: boolean, noteCap?: number|null, noteCount?: (() => Promise<number|null>)|null, idLayout?: object|null, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
+ * @param {{texStore?: ((owner: string) => unknown)|null, texWorkspaceId?: string, texChats?: string[], fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, sealedObjects?: boolean, noteCap?: number|null, noteCount?: (() => Promise<number|null>)|null, idLayout?: object|null, workspaceStore?: ((workspaceId: string) => object|null)|null, defer?: ((promise: Promise<unknown>) => void)|null, log?: (event: string, fields: object) => void, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
  *   control plane builds stores from this same table — for the connect probe
  *   and the console file browser — and needs a `fetch` with a timeout on it.
  *   A second switch there would be the third place to forget a new backend,
@@ -211,7 +212,18 @@ export function storeForBinding(binding, env, options = {}) {
   // Tex's notes (`texRouting.js`): a row's key of the Tex form goes to its
   // Durable Object, under the id layer so every holder of a row's key reaches
   // it, and refused when `options.texStore` cannot open one.
-  const routed = withTexRouting(withLogicalDelete(probed), { workspaceId: options.texWorkspaceId ?? binding.workspaceId, chats: options.texChats ?? [], texStore: options.texStore ?? null });
+  const texRouted = withTexRouting(withLogicalDelete(probed), { workspaceId: options.texWorkspaceId ?? binding.workspaceId, chats: options.texChats ?? [], texStore: options.texStore ?? null });
+  // Note texts and shared-editing history, to the workspace's object by its home (`workspaceRouting.js`). Only when
+  // the caller passed `workspaceStore`: a caller that must see the bucket alone (the copy and compare) leaves it out.
+  const routed = typeof options.workspaceStore === "function"
+    ? withWorkspaceRouting(texRouted, {
+        workspaceId: binding.workspaceId,
+        client: options.workspaceStore(binding.workspaceId),
+        known: { home: binding.notesHome, backfilledAt: binding.notesBackfilledAt ?? null },
+        defer: options.defer ?? null,
+        log: options.log ?? (() => {}),
+      })
+    : texRouted;
   return withNoteCap(withNoteLayout(routed, options.idLayout), options.noteCap, options.noteCount ?? null);
 }
 

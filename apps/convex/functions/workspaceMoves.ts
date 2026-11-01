@@ -31,7 +31,8 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { type ActionCtx, action, internalMutation, internalQuery } from "../_generated/server";
+import { type ActionCtx, action, internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";

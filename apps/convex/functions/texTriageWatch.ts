@@ -25,7 +25,8 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { internalAction, internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { triageFolders, triageRows } from "./lib/adminFns/texTriage";
 import { validAppOrigin } from "./lib/invitationEmail";
 import { folderJobsOf } from "./lib/nodes/folderJobs";

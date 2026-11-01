@@ -8,6 +8,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import { json, stringField } from "../gatewayAuth";
+import { objectSettled } from "../../workspaceObjectPush";
 
 type Role = "view" | "edit";
 /**
@@ -94,6 +95,8 @@ export async function setAccessOp(
     ...(args.kind === undefined ? {} : { kind: args.kind }),
     actor,
   });
+  // A narrowed row must be narrowed in the workspace's object before anyone is told it is done.
+  await objectSettled(ctx, workspaceId);
   return json(answer);
 }
 
@@ -133,5 +136,6 @@ export async function addGranteesOp(
     entries: entries as { handle?: string; groupId?: string; email?: string; role: Role }[],
     actor,
   });
+  await objectSettled(ctx, workspaceId);
   return json(answer);
 }

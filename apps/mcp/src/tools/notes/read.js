@@ -74,18 +74,30 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
         but is hidden would put the leak back one level down, keyed on
         existence instead of visibility.
 
-    The price is one metadata listing on a successful read. It is paid on the
-    hottest tool in the product, deliberately, and it is the only shape that
-    makes the two refusals indistinguishable rather than merely close.
+    With the id layer (every workspace since 2026-10-22) "is it there" is the
+    tree row, and the read asks the tree once (`oneRead`, `store/idLayout.js`):
+    that one answer is whether the note is there, which key holds it, and
+    which note id its collaboration head is filed under. The bucket is touched
+    only after both questions have passed, so every refusal costs the same,
+    the lookup and the forwarding read, whether the name is held back, missing,
+    or both, and a successful read is the lookup, then the body (2026-11-01:
+    it was seven calls one after another, three of them the same lookup).
+
+    A store with no id layer still asks the bucket for metadata first, on the
+    terms above.
   */
+  const view = typeof store.oneRead === "function" ? store.oneRead(store) : store;
   const seen = canSee(requested, scope, rules, overrides);
   let path = requested;
-  let present = Boolean(await probeWithLegacyFallback(store, requested));
+  let present = await notePresent(view, requested);
+  // Asked beside the body, only for a note this caller may read: whether a collaboration document holds it.
+  let started = seen && present ? startedDocument(view, requested) : null;
   // Metadata may describe a deletion marker. Resolve only authorized bytes
   // before deciding whether the old path needs forwarding.
-  let obj = seen && present ? await getWithLegacyFallback(store, requested) : null;
+  let obj = seen && present ? await getWithLegacyFallback(view, requested) : null;
   if (seen && present && !obj) present = false;
   if (!present || !seen) {
+    started = null;
     /*
       A STALE PATH IS FORWARDED, BUT ONLY AFTER IT HAS MISSED.
 
@@ -105,11 +117,11 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
       be if the caller had asked for its current path directly.
     */
     // `null` is a trail into somewhere this caller may not see: not found, as before.
-    const forwarded = forwardPath(await readForwarding(store), requested);
+    const forwarded = forwardPath(await readForwarding(view), requested);
     if (forwarded !== null && forwarded !== requested && canSee(forwarded, scope, rules, overrides)) {
-      const landed = await probeWithLegacyFallback(store, forwarded);
+      const landed = await notePresent(view, forwarded);
       if (landed && !present && seen) {
-        const landedObject = await getWithLegacyFallback(store, forwarded);
+        const landedObject = await getWithLegacyFallback(view, forwarded);
         if (landedObject) {
           present = true;
           path = forwarded;
@@ -131,7 +143,7 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
   if (!opened.ok) return encryptedNoteRefusal(path);
   const marker = opened.encrypted ? "\nencryption: v1" : "";
   let collaboration = null;
-  if (!opened.encrypted && collaborationSupported(store) && collaborationEligible(path, opened.text)) {
+  if (!opened.encrypted && collaborationSupported(view) && collaborationEligible(path, opened.text)) {
     try {
       // A read starts no document: a note nothing has edited together is its
       // Markdown, served with the Markdown's etag. Starting one costs a first
@@ -139,7 +151,7 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
       // it: every tool that checks an etag names the version the same way
       // (`notes/version.js`), so the Markdown etag is accepted until the note
       // changes.
-      collaboration = await readDocumentIfStarted(store, path);
+      collaboration = await (started ?? readDocumentIfStarted(view, path));
     } catch {
       // Once a supported store has initialized collaboration state, the
       // engine's materialized text is authoritative. Serving the raw object
@@ -187,6 +199,62 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
       `${path === requested ? "" : `\nmoved_from: ${requested}`}` +
       `${drawingEmbedLine(actualText)}${commentsLine(actualText)}${mailLine(actualText)}\n\n${actualText}`
   ), { path, text: actualText, encrypted: opened.encrypted });
+}
+
+/** The most notes one `read_notes` call opens. */
+export const READ_NOTES_MAX = 25;
+
+/**
+ * `read_notes`: several notes in one call. Every path is looked up in the
+ * tree together (`prime`, one round trip for all of them), then each is read
+ * exactly as `read_note` reads it, side by side. Each note is its own part of
+ * the answer, starting with its path; one that cannot be read says
+ * "not found" in the same words whether it is missing or held back, as
+ * `read_note` does.
+ */
+export async function toolReadNotes(store, scope, rules, overrides, pathsArg) {
+  if (!Array.isArray(pathsArg) || pathsArg.length === 0) return toolError("paths needs at least one note path");
+  if (pathsArg.length > READ_NOTES_MAX) return toolError(`read_notes opens at most ${READ_NOTES_MAX} notes at a time`);
+  if (!pathsArg.every((path) => typeof path === "string")) return toolError("every path has to be a string");
+  const paths = [...new Set(pathsArg)];
+  const view = typeof store.oneRead === "function" ? store.oneRead(store) : store;
+  if (typeof view.prime === "function") {
+    const named = paths.map((path) => splitMessageAnchor(normalizePath(path) ?? "").path).filter(Boolean);
+    await view.prime(named);
+  }
+  const results = await Promise.all(paths.map((path) => toolReadNote(view, scope, rules, overrides, path)));
+  const content = results.map((result, index) => {
+    const text = result.content?.map((part) => part.text ?? "").join("\n") ?? "";
+    return { type: "text", text: result.isError ? `path: ${paths[index]}\nerror: ${text}` : text };
+  });
+  const answer = results.every((result) => result.isError) ? { content, isError: true } : { content };
+  // The notes it opened, at the paths they were read at, for the activity log (`tools/session.js`). Not enumerable: the client's answer is unchanged.
+  const read = results.filter((result) => !result.isError && result.opened?.path).map((result) => result.opened.path);
+  return Object.defineProperty(answer, "notesRead", { value: read, enumerable: false });
+}
+
+/**
+ * Whether a note is at `path`: the tree row where the store has the id layer
+ * (`noteAt`, from the read's one lookup), and otherwise the bucket's metadata,
+ * never the body (see `toolReadNote`).
+ */
+async function notePresent(view, path) {
+  if (typeof view.noteAt === "function") return (await view.noteAt(path)) !== null;
+  return Boolean(await probeWithLegacyFallback(view, path));
+}
+
+/**
+ * The collaboration document at `path`, asked for at once so its head is read
+ * beside the note's body rather than after it, or `null` where there can be
+ * none. The answer is used only where the read would have asked anyway
+ * (supported store, eligible plain note, at the path it read); otherwise it
+ * is dropped. Its failure is held until then, so a dropped one is not thrown.
+ */
+function startedDocument(view, path) {
+  if (!collaborationSupported(view) || !collaborationEligible(path, "")) return null;
+  const pending = readDocumentIfStarted(view, path);
+  pending.catch(() => {});
+  return pending;
 }
 
 /**

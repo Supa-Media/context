@@ -43,7 +43,8 @@
 
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, type MutationCtx } from "../_generated/server";
+import { type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { countTurn, recordTurn, resolveTurn } from "./lib/jev/turns";
 import { recordGroupUsage, usageWho, type UsageWho } from "./lib/textGroupUsage";
 import { GLM_MODEL } from "./lib/jev/models";

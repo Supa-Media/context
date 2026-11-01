@@ -11,7 +11,7 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { MutationCtx } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { ownAccountClearance } from "./lib/controlPlane/ownAccount";

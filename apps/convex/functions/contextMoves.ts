@@ -64,14 +64,8 @@ import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import {
-  action,
-  internalAction,
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "../_generated/server";
+import { action, internalAction, internalQuery, query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { CONTEXT_MOVE_CONFLICT_RETRIES, carryHere } from "./lib/contextMoveBatches";
 import { requireWorkspaceRole, workspaceNotFound } from "./lib/workspaceAuth";
 import { authorizeMove, messageOf, normalizeMovePath, TOO_MANY_PASSES } from "./lib/contextMoveAuthorize";

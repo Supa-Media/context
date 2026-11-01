@@ -29,6 +29,8 @@ import { presenceClientKey } from "./relayAuthorization.js";
 import { presenceDisplayName } from "./presence.js";
 import { roomKey } from "../presence.js";
 
+export { handleTree, TREE_SOCKET_PATH } from "./treeRoute.js";
+
 /**
  * `GET /presence?note=<path>` — the socket that says who else has this note
  * open, and where their carets are.

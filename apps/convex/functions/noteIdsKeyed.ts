@@ -18,7 +18,8 @@
 
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
+import { internalQuery, type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { isPlumbing } from "./lib/privacy";
 import { convexNodeTable } from "./lib/nodes/convexTable";
 import { applyObservation } from "./lib/nodes/observe";

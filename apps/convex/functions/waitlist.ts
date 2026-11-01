@@ -15,7 +15,8 @@
 
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalQuery, mutation } from "../_generated/server";
+import { internalAction, internalQuery } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { isAdmitted, USE_FOR_MAX, waitlistEmail } from "./lib/waitlist";
 import { renderWaitlistEmail } from "./lib/waitlistEmail";

@@ -51,7 +51,8 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 
 import { internal } from "../_generated/api";
-import { action, internalMutation, internalQuery } from "../_generated/server";
+import { action, internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { normalizePath } from "./lib/fileOps";
 import { findName } from "./lib/nameClaims";
 import { linkStamp } from "./lib/formOps";

@@ -16,6 +16,7 @@
  * a workspace, a path, a name or a key: the workflow's log is public.
  */
 
+import { consoleWorkspaceRouting } from "./lib/rowWatch/consoleRouting";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -72,7 +73,8 @@ async function openWorkspaceStore(ctx: ActionCtx, workspaceId: Id<"workspaces">)
   const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
-  return storeForBinding(credential, undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId) }) as unknown as FileStore;
+  const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+  return storeForBinding(routing.credential(credential), undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId), ...routing.options }) as unknown as FileStore;
 }
 
 type SweepCounts = { chats: number; carried: number; oldNotes: number; wouldTrash: number; trashed: number; notCarried: number; failed: Record<string, number> };

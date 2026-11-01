@@ -61,7 +61,7 @@ export async function documentStarted(store, path) {
 export async function readDocumentIfStarted(store, path) {
   requireSupported(store);
   if (!eligible(path, "")) throw fail("INELIGIBLE_DOCUMENT", "document is not eligible for collaboration");
-  const head = await readHead(store, path);
+  const head = await readHead(store, path, { pathHeadTogether: true });
   if (head === null) return null;
   return readDocument(store, path, head);
 }

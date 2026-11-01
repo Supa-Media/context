@@ -2,9 +2,9 @@
 
 **Free your context. Share your context.**
 
-Context is one MCP endpoint a person adds to every AI client, backed by a
-markdown bucket — one they own, or one we run for them on the paid plan and
-they can take away at any time. Read `README.md` first for the product shape.
+Context is one MCP endpoint a person adds to every AI client, backed by plain
+Markdown notes kept in one Durable Object per workspace, which they can take
+away at any time as folders. Read `README.md` first for the product shape.
 
 This file is the part you read every session. The reasoning behind the rules —
 argued through once, not to be re-litigated — lives in
@@ -16,75 +16,92 @@ file for the area you are touching, and write new durable decisions there.
 These are the product, not implementation details. If a task seems to require
 breaking one, stop and say so rather than working around it.
 
-1. **The customer owns the content, and can always leave with it.** Note
-   bodies and attachments live in a bucket dedicated to one workspace. Names,
-   folders and privacy live in the control plane, on each workspace's tree
-   rows (decided by the owner, 2026-10-15, replacing the bucket-as-truth rule;
-   [notes-by-id](./docs/decisions/storage-and-credentials/notes-by-id.md)),
-   alongside accounts, bindings, grants, audit, and each note's rebuildable
-   facts (links, front matter, first heading and paragraph;
-   [convex-facts](./docs/decisions/app-and-console/convex-facts.md)). The
-   control plane **never** holds a note's body. Leaving is **Download as
-   folders**: a complete, decrypted copy with real names, free on every plan,
-   still available after cancelling, never gated, degraded or behind a
-   paywall — gate it and this is a different product. Moving to storage of
-   their own is free too. Cancelling puts a context back on the free plan,
-   still writable and exportable; it never deletes (decided by the owner,
-   2026-09-29). Credentials never live in Markdown, in the bucket, in logs, in
-   URLs, or on a device: encrypted at rest, decrypted only in the gateway at
-   request time. The one exception is the texting assistant's autofill vault,
-   sealed in the person's own bucket with the key held outside it and never
-   shown to a model, and its browser's sign-ins kept the same way and, first,
-   in one saved Browserbase profile per person or group chat, which the
-   control plane deletes there with the account, the workspace or "sign Tex
-   out"; export carries the sealed copy (decided by the owner, 2026-10-06,
-   2026-10-20 and 2026-10-29;
+1. **The customer owns the content, and can always leave with it.** A
+   workspace's note bodies, its editing history, its tree rows (names,
+   folders, privacy, grants and shares) and its access rules live in its
+   **workspace object**: one Durable Object per workspace, which answers a
+   read with the permission check and the text in one call (decided by the
+   owner, 2026-11-01, replacing bodies-in-the-bucket and rows-in-Convex;
+   [workspace-objects](./docs/decisions/storage-and-credentials/workspace-objects.md)).
+   Pictures and other files live in a files bucket of the workspace's own,
+   pictures compressed and PDFs and audio as they are. Every save is also
+   written behind to the workspace's managed bucket, a backup copy that no
+   request reads. Until a workspace's reads are switched over (`home`:
+   `bucket` | `dual` | `object`), its bodies stay in the bucket and its rows in
+   the control plane ([notes-by-id](./docs/decisions/storage-and-credentials/notes-by-id.md)).
+   The control plane keeps accounts, usernames, sign-in, AI client grants,
+   billing, audit, a "shared with me" index and each note's rebuildable facts
+   (links, front matter, first heading and paragraph;
+   [convex-facts](./docs/decisions/app-and-console/convex-facts.md)), and
+   **never** holds a note's body. Leaving is **Download as folders**: a complete, decrypted copy with
+   real names, free on every plan, still available after cancelling, never
+   gated, degraded or behind a paywall — gate it and this is a different
+   product. Bring-your-own bucket is retired: nobody new connects one, and a
+   workspace on one gets its full export before it moves (decided by the
+   owner, 2026-11-01). Cancelling puts a context back on the free plan, still
+   writable and exportable; it never deletes (decided by the owner,
+   2026-09-29). Credentials never live in Markdown, in an object or bucket, in
+   logs, in URLs, or on a device: encrypted at rest, decrypted only in the
+   gateway at request time. The one exception is the texting assistant's
+   autofill vault, sealed in the person's own storage with the key held
+   outside it and never shown to a model, and its browser's sign-ins kept the
+   same way and, first, in one saved Browserbase profile per person or group
+   chat, which the control plane deletes there with the account, the
+   workspace or "sign Tex out"; export carries the sealed copy (decided by
+   the owner, 2026-10-06, 2026-10-20 and 2026-10-29;
    [texting-assistant](./docs/decisions/texting-assistant.md)). A group
    chat's memory is the other: its home is in `@context-lc` under
    `tex/groups/`, sealed so no role there opens it, an owner's included, only
    the chat's people (decided by the owner, 2026-10-31;
    [chat-homes](./docs/decisions/texting-assistant/chat-homes.md)). Tex's
    own notes are the third: each keeps its tree row, marked as living in a
-   Durable Object (one per person, one per group chat) that holds its text
-   instead of the bucket, read, searched and exported like any note (decided
-   by the owner, 2026-10-31;
+   Tex Durable Object (one per person, one per group chat) that holds its text,
+   read, searched and exported like any note (decided by the owner,
+   2026-10-31;
    [tex-durable-objects](./docs/decisions/texting-assistant/tex-durable-objects.md)). See
    [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
-2. **Tenancy is bucket-level, never prefix-level.** Do not namespace keys inside
-   a bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note's bytes live
-   at `notes/<noteId>.md` (other files at `files/<noteId>.<ext>`), and its
-   name and folder are rows in the control plane; Context may move or rewrite
-   any key in a bucket it is connected to, a customer's own included (decided
-   by the owner, 2026-10-15). One workspace maps to one bucket (optionally
-   plus a fixed root prefix the customer chose, applied at the adapter
-   boundary). Managed buckets are one per workspace, named from the immutable
-   workspace id, in a Cloudflare account that holds customer data — those
-   buckets, the per-context search databases, a live note's in-flight
-   keystrokes while people are typing it together, and Tex's notes' Durable
-   Objects — and nothing of ours. That
-   third one was added deliberately (decided by the owner, 2026-09-20): two
-   people editing one note need a shared place for characters that are seconds
-   old. It is bounded — one room per note, append-only, deleted when the last
-   person leaves, replayed only to a socket that passed `canSee` at join, never
-   the only copy of anything, and the flush to the bucket is continuous. See
+2. **Tenancy is object-level and bucket-level, never prefix-level.** One
+   workspace has one workspace object, named `workspace:<workspaceId>` from
+   the immutable id, and its own buckets; never two workspaces in one object
+   or one bucket, and no `tenants/<id>/` or `workspaces/<slug>/` keys. Inside,
+   a note's bytes are `notes/<noteId>.md` and its history is under
+   `.context/collaboration/`; files are `files/<noteId>.<ext>` in the files
+   bucket; names and folders are rows. Context may move or rewrite any key it
+   holds (decided by the owner, 2026-10-15). **Where each runs:** a Durable
+   Object answers only to Workers in its own Cloudflare account, so the
+   workspace objects, Tex's objects and the live-typing rooms run in the
+   gateway's account, placed with the location hint `enam` (decided by the
+   owner, 2026-11-01); the boundary between workspaces there is the object,
+   never a shared one. The
+   customer-data account holds the buckets (files and backup copies) and the
+   per-context search databases, and nothing of ours: no Worker, queue or
+   bucket of our own state
+   ([managed-storage](./docs/decisions/storage-and-credentials/managed-storage.md)).
+   The live-typing rooms stay bounded (decided by the owner, 2026-09-20): one
+   room per note, append-only, deleted when the last person leaves, replayed
+   only to a socket that passed `canSee` at join, never the only copy of
+   anything, and the flush to the note is continuous. See
    [storage-and-credentials](./docs/decisions/storage-and-credentials.md). A
-   store's per-account resource ceiling is a constraint on the product: R2
-   allows a million buckets, and anything low forces prefix tenancy.
-3. **Note bodies stay plain Markdown.** A Context-managed bucket may hold each
-   object's body sealed at rest (key outside the bucket), because every read
-   through the product and every export is plain; a customer's own bucket
-   never is (decided by the owner, 2026-09-29;
+   store's per-account ceiling is a constraint on the product: R2 allows a
+   million buckets, and anything low forces prefix tenancy; one object holds
+   at most 10 GB, so a workspace that would not fit is held back and named,
+   never cut short.
+3. **Note bodies stay plain Markdown.** A workspace object stores each body as
+   its Markdown (Cloudflare encrypts Durable Object storage at rest); the
+   backup copy in a managed bucket may be sealed at rest with the key outside
+   the bucket, because every read through the product and every export is
+   plain (decided by the owner, 2026-09-29;
    [managed-encryption](./docs/decisions/storage-and-credentials/managed-encryption.md)).
    Collaboration history under `.context/collaboration/` is customer-owned
    essential data, needed to merge offline edits; accepted edits may briefly
    precede their Markdown rendering, and a completed save or export includes
    them ([collaboration](./docs/decisions/collaboration.md)). Search indexes,
    caches and embeddings are **disposable derivatives**, rebuildable from the
-   notes and the rows. The bucket layout is `notes/`, `files/` and
-   `.context/`; there is no `privacy.md`, and nothing outside the app writing
-   into the bucket is picked up (decided by the owner, 2026-10-15). No
-   compatibility with syncing a bucket to Obsidian is kept; Obsidian plugins
-   running inside Context are.
+   notes and the rows. The layout is `notes/` and `.context/` in the object
+   and `files/` in the files bucket; there is no `privacy.md`, and nothing
+   written into a bucket from outside the app is picked up (decided by the
+   owner, 2026-10-15). No compatibility with syncing a bucket to Obsidian is
+   kept; Obsidian plugins running inside Context are.
 4. **One person or workspace is one security boundary.** Every workspace has its
    own identity, storage binding, privacy manifest, audit trail and connector
    grants. **Never** extend the legacy shared-token model (`PRIVATE_TOKEN` /
@@ -233,9 +250,9 @@ are deliberately **not** built — do not foreclose them.
   touching auth, token handling, tenant isolation, path resolution, signature
   verification, or credential storage needs a test proving the attack fails.
 - **Self-hosting is a supported path**: someone must be able to clone this,
-  deploy the gateway and a Convex deployment of their own at their own bucket,
-  and have a working context without us. There is no mode without a control
-  plane (decided by the owner, 2026-10-15).
+  deploy the gateway (its objects on Cloudflare or on `workerd`) and a Convex
+  deployment of their own, and have a working context without us. There is no
+  mode without a control plane (decided by the owner, 2026-10-15).
 
 Work goes through pull requests; do not push to `main`. **Review is self-review,
 and merging is yours to do.** Nobody is waiting to approve, so a branch parked
@@ -324,7 +341,7 @@ checked is not a guard.**
 ## Stack
 
 - **Control plane**: Convex (`@convex-dev/auth`, email OTP via Resend)
-- **Gateway**: Cloudflare Workers + R2/S3 via the storage adapter
+- **Gateway**: Cloudflare Workers; notes in workspace Durable Objects, files and backup copies in R2 via the storage adapter
 - **Mobile/web app**: React Native + Expo, Expo Router
 - **Ingestion**: Cloudflare Email Routing → Email Worker → `inbox/`
 - **Framework**: [supa-framework](https://github.com/Supa-Media/supa-framework)

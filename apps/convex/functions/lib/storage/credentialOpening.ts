@@ -132,6 +132,19 @@ export const getBindingForGatewayHandler = async (
     throw error;
   }
 
+  // Where the workspace's note texts are read from while they move into its object (`functions/workspaceObjects.ts`):
+  // absent while `bucket`, so every store built from this credential, the gateway's and the console's, routes by it.
+  const notes: { home: "bucket" | "dual" | "object"; backfilledAt?: number } | null = await ctx.runQuery(
+    internal.functions.workspaceObjectsRows.recordFor,
+    { workspaceId: args.workspaceId },
+  );
+  // A change committed here and not yet taken by the object (a public mutation cannot wait for it): every reader
+  // of this binding asks the control plane until it lands, so a share just taken back is never served from the
+  // object in between (`functions/workspaceObjectPush.ts`).
+  const behind =
+    notes?.home === "object" &&
+    (await ctx.runQuery(internal.functions.workspaceObjectPush.waitingSince, { workspaceId: args.workspaceId, at: Number.MAX_SAFE_INTEGER }));
+
   return {
     provider: binding.provider,
     endpoint: binding.endpoint,
@@ -144,6 +157,9 @@ export const getBindingForGatewayHandler = async (
     forcePathStyle: binding.forcePathStyle,
     capabilities: binding.capabilities,
     status: binding.status,
+    ...(notes === null || notes.home === "bucket" ? {} : { notesHome: notes.home }),
+    ...(notes?.backfilledAt === undefined || notes.home === "bucket" ? {} : { notesBackfilledAt: notes.backfilledAt }),
+    ...(behind ? { notesBehind: true as const } : {}),
   };
 };
 

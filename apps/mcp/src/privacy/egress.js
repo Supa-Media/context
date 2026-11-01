@@ -126,14 +126,17 @@ export function recordRead(ledger, { name, args, result, writing = false }) {
 
 /** A note read by path that is a mailbox day, a calendar day, a meeting or a saved chat. */
 function readsCapturedContent(name, args) {
+  // `read_notes` reads many: any one of them that is captured content marks the turn.
+  if (name === "read_notes") return (Array.isArray(args?.paths) ? args.paths : []).some((path) => readsCapturedContent("read_note", { path }));
   const raw = name === "fetch" ? args?.id : args?.path;
   const path = typeof raw === "string" ? normalizePath(raw) : null;
   return path !== null && path !== undefined && classifyCaptureKind(path) !== null;
 }
 
+/** Any part of the answer: `read_notes` answers one part per note, and any of them may be a stranger's. */
 function carriesUntrustedFrontmatter(result) {
-  const text = result?.content?.[0]?.text;
-  return typeof text === "string" && UNTRUSTED_FRONTMATTER.test(text.slice(0, 2000));
+  const parts = Array.isArray(result?.content) ? result.content : [];
+  return parts.some((part) => typeof part?.text === "string" && UNTRUSTED_FRONTMATTER.test(part.text.slice(0, 2000)));
 }
 
 /**

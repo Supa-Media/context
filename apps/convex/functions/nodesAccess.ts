@@ -13,7 +13,8 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
+import { internalQuery, query, type MutationCtx } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { addGranteesHandler } from "./lib/nodes/addGrantees";
 import { granteeRequestValidator, setGranteesAnswerValidator, setGranteesHandler } from "./lib/nodes/setGrantees";

@@ -27,7 +27,8 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
+import { internalQuery, type ActionCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { usernameOf } from "./lib/adminFns/people";
 import { TEXTS_CLIENT_ID } from "./lib/feedback/agentReport";
 import { bugFolder, bugNotePath, renderBugNote } from "./lib/feedback/bugNote";

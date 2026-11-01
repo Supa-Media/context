@@ -17,7 +17,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, type MutationCtx } from "../_generated/server";
+import { type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { purgeSmallDataBatch, resetSmallDataForStorage } from "./lib/smallData/purge";
 import { scheduleDiagnosis } from "./lib/noteIds/state";
 

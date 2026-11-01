@@ -13,7 +13,8 @@
 import { v } from "convex/values";
 import { CHAT_HOMES_FOLDER } from "@context/shared";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type QueryCtx } from "../_generated/server";
+import { internalQuery, type QueryCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { texKeyFor } from "../../mcp/src/store/texRouting.js";
 import { nodePaths } from "./lib/nodes/paths";
 import { idKeyFor } from "./lib/nodes/noteIds";

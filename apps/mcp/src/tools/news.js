@@ -40,6 +40,13 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-01",
+    newTool: true,
+    text:
+      'read_notes reads up to 25 notes in one call (`paths`), each answered exactly as read_note answers it, or "not found". ' +
+      'With fetch, id "notes:" and args `{ paths }`. Use it instead of several read_note calls when you already know which notes you need.',
+  },
+  {
     date: "2026-10-29",
     text:
       'fetch id "chat:" lists the person\'s Google Chat spaces with their spaces/… ids; "chat:<spaces/…>" reads that one conversation live, ' +
@@ -364,7 +371,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "354a901b";
+export const TOOL_SHAPE = "dfb18474";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

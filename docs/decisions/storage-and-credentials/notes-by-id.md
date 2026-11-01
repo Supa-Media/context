@@ -1,5 +1,7 @@
 # Notes stored by id
 
+> **Being replaced (decided by the owner, 2026-11-01):** a workspace's bodies, rows and access rules move into its workspace object, one workspace at a time; this file describes the bucket and control-plane home a workspace keeps until its reads are switched. See [workspace-objects](./workspace-objects.md).
+
 ## Names, folders and privacy live on tree rows; the bucket holds bodies by id
 
 *Decided by the owner, 2026-10-15* ("I want like a clean migration. I don't

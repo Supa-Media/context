@@ -31,7 +31,8 @@
 
 import { getAuthUserId } from "./lib/signedIn";
 import { ConvexError, v, type Infer } from "convex/values";
-import { action, internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx } from "../_generated/server";
+import { action, internalAction, internalQuery, type ActionCtx, type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";

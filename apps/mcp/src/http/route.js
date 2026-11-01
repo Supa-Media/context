@@ -50,7 +50,7 @@ import { MESSAGES_BACKUP_LOG_ROUTE, handleMessagesBackupFileRead, handleMessages
 import { handleMessagesBackupFile } from "../communications/messagesBackupFiles.js";
 import { MESSAGES_BACKUP_ROUTE, parseFileRoute } from "../../../../packages/communications/src/backup.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
-import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
+import { handleAgentActivity, handlePresence, handleTree, TREE_SOCKET_PATH } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
 import { handleMcp } from "../mcp/handlers.js";
@@ -74,18 +74,19 @@ import { TEXTING_ROUTES } from "../agent/textingRoutes.js";
 import { withSearchPassesHeld } from "../search/heldPasses.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
 import { TEX_STORE_PATH, handleTexStoreDoor } from "../texStore/door.js";
+import { WORKSPACE_STORE_PATH, handleWorkspaceStoreDoor } from "../workspaceStore/door.js";
 import { IMAGE_UPLOAD_PATH, attachImageUploads, handleImageUpload } from "../notes/imageUploads.js";
 import { judgeFor } from "../privacy/judge.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
 
-    // The control plane's own call to the mover, on the raw path so no
-    // workspace selector is ever read off it. It takes no person's token: the
-    // gateway secret and a ticket the control plane minted (`moves/mover.js`).
+    // The control plane's own call to the mover, on the raw path so no workspace selector is ever read off it.
+    // It takes no person's token: the gateway secret and a ticket the control plane minted (`moves/mover.js`).
     if (url.pathname === MOVER_PAGE_PATH) return await handleMoverPage(request, env);
-    // The control plane reaching Tex's notes for an export or the trash (`texStore/door.js`), the same way.
+    // The control plane reaching Tex's notes (`texStore/door.js`) or a workspace object (`workspaceStore/door.js`), the same way.
     if (url.pathname === TEX_STORE_PATH) return await handleTexStoreDoor(request, env);
+    if (url.pathname === WORKSPACE_STORE_PATH) return await handleWorkspaceStoreDoor(request, env);
     // An upload link's PUT (`notes/imageUploads.js`): no person's token and no
     // workspace selector; the ticket in its header is the whole authority.
     if (url.pathname === IMAGE_UPLOAD_PATH) return await handleImageUpload(request, env);
@@ -193,9 +194,9 @@ export async function route(request, env, ctx) {
     // below, because it is the one authenticated route that is a GET, answers
     // 101 rather than JSON, and needs no queue, no usage counter and no search
     // budget — it never reads a note and never writes one.
-    if (path === "/presence") {
-      return await handlePresence(request, env, { slug, pathToken, origin });
-    }
+    if (path === "/presence") return await handlePresence(request, env, { slug, pathToken, origin });
+    // The app's live file tree from the workspace object (`live/treeRoute.js`): a socket, for the same reasons.
+    if (path === TREE_SOCKET_PATH) return await handleTree(request, env, { slug, pathToken, origin });
 
     // Which notes agents touched lately, for the console's file tree. Its own
     // branch for the reasons `/presence` has one: a GET that reads no note,
