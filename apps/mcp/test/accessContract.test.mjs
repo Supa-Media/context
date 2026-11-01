@@ -84,6 +84,10 @@ test("rows are checked, normalized and refused in one voice", () => {
   assert.throws(() => checkConnectionRow({ ...connection, scopes: [] }), AccessRowRefused);
   assert.deepEqual(checkMemberRow({ userId: "u1", personalWorkspaceId: "p1", role: "member", at: 1 }), { userId: "u1", personalWorkspaceId: "p1", role: "member", groups: [], at: 1 });
   assert.equal(checkInviteRow({ id: "i1", email: "A@Example.com", role: "member", invitedBy: "u1", expiresAt: 9, at: 1 }).email, "a@example.com");
+  assert.equal(checkInviteRow({ id: "i1", name: "kola", role: "editor", invitedBy: "u1", expiresAt: 9, tokenHash: HASH, at: 1 }).name, "kola");
+  assert.throws(() => checkInviteRow({ id: "i1", name: "kola", role: "owner", invitedBy: "u1", expiresAt: 9, at: 1 }), AccessRowRefused, "an invite never hands over a workspace");
+  assert.throws(() => checkInviteRow({ id: "i1", name: "@Kola", role: "member", invitedBy: "u1", expiresAt: 9, at: 1 }), AccessRowRefused);
+  assert.equal(checkConnectionRow({ ...connection, tokenHash: null }).tokenHash, null);
   assert.throws(() => checkInviteRow({ id: "i1", email: "a@x.co", phone: "+15550100", role: "member", invitedBy: "u1", expiresAt: 9, at: 1 }), AccessRowRefused);
   assert.throws(() => checkInviteRow({ id: "i1", phone: "5550100", role: "member", invitedBy: "u1", expiresAt: 9, at: 1 }), AccessRowRefused);
 });

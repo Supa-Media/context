@@ -219,8 +219,9 @@ const refuse = (message) => {
 };
 
 /**
- * One workspace the person is in: `{workspaceId, slug, kind, role, groups[], pinned?, at}`. `groups` are the row names
- * the person answers to there (their groups and their own handle, without `@`), as `grantedNamesFor` gives them today.
+ * One workspace the person is in: `{workspaceId, slug, kind, role, groups[], pinned?, at}`. `groups` are the names of
+ * the groups the person is in there, without `@`, as the workspace object's members row holds them; the person's own
+ * handle is added when a session is built (it is the slug of their personal workspace's row).
  * `pinned` marks the workspace every account reaches (`@context-lc`); its `groups` are the pin reader's names.
  */
 export function checkReachRow(row) {
@@ -267,7 +268,8 @@ export const sharedKey = (row) => `${row.fromWorkspaceId}:${row.noteId !== undef
 
 /**
  * One AI client's grant: `{grantId, clientId, clientName, workspaceId, scopes[], tokenHash, refreshHash,
- * previousRefreshHash?, expiresAt, status, lastUsedAt, at}`. `previousRefreshHash` is the refresh token the last
+ * previousRefreshHash?, expiresAt, status, lastUsedAt, at}`. `tokenHash` is null for a grant with no access token yet
+ * (it resolves nothing until a refresh); `expiresAt` is 0 when none was recorded. `previousRefreshHash` is the refresh token the last
  * rotation spent: presented again, it revokes the grant. Texting clients (`context_texts`, `context_texts_group`) are
  * never held here; their checks stay with the control plane. `workspaceId` is the workspace the person connected it at, the session's default. Hashes
  * only, never a token. `clientName` is display text the client asserted and decides nothing.
@@ -279,7 +281,7 @@ export function checkConnectionRow(row) {
   if (row.clientName !== undefined && row.clientName !== null && !text(row.clientName, 256)) refuse("not a client name");
   if (!id(row.workspaceId)) refuse("a connection names the workspace it was made at");
   if (!Array.isArray(row.scopes) || row.scopes.length === 0 || !row.scopes.every((scope) => text(scope, 64))) refuse("a connection carries its scopes");
-  if (typeof row.tokenHash !== "string" || !TOKEN_HASH.test(row.tokenHash)) refuse("a connection keys on its token's sha256");
+  if (row.tokenHash !== null && (typeof row.tokenHash !== "string" || !TOKEN_HASH.test(row.tokenHash))) refuse("a connection keys on its token's sha256, or null before its first refresh");
   if (typeof row.refreshHash !== "string" || !TOKEN_HASH.test(row.refreshHash)) refuse("a connection carries its refresh token's sha256");
   if (!clock(row.expiresAt)) refuse("a connection's token expires");
   if (!CONNECTION_STATES.includes(row.status)) refuse("not a connection state");
@@ -313,20 +315,27 @@ export function checkMemberRow(row) {
   return { userId: row.userId, personalWorkspaceId: row.personalWorkspaceId, role: row.role, groups: [...(row.groups ?? [])], at: row.at };
 }
 
-/** One invitation not yet taken up: `{id, email | phone, role, invitedBy, expiresAt, at}`. Exactly one of email or phone. */
+/**
+ * One invitation not yet taken up: `{id, email | phone | name, role, invitedBy, expiresAt, tokenHash?, at}`. Exactly
+ * one of email, phone or name (a handle, without `@`). The role is `editor` or `member`: an invite never hands over a
+ * workspace. `tokenHash` is the sha256 of the invite link's token, so accepting finds the invite with no plaintext kept.
+ */
 export function checkInviteRow(row) {
   if (!row || typeof row !== "object") refuse("not an invite");
   if (!id(row.id)) refuse("an invite has its id");
-  const hasEmail = row.email !== undefined && row.email !== null;
-  const hasPhone = row.phone !== undefined && row.phone !== null;
-  if (hasEmail === hasPhone) refuse("an invite is to one email or one phone");
-  if (hasEmail && !(text(row.email, 320) && row.email.includes("@"))) refuse("not an email");
-  if (hasPhone && !(typeof row.phone === "string" && /^\+[1-9][0-9]{6,14}$/.test(row.phone))) refuse("not a phone number");
-  if (!ROLES.includes(row.role)) refuse("not a role");
+  const given = ["email", "phone", "name"].filter((field) => row[field] !== undefined && row[field] !== null);
+  if (given.length !== 1) refuse("an invite is to one email, one phone or one handle");
+  const [kind] = given;
+  if (kind === "email" && !(text(row.email, 320) && row.email.includes("@"))) refuse("not an email");
+  if (kind === "phone" && !(typeof row.phone === "string" && /^\+[1-9][0-9]{6,14}$/.test(row.phone))) refuse("not a phone number");
+  if (kind === "name" && !(typeof row.name === "string" && /^[a-z0-9][a-z0-9-]{1,64}$/.test(row.name))) refuse("not a handle");
+  if (row.role !== "editor" && row.role !== "member") refuse("an invite is to edit or to view, never to own");
   if (!id(row.invitedBy)) refuse("an invite names who sent it");
   if (!clock(row.expiresAt)) refuse("an invite expires");
+  if (row.tokenHash !== undefined && row.tokenHash !== null && !(typeof row.tokenHash === "string" && TOKEN_HASH.test(row.tokenHash))) refuse("not an invite token's sha256");
   if (!clock(row.at)) refuse("a row needs its writer's clock");
-  return { id: row.id, ...(hasEmail ? { email: row.email.toLowerCase() } : { phone: row.phone }), role: row.role, invitedBy: row.invitedBy, expiresAt: row.expiresAt, at: row.at };
+  const invitee = kind === "email" ? { email: row.email.toLowerCase() } : kind === "phone" ? { phone: row.phone } : { name: row.name };
+  return { id: row.id, ...invitee, role: row.role, invitedBy: row.invitedBy, expiresAt: row.expiresAt, tokenHash: row.tokenHash ?? null, at: row.at };
 }
 
 /* --------------------------- writes across objects --------------------------- */
