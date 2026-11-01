@@ -555,6 +555,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
 
   const shownRecent = recentTexts(conversation);
   let turn = null;
+  let failure = "other";
   try {
     turn = await runTurn({
       question: heartbeatQuestion({
@@ -590,6 +591,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       maxRounds: HEARTBEAT_ROUNDS,
     });
   } catch (error) {
+    failure = error instanceof ProviderError ? providerFailure(error) : failure;
     await meter(null, true, error instanceof ProviderError ? error.model : model);
     console.log(
       JSON.stringify({
@@ -669,7 +671,17 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       ms: now - started,
     }),
   );
-  if (outcome === "failed") return json({ error: "model_unavailable", outcome }, 502);
+  // Which failure, as a code the Worker logs (`heartbeats.ts` failedBecause): out of rounds is not the model failing.
+  if (outcome === "failed") return json({ error: "model_unavailable", reason: turn?.exhausted ? "rounds_exhausted" : failure, outcome }, 502);
   if (!text) return json({ outcome });
   return json({ outcome, answer: text, ...(marked.continues !== null ? { continues: marked.continues } : {}), ...(await beside()) });
+}
+
+/**
+ * A model failure as a fixed code, never the provider's words (2026-11-01: a check-in failed as
+ * "model_unavailable" after 43 s and nothing said whether it timed out, was rate limited or ran out of rounds).
+ */
+export function providerFailure(error) {
+  if (error.status === 429 || error.status === 503 || error.status === 529) return `status_${error.status}`;
+  return /timed? ?out|timeout|abort/i.test(String(error.reason)) ? "timeout" : "other";
 }
