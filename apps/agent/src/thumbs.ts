@@ -21,6 +21,7 @@
  * drain took every one-to-one 👍 as a group's and dropped it (2026-10-22).
  */
 
+import { keptEvents } from "./events";
 import type { InboxStorage } from "./inbox";
 import type { Reaction } from "./reactions";
 
@@ -187,4 +188,12 @@ function sameWords(a: string, b: string): boolean {
   const [x, y] = [folded(a), folded(b)];
   if (x === "" || y === "") return false;
   return x === y || x.startsWith(y) || y.startsWith(x);
+}
+
+/** Whether a reaction was on one of Tex's own texts in this chat (a turn's or a fixed line): named so by WhatsApp, or its quoted words are Tex's. */
+export async function onTexText(storage: InboxStorage, chat: string, reaction: Reaction): Promise<boolean> {
+  if (reaction.onOther) return false;
+  if (reaction.onTex) return true;
+  if (reaction.words === "") return false;
+  return (await keptEvents(storage, chat)).some((event) => event.from.kind !== "person" && event.text !== undefined && sameWords(event.text, reaction.words));
 }

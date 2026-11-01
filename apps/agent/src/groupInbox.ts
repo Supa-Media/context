@@ -55,9 +55,9 @@ import type { Picture } from "./line";
 import type { ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
 import { groupSettingReply, groupSettings } from "./groupSettings";
-import { tapbackText, type Reaction } from "./reactions";
+import { answers, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { ackEmoji } from "./ackEmoji";
-import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdThumb } from "./thumbs";
+import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onTexText } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
@@ -147,7 +147,14 @@ export { addressesTex, groupCommand, peopleOf };
  * (`groupTurn.ts`), except the ones code decides.
  */
 export async function acceptGroup(storage: InboxStorage, message: GroupMessage, now: number): Promise<"queued" | "kept" | "ignored" | "duplicate" | "full"> {
-  if (message.reaction !== undefined) return await acceptThumb(storage, message, message.reaction, now);
+  // Every reaction is input (Dev2, 2026-11-01): a held ask's yes is code's; any other reads on as its line of the chat.
+  let answeringTex = false;
+  if (message.reaction !== undefined) {
+    const read = await acceptReaction(storage, message, message.reaction, now);
+    if (read.kind === "done") return read.outcome;
+    message = { ...message, text: read.line };
+    answeringTex = read.answersTex;
+  }
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   const repliesToTex = message.replyTo !== undefined && sent.includes(message.replyTo);
   const yes = await answersOpenAsk(storage, message, now);
@@ -155,7 +162,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   const engagement = !message.sms && (await questionOpen(storage, now)) ? engagementChoice(message.text) : null;
   const setting = !message.sms && engagement === null ? await groupSettingReply(storage, message.text, now) : null;
   // A reply in Tex's thread is not addressed by itself: decide judges it, as any untagged text (Dev2, 2026-10-27).
-  const addressed = addressesTex(message.text, false);
+  // A reaction answering Tex's own question is answered as a message to Tex is (the 1:1's, #2469): never left silent.
+  const addressed = message.reaction === undefined ? addressesTex(message.text, false) : answeringTex;
   const tagged = addressed || yes || engagement !== null || setting !== null;
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
@@ -229,7 +237,8 @@ async function enqueue(storage: InboxStorage, message: GroupMessage, extra: Part
   await storage.put("gseq", seq);
   await storage.put(seen, now);
   // Whether it replies to Tex is decided now, against the handles Tex sent; the turn reads the words it quotes.
-  await storage.put<Pending>(pendingKey(seq), { message: repliesToTex ? message : { ...message, replyTo: undefined }, attempts: 0, at: now, ...extra });
+  // A reaction goes on as its line alone: only a held one (`holdThumb`) reaches the gateway as a tapback, which can be a yes.
+  await storage.put<Pending>(pendingKey(seq), { message: { ...message, reaction: undefined, ...(repliesToTex ? {} : { replyTo: undefined }) }, attempts: 0, at: now, ...extra });
   // The chat moved (a wait that began before this decides again: `stillGathering`), and the burst Tex owes an answer to
   // starts with its first waiting message: its deadline counts from here. A line kept only as chat changes neither.
   if (!extra.byCode) await chatEvent(storage, "message", "queued", { now, burst: true }); // a command is no part of a burst
@@ -286,20 +295,38 @@ export function filesFor(message: GroupMessage, lines: readonly { attachments?: 
   return all.slice(-MAX_GROUP_FILES);
 }
 
+type ReactionRead = { kind: "done"; outcome: "queued" | "ignored" } | { kind: "line"; line: string; answersTex: boolean };
+
 /**
- * A like on Tex's ask from the person it asked, which goes at once as their
- * yes (`thumbs.ts`). Anyone else's is ignored:
- * only the asker's yes can release what was held for them.
+ * A reaction in a group (Dev2, 2026-11-01: every tapback and emoji is input).
+ * - Taken back: logged; drops a held yes only when it was the asker's.
+ * - A 👍, ❤️ or 👎 from the asker on the ask: code's, held as their answer (`thumbs.ts`); nobody else's ever is,
+ *   and the gateway takes no yes from a guest (`guestTagger`), so neither ever releases what was held.
+ * - On a text of Tex's that asks something (or any ❓ on Tex's): that person's answer, read as its line
+ *   ("👍 (yes) on Tex's message …") and answered as a message to Tex is.
+ * - Anything else: a line of the chat, to decide only as the style says, like an untagged message.
  */
-async function acceptThumb(storage: InboxStorage, message: GroupMessage, reaction: Reaction, now: number): Promise<"queued" | "ignored"> {
-  if (!(await isAsker(storage, message, now))) return "ignored";
+async function acceptReaction(storage: InboxStorage, message: GroupMessage, reaction: Reaction, now: number): Promise<ReactionRead> {
+  const onTex = await onTexText(storage, message.groupId, reaction);
+  const line = reactionLine(reaction, onTex);
+  const asker = await isAsker(storage, message, now);
   if (reaction.removed) {
-    await dropThumb(storage, reaction.words, GROUP_THUMB_KEY);
-    return "ignored";
+    if (asker) await dropThumb(storage, reaction.words, GROUP_THUMB_KEY);
+    await logGroupInbound(storage, { ...message, text: line }, now);
+    log("reaction_removed");
+    return { kind: "done", outcome: "ignored" };
   }
-  await logGroupInbound(storage, message, now);
-  await holdThumb<GroupMessage>(storage, { ...message, text: tapbackText(reaction.how) }, reaction.words, now, GROUP_THUMB_KEY);
-  return "queued";
+  // The ask's own words are checked by `holdsAsAnswer`, and again by the gateway against what is held.
+  if (asker && holdsAsAnswer(reaction)) {
+    await logGroupInbound(storage, { ...message, text: line }, now);
+    await holdThumb<GroupMessage>(storage, { ...message, text: tapbackText(reaction.how) }, reaction.words, now, GROUP_THUMB_KEY);
+    log("reaction_ask");
+    return { kind: "done", outcome: "queued" };
+  }
+  // Somebody else's on the ask that is held for the asker is a line of the chat, never an answer.
+  const answersTex = onTex && answers(reaction) && !holdsAsAnswer(reaction);
+  log(answersTex ? "reaction_answer" : "reaction_context");
+  return { kind: "line", line, answersTex };
 }
 
 /** Whether this is from the person Tex last asked for a yes, while that ask is open. */

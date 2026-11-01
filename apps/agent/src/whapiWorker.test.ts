@@ -101,7 +101,7 @@ describe("whapi webhook", () => {
     expect(routed[0].body).toMatchObject({ kind: "group-message", groupId: `whapi:${GROUP}`, line: LINE, from: PHONE, text: "Tex what's on today" });
   });
 
-  it("counts a group 👍 only on a text Tex itself sent in that group", async () => {
+  it("reads a group 👍's words only from a text Tex itself sent in that group", async () => {
     const reaction = text({ chat_id: GROUP, type: "action", text: undefined, action: { type: "reaction", target: "TEXASK-0001", emoji: "👍" } });
 
     const own = env();
@@ -119,7 +119,8 @@ describe("whapi webhook", () => {
       const other = env();
       whapiServes(served);
       await worker.fetch(post([reaction]), other.env);
-      expect(other.routed).toEqual([]);
+      // Since 2026-11-01 (Dev2) it still reaches the group, as context on somebody's message, naming no ask.
+      expect(other.routed[0].body).toMatchObject({ reaction: { how: "Liked", words: "", onOther: true } });
     }
   });
 
