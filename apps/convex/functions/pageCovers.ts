@@ -5,7 +5,8 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { livePageRow } from "./lib/shares/pageCover";
 
 /** The page a cover is for: its note id (or path, on a row from before ids), or `null` when there is no live page there. INTERNAL. */

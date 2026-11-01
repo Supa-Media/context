@@ -15,7 +15,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
+import { internalQuery, type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { checkFlipPage } from "./lib/nodes/flipCheck";
 import { pathsBuilt } from "./lib/nodes/paths";
 import { movingRowMoves } from "./lib/nodes/rowMoveChunks";

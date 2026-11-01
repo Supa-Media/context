@@ -90,6 +90,7 @@ import {
   systemText,
 } from "./agentModelFixture.mjs";
 import { conversationText, conversationTurns } from "./agentConversationFixture.mjs";
+import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-agent.test";
 const TOKEN_OWNER = `cat_agent_owner_${"0".repeat(24)}`;
@@ -244,13 +245,15 @@ export async function runAgentChecks(check) {
 
     controlPlane.setBuiltinVerdict("ws_agent", BUILTIN_ALLOWED);
 
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const tex = texStoreNamespace();
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 
     // Seeded straight into the backend, the way the tenancy suite does it.
     // `4-archive` takes the manifest's `private` default; `1-projects` is
     // `team` — so one grant's tier really does decide which of the two an agent
     // can read, rather than both being reachable and the test proving nothing.
-    const bucket = s3.bucketFor("tenant-agent");
+    // The texting bookkeeping lives in the person's Tex object, not the bucket (`withAgentHome`).
+    const bucket = withAgentHome(s3.bucketFor("tenant-agent"), tex, "ws_agent");
     bucket.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "g0" });
     bucket.set("1-projects/pricing.md", {
       body: "# Pricing\n\nWe moved to $5 on 12 September.\n",
@@ -513,8 +516,11 @@ export async function runAgentChecks(check) {
         secondMessages.includes("The launch is on Friday."),
     );
     check(
-      "the conversation is kept in the customer's own bucket",
-      conversationTurns(bucket).length > 0 && [...bucket.keys()].some((key) => key.startsWith(".context/agent/events/")),
+      "the conversation is kept in the person's Tex object, never in the customer's bucket",
+      conversationTurns(bucket).length > 0 &&
+        tex.keysIn("person:ws_agent").includes("state/agent/history/texts.json") &&
+        !bucket.bucket.has(".context/agent/history/texts.json") &&
+        ![...bucket.bucket.keys()].some((key) => key.startsWith(".context/agent/events/")),
     );
 
     // A turn that looked something up says so to the next one, by tool name

@@ -18,7 +18,8 @@
 
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type QueryCtx } from "../_generated/server";
+import { internalQuery, type QueryCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { besideNames, noteIdOfKey } from "./lib/moveCatchUp";
 import { refreshSnapshot } from "./lib/nodes/accessBackfill";
 import { located } from "./lib/nodes/paths";

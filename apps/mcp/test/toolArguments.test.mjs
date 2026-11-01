@@ -104,6 +104,7 @@ import { runToolArgumentCensusChecks } from "./toolArguments/census.test.mjs";
 import { runToolArgumentAttackChecks } from "./toolArguments/attack.test.mjs";
 import { runToolArgumentProtocolEraChecks } from "./toolArguments/protocolEras.test.mjs";
 import { runToolArgumentRoutingChecks } from "./toolArguments/routing.test.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 /**
  * The checks themselves live in `toolArguments/*.test.mjs`, split by behaviour
@@ -119,7 +120,7 @@ export async function runToolArgumentChecks(check) {
   await runToolArgumentSourceCensusChecks(check, harness);
 
   const env = {
-    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
     GATEWAY_SECRET,
   };
 

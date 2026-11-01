@@ -105,8 +105,9 @@ test("an address the turn never saw is never sent to the geocoder", async () => 
 test("their about-me address is a start the card may measure from", () => {
   const route = readFileSync(new URL("../src/agent/route.js", import.meta.url), "utf8");
   // The read starts early (`ahead`) and is handed to `knows` when the turn is built; both halves must hold.
-  assert.match(route, /knowsRead = texting \? ahead\(hot\.notes\(\(\) => readTexNotes\(/, "the texted turn's about-me reaches `locates`, warm copy or read (`warmCopy.js`)");
-  assert.match(route, /outgoing\.knows\(await knowsRead\)/, "and is handed to `knows` from that read");
+  assert.match(route, /knowsRead = texting \? tex\.ahead\("tex_notes", \(\) => deskTexts\(store\)\.then\(\(desk\) => readTexNotes\(/, "the texted turn's about-me reaches `locates`, read from the person's desk (`texDesk.js`)");
+  assert.match(route, /knows = knowsRead === null \? null : await tex\.wait\("tex_notes", knowsRead\)/, "waited for before the model");
+  assert.match(route, /outgoing\.knows\(knows\)/, "and is handed to `knows` from that read");
   const outgoing = outgoingPictures({ enabled: true });
   assert.equal(outgoing.locates(HOME), false);
   const notes = { aboutMe: `Lives at ${HOME.toUpperCase().replace(/,/g, "")}` };

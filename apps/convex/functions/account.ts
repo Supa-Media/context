@@ -49,7 +49,7 @@ import { v } from "convex/values";
 import { releaseWorkspaceDomains } from "./lib/customDomains/handlers";
 import { requireAuthId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
-import { mutation, type MutationCtx } from "../_generated/server";
+import { mutation, type MutationCtx } from "./lib/rowWatch/mutations";
 import { requireEmailProof } from "./lib/emailProof";
 import type { Id } from "../_generated/dataModel";
 import { CONNECT_ATTEMPT_TABLES } from "./lib/connectAttempts";

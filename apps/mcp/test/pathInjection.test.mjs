@@ -39,6 +39,7 @@
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const OWNER_TOKEN = `cat_inject_owner_${"0".repeat(15)}`;
 const TEAM_TOKEN = `cat_inject_team_${"0".repeat(16)}`;
@@ -154,7 +155,7 @@ export async function runPathInjectionChecks(check) {
     });
 
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "INJECT_BUCKET",
       INJECT_BUCKET: bucket,

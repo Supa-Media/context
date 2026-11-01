@@ -43,6 +43,7 @@ import { heartbeatPath } from "../src/agent/heartbeat.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-mail-health.test";
 const WORKSPACE = "ws_mail_health";
@@ -197,7 +198,7 @@ export async function runAgentMailHealthChecks(check) {
     bucket.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "m0" });
     bucket.set("todo.md", { body: "# To do\n\n- Pay rent\n", etag: "m1", lastModified: new Date(Date.now() - 3 * HOUR_MS).toISOString() });
     bucket.set("routines/daily/inbox-digest.md", { body: "Text me what came in by email today.\n", etag: "m2" });
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
     controlPlane.serveTreesFrom(env, { s3 });
     const mailboxes = controlPlane.dreams.mailHealth.mailboxes;
     const raised = controlPlane.dreams.mailHealth.raised;

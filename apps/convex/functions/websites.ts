@@ -1,13 +1,8 @@
 /** Public and internal registrations for bucket-backed website routing. */
 
 import { v } from "convex/values";
-import {
-  action,
-  internalAction,
-  internalMutation,
-  internalQuery,
-  query,
-} from "../_generated/server";
+import { action, internalAction, internalQuery, query } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import {
   beginRouteReconciliationHandler,
   commitRouteReconciliationHandler,

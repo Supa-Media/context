@@ -36,6 +36,8 @@ import {
   GATEWAY_SECRET,
 } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
+import { conversationText } from "./agentConversationFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-transcript.test";
 const TOKEN_TEXTS = `cat_transcript_texts_${"0".repeat(19)}`;
@@ -138,7 +140,9 @@ export async function runAgentTranscriptChecks(check) {
     const bucket = s3.bucketFor("tenant-transcript");
     bucket.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "t0" });
     bucket.set("todo.md", { body: "# To do\n\n- Pay rent RESULT-ONLY-WORDS\n", etag: "t1" });
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const tex = texStoreNamespace();
+    const history = withAgentHome(bucket, tex, "ws_transcript"); // the texting history is the person's object's (`texStoreFixture.mjs`)
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
     controlPlane.serveTreesFrom(env, { s3 });
     const day = () => bucket.get(transcriptPath(Date.now(), "UTC"))?.body ?? "";
 
@@ -206,10 +210,7 @@ export async function runAgentTranscriptChecks(check) {
       pictured.status === 200 && leaf !== undefined && bucket.get(`${IMAGE_PREFIX}${leaf}`) !== undefined,
     );
     const note = transcriptPath(Date.now(), "UTC");
-    const kept = [...bucket.entries()]
-      .filter(([key]) => key.startsWith(".context/agent/events/"))
-      .map(([, object]) => String(object.body))
-      .join("\n");
+    const kept = conversationText(history);
     check(
       "the saved conversation points at a stored picture, never its bytes",
       leaf !== undefined && kept.includes(`IMG_7.png (image ${leaf} in ${note})`) && kept.includes("read_image") && !kept.includes(PNG.slice(0, 40)),

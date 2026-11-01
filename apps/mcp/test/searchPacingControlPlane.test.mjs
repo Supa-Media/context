@@ -21,6 +21,7 @@ import {
   callTool,
   captureLogs,
 } from "./searchPacingFixtures.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 export async function runSearchPacingControlPlaneChecks(check) {
   /* -- (f) through the worker: deferral, budget, and the log line ---------- */
@@ -48,7 +49,7 @@ export async function runSearchPacingControlPlaneChecks(check) {
       userId: "u_pacing",
     });
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "PACING_BUCKET",
       PACING_BUCKET: bucket,

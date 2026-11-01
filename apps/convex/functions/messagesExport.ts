@@ -16,7 +16,8 @@
 
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { action, internalAction, internalMutation } from "../_generated/server";
+import { action, internalAction } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { TEXTS_STATE, TEXTS_STATEMENTS } from "../../mcp/src/communications/textsIndex.js";
 import { recordAudit } from "./lib/audit";
 import { searchDatabaseClient } from "./lib/fastSearchFns/client";

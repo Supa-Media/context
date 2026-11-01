@@ -142,6 +142,20 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       // (`texGroupMigration.ts`), run by hand from the workflow. internalAction, reached only from that workflow's
       // deploy key; it answers counts and fixed codes. Its tree side (`texGroupMigrationRows.ts`) reads no credential.
       "functions.texGroupMigration.sweep",
+      // Copies and compares each workspace's note texts, editing history, rows and rules with its workspace object
+      // (`workspaceObjects.ts`; `docs/decisions/storage-and-credentials/workspace-objects.md`): run by hand from the
+      // backfill, parity and home workflows, and `syncRows` from the cron. internalActions, reached only from those
+      // workflows' deploy key and the cron; they answer counts and fixed codes, never a key, a path or a body. The
+      // tree side (`workspaceObjectsRows.ts`) reads no credential and stays out of this list.
+      "functions.workspaceObjects.backfill",
+      "functions.workspaceObjects.parity",
+      "functions.workspaceObjects.setHome",
+      "functions.workspaceObjects.setHomeBySlug",
+      "functions.workspaceObjects.syncRows",
+      // Copies each workspace's one-to-one Tex history and turn records from its bucket into its Tex Durable Object
+      // (`texHistoryMigration.ts`, `apps/mcp/src/agent/agentHomeMove.js`), run by hand from the workflow. internalAction,
+      // reached only from that workflow's deploy key; it answers counts only, and deletes nothing.
+      "functions.texHistoryMigration.run",
       // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
       // file operation and hands it to lib/fileOps.ts, which never sees the
       // credential. internalAction, and the only member of

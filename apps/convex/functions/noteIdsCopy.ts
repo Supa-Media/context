@@ -10,7 +10,8 @@
 
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { internalAction, internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { productionDeps } from "./lib/noteIds/deps";
 import { BACKFILL_BATCH, ID_ITEMS_MAX, idKeyFor, newNoteId } from "./lib/nodes/noteIds";
 import { OBSERVE_BATCH, nodePath } from "./lib/nodes/table";

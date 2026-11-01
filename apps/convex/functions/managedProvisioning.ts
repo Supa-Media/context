@@ -1,13 +1,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import {
-  type ActionCtx,
-  internalAction,
-  internalMutation,
-  internalQuery,
-  mutation,
-} from "../_generated/server";
+import { type ActionCtx, internalAction, internalQuery } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import { directionOf, intoOwnersBucket, outOfManagedBucket } from "./lib/managedProvisioningFns/direction";

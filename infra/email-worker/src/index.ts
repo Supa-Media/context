@@ -107,9 +107,11 @@ import type { AttachmentPolicy } from "./note";
 // bucket-level: no adapter namespaces a key, and the customer's optional
 // rootPrefix is applied inside them and invisible here.
 import { storeForBinding } from "../../../apps/mcp/src/store/factory.js";
+import { workspaceClient } from "../../../apps/mcp/src/workspaceStore/api.js";
 import { NoteCapReached } from "../../../apps/mcp/src/store/noteCap.js";
 import { managedEncryptionFor } from "../../../apps/mcp/src/store/managedEncryption.js";
 import { AUDIT_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
+import { compressAndLog } from "../../../apps/mcp/src/notes/pictureCompression.js";
 
 // `REFUSAL` and `DEFAULT_TARGET_FOLDER` used to be re-exported from here for
 // the tests' convenience. They are not any more, and must not be again: a
@@ -137,6 +139,8 @@ export interface InboundMessage {
 }
 
 export interface Env {
+  /** The gateway's workspace objects (`apps/mcp/src/workspaceStore.js`), bound by script name. */
+  WORKSPACE_STORE?: unknown;
   /** Convex HTTP-actions origin, i.e. `https://<deployment>.convex.site`. */
   CONTROL_PLANE_URL?: string;
   /** This Worker's own secret. Never `GATEWAY_SECRET`. See ./controlPlane.ts. */
@@ -157,6 +161,8 @@ export interface Env {
    * what it emits — integers and one closed enum, never a sender string.
    */
   LOG_ARC_SHAPE?: string;
+  /** Cloudflare's Images binding, which keeps pictures compressed. Absent: stored as they came. */
+  IMAGES?: unknown;
   [key: string]: unknown;
 }
 
@@ -277,7 +283,17 @@ function storeFor(
     // The id layer is handed to the factory, not wrapped around its result: the
     // factory places it inside the note cap, which must count a note once, at
     // its path, and never the id key the layer writes underneath it.
-    return storeForBinding(binding, env, { noteCap, noteCount, managedEncryption, idLayout }) as unknown as ContextStore;
+    // Note texts to the workspace's object where they live there (`store/workspaceRouting.js`), by the home the
+    // control plane put on the binding; without the binding (`WORKSPACE_STORE`) a workspace at home in its object is
+    // refused rather than written to the bucket alone.
+    if (binding.notesHome === "object" && !env.WORKSPACE_STORE) return null;
+    return storeForBinding(binding, env, {
+      noteCap,
+      noteCount,
+      managedEncryption,
+      idLayout,
+      workspaceStore: (workspaceId: string) => workspaceClient(env, workspaceId),
+    }) as unknown as ContextStore;
   } catch {
     return null;
   }
@@ -536,6 +552,9 @@ export async function handleEmail(
       limits: { ...DEFAULT_MIME_LIMITS, maxAttachmentBytes: resolution.maxAttachmentBytes },
       authServiceId: env.AUTH_SERVICE_ID || "",
       arcDiagnostics: env.LOG_ARC_SHAPE === "1",
+      // Pictures are kept compressed, through this Worker's Images binding.
+      compressPicture: (bytes, type) =>
+        compressAndLog(env.IMAGES, bytes, type, { worker: "email" }) as Promise<{ bytes: Uint8Array; contentType: string; extension: string }>,
     },
     senderIsAllowed,
   );

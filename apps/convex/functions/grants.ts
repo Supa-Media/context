@@ -18,12 +18,8 @@
 
 import { ConvexError, v } from "convex/values";
 import { requireAuthId } from "./lib/signedIn";
-import {
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "../_generated/server";
+import { internalQuery, query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import type { Doc, Id } from "../_generated/dataModel";
 import { TOKEN_HASH_PATTERN } from "./lib/crypto";
 import { CONSOLE_CLIENT_ID } from "./agentGrant";

@@ -48,6 +48,11 @@ async function split(world, body) {
     calls.push({ phase, path: decodeURIComponent(url.pathname) + (url.searchParams.get("prefix") ?? ""), method: (init.method ?? "GET").toUpperCase() });
     return inner(input, init);
   };
+  // Tex's objects hold the person's bookkeeping now (the turn records too, `texStoreFixture.mjs`): their calls are
+  // the Worker's, so they are listed beside the bucket's, under the bucket's names, in the phase they ran in.
+  world.tex.before = async (_name, call) => {
+    if (typeof call?.key === "string" && call.key.startsWith("state/agent/")) calls.push({ phase, path: `/tenant-egress/.context/agent/${call.key.slice("state/agent/".length)}`, method: String(call.op).toUpperCase() });
+  };
   const { ctx, settle } = createWorkerCtx();
   try {
     const response = await worker.fetch(
@@ -61,6 +66,7 @@ async function split(world, body) {
     return { status: response.status, body: parsed, calls };
   } finally {
     globalThis.fetch = inner;
+    world.tex.before = null;
   }
 }
 
@@ -164,8 +170,8 @@ test("after-work starts only when the turn's queue is run, and one that fails fa
 test("a group turn's history is read beside the plan check, with the egress ledger set first (2026-10-31)", () => {
   const source = readFileSync(new URL("../src/agent/route.js", import.meta.url), "utf8");
   const ledger = source.indexOf("session.egress = {");
-  const read = source.search(/historyRead = ahead\(turnReads\(/);
-  const provider = source.indexOf("await openProvider(");
+  const read = source.search(/historyRead = tex\.ahead\("history", \(\) => turnReads\(/);
+  const provider = source.indexOf("await tex.wait(\"allowed\", allowedRead)");
   assert.ok(ledger > 0 && read > ledger, "the ledger is set before the history read starts");
   assert.ok(provider > read, "and the read starts before the plan check is awaited, for a group too");
   assert.doesNotMatch(source, /historyRead = group === null \?/, "no group is left out of the early read");

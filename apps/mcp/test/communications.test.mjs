@@ -60,6 +60,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { renderChannelDayNote } from "../../../packages/communications/src/note.js";
 import { isChannelDayNotePath as recogniseInPackage } from "../../../packages/communications/src/paths.js";
 import { classifyCaptureKind, isChannelDayNotePath as recogniseInGateway } from "../src/communications/paths.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const OWNER_TOKEN = `cat_comms_owner_${"0".repeat(20)}`;
 const TEAM_TOKEN = `cat_comms_member_${"0".repeat(19)}`;
@@ -229,7 +230,7 @@ export async function runCommunicationsChecks(check) {
     });
 
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "COMMS_BUCKET,SHARED_COMMS_BUCKET",
       COMMS_BUCKET: bucket,

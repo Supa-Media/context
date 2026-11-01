@@ -10,6 +10,7 @@
  */
 
 import { TexObjectRefused } from "./objects.js";
+import { readDesk } from "./desk.js";
 import { R2Store } from "../store/r2.js";
 
 const CALL = "x-tex-call";
@@ -85,6 +86,8 @@ export async function serveTexStore(objects, request, timers = null) {
         return Response.json({ ok: true });
       case "list":
         return Response.json(objects.list(call.options ?? {}));
+      case "desk":
+        return Response.json(readDesk(objects));
       case "wipe":
         objects.wipe();
         return Response.json({ ok: true });
@@ -172,6 +175,10 @@ export function texBucket(stub) {
       const page = await (await call("list", { options })).json();
       return { ...page, objects: page.objects.map((meta) => r2Shaped(meta, undefined)) };
     },
+    /** A person's texted turn's reads, in one call (`desk.js`): `{history, notes}`. */
+    async desk() {
+      return await (await call("desk")).json();
+    },
     /** Everything in this Durable Object removed: an account, a phone link or a group chat ending. */
     async wipe() {
       await call("wipe");
@@ -180,7 +187,7 @@ export function texBucket(stub) {
 }
 
 /** One call to the object: its answer, or a refusal as `TexObjectRefused`. */
-async function callTexStore(stub, op, fields = {}, body = undefined) {
+export async function callTexStore(stub, op, fields = {}, body = undefined) {
   const response = await stub.fetch(
     new Request(`${ORIGIN}/${op}`, { method: "POST", headers: { [CALL]: pack({ op, ...fields }) }, body }),
   );
@@ -218,6 +225,9 @@ export function gatewayTexStore(env) {
   return (owner) => {
     const cut = owner.indexOf(":");
     const stub = texStoreStub(env, { [owner.slice(0, cut)]: owner.slice(cut + 1) });
-    return stub === null ? null : new R2Store(texBucket(stub));
+    if (stub === null) return null;
+    const bucket = texBucket(stub);
+    // The store, and the desk beside it: one call for what a texted turn reads first (`desk.js`).
+    return Object.assign(new R2Store(bucket), { desk: () => bucket.desk() });
   };
 }

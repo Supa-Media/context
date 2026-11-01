@@ -35,7 +35,6 @@
  * The control plane hears an outcome code.
  */
 
-import { sealBeside } from "./warmCopy.js";
 import { CONTACTS_FOLDER, asInboxKey } from "../../../../packages/communications/src/protocol.js";
 import { readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
 import { ATTENTION_FOLDER, ATTENTION_SETTINGS_PATH, HEARTBEAT_FOLDER, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
@@ -460,8 +459,6 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
 
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
-  store.chatWrites = []; // what it writes to their texts goes back sealed, for Tex's warm copy (`warmCopy.js` `sealBeside`)
-  const beside = async () => ((sealed) => (sealed ? { beside: sealed } : {}))(await sealBeside(env, session, store.chatWrites));
   // It reads only its own workspace, and what it says goes to the person's own phone.
   session.egress = { complete: true, ledger: newLedger(), texting: false };
   const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
@@ -483,7 +480,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     );
     // A text from Tex is something a bare "yes" may answer, so an older ask stops listening.
     if (delivered) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
-    return json(delivered ? { outcome: "speak", answer: delivered.text, ...(await beside()) } : { outcome: "quiet" });
+    return json(delivered ? { outcome: "speak", answer: delivered.text } : { outcome: "quiet" });
   }
   const since = typeof given.since === "number" && Number.isFinite(given.since) ? given.since : started - FIRST_LOOK_MS;
 
@@ -643,7 +640,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
     try {
       // Tainted when it was shown mail, an invite, Slack or Chat, or opened one: a stranger's words (`HEARTBEAT_READS`).
-      await appendConversation(store, "texts", conversation, CHECK_IN_QUESTION, text, {
+      await appendConversation(store, "texts", CHECK_IN_QUESTION, text, {
         tainted: mail.length > 0 || calendar !== null || slack.length > 0 || chat.length > 0 || session.egress.ledger.untrusted === true,
         tools: (turn?.steps ?? []).filter((step) => step.ok).map((step) => step.tool),
         sources: (turn?.steps ?? []).flatMap((step) => step.sources ?? []), // the notes and emails it read, by name only
@@ -674,7 +671,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   // Which failure, as a code the Worker logs (`heartbeats.ts` failedBecause): out of rounds is not the model failing.
   if (outcome === "failed") return json({ error: "model_unavailable", reason: turn?.exhausted ? "rounds_exhausted" : failure, outcome }, 502);
   if (!text) return json({ outcome });
-  return json({ outcome, answer: text, ...(marked.continues !== null ? { continues: marked.continues } : {}), ...(await beside()) });
+  return json({ outcome, answer: text, ...(marked.continues !== null ? { continues: marked.continues } : {}) });
 }
 
 /**

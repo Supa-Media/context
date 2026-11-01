@@ -146,6 +146,13 @@ crons.interval("hide old copies of mail and calendar", { minutes: 10 }, internal
  */
 crons.interval("grant founding Premium", { hours: 1 }, internal.functions.foundingPremium.catchUp, {});
 
+/**
+ * Re-drives each workspace whose row changes have waited for its object longer than a retry
+ * (`functions/workspaceObjectPush.ts`): a lost scheduled push, or an object that was down.
+ * Nothing is waiting in a workspace whose notes are not judged in its object.
+ */
+crons.interval("push waiting rows to workspace objects", { minutes: 1 }, internal.functions.workspaceObjectPush.sweep, {});
+
 crons.interval(
   "re-read routine folders",
   { hours: 6 },
@@ -546,5 +553,12 @@ crons.interval(
   internal.functions.texTriageWatch.check,
   {},
 );
+
+/**
+ * Keep each `dual` workspace's object copy of its rows and access rules current (`functions/workspaceObjects.ts`):
+ * pushed whole only when the object's digest or rules version is not Convex's. Convex decides access while a
+ * workspace is `dual`; a workspace at `object` is never pushed from here.
+ */
+crons.interval("copy dual workspaces' rows into their objects", { minutes: 1 }, internal.functions.workspaceObjects.syncRows, {});
 
 export default crons;

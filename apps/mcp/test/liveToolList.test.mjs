@@ -15,6 +15,7 @@ import { appDropsUnknownArguments, liveToolListSection, refreshStep, purposeOf, 
 import { SIX_TOOLS_LINE } from "../src/orient/tool.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
 const HEADING = "## Context's tools as they are today";
@@ -122,7 +123,7 @@ const CODEX = token("codex");
 // listing test stamps STALE with today, and news dated before today then
 // drops out, so a check on STALE after it passed only on the news's own day.
 const NEVER_LISTED = token("neverlisted");
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 const OLDEST = TOOL_NEWS[TOOL_NEWS.length - 1];
 
 let restoreS3;

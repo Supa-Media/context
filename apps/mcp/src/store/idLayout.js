@@ -167,6 +167,38 @@ export class NotKeyed extends Error {
 }
 
 /**
+ * `lookup`, answering each path from the first answer given for it. The
+ * promise is kept, so two reads of one path at the same moment share one
+ * round trip. `prime(paths)` asks for many paths at once, in lookups of at
+ * most `LOOKUP_MAX`; a path already asked is not asked again.
+ */
+function rememberingLookup(lookup) {
+  const answers = new Map();
+  const ask = async (paths) => {
+    if (paths.length !== 1) return await lookup(paths);
+    const [path] = paths;
+    if (!answers.has(path)) answers.set(path, lookup([path]));
+    return await answers.get(path);
+  };
+  ask.prime = async (paths) => {
+    const fresh = [...new Set(paths)].filter((path) => !answers.has(path));
+    const asked = [];
+    for (let start = 0; start < fresh.length; start += LOOKUP_MAX) {
+      const batch = fresh.slice(start, start + LOOKUP_MAX);
+      const pending = lookup(batch);
+      // Each path's own answer is read out of the shared one (`entryFor`), so one answer serves them all.
+      for (const path of batch) answers.set(path, pending);
+      asked.push(pending);
+    }
+    await Promise.all(asked);
+  };
+  return ask;
+}
+
+/** The most paths one lookup may name: the control plane's `NOTE_IDS_LOOKUP_PATHS`. */
+const LOOKUP_MAX = 200;
+
+/**
  * The store with its reads and writes routed through the id layer.
  *
  * `lookup(paths)` answers `{keyed, notes, texHomes?}` as `noteIdLookup` does:
@@ -216,8 +248,8 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
   wrapped.keyedWorkspace = async () => (await lookup([KEYED_PROBE]))?.keyed === true;
 
   /** What the tree says about `path`: `{keyed, entry}`. A lookup that fails fails the request. */
-  const resolve = async (path) => {
-    const answer = await lookup([path]);
+  const resolveWith = async (ask, path) => {
+    const answer = await ask([path]);
     if (answer?.keyed !== true) throw new NotKeyed();
     const entry = entryFor(answer, path);
     if (entry !== null && entry.state !== "gone" && entry.state !== "folder" && !keyedEntry(entry)) throw new NotKeyed();
@@ -225,6 +257,7 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
     const home = answer?.texHomes?.[path];
     return { entry, texHome: typeof home === "string" && Object.prototype.hasOwnProperty.call(answer.texHomes, path) ? home : null };
   };
+  const resolve = (path) => resolveWith(lookup, path);
 
   /** Whether the tree's answer means "no note here": no live row at the path. */
   const noNote = ({ entry }) => entry === null || entry.state === "gone";
@@ -242,9 +275,9 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
   };
 
   /** A read routed by the tree: `method` is `get`, `head`, `exists` or `existsMetadata`. */
-  const routedRead = (method) => async (path, ...rest) => {
+  const routedRead = (method, ask = lookup) => async (path, ...rest) => {
     if (!mirroredPath(path)) return await store[method](path, ...rest);
-    const resolved = await resolve(path);
+    const resolved = await resolveWith(ask, path);
     const { entry } = resolved;
     if (keyedEntry(entry)) return await store[method](entry.key, ...rest);
     // No note here, or a folder: nothing to read.
@@ -267,10 +300,53 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
    * with no keyed row answers `null`, and so does a row the lookup did not
    * name an id for.
    */
-  wrapped.noteIdAt = async (path) => {
+  const noteIdAtWith = (ask) => async (path) => {
     if (!mirroredPath(path)) return null;
-    const { entry } = await resolve(path);
+    const { entry } = await resolveWith(ask, path);
     return keyedEntry(entry) && typeof entry.noteId === "string" ? entry.noteId : null;
+  };
+  wrapped.noteIdAt = noteIdAtWith(lookup);
+
+  /**
+   * The store as one read sees it (`tools/notes/read.js`): every note path is
+   * looked up in the tree once for the whole read, and that one answer
+   * decides whether the note is there, where its bytes are, and which note id
+   * its collaboration head is filed under. Before this, a read asked the
+   * control plane the same question three times in a row (the probe, the get,
+   * the engine's `noteIdAt`), each a round trip before the next could start.
+   *
+   * `outer` is the store the caller holds, with whatever sits above this layer
+   * (`privacyAuthority.js`, the note cap, the session's properties): the view
+   * inherits all of it, and only a note path's reads are routed here. Writes
+   * are never remembered: a write made during the read crosses the layer as
+   * any write does, with a lookup of its own.
+   *
+   * An answer is kept only as long as the view, which lives for one tool
+   * call, so a note moved or trashed meanwhile is seen as the next call asks.
+   * `prime(paths)` asks for many paths in one lookup (`read_notes`).
+   */
+  wrapped.oneRead = (outer = wrapped) => {
+    const ask = rememberingLookup(lookup);
+    const view = Object.create(outer);
+    const define = (name, value) =>
+      Object.defineProperty(view, name, { value, enumerable: false, writable: false, configurable: true });
+    for (const method of ["get", "head", "exists", "existsMetadata"]) {
+      if (typeof store[method] !== "function" || typeof outer[method] !== "function") continue;
+      const routed = routedRead(method, ask);
+      define(method, (path, ...rest) => (mirroredPath(path) ? routed(path, ...rest) : outer[method](path, ...rest)));
+    }
+    define("noteIdAt", noteIdAtWith(ask));
+    /** The live keyed row at `path` as `{key, etag, noteId}`, or `null`: whether a note is there, from the row alone. */
+    define("noteAt", async (path) => {
+      if (!mirroredPath(path)) return null;
+      const { entry } = await resolveWith(ask, path);
+      if (!keyedEntry(entry)) return null;
+      return { key: entry.key, etag: entry.etag, noteId: typeof entry.noteId === "string" ? entry.noteId : null };
+    });
+    define("prime", (paths) => ask.prime((Array.isArray(paths) ? paths : []).filter(mirroredPath)));
+    // A read that hands its view on (`read_notes` to `read_note`) keeps the one it has.
+    define("oneRead", () => view);
+    return view;
   };
 
   /**

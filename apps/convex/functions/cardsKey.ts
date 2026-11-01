@@ -1,6 +1,7 @@
 import { getAuthUserId } from "./lib/signedIn";
 import { ConvexError, v } from "convex/values";
-import { action, internalMutation, type MutationCtx } from "../_generated/server";
+import { action, type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";

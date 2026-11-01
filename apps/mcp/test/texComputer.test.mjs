@@ -38,6 +38,7 @@ import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { browserOwner } from "../src/agent/browserProviders.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const tok = (name) => `cat_texview_${name}_`.padEnd(40, "0");
 const T = {
@@ -105,7 +106,7 @@ async function setUp({ siteShots = true, scale = 0.6 } = {}) {
     },
   };
   const env = {
-    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
     GATEWAY_SECRET,
     APP_ORIGIN: "https://app.context.test",
     ...(siteShots ? { SITE_SHOTS } : {}),

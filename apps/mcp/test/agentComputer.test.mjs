@@ -28,6 +28,8 @@ import {
   PREFETCH_CONFIDENCE,
 } from "../src/agent/computer.js";
 import { DECISION_MODEL } from "../src/agent/decide.js";
+import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
+import { conversationText } from "./agentConversationFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-computer.test";
 const TOKEN_TEXTS = `cat_computer_texts_${"0".repeat(21)}`;
@@ -166,7 +168,9 @@ export async function runAgentComputerChecks(check) {
       },
       "https://example.com/teams": { title: "Teams", text: "Teams is $40.", links: [] },
     });
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, AI: ai, SITE_SHOTS: browser };
+    const tex = texStoreNamespace();
+    const bucket = withAgentHome(s3.bucketFor("tenant-computer"), tex, "ws_computer"); // the bookkeeping is the person's object's (`texStoreFixture.mjs`)
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, AI: ai, SITE_SHOTS: browser };
 
     /* ---------------- a page the person named, then a link on it ---------------- */
 
@@ -202,10 +206,7 @@ export async function runAgentComputerChecks(check) {
     await ask(env, TOKEN_TEXTS, { question: "where are you reading that from?", conversation: "texts" });
     // What the earlier answers used is said in the person's turn, not the system prompt (`turn.js`), so the whole request is read.
     const nextSystem = JSON.stringify(ai.calls[2]?.input?.messages ?? []);
-    const kept = [...s3.bucketFor("tenant-computer").entries()]
-      .filter(([key]) => key.startsWith(".context/agent/events/"))
-      .map(([, value]) => String(value.body ?? value))
-      .join("\n");
+    const kept = conversationText(bucket);
     check(
       "the next text is told the address of the page an earlier answer read, and to name it when asked",
       nextSystem.includes("Web pages you read: https://example.com/pricing") && nextSystem.includes("name the page's address"),

@@ -14,6 +14,7 @@
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 export async function runTreeHintChecks(check) {
   const objects = new Map();
@@ -83,7 +84,7 @@ export async function runTreeHintChecks(check) {
       userId: "user_tree_owner",
     });
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "CONTEXT_BUCKET",
       CONTEXT_BUCKET: bucket,

@@ -10,7 +10,8 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { QueryCtx } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import { addressable, contextsForGrant, resolveLiveGrant } from "./lib/controlPlane/liveGrants";

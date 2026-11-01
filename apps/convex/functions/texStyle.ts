@@ -12,7 +12,8 @@
 import { v } from "convex/values";
 import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, mutation, query, type QueryCtx } from "../_generated/server";
+import { internalQuery, query, type QueryCtx } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { hashToken } from "./lib/crypto";
 import { mergeTexStyle, readTexStyle, texStyleValidator } from "./lib/texStyle";
 import { setChatStyle, setPersonStyle } from "./lib/texChatRules";

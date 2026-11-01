@@ -44,6 +44,7 @@ import { housekeepingCallTool, protectedReason, undoLine } from "../src/agent/ho
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-housekeeping.test";
 const TOKEN_HOUSE = `cat_house_house_${"0".repeat(23)}`;
@@ -312,7 +313,7 @@ export async function runAgentHousekeepingChecks(check) {
     bucket.set("1-projects/garden/plan.md", { body: "# Plan\n\nWood, soil, seeds.\n", etag: "h3" });
     bucket.set("2-areas/health/only.md", { body: "# Dentist\n\nEvery six months.\n", etag: "h4" });
     bucket.set("tex/about-me.md", { body: "# About them\n\n- Likes tea\n", etag: "h5" });
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
     controlPlane.serveTreesFrom(env, { s3 });
     const log = () => bucket.get(housekeepingPath(Date.now(), "UTC"))?.body ?? "";
     const run = { housekeeping: { timeZone: "UTC" } };

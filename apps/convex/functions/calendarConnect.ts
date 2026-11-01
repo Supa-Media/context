@@ -56,7 +56,8 @@
 
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { action, internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { action, internalAction, internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";

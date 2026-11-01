@@ -13,7 +13,8 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalMutation } from "../_generated/server";
+import { internalAction } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { appOrigin, sendAccountMail } from "./lib/accountMail";
 import { confirmedEmailsOf } from "./lib/emailProof";
 import { tryConsumeRateLimit } from "./lib/rateLimit";

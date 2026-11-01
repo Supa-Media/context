@@ -10,6 +10,7 @@
  * Internal only, so only the workflow's own deploy key can start it.
  */
 
+import { consoleWorkspaceRouting } from "./lib/rowWatch/consoleRouting";
 import { v } from "convex/values";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
@@ -32,10 +33,12 @@ async function openWorkspaceStore(ctx: ActionCtx, workspaceId: Id<"workspaces">,
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
   const chats = owner.startsWith("chat:") ? [owner.slice("chat:".length)] : [];
-  return storeForBinding(credential, undefined, {
+  const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+  return storeForBinding(routing.credential(credential), undefined, {
     managedEncryption,
     ...consoleTexRouting(ctx, workspaceId, { ticketOwners: [owner] }),
     texChats: chats,
+    ...routing.options,
   }) as unknown as FileStore;
 }
 

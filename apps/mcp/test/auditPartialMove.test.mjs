@@ -35,6 +35,7 @@ import {
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-audit-partial.test";
 const TOKEN_OWNER = `cat_auditpart_own_${"0".repeat(22)}`;
@@ -122,7 +123,7 @@ export async function runAuditPartialMoveChecks(check) {
   });
 
   const bucket = s3.bucketFor("audit-partial");
-  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 
   /*
     Refuse ONE conditional tombstone write, the second source's, exactly as a

@@ -48,6 +48,7 @@ import { followChange, underPattern } from "../src/search/d1/follow.js";
 import { projectNote, upsertStatements } from "../src/search/d1/project.js";
 import { searchChangeOf } from "../src/activity/record.js";
 import { fillSearchDatabase } from "./searchProjection/fill.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const READY = { ...DESCRIPTOR, state: "ready" };
 /** `1-projects` is team, everything else private: see `PRIVACY_MANIFEST`. */
@@ -385,7 +386,7 @@ test("through the worker: a moved note and a moved folder are searchable at thei
           headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
           body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
         }),
-        { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SEARCH_SUBREQUEST_BUDGET: "600" },
+        { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, SEARCH_SUBREQUEST_BUDGET: "600" },
         harness.ctx,
       );
       const body = await response.json();

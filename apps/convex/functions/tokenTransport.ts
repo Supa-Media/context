@@ -14,7 +14,8 @@
 
 import { v } from "convex/values";
 import { CONSOLE_CLIENT_ID } from "./agentGrant";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 
 /** One stamp an hour per grant: enough to count, cheap on a hot path. */
 export const PATH_TOKEN_STAMP_EVERY_MS = 60 * 60 * 1000;

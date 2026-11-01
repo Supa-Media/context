@@ -1,12 +1,13 @@
 /**
- * A conversation's recent turns, kept in the customer's own bucket.
+ * A conversation's recent turns, kept as one record in the person's Tex
+ * Durable Object (`history.js`; the owner, 2026-11-01).
  *
  * The texting assistant (`apps/agent`) answers one text at a time, and a text
  * like "and the second one?" means nothing without the one before it. The
- * history lives here, at a plumbing path in the person's bucket, rather than in
- * the Worker that relays the texts: that Worker is ours, and non-negotiable #1
- * puts customer text in the customer's storage. It is exported with everything
- * else, and on a managed bucket it is sealed at rest like any other object.
+ * history is the workspace's, in the workspace's own Tex object, never in the
+ * Worker that relays the texts. Every day's texts are also written, as they
+ * happen, into the person's `tex/transcripts/` notes (`transcript.js`), which
+ * are exported with everything else.
  *
  * Only the words go in: what the person asked and what was answered. Never a
  * tool's result, which can quote a note the next turn's grant might no longer
@@ -19,12 +20,12 @@
  * from?" had no answer, and Tex took back that it had read anything
  * (owner, 2026-10-22; `sources.js`).
  *
- * Bounded twice, by turns and by characters, because the whole file is read
+ * Bounded twice, by turns and by characters, because the whole record is read
  * into every turn's prompt.
  */
 
-import { getWithLegacyFallback } from "../storageLayout.js";
-import { atOfId, eventsSupported, importLegacy, readEventTurns, writeExchange } from "./events.js";
+import { eventKey, idOfKey, newExchange } from "./events.js";
+import { appendHistory, readHistory } from "./history.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isNoteSource, isReadSource, sourcesOf } from "./sources.js";
 
 /** The conversations a caller may name. A name is never a path. */
@@ -128,29 +129,34 @@ export function keptTurn({ role, text, tainted, tools, sources, id, at, thread, 
   };
 }
 
-/** The old whole-file history, as it was before the log (`events.js`). */
-async function readFile(store, path) {
-  const object = await getWithLegacyFallback(store, path);
-  if (!object) return [];
-  const parsed = JSON.parse(await object.text());
-  return Array.isArray(parsed?.turns) ? parsed.turns.filter(isTurn) : [];
+/** A history as it is kept: each turn shaped by `keptTurn`, within both bounds. */
+const keep = (turns) => trimHistory(turns.filter(isTurn).map(keptTurn));
+/** How the history record is shaped and bounded, for `history.js` and the move (`agentHomeMove.js`). */
+export const HISTORY = Object.freeze({ keep, chars: MAX_HISTORY_CHARS });
+
+/** The newest `entries` exchanges of a history (a question and the turns after it). */
+function newestExchanges(turns, entries) {
+  if (!Number.isFinite(entries) || entries <= 0) return turns;
+  let seen = 0;
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    if (turns[i].role === "user" && (seen += 1) === entries) return turns.slice(i);
+  }
+  return turns;
 }
 
 /**
- * Read a conversation: the log's newest exchanges (`events.js`), at most
- * `entries` of them when a caller needs only the last few (each is a read),
- * or the old file while the log is empty. An absent or unreadable history is an empty
- * conversation: this is a convenience, and a corrupt file must not stop the
- * person getting an answer.
+ * Read a conversation: the person's one history record (`history.js`), in
+ * one call, or its newest `entries` exchanges when a caller needs only the
+ * last few. An unreadable history is an empty conversation: this is a
+ * convenience, and a corrupt record must not stop the person getting an
+ * answer.
  */
 export async function readConversation(store, name, { entries } = {}) {
-  const path = conversationPath(name);
-  if (path === null) return [];
+  if (conversationPath(name) === null) return [];
   try {
-    const logged = eventsSupported(store) ? await readEventTurns(store, entries, { chars: MAX_HISTORY_CHARS }) : null;
-    const turns = logged === null ? await readFile(store, path) : logged.filter(isTurn);
-    return trimHistory(turns.map(keptTurn));
-  } catch {
+    return newestExchanges(keep(await readHistory(store, HISTORY)), entries);
+  } catch (error) {
+    console.log(JSON.stringify({ event: "tex_history_unread", reason: error?.code ?? error?.name ?? "error" }));
     return [];
   }
 }
@@ -220,38 +226,29 @@ export function historyIsTainted(history) {
 }
 
 /**
- * Append one question and its answer. `tainted` marks an answer written by a
- * turn that read from outside the workspace (`historyIsTainted`); it ages out
- * with the turn. `tools` is the names of the tools the answer used, `thread`
- * `sources` the addresses of the web pages it read (`sources.js`), `thread`
- * the exchange the question was typed under (`threadView.js`), `theirs` that
- * the person sent the question (a check-in waits for those to go quiet).
- *
- * With a log (`events.js`) the exchange is one new object and `history` only
- * says whether the old file still has to be copied in: a history read from it
- * has no ids. A store with no listing keeps the old whole file.
+ * Append one question and its answer to the person's history record
+ * (`history.js`). `tainted` marks an answer written by a turn that read from
+ * outside the workspace (`historyIsTainted`); it ages out with the turn.
+ * `tools` is the names of the tools the answer used, `sources` the addresses
+ * of the web pages it read (`sources.js`), `thread` the exchange the question
+ * was typed under (`threadView.js`), `theirs` that the person sent the
+ * question (a check-in waits for those to go quiet). `at` with `id` (or `tag`)
+ * are the exchange's time and id when the caller chose them (`events.js`
+ * `newExchange`). Answers the exchange's id. Throws when it can't be kept.
  */
-export async function appendConversation(store, name, history, question, answer, { tainted = false, tools = [], sources = [], thread = null, at = Date.now(), tag = null, theirs = false } = {}) {
-  const path = conversationPath(name);
-  if (path === null) return null;
-  const names = toolNames(tools);
-  const read = sourcesOf(sources);
-  if (eventsSupported(store)) {
-    if (history.length > 0 && !history.some((turn) => typeof turn.id === "string")) {
-      await importLegacy(store, history.map(({ role, text, tainted: marked, tools: used, sources: was }) => keptTurn({ role, text, tainted: marked, tools: used, sources: was })));
-    }
-    const id = await writeExchange(store, { at, tag, question, answer, tainted, tools: names, sources: read, thread, theirs });
-    // What this request wrote to the person's texts, for Tex's warm copy (`warmCopy.js`): the copy is the history a turn reads, so every write reaches it.
-    if (name === "texts" && Array.isArray(store.chatWrites) && id !== null) store.chatWrites.push({ question, answer, at: atOfId(id), id, tainted, tools: names, sources: read, thread, theirs });
-    return id;
-  }
-  const turns = trimHistory([
-    ...history,
-    { role: "user", text: question },
-    { role: "assistant", text: answer, ...(tainted ? { tainted: true } : {}), ...(names.length > 0 ? { tools: names } : {}), ...(read.length > 0 ? { sources: read } : {}) },
-  ]);
-  await store.put(path, JSON.stringify({ version: 1, turns }));
-  return null;
+export async function appendConversation(store, name, question, answer, { tainted = false, tools = [], sources = [], thread = null, at = Date.now(), tag = null, id: chosen = null, theirs = false } = {}) {
+  if (conversationPath(name) === null) return null;
+  const exchange = typeof chosen === "string" ? { at, id: chosen } : tag !== null ? { at, id: idOfKey(eventKey(at, tag)) } : newExchange(at);
+  const id = exchange.id;
+  await appendHistory(
+    store,
+    [
+      keptTurn({ role: "user", text: question, id, at: exchange.at, ...(thread ? { thread } : {}), theirs }),
+      keptTurn({ role: "assistant", text: answer, tainted, tools, sources }),
+    ],
+    HISTORY,
+  );
+  return id;
 }
 
 /**
@@ -299,17 +296,6 @@ export function readTold(value) {
 }
 
 /**
- * What `appendConversation` needs of the history before it writes: only
- * whether the old whole file still has to be copied in. None when Tex's warm
- * copy already holds the history by id (`warmCopy.js`), so a write there
- * reads nothing; otherwise the newest exchange.
- */
-export async function priorTurns(store, name) {
-  if (typeof store?.historyLogged === "function" && (await store.historyLogged()) === true) return [];
-  return await readConversation(store, name, { entries: 1 });
-}
-
-/**
  * Write the named fixed texts into a conversation, oldest first, before the
  * turn reads it. Best effort: a history that failed to save costs the turn
  * some context, never its answer.
@@ -320,8 +306,7 @@ export async function appendTold(store, name, told) {
   try {
     const at = Date.now();
     for (const [index, key] of told.entries()) {
-      // Read again each time: the old whole file is rewritten by each append.
-      await appendConversation(store, name, await priorTurns(store, name), TOLD_QUESTION, TOLD[key], { at: at + index });
+      await appendConversation(store, name, TOLD_QUESTION, TOLD[key], { at: at + index });
     }
   } catch {
     // See above.
@@ -339,7 +324,7 @@ export async function rememberRoutineText(store, routine, text, tainted) {
   if (Array.isArray(routine.settings.to) && routine.settings.to.length > 0) return;
   const line = `(Not a text from them. Your routine ${routine.path} ran on its schedule and you texted them what follows.)`;
   try {
-    await appendConversation(store, "texts", await readConversation(store, "texts", { entries: 1 }), line, text, { tainted });
+    await appendConversation(store, "texts", line, text, { tainted });
   } catch {
     // See above.
   }

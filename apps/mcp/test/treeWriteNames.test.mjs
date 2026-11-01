@@ -31,6 +31,7 @@ import test from "node:test";
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const OWNER = "cat_test_treenames_owner_000000000000";
 const WS = "ws_treenames";
@@ -119,7 +120,7 @@ async function scenario() {
   });
   const tree = treeOf(bucket);
   controlPlane.serveTree(WS, tree);
-  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, NATIVE_BINDINGS: "CONTEXT_BUCKET", CONTEXT_BUCKET: bucket };
+  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, NATIVE_BINDINGS: "CONTEXT_BUCKET", CONTEXT_BUCKET: bucket };
   await store.put("privacy.md", PRIVACY);
   await store.put("1-projects/plan.md", "# Plan\n");
   let id = 0;

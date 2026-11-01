@@ -633,6 +633,13 @@ function noteAgentActivity(store, name, args, result) {
   const kind = AGENT_ACTIVITY_TOOLS.get(name);
   if (!kind || !result || result.isError) return;
   const hint = activityHintOf(result);
+  // `read_notes`: each note it opened (`notesRead`, as the read reported its path), never one it refused.
+  if (name === "read_notes") {
+    const paths = (result.notesRead ?? []).filter((path) => !isPlumbing(path));
+    recordAgentActivity(store, paths.map((path) => ({ kind: "read", path })));
+    for (const path of paths) recordAgentRead(store, { tool: name, path });
+    return;
+  }
   if (kind === "move") {
     const notePath = (value) => {
       const path = normalizePath(value);

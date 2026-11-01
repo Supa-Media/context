@@ -12,6 +12,8 @@
  */
 
 import { gatewayTexStore } from "./texStore/wire.js";
+import { workspaceClient } from "./workspaceStore/api.js";
+import { objectFirstHooks } from "./store/objectLookup.js";
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
@@ -125,7 +127,20 @@ async function openSessionStore(session, env, controlPlane) {
     typeof controlPlane.readTreeFacts === "function"
       ? () => treeNoteCount((request) => controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request))
       : null;
-  const hooks = idLayoutHooks(opened.idLayout, session, controlPlane);
+  // Where the workspace's notes are judged in its object, its row questions go there first (`store/objectLookup.js`).
+  const controlHooks = idLayoutHooks(opened.idLayout, session, controlPlane);
+  const hooks =
+    controlHooks === null
+      ? null
+      : objectFirstHooks(controlHooks, {
+          client: workspaceClient(env, session.workspaceId),
+          home: binding.notesHome ?? null,
+          behind: binding.notesBehind === true,
+          scope: session.scope,
+          names: session.grantedGroups,
+          workspaceId: session.workspaceId,
+          log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
+        });
   // A keyed workspace's path objects are frozen copies (`notes-by-id.md`): a store
   // without the id layer would serve them as the note. Refused, never served paths.
   if (opened.keyed === true && hooks === null) throw new StorageUnavailable("keyed workspace needs the id layer");
@@ -136,6 +151,7 @@ async function openSessionStore(session, env, controlPlane) {
       managedEncryption: managedEncryptionForStore(opened, binding),
       idLayout: hooks,
       texStore: gatewayTexStore(env),
+      workspaceStore: (workspaceId) => workspaceClient(env, workspaceId),
       texChats: texChatsOf(session),
     }),
     authority,
@@ -336,7 +352,7 @@ export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
-  const store = storeForBinding(binding, env, { managedEncryption: managedEncryptionForStore(opened, binding), texStore: gatewayTexStore(env) });
+  const store = storeForBinding(binding, env, { managedEncryption: managedEncryptionForStore(opened, binding), texStore: gatewayTexStore(env), workspaceStore: (workspaceId) => workspaceClient(env, workspaceId) });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
   attachSearchIndexes(store, { searchIndex: opened?.searchIndex, meaningIndex: opened?.meaningIndex }, env?.AI);
   Object.defineProperty(store, "encryptionKey", {

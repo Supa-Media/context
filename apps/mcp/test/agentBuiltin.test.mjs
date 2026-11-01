@@ -24,6 +24,7 @@ import {
   GATEWAY_SECRET,
 } from "./controlPlaneStub.mjs";
 import { DEFAULT_BUILTIN_MODEL, requestBuiltin } from "../src/agent/builtin.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-builtin.test";
 const TOKEN = `cat_builtin_texter_${"0".repeat(21)}`;
@@ -147,7 +148,7 @@ export async function runAgentBuiltinChecks(check) {
     s3.bucketFor("tenant-texter").set("1-projects/launch.md", { body: "# Launch\n\nFriday.\n", etag: "g1" });
 
     const ai = fakeAi();
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, AI: ai };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, AI: ai };
 
     /* ---------------- refused before anything is spent ---------------- */
 
@@ -277,7 +278,7 @@ export async function runAgentBuiltinChecks(check) {
     const gatewayUrl = "https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/context-gw/anthropic/v1/messages";
     const gatewayAi = fakeAi();
     const gatewayEnv = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       AI: gatewayAi,
       AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",

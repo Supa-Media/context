@@ -19,13 +19,8 @@ import {
 } from "@context/obsidian-runtime";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import {
-  action,
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "../_generated/server";
+import { action, internalQuery, query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import {
   capabilityValidator,
   communityPluginValidator,

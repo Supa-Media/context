@@ -45,12 +45,14 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { fullToolList } from "./fullToolList.mjs";
 import { conversationTurns } from "./agentConversationFixture.mjs";
+import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-attention.test";
 const TOKEN_OWNER = `cat_attention_owner_${"0".repeat(20)}`;
 const TOKEN_EDITOR = `cat_attention_editor_${"0".repeat(19)}`;
 const TOKEN_BEAT = `cat_attention_beat_${"0".repeat(21)}`;
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const tex = texStoreNamespace();
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET };
 
 /* ---------------- the pure parts ---------------- */
 
@@ -215,7 +217,7 @@ before(async () => {
     capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true, serverSideCopy: "same-store" },
     status: "active",
   });
-  bucket = s3.bucketFor("attention-bucket");
+  bucket = withAgentHome(s3.bucketFor("attention-bucket"), tex, "ws_attention"); // the bookkeeping is the person's object's (`texStoreFixture.mjs`)
   bucket.set("index.md", { body: "# Front page", etag: "i0" });
   const owner = ["context:read", "context:write", "context:private"];
   await controlPlane.addGrant({ workspaceId: "ws_attention", role: "owner", userId: "user_pinged", accessToken: TOKEN_OWNER, scopes: owner, clientId: "mcp_client_attention", clientName: "Claude Code" });

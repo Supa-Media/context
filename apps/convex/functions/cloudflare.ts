@@ -68,14 +68,8 @@
 import { v } from "convex/values";
 import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
-import {
-  action,
-  internalAction,
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "../_generated/server";
+import { action, internalAction, internalQuery, query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { ConvexError } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { decryptSecret, requireKeyset } from "./lib/crypto";

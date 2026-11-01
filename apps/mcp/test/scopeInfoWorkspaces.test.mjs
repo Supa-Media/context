@@ -16,6 +16,7 @@ import { after, before, test } from "node:test";
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-scope-info.test";
 const TOKEN_OWNER = `cat_scope_owner_${"0".repeat(24)}`;
@@ -25,7 +26,7 @@ const PRIVACY_MANIFEST =
   "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
   "folder_defaults:\n  1-projects: team\n\nnote_overrides:\n  # none\n```\n\n" +
   "<!-- END BRAIN PRIVACY RULES -->\n";
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 
 function binding(bucket, key) {
   return {

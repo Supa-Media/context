@@ -17,6 +17,7 @@ import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_
 import { webSession } from "../src/agent/computer.js";
 import { BROWSE_TOOL, MAX_STEPS_PER_TURN, onlyTheirWords } from "../src/agent/browse.js";
 import { browserOwner, resetBrowserbaseProbe } from "../src/agent/browserProviders.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-browse.test";
 const TOKEN_TEXTS = `cat_browse_texts_${"0".repeat(22)}`;
@@ -313,7 +314,7 @@ async function runEndToEnd(check) {
         };
       },
     };
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, AI, SITE_SHOTS, APP_ORIGIN: "https://app.context.test" };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, AI, SITE_SHOTS, APP_ORIGIN: "https://app.context.test" };
     const { ctx, settle } = createWorkerCtx();
     const response = await worker.fetch(
       new Request("https://mcp.context.test/agent", {

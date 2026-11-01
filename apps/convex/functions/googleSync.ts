@@ -67,7 +67,8 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { internalMutation, internalQuery, mutation } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";

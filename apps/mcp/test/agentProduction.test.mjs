@@ -23,6 +23,7 @@ const RETIRED_APP_PATH = "ai/production/app-assistant.md";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-production-setup.test";
 const TOKEN_TEXTS = `cat_prod_texts_${"0".repeat(25)}`;
@@ -128,7 +129,7 @@ for (const [name, raw] of REFUSED) {
 /* ---------------- the wire: what a turn is told and which model it runs ---------------- */
 
 const gatewayCalls = [];
-const base = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const base = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 const gatewayVars = {
   AI_GATEWAY_ACCOUNT_ID: GATEWAY_ACCOUNT,
   AI_GATEWAY_ID: "context-gw",

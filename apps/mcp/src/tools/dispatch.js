@@ -38,7 +38,7 @@ import {
 } from "./communications.js";
 import { toolListMeetings, toolReadMeeting } from "./meetings.js";
 import { toolReadCalendar } from "./calendarRead.js";
-import { toolListNotes, toolReadNote } from "./notes/read.js";
+import { toolListNotes, toolReadNote, toolReadNotes } from "./notes/read.js";
 import { toolListPlugins } from "../plugins/listPluginsTool.js";
 import { toolListProposals, toolReadProposal } from "./proposals.js";
 import { toolMigrateStorageLayout } from "../notes/storage.js";
@@ -123,6 +123,8 @@ async function runTool(name, args, store, scope) {
     case "read_note":
       if (args.mail !== undefined) return toolReadMail(store, scope, rules, overrides, args);
       return toolReadNote(store, scope, rules, overrides, args.path);
+    case "read_notes":
+      return toolReadNotes(store, scope, rules, overrides, args.paths);
     case "evaluate_lists":
       return toolEvaluateLists(store, scope, rules, overrides, args.path);
     case "suggest_destination":

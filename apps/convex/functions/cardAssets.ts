@@ -10,7 +10,8 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 
 /** Where the installed wasm lives. One row, replaced rather than accumulated. */
 export const recordWasm = internalMutation({
