@@ -6,6 +6,7 @@ import { MemoryStorage } from "./memoryStorage.testing";
 import { READY_FIRST_MS, READY_KEY } from "./ready";
 import { afterRepliesSettled } from "./afterReply";
 import { TEXT_COLUMNS, textTimingPoint } from "./textTiming";
+import { recentEvents } from "./events";
 
 const msg = (eventId: string, text = "hi"): Message => ({
   kind: "message",
@@ -34,6 +35,8 @@ function deps(opts: {
   cardStatus?: number;
   readStatus?: number;
   progress?: string[];
+  /** The status the stream's last line carries after its progress lines. */
+  streamStatus?: () => number;
   agentStatus?: () => number;
   sessionStatus?: () => number;
   setup?: unknown;
@@ -75,7 +78,8 @@ function deps(opts: {
       const status = opts.agentStatus?.() ?? 200;
       if (status !== 200) return Response.json({ error: "model_unavailable" }, { status });
       if (opts.progress) {
-        const lines = [...opts.progress.map((progress) => ({ progress })), { status: 200, body: { answer: `answer to ${body.question}` } }];
+        const last = opts.streamStatus?.() ?? 200;
+        const lines = [...opts.progress.map((progress) => ({ progress })), last === 200 ? { status: 200, body: { answer: `answer to ${body.question}` } } : { status: last, body: { error: "model_unavailable" } }];
         return new Response(lines.map((line) => JSON.stringify(line)).join("\n") + "\n", {
           headers: { "content-type": "application/x-ndjson" },
         });
@@ -363,12 +367,69 @@ describe("inbox", () => {
     const storage = new MemoryStorage();
     const sent: Sent[] = [];
     await accept(storage, msg("e1", "connect my chatgpt"), 1_000);
-    await drain(storage, deps({ sent, progress: ["Opening ChatGPT now.", "Signed in."] }));
-    expect(sent).toEqual([
-      { text: "Opening ChatGPT now.", idempotency: "progress:e1:0" },
-      { text: "Signed in.", idempotency: "progress:e1:1" },
-      { text: "answer to connect my chatgpt", idempotency: "reply:e1" },
-    ]);
+    await drain(storage, deps({ sent, progress: ["Opening ChatGPT now.", "Found the connector page.", "Opening ChatGPT now.", "Reading its settings."] }));
+    expect(sent.map((entry) => entry.text)).toEqual(["Opening ChatGPT now.", "Found the connector page.", "Reading its settings.", "answer to connect my chatgpt"]);
+    const keys = sent.slice(0, 3).map((entry) => entry.idempotency);
+    for (const key of keys) expect(key).toMatch(/^progress:e1:[0-9a-f]{16}$/);
+    expect(new Set(keys).size).toBe(3);
+    // Each line is in the chat's log as Tex's, in order, before the answer.
+    const log = (await recentEvents(storage, msg("e1").chatId)).filter((event) => event.from.kind === "tex");
+    expect(log.map((event) => event.text)).toEqual(["Opening ChatGPT now.", "Found the connector page.", "Reading its settings.", "answer to connect my chatgpt"]);
+    expect(log.every((event) => event.delivered)).toBe(true);
+    // Nothing kept once the turn is over.
+    expect([...storage.data.keys()].filter((key) => key.startsWith("psent:"))).toEqual([]);
+  });
+
+  it("never sends a progress line twice when the turn is run again", async () => {
+    const storage = new MemoryStorage();
+    const sent: Sent[] = [];
+    await accept(storage, msg("e1", "book a table"), 1_000);
+    let status = 503;
+    const lines = ["Checking OpenTable for Friday.", "Found 3 tables at Nopa."];
+    await drain(storage, deps({ sent, progress: lines, streamStatus: () => status, now: 2_000 }));
+    expect(sent.map((entry) => entry.text)).toEqual(lines);
+    status = 200;
+    await drain(storage, deps({ sent, progress: [...lines, "Holding the 7pm."], streamStatus: () => status, now: 60_000 }));
+    expect(sent.map((entry) => entry.text)).toEqual([...lines, "Holding the 7pm.", "answer to book a table"]);
+  });
+
+  it("never sends a progress line twice when a newer text joins the turn run again, and keeps nothing once it is answered", async () => {
+    const storage = new MemoryStorage();
+    const sent: Sent[] = [];
+    const asks: string[] = [];
+    await accept(storage, msg("e1", "book a table"), 1_000);
+    let status = 503;
+    const lines = ["Checking OpenTable for Friday.", "Found 3 tables at Nopa."];
+    await drain(storage, deps({ sent, asks, progress: lines, streamStatus: () => status, now: 2_000 }));
+    // A second text comes in before the rerun, so the rerun answers both, under the newer one.
+    await accept(storage, msg("e2", "for 4"), 2_500);
+    status = 200;
+    await drain(storage, deps({ sent, asks, progress: lines, streamStatus: () => status, now: 60_000 }));
+    expect(asks).toEqual(["book a table", "book a table\nfor 4"]);
+    expect(sent.map((entry) => entry.text)).toEqual([...lines, "answer to book a table\nfor 4"]);
+    expect([...storage.data.keys()].filter((key) => key.startsWith("psent:"))).toEqual([]);
+  });
+
+  it("drops the lines kept for work never answered once they are a day old", async () => {
+    const storage = new MemoryStorage();
+    const sent: Sent[] = [];
+    await accept(storage, msg("e1", "book a table"), 1_000);
+    await drain(storage, deps({ sent, progress: ["Checking OpenTable for Friday."], streamStatus: () => 503, now: 2_000 }));
+    expect([...storage.data.keys()].filter((key) => key.startsWith("psent:"))).toHaveLength(1);
+    // The text is gone with its work never answered (a throw, say): nothing is left to clear its lines but their age.
+    for (const key of [...storage.data.keys()].filter((key) => key.startsWith("pending:"))) await storage.delete(key);
+    await drain(storage, deps({ sent, now: 2_000 + SEEN_FOR_MS - 1 }));
+    expect([...storage.data.keys()].filter((key) => key.startsWith("psent:"))).toHaveLength(1);
+    await drain(storage, deps({ sent, now: 2_000 + SEEN_FOR_MS + 1 }));
+    expect([...storage.data.keys()].filter((key) => key.startsWith("psent:"))).toEqual([]);
+  });
+
+  it("never texts a progress line that is only a word meant for the Worker", async () => {
+    const storage = new MemoryStorage();
+    const sent: Sent[] = [];
+    await accept(storage, msg("e1", "check my jobs"), 1_000);
+    await drain(storage, deps({ sent, progress: ["SKIP", "NO_REPLY", "Opening the jobs page."] }));
+    expect(sent.map((entry) => entry.text)).toEqual(["Opening the jobs page.", "answer to check my jobs"]);
   });
 
   it("writes a simulated task's progress to the simulator's log, not to Linq", async () => {

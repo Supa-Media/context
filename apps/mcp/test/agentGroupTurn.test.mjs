@@ -390,22 +390,39 @@ test("a note read in a group comes back with its app link, which everyone in the
   }
 });
 
-test("a streamed group turn texts its progress to the chat, as a text does (2026-10-23)", async () => {
-  world.model.install([{ toolCalls: [{ name: "send", args: { action: "progress", args: { text: "Reading the page now." } } }] }, { text: "Done." }]);
+async function streamed(body) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/agent", {
       method: "POST",
       headers: { Authorization: `Bearer ${TOKEN_GROUP}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
-      body: JSON.stringify({ question: "Tex research this link", group: chat() }),
+      body: JSON.stringify(body),
     }),
     world.env,
     ctx,
   );
   const lines = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
   await settle();
-  assert.deepEqual(lines.filter((line) => line.progress).map((line) => line.progress), ["Reading the page now."]);
-  assert.equal(lines.at(-1).body?.answer ?? lines.at(-1).answer, "Done.", JSON.stringify(lines.at(-1)));
+  return { progress: lines.filter((line) => line.progress).map((line) => line.progress), answer: lines.at(-1).body?.answer ?? lines.at(-1).answer, last: lines.at(-1) };
+}
+
+test("a streamed group turn texts its progress to the chat, as a text does (2026-10-23), and its answer stands on its own (2026-11-01)", async () => {
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "progress", args: { text: "Reading the page now." } } }] }, { text: "Reading the page now.\n\nDone." }]);
+  const { progress, answer, last } = await streamed({ question: "Tex research this link", group: chat() });
+  assert.deepEqual(progress, ["Reading the page now."]);
+  assert.equal(answer, "Reading the page now.\n\nDone.", JSON.stringify(last));
+  assert.match(JSON.stringify(world.model.requests[0]), /send with action progress/);
+});
+
+test("a chat set to one bubble, and a job's report, get no progress lines, though each is streamed (Dev2, 2026-11-01)", async () => {
+  const report = { title: "Venue research", state: "done", texts: ["Nopa has a room for 20."] };
+  for (const extra of [{ texStyle: { bubbles: "one" } }, { event: "job_report", jobReport: report }]) {
+    world.model.install([{ toolCalls: [{ name: "send", args: { action: "progress", args: { text: "Reading the page now." } } }] }, { text: "Done." }]);
+    const { progress, answer } = await streamed({ question: "Tex research this link", group: chat(), ...extra });
+    assert.deepEqual(progress, [], JSON.stringify(extra));
+    assert.equal(answer, "Done.");
+    assert.doesNotMatch(JSON.stringify(world.model.requests[0]), /send with action progress/, "never told it may send one");
+  }
 });
 
 /*

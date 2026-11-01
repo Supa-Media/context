@@ -335,11 +335,14 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const groupWriting = group !== null ? groupWriteTools(offered, group) : [];
   /*
     A long task texts its progress (`progress.js`): a person's own texted
-    turn or a group's, asked for as a stream by the texting Worker. A routine runs
-    unattended and texts once, so it never gets one.
+    turn or a group's, asked for as a stream by the texting Worker. A routine
+    (or a group's, whose Worker drops its lines: `groupModelTurn.ts`) and a
+    job's report run unattended and text once, so they never get one; nor
+    does a chat that asked for one bubble (Dev2, 2026-11-01). Streamed, each
+    is still the long turn.
   */
-  const channel =
-    typeof progress === "function" && (session.actorClientId === TEXTS_CLIENT_ID || group !== null) ? progressChannel(progress) : null;
+  const streamed = typeof progress === "function" && (session.actorClientId === TEXTS_CLIENT_ID || group !== null);
+  const channel = streamed && report === null && readTexStyle(body.texStyle)?.bubbles !== "one" ? progressChannel(progress) : null;
   // Clef is metered with the turn (`meter` below).
   /*
     AN ADDRESS IS VOUCHED FOR BY THE PERSON, NEVER BY A PREVIOUS ANSWER.
@@ -557,7 +560,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       toolTimeouts: { browse: 160_000, fill_login: 30_000, fill_card: 60_000, draw_picture: 40_000, draw_visual: 75_000, make_picture: 70_000, send_email: 120_000, save_email_draft: 120_000, calendar_event: 40_000, slack_api: 40_000, google_chat: 40_000 },
       // A background job is long whether or not it streams (`background.js`).
       // So is a data file to work through: Opus plans it, so a breakdown isn't guessed on the everyday model (2026-10-24).
-      planned: job !== null || carriesData(attachments), ...(channel !== null || job !== null ? { ...(channel !== null ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
+      planned: job !== null || carriesData(attachments), ...(streamed || job !== null ? { ...(channel !== null ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
     });
     // The question's browser is not left running, unless held while the answer waits on them (`browserHold.js`).
     if (opened !== null) await afterAnswer(() => opened.close(turn.exhausted ? {} : { answer: turn.answer, vaultLink: ledger.vaultLink }));
