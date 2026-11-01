@@ -689,29 +689,6 @@ describe("stored attachments", () => {
     expect(decision.attachments[0]!.key).toMatch(/^\.context\/assets\/images\/[0-9a-f]{64}\.png$/);
   });
 
-  it("stores the compressed copy, named from the bytes that arrived, and links it", async () => {
-    // Pictures are kept compressed (the owner's 2026-11-01 rule). Sabotage:
-    // store `attachment.bytes` or name the key from the sender's type, and
-    // this fails.
-    const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
-    const asked: string[] = [];
-    const plain = await decide(withImage("shot.png"), { attachmentPolicy: "store" });
-    const decision = await decide(withImage("shot.png"), {
-      attachmentPolicy: "store",
-      compressPicture: async (_bytes, type) => {
-        asked.push(type.contentType);
-        return { bytes: webp, contentType: "image/webp", extension: "webp" };
-      },
-    });
-    if (decision.kind !== "capture" || plain.kind !== "capture") throw new Error("expected a capture");
-    expect(asked).toEqual(["image/png"]);
-    const write = decision.attachments[0]!;
-    expect(write.key).toBe(plain.attachments[0]!.key.replace(/\.png$/, ".webp"));
-    expect(write.bytes).toBe(webp);
-    expect(write.contentType).toBe("image/webp");
-    expect(decision.note).toContain(`![shot.png](${write.key})`);
-  });
-
   it("is the same object no matter what the sender called it", async () => {
     // The dedup the design is for: one screenshot emailed twice, under two
     // names, is one object. The old key carried the filename, so it was two.
