@@ -6,6 +6,7 @@
 import {
   SCHEMA_VERSION,
   documentKey,
+  headKey,
   fail,
   isObject,
   parseJson,
@@ -62,10 +63,23 @@ export function validateState(state, head, path) {
   return state;
 }
 
-export async function readHead(store, path) {
+export async function readHead(store, path, { pathHeadTogether = false } = {}) {
+  const pathKey = pathHeadTogether ? headKey(path) : null;
+  pathKey?.catch(() => {});
   const { key, noteId } = await headAddress(store, path);
+  /*
+    A reader that only looks (`readDocumentIfStarted`) asks for the head the
+    note's path once filed, beside the one filed by its id, rather than after
+    it: a note nothing has edited together has neither, and two reads one
+    after the other were two round trips to learn that. The path's head is
+    used exactly as before, only when the id's is missing. Writers do not ask
+    for it this way: they read the head several times, and each would pay a
+    read nobody needs.
+  */
+  const pathHead = pathKey !== null && noteId !== null ? pathKey.then((named) => readObject(store, named)) : null;
+  pathHead?.catch(() => {});
   let object = await readObject(store, key);
-  if (!object && noteId !== null) object = await adoptPathHead(store, path, noteId);
+  if (!object && noteId !== null) object = await adoptPathHead(store, path, noteId, pathHead);
   if (!object) return null;
   const head = parseJson(object.text, "path head");
   if (
