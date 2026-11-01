@@ -29,7 +29,7 @@ export type Decision =
       confidence: number;
       /** How long decide took, for the logs. */
       ms?: number;
-      /** Decide's reaction, with any act (reacting is its own decision, Jhonatan 2026-11-01); sent only if one of `REACT_EMOJI` (`reactionFor`). */
+      /** Decide's reaction, with any act (reacting is its own decision, Dev2 2026-11-01); sent only if one of `REACT_EMOJI` (`reactionFor`). */
       emoji?: string;
       /** With `wait`: the seconds decide chose; the chat's state caps the burst (`chatState.ts`). */
       waitSeconds?: number;
@@ -65,7 +65,7 @@ export const RUNNING_DECIDE_MS = 5_000;
 export const IDLE_DECIDE_MS = 4_000;
 /**
  * Decide on a group's waiting messages. Slower than this and the burst is
- * answered without it (Jhonatan, 2026-11-01: a model that is slow to decide
+ * answered without it (Dev2, 2026-11-01: a model that is slow to decide
  * when to speak should not hold the chat; `chatState.ts`). 15 s since
  * 2026-10-27 while decide never answered; production then logged 0.7 to 2.6 s
  * per decide (2026-10-28 to 31), so 3 s, not the 1 s first asked for, which would

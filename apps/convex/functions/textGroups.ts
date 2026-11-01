@@ -533,7 +533,7 @@ export const groupDecideWorkspace = internalQuery({
       .withIndex("by_key", (q) => q.eq("groupKey", args.groupKey))
       .unique();
     if (chat === null) return null;
-    // Decide is metered to the chat's sponsor, as its turns are (`lib/textGroupUsage.ts`; Jhonatan, 2026-11-01), in every
+    // Decide is metered to the chat's sponsor, as its turns are (`lib/textGroupUsage.ts`; Dev2, 2026-11-01), in every
     // group: a home-only chat reaches no shared workspace, and before this every decide there was refused as no_group.
     const sponsor = chat.sponsorId ?? chat.boundBy;
     if (sponsor !== undefined) return await personalWorkspaceOf(ctx, sponsor);

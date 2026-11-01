@@ -26,7 +26,7 @@ describe("the reaction emoji", () => {
     for (const { emoji } of Object.values(REACT_EMOJI)) expect([...graphemes.segment(emoji)]).toHaveLength(1);
   });
 
-  // Jhonatan, 2026-11-01: reacting and writing are separate decisions; any act may carry the emoji.
+  // Dev2, 2026-11-01: reacting and writing are separate decisions; any act may carry the emoji.
   test("reacting is its own decision: it comes with silence (a react), an answer or a wait, and only when chosen", () => {
     const yes = { type: "noul", noul: 0.9 };
     const no = { type: "noul", noul: 0.1 };

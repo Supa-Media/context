@@ -1,5 +1,5 @@
 /**
- * The chat's conversation state (`chatState.ts`, Jhonatan 2026-11-01): every
+ * The chat's conversation state (`chatState.ts`, Dev2 2026-11-01): every
  * (phase, event) pair, and the guards that keep a model from looping.
  *
  * Sabotage (temporary local edits, reverted):

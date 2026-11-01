@@ -73,7 +73,7 @@ export function parseWhapiWebhook(payload: unknown, line: string): WhapiEvent[] 
 
 /**
  * A presences delivery (typing) is only described, never acted on: its keys, each status, and whether
- * `contact_id` names a group or a person, never the id (Jhonatan, 2026-11-01: build group typing only if
+ * `contact_id` names a group or a person, never the id (Dev2, 2026-11-01: build group typing only if
  * Whapi's payload names the group; `docs/decisions/texting-assistant/whapi-presence-probe.md`).
  */
 function logPresenceShape(payload: Record<string, unknown>): void {

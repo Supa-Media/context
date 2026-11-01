@@ -1,5 +1,5 @@
 /**
- * The one executor for what a chat's people may change about Tex (Jhonatan,
+ * The one executor for what a chat's people may change about Tex (Dev2,
  * 2026-10-31; `docs/decisions/texting-assistant/command-tools.md`).
  *
  * Two doors reach it. The texting Worker's exact short commands ("Tex, stop",

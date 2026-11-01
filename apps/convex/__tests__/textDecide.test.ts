@@ -152,7 +152,7 @@ describe("the door", () => {
 describe("the decision", () => {
   test("asks typed questions over the transcript and maps the answers", async () => {
     const t = setupTest();
-    // Metered to the sponsor (Ada, whose turn minted the grant), not the shared workspace (Jhonatan, 2026-11-01).
+    // Metered to the sponsor (Ada, whose turn minted the grant), not the shared workspace (Dev2, 2026-11-01).
     const { ada } = await boundGroup(t);
     const studio = ada.workspaceId;
     const sent = clef(ANSWER);
@@ -331,7 +331,7 @@ test("every request it builds passes the inference Worker's request rules", () =
   }
 });
 
-// Jhonatan, 2026-10-31: a message for another assistant (Instinct is in Tex Devs) is not Tex's.
+// Dev2, 2026-10-31: a message for another assistant (Instinct is in Tex Devs) is not Tex's.
 test("every style tells decide a message for another assistant is silent, never a react", () => {
   for (const style of ["quiet", "attentive", "followAlong", "helpful", "direct"] as const) {
     const { questions } = decideRequest({ chat: GROUP, line: LINE, style, transcript: "x", running: false, waitingAsks: [], candidates: ["1761619442000-000001"], newest: "1761619442000-000001" });

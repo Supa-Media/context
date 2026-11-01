@@ -269,7 +269,7 @@ export async function routineDone(deps: GroupDeps, message: GroupMessage, outcom
 /**
  * Anything sent by someone whose tag is still waiting, a moment after it,
  * goes to decide with it whatever the style, so one turn can read both: the
- * screenshot after "Tex, file this screenshot as a bug report" (Jhon,
+ * screenshot after "Tex, file this screenshot as a bug report" (Dev2,
  * 2026-10-23, Tex answered that it couldn't see one), the link after "Tex
  * check this link out". Only their own tag, and only one sent a moment ago.
  */
@@ -309,7 +309,7 @@ async function isAsker(storage: InboxStorage, message: GroupMessage, now: number
 }
 
 /**
- * Whether this person tagged Tex with these same words a moment ago (Jhon,
+ * Whether this person tagged Tex with these same words a moment ago (Dev2,
  * 2026-10-21: the same bug report sent twice was written up twice). Kept as
  * hashes of sender and words, never either. Remembers this ask either way.
  */
@@ -323,7 +323,7 @@ async function askedJustNow(storage: InboxStorage, message: GroupMessage, now: n
 
 /**
  * A bare yes, no or "send" from the person Tex just asked, while that ask is
- * open (Jhon's "yes" to the bug report, 2026-10-21, kept as chat). Anyone
+ * open (Dev2's "yes" to the bug report, 2026-10-21, kept as chat). Anyone
  * else's is chat: only the asker's yes can release what was held for them.
  */
 async function answersOpenAsk(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {

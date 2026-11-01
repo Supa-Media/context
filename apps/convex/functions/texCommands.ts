@@ -1,6 +1,6 @@
 /**
  * What Tex's agent may change about a chat, called as a tool with the turn's
- * own grant (Jhonatan, 2026-10-31; `docs/decisions/texting-assistant/command-tools.md`).
+ * own grant (Dev2, 2026-10-31; `docs/decisions/texting-assistant/command-tools.md`).
  *
  * The chat and the person acting come off the live grant (`resolveLiveGrant`),
  * never from anything the agent names: a group grant names its chat

@@ -1,5 +1,5 @@
 /**
- * Decide's reaction and wait in a group (Jhonatan, 2026-11-01; `chatState.ts`).
+ * Decide's reaction and wait in a group (Dev2, 2026-11-01; `chatState.ts`).
  * Reacting is its own decision: decide's emoji goes at once with silence, an
  * answer or a wait, once per message, and then the turn adds no ack tapback.
  * A wait holds an untagged burst for the seconds decide chose, decided again

@@ -162,7 +162,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     return void (await say(storage, deps, message, now === null ? GROUP_LINES.failed : GROUP_LINES.joined, { system: true, ...(now === null ? { reason: "failed" as const } : {}) }));
   }
   await chatEvent(storage, "send", routine ? "routine" : "turn", { now: deps.now() });
-  // Every bubble under the message it answers, not only the first (Jhon's bug report, 2026-10-21).
+  // Every bubble under the message it answers, not only the first (Dev2's bug report, 2026-10-21).
   let firstSent: number | undefined; // when the person's wait ended (`textTiming.ts`)
   for (const text of texts) {
     await say(storage, deps, message, text, meta);

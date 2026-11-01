@@ -29,7 +29,7 @@ export const MIRROR_LINE =
 export const LANGUAGE_LINE = "Answer in the language of the person you're answering.";
 
 /**
- * Jhonatan, 2026-10-31 (`commandTools.js`): Tex said it "saved the style settings" after writing a note. Settings change
+ * Dev2, 2026-10-31 (`commandTools.js`): Tex said it "saved the style settings" after writing a note. Settings change
  * only through the tool, and a message for another assistant (Instinct is in Tex Devs) isn't Tex's.
  */
 export const SETTINGS_LINE =

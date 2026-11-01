@@ -1,6 +1,6 @@
 # One conversation state per chat, and decide picks when and how Tex replies (2026-11-01)
 
-Decided by Jhonatan (Dev2), 2026-11-01, after a week of fixing group chat bugs
+Decided by Dev2, 2026-11-01, after a week of fixing group chat bugs
 one rule at a time: the rules lived in regex code, the decision model and the
 answering model, and none knew the others. The research behind it (OpenAI
 Realtime turn detection, LiveKit's turn detector and preemptive generation,

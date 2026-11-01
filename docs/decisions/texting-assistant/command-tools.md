@@ -1,6 +1,6 @@
 # Tex's chat commands are tools the agent calls (2026-10-31)
 
-Decided by Jhonatan, 2026-10-31, part of the new architecture
+Decided by Dev2, 2026-10-31, part of the new architecture
 (`@supa projects/tex/new-architecture.md`).
 
 In the Tex Devs group, "Tex settings" worked only as an exact phrase, and

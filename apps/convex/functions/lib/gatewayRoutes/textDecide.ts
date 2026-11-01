@@ -53,7 +53,7 @@ export type DecideResult =
       ok: true;
       /**
        * The words: `answer`, `silent`, or `wait` (a burst still being typed; the Worker decides again after
-       * `waitSeconds`). `react` is silent with a reaction. Reacting is its own decision (Jhonatan, 2026-11-01):
+       * `waitSeconds`). `react` is silent with a reaction. Reacting is its own decision (Dev2, 2026-11-01):
        * any act may carry `emoji`, sent at once.
        */
       act: "silent" | "react" | "answer" | "wait";
@@ -110,7 +110,7 @@ export function readDecideBody(body: Record<string, unknown>): DecideBody | null
 }
 
 /**
- * A message addressed to another assistant by name is not for Tex (Jhonatan, 2026-10-31: Instinct sits in the Tex Devs
+ * A message addressed to another assistant by name is not for Tex (Dev2, 2026-10-31: Instinct sits in the Tex Devs
  * chat, and Tex answered what was asked of it). Silent, never a react, unless the message also names Tex.
  */
 export const OTHER_ASSISTANT_RULE =

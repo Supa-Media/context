@@ -118,7 +118,7 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
 
 /**
  * `react`/`emoji`: a reaction on the newest message, sent at once, with an answer, a wait or alone (reacting is its
- * own decision, Jhonatan 2026-11-01; `reactionFor` checks the emoji). `wait`: untagged messages held for the rest of
+ * own decision, Dev2 2026-11-01; `reactionFor` checks the emoji). `wait`: untagged messages held for the rest of
  * the burst, `waitSeconds` as decide chose; the chat's state caps it (`chatState.ts`).
  */
 export type GroupChoice = { answer: GroupEntry[]; chat: GroupEntry[]; drop: GroupEntry[]; react?: GroupEntry; emoji?: string; wait?: GroupEntry[]; waitSeconds?: number };
@@ -273,7 +273,7 @@ export async function whileRunning(
  * chat's lines already). Nobody else's message is forced into an answer of
  * its own: each stays waiting, unforced, and the next pass decides it again
  * for its own sender's newest (an addressed one is then answered by code's
- * floor, on their own grant; Dev2's review, 2026-10-27, after the Seyi/Jhon
+ * floor, on their own grant; Dev2's review, 2026-10-27, after the Seyi/Dev2
  * burst got a second answer to a complaint).
  */
 export function ownTurn(covered: GroupEntry[]): GroupEntry[] {

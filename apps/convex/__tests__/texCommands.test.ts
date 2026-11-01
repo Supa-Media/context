@@ -1,5 +1,5 @@
 /**
- * TEX'S CHAT COMMANDS AS TOOLS (`functions/texCommands.ts`, Jhonatan, 2026-10-31;
+ * TEX'S CHAT COMMANDS AS TOOLS (`functions/texCommands.ts`, Dev2, 2026-10-31;
  * `docs/decisions/texting-assistant/command-tools.md`).
  *
  * The agent changes a chat's settings, mutes Tex or shares mail through

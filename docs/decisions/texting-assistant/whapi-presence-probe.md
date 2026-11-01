@@ -1,6 +1,6 @@
 # Group typing: a WhatsApp experiment before any build (2026-11-01)
 
-Decided by Jhonatan, 2026-11-01. Tex could hold its answer while someone in a
+Decided by Dev2, 2026-11-01. Tex could hold its answer while someone in a
 group is still typing, but neither line tells it reliably who is typing where.
 
 - **iMessage (Sendblue):** group typing exists only since iOS 26, Sendblue's

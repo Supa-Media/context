@@ -2,7 +2,7 @@
  * "FILE THIS AS A BUG" IS A BUG REPORT, NEVER A NOTE (Tex Devs group, 2026-10-26).
  *
  * Asked "File the fact that you can't see your own diagram and messages as a
- * bug report", Tex wrote into a team handoff note and texted "Filed."; Jhon:
+ * bug report", Tex wrote into a team handoff note and texted "Filed."; Dev2:
  * "That is not a bug report!" A bug report is `report_problem`, which lands
  * in the Tex bug notes (`apps/convex/functions/bugNotes.ts`).
  *

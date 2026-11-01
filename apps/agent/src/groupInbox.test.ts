@@ -226,7 +226,7 @@ describe("a group's queue", () => {
     expect(w.asks[1]).toMatchObject({ group: { chat: [] } });
   });
 
-  it("reads a picture sent just after the tag with it (Jhon's screenshot, 2026-10-23)", async () => {
+  it("reads a picture sent just after the tag with it (Dev2's screenshot, 2026-10-23)", async () => {
     const storage = new MemoryStorage();
     const w = world();
     // Quiet: only the tagger's own picture after their tag goes to decide with it (`followsOwnTag`).
@@ -476,7 +476,7 @@ describe("a group's queue", () => {
   });
 });
 
-// Regression tests from the iMessage group chat of 2026-10-21 (Dev2 and Jhon).
+// Regression tests from the iMessage group chat of 2026-10-21 (Dev2 and a teammate).
 describe("the group chat of 2026-10-21", () => {
   const ask =
     "Here's the bug report I'd send to the Context team:\n\nReplies in several bubbles leave the thread.\n\nNone of our texts go with it.\n\nLook good? Give this a 👍 or reply yes and I'll send it.";
