@@ -134,7 +134,8 @@ async function drainedUnderFakeTimers(work: Promise<unknown>): Promise<void> {
   const settled = work.finally(() => {
     done = true;
   });
-  for (let step = 0; step < 600 && !done; step++) await vi.advanceTimersByTimeAsync(100);
+  // 500 ms steps: 100 ms steps took over 5 s of real time on a slow runner (2026-11-01).
+  for (let step = 0; step < 120 && !done; step++) await vi.advanceTimersByTimeAsync(500);
   await settled;
 }
 
