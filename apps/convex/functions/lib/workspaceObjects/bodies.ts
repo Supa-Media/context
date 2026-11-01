@@ -198,7 +198,13 @@ export async function copyKey(bucket: BodyStore, object: BodyStore, key: string,
 export async function copyPage(
   bucket: BodyStore,
   object: BodyStore,
-  { at, limit, width = 8, dryRun }: { at: WalkCursor; limit: number; width?: number; dryRun: boolean },
+  {
+    at,
+    limit,
+    width = 8,
+    dryRun,
+    onFailure,
+  }: { at: WalkCursor; limit: number; width?: number; dryRun: boolean; onFailure?: (error: unknown) => void },
 ): Promise<{ counts: CopyCounts; next: WalkCursor | null }> {
   const counts = emptyCopyCounts();
   const prefix = OBJECT_PREFIXES[at.prefix];
@@ -221,8 +227,9 @@ export async function copyPage(
           if (held === null) return;
           await object.delete(key, typeof held.etag === "string" ? { onlyIf: { etagMatches: held.etag } } : {});
           counts.removedOlder += 1;
-        } catch {
+        } catch (error) {
           counts.failed += 1;
+          onFailure?.(error);
         }
       },
     );
@@ -230,8 +237,9 @@ export async function copyPage(
   await inWaves(keys, width, async (key) => {
     try {
       counts[await copyKey(bucket, object, key, dryRun)] += 1;
-    } catch {
+    } catch (error) {
       counts.failed += 1;
+      onFailure?.(error);
     }
   });
   const next: WalkCursor | null =

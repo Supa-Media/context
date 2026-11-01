@@ -446,7 +446,18 @@ export const backfill = internalAction({
           state.at = { prefix: 0 };
         }
         stage = "copy";
-        const page = await copyPage(bucket, client.bodies as unknown as BodyStore, { at: state.at, limit: KEYS_PER_PAGE, dryRun });
+        // A key that will not copy is counted; why, by fixed reason only, is logged once per page.
+        const keyFailures: Record<string, number> = {};
+        const page = await copyPage(bucket, client.bodies as unknown as BodyStore, {
+          at: state.at,
+          limit: KEYS_PER_PAGE,
+          dryRun,
+          onFailure: (error) => {
+            const reason = `${failureOf(error).error}:${reasonOf(error)}`;
+            keyFailures[reason] = (keyFailures[reason] ?? 0) + 1;
+          },
+        });
+        if (page.counts.failed > 0) console.warn(JSON.stringify({ event: "workspace_backfill_keys_failed", workspaceId, reasons: keyFailures }));
         addCounts(bodies, page.counts);
         if (page.next !== null) {
           state.at = page.next;

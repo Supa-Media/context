@@ -375,6 +375,17 @@ describe("failure logs", () => {
     expect(JSON.stringify(failureOf(new ConvexError({ code: "X", message: "secret words" })))).not.toContain("secret");
   });
 
+  test("a key that will not copy hands its error to the caller, and the page goes on", async () => {
+    const bucket = bucketWith({ [A]: "# A", [B]: "# B" });
+    const { bodies } = objectFor();
+    const broken = { ...bucket, list: bucket.list.bind(bucket), get: async (key: string) => { if (key === A) throw new Error("S3 GET x failed with 500"); return bucket.get(key); } } as unknown as BodyStore;
+    const seen: unknown[] = [];
+    const page = await copyPage(broken, bodies, { at: { prefix: 0 }, limit: 10, dryRun: false, onFailure: (error) => seen.push(error) });
+    expect(page.counts.failed).toBe(1);
+    expect(page.counts.copied).toBe(1);
+    expect(seen).toHaveLength(1);
+  });
+
   test("a busy bucket's listing is asked again, a refusal is not", async () => {
     const { withRetries } = await import("../functions/workspaceObjects");
     let calls = 0;
