@@ -132,5 +132,8 @@ export const getBindingForGatewayReturns = v.union(
     forcePathStyle: v.optional(v.boolean()),
     capabilities: capabilitiesValidator,
     status: v.string(),
+    /** Absent while the workspace's notes are read from the bucket (`functions/workspaceObjects.ts`). */
+    notesHome: v.optional(v.union(v.literal("dual"), v.literal("object"))),
+    notesBackfilledAt: v.optional(v.number()),
   }),
 );

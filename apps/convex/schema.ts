@@ -67,6 +67,7 @@ import { nodeAccessTables } from "./functions/lib/schema/nodeAccess";
 import { smallDataTables } from "./functions/lib/schema/smallData";
 import { blockTables } from "./functions/lib/schema/blocks";
 import { contentReportTables } from "./functions/lib/schema/contentReports";
+import { workspaceObjectTables } from "./functions/lib/schema/workspaceObjects";
 
 /**
  * Control-plane schema for Context.
@@ -170,6 +171,7 @@ const schema = defineSchema({
   ...noteMailTables,
   ...blockTables,
   ...contentReportTables,
+  ...workspaceObjectTables,
 });
 
 export default schema;
