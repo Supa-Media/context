@@ -607,8 +607,8 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     // said: a person can allow only what they were told about, and the model
     // relaying it is a courtesy rather than the mechanism.
     // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
-    // A flattering opener ("You're so right!") comes off first (`pushback.js`).
-    const { answer: replied, quiet } = reportReply(report, turn.answer), { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet ? "" : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`)
+    // A flattering opener ("You're so right!") comes off first (`pushback.js`), and what a progress line already said (`progress.js` `unsaid`).
+    const { answer: replied, quiet } = reportReply(report, turn.answer), { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet ? "" : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(channel?.unsaid(replied) ?? replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`)
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
     const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null });
     const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)

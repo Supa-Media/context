@@ -6,6 +6,7 @@ import { MemoryStorage } from "./memoryStorage.testing";
 import { READY_FIRST_MS, READY_KEY } from "./ready";
 import { afterRepliesSettled } from "./afterReply";
 import { TEXT_COLUMNS, textTimingPoint } from "./textTiming";
+import { recentEvents } from "./events";
 
 const msg = (eventId: string, text = "hi"): Message => ({
   kind: "message",
@@ -34,6 +35,8 @@ function deps(opts: {
   cardStatus?: number;
   readStatus?: number;
   progress?: string[];
+  /** The status the stream's last line carries after its progress lines. */
+  streamStatus?: () => number;
   agentStatus?: () => number;
   sessionStatus?: () => number;
   setup?: unknown;
@@ -75,7 +78,8 @@ function deps(opts: {
       const status = opts.agentStatus?.() ?? 200;
       if (status !== 200) return Response.json({ error: "model_unavailable" }, { status });
       if (opts.progress) {
-        const lines = [...opts.progress.map((progress) => ({ progress })), { status: 200, body: { answer: `answer to ${body.question}` } }];
+        const last = opts.streamStatus?.() ?? 200;
+        const lines = [...opts.progress.map((progress) => ({ progress })), last === 200 ? { status: 200, body: { answer: `answer to ${body.question}` } } : { status: last, body: { error: "model_unavailable" } }];
         return new Response(lines.map((line) => JSON.stringify(line)).join("\n") + "\n", {
           headers: { "content-type": "application/x-ndjson" },
         });
@@ -363,12 +367,30 @@ describe("inbox", () => {
     const storage = new MemoryStorage();
     const sent: Sent[] = [];
     await accept(storage, msg("e1", "connect my chatgpt"), 1_000);
-    await drain(storage, deps({ sent, progress: ["Opening ChatGPT now.", "Signed in."] }));
-    expect(sent).toEqual([
-      { text: "Opening ChatGPT now.", idempotency: "progress:e1:0" },
-      { text: "Signed in.", idempotency: "progress:e1:1" },
-      { text: "answer to connect my chatgpt", idempotency: "reply:e1" },
-    ]);
+    await drain(storage, deps({ sent, progress: ["Opening ChatGPT now.", "Found the connector page.", "Opening ChatGPT now.", "Reading its settings."] }));
+    expect(sent.map((entry) => entry.text)).toEqual(["Opening ChatGPT now.", "Found the connector page.", "Reading its settings.", "answer to connect my chatgpt"]);
+    const keys = sent.slice(0, 3).map((entry) => entry.idempotency);
+    for (const key of keys) expect(key).toMatch(/^progress:e1:[0-9a-f]{16}$/);
+    expect(new Set(keys).size).toBe(3);
+    // Each line is in the chat's log as Tex's, in order, before the answer.
+    const log = (await recentEvents(storage, msg("e1").chatId)).filter((event) => event.from.kind === "tex");
+    expect(log.map((event) => event.text)).toEqual(["Opening ChatGPT now.", "Found the connector page.", "Reading its settings.", "answer to connect my chatgpt"]);
+    expect(log.every((event) => event.delivered)).toBe(true);
+    // Nothing kept once the turn is over.
+    expect([...storage.data.keys()].filter((key) => key.startsWith("psent:"))).toEqual([]);
+  });
+
+  it("never sends a progress line twice when the turn is run again", async () => {
+    const storage = new MemoryStorage();
+    const sent: Sent[] = [];
+    await accept(storage, msg("e1", "book a table"), 1_000);
+    let status = 503;
+    const lines = ["Checking OpenTable for Friday.", "Found 3 tables at Nopa."];
+    await drain(storage, deps({ sent, progress: lines, streamStatus: () => status, now: 2_000 }));
+    expect(sent.map((entry) => entry.text)).toEqual(lines);
+    status = 200;
+    await drain(storage, deps({ sent, progress: [...lines, "Holding the 7pm."], streamStatus: () => status, now: 60_000 }));
+    expect(sent.map((entry) => entry.text)).toEqual([...lines, "Holding the 7pm.", "answer to book a table"]);
   });
 
   it("writes a simulated task's progress to the simulator's log, not to Linq", async () => {

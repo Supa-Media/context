@@ -116,6 +116,7 @@ export type InboxDeps = ReplyDeps &
 
 
 export const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
+const PROGRESS_PREFIX = "psent:"; // a progress line a turn sent, by text id and the line's hash, until the turn is over (`answerTexts`)
 export const MAX_SEND_ATTEMPTS = 3;
 /** Tries at a text whose turn could not start (`TryLater`), the last one saying so. */
 export const MAX_ANSWER_ATTEMPTS = 3;
@@ -367,6 +368,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
     await storage.setAlarm(deps.now() + 2 ** tries * 5_000);
     return false;
   }
+  for (const sentKey of (await storage.list({ prefix: `${PROGRESS_PREFIX}${message.eventId}:` })).keys()) await storage.delete(sentKey); // the turn is over: its lines (`answerTexts`) go
   // Restarted (`steer.ts`): nothing it said goes; its texts wait, marked, for the turn that answers them with the newer one.
   if (turn.cancelled) return true;
   let reply = turn.parts;
@@ -498,8 +500,8 @@ export { ACKNOWLEDGE_AFTER_MS, TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./pres
  * queue, so it gets none; its progress goes to its log.
  *
  * Progress texts are sent once, as they happen, each with its own idempotency
- * key, and are not retried with the answer: a line about where a task had got
- * to is stale by the time a retry would send it.
+ * key, once by its words until the turn is over (`PROGRESS_PREFIX`), and never
+ * retried with the answer: a line about where a task had got to is stale by then.
  *
  * `fixed`: the reply is one of the Worker's own texts (a failure, a limit,
  * setup), never the model's: the gateway recorded no turn for it.
@@ -645,22 +647,20 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
       return reply;
     });
   const simulator = message.channel === "simulator";
-  let progressSent = 0;
   let chain: Promise<void> = Promise.resolve();
   const say = (text: string): Promise<void> => {
-    const index = progressSent;
-    progressSent += 1;
     chain = chain.then(async () => {
       try {
-        if (simulator) await record(storage, "in", text, deps.now());
-        else {
-          const line = lineFor(lineDeps(deps), message.chatId);
-          // Progress lines go where the answer will, as far as can be told yet.
-          await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`, threadFor(message));
-          await addEvent(storage, { at: deps.now(), chat: message.chatId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: true, ...(deps.steer ? { turn: deps.steer.turn } : {}) });
-          // Sending a text clears the bubble; the task is still going.
-          await line.startTyping(message.chatId);
-        }
+        const hash = await sha256Hex(text), sentKey = `${PROGRESS_PREFIX}${message.eventId}:${hash}`;
+        if ((await storage.get<string>(sentKey)) !== undefined) return;
+        const line = simulator ? null : lineFor(lineDeps(deps), message.chatId);
+        // Progress lines go where the answer will, as far as can be told yet.
+        if (line === null) await record(storage, "in", text, deps.now());
+        else await line.sendText(message.chatId, text, `progress:${message.eventId}:${hash.slice(0, 16)}`, threadFor(message));
+        await storage.put(sentKey, "sent");
+        await addEvent(storage, { at: deps.now(), chat: message.chatId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: true, ...(deps.steer ? { turn: deps.steer.turn } : {}) });
+        // Sending a text clears the bubble; the task is still going.
+        await line?.startTyping(message.chatId);
       } catch {
         // A progress line that failed costs the person a line, never the answer.
       }

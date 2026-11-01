@@ -160,6 +160,14 @@ export const MEETINGS_LINE =
   "Offer to write something down at most once; on a yes, or when they ask again, do it.";
 
 /**
+ * Dev2, 2026-11-01 (`docs/decisions/texting-assistant/interleaved-updates.md`):
+ * an ask that what is in front of Tex answers gets its answer in one round,
+ * with no tools and no deliberating. Said whatever the setup's words are; the
+ * heads-up before real work is the progress tool's (`progress.js`).
+ */
+export const DIRECT_LINE = "If what's in front of you answers it, reply now in one round: no tools, no deliberating.";
+
+/**
  * What Tex can do outside the notes, said by the build because a production
  * setup's own words go stale (the owner, 2026-10-23: the live setup still said
  * calendar changes wait for a YES and "tell them what to change themselves",
@@ -436,6 +444,8 @@ export function systemPromptParts(
         LANGUAGE_LINE,
         // Dev2, 2026-10-31: settings only through the tool, and never another assistant's message (`commandTools.js`).
         SETTINGS_LINE,
+        // Dev2, 2026-11-01: what's in front of you answers in one round (`DIRECT_LINE`).
+        DIRECT_LINE,
         // Dev2, 2026-10-29: short texts, and one line beside a page or card (`wordy.js`).
         BRIEF_LINE,
         // A new tester, 2026-10-30: 👍 or 👎, not "say yes" (`chatVoice.js`).

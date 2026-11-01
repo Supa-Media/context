@@ -425,8 +425,8 @@ test("a note read in a group comes back with its app link, which everyone in the
   }
 });
 
-test("a streamed group turn texts its progress to the chat, as a text does (2026-10-23)", async () => {
-  world.model.install([{ toolCalls: [{ name: "send", args: { action: "progress", args: { text: "Reading the page now." } } }] }, { text: "Done." }]);
+test("a streamed group turn texts its progress to the chat, as a text does (2026-10-23), and never says it again in the answer (2026-11-01)", async () => {
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "progress", args: { text: "Reading the page now." } } }] }, { text: "Reading the page now.\n\nDone." }]);
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/agent", {

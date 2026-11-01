@@ -9,7 +9,9 @@ gateway for every texted turn as a stream (`Accept: application/x-ndjson`,
 - is offered `text_progress`, which texts the person one short line now
   ("Opening ChatGPT now.") and is dispatched in the turn, never to the MCP. It
   reaches only the person who asked, on the channel the answer goes to, so it
-  widens nothing. At most 8 a turn, 280 characters each, no repeats;
+  widens nothing. 280 characters each, no repeats; no longer capped per turn,
+  and never a claim that something is done
+  ([interleaved-updates](./interleaved-updates.md), 2026-11-01);
 - may take 30 model rounds and 9 minutes of tool time, against a quick turn's
   8 and 70 seconds; a setup's `max_steps` (now 1 to 40) still only tightens;
 - ends with the route's ordinary JSON as the last line, with its status, so
@@ -17,8 +19,8 @@ gateway for every texted turn as a stream (`Accept: application/x-ndjson`,
   15 seconds keep each hop from idling the stream out.
 
 The Worker texts each line as it arrives with its own idempotency key and does
-not retry it with the answer, sends "On it…" once if 40 seconds pass with no
-word, and gives up at 12 minutes, inside a Durable Object alarm's 15. A
+not retry it with the answer, sends no fixed "On it…" text (the typing bubble
+shows until there is something to say), and gives up at 12 minutes, inside a Durable Object alarm's 15. A
 routine's run never streams: it is unattended and texts once. A tool slow by
 nature (a browser step) may name its own time limit (`toolTimeouts`). Tests:
 `agentProgress.test.mjs`, `clients.test.ts` "askAgent, streamed",

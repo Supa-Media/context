@@ -134,6 +134,21 @@ export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pi
   await once(storage, message.messageId, `text:${text}`, () => sayNow(storage, deps, message, text, meta));
 }
 
+/**
+ * A progress line into the group (`groupModelTurn.ts`), as `say` sends it but kept once per turn by its words,
+ * not its position: a retry never sends a line again, and the answer's parts keep their own positions however
+ * many lines the retry says (`interleaved-updates.md`).
+ */
+export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
+  if (isControlWord(text)) return;
+  const scope = sending.get(storage);
+  if (scope === undefined || !scope.under.includes(message.messageId)) return await sayNow(storage, deps, message, text, meta);
+  const key = `${PART_PREFIX}${scope.turn}:progress:${await sha256Hex(text)}`;
+  if ((await storage.get<string>(key)) !== undefined) return;
+  await sayNow(storage, deps, message, text, meta);
+  await storage.put(key, "sent");
+}
+
 async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
   const place: GroupPlace = { line: message.line, groupId: message.groupId };
   const handle = await groupLineFor(deps, message.groupId).sendText(place, text, message.messageId);

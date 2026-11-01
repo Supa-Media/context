@@ -12,14 +12,16 @@ import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { runTurn } from "../src/agent/turn.js";
+import { DIRECT_LINE } from "../src/agent/prompt.js";
 import {
   LONG_MAX_ROUNDS,
   MAX_GATEWAY_TEXTS,
   MAX_PROGRESS_CHARS,
-  MAX_PROGRESS_TEXTS,
+  DONE_NOTICE,
   PROGRESS_PROMPT,
   PROGRESS_TOOL,
   PROGRESS_TOOL_DEFINITION,
+  claimsDone,
   progressChannel,
   streamTurn,
   wantsProgress,
@@ -183,17 +185,63 @@ test("a tool's own limit is cut so it ends 30 s past the turn's tool budget", as
   assert.ok(!limits.includes(120_000));
 });
 
-test("progress texts are bounded: one line, no repeats, a cap per turn", async () => {
+test("progress texts are bounded per line, never per turn: no repeats, as many as the task needs", async () => {
+  // Dev2, 2026-11-01: as many lines as the model judges useful, no cap (`interleaved-updates.md`).
   const said = [];
   const channel = progressChannel(async (text) => said.push(text));
   assert.equal((await channel.call({ text: "" })).isError, true);
   await channel.call({ text: "Opening   ChatGPT\nnow." });
   assert.equal((await channel.call({ text: "Opening ChatGPT now." })).isError, undefined);
   await channel.call({ text: "x".repeat(MAX_PROGRESS_CHARS * 2) });
-  for (let i = 0; i < MAX_PROGRESS_TEXTS + 3; i += 1) await channel.call({ text: `step ${i}` });
+  for (let i = 0; i < 20; i += 1) assert.equal((await channel.call({ text: `Reading note ${i}.` })).isError, undefined);
   assert.equal(said[0], "Opening ChatGPT now.");
   assert.equal(said[1].length, MAX_PROGRESS_CHARS);
-  assert.equal(said.length, MAX_PROGRESS_TEXTS);
+  assert.deepEqual(said.slice(2), Array.from({ length: 20 }, (_, i) => `Reading note ${i}.`), "every line, in order");
+});
+
+test("a progress line that says something is done is refused, and the model is told to say what it is doing", async () => {
+  const said = [];
+  const channel = progressChannel(async (text) => said.push(text));
+  for (const text of ["Done.", "Sent the email to Bo.", "Booked it for 7pm.", "Your table is booked.", "Email sent!", "I've added it to your list.", "It\u2019s all set."]) {
+    const answer = await channel.call({ text });
+    assert.equal(answer.isError, true, text);
+    assert.equal(answer.content[0].text, DONE_NOTICE);
+  }
+  assert.deepEqual(said, []);
+  // What it is doing or found still goes, even with a done-word inside it.
+  for (const text of ["Checking your Friday calendar.", "Found 3 tables at Nopa for 7pm.", "Bo booked the 7pm last week, checking if it moved.", "Looking for the email you sent Bo yesterday"]) {
+    assert.equal(claimsDone(text), false, text);
+    assert.equal((await channel.call({ text })).isError, undefined, text);
+  }
+  assert.equal(said.length, 4);
+});
+
+test("a streamed turn texts several lines in order, a done line is refused, and the reply drops what a line said", async () => {
+  const said = [];
+  const ai = scripted([
+    chat("", [[PROGRESS_TOOL, { text: "Checking OpenTable for Friday." }]]),
+    chat("", [[PROGRESS_TOOL, { text: "Booked the 7pm." }]]),
+    chat("", [[PROGRESS_TOOL, { text: "Found 3 tables at Nopa." }], ["search_notes", { query: "nopa" }]]),
+    chat("Found 3 tables at Nopa. The 7pm is the one by the window, want it?"),
+  ]);
+  const channel = progressChannel(async (text) => said.push(text));
+  const result = await turn(ai, { progress: channel });
+  assert.deepEqual(said, ["Checking OpenTable for Friday.", "Found 3 tables at Nopa."]);
+  assert.match(JSON.stringify(ai.calls[2].input.messages), /never that something is done/, "the refusal reached the model");
+  assert.equal(channel.unsaid(result.answer), "The 7pm is the one by the window, want it?");
+  assert.equal(channel.unsaid("Found 3 tables at Nopa."), "Found 3 tables at Nopa.", "never emptied to nothing");
+  assert.equal(channel.unsaid("Checking OpenTable for Friday.\n\nNopa has the 7pm."), "Nopa has the 7pm.");
+});
+
+test("an ask the turn already answers takes one round, with the direct line said, under a production setup too", async () => {
+  for (const notes of [null, { prompt: "You are a production Tex." }]) {
+    const ai = scripted([chat("Your dentist is Tuesday at 3.")]);
+    const result = await turn(ai, { notes, progress: progressChannel(async () => {}) });
+    assert.equal(result.answer, "Your dentist is Tuesday at 3.");
+    assert.equal(ai.calls.length, 1, "one round");
+    assert.ok(ai.calls[0].input.messages[0].content.includes(DIRECT_LINE), "the direct line is said");
+    assert.ok(ai.calls[0].input.messages[0].content.includes(PROGRESS_PROMPT.trim()), "and the heads-up rule");
+  }
 });
 
 async function lines(response) {
@@ -239,9 +287,9 @@ test("only an ndjson Accept asks for a stream", () => {
   assert.equal(wantsProgress(new Request("https://x/agent")), false);
 });
 
-test("the gateway can text a line of its own, outside the model's allowance, with its own cap", async () => {
+test("the gateway can text a line of its own, beside the model's lines, with its own cap", async () => {
   const said = [];
-  const channel = progressChannel(async (text) => said.push(text), { max: 1 });
+  const channel = progressChannel(async (text) => said.push(text));
   assert.equal(await channel.say("Sign in here: https://live.example/abc"), true);
   await channel.call({ text: "Opening the site." });
   for (let i = 0; i < MAX_GATEWAY_TEXTS + 2; i += 1) await channel.say(`line ${i}`);
