@@ -219,22 +219,47 @@ export async function parityPage(
 }
 
 /** The bytes a workspace's object keys take in the bucket, from listings alone, stopping once past `cap`. */
-export async function objectBytes(store: BodyStore, cap: number): Promise<{ keys: number; bytes: number }> {
-  let keys = 0;
-  let bytes = 0;
-  for (const prefix of OBJECT_PREFIXES) {
-    let cursor: string | undefined;
-    for (let pages = 0; pages < 100_000; pages += 1) {
-      const page = await store.list({ prefix, ...(cursor ? { cursor } : {}), limit: 1000 });
-      for (const entry of page.objects ?? []) {
-        if (!isWorkspaceObjectKey(entry.key)) continue;
-        keys += 1;
-        bytes += typeof (entry as { size?: number }).size === "number" ? (entry as { size: number }).size : 0;
-      }
-      if (bytes > cap) return { keys, bytes };
-      if (page.truncated !== true || typeof page.cursor !== "string") break;
-      cursor = page.cursor;
+/** Where counting a workspace's size stands: the prefix, the listing cursor in it, and the sum so far. */
+export interface SizeCursor {
+  prefix: number;
+  cursor?: string;
+  keys: number;
+  bytes: number;
+}
+
+/**
+ * Counts a workspace's object keys and bytes from listings, until `deadline`
+ * or once past `cap`. Answers the sum and `next`, `null` when counting is
+ * finished (all listed, or past the cap). A workspace with hundreds of
+ * thousands of history keys takes many pages, so a run carries `next` on.
+ */
+export async function objectBytesPage(
+  store: BodyStore,
+  at: SizeCursor,
+  cap: number,
+  deadline: number,
+): Promise<{ keys: number; bytes: number; next: SizeCursor | null }> {
+  let { prefix, cursor, keys, bytes } = at;
+  while (prefix < OBJECT_PREFIXES.length) {
+    if (Date.now() >= deadline) return { keys, bytes, next: { prefix, ...(cursor ? { cursor } : {}), keys, bytes } };
+    const page = await store.list({ prefix: OBJECT_PREFIXES[prefix], ...(cursor ? { cursor } : {}), limit: 1000 });
+    for (const entry of page.objects ?? []) {
+      if (!isWorkspaceObjectKey(entry.key)) continue;
+      keys += 1;
+      bytes += typeof entry.size === "number" ? entry.size : 0;
+    }
+    if (bytes > cap) return { keys, bytes, next: null };
+    if (page.truncated === true && typeof page.cursor === "string") cursor = page.cursor;
+    else {
+      prefix += 1;
+      cursor = undefined;
     }
   }
+  return { keys, bytes, next: null };
+}
+
+/** The whole count at once, for tests and small workspaces. */
+export async function objectBytes(store: BodyStore, cap: number): Promise<{ keys: number; bytes: number }> {
+  const { keys, bytes } = await objectBytesPage(store, { prefix: 0, keys: 0, bytes: 0 }, cap, Number.POSITIVE_INFINITY);
   return { keys, bytes };
 }

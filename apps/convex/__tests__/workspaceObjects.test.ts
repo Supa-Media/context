@@ -25,7 +25,7 @@ import { texObjects } from "../../mcp/src/texStore/objects.js";
 import { workspaceRows } from "../../mcp/src/workspaceStore/rows.js";
 import { serveWorkspaceStore } from "../../mcp/src/workspaceStore/serve.js";
 import { workspaceClient } from "../../mcp/src/workspaceStore/api.js";
-import { copyKey, copyPage, objectBytes, parityPage, type BodyStore } from "../functions/lib/workspaceObjects/bodies";
+import { copyKey, copyPage, objectBytes, objectBytesPage, parityPage, type BodyStore } from "../functions/lib/workspaceObjects/bodies";
 import { convexVisible, noteRows, objectRowOf, rowsDigest, samplePrincipals, type ObjectRow } from "../functions/lib/workspaceObjects/rows";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 
@@ -159,6 +159,19 @@ describe("copying bodies", () => {
     const bucket = bucketWith({ [A]: "12345", [B]: "678", [FILE]: "not counted" });
     expect(await objectBytes(bucket as unknown as BodyStore, 1_000)).toEqual({ keys: 2, bytes: 8 });
     expect((await objectBytes(bucket as unknown as BodyStore, 4)).bytes).toBeGreaterThan(4);
+  });
+
+  test("a size count past its deadline hands back where it stood and resumes to the same sum", async () => {
+    const bucket = bucketWith({ [A]: "12345", [B]: "678", [HISTORY]: "90", [FILE]: "not counted" }) as unknown as BodyStore;
+    const paused = await objectBytesPage(bucket, { prefix: 0, keys: 0, bytes: 0 }, 1_000, 0);
+    expect(paused.next).toEqual({ prefix: 0, keys: 0, bytes: 0 });
+    let at = paused.next!;
+    let result = paused;
+    for (let step = 0; step < 10 && at !== null; step += 1) {
+      result = await objectBytesPage(bucket, at, 1_000, Number.POSITIVE_INFINITY);
+      at = result.next!;
+    }
+    expect(result).toEqual({ keys: 3, bytes: 10, next: null });
   });
 });
 
