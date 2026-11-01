@@ -23,6 +23,7 @@ import { moveAgentHome } from "../../mcp/src/agent/agentHomeMove.js";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import type { GatewayCredential } from "./lib/storage/shapes";
 import { consoleTexRouting } from "./lib/texStore";
+import { consoleWorkspaceRouting } from "./lib/rowWatch/consoleRouting";
 
 const WORKSPACES_PER_CALL = 20;
 
@@ -45,7 +46,9 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise
   const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
-  return storeForBinding(credential, undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId, { ticketOwners: [`person:${workspaceId}`] }) });
+  // Opened as every console store is, workspace object routing included (`lib/rowWatch/consoleRouting.ts`).
+  const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+  return storeForBinding(routing.credential(credential), undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId, { ticketOwners: [`person:${workspaceId}`] }), ...routing.options });
 }
 
 /** One page: up to `WORKSPACES_PER_CALL` workspaces. `only` names one workspace by id. */
