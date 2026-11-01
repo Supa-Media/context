@@ -10,6 +10,7 @@
  * transcript starts where they joined (`renderTranscript` with `people`).
  */
 
+import { chatEvent } from "./chatState";
 import type { SettingReply } from "./texStyle";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, keptEvents, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
@@ -17,7 +18,7 @@ import { decide, GROUP_DECIDE_MS, MAX_CANDIDATES, RUNNING_DECIDE_MS, type Contro
 import { eventPeople, sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
-import { decideDownAnswer, honoursWait } from "./groupPolicy";
+import { burstStillTyped, decideDownAnswer } from "./groupPolicy";
 import { groupStyle, movedOn } from "./groupStyle";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
@@ -48,8 +49,8 @@ export type GroupPending = {
   contextUntil?: number;
   /** Sent by the tagger a moment after their own waiting tag (`followsOwnTag`): it goes with that tag. */
   joins?: true;
-  /** How many times in a row decide said `wait` on it: a burst still being typed (`WAIT_MS`, `MAX_WAITS`). */
-  waits?: number;
+  /** Tex already reacted to it (decide's emoji, `chatState.ts`): the turn that answers it adds no second tapback. */
+  reacted?: true;
   /** A turn's draft for it was held by `recheckDraft` once already: the next answer is sent. */
   rechecked?: true;
 };
@@ -116,13 +117,14 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
 }
 
 /**
- * `emoji`: decide's choice for `react` (`reactionFor` checks it). `wait`: untagged messages kept waiting for the
- * burst to end, decided again `WAIT_MS` after the newest (Dev2, 2026-10-27).
+ * `react`/`emoji`: a reaction on the newest message, sent at once, with an answer, a wait or alone (reacting is its
+ * own decision, Jhonatan 2026-11-01; `reactionFor` checks the emoji). `wait`: untagged messages held for the rest of
+ * the burst, `waitSeconds` as decide chose; the chat's state caps it (`chatState.ts`).
  */
-export type GroupChoice = { answer: GroupEntry[]; chat: GroupEntry[]; drop: GroupEntry[]; react?: GroupMessage; emoji?: string; wait?: GroupEntry[] };
+export type GroupChoice = { answer: GroupEntry[]; chat: GroupEntry[]; drop: GroupEntry[]; react?: GroupEntry; emoji?: string; wait?: GroupEntry[]; waitSeconds?: number };
 
-// The reply rules live in `groupPolicy.ts`; these stay importable from here.
-export { looksUnfinished, MAX_WAITS, WAIT_MS } from "./groupPolicy";
+// The reply rules live in `groupPolicy.ts`; this stays importable from here.
+export { looksUnfinished } from "./groupPolicy";
 
 const soft = (entry: GroupEntry) => entry[1].soft === true && entry[1].force !== true;
 
@@ -148,7 +150,7 @@ function withJoins(burst: GroupEntry[], head: GroupEntry): GroupEntry[] {
  * decide (its style reads it) is answered, so a follow-up is never dropped
  * silently; other untagged ones become chat lines.
  */
-export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps & { now: () => number }, burst: GroupEntry[]): Promise<GroupChoice> {
+export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps & { now: () => number }, burst: GroupEntry[], waitAllowed = false): Promise<GroupChoice> {
   // Addressed: answered whatever decide says, so decide is not waited on (up to GROUP_DECIDE_MS) first.
   const named = addressedTurn(burst);
   if (named !== null) return named;
@@ -160,17 +162,18 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
     const question = decideDownAnswer(burst.map(([, item]) => item));
     return question === -1 ? { answer: [], chat: burst, drop: [] } : { answer: [burst[question]], chat: burst.filter((_, index) => index !== question), drop: [] };
   }
-  // After MAX_WAITS in a row a wait is an answer.
-  const waited = Math.max(0, ...burst.map((entry) => entry[1].waits ?? 0));
-  const act = decision.act === "wait" && !honoursWait(burst.map(([, item]) => item), waited) ? "answer" : decision.act;
-  if (act === "wait") return { answer: [], chat: [], drop: [], wait: burst };
-  const react = act === "react" ? { react: burst.at(-1)![1].message, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
+  // A wait holds only a real burst, and only while the chat's state allows one more (`canWait`): otherwise an answer.
+  const act = decision.act === "wait" && !(waitAllowed && burstStillTyped(burst.map(([, item]) => item))) ? "answer" : decision.act;
+  // One reaction per message: decide's, at once, whatever it decided about words.
+  const newest = burst.at(-1)!;
+  const react = (act === "react" || decision.emoji !== undefined) && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
+  if (act === "wait") return { answer: [], chat: [], drop: [], wait: burst, waitSeconds: decision.waitSeconds ?? 1, ...react };
   if (act !== "answer") return { answer: [], chat: burst, drop: [], ...react };
   const chosen = burst.filter((entry) => entry[1].ev !== undefined && decision.covers.includes(entry[1].ev));
   const answer = chosen.length > 0 ? chosen : [burst.at(-1)!];
   const last = burst.indexOf(answer.at(-1)!);
   // Left out before the answer: chat.
-  return { answer, chat: burst.slice(0, last).filter((entry) => !answer.includes(entry)), drop: [] };
+  return { answer, chat: burst.slice(0, last).filter((entry) => !answer.includes(entry)), drop: [], ...react };
 }
 
 /**
@@ -244,6 +247,11 @@ export async function whileRunning(
     return tagged ? "after" : "chat";
   }
   if (how === "restart") {
+    // At most `MAX_REDRAFTS` per burst (`chatState.ts`): past that the newer words go into the running turn, or after it.
+    if (!(await chatEvent(storage, "redraft", "restart", { now: now() })).ok) {
+      if (await steerInto(running, message, message.text.trim() || PICTURE_LINE)) return running.covers.push(ev), "folded";
+      return "after";
+    }
     // The gateway could not stop it: decide wanted this one in a turn, so it waits for the next.
     if (!(await restartTurn(running, message))) return "after";
     for (const [key, item] of await storage.list<GroupPending>({ prefix: "gpending:" })) {

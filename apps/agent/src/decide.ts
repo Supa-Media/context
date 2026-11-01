@@ -29,8 +29,10 @@ export type Decision =
       confidence: number;
       /** How long decide took, for the logs. */
       ms?: number;
-      /** With `react`: decide's emoji, sent only if it is one of `REACT_EMOJI` (`reactionFor`). */
+      /** Decide's reaction, with any act (reacting is its own decision, Jhonatan 2026-11-01); sent only if one of `REACT_EMOJI` (`reactionFor`). */
       emoji?: string;
+      /** With `wait`: the seconds decide chose; the chat's state caps the burst (`chatState.ts`). */
+      waitSeconds?: number;
     }
   /** `cause`: why it was unavailable, a code for the logs (timeout, unreachable, http_<status>, bad_answer, or Convex's reason). */
   | { ok: false; reason: "capped" | "off" | "unavailable"; cause?: string; ms?: number };
@@ -62,12 +64,14 @@ export const RUNNING_DECIDE_MS = 5_000;
 /** Decide on what is waiting, with the person watching the typing bubble: slower than this, the fallback answers. */
 export const IDLE_DECIDE_MS = 4_000;
 /**
- * Decide on a group's waiting messages: nobody watches a typing bubble for an
- * untagged text, so it waits longer than a 1:1 does. Raised from 4s on
- * 2026-10-27, when every group decide hit the 4s limit; the `ms` logged on
- * each `group_decide` sets the final number.
+ * Decide on a group's waiting messages. Slower than this and the burst is
+ * answered without it (Jhonatan, 2026-11-01: a model that is slow to decide
+ * when to speak should not hold the chat; `chatState.ts`). 15 s since
+ * 2026-10-27 while decide never answered; production then logged 0.7 to 2.6 s
+ * per decide (2026-10-28 to 31), so 3 s, not the 1 s first asked for, which would
+ * have sent three of the nine logged decides to the fallback.
  */
-export const GROUP_DECIDE_MS = 15_000;
+export const GROUP_DECIDE_MS = 3_000;
 /** A caller that names no limit. */
 const DEFAULT_DECIDE_MS = IDLE_DECIDE_MS;
 
@@ -108,7 +112,8 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
     confidence: typeof json.confidence === "number" && Number.isFinite(json.confidence) ? Math.min(1, Math.max(0, json.confidence)) : 0,
     ms,
     // Checked against the allowlist where it is sent (`reactionFor`); here only its type.
-    ...(json.act === "react" && typeof json.emoji === "string" ? { emoji: json.emoji.slice(0, 16) } : {}),
+    ...(typeof json.emoji === "string" ? { emoji: json.emoji.slice(0, 16) } : {}),
+    ...(json.act === "wait" && typeof json.waitSeconds === "number" && Number.isFinite(json.waitSeconds) ? { waitSeconds: Math.min(8, Math.max(1, Math.round(json.waitSeconds))) } : {}),
   };
 }
 

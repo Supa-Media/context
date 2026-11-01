@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acceptGroup, addressesTex, drainGroup, GROUP_LINES, GROUP_TEXT_WAIT_MS, groupCommand, peopleOf, PICTURE_LINE, type GroupDeps } from "./groupInbox";
+import { acceptGroup, addressesTex, drainGroup, GROUP_LINES, groupCommand, peopleOf, PICTURE_LINE, type GroupDeps } from "./groupInbox";
 import { parseSendblueGroup, reactInGroup, readGroupMembers, type GroupMessage } from "./sendblueGroups";
 import { ackEmoji } from "./ackEmoji";
 import { parseSendblueInbound } from "./sendblue";
@@ -234,7 +234,7 @@ describe("a group's queue", () => {
     await acceptGroup(storage, message("Tex, hi"), 0);
     await drainGroup(storage, deps(w, { control: quiet }));
     expect(await acceptGroup(storage, message("Tex, file this screenshot as a bug report", { messageId: "t2" }), 10)).toBe("queued");
-    expect(storage.alarms.at(-1)).toBe(10 + GROUP_TEXT_WAIT_MS);
+    expect(storage.alarms.at(-1)).toBe(10);
     // Somebody else's picture is chat, not the tagger's screenshot.
     expect(await acceptGroup(storage, message("", { from: BO, messageId: "p0", attachments: [PICTURE] }), 11)).toBe("kept");
     // Kept as chat, and put to decide with the tag it follows; decide's covers make them one turn.

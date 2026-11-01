@@ -71,7 +71,8 @@ import type { JobRun, JobSteer } from "./jobs";
 import { armBy, flushChat, pruneEvents, type Conversation } from "./events";
 import { reactionFor } from "./reactEmoji";
 import { runningTurn } from "./steer";
-import { chooseGroupTurn, WAIT_MS, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
+import { canWait, chatEvent, readChatState, stillGathering } from "./chatState";
+import { chooseGroupTurn, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
 import { chooseStyle } from "./groupChoose";
 import { handedTurnWaits, handOff, TURN_KEY, type HandedTurn } from "./groupTurnRun";
 import { answerBesideTurn } from "./groupBeside";
@@ -117,21 +118,11 @@ const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
 const MAX_PENDING = 10;
 const MAX_ATTEMPTS = 3;
 const RETRY_MS = 20_000;
-/** Until when decide said to wait on a burst still being typed (`WAIT_MS`). */
-const WAIT_KEY = "gwaituntil";
 const seenKey = (eventId: string, words: string) => `gseen:${eventId}:${words}`;
 /** The same person tagging Tex with the same words this soon after is the same ask. */
 export const SAME_ASK_MS = 10 * 60_000;
 const RECENT_KEY = "grecent";
 type Recent = { h: string; at: number };
-/**
- * How long a tag waits before it is answered, for a picture sent just after it
- * ("Tex, file this screenshot", then the screenshot). None since 2026-10-31,
- * as a 1:1 text's words (`inbox.ts` `TEXT_WAIT_MS`): Dev2 timed a group reply
- * at 20 s, 2 of them this wait. A picture that comes while the turn runs is
- * taken in by it (`steer.ts`). It was 4 s, then 2 s (Dev2, 2026-10-28).
- */
-export const GROUP_TEXT_WAIT_MS = 0;
 /** A picture from the person whose tag is still waiting joins that tag, this soon after it. */
 export const PICTURE_JOINS_MS = 2 * 60_000;
 /** The newest pictures and files a turn reads, its own and the chat's since Tex last answered. */
@@ -239,8 +230,12 @@ async function enqueue(storage: InboxStorage, message: GroupMessage, extra: Part
   await storage.put(seen, now);
   // Whether it replies to Tex is decided now, against the handles Tex sent; the turn reads the words it quotes.
   await storage.put<Pending>(pendingKey(seq), { message: repliesToTex ? message : { ...message, replyTo: undefined }, attempts: 0, at: now, ...extra });
-  // Words alone wait a moment for a picture to follow them; a tag that brought one goes now.
-  await storage.setAlarm(message.attachments?.length ? now : now + GROUP_TEXT_WAIT_MS);
+  // The chat moved (a wait that began before this decides again: `stillGathering`), and the burst Tex owes an answer to
+  // starts with its first waiting message: its deadline counts from here. A line kept only as chat changes neither.
+  if (!extra.byCode) await chatEvent(storage, "message", "queued", { now, burst: true }); // a command is no part of a burst
+  // Answered at once (no wait for a picture since 2026-10-31): a picture that follows mid-turn is taken in (`steer.ts`),
+  // and a burst still being typed is decide's to hold (`chatState.ts`).
+  await storage.setAlarm(now);
   return "queued";
 }
 
@@ -376,20 +371,31 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
         if (entry[1].byCode) break;
         burst.push(entry);
       }
-      // While a burst waits, a new message to it starts the wait again: it ends WAIT_MS after the newest, if that is later.
-      const waitUntil = Math.max((await storage.get<number>(WAIT_KEY)) ?? 0, burst.some(([, item]) => item.waits) ? Math.max(...burst.map(([, item]) => item.at ?? 0)) + WAIT_MS : 0);
-      if (deps.now() < waitUntil && burst.every(([, item]) => item.soft === true && item.force !== true)) { // An addressed one never waits.
-        await armBy(storage, waitUntil, deps.now());
-        break;
+      // Decide said wait and nothing came since: still held (an addressed message never waits). A new message decides again now.
+      const state = await readChatState(storage);
+      const untagged = burst.every(([, item]) => item.soft === true && item.force !== true);
+      if (untagged && stillGathering(state, deps.now())) {
+        await armBy(storage, state.until!, deps.now());
+        // What code answers alone (a command, a menu reply) never waits on a held burst (`groupBeside.ts`).
+        return void (await answerBesideTurn(storage, deps, burst.map(([key]) => key)));
       }
-      const choice = await chooseGroupTurn(storage, deps, burst);
+      const choice = await chooseGroupTurn(storage, deps, burst, untagged && canWait(state, deps.now()));
+      // Decide's reaction goes at once, whatever it decided about words, and only once per message.
+      if (choice.react) {
+        const [key, item] = choice.react;
+        await groupLineFor(deps, item.message.groupId).react({ line: item.message.line, groupId: item.message.groupId }, item.message.messageId, reactionFor(choice.emoji, ackEmoji(item.message.text)));
+        await storage.put<Pending>(key, { ...item, reacted: true });
+        for (const list of [choice.answer, choice.wait ?? []]) for (const entry of list) if (entry[0] === key) entry[1] = { ...entry[1], reacted: true };
+      }
       if (choice.wait !== undefined && choice.wait.length > 0) {
-        for (const [key, item] of choice.wait) await storage.put<Pending>(key, { ...item, waits: (item.waits ?? 0) + 1 });
-        const until = Math.max(deps.now(), ...choice.wait.map(([, item]) => item.at ?? 0)) + WAIT_MS; // From now: a wait decided late still waits
-        await storage.put(WAIT_KEY, until);
-        await armBy(storage, until, deps.now());
-        log("waiting");
-        if (choice.answer.length === 0) break;
+        const held = await chatEvent(storage, "wait", "decide", { now: deps.now(), seconds: choice.waitSeconds });
+        if (held.ok) {
+          await armBy(storage, held.state.until!, deps.now());
+          log("waiting");
+          return void (await answerBesideTurn(storage, deps, choice.wait.map(([key]) => key)));
+        }
+        // Past the burst's deadline or its waits: answered now, never held again.
+        choice.answer = choice.wait;
       }
       // Left as chat: an untagged one is already one of the chat's lines (`acceptGroup`); an addressed one becomes one.
       for (const [key, item] of choice.chat) {
@@ -397,12 +403,14 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
         await storage.delete(key);
       }
       for (const [key] of choice.drop) await storage.delete(key);
-      if (choice.react) {
-        await groupLineFor(deps, choice.react.groupId).react({ line: choice.react.line, groupId: choice.react.groupId }, choice.react.messageId, reactionFor(choice.emoji, ackEmoji(choice.react.text)));
-      }
       entries = ownTurn(choice.answer);
-      if (entries.length === 0) continue;
+      if (entries.length === 0) {
+        await chatEvent(storage, "silent", choice.react ? "react" : "decide", { now: deps.now() });
+        continue;
+      }
     }
+    // A retried turn (the inline path) is still the same draft: only a first attempt starts one.
+    if (entries.at(-1)![1].attempts === 0) await chatEvent(storage, "start", entries.at(-1)![1].byCode ? "code" : "turn", { now: deps.now() });
     if (deps.startTurn !== undefined) return void (await handOff(storage, deps, entries)); // No Workflows binding: answered here.
     if (await answerInline(storage, entries, deps)) return;
   }
@@ -418,6 +426,7 @@ export async function answerInline(storage: InboxStorage, entries: GroupEntry[],
     const outcome = await timedReply(storage, entries[0][1].at ?? deps.now(), undefined, deps.now, (clock) => answerGroup(storage, entries, deps, clock));
     // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
     if (outcome !== "cancelled") for (const [done] of entries) await storage.delete(done);
+    await chatEvent(storage, outcome === "cancelled" ? "cancelled" : "done", "inline", { now: deps.now() });
   } catch (error) {
     const attempts = item.attempts + 1;
     const reason = error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "error";
@@ -430,6 +439,7 @@ export async function answerInline(storage: InboxStorage, entries: GroupEntry[],
       return true;
     }
     for (const [done] of entries) await storage.delete(done);
+    await chatEvent(storage, "failed", "inline", { now: deps.now() });
     await turnFailed(storage, deps, item.message, error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : undefined);
   }
   return false;
@@ -472,7 +482,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
   // Read from the words alone, the same for every tagger linked or not, so it says nothing about who they are (`ackEmoji.ts`).
-  if (command === null && message.reaction === undefined && !item.engagement && !item.setting && !routine && !("texStyle" in asked && asked.texStyle?.emoji === "less")) await app.react(chat, message.messageId, ackEmoji(message.text));
+  if (command === null && message.reaction === undefined && !item.engagement && !item.setting && !routine && !item.reacted && !("texStyle" in asked && asked.texStyle?.emoji === "less")) await app.react(chat, message.messageId, ackEmoji(message.text));
   if (status === "unknown_sender") return asked.tell === true ? void (await fixed(GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await fixed(GROUP_LINES.noShared));
   if (status === "not_allowed") {

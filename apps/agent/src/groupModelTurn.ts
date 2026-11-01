@@ -5,6 +5,7 @@
  * only while it still answers its asker's newest words (`groupRecheck.ts`).
  */
 
+import { canRedraft, chatEvent, readChatState } from "./chatState";
 import { askAgentStream, askLine, ServiceError, type AgentAnswer } from "./clients";
 import { CHAT_LOOK_PATH, saysSkip } from "./groupRoutines";
 import type { ControlAnswer } from "./groupControl";
@@ -127,7 +128,9 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "no_storage" ? 503 : answer.kind === "unavailable" && answer.timedOut ? 504 : null); // 503: the chat's workspace can't be opened (`failedLine`)
   if (answer.steered) await dropSteered(storage, answer.steered, covers);
   // Still what its asker wants? Their newer words, not folded in, may have changed it: held, it ends as a restart does.
-  if (!routine && !message.jobReport && message.reaction === undefined && (await recheckDraft(storage, deps, { message, covers, upTo, text: answer.text })) === "held") {
+  // At most `MAX_REDRAFTS` per burst (`chatState.ts`): past that the draft is sent as written, never redrafted forever.
+  if (!routine && !message.jobReport && message.reaction === undefined && canRedraft(await readChatState(storage)) && (await recheckDraft(storage, deps, { message, covers, upTo, text: answer.text })) === "held") {
+    await chatEvent(storage, "redraft", "recheck", { now: deps.now() });
     if (answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
     return "cancelled";
   }
@@ -158,6 +161,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     for (const text of texts) await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: false, reason: "held_newcomer", ...meta });
     return void (await say(storage, deps, message, now === null ? GROUP_LINES.failed : GROUP_LINES.joined, { system: true, ...(now === null ? { reason: "failed" as const } : {}) }));
   }
+  await chatEvent(storage, "send", routine ? "routine" : "turn", { now: deps.now() });
   // Every bubble under the message it answers, not only the first (Jhon's bug report, 2026-10-21).
   let firstSent: number | undefined; // when the person's wait ended (`textTiming.ts`)
   for (const text of texts) {

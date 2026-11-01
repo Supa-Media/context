@@ -29,6 +29,7 @@ import { answerGroup, turnFailed, type GroupDeps } from "./groupInbox";
 import { watchFailed } from "./reviewWatch";
 import { CHAT_LOOK_PATH } from "./groupRoutines";
 import { armBy } from "./events";
+import { chatEvent } from "./chatState";
 
 export const TURN_KEY = "gturn";
 /** `kind`: a chat routine's run or a check-in (`groupRoutines.ts`), for the logs; absent for a turn people asked for. */
@@ -134,6 +135,7 @@ async function stuck(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): 
   const entries = await entriesOf(storage, turn);
   for (const [key] of entries) await storage.delete(key);
   await storage.delete(TURN_KEY);
+  await chatEvent(storage, "failed", "stuck", { now: deps.now() });
   // Whatever waited behind it is drained now, as after any turn (`finish`).
   await storage.setAlarm(deps.now());
   const last = entries.at(-1)?.[1].message;
@@ -160,15 +162,17 @@ async function answerOnce(storage: InboxStorage, deps: GroupDeps, id: string): P
   const turn = await storage.get<HandedTurn>(TURN_KEY);
   if (turn?.id !== id) return "gone";
   const entries = await entriesOf(storage, turn);
-  if (entries.length === 0) return await finish(storage, deps, id);
+  if (entries.length === 0) return await finish(storage, deps, id, "done");
   // Which attempt of the workflow's answer step this is, so a retry shows in the logs.
   const tries = (turn.tries ?? 0) + 1;
   await storage.put<HandedTurn>(TURN_KEY, { ...turn, tries });
   sendingFor(storage, id, entries.map(([, item]) => item.message.messageId));
+  let cancelled = false;
   try {
     const outcome = await timedReply(storage, entries[0][1].at ?? turn.at, turn.at, deps.now, (clock) => answerGroup(storage, entries, deps, clock));
     // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
     if (outcome !== "cancelled") for (const [key] of entries) await storage.delete(key);
+    cancelled = outcome === "cancelled";
   } catch (error) {
     const reason = error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "error";
     log("failed", reason, tries, turn.kind);
@@ -178,7 +182,7 @@ async function answerOnce(storage: InboxStorage, deps: GroupDeps, id: string): P
     sendingFor(storage, null);
   }
   log("workflow_answered", undefined, tries, turn.kind);
-  return await finish(storage, deps, id);
+  return await finish(storage, deps, id, cancelled ? "cancelled" : "done");
 }
 
 /** `/group-failed`: the workflow gave up on turn `id`; the chat is told, as a turn given up on here is. */
@@ -190,12 +194,13 @@ export async function failHanded(storage: InboxStorage, deps: GroupDeps, id: str
   log("workflow_gave_up", turn.reason, turn.tries, turn.kind);
   const last = entries.at(-1)?.[1];
   if (last !== undefined) await turnFailed(storage, deps, last.message, turn.reason);
-  return await finish(storage, deps, id);
+  return await finish(storage, deps, id, "failed");
 }
 
-/** The turn is over: the chat is free, and whatever waited behind it is drained now. */
-async function finish(storage: InboxStorage, deps: GroupDeps, id: string): Promise<"done"> {
+/** The turn is over (`how`: answered, cancelled by a restart, or given up on): the chat is free, and whatever waited behind it is drained now. */
+async function finish(storage: InboxStorage, deps: GroupDeps, id: string, how: "done" | "cancelled" | "failed"): Promise<"done"> {
   await storage.delete(TURN_KEY);
+  await chatEvent(storage, how, "turn", { now: deps.now() });
   await dropParts(storage, id);
   await storage.setAlarm(deps.now());
   return "done";
