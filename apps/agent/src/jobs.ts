@@ -385,9 +385,20 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
   };
 }
 
-/** One line per job event, ids only. */
+/** One line per job event: the job by its tag (`jobTag`), never its id. */
 export function log(outcome: string, id: string, reason?: string): void {
-  console.log(JSON.stringify({ event: "background_job", outcome, job: id, ...(reason ? { reason } : {}) }));
+  console.log(JSON.stringify({ event: "background_job", outcome, job: jobTag(id), ...(reason ? { reason } : {}) }));
+}
+
+/**
+ * A short tag that ties a job's log lines together without printing its id (2026-11-01: three jobs' lines
+ * ran together on the log page). FNV-1a, synchronous so a line is never lost to an unfinished digest;
+ * the id is a random UUID, so the tag says nothing about anyone.
+ */
+export function jobTag(id: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < id.length; i += 1) hash = Math.imul(hash ^ id.charCodeAt(i), 0x01000193);
+  return `j${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 /**
