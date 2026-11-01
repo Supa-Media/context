@@ -27,10 +27,22 @@ rules and the text in one place that answers both in one call.
   location hint `enam` (`apps/mcp/src/workspaceStore/api.js`). Its storage is
   the same R2-shaped SQLite as Tex's objects (`texStore/objects.js`): keys,
   etags, conditional writes, chunked bodies.
-- **In it**: `notes/<noteId>.md`, everything under `.context/collaboration/`,
-  the workspace's tree rows, its grants and shares, and its access rules. A
+- **In it**: `notes/<noteId>.md`, everything under `.context/collaboration/`
+  except older saved versions (below), the workspace's tree rows, its grants and shares, and its access rules. A
   read is the permission check (`canSee`, unchanged) and the text, both inside
   the object, in one call; `read(ids)` answers up to 500 at once.
+- **Older saved versions stay in the bucket.** A shared document's saved
+  versions (`.context/collaboration/v1/revisions/`) are never deleted, and in
+  @supa they were 13.1 GB of its 13.3 GB on 2026-11-01, against 191 MB for
+  everything else (production dry runs, read-only). The object keeps each
+  document's current and pending version, which every read of a started
+  document needs (`finalizePending`); an older one is read only as the base of
+  an offline edit's merge (`replace.js`), so it is read from the bucket, never
+  copied in, and saving a document's state drops the object's copies of the
+  ones it no longer names after ten minutes (a save writes its version before
+  the state that names it). Every version is still written to the bucket, so
+  an export or a purge lists the bucket's. Reversing it puts a busy
+  workspace over the 10 GB object limit. Tests: `apps/mcp/test/workspaceRouting.test.mjs`.
 - **Not in it**: pictures and other files (`files/**`) go to a files bucket of
   the workspace's own, pictures compressed on upload and PDFs and audio kept
   as they are. Accounts, usernames, sign-in, AI client grants, billing, audit
