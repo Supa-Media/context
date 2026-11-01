@@ -164,6 +164,14 @@ dataset = "tex_timing"
 binding = "TEX_CALLS"
 dataset = "tex_model_calls"
 
+# One point per named step of a Tex turn (`src/agent/texEntryPoint.js`): the
+# step, its state, its milliseconds and when it started, indexed by workspace
+# so one person's turns and everyone's both add up. Names and times only,
+# never a word anyone wrote. Optional: without it nothing is written.
+[[analytics_engine_datasets]]
+binding = "TEX_ENTRY"
+dataset = "tex_entry"
+
 # `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
 # which photographs a published website page with Browser Rendering. Reached
 # only through this binding, so it has no address and holds no secret. It must
@@ -276,6 +284,10 @@ dataset = "tex_timing_staging"
 [[env.staging.analytics_engine_datasets]]
 binding = "TEX_CALLS"
 dataset = "tex_model_calls_staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "TEX_ENTRY"
+dataset = "tex_entry_staging"
 
 [[env.staging.services]]
 binding = "SITE_SHOTS"
