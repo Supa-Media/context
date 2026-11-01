@@ -219,17 +219,27 @@ export async function parityPage(
 }
 
 /** The bytes a workspace's object keys take in the bucket, from listings alone, stopping once past `cap`. */
-/** Where counting a workspace's size stands: the prefix, the listing cursor in it, and the sum so far. */
+/** Where counting a workspace's size stands: the prefix, the listing cursor in it, and the sums so far. */
 export interface SizeCursor {
   prefix: number;
   cursor?: string;
   keys: number;
   bytes: number;
+  /** Keys and bytes under each of `OBJECT_PREFIXES`, in order, and the largest single key's size. */
+  byPrefix?: Array<{ keys: number; bytes: number }>;
+  largest?: number;
+}
+
+export interface SizeCount {
+  keys: number;
+  bytes: number;
+  byPrefix: Array<{ keys: number; bytes: number }>;
+  largest: number;
 }
 
 /**
  * Counts a workspace's object keys and bytes from listings, until `deadline`
- * or once past `cap`. Answers the sum and `next`, `null` when counting is
+ * or once past `cap`. Answers the sums and `next`, `null` when counting is
  * finished (all listed, or past the cap). A workspace with hundreds of
  * thousands of history keys takes many pages, so a run carries `next` on.
  */
@@ -238,24 +248,31 @@ export async function objectBytesPage(
   at: SizeCursor,
   cap: number,
   deadline: number,
-): Promise<{ keys: number; bytes: number; next: SizeCursor | null }> {
+): Promise<SizeCount & { next: SizeCursor | null }> {
   let { prefix, cursor, keys, bytes } = at;
+  const byPrefix = OBJECT_PREFIXES.map((_, index) => ({ ...(at.byPrefix?.[index] ?? { keys: 0, bytes: 0 }) }));
+  let largest = at.largest ?? 0;
+  const done = () => ({ keys, bytes, byPrefix, largest, next: null });
   while (prefix < OBJECT_PREFIXES.length) {
-    if (Date.now() >= deadline) return { keys, bytes, next: { prefix, ...(cursor ? { cursor } : {}), keys, bytes } };
+    if (Date.now() >= deadline) return { keys, bytes, byPrefix, largest, next: { prefix, ...(cursor ? { cursor } : {}), keys, bytes, byPrefix, largest } };
     const page = await store.list({ prefix: OBJECT_PREFIXES[prefix], ...(cursor ? { cursor } : {}), limit: 1000 });
     for (const entry of page.objects ?? []) {
       if (!isWorkspaceObjectKey(entry.key)) continue;
+      const size = typeof entry.size === "number" ? entry.size : 0;
       keys += 1;
-      bytes += typeof entry.size === "number" ? entry.size : 0;
+      bytes += size;
+      byPrefix[prefix]!.keys += 1;
+      byPrefix[prefix]!.bytes += size;
+      if (size > largest) largest = size;
     }
-    if (bytes > cap) return { keys, bytes, next: null };
+    if (bytes > cap) return done();
     if (page.truncated === true && typeof page.cursor === "string") cursor = page.cursor;
     else {
       prefix += 1;
       cursor = undefined;
     }
   }
-  return { keys, bytes, next: null };
+  return done();
 }
 
 /** The whole count at once, for tests and small workspaces. */

@@ -164,14 +164,14 @@ describe("copying bodies", () => {
   test("a size count past its deadline hands back where it stood and resumes to the same sum", async () => {
     const bucket = bucketWith({ [A]: "12345", [B]: "678", [HISTORY]: "90", [FILE]: "not counted" }) as unknown as BodyStore;
     const paused = await objectBytesPage(bucket, { prefix: 0, keys: 0, bytes: 0 }, 1_000, 0);
-    expect(paused.next).toEqual({ prefix: 0, keys: 0, bytes: 0 });
+    expect(paused.next).toMatchObject({ prefix: 0, keys: 0, bytes: 0 });
     let at = paused.next!;
     let result = paused;
     for (let step = 0; step < 10 && at !== null; step += 1) {
       result = await objectBytesPage(bucket, at, 1_000, Number.POSITIVE_INFINITY);
       at = result.next!;
     }
-    expect(result).toEqual({ keys: 3, bytes: 10, next: null });
+    expect(result).toEqual({ keys: 3, bytes: 10, byPrefix: [{ keys: 2, bytes: 8 }, { keys: 1, bytes: 2 }], largest: 5, next: null });
   });
 });
 
