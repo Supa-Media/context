@@ -94,6 +94,15 @@ jobs:
           node scripts/check-worker-fetch-options.mjs --self-test
           node scripts/check-worker-fetch-options.mjs
 
+      # Every Durable Object is placed in eastern North America (decided by the
+      # owner, 2026-11-01). An object is placed once, near its first caller,
+      # and never moves: Tex's objects had no hint and six of them were placed
+      # in London and Amsterdam beside a gateway in Virginia.
+      - name: Every Durable Object stub names the eastern North America hint
+        run: |
+          node scripts/check-durable-object-location.mjs --self-test
+          node scripts/check-durable-object-location.mjs
+
       # ── AND THE JOBS THIS REPOSITORY NEVER TURNED ON ─────────────────────
       #
       # `ci / Test Shared Package` is gated upstream on an input `ci.yml` does

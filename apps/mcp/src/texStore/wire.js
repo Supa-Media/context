@@ -10,6 +10,7 @@
  */
 
 import { TexObjectRefused } from "./objects.js";
+import { objectByName } from "../objectPlace.js";
 import { readDesk } from "./desk.js";
 import { R2Store } from "../store/r2.js";
 
@@ -22,7 +23,7 @@ export function texStoreStub(env, owner) {
   const namespace = env?.TEX_STORE;
   if (!namespace || typeof namespace.idFromName !== "function") return null;
   const name = ownerName(owner);
-  return namespace.get(namespace.idFromName(name));
+  return objectByName(namespace, name);
 }
 
 /** The one name per owner. Exported so a test can pin that two owners never share one. */

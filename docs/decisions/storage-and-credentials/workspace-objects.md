@@ -78,6 +78,18 @@ the search databases, and still nothing of ours. Isolation between workspaces
 is the object boundary: one object per workspace, a name derived from the
 immutable id, and a store that is never handed another workspace's object.
 
+**Every object of ours is placed in eastern North America** (decided by the
+owner, 2026-11-01): workspace objects, Tex's objects, the live-typing rooms,
+the texting Worker's inboxes and the small infra objects. An object is placed
+once, near whatever first asks for it, and never moves. Tex's objects were
+asked for without a hint, and the first calls to the six busiest (about 80% of
+their traffic, 2026-10-25 to 11-01) came from gateway requests that ran in
+London on 2026-10-31, so they live in London and Amsterdam while 98% of
+gateway requests run in Virginia. Each Worker makes stubs only through its
+`objectPlace` helper; `scripts/check-durable-object-location.mjs` (fast
+guards) fails on any other. The hint changes nothing for an object that
+already exists: those six are copied to new names to move.
+
 ## Measured (production, 2026-10-31 18:00 to 2026-11-01 18:00 UTC)
 
 Tex's objects use the same storage code a workspace object will, so they are
