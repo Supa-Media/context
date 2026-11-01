@@ -363,11 +363,38 @@ describe("failure logs", () => {
   test("carry a ConvexError's code and never its message", async () => {
     const { ConvexError } = await import("convex/values");
     const { failureOf } = await import("../functions/workspaceObjects");
-    expect(failureOf(new ConvexError({ code: "KEY_UNAVAILABLE", message: "secret words" }))).toEqual({ error: "ConvexError", code: "KEY_UNAVAILABLE" });
-    expect(failureOf(Object.assign(new Error("x"), { code: "WORKSPACE_MISMATCH" }))).toEqual({ error: "Error", code: "WORKSPACE_MISMATCH" });
-    expect(failureOf(new Error("note body here"))).toEqual({ error: "Error" });
-    expect(failureOf(new ConvexError({ code: "has spaces and is long enough to be text" }))).toEqual({ error: "ConvexError" });
+    expect(failureOf(new ConvexError({ code: "KEY_UNAVAILABLE", message: "secret words" }))).toEqual({ error: "ConvexError", code: "KEY_UNAVAILABLE", reason: "other" });
+    expect(failureOf(Object.assign(new Error("x"), { code: "WORKSPACE_MISMATCH" }))).toEqual({ error: "Error", code: "WORKSPACE_MISMATCH", reason: "other" });
+    expect(failureOf(new Error("note body here"))).toEqual({ error: "Error", reason: "other" });
+    expect(failureOf(new ConvexError({ code: "has spaces and is long enough to be text" }))).toEqual({ error: "ConvexError", reason: "other" });
+    const listed = failureOf(new Error("S3 LIST notes/Secret Plans.md failed with 503: SlowDown"));
+    expect(listed).toEqual({ error: "Error", reason: "storage_list_503" });
+    expect(JSON.stringify(listed)).not.toContain("Secret");
+    expect(failureOf(new Error("S3 GET response exceeds 10 bytes")).reason).toBe("storage_get_too_large");
+    expect(failureOf(new Error("logical-delete prefix listing made no progress")).reason).toBe("listing_no_progress");
     expect(JSON.stringify(failureOf(new ConvexError({ code: "X", message: "secret words" })))).not.toContain("secret");
+  });
+
+  test("a busy bucket's listing is asked again, a refusal is not", async () => {
+    const { withRetries } = await import("../functions/workspaceObjects");
+    let calls = 0;
+    const flaky = {
+      get: async () => null,
+      put: async () => null,
+      delete: async () => undefined,
+      list: async () => {
+        calls += 1;
+        if (calls < 3) throw new Error("S3 LIST notes/ failed with 503");
+        return { objects: [], truncated: false };
+      },
+    } as unknown as BodyStore;
+    const waits: number[] = [];
+    expect(await withRetries(flaky, async (ms) => void waits.push(ms)).list({ prefix: "notes/" })).toEqual({ objects: [], truncated: false });
+    expect(waits).toEqual([1000, 3000]);
+    const refused = { ...flaky, list: async () => { calls += 1; throw new Error("S3 LIST notes/ failed with 403"); } } as unknown as BodyStore;
+    calls = 0;
+    await expect(withRetries(refused, async () => {}).list({})).rejects.toThrow("403");
+    expect(calls).toBe(1);
   });
 });
 
