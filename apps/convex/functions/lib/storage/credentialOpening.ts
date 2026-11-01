@@ -138,6 +138,12 @@ export const getBindingForGatewayHandler = async (
     internal.functions.workspaceObjectsRows.recordFor,
     { workspaceId: args.workspaceId },
   );
+  // A change committed here and not yet taken by the object (a public mutation cannot wait for it): every reader
+  // of this binding asks the control plane until it lands, so a share just taken back is never served from the
+  // object in between (`functions/workspaceObjectPush.ts`).
+  const behind =
+    notes?.home === "object" &&
+    (await ctx.runQuery(internal.functions.workspaceObjectPush.waitingSince, { workspaceId: args.workspaceId, at: Number.MAX_SAFE_INTEGER }));
 
   return {
     provider: binding.provider,
@@ -153,6 +159,7 @@ export const getBindingForGatewayHandler = async (
     status: binding.status,
     ...(notes === null || notes.home === "bucket" ? {} : { notesHome: notes.home }),
     ...(notes?.backfilledAt === undefined || notes.home === "bucket" ? {} : { notesBackfilledAt: notes.backfilledAt }),
+    ...(behind ? { notesBehind: true as const } : {}),
   };
 };
 

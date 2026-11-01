@@ -36,11 +36,18 @@ function entryOf(row) {
  * The `lookup` and `resolve` hooks for `withIdLayout`, object first. `hooks` are the control plane's.
  *
  * @param {{lookup: (paths: string[]) => Promise<object>, resolve?: (ids: string[]) => Promise<object>}} hooks
- * @param {{client: object|null, home?: string|null, scope: string, names: Iterable<string>, log?: (event: string, fields: object) => void}} options
+ * @param {{client: object|null, home?: string|null, behind?: boolean, scope: string, names: Iterable<string>, log?: (event: string, fields: object) => void}} options
  */
-export function objectFirstHooks(hooks, { client, home, scope, names, workspaceId, log = () => {} }) {
+export function objectFirstHooks(hooks, { client, home, behind = false, scope, names, workspaceId, log = () => {} }) {
   const groups = [...(names ?? [])];
   if (!client || home !== HOMES.OBJECT || (scope !== "private" && scope !== "team") || !readsAsMember(groups)) return hooks;
+  // A change the object has not taken yet (the binding's `notesBehind`): a share just taken back by a mutation that
+  // could not wait for the push must not be served from the object's older rows, so the whole request asks the
+  // control plane, which already has it.
+  if (behind === true) {
+    log("workspace_object_behind", { workspaceId });
+    return hooks;
+  }
   const judged = { scope, groups, audience: "member" };
 
   const lookup = async (paths) => {

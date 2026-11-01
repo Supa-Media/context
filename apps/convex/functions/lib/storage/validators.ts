@@ -135,5 +135,7 @@ export const getBindingForGatewayReturns = v.union(
     /** Absent while the workspace's notes are read from the bucket (`functions/workspaceObjects.ts`). */
     notesHome: v.optional(v.union(v.literal("dual"), v.literal("object"))),
     notesBackfilledAt: v.optional(v.number()),
+    /** Row changes the object has not taken yet: a reader judges by the control plane until they land. */
+    notesBehind: v.optional(v.literal(true)),
   }),
 );

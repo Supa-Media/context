@@ -3,6 +3,7 @@
 // and every guest's or chat's reading, is the control plane's, as before.
 //
 // Sabotage, each confirmed to fail a case here: drop the guest-marker check (a guest is judged by member rules),
+// ignore the binding's `notesBehind` (a share just taken back is served from the object until its push lands),
 // take a found row whose path differs from the one asked, take a non-id key, or skip the fallback for misses.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -95,6 +96,17 @@ test("a workspace not at home in its object keeps the control plane's hooks as t
     assert.equal(objectFirstHooks(cp.hooks, { client: object({}).client, home, scope: "team", names: [], workspaceId: "w1" }), cp.hooks);
   }
   assert.equal(objectFirstHooks(cp.hooks, { client: null, home: "object", scope: "team", names: [], workspaceId: "w1" }), cp.hooks);
+});
+
+test("a binding that says the object is behind sends every question to the control plane", async () => {
+  const cp = control();
+  const ob = object({ "plans/a.md": seen });
+  const logged = [];
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", behind: true, scope: "team", names: [], workspaceId: "w1", log: (event) => logged.push(event) });
+  assert.equal(hooks, cp.hooks);
+  await hooks.lookup(["plans/a.md"]);
+  assert.equal(ob.asked.length, 0, "a share just taken back is never answered from the object's older rows");
+  assert.deepEqual(logged, ["workspace_object_behind"]);
 });
 
 test("an object that fails sends the whole question to the control plane, logged", async () => {

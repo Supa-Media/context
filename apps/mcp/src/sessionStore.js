@@ -135,6 +135,7 @@ async function openSessionStore(session, env, controlPlane) {
       : objectFirstHooks(controlHooks, {
           client: workspaceClient(env, session.workspaceId),
           home: binding.notesHome ?? null,
+          behind: binding.notesBehind === true,
           scope: session.scope,
           names: session.grantedGroups,
           workspaceId: session.workspaceId,
