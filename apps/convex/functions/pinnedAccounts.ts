@@ -29,7 +29,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, type MutationCtx } from "../_generated/server";
+import { type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { bugFolder } from "./lib/feedback/bugNote";
 import { refreshSnapshot } from "./lib/nodes/accessBackfill";
 import { folderJobsOf } from "./lib/nodes/folderJobs";

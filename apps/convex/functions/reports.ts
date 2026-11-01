@@ -44,7 +44,8 @@ import {
 } from "@context/shared";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action, internalMutation } from "../_generated/server";
+import { action } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { insertBlock } from "./lib/blocks";
 import { deliverFeedback, feedbackTarget } from "./lib/feedback/deliver";
 import type { FeedbackReport } from "./lib/feedback/report";

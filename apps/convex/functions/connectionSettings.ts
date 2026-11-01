@@ -11,7 +11,8 @@
 
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { action, internalMutation, query } from "../_generated/server";
+import { action, query } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { hashToken } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { requireActor } from "./lib/googleConnect/config";

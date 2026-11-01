@@ -13,7 +13,7 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { personalOwnerReadClearance } from "./lib/controlPlane/personalOwner";
 import { aiAccessNeeded, aiScopesOf, canReadProduct } from "./lib/googleConnect/aiScopes";
 import { tryConsumeRateLimit } from "./lib/rateLimit";

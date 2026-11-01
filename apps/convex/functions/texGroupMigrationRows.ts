@@ -6,7 +6,8 @@
 
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { rowsAfter } from "./lib/nodes/paths";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { chatHomeOf, makeChatHome } from "./lib/textGroupHome";

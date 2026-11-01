@@ -18,7 +18,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { internalAction, internalMutation, type QueryCtx } from "../_generated/server";
+import { internalAction, type QueryCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { isArchiveStamp } from "@context/shared/src/archiveMirror.cjs";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { nodeAt } from "./lib/nodes/paths";

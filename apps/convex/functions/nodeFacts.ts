@@ -7,7 +7,8 @@
 
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type DatabaseReader } from "../_generated/server";
+import { internalQuery, type DatabaseReader } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { routinePathsOf, scheduleReconcile } from "./lib/routines/sync";
 import { treeServesNow } from "./lib/nodes/listing";
 import { readerMirror } from "./lib/nodes/readerRules";

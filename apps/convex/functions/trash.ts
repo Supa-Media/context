@@ -26,7 +26,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, query, type MutationCtx } from "../_generated/server";
+import { internalQuery, query, type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { recordAudit } from "./lib/audit";
 import { clearanceOf } from "./lib/clearance";
 import { callerId, personalNameFor, resolveFileAccess } from "./lib/filesFns/access";

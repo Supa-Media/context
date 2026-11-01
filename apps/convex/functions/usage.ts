@@ -35,11 +35,8 @@
 
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import {
-  internalMutation,
-  mutation,
-  type MutationCtx,
-} from "../_generated/server";
+import { type MutationCtx } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { getAuthUserId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
 import { premiumFeaturesOn } from "./lib/premium";

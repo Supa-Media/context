@@ -24,12 +24,8 @@
 import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
-import {
-  action,
-  internalMutation,
-  internalQuery,
-  type ActionCtx,
-} from "../_generated/server";
+import { action, internalQuery, type ActionCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";

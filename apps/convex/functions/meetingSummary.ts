@@ -17,7 +17,7 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { isPaying, type JevRefusal } from "./lib/jev/meter";
 import { HAIKU_MODEL } from "./lib/jev/models";
 import { countTurn, recordTurn, resolveTurn } from "./lib/jev/turns";

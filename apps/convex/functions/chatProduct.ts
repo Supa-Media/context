@@ -61,7 +61,8 @@
 
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { action, internalAction, internalMutation, internalQuery, mutation } from "../_generated/server";
+import { action, internalAction, internalQuery } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { getAuthUserId } from "./lib/signedIn";
