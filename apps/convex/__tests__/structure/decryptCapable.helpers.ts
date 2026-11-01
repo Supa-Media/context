@@ -152,6 +152,10 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       "functions.workspaceObjects.setHome",
       "functions.workspaceObjects.setHomeBySlug",
       "functions.workspaceObjects.syncRows",
+      // Copies each workspace's one-to-one Tex history and turn records from its bucket into its Tex Durable Object
+      // (`texHistoryMigration.ts`, `apps/mcp/src/agent/agentHomeMove.js`), run by hand from the workflow. internalAction,
+      // reached only from that workflow's deploy key; it answers counts only, and deletes nothing.
+      "functions.texHistoryMigration.run",
       // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
       // file operation and hands it to lib/fileOps.ts, which never sees the
       // credential. internalAction, and the only member of

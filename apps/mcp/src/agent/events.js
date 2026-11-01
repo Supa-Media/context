@@ -1,6 +1,11 @@
 /**
- * The texting conversation as a log: one object per exchange, never one file
- * rewritten whole.
+ * THE OLD EXCHANGE LOG, READ ONLY TO MOVE IT (2026-11-01). The one-to-one
+ * history is one record in the person's Tex object now (`history.js`), and
+ * nothing writes here; `moveHistoryIn` reads this log once, for a person who
+ * has no record yet. The ids it keys exchanges by are still the history's.
+ *
+ * What it was: the texting conversation as a log, one object per exchange,
+ * never one file rewritten whole.
  *
  * `texts.json` was read, extended and written back by every job that touched
  * the conversation (a text, a check-in, a routine, the Worker's fixed texts),
@@ -61,52 +66,15 @@ export function idOfKey(key) {
   return ID.test(leaf) ? leaf : null;
 }
 
-/**
- * Write one exchange. Throws on a failed put, like the file it replaces did;
- * callers that keep history as a convenience catch it.
- */
 let lastAt = 0;
 
-/** The time and tag an exchange will be written under, chosen before it is: a warm copy (`warmCopy.js`) holds it by the same id. */
+/** The time and tag of a new exchange, and so its id: the history record keeps each exchange by it (`history.js`). */
 export function newExchange(asked = Date.now()) {
-  // Two writes in one millisecond from one isolate keep the order they were made in.
+  // Two exchanges in one millisecond from one isolate keep the order they were made in.
   const at = Math.max(asked, lastAt + 1);
   lastAt = at;
   const tag = randomTag();
   return { at, tag, id: idOfKey(eventKey(at, tag)) };
-}
-
-export async function writeExchange(store, { at: asked = Date.now(), tag: chosen = null, question, answer, tainted = false, tools = [], sources = [], thread = null, theirs = false }) {
-  const { at, tag } = chosen === null ? newExchange(asked) : { at: asked, tag: chosen };
-  const key = eventKey(at, tag);
-  const entry = {
-    v: 1,
-    at,
-    question,
-    answer,
-    ...(tainted ? { tainted: true } : {}),
-    ...(tools.length > 0 ? { tools } : {}),
-    ...(sources.length > 0 ? { sources } : {}),
-    ...(thread ? { thread } : {}),
-    ...(theirs ? { by: "them" } : {}),
-  };
-  await store.put(key, JSON.stringify(entry));
-  return idOfKey(key);
-}
-
-/** Whether the log has anything in it yet. */
-export async function hasEvents(store) {
-  const page = await store.list({ prefix: EVENTS_PREFIX, limit: 1 });
-  return (page?.objects?.length ?? 0) > 0;
-}
-
-/**
- * Copy the old file's turns in as the log's oldest entry, once. The same key
- * and the same bytes from any writer, so two first writes racing are one.
- */
-export async function importLegacy(store, turns) {
-  if (turns.length === 0) return;
-  await store.put(LEGACY_KEY, JSON.stringify({ v: 1, legacy: true, turns }));
 }
 
 async function readEntry(store, key) {

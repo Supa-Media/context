@@ -26,6 +26,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { fakeModel, PRIVACY_MANIFEST } from "./agentEgressFixtures.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-group.test";
 const TOKEN_GROUP = `cat_group_editor_${"0".repeat(22)}`;
@@ -106,7 +107,7 @@ beforeEach(async () => {
   team.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "t0" });
   own.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "p0" });
   team.set("1-projects/setlist.md", { body: "# Setlist\n\n- Opener\n", etag: "t1" });
-  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
   Object.assign(world, {
     model,
     controlPlane,

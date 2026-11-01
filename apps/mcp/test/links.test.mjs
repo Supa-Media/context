@@ -64,7 +64,7 @@ import {
   rewriteLinks,
   styleOf,
 } from "../src/links.js";
-import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs"; import { texStoreNamespace } from "./texStoreFixture.mjs";
 /** `test.mjs`'s own predicate, kept local: this file stands up its own worker. */
 function succeeded(result) {
   return Boolean(result) && !result.isError;
@@ -466,7 +466,7 @@ async function runWiredChecks(check) {
   });
 
   const env = {
-    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
     GATEWAY_SECRET,
     NATIVE_BINDINGS: "CONTEXT_BUCKET",
     CONTEXT_BUCKET: bucket,

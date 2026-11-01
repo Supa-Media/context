@@ -298,7 +298,7 @@ test/agentSourcedFigures.test.mjs
 test/agentReadClaims.test.mjs
 test/agentFrontDoor.test.mjs
 test/agentWarmCopy.test.mjs
-test/agentWarmHistory.test.mjs
+test/texHistoryOneCopy.test.mjs
 test/agentHeldLog.test.mjs
 test/texStore.test.mjs
 test/texRouting.test.mjs
@@ -317,3 +317,4 @@ test/workspaceRouting.test.mjs
 test/texEntryPoint.test.mjs
 test/workspaceTree.test.mjs
 test/objectLookup.test.mjs
+test/agentHomeMove.test.mjs

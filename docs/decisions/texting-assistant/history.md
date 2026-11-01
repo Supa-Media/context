@@ -1,5 +1,7 @@
 # The texting assistant — a conversation's history
 
+> **Where it is kept (owner, 2026-11-01):** one record in the person's Tex Durable Object, written by every writer and read with About me in one call; never the bucket, never a copy in the texting Worker. See [one-to-one-history](./one-to-one-history.md).
+
 > **Superseded in part (Dev2, 2026-10-26):** the model now reads the chat's event log rendered with times, delivery results and unanswered messages; the history below keeps being written beside it. See [Tex reads one event log and decides when to answer](./event-log.md).
 
 _Part of [the texting assistant](../texting-assistant.md)._

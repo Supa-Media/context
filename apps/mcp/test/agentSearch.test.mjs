@@ -22,6 +22,7 @@ import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_
 import { OPEN_PAGE_TOOL, SEARCH_WEB_TOOL } from "../src/agent/computer.js";
 import { MAX_QUERY_CHARS, MAX_SEARCHES_PER_TURN, cleanQuery, searcherFor } from "../src/agent/search.js";
 import { DECISION_MODEL } from "../src/agent/decide.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-search.test";
 const TOKEN_TEXTS = `cat_search_texts_${"0".repeat(23)}`;
@@ -170,7 +171,7 @@ export async function runAgentSearchChecks(check) {
     const browser = fakeBrowser({
       "https://joes.example/soho": { title: "Joe's", text: "Open until 4am every day.", links: [] },
     });
-    const base = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, AI: ai, SITE_SHOTS: browser };
+    const base = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, AI: ai, SITE_SHOTS: browser };
     const env = { ...base, BRAVE_SEARCH_API_KEY: BRAVE_KEY };
 
     /* ---------------- no key, no search ---------------- */

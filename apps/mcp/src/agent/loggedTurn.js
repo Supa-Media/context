@@ -144,10 +144,10 @@ export const LOG_PREFACE = "(The chat so far, oldest first, as it happened. \"Yo
   A group chat remembers in its own file, never the tagger's texts; its turns
   are other people's words, so untrusted (`groupTurn.js`).
 */
-export async function turnHistory(store, session, body, { runner, group, dispatch, warm = null, job = false }) {
+export async function turnHistory(store, session, body, { runner, group, dispatch, job = false }) {
   const conversation = !runner && group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null;
   const read = () => readConversation(store, conversation, job ? { entries: JOB_HISTORY_ENTRIES } : {});
-  const history = group !== null ? await readGroupMemory(store, group, dispatch) : conversation === null ? [] : await (warm === null ? read() : warm.history(read)); // from a warm copy when it has the chat (`warmCopy.js`)
+  const history = group !== null ? await readGroupMemory(store, group, dispatch) : conversation === null ? [] : await read(); // the one record in the person's object (`history.js`), never a copy
   return { conversation, history };
 }
 
@@ -181,5 +181,5 @@ export const JOB_HISTORY_ENTRIES = 30;
 
 /** Today's history and the chat's event log, side by side: what a turn reads before its model (`route.js`). */
 export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, records }) {
-  return Promise.all([turnHistory(store, session, body, { runner, group, dispatch, warm, job }), runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records })]);
+  return Promise.all([turnHistory(store, session, body, { runner, group, dispatch, job }), runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records })]);
 }

@@ -26,6 +26,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationTurns } from "./agentConversationFixture.mjs";
+import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-delegate.test";
 const TOKEN_TEXTS = `cat_delegate_texts_${"0".repeat(21)}`;
@@ -128,9 +129,10 @@ export async function runAgentDelegateRouteChecks(check) {
     await grant(TOKEN_AGENT, "claude_ai");
     await grant(TOKEN_APP, "context_console");
     controlPlane.setBuiltinVerdict("ws_maya", BUILTIN_ALLOWED);
-    const bucket = s3.bucketFor("tenant-delegate");
+    const tex = texStoreNamespace();
+    const bucket = withAgentHome(s3.bucketFor("tenant-delegate"), tex, "ws_maya"); // the bookkeeping is the person's object's (`texStoreFixture.mjs`)
     bucket.set("1-projects/app/overview.md", { body: "# The app\n", etag: "g1" });
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
     controlPlane.serveTreesFrom(env, { s3 });
     const read = async (path) => (await tool(env, TOKEN_APP, "read_note", { path }))?.content?.[0]?.text ?? "";
 

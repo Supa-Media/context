@@ -63,6 +63,7 @@ import { approving } from "./egressApproval.mjs";
 import { renderFile } from "../../../packages/shared/src/activity.cjs";
 import { timestampSlug } from "../src/notes/paths.js";
 import { HISTORY_MAX_ROWS } from "../src/history/serve.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const H = 3_600_000;
 const DB_B = "db-1111-1111-1111-111111111111";
@@ -132,7 +133,7 @@ async function setUp({ budget } = {}) {
   await grant(T.consoleC, "ws_hist_c", "owner", all, "context_console", "user_c");
   await grant(T.consoleD, "ws_hist_d", "owner", all, "context_console", "user_d");
   const env = {
-    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
     GATEWAY_SECRET,
     PRESENCE_ROOM: createLiveNamespace(),
     ...(budget ? { SEARCH_SUBREQUEST_BUDGET: String(budget) } : {}),

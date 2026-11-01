@@ -67,6 +67,7 @@ import { compressToBase64 } from "../../../packages/drawings/src/lzstring.js";
 import { extractFields } from "../src/search/indexer.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const OWNER_TOKEN = `cat_draw_owner_${"0".repeat(16)}`;
 const TEAM_TOKEN = `cat_draw_team_${"0".repeat(17)}`;
@@ -216,7 +217,7 @@ export async function runDrawingChecks(check) {
     });
 
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "DRAW_BUCKET",
       DRAW_BUCKET: bucket,

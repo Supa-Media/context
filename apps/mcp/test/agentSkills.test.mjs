@@ -20,6 +20,7 @@ import { resetBrowserbaseProbe } from "../src/agent/browserProviders.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-skills.test";
 const TOKEN_TEXTS = `cat_skil_texts_${"0".repeat(25)}`;
@@ -91,7 +92,7 @@ let pinnedBucket;
 const restore = [];
 
 const env = {
-  CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+  CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
   GATEWAY_SECRET,
   AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
   AI_GATEWAY_ID: "context-gw",

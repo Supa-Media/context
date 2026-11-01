@@ -24,7 +24,7 @@ import { askOvertaken, droppedLine } from "./askOvertaken.js";
 import { approvalVerdict, settleByText } from "./textedApprovals.js";
 import { settlePayByText } from "./textedPay.js";
 import { openTranscript } from "./transcript.js";
-import { appendConversation, appendTold, priorTurns, readTold } from "./conversation.js";
+import { appendConversation, appendTold, readTold } from "./conversation.js";
 
 /**
  * What a texted turn is answered with before any model runs (`{ answer, … }`),
@@ -100,7 +100,7 @@ export function setAsideLine(setAside, dropped = []) {
 async function remember(store, conversation, question, answer) {
   if (conversation === null) return;
   try {
-    await appendConversation(store, conversation, await priorTurns(store, conversation), question, answer, { theirs: true });
+    await appendConversation(store, conversation, question, answer, { theirs: true });
   } catch {
     // The reply is still owed; a history that failed to save costs the next turn some context.
   }

@@ -23,6 +23,7 @@ import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 /** The retired app assistant's note, left in the bucket to prove nothing reads it. */
 const RETIRED_APP_PATH = "ai/production/app-assistant.md";
@@ -64,7 +65,7 @@ function binding(bucket, key) {
   };
 }
 
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 const systems = [];
 let pinnedBucket;
 let restore = [];

@@ -18,16 +18,17 @@
  *   texting Worker never holds: the Worker keeps bytes it cannot read or
  *   change. The associated data binds the workspace, the person and the
  *   client, so one person's copy never opens on another's turn.
- * - A cache, never a copy of record: the bucket stays where every note, the
- *   chat and the event log live, and a turn writes there as it always did.
- *   Dropping the copy costs one slow turn, never anything kept.
+ * - A cache, never a copy of record: dropping it costs one slow turn, never
+ *   anything kept.
  * - Fresh enough to trust, by part: the setup (a pinned note that changes
- *   rarely) for an hour; what changes outside the chat (learned skills, About
- *   me and the jobs list) for ten minutes, and dropped by any turn that wrote;
- *   the chat for a day, carried forward by
- *   each turn with what it said. The Worker drops the whole copy when it
- *   texts outside a turn (a routine, a job), since the chat then holds words
- *   the copy hasn't seen.
+ *   rarely) for an hour; the learned skills and who they are by their
+ *   account for ten minutes, the skills dropped by any turn that wrote; the
+ *   chat's event log and its turns' clean marks for a day.
+ * - Never the history, About me or the jobs list (the owner, 2026-11-01: "ONE
+ *   copy only", no second copy anywhere). They are read with one call to the
+ *   person's own Tex Durable Object (`history.js`, `texDesk.js`), so no copy
+ *   here can be behind them. `test/texHistoryOneCopy.test.mjs` fails if one
+ *   comes back.
  * - The chat's newest events come from the Worker itself (`recent`), as they
  *   would reach the log through `/agent/events`, on the same grant.
  * - The waiting asks are never kept: a job, a routine or the heartbeat arms one
@@ -40,20 +41,17 @@
 
 import { decodeBase64, encodeBase64 } from "../crypto/bytes.js";
 import { checkEvent, READ_CHARS, READ_LIMIT } from "./log.js";
-import { keptTurn, MAX_HISTORY_CHARS, trimHistory } from "./conversation.js";
 
 const LABEL = "context-tex-warm-v1";
-/** The texting Worker's client: what a write beside the copy is sealed for. */
-const TEXTS_CLIENT = "context_texts";
 const PREFIX = "tw1.";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** What changes outside the chat (About me, learned skills, the jobs list) is trusted this long, then read again. */
+/** The learned skills and their account's identity, which change outside the chat: trusted this long, then read again. */
 export const WARM_NOTES_MS = 10 * 60 * 1000;
 /** The texting setup, a note in the pinned workspace that changes rarely: trusted this long, then read again. */
 export const WARM_SETUP_MS = 60 * 60 * 1000;
-/** The chat itself, carried forward turn by turn. */
+/** The chat's event log and clean marks, carried forward turn by turn. */
 export const WARM_CHAT_MS = 24 * 60 * 60 * 1000;
 /** A sealed copy larger than this is not made: the turn after reads, as without one. */
 export const WARM_MAX_CHARS = 1_500_000;
@@ -113,7 +111,9 @@ export async function openWarm(env, session, sealed, now = Date.now()) {
     const copy = await openSealed(env, session, sealed);
     if (copy === null) return null;
     const fresh = (part, ms) => (part && Number.isFinite(part.at) && part.at <= now && now - part.at < ms ? part : undefined);
-    return { setup: fresh(copy.setup, WARM_SETUP_MS), skills: fresh(copy.skills, WARM_NOTES_MS), notes: fresh(copy.notes, WARM_NOTES_MS), chat: fresh(copy.chat, WARM_CHAT_MS) };
+    const chat = fresh(copy.chat, WARM_CHAT_MS);
+    // Only the parts named here: a copy sealed before 2026-11-01 carried the history and About me, and neither is ever used again.
+    return { setup: fresh(copy.setup, WARM_SETUP_MS), skills: fresh(copy.skills, WARM_NOTES_MS), identity: fresh(copy.identity, WARM_NOTES_MS), chat: chat && { at: chat.at, ...(Array.isArray(chat.events) ? { events: chat.events } : {}), ...(chat.clean && typeof chat.clean === "object" ? { clean: chat.clean } : {}) } };
   } catch {
     return null;
   }
@@ -132,45 +132,28 @@ export async function openWarm(env, session, sealed, now = Date.now()) {
  * (production, 2026-10-31: every group turn read 275 log files, 4 to 6 s,
  * before the model).
  */
-export function warmTurn(env, session, body, { eligible, logEligible = false, now = Date.now(), writes = () => [] }) {
+export function warmTurn(env, session, body, { eligible, logEligible = false, now = Date.now() }) {
   const opened = eligible ? openWarm(env, session, body?.warm, now) : Promise.resolve(null);
-  // What Tex wrote to this history beside the copy's turns (a routine, a check-in), handed back sealed (`sealBeside`).
-  const beside = eligible ? openBeside(env, session, body?.beside) : Promise.resolve([]); // null when one won't open: the copy would be behind, so the history is read whole
   const next = { v: 1 };
-  // Every write to the history reaches the copy (this request's, `writes`, and those beside it), so the copy is always the whole history.
-  const chatUsable = eligible;
   const cleanSeen = {};
   // A background job writes on its own (task notes, the jobs list, a skill): while one runs, or just after, those are read fresh.
   const jobBusy = (Array.isArray(body?.running) ? body.running : []).some((job) => job?.state === "running" || (Number.isFinite(job?.finishedAt) && now - job.finishedAt < WARM_NOTES_MS));
   const part = (name) => async (read) => {
-    const warm = jobBusy && (name === "notes" || name === "skills") ? undefined : (await opened)?.[name];
+    const warm = jobBusy && name === "skills" ? undefined : (await opened)?.[name];
     if (warm !== undefined && warm.value !== undefined) return (next[name] = warm).value;
     const value = await read();
     if (eligible) next[name] = { at: now, value };
     return value;
   };
-  const chat = (async () => {
-    const warm = chatUsable ? (await opened)?.chat : undefined;
-    const writes = await beside;
-    return Array.isArray(warm?.history) && writes !== null ? { ...warm, history: withWrites(warm.history, writes) } : undefined;
-  })();
+  const chat = (async () => (eligible ? (await opened)?.chat : undefined))();
   let chatRead = null, logRead = null;
   return {
     /** The setup's text; the turn parses it either way. */
     setup: part("setup"),
     /** The learned skills' index (`learnedSkills.js`). */
     skills: part("skills"),
-    /** About me, the jobs list and who they are (`jobs.js` `readTexNotes`). */
-    notes: part("notes"),
-    /** Whether the copy holds the history by exchange id: then a write needs nothing read first (`conversation.js` `priorTurns`). */
-    logged: async () => (await chat)?.history?.some((turn) => typeof turn.id === "string") === true,
-    /** Today's history (`conversation.js` `readConversation`). */
-    async history(read) {
-      const warm = await chat;
-      const history = warm ? withWrites(warm.history, writes()) : await read(); // a read from storage already holds this request's writes
-      chatRead = { ...(chatRead ?? {}), history };
-      return history;
-    },
+    /** Who they are by their account (`identity.js`): the control plane's answer, never a note. */
+    identity: part("identity"),
     /** The chat's event log (`log.js` `readEvents`), with the Worker's newest events on top. */
     async events(chatKey, read) {
       // The Worker holds the chat's whole log (`apps/agent/src/events.ts` `holdsLog`): its events are all of it, nothing is read from storage.
@@ -179,7 +162,7 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
       const warm = held ? undefined : await chat;
       const base = held ? [] : warm?.events ?? (await read());
       const events = mergeEvents(base, logs ? body?.recent : null, { chat: chatKey, now }); // only the texting Worker's own turn hands events in
-      chatRead = { ...(chatRead ?? {}), events };
+      chatRead = { events };
       if (logs && !held) logRead = events; // read from storage (or a copy of that read): handed to the Worker to hold from now on
       return events;
     },
@@ -194,43 +177,30 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
       return clean;
     },
     /**
-     * The copy to hand back: what this turn read, with what it said added.
-     * `exchange` the history turns it kept (null when nothing was kept),
-     * `keepChat` false when what it kept can't be known here (then the chat is read again),
-     * `turn` and `clean` its own record, `wrote` whether it changed anything
-     * (then the notes and skills are read again).
+     * The copy to hand back: what this turn read. `turn` and `clean` its own
+     * record, `wrote` whether it changed anything (then the notes and skills
+     * are read again).
      */
-    async seal({ exchange = null, keepChat = true, turn = null, clean = null, wrote = false }) {
+    async seal({ turn = null, clean = null, wrote = false } = {}) {
       if (!eligible) return null;
       const warm = await chat;
       const out = { ...next };
       // A part this turn never asked for (a yes the gateway settled reads none) is carried as it was, still fresh by its own time.
       const was = await opened;
-      for (const name of ["setup", "skills", "notes"]) if (out[name] === undefined && was?.[name] !== undefined && !(name !== "setup" && jobBusy)) out[name] = was[name];
-      if (wrote) {
-        delete out.skills;
-        delete out.notes;
-      }
-      // The history this turn read, or the copy's when it read none (a yes the gateway settled), with everything written since: kept whether or not
-      // the turn read the log, since a job's report names no texts and dropping it cost the next text 150 reads (2026-10-31).
-      const read = chatRead?.history ?? warm?.history;
-      if (keepChat && chatUsable && read !== undefined) {
-        const written = withWrites(read, writes());
-        const history = exchange === null ? written : trimHistory([...written, ...exchange], { chars: MAX_HISTORY_CHARS });
-        // A record only moves toward not clean (`loggedTurn.js` `recordTurn`): a retried turn id's earlier attempt may have recorded false, so its own clean exit is left for the next turn to read.
-        const known = { ...(warm?.clean ?? {}), ...cleanSeen, ...(typeof turn === "string" && clean === false ? { [turn]: false } : {}) };
-        if (typeof turn === "string" && clean !== false && known[turn] === true) delete known[turn];
-        // The log this turn read, or none: a log it didn't read is held by the Worker or read next time, never carried stale.
-        const events = chatRead?.events;
-        const shown = new Set((events ?? []).map((event) => event.turn).filter(Boolean));
-        if (typeof turn === "string") shown.add(turn);
-        out.chat = {
-          at: warm?.at ?? now,
-          history,
-          ...(events !== undefined ? { events } : {}),
-          clean: Object.fromEntries(Object.entries(known).filter(([id]) => events === undefined || shown.has(id))),
-        };
-      }
+      for (const name of ["setup", "skills", "identity"]) if (out[name] === undefined && was?.[name] !== undefined && !(name !== "setup" && jobBusy)) out[name] = was[name];
+      if (wrote) delete out.skills;
+      // A record only moves toward not clean (`loggedTurn.js` `recordTurn`): a retried turn id's earlier attempt may have recorded false, so its own clean exit is left for the next turn to read.
+      const known = { ...(warm?.clean ?? {}), ...cleanSeen, ...(typeof turn === "string" && clean === false ? { [turn]: false } : {}) };
+      if (typeof turn === "string" && clean !== false && known[turn] === true) delete known[turn];
+      // The log this turn read, or the copy's when it read none (a yes the gateway settled); a log the Worker holds is never carried.
+      const events = chatRead?.events ?? warm?.events;
+      const shown = new Set((events ?? []).map((event) => event.turn).filter(Boolean));
+      if (typeof turn === "string") shown.add(turn);
+      out.chat = {
+        at: warm?.at ?? now,
+        ...(events !== undefined ? { events } : {}),
+        clean: Object.fromEntries(Object.entries(known).filter(([id]) => events === undefined || shown.has(id))),
+      };
       return await sealWarm(env, session, out);
     },
   };
@@ -262,61 +232,4 @@ export function mergeEvents(base, recent, { chat, now }) {
     kept.push(event);
   }
   return kept.reverse();
-}
-
-/**
- * One exchange as `readConversation` returns it once written, under the id
- * and time chosen for its write (`events.js` `newExchange`), so the warm copy
- * holds exactly what the next read would.
- */
-export function exchangeTurns(question, answer, { at, id, tainted = false, tools = [], sources = [], thread = null, theirs = false }) {
-  return [
-    keptTurn({ role: "user", text: question, id, at, ...(thread ? { thread } : {}), theirs }),
-    keptTurn({ role: "assistant", text: answer, tainted, tools, sources }),
-  ];
-}
-
-/** The most writes one sealed batch, or one turn, carries beside the copy. */
-export const MAX_BESIDE = 20;
-const WRITE_ID = /^\d{13}-[a-z0-9]{1,16}$/;
-
-/**
- * What a request that is not the person's own turn (a routine, a check-in)
- * wrote to their texts, sealed for their texting turn alone: the Worker keeps
- * it beside the copy and hands it to the next text, which adds it to the
- * copy's history. Null when nothing was written or it can't be sealed.
- */
-export async function sealBeside(env, session, writes) {
-  const kept = (Array.isArray(writes) ? writes : []).filter(isWrite).slice(-MAX_BESIDE);
-  if (kept.length === 0) return null;
-  return await sealWarm(env, { workspaceId: session.workspaceId, actorUserId: session.actorUserId, actorClientId: TEXTS_CLIENT }, { v: 1, beside: kept });
-}
-
-/** The writes sealed beside the copy for this texting session, or null when any won't open (or there are more than one text carries): the copy can't be brought up to date. */
-export async function openBeside(env, session, sealed) {
-  if (sealed === undefined) return [];
-  if (!Array.isArray(sealed) || sealed.length > MAX_BESIDE) return null;
-  const opened = await Promise.all(sealed.map((one) => openSealed(env, session, one)));
-  if (opened.some((copy) => !Array.isArray(copy?.beside))) return null;
-  return opened.flatMap((copy) => copy.beside.filter(isWrite));
-}
-
-function isWrite(write) {
-  return write !== null && typeof write === "object" && typeof write.question === "string" && typeof write.answer === "string" && typeof write.id === "string" && WRITE_ID.test(write.id) && Number.isFinite(write.at);
-}
-
-/** A history with writes it lacks added, each by its id, placed by when it happened. */
-export function withWrites(history, writes) {
-  const known = new Set(history.filter((turn) => typeof turn.id === "string").map((turn) => turn.id));
-  const fresh = (Array.isArray(writes) ? writes : []).filter((write) => isWrite(write) && !known.has(write.id) && (known.add(write.id), true));
-  if (fresh.length === 0) return history;
-  // Exchanges: a question and the turns after it, until the next question.
-  const exchanges = [];
-  for (const turn of [...history, ...fresh.flatMap((write) => exchangeTurns(write.question, write.answer, write))]) {
-    if (turn.role === "user" || exchanges.length === 0) exchanges.push([turn]);
-    else exchanges[exchanges.length - 1].push(turn);
-  }
-  const at = (exchange) => (Number.isFinite(exchange[0].at) ? exchange[0].at : -Infinity);
-  const ordered = exchanges.map((exchange, index) => ({ exchange, index })).sort((a, b) => at(a.exchange) - at(b.exchange) || a.index - b.index);
-  return trimHistory(ordered.flatMap(({ exchange }) => exchange), { chars: MAX_HISTORY_CHARS });
 }

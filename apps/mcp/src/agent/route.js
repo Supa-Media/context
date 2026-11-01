@@ -37,7 +37,7 @@ import { readTexStyle, stylePrompt, withoutFlattery } from "./pushback.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted } from "./conversation.js";
-import { recordedTurn, turnReads } from "./loggedTurn.js"; import { newExchange } from "./events.js";
+import { recordedTurn, turnReads } from "./loggedTurn.js";
 import { afterTurn, deferred } from "./deferred.js";
 import { cancelledTurn } from "./textingRoutes.js";
 import { loadRoutine, keepRun, readRuns, RoutineRefusal, ROUTINES_CLIENT_ID, routinePathFrom, routineRunQuestion, routineTimeZone, runOutcome, stopRoutine, finishOnce, routineCalendarTools } from "./routine.js";
@@ -56,7 +56,7 @@ import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { vaultSavedQuestion, withVaultWatch } from "./vaultSaved.js";
 import { answerWithAsk, approvalVerdict, textedAsk, thumbsDownIsNo, thumbsUpIsYes } from "./textedApprovals.js";
-import { setAsideLine, settleTextedText } from "./textedSettle.js"; import { mayAnswerAsk, waitingAsks } from "./frontDoor.js"; import { exchangeTurns, sealBeside, warmTurn } from "./warmCopy.js";
+import { setAsideLine, settleTextedText } from "./textedSettle.js"; import { mayAnswerAsk, waitingAsks } from "./frontDoor.js"; import { warmTurn } from "./warmCopy.js"; import { deskTexts, learnDeskKeys } from "./texDesk.js";
 import { withSameAsk } from "./sameAsk.js"; // a change they pushed back on is never shown again
 import { paidLine } from "./textedPay.js";
 import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends, read for sense
@@ -150,7 +150,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   store.actor = actorFor(session); tex.kind = turnKind({ runner, job, group, texting: session.actorClientId === TEXTS_CLIENT_ID }); // which steps are off (`texEntryPoint.js`)
   store.contexts = contextsFor(session);
-  store.chatWrites = []; store.historyLogged = () => hot.logged(); const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && !runner, logEligible: group !== null && job === null && !runner, now: received, writes: () => store.chatWrites }); // what the Worker kept of the last turn's reads, and every write to the history since (`warmCopy.js`)
+  const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && !runner, logEligible: group !== null && job === null && !runner, now: received }); // what the Worker kept of the last turn's reads, never the history or About me (`warmCopy.js`)
   const setupRead = readProductionSetup(store, session, { texting: session.actorClientId === TEXTS_CLIENT_ID || runner || group !== null, warm: hot.setup }); // read beside what comes before it, not after
 
   // The routine is re-read now, before any model is opened: a paused or vanished one costs no turn.
@@ -179,7 +179,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       await tex.step("keep_run", () => keepRun(store, routine, runs, outcome, answer || NO_MODEL));
       if (outcome === "finished") await tex.step("stop_routine", () => stopRoutine(dispatch, routine.path));
       if (supervision.task) await tex.step("deliver_supervision", () => deliverSupervision(store, dispatch, supervision, { outcome, text: answer }, (work) => deferred(store, work)));
-      return json({ outcome, answer, skipped: answer === "", send: routine.settings.send, to: routine.settings.to, beside: (await tex.step("seal_beside", () => sealBeside(env, session, store.chatWrites))) ?? undefined }); // what it wrote to their texts, for the warm copy
+      return json({ outcome, answer, skipped: answer === "", send: routine.settings.send, to: routine.settings.to });
     }
     if (supervision !== null) question = supervision.question;
   }
@@ -480,7 +480,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     : null;
 
   const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text or a group's (`pictureMaker.js`).
-  const offerRead = texted && job === null ? tex.ahead("google_offer", () => googleOfferLine(store, shown), "") : null, knowsRead = texting ? tex.ahead("tex_notes", () => hot.notes(() => readTexNotes(dispatch, { controlPlane, session }))) : null;
+  const offerRead = texted && job === null ? tex.ahead("google_offer", () => googleOfferLine(store, shown), "") : null, knowsRead = texting ? tex.ahead("tex_notes", () => deskTexts(store).then((desk) => readTexNotes(dispatch, { controlPlane, session }, desk, hot.identity))) : null; // About me and the jobs list from the person's object, with the history (`texDesk.js`)
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? [...(await tex.step("forward_tools", () => standingForwardTools(store, routine.path, offered))), ...routineCalendarTools(offered)] : []; // and their own calendar (`routine.js`)
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
@@ -602,7 +602,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
         to: routine.settings.to,
         provider: turn.provider,
         model: turn.model,
-        steps: turn.steps, beside: (await tex.step("seal_beside", () => sealBeside(env, session, store.chatWrites))) ?? undefined, // what it wrote to their texts, sealed for the warm copy (`warmCopy.js`)
+        steps: turn.steps,
       });
     }
 
@@ -634,11 +634,11 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
     if (group !== null && job === null && !turn.exhausted && !replaced) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
     const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
-    const kept = { ...newExchange(), tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID }; // addresses only (`sources.js`); the same exchange is handed to the warm copy
+    const kept = { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID }; // addresses only (`sources.js`)
     if (saving) await tex.behind(front, "save_chat", () => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
       try {
         const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await tex.step("transcript_kept", () => transcript?.kept())) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
-        await tex.step("append_chat", () => appendConversation(store, conversation, history, saved, said, kept));
+        await tex.step("append_chat", () => appendConversation(store, conversation, saved, said, kept)); if (conversation === "texts" && group === null) await tex.step("learn_desk_keys", () => learnDeskKeys(store, session.workspaceId)); // the desk's note keys, for the next turn (`texDesk.js`)
       } catch {
         // The answer is still owed. A history that failed to save costs the next turn some context, not this one its reply.
       }
@@ -662,7 +662,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       model: turn.model,
       steps: turn.steps,
       ...(await tex.step("job_fields", () => jobTurnFields(job, turn, { unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true, model: [production?.advisor, router?.think, builtinUsed].find((name) => typeof name === "string" && canRunBuiltin(name, env)), efforts: production?.efforts, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }), meter }))), // a job's part is checked by the advisor against its finish line (`jobCheck.js`)
-      ...{ warm: (await tex.step("seal_warm", () => hot.seal({ exchange: saving && attachments.length === 0 ? exchangeTurns([reactedLine(reacted), tapbackLine(quoted) || question, steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"), said, kept) : null, keepChat: !saving || attachments.length === 0, turn: body.turn, clean: ledger.untrusted !== true, wrote: turn.steps.length > 0 }))) ?? undefined, log: hot.log() ?? undefined }, // the copy the Worker hands back with the next text, and the log it holds from now on (`warmCopy.js`)
+      ...{ warm: (await tex.step("seal_warm", () => hot.seal({ turn: body.turn, clean: ledger.untrusted !== true, wrote: turn.steps.length > 0 }))) ?? undefined, log: hot.log() ?? undefined }, // the copy the Worker hands back with the next text, and the log it holds from now on (`warmCopy.js`)
     });
   } catch (error) {
     outcome.clean = false;

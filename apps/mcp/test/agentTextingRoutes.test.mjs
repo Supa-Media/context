@@ -80,6 +80,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationText, conversationTurns } from "./agentConversationFixture.mjs";
+import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-textingroutes.test";
 const TOKEN_TEXTS = `cat_troutes_texts_${"0".repeat(24)}`;
@@ -116,7 +117,8 @@ let during = null;
 const controlPlane = createControlPlaneStub();
 let bucket;
 const restore = [];
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+const tex = texStoreNamespace();
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, TEX_STORE: tex.namespace, ...AI_GATEWAY_ENV };
 
 function reply(step) {
   const content = [];
@@ -145,7 +147,7 @@ async function call(path, body, token = TOKEN_TEXTS) {
   return { status, body: json };
 }
 
-const live = (key) => bucket.has(key) && bucket.get(key).contentType !== LOGICAL_DELETE_CONTENT_TYPE;
+const live = (key) => bucket.has(key) && bucket.get(key)?.contentType !== LOGICAL_DELETE_CONTENT_TYPE;
 const liveKeys = (prefix) => [...bucket.keys()].filter((key) => key.startsWith(prefix) && live(key));
 
 const NOW = Date.now();
@@ -199,7 +201,7 @@ before(async () => {
     await controlPlane.addGrant({ workspaceId: "ws_troutes", role: "owner", userId: "user_troutes", accessToken, scopes, clientId });
   }
   controlPlane.serveTreesFrom(env, { s3 });
-  bucket = s3.bucketFor("tenant-troutes");
+  bucket = withAgentHome(s3.bucketFor("tenant-troutes"), tex, "ws_troutes"); // the bookkeeping is the person's object's (`texStoreFixture.mjs`)
 });
 
 after(() => {
@@ -287,7 +289,7 @@ test("a cancelled turn stops after its current round", async () => {
 });
 
 test("a turn nobody cancelled runs as before, and clears nothing of another turn's", async () => {
-  bucket.set(`${CANCEL_PREFIX}turn-other-0001.json`, { body: "{}", etag: "c0", lastModified: new Date().toISOString() });
+  await bucket.set(`${CANCEL_PREFIX}turn-other-0001.json`, { body: "{}", etag: "c0", lastModified: new Date().toISOString() });
   script = [{ calls: [["fetch", { id: "1-projects/plan.md" }]] }, { text: "Here's the plan." }];
   const response = await call("/agent", { question: "read my plan", timeZone: "UTC", conversation: "texts", turn: TURN });
   assert.equal(response.body.answer, "Here's the plan.");
@@ -299,7 +301,7 @@ test("a turn nobody cancelled runs as before, and clears nothing of another turn
 
 test("no cancel for a turn that is not running, or not this person's", async () => {
   assert.deepEqual((await call("/agent/cancel", { turn: TURN })).body, { cancelled: false });
-  bucket.set(`${RUNNING_PREFIX}${TURN}.json`, { body: JSON.stringify({ user: "user_someone_else", wrote: false }), etag: "r0", lastModified: new Date().toISOString() });
+  await bucket.set(`${RUNNING_PREFIX}${TURN}.json`, { body: JSON.stringify({ user: "user_someone_else", wrote: false }), etag: "r0", lastModified: new Date().toISOString() });
   assert.deepEqual((await call("/agent/cancel", { turn: TURN })).body, { cancelled: false });
   assert.deepEqual(liveKeys(CANCEL_PREFIX), [], "nothing marked");
 });
@@ -326,7 +328,7 @@ test("a cancel mark set after a write started is ignored by the turn", async () 
     script = script_;
     requests.length = 0;
     during = async (n) => {
-      if (n === at) bucket.set(`${CANCEL_PREFIX}${TURN}.json`, { body: "{}", etag: "cx", lastModified: new Date().toISOString() }); // the mark a racing cancel leaves before it takes it back
+      if (n === at) await bucket.set(`${CANCEL_PREFIX}${TURN}.json`, { body: "{}", etag: "cx", lastModified: new Date().toISOString() }); // the mark a racing cancel leaves before it takes it back
     };
     const response = await call("/agent", { question: "write a plain note", timeZone: "UTC", conversation: "texts", turn: TURN });
     assert.equal(response.body.cancelled, undefined);
@@ -417,13 +419,13 @@ test("a turn shown an answer from a tainted turn is untrusted, and so is what it
   const fresh = event({ text: "ok do it" });
   await call("/agent/events", { conversation: "texts", events: [askedBefore, answer, fresh] });
   const ask = { question: "ok do it", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id], turn: TURN };
-  bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: true }), etag: "t0", lastModified: new Date().toISOString() });
+  await bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: true }), etag: "t0", lastModified: new Date().toISOString() });
   script = [{ text: "Clean so far." }];
   await call("/agent", ask);
   assert.ok(!conversationTurns(bucket).some((turn) => turn.tainted), "a clean record: nothing tainted");
   assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: true });
   for (const key of [...bucket.keys()]) if (key.startsWith(".context/agent/events/")) bucket.delete(key);
-  bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: false }), etag: "t1", lastModified: new Date().toISOString() });
+  await bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: false }), etag: "t1", lastModified: new Date().toISOString() });
   script = [{ text: "Doing it." }];
   await call("/agent", ask);
   assert.ok(conversationTurns(bucket).some((turn) => turn.tainted === true), "this turn's answer is kept as tainted");
@@ -434,11 +436,9 @@ test("a turn shown an answer from a tainted turn is untrusted, and so is what it
 test("a named turn's record is written before its answer", async () => {
   script = [{ text: "Hi." }];
   // The record's write is slow, so an answer that did not wait for it returns first.
-  const below = globalThis.fetch;
-  globalThis.fetch = async (input, init) => {
-    const url = typeof input === "string" ? input : input.url;
-    if (url.includes(".context/agent/turns/") && (init?.method ?? input.method) === "PUT") await new Promise((resolve) => setTimeout(resolve, 100));
-    return below(input, init);
+  // The record is the person's object's (`store/texRouting.js`): its put is held there.
+  tex.before = async (_name, call) => {
+    if (call.op === "put" && String(call.key).startsWith("state/agent/turns/")) await new Promise((resolve) => setTimeout(resolve, 100));
   };
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
@@ -450,7 +450,7 @@ test("a named turn's record is written before its answer", async () => {
   assert.ok(live(`${TURNS_PREFIX}${TURN}.json`), "there when the answer is, before deferred work settles");
   await response.text();
   await settle();
-  globalThis.fetch = below;
+  tex.before = null;
 });
 
 test("a turn with no log for its chat is today's turn", async () => {

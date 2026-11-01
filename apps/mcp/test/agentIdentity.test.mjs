@@ -26,6 +26,7 @@ import { aboutMePrompt } from "../src/agent/aboutMe.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const PHONE = "+15555550100";
 const ADA = {
@@ -73,7 +74,7 @@ test("a control plane that fails or has no such route is a turn that knows less,
 const S3_ENDPOINT = "https://s3.example-identity.test";
 const TOKEN_TEXTS = `cat_identity_texts_${"0".repeat(24)}`;
 const controlPlane = createControlPlaneStub();
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 const restore = [];
 const systems = [];
 const asked = [];

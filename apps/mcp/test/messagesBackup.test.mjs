@@ -46,6 +46,7 @@ import {
   messagesBackupRefusal,
 } from "../src/communications/messagesBackup.js";
 import { LIMITS, recordKey } from "../../../packages/communications/src/backup.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-messages-backup.test";
 const tok = (name) => `cat_msgbackup_${name}_`.padEnd(40, "0");
@@ -100,7 +101,7 @@ async function setUp() {
   await grant(T.editor, "ws_mb_mine", "editor", all, "user_editor");
   await grant(T.sharedOwner, "ws_mb_shared", "owner", all, "user_mine");
   await grant(T.other, "ws_mb_other", "owner", all, "user_other");
-  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
   return {
     env,
     keys: (name) => [...s3.bucketFor(name).keys()].filter((key) => key.startsWith(MESSAGES_BACKUP_LOG)).sort(),

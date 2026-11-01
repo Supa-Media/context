@@ -13,6 +13,7 @@ import comments from "../../../packages/shared/src/comments.cjs";
 import { propsOf } from "../src/tree/props.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 /* -------------------------------------------------------------------------- */
 /* The format                                                                 */
@@ -92,7 +93,7 @@ const TOKEN_BUILDER = `cat_mail_builder${"0".repeat(24)}`;
 const TOKEN_READER = `cat_mail_reader_${"0".repeat(24)}`;
 const TOKEN_OUTSIDER = `cat_mail_outside${"0".repeat(24)}`;
 const PLAN = "1-projects/launch/plan.md";
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 
 function manifest() {
   return (

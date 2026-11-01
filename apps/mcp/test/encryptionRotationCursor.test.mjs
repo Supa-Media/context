@@ -58,6 +58,7 @@ import {
   makeBucket,
   noteBody,
 } from "./encryptionRotation.test.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const PROGRESS_PATH = ".context/rotation-progress.json";
 const textOf = (result) => result?.content?.[0]?.text ?? "";
@@ -85,7 +86,7 @@ async function fixture(id) {
     userId: `user_${id}`,
   });
   const env = {
-    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
     GATEWAY_SECRET,
     NATIVE_BINDINGS: "BUCKET_ADV",
     BUCKET_ADV: a.bucket,

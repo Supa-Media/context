@@ -48,6 +48,11 @@ async function split(world, body) {
     calls.push({ phase, path: decodeURIComponent(url.pathname) + (url.searchParams.get("prefix") ?? ""), method: (init.method ?? "GET").toUpperCase() });
     return inner(input, init);
   };
+  // Tex's objects hold the person's bookkeeping now (the turn records too, `texStoreFixture.mjs`): their calls are
+  // the Worker's, so they are listed beside the bucket's, under the bucket's names, in the phase they ran in.
+  world.tex.before = async (_name, call) => {
+    if (typeof call?.key === "string" && call.key.startsWith("state/agent/")) calls.push({ phase, path: `/tenant-egress/.context/agent/${call.key.slice("state/agent/".length)}`, method: String(call.op).toUpperCase() });
+  };
   const { ctx, settle } = createWorkerCtx();
   try {
     const response = await worker.fetch(
@@ -61,6 +66,7 @@ async function split(world, body) {
     return { status: response.status, body: parsed, calls };
   } finally {
     globalThis.fetch = inner;
+    world.tex.before = null;
   }
 }
 
