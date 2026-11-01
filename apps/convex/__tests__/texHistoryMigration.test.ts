@@ -12,6 +12,10 @@ describe("a failed workspace is counted by a fixed code", () => {
     expect(failureCode(new TypeError("cannot read notes/abc.md"))).toBe("TypeError");
   });
 
+  test("a bucket's refusal as its operation and status, without the key", () => {
+    expect(failureCode(new Error("S3 GET .context/agent/events/x.json failed with 403: Access Denied"))).toBe("S3_GET_403");
+  });
+
   test("never a message or a value that is not a plain word", () => {
     expect(failureCode(Object.assign(new Error("secret"), { code: "a/b c", name: "notes/abc.md" }))).toBe("unknown");
     expect(failureCode("a string")).toBe("unknown");
