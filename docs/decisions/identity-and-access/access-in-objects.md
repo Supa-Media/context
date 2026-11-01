@@ -1,0 +1,58 @@
+# Who may reach what lives in the objects, one copy
+
+Decided by the owner, 2026-11-01 (23:08–23:30 UTC). The contract every thread
+codes against is `apps/mcp/src/workspaceStore/access.js`; this page is why.
+
+## The decision
+
+Members, roles, groups, invites, AI client connections (grants) and shares by
+name have **one copy, in the Durable Objects**, never in Convex once a
+workspace or person is switched. Clients and the gateway read and write them
+there. Convex keeps sign-in, OAuth client registration, billing and audit.
+
+- **The person object** is the personal workspace's own object,
+  `workspace:<personalWorkspaceId>`. It keeps `reach` (every workspace and
+  group chat the person is in, with role and groups), `sharedToMe` (notes and
+  folders shared to them from other workspaces) and `connections` (their AI
+  clients' grants, token hashes only). It is the authority for connections.
+- **The workspace object** keeps `members` and `invites` and is the authority
+  for membership. Once its access is switched, it checks the caller's
+  membership itself on every read, so a stale copy of `reach` in a person
+  object can never let anyone in.
+- Every object is placed in eastern North America (`enam`).
+
+A request is then: token → the person object (who, which workspaces, which
+role) → the workspace object (rules and text). No Convex call.
+
+## Tokens name their person object
+
+`cat1.<personalWorkspaceId>.<secret>` (access) and `crt1.…` (refresh), the
+secret 32 random bytes. The id is a locator, never proof: the object answers
+only for a sha256 it holds, and the hash covers the whole token, id included.
+Changing the id sends the hash to an object that does not hold it; changing
+the secret changes the hash. Both get the refusal a token that never existed
+gets, so no signature is needed and none is kept.
+
+Old tokens (`cat_…`, `crt_…`) keep working. An old access token resolves
+through the control plane until it expires (an hour for a client's). An old
+refresh token is found through a small `token:<sha256>` object that names the
+person object, written when the connection is copied across. New-format tokens
+are minted only for a person whose access is already in their object.
+
+## Writes that touch two objects
+
+The authority is written first, then the copy, with one clock (`at`) on both;
+the change is done only when both landed (`writeBoth`). Membership: workspace
+object first, person object second. So a removed member is refused on their
+next request even while the copy is on its way, and a failed copy fails the
+call so it is retried, never reported done.
+
+## What a simplification would cost
+
+- Keeping a second copy in Convex "for safety" is two answers to who may read,
+  and the direction they disagree in is a removed person still reading.
+- Trusting the token's id, or the person object's `reach`, without the
+  workspace object's own membership check, makes a stale or forged locator a
+  way in. `apps/mcp/test/accessContract.test.mjs` pins the token format and
+  the write order; the person object's tests pin the tampered-token refusal,
+  cross-tenant isolation and revocation on the next request.
