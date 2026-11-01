@@ -74,12 +74,31 @@ const OBJECT_BYTES_CAP = 8 * 1024 * 1024 * 1024;
 const ROWS_RECHECK_MS = 70_000;
 
 /** What a failure log may carry: the error's name and its code (a ConvexError's `data.code`, the gateway's `code`), never its message. */
-export function failureOf(error: unknown): { error: string; code?: string; reason: string } {
+export function failureOf(error: unknown): { error: string; code?: string; reason: string; at?: string } {
   const name = error instanceof Error ? error.name : "unknown";
   const data = (error as { data?: unknown } | null)?.data;
   const code = (data !== null && typeof data === "object" ? (data as { code?: unknown }).code : undefined) ?? (error as { code?: unknown } | null)?.code;
   const reason = reasonOf(error);
-  return typeof code === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(code) ? { error: name, code, reason } : { error: name, reason };
+  const at = whereOf(error);
+  return {
+    error: name,
+    ...(typeof code === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(code) ? { code } : {}),
+    reason,
+    ...(at ? { at } : {}),
+  };
+}
+
+/** The first frames of a stack as `function@file:line`: names from this repository's code, never a message or data. */
+export function whereOf(error: unknown): string | undefined {
+  const stack = (error as { stack?: unknown } | null)?.stack;
+  if (typeof stack !== "string") return undefined;
+  const frames: string[] = [];
+  for (const line of stack.split("\n").slice(1)) {
+    const frame = /^\s*at (?:(?:async )?([A-Za-z_$][\w$.<>]{0,60}) )?\(?(?:.*[\\/])?([\w.-]{1,60}\.[cm]?[jt]s):(\d{1,6})(?::\d+)?\)?$/.exec(line);
+    if (frame) frames.push(`${frame[1] ?? "?"}@${frame[2]}:${frame[3]}`);
+    if (frames.length === 3) break;
+  }
+  return frames.length > 0 ? frames.join(" < ") : undefined;
 }
 
 /**
@@ -100,7 +119,15 @@ export function reasonOf(error: unknown): string {
   if (message.startsWith("unsafe storage prefix")) return "unsafe_prefix";
   const name = (error as { name?: unknown } | null)?.name;
   if (name === "ManagedEncryptionError") return "sealed";
-  if (name === "TypeError") return /fetch|network|connection|socket|reset|abort|internal error|disconnect/i.test(message) ? "network" : "type_error";
+  if (name === "TypeError") {
+    if (/fetch|network|connection|socket|reset|abort|internal error|disconnect/i.test(message)) return "network";
+    // A code fault: the property or function it tripped on is a name from this repository, never data.
+    const read = /^Cannot read propert(?:y|ies) of (undefined|null) \(reading '([A-Za-z_$][\w$]{0,40})'\)/.exec(message);
+    if (read) return `type_error_${read[1]}_${read[2]}`;
+    const call = /^([A-Za-z_$][\w$.]{0,60}) is not a function/.exec(message);
+    if (call) return `type_error_not_function_${call[1]}`;
+    return "type_error";
+  }
   if (/timed? ?out|timeout/i.test(message)) return "timeout";
   if (/too many|rate/i.test(message)) return "rate_limited";
   return "other";

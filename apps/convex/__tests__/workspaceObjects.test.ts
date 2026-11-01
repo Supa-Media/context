@@ -363,16 +363,21 @@ describe("failure logs", () => {
   test("carry a ConvexError's code and never its message", async () => {
     const { ConvexError } = await import("convex/values");
     const { failureOf } = await import("../functions/workspaceObjects");
-    expect(failureOf(new ConvexError({ code: "KEY_UNAVAILABLE", message: "secret words" }))).toEqual({ error: "ConvexError", code: "KEY_UNAVAILABLE", reason: "other" });
-    expect(failureOf(Object.assign(new Error("x"), { code: "WORKSPACE_MISMATCH" }))).toEqual({ error: "Error", code: "WORKSPACE_MISMATCH", reason: "other" });
-    expect(failureOf(new Error("note body here"))).toEqual({ error: "Error", reason: "other" });
-    expect(failureOf(new ConvexError({ code: "has spaces and is long enough to be text" }))).toEqual({ error: "ConvexError", reason: "other" });
+    expect(failureOf(new ConvexError({ code: "KEY_UNAVAILABLE", message: "secret words" }))).toMatchObject({ error: "ConvexError", code: "KEY_UNAVAILABLE", reason: "other" });
+    expect(failureOf(Object.assign(new Error("x"), { code: "WORKSPACE_MISMATCH" }))).toMatchObject({ error: "Error", code: "WORKSPACE_MISMATCH", reason: "other" });
+    expect(failureOf(new Error("note body here"))).toMatchObject({ error: "Error", reason: "other" });
+    expect(failureOf(new ConvexError({ code: "has spaces and is long enough to be text" }))).toMatchObject({ error: "ConvexError", reason: "other" });
     const listed = failureOf(new Error("S3 LIST notes/Secret Plans.md failed with 503: SlowDown"));
-    expect(listed).toEqual({ error: "Error", reason: "storage_list_503" });
+    expect(listed).toMatchObject({ error: "Error", reason: "storage_list_503" });
     expect(JSON.stringify(listed)).not.toContain("Secret");
     expect(failureOf(new Error("S3 GET response exceeds 10 bytes")).reason).toBe("storage_get_too_large");
     expect(failureOf(new Error("logical-delete prefix listing made no progress")).reason).toBe("listing_no_progress");
     expect(JSON.stringify(failureOf(new ConvexError({ code: "X", message: "secret words" })))).not.toContain("secret");
+    const thrown = new TypeError("Cannot read properties of undefined (reading 'body') for notes/Secret.md");
+    thrown.stack = "TypeError: Cannot read properties of undefined (reading 'body') for notes/Secret.md\n    at verdictOf (/repo/apps/convex/functions/lib/workspaceObjects/bodies.ts:180:12)\n    at async parityPage (file:///repo/bodies.ts:210:3)";
+    const where = failureOf(thrown);
+    expect(where.at).toBe("verdictOf@bodies.ts:180 < parityPage@bodies.ts:210");
+    expect(JSON.stringify(where)).not.toContain("Secret");
   });
 
   test("a key that will not copy hands its error to the caller, and the page goes on", async () => {
@@ -407,7 +412,9 @@ describe("failure logs", () => {
     expect(maxAfter).toBe(0);
     const { reasonOf } = await import("../functions/workspaceObjects");
     expect(reasonOf(new TypeError("Network connection lost."))).toBe("network");
-    expect(reasonOf(new TypeError("x is not a function"))).toBe("type_error");
+    expect(reasonOf(new TypeError("x is not a function"))).toBe("type_error_not_function_x");
+    expect(reasonOf(new TypeError("Cannot read properties of undefined (reading 'etag')"))).toBe("type_error_undefined_etag");
+    expect(reasonOf(new TypeError("Something 'notes/Secret.md' odd"))).toBe("type_error");
   });
 
   test("a busy bucket's listing is asked again, a refusal is not", async () => {
