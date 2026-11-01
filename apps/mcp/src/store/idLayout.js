@@ -274,7 +274,8 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
   };
 
   /**
-   * The keys of the live keyed notes at `paths`, in one lookup: `{path: key}`, a path with no keyed row left out. For a
+   * The keys of the live keyed notes at `paths`, in one lookup: `{path: key}`, a path with no live row `false`, any
+   * other row left out, and `{}` when the tree cannot say. For a
    * group turn's direct reads of its chat's own notes (`agent/groupDirectNotes.js`).
    */
   wrapped.keysAt = async (paths) => {
@@ -282,7 +283,9 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
     if (named.length === 0) return {};
     const answer = await lookup(named);
     if (answer?.keyed !== true) return {};
-    return Object.fromEntries(named.map((path) => [path, entryFor(answer, path)]).filter(([, entry]) => keyedEntry(entry)).map(([path, entry]) => [path, entry.key]));
+    // A path with no live row is `false`, so a caller can tell "no note there" from "not asked" (`groupDirectNotes.js`).
+    const keyOf = (entry) => (keyedEntry(entry) ? entry.key : noNote({ entry }) ? false : undefined);
+    return Object.fromEntries(named.map((path) => [path, keyOf(entryFor(answer, path))]).filter(([, key]) => key !== undefined));
   };
 
   /**
