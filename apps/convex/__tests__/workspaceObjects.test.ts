@@ -345,3 +345,15 @@ describe("the switch", () => {
     }
   });
 });
+
+describe("failure logs", () => {
+  test("carry a ConvexError's code and never its message", async () => {
+    const { ConvexError } = await import("convex/values");
+    const { failureOf } = await import("../functions/workspaceObjects");
+    expect(failureOf(new ConvexError({ code: "KEY_UNAVAILABLE", message: "secret words" }))).toEqual({ error: "ConvexError", code: "KEY_UNAVAILABLE" });
+    expect(failureOf(Object.assign(new Error("x"), { code: "WORKSPACE_MISMATCH" }))).toEqual({ error: "Error", code: "WORKSPACE_MISMATCH" });
+    expect(failureOf(new Error("note body here"))).toEqual({ error: "Error" });
+    expect(failureOf(new ConvexError({ code: "has spaces and is long enough to be text" }))).toEqual({ error: "ConvexError" });
+    expect(JSON.stringify(failureOf(new ConvexError({ code: "X", message: "secret words" })))).not.toContain("secret");
+  });
+});

@@ -72,6 +72,14 @@ const OBJECT_BYTES_CAP = 8 * 1024 * 1024 * 1024;
 /** Rows are asked again after one sync tick has had time to run. */
 const ROWS_RECHECK_MS = 70_000;
 
+/** What a failure log may carry: the error's name and its code (a ConvexError's `data.code`, the gateway's `code`), never its message. */
+export function failureOf(error: unknown): { error: string; code?: string } {
+  const name = error instanceof Error ? error.name : "unknown";
+  const data = (error as { data?: unknown } | null)?.data;
+  const code = (data !== null && typeof data === "object" ? (data as { code?: unknown }).code : undefined) ?? (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(code) ? { error: name, code } : { error: name };
+}
+
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The bucket alone, decrypted, logical-delete view; no workspace routing (no `workspaceStore` passed). `null` without a binding. */
@@ -360,7 +368,7 @@ export const backfill = internalAction({
       } catch (error) {
         // One workspace that cannot be read (a revoked or broken binding) is counted and passed over, never the run's end.
         counts.failed += 1;
-        console.warn(JSON.stringify({ event: "workspace_backfill_failed", workspaceId, error: error instanceof Error ? error.name : "unknown" }));
+        console.warn(JSON.stringify({ event: "workspace_backfill_failed", workspaceId, ...failureOf(error) }));
         state.queue.shift();
         state.at = undefined;
         state.sizing = undefined;
@@ -396,7 +404,7 @@ export const syncRows = internalAction({
         counts.pushed += 1;
       } catch (error) {
         counts.unreachable += 1;
-        console.warn(JSON.stringify({ event: "workspace_rows_sync_failed", workspaceId, error: error instanceof Error ? error.name : "unknown" }));
+        console.warn(JSON.stringify({ event: "workspace_rows_sync_failed", workspaceId, ...failureOf(error) }));
       }
     }
     return counts;
@@ -533,7 +541,7 @@ export const parity = internalAction({
         else counts.clean += 1;
       } catch (error) {
         counts.unreachable += 1;
-        console.warn(JSON.stringify({ event: "workspace_parity_failed", workspaceId, error: error instanceof Error ? error.name : "unknown" }));
+        console.warn(JSON.stringify({ event: "workspace_parity_failed", workspaceId, ...failureOf(error) }));
       }
       finishWorkspace();
     }
