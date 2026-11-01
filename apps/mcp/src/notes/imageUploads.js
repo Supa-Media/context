@@ -41,6 +41,7 @@ import { storeForOpenedBinding } from "../session.js";
 import { createControlPlane } from "../controlPlane.js";
 import { json } from "../http/responses.js";
 import { imageRefFor } from "../tools/readImage.js";
+import { attachPictureCompression, compressAndLog } from "./pictureCompression.js";
 import { MAX_IMAGES_PER_WRITE, MAX_UPLOADED_IMAGE_BYTES, SHA256_PATTERN, sha256Hex, uploadLinkLeaf } from "./uploadedImages.js";
 
 export const IMAGE_UPLOAD_PATH = "/api/image-upload";
@@ -55,7 +56,9 @@ const TICKET_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
  * that session's own token, for the workspace this store reaches. The token
  * stays here, off the store's enumerable fields and out of every tool.
  */
-export function attachImageUploads(store, session, controlPlane, origin) {
+export function attachImageUploads(store, session, controlPlane, origin, env = null) {
+  // And the picture compressor, over the same request (`pictureCompression.js`).
+  if (env) attachPictureCompression(store, env, { workspaceId: session?.workspaceId ?? null });
   if (typeof controlPlane?.createGatewayJob !== "function") return;
   Object.defineProperty(store, "mintImageUpload", {
     value: async ({ sha256, bytes }) => {
@@ -183,15 +186,23 @@ export async function handleImageUpload(request, env, deps = {}) {
     await controlPlane.reportGatewayJob(ticket, { status: "failed", error: "upload did not match its ticket" }).catch(() => {});
     return json(refused, 403);
   }
+  // Kept compressed, under the hash of the bytes the ticket was for: the name
+  // `findUploadedImage` asks for, whatever the stored copy's type became.
+  const picture = await compressAndLog(env?.IMAGES, bytes, type, { workspaceId: job.workspaceId, grantId: job.grantId });
+  const storedLeaf = uploadLinkLeaf(sha256, picture.extension);
+  if (imageRefFor(storedLeaf)?.mimeType !== picture.contentType) {
+    await controlPlane.reportGatewayJob(ticket, { status: "failed", error: "could not name the picture" }).catch(() => {});
+    return json({ error: "could not name the picture" }, 415);
+  }
   try {
     const store = (deps.storeFor ?? storeForOpenedBinding)(opened, job.workspaceId, env);
-    await store.put(IMAGE_PREFIX + leaf, bytes, { contentType: type.contentType });
+    await store.put(IMAGE_PREFIX + storedLeaf, picture.bytes, { contentType: picture.contentType });
   } catch {
     console.error("image_upload.store_failed", { workspaceId: job.workspaceId, grantId: job.grantId });
     await controlPlane.reportGatewayJob(ticket, { status: "failed", error: "storage unavailable" }).catch(() => {});
     return json({ error: "the picture could not be stored; ask write with action upload for a new link" }, 502);
   }
   await controlPlane.reportGatewayJob(ticket, { status: "complete" }).catch(() => {});
-  console.log("image_upload.stored", { workspaceId: job.workspaceId, grantId: job.grantId, bytes: bytes.byteLength });
-  return json({ stored: leaf, sha256, bytes: bytes.byteLength }, 201);
+  console.log("image_upload.stored", { workspaceId: job.workspaceId, grantId: job.grantId, bytes: picture.bytes.byteLength });
+  return json({ stored: storedLeaf, sha256, bytes: bytes.byteLength, storedBytes: picture.bytes.byteLength }, 201);
 }

@@ -339,7 +339,7 @@ export async function route(request, env, ctx) {
       // same terms; a texting setup may lay its own over them for one turn.
       store.searchSettings = searchSettingsFor(env);
       attachLinkCalls(store, session, controlPlane, env);
-      attachImageUploads(store, session, controlPlane, origin);
+      attachImageUploads(store, session, controlPlane, origin, env);
       // The person's texts (`tools/texts.js`), for their own personal workspace's owner only.
       if (textsCleared(session)) Object.defineProperty(store, "texts", { value: Object.freeze({ cleared: true, reader: session.actorClientName ?? null }) });
       // The one way anything in this worker gets to keep working after the
@@ -606,7 +606,7 @@ export async function route(request, env, ctx) {
         // Read at open time, so a turn's setup settings reach the contexts it addresses.
         targetStore.searchSettings = store.searchSettings;
         attachLinkCalls(targetStore, target, controlPlane, env);
-        attachImageUploads(targetStore, target, controlPlane, origin);
+        attachImageUploads(targetStore, target, controlPlane, origin, env);
         targetStore.defer = store.defer;
         // A turn's held index passes include the contexts it opens (`search/heldPasses.js`).
         if (typeof store.holdSearchPass === "function") targetStore.holdSearchPass = store.holdSearchPass;

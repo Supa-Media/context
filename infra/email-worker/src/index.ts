@@ -111,6 +111,7 @@ import { workspaceClient } from "../../../apps/mcp/src/workspaceStore/api.js";
 import { NoteCapReached } from "../../../apps/mcp/src/store/noteCap.js";
 import { managedEncryptionFor } from "../../../apps/mcp/src/store/managedEncryption.js";
 import { AUDIT_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
+import { compressAndLog } from "../../../apps/mcp/src/notes/pictureCompression.js";
 
 // `REFUSAL` and `DEFAULT_TARGET_FOLDER` used to be re-exported from here for
 // the tests' convenience. They are not any more, and must not be again: a
@@ -160,6 +161,8 @@ export interface Env {
    * what it emits — integers and one closed enum, never a sender string.
    */
   LOG_ARC_SHAPE?: string;
+  /** Cloudflare's Images binding, which keeps pictures compressed. Absent: stored as they came. */
+  IMAGES?: unknown;
   [key: string]: unknown;
 }
 
@@ -549,6 +552,9 @@ export async function handleEmail(
       limits: { ...DEFAULT_MIME_LIMITS, maxAttachmentBytes: resolution.maxAttachmentBytes },
       authServiceId: env.AUTH_SERVICE_ID || "",
       arcDiagnostics: env.LOG_ARC_SHAPE === "1",
+      // Pictures are kept compressed, through this Worker's Images binding.
+      compressPicture: (bytes, type) =>
+        compressAndLog(env.IMAGES, bytes, type, { worker: "email" }) as Promise<{ bytes: Uint8Array; contentType: string; extension: string }>,
     },
     senderIsAllowed,
   );
