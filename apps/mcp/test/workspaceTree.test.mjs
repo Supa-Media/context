@@ -12,6 +12,7 @@ import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { listFolderFromRows, folderPathOf } from "../src/workspaceStore/listing.js";
 import { treeSockets, readerOf, TREE_READER_HEADER } from "../src/workspaceStore/treeSockets.js";
 import { treeRows } from "../src/workspaceStore/treeRows.js";
+import { workspaceMembers } from "../src/workspaceStore/members.js";
 import { handleTree } from "../src/live/treeRoute.js";
 import { handleWorkspaceStoreDoor } from "../src/workspaceStore/door.js";
 import { isTransportPath } from "../src/origin.js";
@@ -387,4 +388,78 @@ test("the socket's path reaches the route: it is never read as a workspace's nam
   const env = { WORKSPACE_STORE: { idFromName: (name) => ({ name }), get: () => ({ fetch: async () => new Response(null, { status: 500 }) }) } };
   const answer = await route(new Request(`https://gateway.test${TREE_SOCKET_PATH}`, { headers: { Upgrade: "websocket" } }), env, { waitUntil() {} });
   assert.equal(answer.status, 401);
+});
+
+/* ------------------------- the reader as a member ------------------------- */
+
+const MEMBER = { userId: "user_a", personalWorkspaceId: "ws_pa", role: "editor", groups: [], at: 1 };
+
+/** A socket world whose object also keeps its members (`store.members`, read by `clearanceOf` when home is `object`). */
+function memberSocketWorld({ home = null } = {}) {
+  const w = socketWorld();
+  w.store.members = workspaceMembers(w.sql);
+  if (home !== null) w.store.members.setHome(home);
+  return w;
+}
+
+test("readerOf keeps a well-formed userId and refuses a malformed or non-string one", () => {
+  const kept = readerOf(JSON.stringify({ scope: "team", groups: [], deadline: 1, userId: "user_a" }));
+  assert.equal(kept.userId, "user_a");
+  const anonymous = readerOf(JSON.stringify({ scope: "team", groups: [], deadline: 1 }));
+  assert.equal("userId" in anonymous, false, "a reader that names nobody carries no userId");
+  assert.equal(readerOf(JSON.stringify({ scope: "team", groups: [], deadline: 1, userId: "a/b" })), null);
+  assert.equal(readerOf(JSON.stringify({ scope: "team", groups: [], deadline: 1, userId: 5 })), null);
+  assert.equal(readerOf(JSON.stringify({ scope: "team", groups: [], deadline: 1, userId: {} })), null);
+});
+
+test("with home convex a socket that names no one is listed as before", { skip }, async () => {
+  const w = memberSocketWorld();
+  const socket = w.open(reader("team")).server;
+  await w.tree.message(socket, JSON.stringify({ t: "watch", folders: ["projects"] }));
+  assert.equal(socket.closed, null);
+  assert.deepEqual(names(socket.sent[0].page), ["projects/plan.md"]);
+});
+
+test("with home object a socket whose reader is a live member is listed at its clearance", { skip }, async () => {
+  const w = memberSocketWorld({ home: "object" });
+  w.store.members.put("members", [MEMBER]);
+  const socket = w.open({ ...reader("team"), userId: "user_a" }).server;
+  await w.tree.message(socket, JSON.stringify({ t: "watch", folders: ["projects"] }));
+  assert.equal(socket.closed, null);
+  assert.deepEqual(names(socket.sent[0].page), ["projects/plan.md"]);
+});
+
+test("with home object a socket that names no one, or a non-member, is closed to reauthorize and gets no listing", { skip }, async () => {
+  const w = memberSocketWorld({ home: "object" });
+  w.store.members.put("members", [MEMBER]);
+  const anonymous = w.open(reader("team")).server;
+  await w.tree.message(anonymous, JSON.stringify({ t: "watch", folders: ["projects"] }));
+  assert.equal(anonymous.closed.code, TREE_CLOSE_REAUTH);
+  assert.equal(anonymous.sent.length, 0);
+
+  const stranger = w.open({ ...reader("team"), userId: "user_x" }).server;
+  await w.tree.message(stranger, JSON.stringify({ t: "watch", folders: ["projects"] }));
+  assert.equal(stranger.closed.code, TREE_CLOSE_REAUTH);
+  assert.equal(stranger.sent.length, 0);
+});
+
+test("with home object a member removed from the workspace loses its open socket on the next change, and no new listing", { skip }, async () => {
+  const w = memberSocketWorld({ home: "object" });
+  w.store.members.put("members", [MEMBER]);
+  const socket = w.open({ ...reader("team"), userId: "user_a" }).server;
+  await w.tree.message(socket, JSON.stringify({ t: "watch", folders: ["projects"] }));
+  assert.equal(socket.sent.length, 1);
+
+  assert.deepEqual(w.store.members.remove("members", ["user_a"], 5), ["user_a"]);
+  w.tree.changed({ paths: null });
+  await w.tree.flush();
+  assert.equal(socket.closed.code, TREE_CLOSE_REAUTH);
+  assert.equal(socket.sent.length, 1, "no listing is sent once the reader is no longer a member");
+  assert.equal(w.sql.exec("SELECT COUNT(*) AS n FROM ws_tree_sockets").toArray()[0].n, 0);
+
+  // A fresh socket for the removed person is refused on its first watch too.
+  const again = w.open({ ...reader("team"), userId: "user_a" }).server;
+  await w.tree.message(again, JSON.stringify({ t: "watch", folders: ["projects"] }));
+  assert.equal(again.closed.code, TREE_CLOSE_REAUTH);
+  assert.equal(again.sent.length, 0);
 });

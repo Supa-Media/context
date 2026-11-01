@@ -14,11 +14,18 @@
  */
 
 import { texObjects } from "./texStore/objects.js";
+import { TexObjectRefused } from "./texStore/objects.js";
+import { callTexStore } from "./texStore/wire.js";
+import { workspaceStub } from "./workspaceStore/api.js";
+import { workspaceMembers } from "./workspaceStore/members.js";
 import { workspaceRows } from "./workspaceStore/rows.js";
 import { serveWorkspaceStore } from "./workspaceStore/serve.js";
+import { flushReach } from "./workspaceStore/serveMembers.js";
 import { treeSockets } from "./workspaceStore/treeSockets.js";
 
 const CALL = "x-tex-call";
+/** How long a person-object write that failed waits before it is sent again. */
+const REACH_RETRY_MS = 30_000;
 
 function opOf(request) {
   try {
@@ -42,6 +49,26 @@ export class WorkspaceStore {
     this.store = {
       objects: texObjects(sql),
       rows: workspaceRows(sql),
+      members: workspaceMembers(sql),
+      // A person's own object (`workspace:<personalWorkspaceId>`), told of a member change (`serveMembers.js`).
+      reach: (personalWorkspaceId) => {
+        const stub = workspaceStub(this.env, personalWorkspaceId);
+        if (stub === null) return null;
+        return {
+          call: async (op, body) => {
+            try {
+              return await (await callTexStore(stub, op, {}, new TextEncoder().encode(JSON.stringify(body)))).json();
+            } catch (error) {
+              // A 422 is a write the person object will never keep: sending it again would be refused again.
+              if (error instanceof TexObjectRefused) error.refused = true;
+              throw error;
+            }
+          },
+        };
+      },
+      retryLater: async () => {
+        if ((await this.state.storage.getAlarm()) === null) await this.state.storage.setAlarm(Date.now() + REACH_RETRY_MS);
+      },
       // One storage transaction for `ws.apply`: all of a change lands, or none of it.
       transact: (work) => this.state.storage.transactionSync(work),
     };
@@ -58,6 +85,11 @@ export class WorkspaceStore {
     // Where the tree is read from changed: watchers of a workspace switched back are told to read Convex.
     if (opOf(request) === "ws.home" && response.ok) this.tree.notice({ all: true });
     return response;
+  }
+
+  /** Person-object writes still owed by member changes, sent again. */
+  async alarm() {
+    await flushReach(this.ready());
   }
 
   async webSocketMessage(ws, raw) {
