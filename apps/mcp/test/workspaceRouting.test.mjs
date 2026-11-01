@@ -116,3 +116,63 @@ test("keys other than note texts and editing history never leave the bucket", { 
   assert.equal(await object.get("files/x.png"), null);
   assert.equal(await object.get("notes/plain-name.md"), null);
 });
+
+// Saved versions (`.context/collaboration/v1/revisions/`) are never deleted, so they are most of a busy
+// workspace's bytes. The object keeps each document's current and pending ones; the bucket keeps them all.
+const DOC = "d-0199a000-0000-7000-8000-00000000000d";
+const revisionKey = (revision) => `.context/collaboration/v1/revisions/${DOC}/${revision}.json`;
+const stateKey = `.context/collaboration/v1/documents/${DOC}.json`;
+
+function objectHome({ later = 0 } = {}) {
+  const bucket = sqlStore();
+  const object = sqlStore();
+  const client = { bodies: object };
+  const routed = withWorkspaceRouting(bucket, { workspaceId: "ws", client, known: { home: "object", backfilledAt: 1 }, now: () => Date.now() + later });
+  return { bucket, object, routed };
+}
+
+test("object: an older saved version the object no longer holds is read from the bucket, and never copied in", { skip }, async () => {
+  const { bucket, object, routed } = objectHome();
+  await bucket.put(revisionKey("r-old"), "old version");
+  assert.equal(await (await routed.get(revisionKey("r-old"))).text(), "old version");
+  assert.notEqual(await routed.head(revisionKey("r-old")), null);
+  assert.equal(await object.get(revisionKey("r-old")), null);
+  assert.equal(await routed.get(revisionKey("r-none")), null);
+});
+
+test("object: saving a document's state drops the object's versions it no longer names, once past the grace", { skip }, async () => {
+  const { bucket, object, routed } = objectHome({ later: 11 * 60 * 1000 });
+  for (const revision of ["r-1", "r-2", "r-3"]) await routed.put(revisionKey(revision), `v ${revision}`, { onlyIf: { absent: true } });
+  await routed.put(stateKey, JSON.stringify({ revision: "r-3", pending: { revision: "r-2" } }));
+  assert.equal(await object.get(revisionKey("r-1")), null);
+  assert.equal(await (await object.get(revisionKey("r-2"))).text(), "v r-2");
+  assert.equal(await (await object.get(revisionKey("r-3"))).text(), "v r-3");
+  for (const revision of ["r-1", "r-2", "r-3"]) assert.equal(await (await bucket.get(revisionKey(revision))).text(), `v ${revision}`);
+  assert.equal(await (await routed.get(revisionKey("r-1"))).text(), "v r-1");
+});
+
+test("object: a version younger than the grace is kept even when no state names it yet (a save in flight)", { skip }, async () => {
+  const { object, routed } = objectHome();
+  await routed.put(revisionKey("r-new"), "in flight", { onlyIf: { absent: true } });
+  await routed.put(stateKey, JSON.stringify({ revision: "r-current" }));
+  assert.equal(await (await object.get(revisionKey("r-new"))).text(), "in flight");
+});
+
+test("object: a listing that reaches saved versions is the bucket's, which holds them all; notes list the object", { skip }, async () => {
+  const { bucket, routed } = objectHome();
+  await bucket.put(revisionKey("r-old"), "old");
+  await bucket.put(KEY, "bucket only note");
+  const keys = async (prefix) => (await routed.list({ prefix })).objects.map((entry) => entry.key);
+  assert.deepEqual(await keys(`.context/collaboration/v1/revisions/${DOC}/`), [revisionKey("r-old")]);
+  assert.ok((await keys(".context/collaboration/")).includes(revisionKey("r-old")));
+  assert.deepEqual(await keys("notes/"), []);
+});
+
+test("dual: a document's state saved never prunes anything (the bucket is still the truth)", { skip }, async () => {
+  const bucket = sqlStore();
+  const object = sqlStore();
+  const routed = withWorkspaceRouting(bucket, { workspaceId: "ws", client: { bodies: object }, known: { home: "dual" }, now: () => Date.now() + 11 * 60 * 1000 });
+  await routed.put(revisionKey("r-1"), "v1", { onlyIf: { absent: true } });
+  await routed.put(stateKey, JSON.stringify({ revision: "r-2" }));
+  assert.equal(await (await object.get(revisionKey("r-1"))).text(), "v1");
+});

@@ -18,15 +18,28 @@
  *   never read on a request once the workspace is backfilled. Before then a
  *   note missing from the object is read from the bucket and copied in.
  *
+ * Saved versions (`.context/collaboration/v1/revisions/`) are the exception
+ * in `object`: the object keeps each document's current and pending ones, and
+ * one it lacks is read from the bucket and never copied in. Saving a
+ * document's state drops the object's copies of the versions it no longer
+ * names, and a listing that reaches them is the bucket's.
+ *
  * Because both sides are written in every home but `bucket`, a request built
  * from a binding a moment older than a switch reads a current copy either way. A mirror
  * write that fails is logged and never fails the caller's write; the copy
  * and compare check finds and repairs it.
  */
 
-import { HOMES, isHome, isWorkspaceObjectKey } from "../workspaceStore/api.js";
+import { HOMES, REVISIONS, documentStateId, isHome, isRevisionKey, isWorkspaceObjectKey } from "../workspaceStore/api.js";
 
 const routedPrefix = (prefix) => typeof prefix === "string" && (prefix.startsWith("notes/") || prefix.startsWith(".context/collaboration/"));
+/** A listing that could name an older saved version, which only the bucket holds whole. */
+const coversRevisions = (prefix) => typeof prefix === "string" && (REVISIONS.startsWith(prefix) || prefix.startsWith(REVISIONS));
+/**
+ * How long a saved version no document names yet is kept in the object: a save writes its version before the
+ * document that names it (`commitSnapshot`), so a younger one may be that save's, still in flight.
+ */
+export const REVISION_GRACE_MS = 10 * 60 * 1000;
 
 /**
  * @param {object} store the bucket's store
@@ -68,6 +81,34 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
     return null;
   };
 
+  /**
+   * After a document's state is saved in the object, drop the object's copies of that document's saved versions it
+   * no longer names (its `revision` and `pending.revision` stay), once older than the grace. The bucket keeps them all.
+   */
+  const pruneRevisions = async (documentId, bytes) => {
+    let named;
+    try {
+      const state = JSON.parse(typeof bytes === "string" ? bytes : new TextDecoder().decode(bytes));
+      named = new Set([state?.revision, state?.pending?.revision].filter((value) => typeof value === "string"));
+    } catch {
+      return;
+    }
+    if (named.size === 0) return;
+    const prefix = `${REVISIONS}${documentId}/`;
+    const before = now() - REVISION_GRACE_MS;
+    let cursor;
+    for (let pages = 0; pages < 100; pages += 1) {
+      const page = await object.list({ prefix, ...(cursor === undefined ? {} : { cursor }) });
+      for (const entry of page?.objects ?? []) {
+        const revision = entry.key.slice(prefix.length).replace(/\.json$/, "");
+        const uploaded = new Date(entry.uploaded ?? 0).getTime();
+        if (!named.has(revision) && Number.isFinite(uploaded) && uploaded < before) await object.delete(entry.key);
+      }
+      if (!page?.truncated || !page.cursor) break;
+      cursor = page.cursor;
+    }
+  };
+
   const wrapped = Object.create(Object.getPrototypeOf(store), Object.getOwnPropertyDescriptors(store));
 
   const plainOptions = (options) => {
@@ -82,7 +123,10 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
       const routed = await sides(key);
       if (routed === null) return await store[method](key, ...rest);
       const found = await routed.primary[method](key, ...rest);
-      if (found !== null || routed.home !== HOMES.OBJECT || routed.backfilled) return found;
+      if (found !== null || routed.home !== HOMES.OBJECT) return found;
+      // An older saved version is never copied in: the bucket keeps those, and answers for them.
+      if (isRevisionKey(key)) return await store[method](key, ...rest);
+      if (routed.backfilled) return found;
       // Object home, not yet backfilled: the bucket still has it. Copy it in, then answer from the object.
       const fromBucket = await store.get(key);
       if (fromBucket === null) return null;
@@ -105,6 +149,8 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
       const written = await routed.primary.put(key, bytes, options);
       if (written !== null) {
         await mirror("put", key, () => routed.secondary.put(key, bytes, plainOptions(options)));
+        const documentId = routed.home === HOMES.OBJECT ? documentStateId(key) : null;
+        if (documentId !== null) await mirror("prune", key, () => pruneRevisions(documentId, bytes));
       }
       return written;
     };
@@ -155,7 +201,9 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
       if (!routedPrefix(options?.prefix)) return await store.list(options);
       const { home, backfilledAt } = await state();
       // A listing is the object's only once it holds everything; until then the bucket's is the complete one.
-      if (home === HOMES.OBJECT && typeof backfilledAt === "number") return await object.list(options);
+      // Saved versions never are the object's whole (it keeps the current ones), so a listing that reaches them
+      // (an export, a purge) is the bucket's, which every version is written to.
+      if (home === HOMES.OBJECT && typeof backfilledAt === "number" && !coversRevisions(options?.prefix)) return await object.list(options);
       return await store.list(options);
     };
   }

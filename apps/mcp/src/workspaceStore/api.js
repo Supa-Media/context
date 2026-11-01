@@ -50,6 +50,17 @@ export const MAX_ROWS_PER_PUT = 2000;
 const NOTE_KEY = /^notes\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.md$/;
 const COLLABORATION = ".context/collaboration/";
 
+/**
+ * Saved versions of a shared document (`packages/collaboration/src/storage.js` `REVISION_PREFIX`). Never deleted, so
+ * they are most of a busy workspace's bytes (@supa: 13.1 GB of 13.3). The object keeps only each document's current
+ * and pending ones, which a read needs; older ones are read from the bucket, only as an offline merge's base.
+ */
+export const REVISIONS = ".context/collaboration/v1/revisions/";
+const DOCUMENT_STATE = /^\.context\/collaboration\/v1\/documents\/([A-Za-z0-9_-]+)\.json$/;
+export const isRevisionKey = (key) => typeof key === "string" && key.startsWith(REVISIONS);
+/** The document id a document-state key names (`documents/<id>.json`, never its `operations/`), else null. */
+export const documentStateId = (key) => (typeof key === "string" ? DOCUMENT_STATE.exec(key)?.[1] ?? null : null);
+
 /** A key whose bytes live in the workspace object: a note's text or its shared-editing history. */
 export function isWorkspaceObjectKey(key) {
   return typeof key === "string" && (NOTE_KEY.test(key) || (key.startsWith(COLLABORATION) && !key.includes("..") && !key.includes("\0")));
