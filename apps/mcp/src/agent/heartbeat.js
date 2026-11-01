@@ -16,7 +16,7 @@
  *      and its body is extra instructions ("only text me about deadlines").
  *   2. The gateway, not the model, lists the notes changed since the last
  *      look. Nothing changed is `nothing_new` and costs no model turn. Tex's
- *      own job output (`tex/heartbeat/`, `tex/dreams/`, `tex/housekeeping/`, `tex/skills/`, `tex/about-me.md`)
+ *      own job output (`tex/heartbeat/`, `tex/dreams/`, `tex/housekeeping/`, `tex/skills/`, `tex/about.md`)
  *      never counts as a change, or each look would wake the next.
  *   3. A model may read their notes, in their own workspace only, and nothing
  *      else: no write, no move, no visibility, no web, no other workspace. It
@@ -41,7 +41,7 @@ import { ATTENTION_FOLDER, ATTENTION_SETTINGS_PATH, HEARTBEAT_FOLDER, HEARTBEAT_
 import { deliverAttention } from "./attention.js";
 import { TRANSCRIPTS_FOLDER, eventLines } from "./transcript.js";
 import { DREAMS_FOLDER } from "./dream.js";
-import { ABOUT_ME_PATH } from "./aboutMe.js";
+import { ABOUT_ME_PATH, OLD_ABOUT_ME_PATH } from "./aboutMe.js";
 import { readTexNotes } from "./jobs.js";
 import { LEARNED_SKILLS_FOLDER } from "./learnedSkills.js";
 import { openProvider, runTurn } from "./turn.js";
@@ -90,13 +90,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * new emails it was shown, and reading their calendar for other days. `read_email` is an `UNTRUSTED_READS` tool and the
  * mail list is a stranger's words, so a look that saw any mail saves its
  * exchange tainted (below), and the memory nudge never distils a stranger's
- * words into `tex/about-me.md` (`memoryNudge.js`). Asserted by a test.
+ * words into `tex/about.md` (`memoryNudge.js`). Asserted by a test.
  */
 const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes", "read_email", "read_calendar"]);
 
 /** Tex's own job output, which never counts as something that changed. */
 const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/", "tex/handbacks/", `${ATTENTION_FOLDER}/`, `${LEARNED_SKILLS_FOLDER}/`];
-const OWN_NOTES = new Set([ABOUT_ME_PATH, HEARTBEAT_SETTINGS_PATH, ATTENTION_SETTINGS_PATH]);
+const OWN_NOTES = new Set([ABOUT_ME_PATH, OLD_ABOUT_ME_PATH, HEARTBEAT_SETTINGS_PATH, ATTENTION_SETTINGS_PATH]);
 
 export { HEARTBEAT_READS };
 

@@ -121,7 +121,7 @@ const WEBSITE_FOLDER = "website";
 
 /**
  * Tex's folder's name when nothing has moved it: what Tex reads and writes
- * (`tex/about-me.md`, `tex/routines/`), carried to wherever the folder doing
+ * (`tex/about.md`, `tex/routines/`), carried to wherever the folder doing
  * the job is now by `jobPath` (owner, 2026-10-18).
  */
 const TEX_FOLDER = "tex";

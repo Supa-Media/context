@@ -319,3 +319,4 @@ test/workspaceTree.test.mjs
 test/objectLookup.test.mjs
 test/agentHomeMove.test.mjs
 test/accessContract.test.mjs
+test/texFolderNames.test.mjs

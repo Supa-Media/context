@@ -147,6 +147,7 @@ const TEX_FIGURE_ICON = "context:tex";
  * `folderJobInfo.cjs`).
  */
 const TEX_PART_ICONS = Object.freeze({
+  "about.md": contextPartMarker("tex_about"),
   "about-me.md": contextPartMarker("tex_about"),
   attention: contextPartMarker("tex_attention"),
   chats: contextPartMarker("tex_chats"),
@@ -173,7 +174,7 @@ const CADENCE_ICONS = Object.freeze({
 const YEARLY_ICON = contextPartMarker("cadence_year");
 
 /**
- * The drawn icon of `inside`, a path inside Tex's folder (`about-me.md`,
+ * The drawn icon of `inside`, a path inside Tex's folder (`about.md`,
  * `routines/every-day`), or `null` for anything of the person's own. Takes the
  * path below Tex's folder, so a Tex folder nested anywhere is drawn the same.
  */

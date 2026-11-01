@@ -92,7 +92,7 @@ crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dream
 
 /**
  * And a first look, now, for anyone Tex texts with who still has no
- * `tex/about-me.md` (`functions/lib/dreams/firstLook.ts`): once each, and only
+ * `tex/about.md` (`functions/lib/dreams/firstLook.ts`): once each, and only
  * a schedule row.
  */
 crons.interval("give Tex's people a first look", { hours: 1 }, internal.functions.dreams.armFirstLooks, {});

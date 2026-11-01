@@ -6,9 +6,9 @@
  * other client they connect save what they learn with `remember`, and a fact
  * with no note lands in its own inbox note (`tools/notes/remember.js`,
  * `inbox/memories/2026-10-23-<slug>.md`). Tex only ever read
- * `tex/about-me.md`, and its dream only read Tex's own transcripts, so a
+ * `tex/about.md`, and its dream only read Tex's own transcripts, so a
  * fact told to Claude never reached Tex. The dream now reads the ones saved
- * since it last ran and keeps the lasting ones in `tex/about-me.md`.
+ * since it last ran and keeps the lasting ones in `tex/about.md`.
  */
 
 import { MEMORY_FOLDER } from "../tools/notes/remember.js";
