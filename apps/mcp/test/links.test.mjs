@@ -64,8 +64,7 @@ import {
   rewriteLinks,
   styleOf,
 } from "../src/links.js";
-import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
-import { texStoreNamespace } from "./texStoreFixture.mjs";
+import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs"; import { texStoreNamespace } from "./texStoreFixture.mjs";
 /** `test.mjs`'s own predicate, kept local: this file stands up its own worker. */
 function succeeded(result) {
   return Boolean(result) && !result.isError;

@@ -58,8 +58,7 @@ import { newMailQuery } from "../src/agent/newMail.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { conversationTurns, newestExchangeId } from "./agentConversationFixture.mjs";
-import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
+import { conversationTurns, newestExchangeId } from "./agentConversationFixture.mjs"; import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-heartbeat.test";
 const TOKEN_BEAT = `cat_beat_heartbeat_${"0".repeat(20)}`;
@@ -355,9 +354,7 @@ export async function runAgentHeartbeatChecks(check) {
     await grant(TOKEN_APP, "client_beat_app");
     controlPlane.setBuiltinVerdict("ws_beat", BUILTIN_ALLOWED);
 
-    // The person's Tex bookkeeping (history, turns, running) lives in their object, not the bucket (`texStoreFixture.mjs`).
-    const tex = texStoreNamespace();
-    const bucket = withAgentHome(s3.bucketFor("tenant-beat"), tex, "ws_beat");
+    const tex = texStoreNamespace(), bucket = withAgentHome(s3.bucketFor("tenant-beat"), tex, "ws_beat"); // Tex's bookkeeping lives in the person's object (`texStoreFixture.mjs`)
     const recently = new Date(Date.now() - HOUR_MS).toISOString();
     const today = transcriptPath(Date.now(), "UTC");
     const brandingNote = "1-projects/tex-branding/about.md";

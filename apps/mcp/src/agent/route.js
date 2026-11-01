@@ -638,8 +638,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     if (saving) await tex.behind(front, "save_chat", () => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
       try {
         const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await tex.step("transcript_kept", () => transcript?.kept())) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
-        await tex.step("append_chat", () => appendConversation(store, conversation, saved, said, kept));
-        if (conversation === "texts" && group === null) await tex.step("learn_desk_keys", () => learnDeskKeys(store, session.workspaceId)); // the desk's note keys, for the next turn (`texDesk.js`)
+        await tex.step("append_chat", () => appendConversation(store, conversation, saved, said, kept)); if (conversation === "texts" && group === null) await tex.step("learn_desk_keys", () => learnDeskKeys(store, session.workspaceId)); // the desk's note keys, for the next turn (`texDesk.js`)
       } catch {
         // The answer is still owed. A history that failed to save costs the next turn some context, not this one its reply.
       }
