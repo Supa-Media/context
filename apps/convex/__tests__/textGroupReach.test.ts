@@ -292,12 +292,14 @@ describe("where one workspace is needed", () => {
     expect(await found(w.beta)).toBeNull();
   });
 
-  test("the chat's mailbox, check-in and decision read the one workspace the same way", async () => {
+  // Decide only meters against this workspace; it reads the transcript the Worker sends, never a workspace. Since
+  // 2026-11-01 (Jhonatan) it is metered to the chat's sponsor, as its turns are, whatever the reach.
+  test("decide is metered to the chat's sponsor, whatever the chat reaches", async () => {
     const w = await world();
     await turn(w.t, ADA, [ADA, BO, LINE]);
     const decided = await w.t.query(internal.functions.textGroups.groupDecideWorkspace, { groupKey: (await chatRow(w.t))!.groupKey });
-    expect(decided).toBe(w.alpha);
+    expect(decided).toBe(w.ada.personal);
     await dropMember(w.t, w.alpha, w.bo.userId);
-    expect(await w.t.query(internal.functions.textGroups.groupDecideWorkspace, { groupKey: (await chatRow(w.t))!.groupKey })).toBe(w.beta);
+    expect(await w.t.query(internal.functions.textGroups.groupDecideWorkspace, { groupKey: (await chatRow(w.t))!.groupKey })).toBe(w.ada.personal);
   });
 });
