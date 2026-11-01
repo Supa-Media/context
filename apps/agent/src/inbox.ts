@@ -116,7 +116,7 @@ export type InboxDeps = ReplyDeps &
 
 
 export const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
-const PROGRESS_PREFIX = "psent:"; // a progress line a turn sent, by text id and the line's hash, until the turn is over (`answerTexts`)
+const PROGRESS_PREFIX = "psent:"; // a progress line sent for the oldest text a turn answers, by the line's hash, until that work is answered (`answerTexts`)
 export const MAX_SEND_ATTEMPTS = 3;
 /** Tries at a text whose turn could not start (`TryLater`), the last one saying so. */
 export const MAX_ANSWER_ATTEMPTS = 3;
@@ -355,12 +355,13 @@ function arrivedAt(entries: Entry[]): number | undefined {
 async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry[], presence?: Presence): Promise<boolean> {
   const [key, item] = entries.at(-1)!;
   const message = merged(entries.map(([, entry]) => entry.message));
+  const work = entries[0][1].message.eventId; // a rerun, a newer text merged in or not, still answers its oldest: its lines are kept by that
   const covers = entries.flatMap(([, entry]) => (entry.ev ? [entry.ev] : [])).slice(-MAX_CANDIDATES);
   const tries = (item.tries ?? 0) + 1;
   const timing: TurnTiming = { started: deps.now(), arrived: arrivedAt(entries) };
   let turn: Answered;
   try {
-    turn = await answering(message, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, arrivedAt: timing.arrived }, storage, covers, presence, timing);
+    turn = await answering(message, work, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, arrivedAt: timing.arrived }, storage, covers, presence, timing);
   } catch (error) {
     if (!(error instanceof TryLater)) throw error;
     // Nothing ran, so these texts and the ones behind them wait; later ones keep their order.
@@ -368,9 +369,9 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
     await storage.setAlarm(deps.now() + 2 ** tries * 5_000);
     return false;
   }
-  for (const sentKey of (await storage.list({ prefix: `${PROGRESS_PREFIX}${message.eventId}:` })).keys()) await storage.delete(sentKey); // the turn is over: its lines (`answerTexts`) go
   // Restarted (`steer.ts`): nothing it said goes; its texts wait, marked, for the turn that answers them with the newer one.
   if (turn.cancelled) return true;
+  for (const sentKey of (await storage.list({ prefix: `${PROGRESS_PREFIX}${work}:` })).keys()) await storage.delete(sentKey); // answered: its lines (`answerTexts`) go
   let reply = turn.parts;
   // The first answer on the new line says it is Tex's new number, once.
   const movedTo = await storage.get<string>(NEW_LINE_KEY);
@@ -500,7 +501,7 @@ export { ACKNOWLEDGE_AFTER_MS, TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./pres
  * queue, so it gets none; its progress goes to its log.
  *
  * Progress texts are sent once, as they happen, each with its own idempotency
- * key, once by its words until the turn is over (`PROGRESS_PREFIX`), and never
+ * key, once by its words until the work is answered (`PROGRESS_PREFIX`), and never
  * retried with the answer: a line about where a task had got to is stale by then.
  *
  * `fixed`: the reply is one of the Worker's own texts (a failure, a limit,
@@ -508,7 +509,7 @@ export { ACKNOWLEDGE_AFTER_MS, TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./pres
  */
 type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; askText: string; fixed: boolean };
 
-async function answering(message: Message, deps: InboxDeps, storage: InboxStorage, covers: string[], presence: Presence | undefined, timing: TurnTiming): Promise<Answered> {
+async function answering(message: Message, work: string, deps: InboxDeps, storage: InboxStorage, covers: string[], presence: Presence | undefined, timing: TurnTiming): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
   let choices: Choice[] = [];
   let offers: Offer[] = [];
@@ -540,7 +541,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     },
   );
   const texts = await answerTexts(
-    reacted.length > 0 ? { ...message, reacted } : message,
+    reacted.length > 0 ? { ...message, reacted } : message, work,
     {
       ...deps,
       steer,
@@ -639,7 +640,7 @@ async function sendPicture(deps: InboxDeps, chatId: string, media: Media, key: s
   }
 }
 
-async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStorage, presence: Presence | undefined, timing: TurnTiming): Promise<string[]> {
+async function answerTexts(message: Message, work: string, deps: InboxDeps, storage: InboxStorage, presence: Presence | undefined, timing: TurnTiming): Promise<string[]> {
   // The gateway's answer is in when the reply is (`replyTo`); what follows it, before the first send, is `beforeSendMs`.
   const replied = (texts: Promise<string[]>): Promise<string[]> =>
     texts.then((reply) => {
@@ -649,15 +650,16 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
   const simulator = message.channel === "simulator";
   let chain: Promise<void> = Promise.resolve();
   const say = (text: string): Promise<void> => {
+    if (isControlWord(text)) return chain; // a word meant for us, never a text (`controlWords.ts`)
     chain = chain.then(async () => {
       try {
-        const hash = await sha256Hex(text), sentKey = `${PROGRESS_PREFIX}${message.eventId}:${hash}`;
+        const hash = await sha256Hex(text), sentKey = `${PROGRESS_PREFIX}${work}:${hash}`;
         if ((await storage.get<string>(sentKey)) !== undefined) return;
         const line = simulator ? null : lineFor(lineDeps(deps), message.chatId);
         // Progress lines go where the answer will, as far as can be told yet.
         if (line === null) await record(storage, "in", text, deps.now());
-        else await line.sendText(message.chatId, text, `progress:${message.eventId}:${hash.slice(0, 16)}`, threadFor(message));
-        await storage.put(sentKey, "sent");
+        else await line.sendText(message.chatId, text, `progress:${work}:${hash.slice(0, 16)}`, threadFor(message));
+        await storage.put(sentKey, deps.now());
         await addEvent(storage, { at: deps.now(), chat: message.chatId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: true, ...(deps.steer ? { turn: deps.steer.turn } : {}) });
         // Sending a text clears the bubble; the task is still going.
         await line?.startTyping(message.chatId);
@@ -693,8 +695,6 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
 }
 
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {
-  const seen = await storage.list<number>({ prefix: "seen:" });
-  for (const [key, at] of seen) {
-    if (now - at > SEEN_FOR_MS) await storage.delete(key);
-  }
+  // Progress lines go too, kept for work that was never answered (`PROGRESS_PREFIX`).
+  for (const prefix of ["seen:", PROGRESS_PREFIX]) for (const [key, at] of await storage.list<number>({ prefix })) if (now - at > SEEN_FOR_MS) await storage.delete(key);
 }

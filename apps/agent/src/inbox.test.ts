@@ -393,6 +393,45 @@ describe("inbox", () => {
     expect(sent.map((entry) => entry.text)).toEqual([...lines, "Holding the 7pm.", "answer to book a table"]);
   });
 
+  it("never sends a progress line twice when a newer text joins the turn run again, and keeps nothing once it is answered", async () => {
+    const storage = new MemoryStorage();
+    const sent: Sent[] = [];
+    const asks: string[] = [];
+    await accept(storage, msg("e1", "book a table"), 1_000);
+    let status = 503;
+    const lines = ["Checking OpenTable for Friday.", "Found 3 tables at Nopa."];
+    await drain(storage, deps({ sent, asks, progress: lines, streamStatus: () => status, now: 2_000 }));
+    // A second text comes in before the rerun, so the rerun answers both, under the newer one.
+    await accept(storage, msg("e2", "for 4"), 2_500);
+    status = 200;
+    await drain(storage, deps({ sent, asks, progress: lines, streamStatus: () => status, now: 60_000 }));
+    expect(asks).toEqual(["book a table", "book a table\nfor 4"]);
+    expect(sent.map((entry) => entry.text)).toEqual([...lines, "answer to book a table\nfor 4"]);
+    expect([...storage.data.keys()].filter((key) => key.startsWith("psent:"))).toEqual([]);
+  });
+
+  it("drops the lines kept for work never answered once they are a day old", async () => {
+    const storage = new MemoryStorage();
+    const sent: Sent[] = [];
+    await accept(storage, msg("e1", "book a table"), 1_000);
+    await drain(storage, deps({ sent, progress: ["Checking OpenTable for Friday."], streamStatus: () => 503, now: 2_000 }));
+    expect([...storage.data.keys()].filter((key) => key.startsWith("psent:"))).toHaveLength(1);
+    // The text is gone with its work never answered (a throw, say): nothing is left to clear its lines but their age.
+    for (const key of [...storage.data.keys()].filter((key) => key.startsWith("pending:"))) await storage.delete(key);
+    await drain(storage, deps({ sent, now: 2_000 + SEEN_FOR_MS - 1 }));
+    expect([...storage.data.keys()].filter((key) => key.startsWith("psent:"))).toHaveLength(1);
+    await drain(storage, deps({ sent, now: 2_000 + SEEN_FOR_MS + 1 }));
+    expect([...storage.data.keys()].filter((key) => key.startsWith("psent:"))).toEqual([]);
+  });
+
+  it("never texts a progress line that is only a word meant for the Worker", async () => {
+    const storage = new MemoryStorage();
+    const sent: Sent[] = [];
+    await accept(storage, msg("e1", "check my jobs"), 1_000);
+    await drain(storage, deps({ sent, progress: ["SKIP", "NO_REPLY", "Opening the jobs page."] }));
+    expect(sent.map((entry) => entry.text)).toEqual(["Opening the jobs page.", "answer to check my jobs"]);
+  });
+
   it("writes a simulated task's progress to the simulator's log, not to Linq", async () => {
     const storage = new MemoryStorage();
     const sent: Sent[] = [];

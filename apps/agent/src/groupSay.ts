@@ -5,7 +5,7 @@
 
 import { ServiceError } from "./clients";
 import { MAX_CANDIDATES } from "./decide";
-import { addEvent, kindOf, type EventReason, type TexEvent } from "./events";
+import { addEvent, kindOf, recentEvents, type EventReason, type TexEvent } from "./events";
 import { groupLineFor, type GroupLineDeps, type GroupPlace } from "./groupLine";
 import { PICTURE_FAILED, shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
@@ -137,10 +137,13 @@ export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pi
 /**
  * A progress line into the group (`groupModelTurn.ts`), as `say` sends it but kept once per turn by its words,
  * not its position: a retry never sends a line again, and the answer's parts keep their own positions however
- * many lines the retry says (`interleaved-updates.md`).
+ * many lines the retry says (`interleaved-updates.md`). Nor does a redraft, a new turn over the same messages,
+ * send a line one before it sent over any of them.
  */
 export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
   if (isControlWord(text)) return;
+  const over = meta.covers ?? [];
+  if (over.length > 0 && (await recentEvents(storage, message.groupId)).some((event) => event.from.kind === "tex" && event.delivered === true && event.text === text && (event.covers ?? []).some((cover) => over.includes(cover)))) return;
   const scope = sending.get(storage);
   if (scope === undefined || !scope.under.includes(message.messageId)) return await sayNow(storage, deps, message, text, meta);
   const key = `${PART_PREFIX}${scope.turn}:progress:${await sha256Hex(text)}`;

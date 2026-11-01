@@ -10,9 +10,10 @@
  * - the model is offered `text_progress`, which texts the person one short
  *   line now and returns at once, as many times in a turn as it judges useful
  *   (Dev2, 2026-11-01, `docs/decisions/texting-assistant/interleaved-updates.md`):
- *   a heads-up naming what it is about to do, then what it finds;
- * - a line never says something is done (`claimsDone`): that is the answer's,
- *   once a tool says it happened. A code check, so a line costs no model call;
+ *   just before a slow step outside their notes, and for something they could
+ *   act on before the answer, never the answer itself;
+ * - a line opens with what Tex is doing and never says something is done
+ *   (`claimsDone`): that is the answer's. A code check, so a line costs no model call;
  * - the texting Worker asks for the turn as a stream (`Accept:
  *   application/x-ndjson`), and this route writes each progress line as it
  *   happens, a heartbeat while nothing does, and the turn's ordinary JSON
@@ -30,8 +31,6 @@
  * channel the answer goes to anyway. It widens nothing: it is the answer,
  * early and in pieces.
  */
-
-import { claimsAChange } from "./claimCheck.js";
 
 export const PROGRESS_TOOL = "text_progress";
 export const PROGRESS_CONTENT_TYPE = "application/x-ndjson";
@@ -64,12 +63,12 @@ export function wantsProgress(request) {
 export const PROGRESS_TOOL_DEFINITION = {
   name: PROGRESS_TOOL,
   description:
-    "Text the person one short line now, while you keep working: what you're about to do (\"Checking your Friday calendar.\"), " +
-    "something you just found, or a link they must open. It goes at once as its own text. Say what you're doing or found, never " +
-    "that something is done, sent or booked: that is your reply, once a tool says it happened. Never to say you're on it, " +
-    "that it will take a while, or that you'll text when it's done (the person called that the most useless text they get), " +
-    "never for a question you can answer straight away, never to ask a question (ask in your answer and stop), and never " +
-    "with the final answer, which is your reply.",
+    "Text the person one short line now, while you keep working. Only just before a slow step that reaches outside their notes " +
+    "(opening a site, browsing, a long job of many steps), saying what you're doing (\"Opening OpenTable for Friday.\"), or for " +
+    "something they could act on before your answer, like a link they must open. Start it with what you're doing now. Never before " +
+    "a search, a note read or asking your advisor, never the answer itself, and never that something is done, sent or booked: " +
+    "that is your reply. Never to say you're on it, that it will take a while, or that you'll text when it's done (the person " +
+    "called that the most useless text they get), and never to ask a question (ask in your answer and stop).",
   inputSchema: {
     type: "object",
     properties: { text: { type: "string", description: "One short plain sentence, no Markdown." } },
@@ -79,32 +78,38 @@ export const PROGRESS_TOOL_DEFINITION = {
 };
 
 export const PROGRESS_PROMPT =
-  "\n\nBefore work that needs tools, send with action progress, args { text }: one line naming what you're about to do " +
-  "(\"Checking your Friday calendar.\"), then do it. While you work, send another line whenever you find something they'd " +
-  "want now; each goes at once as its own text. A line says what you're doing or found, never that something is done, sent " +
-  "or booked. Never send a line saying you're on it or that you'll text when it's done. Don't repeat a line in your reply.";
+  "\n\nJust before a slow step that reaches outside their notes (opening a site, browsing, a long job of many steps), you may " +
+  "send with action progress, args { text }: what you're doing (\"Opening OpenTable for Friday.\"). Never before a search, a note " +
+  "read or asking your advisor. After that, only what they could act on before your answer. Never the answer itself or that " +
+  "something is done. Never send a line saying you're on it or that you'll text when it's done.";
 
-/**
- * A line that says something is done: the claim check's own words
- * (`claimCheck.js` `claimsAChange`) and the done-words a task ends on, said
- * of Tex's own work or as the line's last word ("Email sent."). Read in code,
- * so checking a line costs nothing a person waits on; what it found ("Bo
- * booked the 7pm last week") still goes.
- */
-const DONE = [
-  /^\W*(?:done|sent|booked|scheduled|confirmed|ordered|paid|submitted|reserved|finished|all set)\b/i,
-  /\b(?:I(?:'ve| have)?|we(?:'ve| have)?|it'?s|that'?s|they'?re|(?:is|are) now|all)\s+(?:just\s+|now\s+|already\s+|all\s+)?(?:done|sent|booked|scheduled|confirmed|ordered|paid|submitted|cancell?ed|reserved|emailed|finished|completed|set up)\b/i,
-  /\b(?:done|sent|booked|confirmed|ordered|paid|submitted|reserved|all set)\s*[.!]*\s*$/i,
-];
+/*
+  A line opens with what Tex is doing ("Opening OpenTable for Friday.", "Now
+  checking Bo's calendar"), names what it found ("Found 3 tables at Nopa."),
+  or carries a link; one that opens with a change made ("Emailed Bo",
+  "Booked the 7pm") never goes, whatever follows it. Checked by its shape,
+  not by the turn's tool results: a true "Emailed Bo." is the answer's too.
+  Measured on the three reviews' probes (2026-11-01, 39 doing or finding
+  lines, 44 done claims): 4 refused and 1 sent ("Holding Friday at 6."),
+  against 21 and 30 for the done-word list it replaces.
+*/
+const CHANGED = /^\W*(?:emailed|booked|sent|added|cancell?ed|moved|reserved|paid|ordered|invited|rescheduled|submitted|placed|replied|forwarded|deleted|removed|created|saved|updated|signed up|bought|got)\b/i;
+const DOING = /^(?:(?:now|still|just|also|next|i'm|we're)\s+)?([a-z]{3,}ing)\b(?!\s+(?:went|is|was|has|worked|succeeded|failed|done)\b)/i;
+const NOT_A_VERB = /^(?:nothing|something|anything|everything|morning|evening|thing|king|ring|string|wing|ceiling|wedding|spring)$/i;
 
 export function claimsDone(text) {
-  const said = String(text ?? "").replace(/[‘’]/g, "'");
-  return claimsAChange(said) || DONE.some((pattern) => pattern.test(said));
+  const said = String(text ?? "").replace(/[\u2018\u2019]/g, "'").trim();
+  if (CHANGED.test(said)) return true;
+  if (/https?:\/\//i.test(said) || /^found\b/i.test(said)) return false;
+  return !said.split(/[,;.!?]+|\band\b|\bthen\b/i).some((clause) => {
+    const doing = DOING.exec(clause.trim());
+    return doing !== null && !NOT_A_VERB.test(doing[1]);
+  });
 }
 
 export const DONE_NOTICE =
-  "Not sent: a progress line says what you're doing or found, never that something is done, sent or booked. " +
-  "Say that in your reply once a tool says it happened, or send what you're doing now.";
+  "Not sent: start a progress line with what you're doing now (\"Opening OpenTable for Friday.\"), never with what is done, " +
+  "sent or booked. That is your reply, once a tool says it happened.";
 
 /**
  * The progress tool for one turn, around `send(text)` (which writes a line to
@@ -130,22 +135,11 @@ export function progressChannel(send) {
     async call(args) {
       const text = typeof args?.text === "string" ? args.text.replace(/\s+/g, " ").trim() : "";
       if (!text) return result("Nothing to send: pass one short line as text.", true);
-      if (text === lines.at(-1)) return result("Already sent. Keep working.");
+      if (lines.includes(text)) return result("Not sent: you already sent that line in this turn. Keep working.");
       if (claimsDone(text)) return result(DONE_NOTICE, true);
       lines.push(text);
       await send(text.length > MAX_PROGRESS_CHARS ? `${text.slice(0, MAX_PROGRESS_CHARS - 1)}…` : text);
       return result("Sent. Keep working.");
-    },
-    /** `answer` without the rows (or a row's opening) a line already said, unless nothing would be left. */
-    unsaid(answer) {
-      if (typeof answer !== "string" || lines.length === 0) return answer;
-      const rows = answer.split("\n").map((row) => {
-        let rest = row.replace(/\s+/g, " ").trim();
-        for (const line of lines) if (rest === line || rest.startsWith(`${line} `)) rest = rest.slice(line.length).trim();
-        return rest === row.replace(/\s+/g, " ").trim() ? row : rest;
-      });
-      const left = rows.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-      return left === "" ? answer : left;
     },
   };
 }

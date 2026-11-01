@@ -15,7 +15,7 @@ import { prepareAttachments } from "./attachments";
 import { textsWithExact } from "./format";
 import type { InboxStorage } from "./inbox";
 import { groupLineFor } from "./groupLine";
-import { chatBefore, dropChatLines, notePeople, peopleHash, sha256Hex } from "./groupChat";
+import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, resumeJobs, startJobs, steerJobs, threadsLines } from "./jobs";
@@ -78,16 +78,25 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     texts its progress into the chat while it works, each line only while
     nobody new has joined, the same check the answer gets below. A newcomer
     (or a list that can't be read) pauses the turn's lines for good, each
-    logged as held, as the answer is.
+    logged as held, as the answer is. A routine (a job's report runs as one)
+    texts once, so it says none (`apps/mcp/src/agent/route.js`); nor does a
+    chat stopped or muted since the turn began. A line that won't send costs
+    the chat a line, never the answer, as in a 1:1 text.
   */
   let paused = false;
   const progress = async (text: string) => {
-    if (!paused) {
-      const now = await app.readMembers(chat);
-      paused = now === null || now.some((phone) => phone !== message.line && !people.includes(phone));
-      if (!paused) return await sayProgress(storage, deps, message, text, meta);
+    if (routine) return;
+    try {
+      if (!(await isBound(storage, message))) return log("progress_unbound");
+      if (!paused) {
+        const now = await app.readMembers(chat);
+        paused = now === null || now.some((phone) => phone !== message.line && !people.includes(phone));
+        if (!paused) return await sayProgress(storage, deps, message, text, meta);
+      }
+      await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: false, reason: "held_newcomer", ...meta });
+    } catch {
+      log("progress_failed");
     }
-    await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: false, reason: "held_newcomer", ...meta });
   };
   let answer: AgentAnswer;
   const asking = deps.now();

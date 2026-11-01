@@ -432,11 +432,11 @@ test("a bench turn is asked for the way the texting Worker asks, so it gets the 
 
 test("a progress line texted on the way comes back with the turn, as a text the person got", async () => {
   const rounds = { n: 0 };
-  const world = await createWorld(bench, "Maya", withSteps(2), { gatewayFetch: neverDone(rounds, "On it.") });
+  const world = await createWorld(bench, "Maya", withSteps(2), { gatewayFetch: neverDone(rounds, "Opening the site.") });
   try {
     const turn = await world.text("go");
     assert.ok(turn.ok, turn.error ?? "");
-    assert.deepEqual(turn.progress, ["On it."]);
+    assert.deepEqual(turn.progress, ["Opening the site."]);
   } finally {
     world.close();
   }
