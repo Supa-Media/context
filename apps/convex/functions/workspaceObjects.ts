@@ -74,11 +74,36 @@ const OBJECT_BYTES_CAP = 8 * 1024 * 1024 * 1024;
 const ROWS_RECHECK_MS = 70_000;
 
 /** What a failure log may carry: the error's name and its code (a ConvexError's `data.code`, the gateway's `code`), never its message. */
-export function failureOf(error: unknown): { error: string; code?: string } {
+export function failureOf(error: unknown): { error: string; code?: string; reason: string } {
   const name = error instanceof Error ? error.name : "unknown";
   const data = (error as { data?: unknown } | null)?.data;
   const code = (data !== null && typeof data === "object" ? (data as { code?: unknown }).code : undefined) ?? (error as { code?: unknown } | null)?.code;
-  return typeof code === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(code) ? { error: name, code } : { error: name };
+  const reason = reasonOf(error);
+  return typeof code === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(code) ? { error: name, code, reason } : { error: name, reason };
+}
+
+/**
+ * A closed, key-free word for why a step failed. A storage error's message can
+ * quote a key (somebody's note name) and this log is public, so the message is
+ * matched against known shapes and only the fixed word, operation and status
+ * are kept; anything unknown is `other`.
+ */
+export function reasonOf(error: unknown): string {
+  const message = typeof (error as { message?: unknown } | null)?.message === "string" ? (error as { message: string }).message : "";
+  const failed = /^S3 ([A-Z]+) .* failed with (\d{3})/.exec(message);
+  if (failed) return `storage_${failed[1]!.toLowerCase()}_${failed[2]}`;
+  const capped = /^S3 ([A-Z]+) response exceeds \d+ bytes/.exec(message);
+  if (capped) return `storage_${capped[1]!.toLowerCase()}_too_large`;
+  if (message.startsWith("logical-delete prefix listing made no progress")) return "listing_no_progress";
+  if (message.startsWith("logical-delete prefix listing exceeded")) return "listing_too_long";
+  if (message.startsWith("unsafe storage key")) return "unsafe_key";
+  if (message.startsWith("unsafe storage prefix")) return "unsafe_prefix";
+  const name = (error as { name?: unknown } | null)?.name;
+  if (name === "ManagedEncryptionError") return "sealed";
+  if (name === "TypeError" && /fetch|network/i.test(message)) return "network";
+  if (/timed? ?out|timeout/i.test(message)) return "timeout";
+  if (/too many|rate/i.test(message)) return "rate_limited";
+  return "other";
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -88,10 +113,35 @@ async function openBucket(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promis
   const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
-  return storeForBinding({ ...credential, workspaceId: String(workspaceId) }, undefined, {
+  const store = storeForBinding({ ...credential, workspaceId: String(workspaceId) }, undefined, {
     managedEncryption,
     ...consoleTexRouting(ctx, workspaceId),
   }) as unknown as BodyStore;
+  return withRetries(store, sleep);
+}
+
+/** Failures worth asking again: the bucket busy or briefly unreachable, never a refusal. */
+export const passing = (error: unknown): boolean => /^storage_[a-z]+_(429|5\d\d)$|^network$|^timeout$/.test(reasonOf(error));
+
+/** `store` whose reads and listings are asked up to three times over a passing failure. Writes are not. */
+export function withRetries(store: BodyStore, wait: (ms: number) => Promise<void>): BodyStore {
+  const again = async <T>(work: () => Promise<T>): Promise<T> => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await work();
+      } catch (error) {
+        if (attempt >= 2 || !passing(error)) throw error;
+        await wait(1000 * 3 ** attempt);
+      }
+    }
+  };
+  return {
+    get: (key) => again(() => store.get(key)),
+    ...(typeof store.head === "function" ? { head: (key: string) => again(() => store.head!(key)) } : {}),
+    list: (options) => again(() => store.list(options)),
+    put: (key, value, options) => store.put(key, value, options),
+    delete: (key, options) => store.delete(key, options),
+  };
 }
 
 /** Every live row of a workspace, as the object takes them, stamped `at`. */
@@ -352,6 +402,7 @@ export const backfill = internalAction({
         state.sizing = undefined;
         continue;
       }
+      let stage = "open";
       try {
         const bucket = await openBucket(ctx, workspaceId);
         const client = consoleWorkspaceClient(ctx, workspaceId);
@@ -367,6 +418,7 @@ export const backfill = internalAction({
           // Counting is paged too: a workspace's history can run to hundreds of thousands of keys.
           // A dry run counts to the end, so a workspace held back is measured whole and by part.
           const cap = dryRun ? Number.POSITIVE_INFINITY : OBJECT_BYTES_CAP;
+          stage = "size";
           const size = await objectBytesPage(bucket, state.sizing ?? { prefix: 0, keys: 0, bytes: 0 }, cap, started + PAGE_BUDGET_MS);
           if (size.next !== null) {
             state.sizing = size.next;
@@ -393,6 +445,7 @@ export const backfill = internalAction({
           }
           state.at = { prefix: 0 };
         }
+        stage = "copy";
         const page = await copyPage(bucket, client.bodies as unknown as BodyStore, { at: state.at, limit: KEYS_PER_PAGE, dryRun });
         addCounts(bodies, page.counts);
         if (page.next !== null) {
@@ -401,9 +454,11 @@ export const backfill = internalAction({
         }
         // Every body is across: the rows and rules whole, then the mark.
         if (!dryRun) {
+          stage = "rows";
           const pushed = await pushRows(ctx, workspaceId, client, "replace");
           counts.rows += pushed.rows;
           const now = Date.now();
+          stage = "mark";
           await client.markBackfilled(now);
           await ctx.runMutation(internal.functions.workspaceObjectsRows.recordCopy, { workspaceId, backfilledAt: now });
         }
@@ -414,7 +469,7 @@ export const backfill = internalAction({
       } catch (error) {
         // One workspace that cannot be read (a revoked or broken binding) is counted and passed over, never the run's end.
         counts.failed += 1;
-        console.warn(JSON.stringify({ event: "workspace_backfill_failed", workspaceId, ...failureOf(error) }));
+        console.warn(JSON.stringify({ event: "workspace_backfill_failed", workspaceId, stage, ...failureOf(error) }));
         state.queue.shift();
         state.at = undefined;
         state.sizing = undefined;
