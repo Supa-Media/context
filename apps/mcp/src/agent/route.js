@@ -109,7 +109,7 @@ const CONSOLE_CLIENT_ID = "context_console";
  * the request that produced it — the customer's question and their notes.
  */
 export function handleAgent(request, env, store, session, controlPlane, options = {}) {
-  const stages = turnStages(env), later = [], tex = texEntry(env, { who: session.workspaceId, later }); stages.watch(store); return recordedTurn(store, (outcome) => agentTurn(request, env, store, session, controlPlane, { ...options, stages, later, tex }, outcome), { defer: () => tex.lean }).finally(() => (tex.responded(), stages.flush(), afterTurn(store, later))); // every exit of a named turn is recorded (`loggedTurn.js`), with where its time went (`turnStages.js`)
+  const stages = turnStages(env), later = [], tex = texEntry(env, { who: session.workspaceId, later }); stages.watch(store); tex.watch(store); return recordedTurn(store, (outcome) => agentTurn(request, env, store, session, controlPlane, { ...options, stages, later, tex }, outcome), { defer: () => tex.lean }).finally(() => (tex.responded(), stages.flush(), afterTurn(store, later))); // every exit of a named turn is recorded (`loggedTurn.js`), with where its time went (`turnStages.js`)
 }
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)

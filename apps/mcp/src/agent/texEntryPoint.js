@@ -45,10 +45,13 @@ export const OFF_IN_CHATS = new Set([
   "group_turn_records", // a group turn is always treated as having read from outside, so its turn records add nothing
 ]);
 
+import { splitTexKey } from "../store/texRouting.js";
+
 /** The kinds a person is waiting on. */
 const CHAT_KINDS = new Set(["one", "group"]);
-/** Analytics Engine takes 250 points a request; a turn never needs this many. */
-const MAX_POINTS = 200;
+/** Analytics Engine takes 250 points a request: steps get this many, store calls `MAX_STORE_POINTS`, the rest is `turnStages.js`'s. */
+const MAX_POINTS = 100;
+const MAX_STORE_POINTS = 120;
 
 /**
  * @param {{ TEX_ENTRY?: { writeDataPoint(point: object): void }, TEX_LEAN?: string }} env
@@ -58,7 +61,7 @@ export function texEntry(env, { who = "", now = Date.now, later = [] } = {}) {
   const start = now();
   const steps = [];
   let kind = "unknown";
-  let written = 0;
+  let written = 0, stored = 0;
   const record = (name, at, state) => {
     const ms = Math.max(0, now() - at);
     const entry = { name, ms, at: at - start, state };
@@ -66,6 +69,7 @@ export function texEntry(env, { who = "", now = Date.now, later = [] } = {}) {
     write(env, entry, kind, who, () => (written += 1) <= MAX_POINTS);
     return entry;
   };
+  const recordCall = (name, at, state) => write(env, { name, ms: Math.max(0, now() - at), at: at - start, state }, kind, who, () => (stored += 1) <= MAX_STORE_POINTS);
   const off = (name) => env?.TEX_LEAN === "on" && CHAT_KINDS.has(kind) && OFF_IN_CHATS.has(name);
   const timed = (name, run) => {
     const at = now();
@@ -115,13 +119,48 @@ export function texEntry(env, { who = "", now = Date.now, later = [] } = {}) {
     },
     /** Work that is ours, run once the response is ready (`deferred.js` `afterTurn`); a promise already running is only timed. */
     after(name, work) {
+      // A promise already running is timed now and still handed to `afterTurn`, which keeps the Worker alive for it (`deferred`).
       if (typeof work === "function") later.push(() => timed(`after:${name}`, work));
-      else timed(`after:${name}`, work).catch(() => {});
+      else {
+        const running = timed(`after:${name}`, work);
+        running.catch(() => {});
+        later.push(() => running);
+      }
       return Promise.resolve();
     },
     /** After the response when `later` is true (the front door's chat save), else now. */
     behind(later, name, work) {
       return later ? tex.after(name, work) : tex.step(name, work);
+    },
+    /**
+     * Time every call the turn makes to its store, by operation and by where it
+     * went: `store:get:object` for a key kept in a Durable Object (Tex's
+     * notes and chat state, `texRouting.js`), `store:get:bucket` for the
+     * bucket. Same Worker, same turn: the two compare directly. Never a key.
+     */
+    watch(store) {
+      for (const op of ["get", "head", "put", "delete", "list"]) {
+        const inner = store?.[op];
+        if (typeof inner !== "function") continue;
+        store[op] = function (key, ...rest) {
+          const where = splitTexKey(op === "list" ? key?.prefix : key) === null ? "bucket" : "object";
+          const at = now();
+          let result;
+          try {
+            result = inner.call(this, key, ...rest);
+          } catch (error) {
+            recordCall(`store:${op}:${where}`, at, "failed");
+            throw error;
+          }
+          return Promise.resolve(result).then(
+            (value) => (recordCall(`store:${op}:${where}`, at, "ok"), value),
+            (error) => {
+              recordCall(`store:${op}:${where}`, at, "failed");
+              throw error;
+            },
+          );
+        };
+      }
     },
     /** The answer is handed back now. */
     responded() {

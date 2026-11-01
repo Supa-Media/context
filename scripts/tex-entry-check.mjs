@@ -5,12 +5,12 @@
  * that we are never guessing").
  *
  * Code between `// TEX ENTRY POINT: begin` and `// TEX ENTRY POINT: end`
- * (the gateway's `agentTurn`, `apps/mcp/src/agent/route.js`, and the texting
- * Worker's reply path, `apps/agent/src`) is the path a text takes to its
- * answer. Every `await` in there must await a timed call of the entry point
+ * (the gateway's `agentTurn`, `apps/mcp/src/agent/route.js`; any region in
+ * the texting Worker, `apps/agent/src`, is checked the same way) is the path
+ * a text takes to its answer. Every `await` in there must await a timed call of the entry point
  * (`await tex.step("name", ...)`, `tex.wait`, `tex.ahead`, `tex.after`,
  * `tex.behind`), and every step is named with a string literal, so each one
- * shows by name in `tex_entry` (`texEntryPoint.js`, `texEntryPoint.ts`).
+ * shows by name in `tex_entry` (`texEntryPoint.js`).
  *
  * Usage:
  *   node scripts/tex-entry-check.mjs            check the repository's files
@@ -28,7 +28,9 @@ const END = "// TEX ENTRY POINT: end";
 /** Where entry-point regions may live; every file here is scanned. */
 const SCANNED = ["apps/mcp/src/agent", "apps/agent/src"];
 /** Each file that must hold a region: the reply path cannot quietly lose its markers. */
-const REQUIRED = ["apps/mcp/src/agent/route.js", "apps/agent/src/inbox.ts"];
+// The texting Worker's side (`apps/agent/src`) is timed per text by `textTiming.ts` (`tex_text_timing`);
+// a region there is checked the same way once one is added, and joins this list then.
+const REQUIRED = ["apps/mcp/src/agent/route.js"];
 
 const TIMED = /^await\s+tex\.(step|wait|ahead|after|behind)\(/;
 const STEP = /\btex\.(step|wait|ahead|after)\(/g;
