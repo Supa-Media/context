@@ -434,7 +434,7 @@ export function systemPromptParts(
         // Dev2, 2026-10-28: sound like the chat, in its language, whatever the setup's words are (`chatVoice.js`).
         MIRROR_LINE,
         LANGUAGE_LINE,
-        // Jhonatan, 2026-10-31: settings only through the tool, and never another assistant's message (`commandTools.js`).
+        // Dev2, 2026-10-31: settings only through the tool, and never another assistant's message (`commandTools.js`).
         SETTINGS_LINE,
         // Dev2, 2026-10-29: short texts, and one line beside a page or card (`wordy.js`).
         BRIEF_LINE,

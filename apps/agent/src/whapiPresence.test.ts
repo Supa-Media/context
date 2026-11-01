@@ -1,5 +1,5 @@
 /**
- * The WhatsApp group-typing experiment (Jhonatan, 2026-11-01;
+ * The WhatsApp group-typing experiment (Dev2, 2026-11-01;
  * docs/decisions/texting-assistant/whapi-presence-probe.md): Tex asks Whapi for
  * a group's presences once a day, and a presences delivery is only described in
  * the logs (keys, status, whether its id names a group), never acted on.

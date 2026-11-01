@@ -1,5 +1,5 @@
 /**
- * A chat's conversation state, one per chat's Durable Object (Jhonatan,
+ * A chat's conversation state, one per chat's Durable Object (Dev2,
  * 2026-11-01; docs/decisions/texting-assistant/chat-state-machine.md).
  *
  *   idle -> gathering -> drafting -> sending -> idle

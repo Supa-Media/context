@@ -71,8 +71,8 @@ customer's bucket, as the audit trail and `activity.md` already do.
 **Activity:** a new kind, `remembered`, in the shared vocabulary
 (`packages/shared/src/activity.cjs`). It merges across folders (unlike
 `revised`), for one hand and one app, inside the session window (six hours,
-`SESSION_WINDOW_MS`). Sentence: "@jhon's Claude remembered 3 facts in
-`working-preferences.md`, `about-jhon.md`". The line's machine copy carries
+`SESSION_WINDOW_MS`). Sentence: "@dev2's Claude remembered 3 facts in
+`working-preferences.md`, `about-dev2.md`". The line's machine copy carries
 paths and a count, never fact text.
 
 ## API

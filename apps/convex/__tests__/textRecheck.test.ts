@@ -145,7 +145,7 @@ describe("the recheck", () => {
     expect(response.text).not.toContain("pineapple");
     expect(logs.join("\n")).not.toContain("pineapple");
     expect(logs.join("\n")).not.toContain("playbook");
-    // Metered as decide is: to the chat's sponsor (Ada, whose turn minted the grant; Jhonatan, 2026-11-01).
+    // Metered as decide is: to the chat's sponsor (Ada, whose turn minted the grant; Dev2, 2026-11-01).
     const rows = await t.run((ctx) => ctx.db.query("jevUsage").collect());
     expect(rows.map((row) => [row.feature, row.workspaceId, row.calls])).toEqual([["textDecide", ada.workspaceId, 1]]);
   });

@@ -222,7 +222,7 @@ message and per tool call, keeps answering after someone is removed. Tests:
 
 ## Delivery in a busy chat (from the group chat of 2026-10-21)
 
-Dev2 and Jhon tested Tex in a group and found answers that broke apart. What
+Dev2 and a teammate tested Tex in a group and found answers that broke apart. What
 changed, in `apps/agent/src/groupInbox.ts`:
 
 - **Every bubble of an answer threads under the message it answers**, the
@@ -260,7 +260,7 @@ model to speak as "I", never "Context will text you".
 
 ## Group Tex as capable as 1:1 Tex (the owner, 2026-10-23)
 
-Dev2 and Jhon found group Tex much weaker than 1:1 Tex on the same ask (a
+Dev2 and a teammate found group Tex much weaker than 1:1 Tex on the same ask (a
 Beacon link to research and add to the backlog). The owner asked for every
 issue to be fixed. What changed:
 

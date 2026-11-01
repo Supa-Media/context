@@ -1,5 +1,5 @@
 /**
- * TEX'S CHAT COMMANDS AS TOOLS (`src/agent/commandTools.js`, Jhonatan,
+ * TEX'S CHAT COMMANDS AS TOOLS (`src/agent/commandTools.js`, Dev2,
  * 2026-10-31; `docs/decisions/texting-assistant/command-tools.md`).
  *
  * "Tex, settings" worked only as an exact phrase, and a turn asked another way

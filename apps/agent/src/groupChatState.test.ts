@@ -1,5 +1,5 @@
 /**
- * The chat's state in a running group (`chatState.ts`, Jhonatan 2026-11-01):
+ * The chat's state in a running group (`chatState.ts`, Dev2 2026-11-01):
  * the phases a turn goes through, and the redraft cap holding a restart.
  *
  * Sabotage (temporary local edit, reverted): `whileRunning` restarting without

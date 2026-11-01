@@ -293,7 +293,7 @@ describe("where one workspace is needed", () => {
   });
 
   // Decide only meters against this workspace; it reads the transcript the Worker sends, never a workspace. Since
-  // 2026-11-01 (Jhonatan) it is metered to the chat's sponsor, as its turns are, whatever the reach.
+  // 2026-11-01 (Dev2) it is metered to the chat's sponsor, as its turns are, whatever the reach.
   test("decide is metered to the chat's sponsor, whatever the chat reaches", async () => {
     const w = await world();
     await turn(w.t, ADA, [ADA, BO, LINE]);

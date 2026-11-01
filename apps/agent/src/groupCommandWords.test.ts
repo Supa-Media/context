@@ -1,6 +1,6 @@
 /**
  * Which group texts the Worker answers by code, and which go to the agent's
- * tools (Jhonatan, 2026-10-31; `docs/decisions/texting-assistant/command-tools.md`).
+ * tools (Dev2, 2026-10-31; `docs/decisions/texting-assistant/command-tools.md`).
  *
  * An exact short command ("Tex, settings", "Tex settings", "Tex, stop") is
  * answered at once by code, beside a running turn too (`groupBeside.ts`).

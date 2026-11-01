@@ -226,7 +226,7 @@ export async function startWhapiTyping(fetcher: Fetch, keys: WhapiKeys, to: stri
 
 /**
  * Ask Whapi to send a group's presences (typing) to the webhook: `POST /presences/{groupJid}`.
- * 409 means already subscribed. Best effort and quick; never throws. An experiment (Jhonatan, 2026-11-01;
+ * 409 means already subscribed. Best effort and quick; never throws. An experiment (Dev2, 2026-11-01;
  * `docs/decisions/texting-assistant/whapi-presence-probe.md`).
  */
 export async function watchWhapiPresence(fetcher: Fetch, keys: WhapiKeys, groupJid: string): Promise<boolean> {

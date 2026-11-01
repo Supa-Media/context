@@ -24,7 +24,7 @@
  *  8. `engagementChoice` read on an SMS → "an SMS never sets the style…" fails;
  *     `followsOwnTag` without its SMS check → "…nor joins a waiting tag" fails.
  *  9. `ownTurn` taking every sender's covered entries into the asker's turn →
- *     "the Seyi/Jhon burst…" fails.
+ *     "the Seyi/Dev2 burst…" fails.
  * 10. `logGroupInbound` filing under `peopleKey` instead of `eventPeople` →
  *     "inbound events, Tex's events and the members…" fails.
  * 11. `keepQuestionAlarm` not called after the drain → "the style question's
@@ -192,9 +192,9 @@ for (const { name, groupId } of LINES) {
       expect(v.asks.map((ask) => ask.question)).toEqual(["Tex check this link"]);
     });
 
-    it("the Seyi/Jhon burst: Jhon's untagged complaint after Seyi's ask gets its own decide, and silent means one answer", async () => {
+    it("the Seyi/Dev2 burst: Dev2's untagged complaint after Seyi's ask gets its own decide, and silent means one answer", async () => {
       const storage = new MemoryStorage();
-      // Tags are never put to decide: Seyi's is answered at once, and Jhon's complaint, after it, is decided on its own.
+      // Tags are never put to decide: Seyi's is answered at once, and Dev2's complaint, after it, is decided on its own.
       const w = setup(groupId, { control: { engagement: "helpful", engagementChosen: true }, decide: silent });
       await acceptGroup(storage, w.message("Tex hi"), 0);
       await drainGroup(storage, w.deps);
