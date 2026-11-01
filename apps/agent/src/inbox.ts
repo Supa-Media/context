@@ -70,8 +70,8 @@ import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
 import { closeMenu, isSettingsText, keepTexStyle, keptTexStyle, menuState, openMenu } from "./texStyle";
-import { answers, clearReactions, noteReaction, notedReactions, tapbackText, type Reaction } from "./reactions";
-import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
+import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
+import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events"; import { warmDeps } from "./warm";
@@ -267,8 +267,9 @@ export async function react(
   now: number,
 ): Promise<"queued" | "duplicate" | "full" | "noted" | "preview" | "held" | "dropped"> {
   const { reaction, kind: _kind, ...message } = inbound;
+  const logged = async () => logInbound(storage, { kind: "message", ...message, text: reactionLine(reaction, await onTexText(storage, message.chatId, reaction)), tapback: reaction.how }, now); // every reaction in the log, as its line (Dev2, 2026-11-01)
   // A 👍 or 👎 on an ask goes on the next alarm, at once; taking it back before then drops it (`thumbs.ts`).
-  if (reaction.removed) return (await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
+  if (reaction.removed) return (await logged(), await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
   // On the line above an ask, it is a 👍 on the ask; taking it back still names the line it was on.
   const onAsk = await onTheAsk(storage, reaction, now);
   if (holdsAsAnswer(onAsk)) {
@@ -284,6 +285,7 @@ export async function react(
   }
   if ((await storage.get<number>(seenKey(inbound.eventId))) !== undefined) return "duplicate";
   await storage.put(seenKey(inbound.eventId), now);
+  await logged();
   await noteReaction(storage, reaction, now);
   return "noted";
 }

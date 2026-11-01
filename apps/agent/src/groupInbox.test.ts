@@ -168,8 +168,8 @@ describe("the group webhook", () => {
     const parsed = parseSendblueGroup(payload({ participants: [BO, "someone@example.com", 7] }));
     expect(parsed).toMatchObject({ participants: [BO, "someone@example.com", "?", ADA] });
   });
-  it("drops tapbacks, Tex's own sends and huge lists", () => {
-    expect(parseSendblueGroup(payload({ content: "Loved “hi”" }))).toEqual({ kind: "ignored", reason: "reaction" });
+  it("reads tapbacks, and drops Tex's own sends and huge lists", () => {
+    expect(parseSendblueGroup(payload({ content: "Loved “hi”" }))).toMatchObject({ kind: "group-message", reaction: { how: "Loved", words: "hi" } });
     expect(parseSendblueGroup(payload({ is_outbound: true }))).toEqual({ kind: "ignored", reason: "event_type" });
     expect(parseSendblueGroup(payload({ participants: Array.from({ length: 65 }, () => BO) }))).toEqual({ kind: "ignored", reason: "group_size" });
   });

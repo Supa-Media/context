@@ -58,7 +58,6 @@ import { phoneOfJid, readWhapiMessage, verifyWhapiSecret, watchGroupPresenceDail
 import { parseWhapiWebhook } from "./whapiInbound";
 import { groupLineFor } from "./groupLine";
 import { noteCardDrawer } from "./noteCards";
-import { holdsAsAnswer, takesBackYes } from "./thumbs";
 import { answerHanded, failHanded } from "./groupTurnRun";
 import type { GroupTurnParams } from "./groupTurnWorkflow";
 import type { TimingDataset } from "./textTiming";
@@ -333,13 +332,13 @@ async function whapiWebhook(request: Request, env: Env, origin: string): Promise
 async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof parseWhapiWebhook>[number], origin: string): Promise<Response> {
   if (event.kind === "group-message") {
     if (event.reactionOn !== undefined && event.reaction !== undefined) {
-      // A reaction counts only on a text Tex sent in this same group, and only as a yes held or taken back (`thumbs.ts`).
+      // Every reaction is read (Dev2, 2026-11-01); the words come only from a text Tex sent in this same group, so a
+      // reaction elsewhere is context on "a message", and only one on Tex's own text can answer or be a yes (`thumbs.ts`).
       const words = await groupLineFor({ fetch: (input, init) => fetch(input, init), whapi: keys }, event.groupId).readOwnMessage(
         { line: event.line, groupId: event.groupId },
         event.reactionOn,
       );
-      const reaction = { ...event.reaction, words: (words ?? "").slice(0, 500) };
-      if (words === null || !(holdsAsAnswer(reaction) || takesBackYes(reaction))) return groupWebhook(env, { kind: "ignored", reason: "reaction" }, origin, "whapi");
+      const reaction = { ...event.reaction, words: (words ?? "").slice(0, 500), ...(words === null ? { onOther: true as const } : { onTex: true as const }) };
       const { reactionOn: _on, ...message } = event;
       return groupWebhook(env, { ...message, reaction }, origin, "whapi");
     }

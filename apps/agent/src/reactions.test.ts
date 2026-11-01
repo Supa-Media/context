@@ -43,7 +43,7 @@ function deps(asks: Record<string, unknown>[], sent: string[]): InboxDeps {
 describe("tapbacks", () => {
   it("reads a tapback's name and the words it was on, and drops one taken back", () => {
     expect(readTapback("Liked “Want me to book it?”")).toEqual({ how: "Liked", words: "Want me to book it?" });
-    expect(readTapback("Reacted 🎉 to “done”")).toEqual({ how: "Reacted", words: "done" });
+    expect(readTapback("Reacted 🎉 to “done”")).toEqual({ how: "Reacted", words: "done", emoji: "🎉" });
     expect(readTapback("Le encantó “x”")).toEqual({ how: "Loved", words: "x" });
     expect(readTapback("Removed a heart from “x”")).toBeNull();
     expect(readTapback("Loved the movie")).toBeNull();
