@@ -3,8 +3,8 @@
  * steps"; `src/agent/groupDirectNotes.js`).
  *
  * Once a kept exchange has noted the keys of the home's voice and about-us notes, the next turn asks the chat's object
- * for them by key, never the note-reading tool. Anything that does not match is read the old way. The chat's history
- * is its record alone, so no memory note is read at all once carried (`groupMemoryCarry.js`, 2026-11-01).
+ * for them by key, never the note-reading tool. Anything that does not match is read the old way. The memory page, the
+ * chat's one copy of its history once it has a home (`groupMemoryCarry.js`, 2026-11-01), is read the same way.
  *
  * Sabotage record (2026-10-31), each fails a test here:
  *  - `ownKey` accepting any key: "a key outside this chat's own object is never read directly";
@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { readGroupMemory } from "../src/agent/groupTurn.js";
+import { renderGroupNote } from "../src/agent/groupMemoryNote.js";
 import { learnDirect } from "../src/agent/groupDirectNotes.js";
 import { withIdLayout } from "../src/store/idLayout.js";
 
@@ -43,34 +44,34 @@ function object(entries) {
   };
 }
 
-function setup({ direct, objectEntries }) {
+function setup({ direct, objectEntries, onPage = false }) {
   const reads = [];
   const dispatch = async (name, args) => {
     reads.push(args?.path);
     return { isError: true, content: [{ type: "text", text: "not found" }] };
   };
-  const record = JSON.stringify({ version: 1, turns: TURNS, carried: 1, direct });
+  const record = JSON.stringify(onPage ? { version: 1, onPage: 1, carried: 1, direct } : { version: 1, turns: TURNS, carried: 1, direct });
   const store = { get: async () => ({ text: async () => record }) };
   const homeStore = object(objectEntries);
   const group = { key: KEY, members: "b".repeat(64), from: "seyi", chat: [], people: [], home: { folder: HOME, dispatch, store: homeStore } };
   return { group, store, reads, homeStore, dispatch };
 }
 
-const KEPT = { voice: OWN("v1"), about: OWN("a1") };
+const KEPT = { voice: OWN("v1"), about: OWN("a1"), memory: OWN("m1") };
 const ENTRIES = {
-  [OWN("m1")]: { etag: "v-memory", text: "# Chat memory\n" },
+  [OWN("m1")]: { etag: "v-memory", text: renderGroupNote(TURNS) },
   [OWN("v1")]: { etag: "v-voice", text: "- dry humor\n- lowercase" },
   [OWN("a1")]: { etag: "v-about", text: "We plan the studio's launches." },
 };
 
-test("with the keys kept, the turn reads no note through the tool, and the record's turns stand", async () => {
-  const { group, store, reads, homeStore, dispatch } = setup({ direct: KEPT, objectEntries: ENTRIES });
+test("with the keys kept, the turn reads no note through the tool, its memory page included", async () => {
+  const { group, store, reads, homeStore, dispatch } = setup({ direct: KEPT, objectEntries: ENTRIES, onPage: true });
   const history = await readGroupMemory(store, group, dispatch);
   assert.deepEqual(history.map((turn) => turn.text), TURNS.map((turn) => turn.text));
   assert.equal(group.voice, "- dry humor\n- lowercase");
   assert.equal(group.aboutUs, "We plan the studio's launches.");
   assert.deepEqual(reads.filter((path) => typeof path === "string" && path.startsWith(HOME)), [], "nothing in the home is read through the tool");
-  assert.ok(!homeStore.gets.includes(OWN("m1")), "and the memory note not at all: the record is the history");
+  assert.ok(homeStore.gets.includes(OWN("m1")), "the memory page straight from the chat's object");
 });
 
 test("a key outside this chat's own object is never read directly", async () => {
@@ -99,7 +100,7 @@ test("after an exchange, the two keys are learned in one lookup", async () => {
     },
   };
   const group = { key: KEY, home: { folder: HOME, store: homeStore } };
-  const direct = await learnDirect(group, { voice: `${HOME}/voice.md`, about: `${HOME}/about-us.md` });
+  const direct = await learnDirect(group, { voice: `${HOME}/voice.md`, about: `${HOME}/about-us.md`, memory: `${HOME}/chat-x.md` });
   assert.equal(lookups.length, 1);
   assert.deepEqual(direct, { voice: OWN("v1") }, "another chat's key is not kept");
 });
