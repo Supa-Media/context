@@ -9,7 +9,8 @@
 
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type DatabaseReader } from "../_generated/server";
+import { internalQuery, type DatabaseReader } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { nodePaths } from "./lib/nodes/paths";
 
 const homeValidator = v.union(v.literal("bucket"), v.literal("dual"), v.literal("object"));

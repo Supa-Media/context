@@ -68,6 +68,7 @@ import { smallDataTables } from "./functions/lib/schema/smallData";
 import { blockTables } from "./functions/lib/schema/blocks";
 import { contentReportTables } from "./functions/lib/schema/contentReports";
 import { workspaceObjectTables } from "./functions/lib/schema/workspaceObjects";
+import { workspaceObjectOutboxTables } from "./functions/lib/schema/workspaceObjectOutbox";
 
 /**
  * Control-plane schema for Context.
@@ -167,6 +168,7 @@ const schema = defineSchema({
   ...housekeepingTables,
   ...nodeTables,
   ...nodeAccessTables,
+  ...workspaceObjectOutboxTables,
   ...smallDataTables,
   ...noteMailTables,
   ...blockTables,

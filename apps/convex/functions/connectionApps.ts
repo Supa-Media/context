@@ -13,7 +13,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { internalAction, internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
 import { httpsAppOrigin } from "./lib/gatewayAuth";
 import { TEXTS_GROUP_CLIENT_ID } from "./lib/connections/links";

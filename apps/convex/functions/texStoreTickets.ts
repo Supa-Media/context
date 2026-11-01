@@ -6,7 +6,8 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 
 /** How long one ticket opens its workspace's Tex objects. */
 export const TEX_STORE_TICKET_TTL_MS = 5 * 60 * 1000;

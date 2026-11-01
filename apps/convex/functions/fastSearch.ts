@@ -31,7 +31,8 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
+import { internalQuery, query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { rolloutFastSearchStep } from "./lib/fastSearchFns/rollout";
 import { indexingPrioritiesValidator } from "./lib/indexingPriorities";
 import { statusHandler } from "./lib/fastSearchFns/status";

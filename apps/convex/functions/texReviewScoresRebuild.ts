@@ -12,7 +12,8 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { internalAction, internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { fileTeamNote } from "./bugNotes";
 import { renderScoresNote, reviewFolder, scoresNotePath } from "./lib/feedback/texReviewNote";
 import { folderJobsOf } from "./lib/nodes/folderJobs";

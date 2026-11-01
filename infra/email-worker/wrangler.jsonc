@@ -173,9 +173,18 @@
   "observability": {
     "enabled": true
   },
+
+  // The gateway's workspace objects, by script name: a workspace whose notes live in its object gets the mail it
+  // files written there (`apps/mcp/src/store/workspaceRouting.js`), never to its bucket alone.
+  "durable_objects": {
+    "bindings": [{ "name": "WORKSPACE_STORE", "class_name": "WorkspaceStore", "script_name": "context-mcp" }]
+  },
   "env": {
     "staging": {
       "name": "context-email-staging",
+      "durable_objects": {
+        "bindings": [{ "name": "WORKSPACE_STORE", "class_name": "WorkspaceStore", "script_name": "context-mcp-staging" }]
+      },
       "vars": {
         "INGEST_DOMAIN": "staging.context.lc",
         "NATIVE_BINDINGS": "",

@@ -21,7 +21,8 @@
 
 import { v } from "convex/values";
 import { requireAuthId } from "./lib/signedIn";
-import { mutation, query } from "../_generated/server";
+import { query } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { MAX_BLOCKS, insertBlock, removeBlock } from "./lib/blocks";
 import { handleForUser } from "./lib/identities";

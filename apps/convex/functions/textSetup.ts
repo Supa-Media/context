@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { internalMutation, type MutationCtx } from "../_generated/server";
+import { type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { checkAvailability } from "./lib/nameClaims";

@@ -13,6 +13,7 @@
  * runs; the same test holds that.
  */
 
+import { consoleWorkspaceRouting } from "../rowWatch/consoleRouting";
 import { ConvexError, type Infer } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
@@ -433,12 +434,12 @@ export async function runFileOperationHandler(
     // on exactly the backends where it is not; the observed capability makes
     // `writeFile` fall back to a read-compare and say so.
     //
-    // That used to be applied here, on the next line, by hand — and only
-    // here, so the gateway's own stores claimed a guarantee they did not
-    // have. `storeForBinding` reads the binding's probed capability itself
-    // now, for every caller and every backend.
-    store = storeForBinding(credential, undefined, {
-      fetchImpl: timeoutFetch,
+    // That used to be applied here, by hand and only here, so the gateway's own stores claimed a guarantee they
+    // did not have. `storeForBinding` reads the probed capability itself now, for every caller and every backend.
+    // Note texts go to the workspace's object where they live there (`lib/rowWatch/consoleRouting.ts`).
+    const routing = await consoleWorkspaceRouting(ctx, args.workspaceId);
+    store = storeForBinding(routing.credential(credential), undefined, {
+      ...routing.options, fetchImpl: timeoutFetch,
       noteCap,
       // The cap counts the tree's rows, never the bucket (`store/noteCap.js`).
       noteCount: async () => (await servedNoteCount(ctx, args.workspaceId))?.notes ?? null,
@@ -449,7 +450,7 @@ export async function runFileOperationHandler(
       texChats: landingChats,
     }) as unknown as FileStore;
     if (args.operation.kind === "readOldCopies" || isMessagesBackupOperation(args.operation)) {
-      keyStore = storeForBinding(credential, undefined, { fetchImpl: timeoutFetch, managedEncryption, ...consoleTexRouting(ctx, args.workspaceId) }) as unknown as FileStore;
+      keyStore = storeForBinding(routing.credential(credential), undefined, { fetchImpl: timeoutFetch, managedEncryption, ...consoleTexRouting(ctx, args.workspaceId), ...routing.options }) as unknown as FileStore;
     }
   } catch {
     // The constructor's message can quote the endpoint the customer typed.

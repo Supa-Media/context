@@ -9,7 +9,8 @@
  */
 
 import { v } from "convex/values";
-import { internalAction, internalMutation, internalQuery, mutation, query } from "../_generated/server";
+import { internalAction, internalQuery, query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import {
   decryptWorkspaceHandler,
   pauseRolloutHandler,

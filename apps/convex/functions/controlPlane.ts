@@ -48,11 +48,8 @@ import { audienceOfNames } from "./lib/pinnedReaders";
 import { readsAsChat } from "./lib/nodes/chatFolders";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import {
-  internalAction,
-  internalMutation,
-  internalQuery,
-} from "../_generated/server";
+import { internalAction, internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "./lib/d1";
 import {

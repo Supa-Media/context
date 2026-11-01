@@ -45,7 +45,8 @@
 
 import { ConvexError, v } from "convex/values";
 import { requireAuthId } from "./lib/signedIn";
-import { mutation, query } from "../_generated/server";
+import { query } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import type { Doc, Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import {

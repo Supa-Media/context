@@ -7,7 +7,7 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { armLinkedDreamsHandler, claimDueDreamsHandler, recordDreamResultHandler } from "./lib/dreams/runs";
 import { requestDreamNowHandler } from "./lib/dreams/now";
 import { armFirstLooksHandler } from "./lib/dreams/firstLook";

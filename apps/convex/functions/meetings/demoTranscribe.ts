@@ -38,7 +38,8 @@
 import { ConvexError, v } from "convex/values";
 import { CLOUD_TRANSCRIPTION_CONSENT_VERSION, TRANSCRIPTION_CONSENT_REQUIRED } from "@context/shared";
 import { internal } from "../../_generated/api";
-import { action, internalMutation } from "../../_generated/server";
+import { action } from "../../_generated/server";
+import { internalMutation } from "../lib/rowWatch/mutations";
 import { tryConsumeRateLimit } from "../lib/rateLimit";
 import { transcribeAtWorker, transcriptSegment, type TranscriptSegment } from "./transcribe";
 

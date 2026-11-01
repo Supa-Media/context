@@ -11,7 +11,8 @@
 import { v } from "convex/values";
 import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Doc, Id } from "../_generated/dataModel";
-import { mutation, query, type MutationCtx } from "../_generated/server";
+import { query, type MutationCtx } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import { consumeRateLimit } from "./lib/rateLimit";
 
 const language = v.union(v.literal("en-US"), v.literal("en-GB"));

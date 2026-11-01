@@ -1,6 +1,6 @@
 /** Operator-only fixtures. No public seed endpoint and no production writes. */
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { parseAdminEmails } from "./lib/admin";
 import { stagingStorageIsFree } from "./lib/managedStorage";

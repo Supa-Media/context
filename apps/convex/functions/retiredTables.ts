@@ -11,7 +11,7 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalMutation } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 
 /** Rows deleted per run: well inside one mutation's write limits. */
 export const DRAIN_BATCH = 200;
