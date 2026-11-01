@@ -144,11 +144,13 @@ the cron) and the routines under `routines/` (the cron runs them).
 (never a person's) and named by no row, so it is plumbing that no listing,
 search or tree shows. It holds the chat's memory record, one per chat (the
 owner, 2026-10-31: somebody added to a chat shares what it remembers), when the
-turn's grant names the chat (`agent/chatMemoryRecord.js`). It is the chat's
-one copy of its history (the owner, 2026-11-01;
-[group-memory-one-copy](./group-memory-one-copy.md)), not a cache of a note, so
-it belongs with the chat rather than in the bound workspace's bucket, and it is
-wiped with the object. The home's memory page is a printout of it. The bucket's old
+turn's grant names the chat (`agent/chatMemoryRecord.js`). For a chat with no
+home it holds the chat's history; once the chat has a home the turns move onto
+the memory page there, the one copy from then on, and the record keeps only
+its marks (the owner, 2026-11-01;
+[group-memory-one-copy](./group-memory-one-copy.md)). It belongs with the chat
+rather than in the bound workspace's bucket, and it is wiped with the object.
+The bucket's old
 copy (`.context/agent/groups/<sha>.json`) moves in on first read and is deleted
 only once the object reads back the same bytes; an object that cannot be
 reached keeps nothing for that turn, never a bucket copy instead. Copies left

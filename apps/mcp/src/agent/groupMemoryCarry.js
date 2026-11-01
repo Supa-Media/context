@@ -1,26 +1,32 @@
 /**
- * A group chat's history has ONE copy: its record in the chat's Durable Object
- * (`chatMemoryRecord.js`). Decided by the owner, 2026-11-01: "there should be
- * one copy in the durable object", and no group chat data in a workspace folder.
+ * A group chat's history has ONE copy (the owner, 2026-11-01: "one copy in the
+ * durable object", no group chat data in a workspace folder, and then: the
+ * chat's people still see it, as a page, and that page is the one copy).
+ *
+ * In a chat with a home in @context-lc, the copy is its memory page there
+ * (`groupMemoryNote.js`), a tree row whose text lives in the chat's Durable
+ * Object. A chat with no home yet keeps it in its record (`chatMemoryRecord.js`),
+ * and once it has a home the record's turns are moved onto the page and the
+ * record marked `onPage`, keeping only its marks (where its old notes came
+ * from, its voice and about-us keys). At no time do both hold turns Tex reads.
  *
  * Until then a chat kept two: the record, and a visible memory note
  * (`tex/groups/chat-<id>.md`, in the chat's home or its bound workspace). Each
  * turn read the note instead of the record whenever the note's version was not
  * the one Tex last wrote, and while a note was being carried to a new name the
  * old note's words were read instead. When the note could not be written, its
- * version never moved, so every turn after rebuilt the history from that stale
- * note and the record was overwritten with it: the chat forgot every reply
+ * version never moved, and the failed write was never logged, so every turn
+ * after rebuilt the history from that stale note: the chat forgot every reply
  * since, and each review saw a history it had never scored (2026-11-01).
  *
- * Now the record is the history, and nothing is ever rebuilt from a note. Once
- * per chat, the old memory notes' words are carried into the record:
+ * Once per chat, the old memory notes' words are carried in:
  *
  *  - every place a memory note may have been kept is read: the home and the
  *    bound workspace, each under the chat's own name and the people's;
  *  - the longest one is the base, and every record turn it lacks follows it,
  *    so neither a turn only the record kept nor one only the note kept is lost;
  *  - the record is written with `carried` and the places carried from, so
- *    those notes can be trashed once their words are safe here.
+ *    the notes in workspace folders can be trashed once their words are safe.
  *
  * A place that could not be read (as opposed to one with no note) leaves the
  * carry for the next turn, at most `CARRY_TRIES` turns, so a place this grant
@@ -33,6 +39,8 @@ import { parseGroupNote } from "./groupMemoryNote.js";
 
 /** The record's mark once the old notes are carried in. */
 export const CARRIED = 1;
+/** The record's mark once its turns are on the home's page, the one copy from then on. */
+export const ON_PAGE = 1;
 /** Turns that try a carry before it is marked done with whatever could be read. */
 export const CARRY_TRIES = 3;
 

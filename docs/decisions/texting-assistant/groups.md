@@ -195,9 +195,10 @@ version keeps each chat's memory as plumbing in the bound workspace,
 `.context/agent/groups/<hash>.json`, filed by the chat's key alone: one memory
 per chat, and somebody added later reads what came before them, untagged
 lines included (the owner, 2026-10-31, reversing the people-named file).
-The visible `tex/groups/` note that followed was retired on 2026-11-01: the
-chat's history has one copy, its record in the chat's Durable Object, and a
-printout in its home ([group-memory-one-copy](./group-memory-one-copy.md)).
+The `tex/groups/` notes in workspace folders that followed were retired on
+2026-11-01: the chat's history has one copy, the memory page in its home in
+@context-lc, whose text lives in the chat's Durable Object
+([group-memory-one-copy](./group-memory-one-copy.md)).
 
 ## What Sendblue gives and doesn't
 

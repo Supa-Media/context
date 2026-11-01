@@ -1,20 +1,28 @@
 /**
- * A GROUP CHAT'S HISTORY HAS ONE COPY: ITS RECORD (the owner, 2026-11-01: "one copy in the durable object", and no
- * group chat data in a workspace folder; `src/agent/groupMemoryCarry.js`).
+ * A GROUP CHAT'S HISTORY HAS ONE COPY (the owner, 2026-11-01: "one copy in the durable object", no group chat data in
+ * a workspace folder, and then: the page in the chat's home is the one copy; `src/agent/groupMemoryCarry.js`).
  *
  * On 2026-11-01 a group chat forgot every reply since its memory note stopped taking writes: each turn rebuilt the
  * history from that stale note (its version was not the one Tex last wrote, so it read as "edited"), and wrote the
  * record back with it. These pin the fix:
  *
- *  - no memory note is written, in the home or the bound workspace; the record is the history;
- *  - the old notes' words are carried into the record once, and a note is never read as the history again;
+ *  - in a home, the page is the history: Tex goes by it, a change somebody makes there is what it goes by, and the
+ *    record keeps no turns once they are on the page;
+ *  - the page is written at the version just read, a write that lost is read again, and a page Tex cannot read is
+ *    never written over; a failed write is logged;
+ *  - a chat with no home keeps its turns in the record, and they move onto the page once it has one, the page first;
+ *  - nothing is written in a workspace folder; the old notes' words are carried in once and never read again;
  *  - a stale note never replaces turns the record holds, and a turn only the note held is kept too;
  *  - a place that could not be read waits for a later turn, at most CARRY_TRIES of them;
- *  - two turns that overlap both keep their exchange (the record is read again just before the write).
+ *  - two turns that overlap both keep their exchange.
  *
  * ## Sabotage record
  *
- *   readGroupMemory reading the home's note as the history when its etag moved → "a stale note never replaces" fails
+ *   readGroupMemory reading the record's turns once ON_PAGE → "a change somebody makes there is what Tex goes by" fails
+ *   updateGroupPage writing without expected_etag → "a write another turn won is read again" fails
+ *   updateGroupPage writing over a page with no heading → "a page Tex cannot read is never written over" fails
+ *   keepGroupExchange writing the record's turns when the home is unopened → "keeps nothing in a second place" fails
+ *   moveOntoPage marking the record onPage before the page took its turns → "a page that will not take the move" fails
  *   keepGroupExchange writing over `history` instead of the record read just before → "two turns that overlap" fails
  *   carryOldNotes marking carried while a place is unreadable → "an unreadable place waits" fails
  *   keepGroupExchange writing when the record could not be read → "a record that cannot be read is never written over" fails
@@ -25,8 +33,8 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 
 import { groupMemoryPath, keepGroupExchange, readGroupMemory } from "../src/agent/groupTurn.js";
-import { renderGroupNote } from "../src/agent/groupMemoryNote.js";
-import { CARRY_TRIES, mergeTurns } from "../src/agent/groupMemoryCarry.js";
+import { renderGroupNote, updateGroupPage } from "../src/agent/groupMemoryNote.js";
+import { CARRY_TRIES, ON_PAGE, mergeTurns } from "../src/agent/groupMemoryCarry.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const HOME = "tex/groups/orbit-lamp-river";
@@ -42,21 +50,33 @@ const OLD = [
   { role: "assistant", text: "Noted: Friday." },
 ];
 
-/** A folder of notes answering `read_note` as the tool does; `broken` paths answer an error that is not "not found". */
-function folder(seed = {}, { broken = [] } = {}) {
+/**
+ * A folder of notes answering `read_note` and `write_note` as the tools do: each note has a version, a write that
+ * names an older one is refused as a conflict, and `broken` paths answer an error that is not "not found".
+ */
+function folder(seed = {}, { broken = [], refuse = null } = {}) {
   const calls = [];
   const notes = new Map(Object.entries(seed));
+  const versions = new Map([...notes.keys()].map((path) => [path, 1]));
   const dispatch = async (name, args) => {
     calls.push({ name, args });
     if (name === "read_note" && broken.includes(args.path)) return { isError: true, content: [{ type: "text", text: "This note cannot be opened safely right now." }] };
-    if (name === "read_note" && notes.has(args.path)) return { content: [{ type: "text", text: `etag: v1\n\n${notes.get(args.path)}` }] };
+    if (name === "read_note" && notes.has(args.path)) return { content: [{ type: "text", text: `etag: v${versions.get(args.path)}\n\n${notes.get(args.path)}` }] };
     if (name === "write_note") {
+      if (refuse !== null) return { isError: true, content: [{ type: "text", text: refuse }] };
+      if (notes.has(args.path) && args.expected_etag !== `v${versions.get(args.path)}`) return { isError: true, content: [{ type: "text", text: "conflict: note changed since it was read; re-read and retry" }] };
       notes.set(args.path, args.content);
-      return { content: [{ type: "text", text: `Wrote ${args.path} (etag v2)` }] };
+      versions.set(args.path, (versions.get(args.path) ?? 0) + 1);
+      return { content: [{ type: "text", text: `Wrote ${args.path} (etag v${versions.get(args.path)})` }] };
     }
     return { isError: true, content: [{ type: "text", text: "not found" }] };
   };
-  return { calls, notes, dispatch };
+  /** Somebody edits the note in the app: a new version. */
+  const edit = (path, content) => {
+    notes.set(path, content);
+    versions.set(path, (versions.get(path) ?? 0) + 1);
+  };
+  return { calls, notes, dispatch, edit };
 }
 
 const withHome = (home, extra = {}) => ({ ...GROUP, ...extra, home: { folder: HOME, dispatch: home.dispatch } });
@@ -72,68 +92,132 @@ const quiet = async (run) => {
   }
 };
 
-test("the record is the history: the home gets a printout it never reads, and the bound workspace no note", async () => {
+test("in a home the page is the one copy: a change somebody makes there is what Tex goes by, and the record keeps no turns", async () => {
   const store = createMemoryStore();
   const bound = folder();
   const home = folder();
   await quiet(async () => {
     const group = withHome(home);
-    await keepGroupExchange(store, group, await readGroupMemory(store, group, bound.dispatch), "what's for dinner?", "Pasta.", { dispatch: bound.dispatch });
-    // The printout is there for the chat's people to read and download.
+    await keepGroupExchange(store, group, await readGroupMemory(store, group, bound.dispatch), "what's for dinner?", "Pasta.");
     assert.deepEqual([...home.notes.keys()], [homeNote()]);
     assert.match(home.notes.get(homeNote()), /what's for dinner\?\n\n\*\*Tex:\*\* Pasta\./);
-    assert.match(home.notes.get(homeNote()), /Tex never reads this page/);
-    // Somebody changes the printout: it is not what Tex goes by.
-    home.notes.set(homeNote(), home.notes.get(homeNote()).replace("Pasta.", "Sushi."));
+    assert.match(home.notes.get(homeNote()), /Tex reads this page before it answers/);
+    const record = await recordOf(store);
+    assert.equal(record.onPage, ON_PAGE);
+    assert.equal(record.turns, undefined, "the record holds no second copy");
+    // Somebody changes the page in the app: that is what Tex goes by.
+    home.edit(homeNote(), home.notes.get(homeNote()).replace("Pasta.", "Sushi."));
     const next = await readGroupMemory(store, withHome(home), bound.dispatch);
-    assert.match(said(next), /Pasta\./);
-    assert.doesNotMatch(said(next), /Sushi/);
-    // Somebody added reads what the chat kept: one record per chat, by its key alone.
-    assert.match(said(await readGroupMemory(store, withHome(home, { members: "c".repeat(64) }), bound.dispatch)), /Pasta\./);
+    assert.match(said(next), /Sushi\./);
+    assert.doesNotMatch(said(next), /Pasta/);
+    // A review reads the same page, with no dispatcher.
+    assert.match(said(await readGroupMemory(store, withHome(home), null)), /Sushi\./);
+    // Somebody added reads what the chat kept: one page per chat, by its key alone.
+    assert.match(said(await readGroupMemory(store, withHome(home, { members: "c".repeat(64) }), bound.dispatch)), /Sushi\./);
+    await keepGroupExchange(store, withHome(home), next, "and dessert?", "Tiramisu.");
+    assert.match(home.notes.get(homeNote()), /Sushi\.[\s\S]*and dessert\?\n\n\*\*Tex:\*\* Tiramisu\./, "the next exchange is added to the changed page");
   });
   assert.ok(!bound.calls.some((call) => call.name === "write_note"), "nothing is written in the bound workspace");
   assert.equal(bound.notes.size, 0);
 });
 
-test("a printout over an existing page is written at the version just read, and a lost race is tried once more", async () => {
-  const { writeMemoryPrintout } = await import("../src/agent/groupMemoryNote.js");
-  const writes = [];
-  let version = 1;
-  const dispatch = async (name, args) => {
-    if (name === "read_note") return { content: [{ type: "text", text: `etag: v${version}\n\nold page` }] };
-    writes.push(args.expected_etag);
-    // Somebody else's write lands between the first read and its write.
-    if (writes.length === 1) {
-      version = 2;
-      return { isError: true, content: [{ type: "text", text: "conflict: note changed" }] };
+test("the page is written at the version just read: a write another turn won is read again and both kept", async () => {
+  const home = folder({ [homeNote()]: renderGroupNote(OLD) });
+  let raced = false;
+  const racing = async (name, args) => {
+    // Another turn's write lands between this one's read and its write.
+    if (name === "write_note" && !raced) {
+      raced = true;
+      home.edit(homeNote(), renderGroupNote([...OLD, { role: "user", text: "@bo: load-in is at 6" }, { role: "assistant", text: "Load-in at 6." }]));
     }
-    return { content: [{ type: "text", text: "Wrote it" }] };
+    return home.dispatch(name, args);
   };
-  assert.equal(await writeMemoryPrintout(dispatch, homeNote(), OLD, { log: () => {} }), true);
-  assert.deepEqual(writes, ["v1", "v2"]);
+  const added = [{ role: "user", text: "@ada: bring the cables" }, { role: "assistant", text: "Cables, got it." }];
+  assert.equal(await updateGroupPage(racing, homeNote(), (turns) => [...turns, ...added], { log: () => {} }), true);
+  assert.match(home.notes.get(homeNote()), /load-in is at 6[\s\S]*bring the cables/);
+  const writes = home.calls.filter((call) => call.name === "write_note").map((call) => call.args.expected_etag);
+  assert.deepEqual(writes, ["v1", "v2"], "each write names the version it read");
   const lines = [];
-  const refusing = async (name) => (name === "read_note" ? { isError: true, content: [{ type: "text", text: "not found" }] } : { isError: true, content: [{ type: "text", text: "permission denied: the gig is friday" }] });
-  assert.equal(await writeMemoryPrintout(refusing, homeNote(), OLD, { log: (line) => lines.push(line) }), false);
-  assert.deepEqual(lines.map((line) => JSON.parse(line)), [{ event: "group_memory_printout_not_written", reason: "permission denied" }], "said once, with no words of the page");
+  const refusing = folder({}, { refuse: "permission denied: the gig is friday" });
+  assert.equal(await updateGroupPage(refusing.dispatch, homeNote(), () => OLD, { log: (line) => lines.push(line) }), false);
+  assert.deepEqual(lines.map((line) => JSON.parse(line)), [{ event: "group_memory_page_not_written", reason: "permission denied" }], "said once, with no words of the page");
 });
 
-test("an old note's words are carried into the record once, and the note is never read as the history again", async () => {
+test("a page Tex cannot read is never written over", async () => {
+  const mine = "My own list:\n- cables\n- the setlist";
+  const home = folder({ [homeNote()]: mine });
+  const lines = [];
+  assert.equal(await updateGroupPage(home.dispatch, homeNote(), (turns) => [...turns, ...OLD], { log: (line) => lines.push(line) }), false);
+  assert.equal(home.notes.get(homeNote()), mine);
+  assert.deepEqual(lines.map((line) => JSON.parse(line)), [{ event: "group_memory_page_not_written", reason: "not_a_memory_page" }]);
+});
+
+test("a chat with no home keeps its turns in the record, and they move onto the page once it has one", async () => {
+  const store = createMemoryStore();
+  const bound = folder();
+  await quiet(async () => {
+    await keepGroupExchange(store, { ...GROUP }, await readGroupMemory(store, { ...GROUP }, bound.dispatch), "the gig is friday", "Noted: Friday.");
+    assert.equal((await recordOf(store)).turns.length, 2, "with no home, the record is the copy");
+    // The chat gets a home; its page has a printout from before (#2567), one exchange behind the record.
+    await keepGroupExchange(store, { ...GROUP }, [], "load-in is at 6", "Load-in at 6.");
+    const home = folder({ [homeNote()]: renderGroupNote(OLD) });
+    const history = await readGroupMemory(store, withHome(home), bound.dispatch);
+    assert.match(said(history), /the gig is friday[\s\S]*load-in is at 6/);
+    assert.match(home.notes.get(homeNote()), /the gig is friday[\s\S]*load-in is at 6/, "every turn is on the page");
+    const record = await recordOf(store);
+    assert.equal(record.onPage, ON_PAGE);
+    assert.equal(record.turns, undefined, "and the record keeps none");
+  });
+});
+
+test("once the page is the copy, a turn whose home could not be opened keeps nothing in a second place", async () => {
+  const store = createMemoryStore();
+  const home = folder();
+  await quiet(async () => {
+    await keepGroupExchange(store, withHome(home), await readGroupMemory(store, withHome(home), folder().dispatch), "the gig is friday", "Noted: Friday.");
+    assert.equal((await recordOf(store)).onPage, ON_PAGE);
+    const homeless = { ...GROUP, home: null };
+    assert.deepEqual(await readGroupMemory(store, homeless, folder().dispatch), []);
+    await keepGroupExchange(store, homeless, [], "load-in is at 6", "Load-in at 6.");
+    assert.equal((await recordOf(store)).turns, undefined, "the record never takes turns again");
+    assert.doesNotMatch(said(await readGroupMemory(store, withHome(home), folder().dispatch)), /load-in/);
+  });
+});
+
+test("a page that will not take the move leaves the record holding the turns for the next turn", async () => {
+  const store = createMemoryStore();
+  await quiet(async () => {
+    await keepGroupExchange(store, { ...GROUP }, [], "the gig is friday", "Noted: Friday.");
+    const refusing = folder({}, { refuse: "permission denied" });
+    assert.match(said(await readGroupMemory(store, withHome(refusing), folder().dispatch)), /the gig is friday/);
+    const record = await recordOf(store);
+    assert.notEqual(record.onPage, ON_PAGE);
+    assert.equal(record.turns.length, 2, "nothing dropped");
+    const home = folder();
+    await readGroupMemory(store, withHome(home), folder().dispatch);
+    assert.match(home.notes.get(homeNote()), /the gig is friday/, "the next turn moves them");
+    assert.equal((await recordOf(store)).turns, undefined);
+  });
+});
+
+test("an old note's words are carried in once, onto the page, and the old note is never read again", async () => {
   const store = createMemoryStore();
   const bound = folder({ [boundNote()]: renderGroupNote(OLD) });
   const home = folder();
   await quiet(async () => {
     assert.match(said(await readGroupMemory(store, withHome(home), bound.dispatch)), /the gig is friday/, "carried on the first turn");
+    assert.match(home.notes.get(homeNote()), /the gig is friday/, "onto the page");
     const record = await recordOf(store);
     assert.equal(record.carried, 1);
     assert.deepEqual(record.carriedFrom, [{ where: "default", path: boundNote() }], "where it came from, for the sweep that trashes it");
     // Somebody edits the old note afterwards: it is no longer the chat's memory, and is not read again.
-    bound.notes.set(boundNote(), renderGroupNote([{ role: "user", text: "@bo: the gig is sunday" }, { role: "assistant", text: "Sunday." }]));
-    const reads = bound.calls.length + home.calls.length;
+    bound.edit(boundNote(), renderGroupNote([{ role: "user", text: "@bo: the gig is sunday" }, { role: "assistant", text: "Sunday." }]));
+    const reads = bound.calls.length;
     const later = await readGroupMemory(store, withHome(home), bound.dispatch);
     assert.match(said(later), /the gig is friday/);
     assert.doesNotMatch(said(later), /sunday/);
-    const memoryReads = [...bound.calls, ...home.calls].slice(reads).filter((call) => /\/chat-[0-9a-f]{12}\.md$/.test(call.args.path ?? ""));
-    assert.deepEqual(memoryReads, [], "no memory note is read once carried");
+    const memoryReads = bound.calls.slice(reads).filter((call) => /\/chat-[0-9a-f]{12}\.md$/.test(call.args.path ?? ""));
+    assert.deepEqual(memoryReads, [], "no old note in a workspace folder is read once carried");
   });
 });
 

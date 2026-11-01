@@ -24,12 +24,12 @@
  *
  * One memory per chat, shared with whoever is added later (the owner,
  * 2026-10-31, reversing 2026-10-23), and ONE copy of it (the owner,
- * 2026-11-01): its record in the chat's Durable Object when the grant names
- * the chat (`chatMemoryRecord.js`), otherwise in the bound workspace under
- * `.context/`, filed by the chat's key alone. The old visible notes are
- * carried into the record once and never read as the history again
- * (`groupMemoryCarry.js`); in a home, a printout of the record is written after
- * each reply for the chat's people to read and download, and never read back.
+ * 2026-11-01): in a chat with a home, the memory page there
+ * (`groupMemoryNote.js`), whose text lives in the chat's Durable Object, which
+ * the chat's people can read and change and Tex goes by. A chat with no home
+ * yet keeps it in its record (`chatMemoryRecord.js`) until it has one, and the
+ * record's turns are moved onto the page then. The old notes in workspace
+ * folders are carried in once and never read again (`groupMemoryCarry.js`).
  * The voice note is named by the chat's key alone (`chatVoice.js`): in its
  * home when the chat has one (`chatHome.js`), and in the bound workspace
  * otherwise. The record holds the
@@ -40,8 +40,8 @@
  */
 
 import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.js";
-import { GROUP_NOTES_FOLDER, groupNotePath, timedTurn, writeMemoryPrintout } from "./groupMemoryNote.js";
-import { CARRIED, carryOldNotes } from "./groupMemoryCarry.js";
+import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupPage, timedTurn, updateGroupPage } from "./groupMemoryNote.js";
+import { CARRIED, ON_PAGE, carryOldNotes, mergeTurns } from "./groupMemoryCarry.js";
 import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
 import { aboutUsPath, addressHome, homePrompt, openChatHome, readAboutUs } from "./chatHome.js";
@@ -252,21 +252,33 @@ function oldNotePlaces(group, dispatch, names) {
 }
 
 /**
- * The chat's memory, or none: the record's turns, the one copy (`groupMemoryCarry.js`). A note is never read as the
- * history; the old notes are carried into the record once. A memory that cannot be read is an empty one.
+ * The chat's memory, or none. In a home whose page holds it (`ON_PAGE`), the page, the one copy; otherwise the record,
+ * until a turn that can write moves it onto the page (`moveOntoPage`). The old notes in workspace folders are carried
+ * in once. A memory that cannot be read is an empty one.
  */
 export async function readGroupMemory(store, group, dispatch = null) {
   // Every read below is its own note, so they run side by side: one after another they took 3 to 5 s of each group reply (2026-10-31).
   const names = await chatNames(group);
-  const [kept] = await Promise.all([readRecord(store, group), openHome(store, group, dispatch)]);
-  // Only a turn that can read the old notes carries them; a review's read (no dispatcher) never marks them carried.
-  const carry = kept.carried === CARRIED || kept.unreadable === true || dispatch === null ? Promise.resolve(kept) : carryOldNotes(kept, oldNotePlaces(group, dispatch, names));
-  const record = carry.then(async (carried) => {
-    if (carried.changed !== true) return carried;
-    const { changed: _changed, ...keep } = carried;
-    await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify(keep)).catch(() => false);
-    return keep;
-  });
+  const [kept] = await Promise.all([readRecord(store, group), openHome(store, group)]);
+  const pagePath = group.home ? groupNotePath(names.key, group.home.folder) : null;
+  const record = (async () => {
+    if (pagePath !== null && kept.onPage === ON_PAGE) {
+      // Straight from the chat's object when the record kept the page's key (`groupDirectNotes.js`), else through the tool.
+      const held = await directNote(group, kept, "memory");
+      const turns = held === null ? null : parseGroupNote(held.body);
+      if (turns !== null) return { turns };
+      const page = await readGroupPage(group.home.dispatch, pagePath);
+      if (page === null || page.turns === null) console.log(JSON.stringify({ event: "group_memory_page_unread", reason: page === null ? "unreadable" : "not_a_memory_page" }));
+      return { turns: page?.turns ?? [] };
+    }
+    // Its page is the one copy, and the home could not be opened this turn: no history, rather than a second copy.
+    if (kept.onPage === ON_PAGE) {
+      console.log(JSON.stringify({ event: "group_memory_page_unread", reason: "no_home" }));
+      return { turns: [] };
+    }
+    const page = pagePath === null ? null : await readGroupPage(group.home.dispatch, pagePath);
+    return await moveOntoPage(store, group, kept, page, pagePath, dispatch, names);
+  })();
   // In a home, its voice and about-us notes straight from the chat's object when the record kept their keys (`groupDirectNotes.js`).
   const direct = group.home ? kept : null;
   // How this group talks, beside its memory note and by the same name (`chatVoice.js`), and in a home what it is about.
@@ -275,7 +287,7 @@ export async function readGroupMemory(store, group, dispatch = null) {
   const voiceRead = (async () => {
     const held = direct ? await directNote(group, direct, "voice") : null;
     if (held !== null) return readGroupVoice(group.home.dispatch, group.voicePath, held);
-    const moved = group.voicePath !== null && (dispatch !== null || group.home) ? await moveVoice(group, dispatch, names) : null;
+    const moved = group.voicePath !== null && dispatch !== null ? await moveVoice(group, dispatch, names) : null;
     return readGroupVoice(group.home ? group.home.dispatch : dispatch, group.voicePath, moved?.held);
   })();
   // The workspace's playbook rides on the chat, for `groupPrompt` (`groupPlaybook.js`).
@@ -288,9 +300,32 @@ export async function readGroupMemory(store, group, dispatch = null) {
   return history;
 }
 
-/** The chat's home, opened once a turn and kept on the group (`chatHome.js`); only on a turn that can dispatch. */
-async function openHome(store, group, dispatch) {
-  if (dispatch === null || "home" in group) return;
+/**
+ * The record's turns, carried from the old notes once, and in a home moved onto its page once the carry is done:
+ * the page is written first, and the record drops its turns only after, so a failed write leaves the record holding
+ * them for the next turn. Only a turn that can dispatch writes; a review's read changes nothing.
+ */
+async function moveOntoPage(store, group, kept, page, pagePath, dispatch, names) {
+  const writes = dispatch !== null && kept.unreadable !== true;
+  const carried = !writes || kept.carried === CARRIED ? kept : await carryOldNotes(kept, oldNotePlaces(group, dispatch, names));
+  const held = (Array.isArray(carried.turns) ? carried.turns : []).filter(isTurn);
+  const pageTurns = page?.turns ?? null;
+  const turns = pageTurns === null ? held : mergeTurns(held, pageTurns);
+  if (!writes) return { turns };
+  const { changed: _changed, turns: _turns, ...marks } = carried;
+  const movable = pagePath !== null && pageTurns !== null && carried.carried === CARRIED;
+  if (movable && (await updateGroupPage(group.home.dispatch, pagePath, (now) => trimGroupTurns(mergeTurns(turns, now))))) {
+    await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ ...marks, version: 1, onPage: ON_PAGE })).catch(() => false);
+    console.log(JSON.stringify({ event: "group_memory_on_page", turns: turns.length }));
+    return { turns };
+  }
+  if (carried.changed === true) await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ ...marks, turns: held })).catch(() => false);
+  return { turns };
+}
+
+/** The chat's home, opened once a turn and kept on the group (`chatHome.js`). */
+async function openHome(store, group) {
+  if ("home" in group) return;
   group.home = await openChatHome(store);
   addressHome(store, group.home);
 }
@@ -358,31 +393,41 @@ function askOnly(text) {
 }
 
 /**
- * One exchange added to the chat's memory, with what the chat said before it: to the record, the one copy
- * (`groupMemoryCarry.js`). The record is read again just before the write, so an exchange another turn kept while
- * this one ran is kept too, and a record that cannot be read is left as it is. `history` is what the turn read.
+ * One exchange added to the chat's memory, with what the chat said before it: to its page once the memory is there
+ * (`ON_PAGE`), else to the record. Either is read again just before the write, so an exchange another turn kept while
+ * this one ran is kept too, and a page somebody changed meanwhile keeps their change. A record that cannot be read is
+ * left as it is. `history` is what the turn read.
  */
-export async function keepGroupExchange(store, group, history, question, answer, { tainted = false, tools = [], sources = [], timing = null, dispatch = null } = {}) {
+export async function keepGroupExchange(store, group, history, question, answer, { tainted = false, tools = [], sources = [], timing = null } = {}) {
   const latest = await readRecord(store, group);
   // A record that exists but cannot be read now is never written over with less: this exchange is the one lost.
   if (latest.unreadable === true) {
     console.log(JSON.stringify({ event: "group_exchange_not_kept", reason: "record_unreadable" }));
     return;
   }
-  const before = (Array.isArray(latest.turns) ? latest.turns : []).filter(isTurn);
-  const turns = trimGroupTurns([
-    ...before,
+  const exchange = [
     { role: "user", text: [chatLines(group), groupQuestionLine(group, question)].filter(Boolean).join("\n\n") },
     { ...keptTurn({ role: "assistant", text: answer, tainted, tools, sources }), ...timedTurn("assistant", timing) },
-  ]);
-  await openHome(store, group, dispatch);
+  ];
+  await openHome(store, group);
   // The keys of a home's voice and about-us notes, for next turn's direct reads (`groupDirectNotes.js`).
-  const direct = group.home ? await learnDirect(group, { voice: group.voicePath, about: aboutUsPath(group.home) }) : {};
+  const memory = group.home ? groupNotePath(await sha256Hex(group.key), group.home.folder) : null;
+  const direct = group.home ? await learnDirect(group, { voice: group.voicePath, about: aboutUsPath(group.home), memory }) : {};
   const { noteEtag: _etag, direct: _direct, unreadable: _unreadable, turns: _turns, ...marks } = latest;
-  const record = { version: 1, ...marks, turns, ...(Object.keys(direct).length > 0 ? { direct } : {}) };
-  const saved = await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify(record));
-  // In a home, the page its people read and download: a printout of the record, written after it and never read.
-  if (saved && group.home) await writeMemoryPrintout(group.home.dispatch, groupNotePath(await sha256Hex(group.key), group.home.folder), turns);
+  const withDirect = Object.keys(direct).length > 0 ? { direct } : {};
+  if (latest.onPage === ON_PAGE && !group.home) {
+    // The page is the one copy; with the home unopened this turn, the exchange is lost rather than kept in a second place.
+    console.log(JSON.stringify({ event: "group_exchange_not_kept", reason: "no_home" }));
+    return;
+  }
+  if (latest.onPage === ON_PAGE) {
+    await updateGroupPage(group.home.dispatch, memory, (turns) => trimGroupTurns([...turns, ...exchange]));
+    if (JSON.stringify(withDirect.direct ?? null) !== JSON.stringify(latest.direct ?? null)) await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ version: 1, ...marks, ...withDirect }));
+    return;
+  }
+  const before = (Array.isArray(latest.turns) ? latest.turns : []).filter(isTurn);
+  const record = { version: 1, ...marks, turns: trimGroupTurns([...before, ...exchange]), ...withDirect };
+  await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify(record));
 }
 
 /**
@@ -401,7 +446,7 @@ export function withoutTexName(text) {
 export function keepGroupSettled(store, group, dispatch = null) {
   return async (question, answer) => {
     try {
-      await keepGroupExchange(store, group, await readGroupMemory(store, group, dispatch), question, answer, { dispatch });
+      await keepGroupExchange(store, group, await readGroupMemory(store, group, dispatch), question, answer);
     } catch {
       // The reply is still owed; a memory that failed to save costs the chat some context.
     }
@@ -485,9 +530,11 @@ export function groupPrompt(group, workspace) {
   );
 }
 
-/** Where the chat's memory is kept, for the prompt: with the chat itself, never in a note (`groupMemoryCarry.js`), and its home. */
+/** Where the chat's memory is kept, for the prompt: its home's page, or with the chat until it has a home (`groupMemoryCarry.js`). */
 function memoryLine(group) {
-  const kept = "What you remember of this chat is kept with the chat itself; read all of it with earlier_chat. A page in its home is a copy for the people here and is not what you go by. ";
+  const kept = group?.home
+    ? "What you remember of this chat is its memory page in its home, which its people can read and change; read all of it with earlier_chat. "
+    : "What you remember of this chat is kept with the chat itself; read all of it with earlier_chat. ";
   return group?.home ? `${kept}${homePrompt(group)}` : kept;
 }
 

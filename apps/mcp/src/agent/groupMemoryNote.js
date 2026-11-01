@@ -1,33 +1,29 @@
 /**
- * THE OLD VISIBLE MEMORY NOTE OF A GROUP CHAT, READ ONCE (2026-11-01).
+ * A GROUP CHAT'S MEMORY PAGE, THE ONE COPY OF ITS HISTORY (the owner, 2026-11-01).
  *
- * Each chat used to keep a note, `tex/groups/chat-<id>.md` (the owner,
- * 2026-10-23: "Visible tex/ folder, team-wide"), in its home or its bound
- * workspace, holding what was asked, what Tex answered, and on a hidden line
- * under each answer the tools it used and the notes and pages it read or wrote
- * (`sources.js`). Tex read it before it answered and rewrote it after.
+ * The owner chose: the chat's people still see what Tex remembers, as a page
+ * in the chat's home in @context-lc, and that page is the only copy. Its text
+ * lives in the chat's Durable Object like every Tex note
+ * (`docs/decisions/texting-assistant/tex-durable-objects.md`), so the chat's
+ * people read it, Download as folders carries it, and Tex reads it before it
+ * answers and adds to it after. A change somebody makes there is what Tex
+ * goes by (`groupMemoryCarry.js`).
  *
- * The owner, 2026-11-01: one copy, in the chat's Durable Object, and no group
- * chat data in a workspace folder. The record is the history now
- * (`groupMemoryCarry.js`). In a chat's home the same note is still written,
- * as a printout of the record after each reply so the chat's people can read
- * and download it, and never read back (`writeMemoryPrintout`). What else is
- * left here is its format: where it was (`groupNotePath`), and how to read it,
- * so an old note's words are carried into the record once (`parseGroupNote`).
+ * It holds what was asked, what Tex answered, and on a hidden line under each
+ * answer the tools it used and the notes and pages it read or wrote
+ * (`sources.js`). Here: where it is (`groupNotePath`), how to read it
+ * (`parseGroupNote`, also how an old note in a workspace folder is carried in
+ * once), and how to add to it without losing a write (`updateGroupPage`).
  */
 
 import { sourcesOf } from "./sources.js";
-import { readWithEtag } from "./jobLog.js";
+import { readWithEtag, refusalWords } from "./jobLog.js";
 
 export const GROUP_NOTES_FOLDER = "tex/groups";
 
 const HEADING = "# Tex's memory of this group chat";
 const INTRO =
-  "Tex reads this note before it answers in the chat and adds to it after. Change or delete anything here and Tex goes by what's left. Everyone in this workspace can read it.";
-const GUEST_INTRO = INTRO.replace("Everyone in this workspace", "Everyone in this chat");
-/** The printout's: it is written from the record and never read (`groupMemoryCarry.js`). */
-const PRINTOUT_INTRO =
-  "A copy of what Tex remembers of this chat, rewritten after each reply. Tex never reads this page, so a change here doesn't change what it remembers; tell Tex in the chat instead. Only the people in this chat can open it.";
+  "Tex reads this page before it answers in the chat and adds to it after. Change or delete anything here and Tex goes by what's left. Only the people in this chat can open it.";
 const RULE = "---";
 const TEX = "**Tex:**";
 const META = /^<!--\s*tex used:(.*)-->$/;
@@ -76,8 +72,8 @@ export function timedTurn(role, timing) {
   return line && line.length <= MAX_TIMING && !line.includes("--") && !/[\u0000-\u001f]/.test(line) ? { timing: line } : {};
 }
 
-/** The kept turns as the note's text: the old note's (`guests` for its home form), or with `printout` the page written from the record. */
-export function renderGroupNote(turns, { guests = false, printout = false } = {}) {
+/** The kept turns as the page's text. */
+export function renderGroupNote(turns) {
   const blocks = [];
   for (let i = 0; i < turns.length; i += 1) {
     const turn = turns[i];
@@ -90,7 +86,7 @@ export function renderGroupNote(turns, { guests = false, printout = false } = {}
     blocks.push(`${TEX} ${escaped(turn.text)}${meta ? `\n${meta}` : ""}${timing ? `\n<!-- tex timing: ${timing} -->` : ""}`);
     if (i < turns.length - 1) blocks.push(RULE);
   }
-  return `${HEADING}\n\n${printout ? PRINTOUT_INTRO : guests ? GUEST_INTRO : INTRO}\n\n${RULE}\n\n${blocks.join("\n\n")}\n`;
+  return `${HEADING}\n\n${INTRO}\n\n${RULE}\n\n${blocks.join("\n\n")}\n`;
 }
 
 /** What a hidden line says: "a, b|source source tainted". */
@@ -152,26 +148,45 @@ export function parseGroupNote(text) {
 }
 
 /**
- * The record's turns written over the home's page (`printout`), never read back for its words. An existing page is
- * written at the version just read, as every write over a note must be, and a write that lost to another is tried once
- * more. Whether it was written; a refusal is one structured line with the tool's leading words, never the page's.
+ * The page's turns and version: `{turns, etag, missing}`, `turns` null when the page is there but is not one Tex can
+ * read (its heading is gone). Null when it could not be read, which is never the same as a page with nothing on it.
  */
-export async function writeMemoryPrintout(dispatch, path, turns, { log = console.log } = {}) {
-  const content = renderGroupNote(turns, { printout: true });
+export async function readGroupPage(dispatch, path) {
+  const seen = await readWithEtag(dispatch, path);
+  if (seen === null) return null;
+  if (seen.missing === true) return { turns: [], etag: null, missing: true };
+  return { turns: parseGroupNote(seen.body), etag: seen.etag, missing: false };
+}
+
+/** Writes the page takes before one is given up on: two more after a write another turn or person won. */
+export const PAGE_TRIES = 3;
+
+/**
+ * The page with `change(turns)` written over it, at the version just read: a write another turn or a person landed
+ * first is read again and `change` applied to that, so neither is lost. A page Tex cannot read is never written over
+ * (somebody's own words may be on it). Whether it was written; a refusal is one structured line with the tool's
+ * leading words, never the page's.
+ */
+export async function updateGroupPage(dispatch, path, change, { log = console.log } = {}) {
   let reason = "unreadable";
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const seen = await readWithEtag(dispatch, path);
-    if (seen === null) break;
+  for (let attempt = 0; attempt < PAGE_TRIES; attempt += 1) {
+    const page = await readGroupPage(dispatch, path);
+    if (page === null) break;
+    if (page.turns === null) {
+      reason = "not_a_memory_page";
+      break;
+    }
     try {
-      const result = await dispatch("write_note", { path, content, ...(seen.missing === true ? {} : { expected_etag: seen.etag }) });
+      const content = renderGroupNote(change(page.turns));
+      const result = await dispatch("write_note", { path, content, ...(page.missing ? {} : { expected_etag: page.etag }) });
       if (result?.isError !== true) return true;
-      reason = String(result?.content?.[0]?.text ?? "").split(/[:\n(]/, 1)[0].trim().slice(0, 60) || "refused";
+      reason = refusalWords(result);
       if (reason !== "conflict") break;
     } catch (error) {
       reason = error?.name ?? "error";
       break;
     }
   }
-  log(JSON.stringify({ event: "group_memory_printout_not_written", reason }));
+  log(JSON.stringify({ event: "group_memory_page_not_written", reason }));
   return false;
 }
