@@ -23,7 +23,12 @@ export class WorkspaceStore {
   ready() {
     if (this.store !== null) return this.store;
     const sql = this.state.storage.sql;
-    this.store = { objects: texObjects(sql), rows: workspaceRows(sql) };
+    this.store = {
+      objects: texObjects(sql),
+      rows: workspaceRows(sql),
+      // One storage transaction for `ws.apply`: all of a change lands, or none of it.
+      transact: (work) => this.state.storage.transactionSync(work),
+    };
     return this.store;
   }
 

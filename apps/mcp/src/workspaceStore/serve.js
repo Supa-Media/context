@@ -149,6 +149,25 @@ export async function serveWorkspaceStore(store, request) {
         changed(store, { paths, rules: false });
         return Response.json(answer);
       }
+      case "ws.apply": {
+        // Rows, removals and rules in one storage transaction: rules are keyed by path, so a move's rows and rules
+        // must land together or the moved rows are judged by the old rules in between.
+        const run = typeof store.transact === "function" ? store.transact : (work) => work();
+        for (const audience of Object.keys(fields.rules ?? {})) if (!AUDIENCES.has(audience)) throw new WorkspaceRowRefused("not an audience");
+        const paths = [
+          ...(Array.isArray(fields.rows) ? pathsTouched(rows, fields.rows.map((row) => row?.id), fields.rows) : []),
+          ...(Array.isArray(fields.removed) ? pathsTouched(rows, fields.removed) : []),
+        ];
+        const answer = run(() => {
+          const kept = Array.isArray(fields.rows) && fields.rows.length > 0 ? rows.put(fields.rows).kept : 0;
+          const removed = Array.isArray(fields.removed) && fields.removed.length > 0 ? rows.remove(fields.removed, fields.at).removed : 0;
+          const rules = {};
+          for (const [audience, held] of Object.entries(fields.rules ?? {})) rules[audience] = rows.putRules(held, audience);
+          return { kept, removed, rules };
+        });
+        changed(store, { paths, rules: Object.values(answer.rules).some((rule) => rule.kept) });
+        return Response.json(answer);
+      }
       case "ws.rows.lookup":
         return Response.json(lookUp(rows, fields, "path"));
       case "ws.rows.resolve":

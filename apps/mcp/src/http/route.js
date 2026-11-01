@@ -81,13 +81,11 @@ import { judgeFor } from "../privacy/judge.js";
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
 
-    // The control plane's own call to the mover, on the raw path so no
-    // workspace selector is ever read off it. It takes no person's token: the
-    // gateway secret and a ticket the control plane minted (`moves/mover.js`).
+    // The control plane's own call to the mover, on the raw path so no workspace selector is ever read off it.
+    // It takes no person's token: the gateway secret and a ticket the control plane minted (`moves/mover.js`).
     if (url.pathname === MOVER_PAGE_PATH) return await handleMoverPage(request, env);
-    // The control plane reaching Tex's notes for an export or the trash (`texStore/door.js`), the same way.
+    // The control plane reaching Tex's notes (`texStore/door.js`) or a workspace object (`workspaceStore/door.js`), the same way.
     if (url.pathname === TEX_STORE_PATH) return await handleTexStoreDoor(request, env);
-    // The control plane reaching a workspace object (`workspaceStore/door.js`), the same way.
     if (url.pathname === WORKSPACE_STORE_PATH) return await handleWorkspaceStoreDoor(request, env);
     // An upload link's PUT (`notes/imageUploads.js`): no person's token and no
     // workspace selector; the ticket in its header is the whole authority.

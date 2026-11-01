@@ -80,7 +80,8 @@ export function workspaceStub(env, workspaceId) {
  * - `rows.snapshot({epoch, rows, last, mode})`: a whole copy in pages; `replace` swaps on the last page, `merge` upserts
  * - `rows.digest()` → `{rows, sha256}` over the live rows in id order (fields: id, noteId, path, kind, storageKey, etag, size, collaborates, uploaded, role, order, archiveOf)
  * Every `ws.*` call names its workspace; the object pins the first it sees and refuses any other.
- * - `rules.put(heldRules)`, `rules.get()`
+ * - `rules.put(heldRules, audience)`, `rules.get(audience)`
+ * - `apply({rows, removed, at, rules: {member?, guest?}})`: rows, removals and rules in one storage transaction
  * - `state()` → `{home, backfilledAt, rows, objects, accessVersion}`; `setHome(home)`; `markBackfilled(at)`
  */
 export function workspaceClient(env, workspaceId) {
@@ -105,6 +106,7 @@ export function workspaceClient(env, workspaceId) {
       put: async (rules, audience = "member") => await ask("ws.rules.put", { rules, audience }),
       get: async (audience = "member") => await ask("ws.rules.get", { audience }),
     },
+    apply: async ({ rows = [], removed = [], at = null, rules = {} }) => await ask("ws.apply", { rows, removed, at, rules }),
     state: async () => await ask("ws.state"),
     setHome: async (home) => await ask("ws.home", { home }),
     markBackfilled: async (at) => await ask("ws.backfilled", { at }),

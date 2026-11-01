@@ -266,3 +266,12 @@ test("a push of a note read before its folder moved lands after the move and is 
   assert.equal((await ws.rows.get(["n1"])).rows[0].path, "1-projects/secret/old/open.md");
   assert.equal((await ws.read({ ids: [ID(1)], scope: "team" })).notes[0].found, false);
 });
+
+test("apply lands a move's rows and its rules together, and a bad rule leaves none of it applied", { skip }, async () => {
+  const { ws } = await seeded();
+  const answer = await ws.apply({ rows: [{ id: "n2", noteId: ID(2), path: "1-projects/kept/held.md", kind: "file", at: 50 }], rules: { member: { ...RULES(5), notes: [{ path: "1-projects/kept/held.md", visibility: "private" }] } } });
+  assert.deepEqual(answer, { kept: 1, removed: 0, rules: { member: { kept: true, accessVersion: 5 } } });
+  assert.equal((await ws.read({ ids: [ID(2)], scope: "team" })).notes[0].found, false);
+  await assert.rejects(() => ws.apply({ removed: ["n1"], at: 60, rules: { nobody: RULES(6) } }));
+  assert.equal((await ws.rows.get(["n1"])).rows.length, 1);
+});
