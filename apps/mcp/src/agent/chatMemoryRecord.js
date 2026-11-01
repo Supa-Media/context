@@ -1,14 +1,14 @@
 /**
- * Where a group chat's memory record lives: the plumbing JSON beside its
- * visible memory note (`groupTurn.js`), with every kept turn and the etag of
- * the note Tex last wrote.
+ * Where a group chat's memory record lives: the JSON with every kept turn,
+ * the chat's one copy of its history (the owner, 2026-11-01;
+ * `groupMemoryCarry.js`).
  *
  * When the turn's grant names its chat (`texChatId`, so the session's store
  * was built for that chat: `store/texRouting.js`), the record is the chat's
  * own, in the chat's Durable Object at tex/chat:<chatKey>/state/<sha>.json,
  * one per chat (the owner, 2026-10-31: somebody added to a chat shares what
- * it remembers), never in the bound workspace's bucket. It is a rebuildable
- * cache of the visible note and goes with the object
+ * it remembers), never in the bound workspace's bucket. It is the history
+ * itself, not a cache of a note, and goes with the object
  * (`docs/decisions/texting-assistant/tex-durable-objects.md`).
  *
  * - Read: the object's copy. With none, the bucket's old copy for this chat
@@ -32,6 +32,9 @@ export const CHAT_MEMORY_NAME = "c064fbca9d9de8dd9bb0624984403b28d0da807a69365d4
 /** A record that is not kept this turn: the chat's object cannot be reached, or the grant names another chat. */
 class NotKept extends Error {}
 
+/** A strict read that could not reach the record: not the same as a chat with none. */
+export class RecordUnreadable extends Error {}
+
 /**
  * Where this turn's record is: `{key, legacy}` in the chat's object, or `{key: legacy}` in the bucket when the store
  * was built for no chat. Throws `NotKept` when the store was built for a chat other than the one the turn names.
@@ -52,9 +55,10 @@ const isNotKept = (error) => error instanceof NotKept || error instanceof TexSto
 
 /**
  * The record's text, or null. `legacy` is the bucket key this chat and these people kept it at. A read that cannot
- * reach the object answers null (an empty memory); any other failure is thrown, as a bucket read's always was.
+ * reach the object answers null (an empty memory), or with `strict` throws `RecordUnreadable`, so a caller can tell
+ * no record from one it could not read; any other failure is thrown, as a bucket read's always was.
  */
-export async function readChatMemoryRecord(store, group, legacy, { log = console.log } = {}) {
+export async function readChatMemoryRecord(store, group, legacy, { log = console.log, strict = false } = {}) {
   try {
     const place = placeOf(store, group, legacy);
     const held = await store.get(place.key);
@@ -64,6 +68,7 @@ export async function readChatMemoryRecord(store, group, legacy, { log = console
   } catch (error) {
     if (!isNotKept(error)) throw error;
     logNotKept(error, "read", log);
+    if (strict) throw new RecordUnreadable();
     return null;
   }
 }

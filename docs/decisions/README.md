@@ -752,6 +752,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex in a group chat answers from the one shared workspace everyone in it is a member of (2026-10-20)](./texting-assistant/groups.md)
 - [A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)](./texting-assistant/group-guests.md)
 - [Group Tex keeps each chat's home in @context-lc, sealed from the people who run it (2026-10-31)](./texting-assistant/chat-homes.md)
+- [A group chat's history has one copy, in its Durable Object; the home holds a printout (2026-11-01)](./texting-assistant/group-memory-one-copy.md)
 - [A guest in a group chat opens a shared note with a texted code, and the code makes an account (2026-10-27, 2026-10-31)](./texting-assistant/guest-phone-pass.md)
 - [Tex is on WhatsApp through Whapi.Cloud, a linked-device account; iMessage stays home (2026-10-27)](./texting-assistant/whatsapp.md)
 - [A family chat counts invited numbers as members (2026-10-27)](./texting-assistant/invited-family.md)

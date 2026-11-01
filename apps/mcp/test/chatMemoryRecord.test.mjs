@@ -164,13 +164,14 @@ test("an unreachable object keeps nothing, writes nothing to the bucket and leav
   const { lines: written } = await logged(() => keepGroupExchange(store, group(), [], "the gig is friday", "Noted."));
   assert.deepEqual(bucketKeys(), before, "nothing new in the bucket");
   assert.equal(await (await store.get(legacy)).text(), record("@ada: old"), "the old copy untouched");
-  for (const line of [...lines, ...written]) {
-    const parsed = JSON.parse(line);
-    assert.equal(parsed.event, "group_memory_not_kept");
-    assert.equal(parsed.reason, "tex_store_unavailable");
-    assert.doesNotMatch(line, /a{64}|\.context|tex\/|gig|old/, "no key, path or words");
-  }
-  assert.equal(lines.length + written.length, 2);
+  const all = [...lines, ...written];
+  for (const line of all) assert.doesNotMatch(line, /a{64}|\.context|tex\/|gig|old/, "no key, path or words");
+  // The read, the read again just before the write (`keepGroupExchange`), and no write over a record it could not read.
+  assert.deepEqual(all.map((line) => JSON.parse(line)), [
+    { event: "group_memory_not_kept", step: "read", reason: "tex_store_unavailable" },
+    { event: "group_memory_not_kept", step: "read", reason: "tex_store_unavailable" },
+    { event: "group_exchange_not_kept", reason: "record_unreadable" },
+  ]);
 });
 
 test("a store built for another chat keeps nothing for this one and never touches its bucket copy", { skip }, async () => {

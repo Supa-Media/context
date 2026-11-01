@@ -1,31 +1,23 @@
 /**
- * A GROUP CHAT'S MEMORY AS A NOTE PEOPLE CAN READ AND FIX (the owner,
- * 2026-10-23: "Visible tex/ folder, team-wide").
+ * THE OLD VISIBLE MEMORY NOTE OF A GROUP CHAT, READ ONCE (2026-11-01).
  *
- * Each chat keeps ONE note, `tex/groups/chat-<id>.md`, named by the chat's
- * key alone (the owner, 2026-10-31: one memory per chat, and somebody added
- * later shares it; `groupTurn.js`). It holds what was asked, what Tex
- * answered, and on a hidden line under each answer the tools it used and the
- * notes and pages it read or wrote (`sources.js`). Tex reads the note before
- * it answers and rewrites it after, so a line someone changed or deleted
- * there is what Tex goes by next time.
+ * Each chat used to keep a note, `tex/groups/chat-<id>.md` (the owner,
+ * 2026-10-23: "Visible tex/ folder, team-wide"), in its home or its bound
+ * workspace, holding what was asked, what Tex answered, and on a hidden line
+ * under each answer the tools it used and the notes and pages it read or wrote
+ * (`sources.js`). Tex read it before it answered and rewrote it after.
  *
- * In a workspace-bound chat it is a workspace note at the folder's
- * visibility, so everyone in the workspace can read it, people not in the
- * chat included (the owner chose that over memory nobody can see). In a chat
- * with a home (`chatHome.js`) it lives in the home, which only the chat's
- * people open.
- *
- * Written and read through the dispatcher under the turn's own grant, like a
- * texted turn's transcript (`transcript.js`). A tagger whose role can't write
- * there keeps the chat's memory in the plumbing file alone, and the note is
- * preferred only while nobody has changed it since Tex last wrote it, so an
- * exchange that reached only the plumbing file is not lost.
+ * The owner, 2026-11-01: one copy, in the chat's Durable Object, and no group
+ * chat data in a workspace folder. The record is the history now
+ * (`groupMemoryCarry.js`). In a chat's home the same note is still written,
+ * as a printout of the record after each reply so the chat's people can read
+ * and download it, and never read back (`writeMemoryPrintout`). What else is
+ * left here is its format: where it was (`groupNotePath`), and how to read it,
+ * so an old note's words are carried into the record once (`parseGroupNote`).
  */
 
-import { loadPrivacyState, setRowTier } from "../privacy/state.js";
-import { servedListingStore } from "../tree/served.js";
 import { sourcesOf } from "./sources.js";
+import { readWithEtag } from "./jobLog.js";
 
 export const GROUP_NOTES_FOLDER = "tex/groups";
 
@@ -33,6 +25,9 @@ const HEADING = "# Tex's memory of this group chat";
 const INTRO =
   "Tex reads this note before it answers in the chat and adds to it after. Change or delete anything here and Tex goes by what's left. Everyone in this workspace can read it.";
 const GUEST_INTRO = INTRO.replace("Everyone in this workspace", "Everyone in this chat");
+/** The printout's: it is written from the record and never read (`groupMemoryCarry.js`). */
+const PRINTOUT_INTRO =
+  "A copy of what Tex remembers of this chat, rewritten after each reply. Tex never reads this page, so a change here doesn't change what it remembers; tell Tex in the chat instead. Only the people in this chat can open it.";
 const RULE = "---";
 const TEX = "**Tex:**";
 const META = /^<!--\s*tex used:(.*)-->$/;
@@ -44,10 +39,6 @@ export function groupNotePath(hash, folder = GROUP_NOTES_FOLDER) {
   return `${folder}/chat-${hash.slice(0, 12)}.md`;
 }
 
-/** A note moved into a home: its intro says who can read it, and in a home that is the chat's people alone. */
-export function asHomeNote(text) {
-  return String(text).split(INTRO).join(GUEST_INTRO);
-}
 
 /** A line that would read as the note's own structure, kept as words. */
 function escaped(text) {
@@ -85,8 +76,8 @@ export function timedTurn(role, timing) {
   return line && line.length <= MAX_TIMING && !line.includes("--") && !/[\u0000-\u001f]/.test(line) ? { timing: line } : {};
 }
 
-/** The kept turns as the note's text. */
-export function renderGroupNote(turns, { guests = false } = {}) {
+/** The kept turns as the note's text: the old note's (`guests` for its home form), or with `printout` the page written from the record. */
+export function renderGroupNote(turns, { guests = false, printout = false } = {}) {
   const blocks = [];
   for (let i = 0; i < turns.length; i += 1) {
     const turn = turns[i];
@@ -99,7 +90,7 @@ export function renderGroupNote(turns, { guests = false } = {}) {
     blocks.push(`${TEX} ${escaped(turn.text)}${meta ? `\n${meta}` : ""}${timing ? `\n<!-- tex timing: ${timing} -->` : ""}`);
     if (i < turns.length - 1) blocks.push(RULE);
   }
-  return `${HEADING}\n\n${guests ? GUEST_INTRO : INTRO}\n\n${RULE}\n\n${blocks.join("\n\n")}\n`;
+  return `${HEADING}\n\n${printout ? PRINTOUT_INTRO : guests ? GUEST_INTRO : INTRO}\n\n${RULE}\n\n${blocks.join("\n\n")}\n`;
 }
 
 /** What a hidden line says: "a, b|source source tainted". */
@@ -160,63 +151,27 @@ export function parseGroupNote(text) {
   return turns;
 }
 
-/** The note's etag and text, or null when there is none or it can't be read. */
-export async function readGroupNote(dispatch, path) {
-  try {
-    const result = await dispatch("read_note", { path });
-    if (result?.isError === true) return null;
-    const text = String(result?.content?.[0]?.text ?? "");
-    const etag = /^etag: (\S+)/m.exec(text)?.[1];
-    const body = text.indexOf("\n\n");
-    if (!etag || body < 0) return null;
-    return { etag, text: text.slice(body + 2) };
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Share `tex/groups/` with the workspace the first time a chat's note can't
- * be written there, so the owner never has to make the folder by hand. Only
- * that folder, never `tex/` (which holds transcripts, about-me and the like),
- * and only when nobody has set `tex/` or anything under `tex/groups/`, private
- * included, and nothing this grant can see is filed there yet: a choice
- * someone made is never widened, and a note held back by name keeps its own
- * setting (the nearest setting wins). The control plane decides whether this
- * grant may change access at all (owners and editors); a refusal leaves things
- * as they were. Whether it shared the folder.
- *
- * What is filed there is read from the tree, never the bucket: a note's bytes
- * live at `notes/<noteId>.md` and its folder is a row, so a listing by path
- * prefix finds nothing however much is in the folder (2026-10-24). A tree
- * that cannot answer shares nothing and the owner makes the folder by hand,
- * which is the safe way for this one to fall.
+ * The record's turns written over the home's page (`printout`), never read back for its words. An existing page is
+ * written at the version just read, as every write over a note must be, and a write that lost to another is tried once
+ * more. Whether it was written; a refusal is one structured line with the tool's leading words, never the page's.
  */
-export async function shareGroupNotesFolder(store) {
-  if (typeof store?.rowAccess?.setTier !== "function") return false;
-  try {
-    const { rules, error } = await loadPrivacyState(store);
-    if (error) return false;
-    const set = (raw) => {
-      const prefix = String(raw ?? "").replace(/\/+$/, "");
-      return prefix === "tex" || prefix === GROUP_NOTES_FOLDER || prefix.startsWith(`${GROUP_NOTES_FOLDER}/`);
-    };
-    if (rules.some((rule) => set(rule.prefix))) return false;
-    const filed = await servedListingStore(store).list({ prefix: `${GROUP_NOTES_FOLDER}/`, limit: 1 });
-    if ((filed?.objects ?? filed?.keys ?? []).length > 0) return false;
-    return await setRowTier(store, GROUP_NOTES_FOLDER, "team", { folder: true });
-  } catch {
-    return false;
+export async function writeMemoryPrintout(dispatch, path, turns, { log = console.log } = {}) {
+  const content = renderGroupNote(turns, { printout: true });
+  let reason = "unreadable";
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const seen = await readWithEtag(dispatch, path);
+    if (seen === null) break;
+    try {
+      const result = await dispatch("write_note", { path, content, ...(seen.missing === true ? {} : { expected_etag: seen.etag }) });
+      if (result?.isError !== true) return true;
+      reason = String(result?.content?.[0]?.text ?? "").split(/[:\n(]/, 1)[0].trim().slice(0, 60) || "refused";
+      if (reason !== "conflict") break;
+    } catch (error) {
+      reason = error?.name ?? "error";
+      break;
+    }
   }
-}
-
-/** Write the note; its new etag, or null when this grant couldn't. */
-export async function writeGroupNote(dispatch, path, turns, etag = null, { guests = false } = {}) {
-  try {
-    const result = await dispatch("write_note", { path, content: renderGroupNote(turns, { guests }), ...(etag ? { expected_etag: etag } : {}) });
-    if (result?.isError === true) return null;
-    return /\(etag ([^)\s]+)\)/.exec(String(result?.content?.[0]?.text ?? ""))?.[1] ?? null;
-  } catch {
-    return null;
-  }
+  log(JSON.stringify({ event: "group_memory_printout_not_written", reason }));
+  return false;
 }
