@@ -1,0 +1,71 @@
+# Compare every workspace that is not read from its bucket alone with its
+# workspace object (owner, 2026-11-01;
+# `docs/decisions/storage-and-credentials/workspace-objects.md`): note texts
+# and editing history by SHA-256, rows by digest, access rules as rendered,
+# and who-can-see answers for sample readers. Each difference is asked again
+# before it counts, so a save in flight is not one. Counts only, never a key,
+# a path or a body: this job's log is public. The result per workspace is kept
+# on its record, and a workspace is read from its object only after a clean
+# check within the hour (`functions/workspaceObjects.ts` `setHome`).
+name: Workspace objects parity
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to check."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      only:
+        description: "A handle: this workspace alone (empty for every workspace)."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Compare
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          page=0
+          total='{"workspaces":0,"clean":0,"differing":0,"unreachable":0}'
+          while :; do
+            page=$((page + 1))
+            args='{}'
+            if [ -n "$cursor" ]; then args=$(echo "$args" | jq -c --arg cursor "$cursor" '. + {cursor: $cursor}'); fi
+            if [ -n "$ONLY" ]; then args=$(echo "$args" | jq -c --arg only "$ONLY" '. + {only: $only}'); fi
+            answer=$(npx convex run functions/workspaceObjects:parity "$args")
+            echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
+            total=$(jq -cn --argjson a "$total" --argjson b "$answer" '{workspaces: ($a.workspaces + $b.workspaces), clean: ($a.clean + $b.clean), differing: ($a.differing + $b.differing), unreachable: ($a.unreachable + $b.unreachable)}')
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+            if [ "$page" -ge 2000 ]; then echo "stopped after $page pages"; exit 1; fi
+          done
+          echo "total: $total"
+          echo "### Workspace objects parity" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$total\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(echo "$total" | jq -r '.differing + .unreachable')" != "0" ]; then exit 1; fi

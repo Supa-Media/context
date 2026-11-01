@@ -438,6 +438,9 @@ export const openStorageBinding = internalAction({
         ...(credential.sessionToken === undefined ? {} : { sessionToken: credential.sessionToken }),
         forcePathStyle: credential.forcePathStyle,
         capabilities: credential.capabilities,
+        // Where the note texts are read from (`functions/workspaceObjects.ts`); absent while `bucket`.
+        ...(credential.notesHome === undefined ? {} : { notesHome: credential.notesHome }),
+        ...(credential.notesBackfilledAt === undefined ? {} : { notesBackfilledAt: credential.notesBackfilledAt }),
         // The contract's vocabulary, not the row's. `connected` is our word for
         // "a probe reached it"; `active` is the gateway's word for "you may
         // build a store from this".
@@ -598,6 +601,9 @@ export const openGatewayJob = internalAction({
         ...(credential.sessionToken === undefined ? {} : { sessionToken: credential.sessionToken }),
         forcePathStyle: credential.forcePathStyle,
         capabilities: credential.capabilities,
+        // Where the note texts are read from (`functions/workspaceObjects.ts`); absent while `bucket`.
+        ...(credential.notesHome === undefined ? {} : { notesHome: credential.notesHome }),
+        ...(credential.notesBackfilledAt === undefined ? {} : { notesBackfilledAt: credential.notesBackfilledAt }),
         status: "active",
       },
       searchIndex,

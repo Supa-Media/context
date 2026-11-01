@@ -130,6 +130,9 @@ export interface S3GatewayCredential {
   forcePathStyle?: boolean;
   capabilities: StorageCapabilities;
   status: string;
+  /** Where the note texts are read from while they move into the workspace object; absent while `bucket`. */
+  notesHome?: "dual" | "object";
+  notesBackfilledAt?: number;
 }
 
 export type GatewayCredential = S3GatewayCredential;

@@ -1,0 +1,67 @@
+# Where one workspace's notes are read from (owner, 2026-11-01;
+# `docs/decisions/storage-and-credentials/workspace-objects.md`): `bucket`,
+# `dual` (bucket read, every save mirrored into the object) or `object`.
+# Rolling back is this same job with `dual`. `object` is refused unless the
+# workspace was backfilled and its last parity check, within the hour, was
+# clean; `force` skips that check and is for a staging drill only.
+name: Workspace objects home
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      only:
+        description: "The workspace's handle."
+        type: string
+        required: true
+      home:
+        description: "Where its notes are read from."
+        type: choice
+        options:
+          - dual
+          - object
+          - bucket
+        default: dual
+      force:
+        description: "Skip the parity check (staging drills only)."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  home:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Set home
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          ONLY: ${{ inputs.only }}
+          HOME_TO: ${{ inputs.home }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          args=$(jq -cn --arg slug "$ONLY" --arg home "$HOME_TO" --argjson force "$FORCE" '{slug: $slug, home: $home, force: $force}')
+          answer=$(npx convex run functions/workspaceObjects:setHomeBySlug "$args")
+          echo "$answer"
+          if [ "$(echo "$answer" | jq -r '.ok')" != "true" ]; then exit 1; fi
