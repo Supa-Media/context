@@ -1,8 +1,9 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { useQuery } from "convex/react";
+import { useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { EMPTY_QUERY_SPEC } from "../querySpec";
 
 /**
  * A group chat's home drawn by its chat's name, or by its people when the chat has none, instead of the three words
@@ -41,9 +42,22 @@ export function withChatHomeTitles<T extends { path: string; label: string }>(ro
   });
 }
 
-/** Asks for the open workspace's chat home titles once, for every row below. Nothing for a demo or no workspace. */
+/**
+ * Asks for the open workspace's chat home titles once, for every row below. Nothing for a demo or no workspace.
+ * Read with `useQueries`, as the console's own data is: a failed answer is a value here, and the rows keep their
+ * three words, where a `useQuery` would re-throw during render and blank the console over a label.
+ */
 export function ChatHomeTitlesProvider({ workspaceId, children }: { workspaceId: string | null; children: ReactNode }) {
-  const answer = useQuery(api.functions.textGroupNames.homeTitles, workspaceId === null ? "skip" : { workspaceId: workspaceId as Id<"workspaces"> });
+  // Primitives only in the memo's dependencies, `api` reached inside it: see `../querySpec.ts`.
+  const queries = useMemo<RequestForQueries>(
+    () =>
+      workspaceId === null
+        ? EMPTY_QUERY_SPEC
+        : { titles: { query: api.functions.textGroupNames.homeTitles, args: { workspaceId: workspaceId as Id<"workspaces"> } } },
+    [workspaceId],
+  );
+  const result = useQueries(queries).titles as ChatHomeTitle[] | Error | undefined;
+  const answer = result instanceof Error ? undefined : result;
   const titles = useMemo(() => titlesByPath(answer), [answer]);
   return <ChatHomeTitlesContext.Provider value={titles}>{children}</ChatHomeTitlesContext.Provider>;
 }
