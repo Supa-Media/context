@@ -1,0 +1,300 @@
+/**
+ * The Tex page's data layer, without a renderer: the gateway's answers read
+ * field by field, the mock's wording, the address, and the live socket.
+ * `texPageRender.test.ts` mounts the page itself.
+ *
+ * ## Sabotage record
+ *
+ * Applied, run, named test seen failing, reverted (2026-11-02):
+ *  1. `readAnswer` reading a 404 as `failed` → "another person's group is
+ *     refused exactly as a missing one is" fails.
+ *  2. `liveProtocols` putting the token in the URL instead → "the grant rides
+ *     as a subprotocol, never in the address" fails.
+ *  3. `openLive` dropping the watch frame on reconnect → "a reconnect says
+ *     the chat again" fails.
+ *  4. `readOverview` passing `thinking` through unread → "an overview is read
+ *     field by field" fails.
+ */
+
+import { describe, expect, test } from "@jest/globals";
+import { EMPTY_OVERVIEW, readJobDetail, readList, readOverview, readSection } from "../features/tex/page/texPageRead";
+import {
+  actionPieces,
+  advisorLine,
+  ago,
+  busyLine,
+  clock,
+  endedLine,
+  heading,
+  mailcheckLine,
+  moodOf,
+  seconds,
+  slotLine,
+  statusLine,
+  tileLines,
+  turnTail,
+} from "../features/tex/page/texPageFormat";
+import { liveProtocols, liveSocketUrl, openLive, readPatch, type SocketLike } from "../features/tex/page/texPageLive";
+import { gatewaySource, readAnswer, texPageUrl } from "../features/tex/page/texPageSource";
+import { placeParams, readPlace } from "../features/tex/page/texPlace";
+import type { JobSummary } from "../features/tex/page/texPageTypes";
+
+const job = (over: Partial<JobSummary> = {}): JobSummary => ({ id: "j", title: "T", state: "running", startedAt: 0, failedSteps: 0, ...over });
+
+describe("reading the gateway", () => {
+  test("an overview is read field by field", () => {
+    const o = readOverview({
+      chat: { key: "me", name: "Just you" },
+      chats: [{ key: "me", name: "Just you" }, { key: "g1", name: "Team", people: 5 }, { nope: 1 }],
+      status: { jobs: 2, needsYou: "1" },
+      thinking: [{ at: 1, who: "You", said: "hi", thought: "t", did: [{ kind: "bogus", label: "x" }], reply: "", ms: 10, extra: "<b>" }, { at: "x" }],
+      minions: [{ slot: 2, job: { id: "a", title: "A", state: "waiting", startedAt: 5, failedSteps: 0 } }],
+      tiles: { routines: { on: 3, next: "8:00" } },
+      secret: "kept out",
+    });
+    expect(o).not.toBeNull();
+    expect(o!.chats.map((c) => c.key)).toEqual(["me", "g1"]);
+    expect(o!.status).toEqual({ jobs: 2, needsYou: 0 });
+    expect(o!.thinking).toEqual([{ at: 1, who: "You", said: "hi", thought: "t", did: [{ kind: "tool", label: "x" }], reply: null, ms: 10 }]);
+    expect(o!.minions.map((s) => [s.slot, s.job?.id ?? null])).toEqual([
+      [1, null],
+      [2, "a"],
+      [3, null],
+    ]);
+    expect(o!.tiles.routines).toEqual({ on: 3, next: "8:00" });
+    expect(o!.earlier).toEqual([]);
+    expect(JSON.stringify(o)).not.toContain("kept out");
+  });
+
+  test("a section not sent yet answers empty, never an error", () => {
+    expect(readOverview({})).toEqual(EMPTY_OVERVIEW);
+    expect(readList("routines", {})).toEqual({ items: [] });
+    expect(readList("about", null)).toEqual({ items: [] });
+  });
+
+  test("a live patch replaces one section and nothing else", () => {
+    const next = readSection(EMPTY_OVERVIEW, "status", { jobs: 1, needsYou: 1 });
+    expect(next!.status).toEqual({ jobs: 1, needsYou: 1 });
+    expect(next!.thinking).toBe(EMPTY_OVERVIEW.thinking);
+    expect(readSection(EMPTY_OVERVIEW, "nope", 1)).toBeNull();
+    expect(readSection(EMPTY_OVERVIEW, "thinking", [1, 2, 3, 4].map((at) => ({ at })))!.thinking).toHaveLength(3);
+  });
+
+  test("a job's steps keep only what a step is", () => {
+    const j = readJobDetail({ id: "a", title: "A", state: "failed", startedAt: 1, failedSteps: 1, steps: [{ at: 2, text: "x", failed: "yes", why: "w" }, { at: 3 }], result: { href: "/note/x", js: 1 } });
+    expect(j!.steps).toEqual([{ at: 2, text: "x", why: "w" }]);
+    expect(j!.result).toEqual({ href: "/note/x" });
+  });
+
+  test("a job's result link is a path in the app or https, nothing else", () => {
+    const href = (h: string) => readJobDetail({ id: "a", steps: [], result: { href: h } })!.result!.href;
+    expect(href("/note/x")).toBe("/note/x");
+    expect(href("https://example.test/x")).toBe("https://example.test/x");
+    for (const bad of ["javascript:alert(1)", "//evil.test/x", "/\\evil.test", "http://example.test", "data:text/html,x"]) expect(href(bad)).toBeUndefined();
+  });
+
+  test("an email check with an unknown verdict is not shown as one", () => {
+    const page = readList("mailcheck", { items: [{ id: "1", verdict: "maybe" }, { id: "2", verdict: "sent", to: "Sam" }] });
+    expect(page.items.map((m) => m.id)).toEqual(["2"]);
+  });
+
+  test("another person's group is refused exactly as a missing one is", () => {
+    expect(readAnswer(404, { error: "not_found" }, readOverview)).toEqual({ kind: "notYours" });
+    expect(readAnswer(403, { error: "not_yours" }, readOverview)).toEqual({ kind: "notYours" });
+    expect(readAnswer(403, { error: "scope" }, readOverview)).toEqual({ kind: "failed" });
+    expect(readAnswer(500, {}, readOverview)).toEqual({ kind: "failed" });
+  });
+
+  test("routes are the gateway's own origin, http or https only", () => {
+    expect(texPageUrl("https://mcp.example.test/mcp", "")).toBe("https://mcp.example.test/tex/page");
+    expect(texPageUrl("https://mcp.example.test/mcp", "act")).toBe("https://mcp.example.test/tex/page/act");
+    expect(texPageUrl("javascript:alert(1)", "")).toBeNull();
+  });
+
+  test("a refused grant is replaced once, never in a loop", async () => {
+    const tokens: unknown[] = [];
+    let calls = 0;
+    const source = gatewaySource({
+      endpoint: "https://mcp.example.test/mcp",
+      handle: "ada",
+      token: async (refresh) => {
+        tokens.push(refresh);
+        return `t${tokens.length}`;
+      },
+      fetch: (async (_url: string, init: { headers: Record<string, string>; body: string }) => {
+        calls += 1;
+        expect(JSON.parse(init.body)).toEqual({ handle: "ada", chat: "me" });
+        return { status: 401, json: async () => ({}) };
+      }) as unknown as typeof fetch,
+    });
+    expect(await source.overview("me")).toEqual({ kind: "failed" });
+    expect(calls).toBe(2);
+    expect(tokens).toEqual([false, { rejected: "t1" }]);
+  });
+});
+
+describe("the mock's words", () => {
+  test("header", () => {
+    expect(heading({ key: "me", name: "Just you" })).toBe("Tex");
+    expect(heading({ key: "g", name: "Team Night" })).toBe("Tex in Team Night");
+    expect(statusLine({ chat: { key: "me", name: "" }, status: { jobs: 2, needsYou: 1 } })).toBe("Working on 2 jobs · 1 needs you");
+    expect(statusLine({ chat: { key: "g", name: "", people: 5 }, status: { jobs: 1, needsYou: 0 } })).toBe("5 people · working on 1 job");
+    expect(statusLine({ chat: { key: "me", name: "" }, status: { jobs: 0, needsYou: 0 } })).toBe("Nothing running right now");
+  });
+
+  test("minions", () => {
+    expect(busyLine([{ slot: 1, job: job() }, { slot: 2, job: job() }, { slot: 3, job: null }])).toBe("Minions · 2 of 3 busy");
+    expect(slotLine(job({ failedSteps: 3 }), 60_000)).toEqual({ text: "1 min", failed: "3 steps didn't work" });
+    expect(slotLine(job({ state: "waiting", needs: "Needs your sign-in code" }))).toEqual({ text: "Needs your sign-in code", warn: true });
+    expect(slotLine(job({ for: "Ada" }), 180_000)).toEqual({ text: "For Ada · 3 min" });
+    expect(moodOf(null)).toBe("rest");
+    expect(moodOf(job({ state: "waiting" }))).toBe("stuck");
+    expect(endedLine(job({ state: "done", endedAt: 0 }), 20 * 60_000)).toBe("Done · 20 min ago ›");
+    expect(ago(0, 2 * 3_600_000)).toBe("2 h ago");
+  });
+
+  test("behind the scenes", () => {
+    expect(advisorLine({ today: 2, last: "what to compare on maritime.sh" })).toBe("Helped twice today · last: what to compare on maritime.sh");
+    expect(advisorLine({ today: 0 })).toBe("Not needed today");
+    expect(mailcheckLine({ today: 3, waiting: 1 })).toBe("Checked 3 emails today · 1 waiting for your yes");
+    expect(mailcheckLine({ today: 0, waiting: 1 })).toBe("1 email waiting for your yes");
+  });
+
+  test("tiles", () => {
+    const t = tileLines(
+      { routines: { on: 3, next: "8:00" }, checkins: { next: "9:30 pm" }, about: { count: 24, newToday: 2 }, computer: { running: true, url: "https://www.resy.com/x" }, settings: { summary: "Friendly · short" } },
+      false,
+    );
+    expect(t).toEqual({ routines: "3 on · next 8:00", checkins: "Next 9:30 pm", about: "2 new today", computer: "Live", settings: "Friendly · short" });
+    const g = tileLines(
+      { routines: { on: 1, next: "Fri 2 pm" }, checkins: {}, about: { count: 12, newToday: 0 }, computer: { running: true, url: "https://resy.com" }, settings: { summary: "" } },
+      true,
+    );
+    expect(g).toEqual({ routines: "1 on · Fri 2 pm", checkins: "None set", about: "12 things", computer: "On resy.com · live", settings: "Answers when named" });
+  });
+
+  test("a turn's actions link only what they name", () => {
+    expect(actionPieces({ kind: "advisor", label: "Asked the Advisor", ref: "a1" })).toEqual({ before: "Asked the ", link: "Advisor", after: "" });
+    expect(actionPieces({ kind: "job", label: "Started Minion 2", ref: "j" })).toEqual({ before: "Started ", link: "Minion 2", after: "" });
+    expect(actionPieces({ kind: "job", label: "Started Minion 2" })).toEqual({ before: "Started Minion 2", after: "" });
+    expect(actionPieces({ kind: "mailcheck", label: "Email check passed it" })).toEqual({ before: "", link: "Email check", after: " passed it" });
+    expect(turnTail({ at: 0, who: "Cy", said: "", thought: "", did: [], reply: null, ms: 500 })).toEqual(["Stayed quiet", "0.5 s"]);
+    expect(seconds(3800)).toBe("3.8 s");
+  });
+
+  test("the clock reads as the mock's", () => {
+    const now = new Date(2026, 10, 1, 18, 10);
+    expect(clock(new Date(2026, 10, 1, 18, 5).getTime(), now)).toBe("6:05");
+    expect(clock(new Date(2026, 10, 1, 9, 20).getTime(), now)).toBe("9:20 am");
+  });
+});
+
+describe("the address", () => {
+  test("a place round-trips, and anything else reads as the first screen", () => {
+    expect(readPlace({})).toEqual({ chat: "me" });
+    expect(readPlace({ chat: "g1", view: "routines" })).toEqual({ chat: "g1", view: "routines" });
+    expect(readPlace({ chat: "../x", view: "nope", job: "<script>" })).toEqual({ chat: "me" });
+    expect(readPlace({ view: "computer", full: "1" })).toEqual({ chat: "me", view: "computer", full: true });
+    expect(placeParams({ chat: "me" })).toEqual({});
+    expect(placeParams({ chat: "g1", job: "j1" })).toEqual({ chat: "g1", job: "j1" });
+  });
+});
+
+function fakeSockets() {
+  const made: (SocketLike & { url: string; protocols: string[]; sent: string[] })[] = [];
+  const timers: { fn: () => void; ms: number }[] = [];
+  return {
+    made,
+    timers,
+    open: (url: string, protocols: string[]) => {
+      const s = { url, protocols, sent: [] as string[], readyState: 0, onopen: null, onmessage: null, onclose: null, onerror: null } as unknown as SocketLike & {
+        url: string;
+        protocols: string[];
+        sent: string[];
+      };
+      s.send = (d: string) => void s.sent.push(d);
+      s.close = () => {};
+      made.push(s);
+      return s;
+    },
+    setTimer: (fn: () => void, ms: number) => {
+      timers.push({ fn, ms });
+      return timers.length;
+    },
+    clearTimer: () => {},
+  };
+}
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+describe("the live socket", () => {
+  test("the grant rides as a subprotocol, never in the address", () => {
+    expect(liveSocketUrl("https://mcp.example.test")).toBe("wss://mcp.example.test/tex/page/live");
+    expect(liveProtocols("tok")).toEqual(["context.tex-page", "context.token.tok"]);
+  });
+
+  test("only patches are read", () => {
+    expect(readPatch(JSON.stringify({ t: "patch", section: "routines" }))).toEqual({ section: "routines" });
+    expect(readPatch(JSON.stringify({ t: "patch", section: "status", value: { jobs: 1 } }))).toEqual({ section: "status", value: { jobs: 1 } });
+    expect(readPatch(JSON.stringify({ t: "pong" }))).toBeNull();
+    expect(readPatch("{nope")).toBeNull();
+    expect(readPatch(null)).toBeNull();
+  });
+
+  test("it says which chat, hands on patches, and a reconnect says the chat again", async () => {
+    const f = fakeSockets();
+    const patches: unknown[] = [];
+    const ups: boolean[] = [];
+    const live = openLive({
+      gatewayOrigin: "https://mcp.example.test",
+      handle: "ada",
+      chat: "me",
+      token: async () => "tok",
+      onPatch: (p) => patches.push(p),
+      onLive: (u) => ups.push(u),
+      open: f.open,
+      setTimer: f.setTimer,
+      clearTimer: f.clearTimer,
+    });
+    await flush();
+    const first = f.made[0]!;
+    expect(first.url).not.toContain("tok");
+    first.readyState = 1;
+    first.onopen!({});
+    expect(JSON.parse(first.sent[0]!)).toEqual({ t: "watch", handle: "ada", chat: "me" });
+    first.onmessage!({ data: JSON.stringify({ t: "patch", section: "about" }) });
+    expect(patches).toEqual([{ section: "about" }]);
+    live.watch("g1");
+    expect(JSON.parse(first.sent[1]!)).toEqual({ t: "watch", handle: "ada", chat: "g1" });
+    // Closed to be authorized again: back at once, on the chat it follows now.
+    first.onclose!({ code: 4001 });
+    const again = f.timers.at(-1)!;
+    expect(again.ms).toBe(0);
+    again.fn();
+    await flush();
+    const second = f.made[1]!;
+    second.readyState = 1;
+    second.onopen!({});
+    expect(JSON.parse(second.sent[0]!)).toEqual({ t: "watch", handle: "ada", chat: "g1" });
+    expect(ups).toEqual([true, false, true]);
+    live.close();
+  });
+
+  test("a refused socket waits minutes, not seconds", async () => {
+    const f = fakeSockets();
+    openLive({
+      gatewayOrigin: "https://mcp.example.test",
+      handle: "ada",
+      chat: "g-not-mine",
+      token: async () => "tok",
+      onPatch: () => {},
+      onLive: () => {},
+      open: f.open,
+      setTimer: f.setTimer,
+      clearTimer: f.clearTimer,
+    });
+    await flush();
+    f.made[0]!.onclose!({ code: 4403 });
+    expect(f.timers.at(-1)!.ms).toBe(5 * 60_000);
+  });
+});
