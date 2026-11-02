@@ -129,6 +129,9 @@ const act = (what: "silent" | "react") => () => ({ ok: true, act: what, covers: 
  * Advance fake time until `work` settles. One big advance raced on slow CI runners (2026-10-28,
  * production deploy): a timer scheduled after the advance finished never fired, and the test hung.
  */
+/** Stepping fake time takes real time too: a loaded runner went past the default 5 s (2026-11-02). */
+const FAKE_TIME_TEST_MS = 20_000;
+
 async function drainedUnderFakeTimers(work: Promise<unknown>): Promise<void> {
   let done = false;
   const settled = work.finally(() => {
@@ -239,7 +242,7 @@ describe("decide in a person's own chat", () => {
       } finally {
         vi.useRealTimers();
       }
-    });
+    }, FAKE_TIME_TEST_MS);
   }
 
   it("only 'ok', decide silent: read, never the bubble, no reply", async () => {
@@ -273,7 +276,7 @@ describe("decide in a person's own chat", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+  }, FAKE_TIME_TEST_MS);
 
   it("decide slower than the tapback timer: the one tapback still lands on the text being answered, never the first waiting", async () => {
     // CI 2026-10-28: on a slow runner the 10s timer fired before decide aimed it, and tapped "thanks" (m_e1).
@@ -289,7 +292,7 @@ describe("decide in a person's own chat", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+  }, FAKE_TIME_TEST_MS);
 
   it("presence's tapback, once dropped (decide's react went), never goes; aimed, it goes on the aimed text", async () => {
     vi.useFakeTimers();
