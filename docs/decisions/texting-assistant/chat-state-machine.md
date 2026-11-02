@@ -42,8 +42,43 @@ Guards that keep a model from looping:
 - **Decide slow or down:** after 3 s (`GROUP_DECIDE_MS`) the burst is answered
   without it. 1 s was asked for; production logged decides of 0.7 to 2.6 s,
   so 1 s would have sent a third of them to the fallback.
-- **Addressed messages** never wait and are always answered (code's floor);
-  a message for another assistant gets no reply and no reaction.
+- **Addressed messages** never wait: their turn starts at once, and decide is
+  asked beside it (see below); a message for another assistant gets no reply
+  and no reaction.
+
+## Decide judges every message, an addressed one beside its turn (Dev2, 2026-11-01)
+
+"Instinct, can you do a speed test with Tex just like last time? ... can you
+test it?" was taken as Tex's, because Tex's name in a question addressed it;
+the model rightly said nothing, and the gateway texted "Sorry, my answer to
+that one got lost" and kept it in the chat's memory as Tex's reply.
+
+- **Its bare name in a question no longer addresses Tex** (`groupWords.ts`
+  `addressesTex`): such a message is untagged, so decide reads it first.
+  Tex's name opening or closing a message still addresses it, and so does an
+  @-tag of Tex anywhere ("can @Tex check this for us?") and a swipe-reply to
+  one of Tex's texts that says more than thanks (Dev2, 2026-11-01,
+  superseding 2026-10-27's "replies are decided first").
+- **An addressed message's turn starts at once and decide runs beside it**
+  (`groupTurn.ts` `decideBeside`, started in `answerGroup`), told the
+  message looks addressed (`addressed` on `/agent-texts/decide`, one more
+  sentence in its `act` instructions). Nothing of the turn is sent before
+  decide's verdict: silent (or react) cancels the turn if it still runs, so
+  the gateway keeps nothing of it, and drops the answer unsent, logged
+  `group_turn` `decide_vetoed`; answer or wait sends it. Decide down or past
+  its 3 s sends it, as before. A command, a yes, a routine and a retried turn
+  (`byCode`) never get one, nor does a reaction answering Tex's question
+  (never left silent, [reactions-as-input](./reactions-as-input.md)).
+- **A group's SKIP is silence** (`route.js`): an answer that is only SKIP
+  in a group sends nothing (only SKIP: "Quiet." can answer a question), keeps nothing in the chat's memory and comes back
+  `quiet`; the Worker then sends nothing, keeps the chat's lines and does
+  not reset follow-along (`groupModelTurn.ts`, logged `silent`). A truly
+  empty answer still gets the fallback line. The prompt's line about another
+  assistant now says to answer only SKIP (`chatVoice.js` `SETTINGS_LINE`).
+
+Tests: `groupDecideBeside.test.ts`; "a group's SKIP texts nothing and keeps
+nothing" in `apps/mcp/test/agentGroupActions.test.mjs`; "decide is told when
+the newest message looks addressed" in `apps/convex/__tests__/textDecide.test.ts`.
 
 ## What sits beside the phases, never blocked by them
 

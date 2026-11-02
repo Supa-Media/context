@@ -30,10 +30,11 @@ export const LANGUAGE_LINE = "Answer in the language of the person you're answer
 
 /**
  * Dev2, 2026-10-31 (`commandTools.js`): Tex said it "saved the style settings" after writing a note. Settings change
- * only through the tool, and a message for another assistant (Instinct is in Tex Devs) isn't Tex's.
+ * only through the tool, and a message for another assistant (Instinct is in Tex Devs) isn't Tex's. Its answer is SKIP,
+ * which a group sends as nothing (Dev2, 2026-11-01: an empty answer there became "my answer got lost"; `route.js`).
  */
 export const SETTINGS_LINE =
-  "Settings change only through the tex_style action; a note is never the settings. Say only what a tool's answer says happened. A message to another assistant by name, not you, isn't yours: no reply.";
+  "Settings change only through the tex_style action; a note is never the settings. Say only what a tool's answer says happened. A message to another assistant by name, not you, isn't yours: answer only SKIP.";
 
 /**
  * A text, not an essay (Dev2, 2026-10-29: "TEX NEEDS TO STOP BEING SO WORDY").

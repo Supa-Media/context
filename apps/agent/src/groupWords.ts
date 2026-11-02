@@ -41,24 +41,27 @@ const OPENS = new RegExp(
   "i",
 );
 const CLOSES = new RegExp(`(?:^|[\\s,])${WORD}[\\s?!.]*$`, "i");
-const NAMED = new RegExp(`(?:^|[^\\w-])${WORD}`, "i");
+/** "can @Tex check this for us?": an @-tag anywhere addresses it (Dev2, 2026-11-01); a bare "Tex" mid-message does not. */
+const TAGGED = new RegExp(`(?:^|[^\\w@-])@${NAME}(?![\\w-])`, "i");
 const STARTS_WITH_NAME = new RegExp(`^\\s*(?:(?:hey|hi|yo|ok|okay)\\s+)?${WORD}`, "i");
 /** A reply to Tex that needs no answer. */
 const NOTHING_TO_SAY = /^(?:thanks|thank you|thx|ty|ok|okay|cool|nice|lol|haha|got it|great|perfect)[\s.!]*$/i;
 const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Component}\s]+$/u;
 
 /**
- * Whether a group message is meant for Tex. Read from the words alone, with
- * no model: its name opening or closing it, its name in a question, or an
- * inline reply to Tex that says more than thanks.
+ * Whether a group message looks meant for Tex. Read from the words alone, with
+ * no model: its name opening or closing it, an @-tag of it anywhere, or an
+ * inline reply to Tex that says more than thanks (Dev2, 2026-11-01, a reply
+ * again starting its turn at once). Its bare name inside a question is not (Dev2, 2026-11-01:
+ * "Instinct, can you do a speed test with Tex ... can you test it?" was
+ * answered as Tex's); decide reads that one first, as any untagged message.
  */
 export function addressesTex(text: string, repliesToTex: boolean): boolean {
   const words = unquoted(text);
   if (words === "") return false;
-  if (OPENS.test(words) || CLOSES.test(words)) return true;
+  if (OPENS.test(words) || CLOSES.test(words) || TAGGED.test(words)) return true;
   // "Tex settings", "Tex stop": a command after the name is for Tex, though "settings" reads like a verb about it (2026-11-01).
   if (STARTS_WITH_NAME.test(words) && groupCommand(words) !== null) return true;
-  if (NAMED.test(words) && /\?\s*$/.test(words)) return true;
   return repliesToTex && !NOTHING_TO_SAY.test(words) && !EMOJI_ONLY.test(words);
 }
 
