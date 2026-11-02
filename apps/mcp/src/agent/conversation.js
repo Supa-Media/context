@@ -5,9 +5,9 @@
  * The texting assistant (`apps/agent`) answers one text at a time, and a text
  * like "and the second one?" means nothing without the one before it. The
  * history is the workspace's, in the workspace's own Tex object, never in the
- * Worker that relays the texts. Every day's texts are also written, as they
- * happen, into the person's `tex/transcripts/` notes (`transcript.js`), which
- * are exported with everything else.
+ * Worker that relays the texts. The whole chat is kept, as it happens, in
+ * its ledger (`ledger.js`), shown as `tex/history.ledger.json` and exported
+ * with everything else.
  *
  * Only the words go in: what the person asked and what was answered. Never a
  * tool's result, which can quote a note the next turn's grant might no longer
@@ -40,7 +40,7 @@ const CONVERSATIONS = {
   thread it was texted in ("send this email now", Dev, 2026-10-20), and the
   owner chose the whole history over a cap that day. A turn is shown
   everything kept up to about twenty thousand tokens; `earlier_texts` reads
-  the rest that is kept, and every day's texts are in `tex/transcripts/`.
+  the rest that is kept, and the whole chat is in its ledger (`tex/history.ledger.json`).
   A setup's `history:` line can still narrow what a turn is shown.
 */
 export const MAX_HISTORY_TURNS = 300;
@@ -180,7 +180,7 @@ export const EARLIER_TEXTS_DEFINITION = {
   description:
     "Read your earlier texts with this person, oldest first: what they said and what you answered. " +
     "Use it when a text refers to something said before that isn't in front of you (\"like I said\", \"that place\", \"the second one\"). " +
-    "Older than that, every day's texts are in tex/transcripts/<date>.md.",
+    "Older than that, the whole chat is in tex/history.ledger.json.",
   inputSchema: { type: "object", properties: {} },
 };
 

@@ -102,10 +102,10 @@ test("the saved conversation names what was sent, never its bytes", async () => 
     const keys = world.objectsUnder(".context/");
     assert.ok(keys.includes(KEPT_PHOTOS_PATH));
     // The conversation is the history record and what it names. The picture's stored file (`.context/assets/`,
-    // the transcript's image) is named by it, never copied into it; the kept photo (`KEPT_PHOTOS_PATH`) is apart.
+    // the pictures note's image) is named by it, never copied into it; the kept photo (`KEPT_PHOTOS_PATH`) is apart.
     const saved = savedWords(world, { except: (key) => key === KEPT_PHOTOS_PATH || key.startsWith(".context/assets/") });
-    // The picture is named with where today's transcript keeps it, so a later text can look again.
-    assert.match(saved, /look\\n\[Sent with this text: meme\.png \(image upload-[0-9a-f]{16}\.png in tex\/transcripts\/\d{4}-\d{2}-\d{2}\.md\)\. Seen only on that turn\. read_image with that note and image shows it again; to email one, attach takes the same words \(<image> in <note>\), never the browser\.\]/);
+    // The picture is named with the note that keeps it (`textedPictures.js`; the daily transcripts are no longer written), so a later text can look again.
+    assert.match(saved, /look\\n\[Sent with this text: meme\.png \(image upload-[0-9a-f]{16}\.png in tex\/pictures\/\d{4}-\d{2}\.md\)\. Seen only on that turn\. read_image with that note and image shows it again; to email one, attach takes the same words \(<image> in <note>\), never the browser\.\]/);
     assert.doesNotMatch(saved, new RegExp(PNG.slice(0, 40).replace(/[+/]/g, "\\$&")));
   } finally {
     world.restore();
