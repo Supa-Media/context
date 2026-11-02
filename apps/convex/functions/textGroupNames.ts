@@ -15,7 +15,8 @@
 
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, query, type QueryCtx } from "../_generated/server";
+import { query, type QueryCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { CHAT_HOMES_FOLDER } from "@context/shared";
 import { getAuthUserId } from "./lib/signedIn";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
