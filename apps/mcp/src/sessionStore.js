@@ -18,6 +18,7 @@ import { openedFromObject } from "./store/objectBinding.js";
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
+import { TEX_SETUP_CLIENTS } from "./session.js";
 import { withPrivacyAuthority } from "./store/privacyAuthority.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
 
@@ -95,6 +96,17 @@ async function openBinding(session, env, controlPlane) {
  */
 function texChatsOf(session) {
   return typeof session?.texChatId === "string" && /^[0-9a-f]{64}$/.test(session.texChatId) ? [session.texChatId] : [];
+}
+
+/**
+ * For a person's own session (an AI client, the app's live typing; never Tex, never a chat's turn): whether a group
+ * chat's home is in this workspace, so a note whose row they reached under it opens from that chat's object. Which
+ * of those notes they see is each row's access, sealed to the chat's people; this says only where the text is kept.
+ */
+function texHomeChatOf(session, controlPlane) {
+  if (texChatsOf(session).length > 0 || TEX_SETUP_CLIENTS.has(session?.actorClientId)) return null;
+  if (typeof controlPlane?.texChatHome !== "function") return null;
+  return async (chat) => await controlPlane.texChatHome(session.accessToken, session.workspaceId, chat);
 }
 
 async function openSessionStore(session, env, controlPlane) {
@@ -181,6 +193,7 @@ async function openSessionStore(session, env, controlPlane) {
       texStore: gatewayTexStore(env),
       workspaceStore: (workspaceId) => workspaceClient(env, workspaceId),
       texChats: texChatsOf(session),
+      texHomeChat: texHomeChatOf(session, controlPlane),
     }),
     authority,
   );

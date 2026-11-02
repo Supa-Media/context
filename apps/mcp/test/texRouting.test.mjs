@@ -247,3 +247,62 @@ test("the store a session is built with opens its own chat's object and no other
   assert.match(await reasonFor({ workspaceId: "w1", accessToken: "tok", texChatId: OTHER_CHAT }), /another workspace's Tex/);
   assert.match(await reasonFor({ workspaceId: "w1", accessToken: "tok", texChatId: CHAT }), /no way to reach/);
 });
+
+test("a person's store opens a chat's object only when the control plane says its home is in this workspace, asked once", { skip }, async () => {
+  const { objects, env, binding, texStore, opened } = world();
+  const asked = [];
+  const homeChat = async (chat) => {
+    asked.push(chat);
+    return chat === CHAT;
+  };
+  const person = storeForBinding(binding, env, { texStore, texChats: [], texHomeChat: homeChat });
+  await person.put(CHAT_NOTE, "the group's skill", { contentType: "text/markdown; charset=utf-8" });
+  assert.equal(await (await person.get(CHAT_NOTE)).text(), "the group's skill");
+  assert.deepEqual(objects.get(`chat:${CHAT}`).list({}).objects.map((object) => object.key), [`notes/${NOTE}.md`]);
+  // A chat whose home is not here is refused, and its object is never opened.
+  await assert.rejects(person.get(`tex/chat:${OTHER_CHAT}/notes/${NOTE}.md`), TexStoreUnavailable);
+  await assert.rejects(person.get(`tex/chat:${OTHER_CHAT}/notes/${NOTE}.md`), TexStoreUnavailable);
+  assert.deepEqual(opened, [`chat:${CHAT}`]);
+  assert.deepEqual(asked, [CHAT, OTHER_CHAT], "each chat asked once");
+  // Another workspace's person is never asked about.
+  await assert.rejects(person.get(`tex/person:w2/notes/${NOTE}.md`), TexStoreUnavailable);
+  assert.deepEqual(asked, [CHAT, OTHER_CHAT]);
+  // A failed ask is a no, and is asked again next time.
+  let calls = 0;
+  const flaky = storeForBinding(binding, env, { texStore, texHomeChat: async () => { calls += 1; if (calls === 1) throw new Error("down"); return true; } });
+  await assert.rejects(flaky.get(CHAT_NOTE), TexStoreUnavailable);
+  assert.equal(await (await flaky.get(CHAT_NOTE)).text(), "the group's skill");
+});
+
+test("only a person's own session asks where a chat's home is: a chat's turn and Tex's clients never do", { skip }, async () => {
+  const { storeForSession } = await import("../src/sessionStore.js");
+  const { env, binding } = world();
+  const active = { ...binding, status: "active", workspaceId: "w1" };
+  const asked = [];
+  const controlPlane = {
+    getStorageBinding: async () => ({ binding: active }),
+    texChatHome: async (token, workspaceId, chat) => {
+      asked.push([token, workspaceId, chat]);
+      return true;
+    },
+  };
+  const reasonFor = async (session) => {
+    const store = await storeForSession(session, env, controlPlane);
+    try {
+      await store.get(CHAT_NOTE);
+      return "served";
+    } catch (error) {
+      return error.reason;
+    }
+  };
+  // A person's AI client: allowed through to the object (none on this Worker), asked with its own token and workspace.
+  assert.match(await reasonFor({ workspaceId: "w1", accessToken: "tok", actorClientId: "context_mcp" }), /no way to reach/);
+  assert.deepEqual(asked, [["tok", "w1", CHAT]]);
+  // Another chat's turn reaches its own chat alone, whatever the control plane would say.
+  assert.match(await reasonFor({ workspaceId: "w1", accessToken: "tok", actorClientId: "context_texts_group", texChatId: OTHER_CHAT }), /another workspace's Tex/);
+  // Tex's own clients are never widened this way.
+  for (const client of ["context_texts", "context_routines", "context_dreams"]) {
+    assert.match(await reasonFor({ workspaceId: "w1", accessToken: "tok", actorClientId: client }), /another workspace's Tex/);
+  }
+  assert.equal(asked.length, 1);
+});
