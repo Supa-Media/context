@@ -28,7 +28,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
-import { HISTORY_RECORD } from "./agentConversationFixture.mjs";
+import { seedChat } from "./agentConversationFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-nudge.test";
 const TOKEN_TEXTS = `cat_nudge_texts_${"0".repeat(24)}`;
@@ -121,7 +121,7 @@ const nudges = () => requests.filter((r) => r.client === "memory_nudge");
 const marker = () => JSON.parse(bucket.get(NUDGE_MARKER)?.body ?? "null");
 
 /** The history record (in the person's object, through `withAgentHome`) holding `turns`. */
-const seedHistory = (turns) => bucket.set(HISTORY_RECORD, { body: JSON.stringify({ v: 1, turns }), etag: "h0" });
+const seedHistory = (turns) => seedChat(bucket, turns);
 
 /** `n` texts of theirs, already answered, an hour ago and after. */
 async function seedTexts(n, start, { tainted = () => false } = {}) {

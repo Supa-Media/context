@@ -82,11 +82,15 @@ test("a texted turn never touches the bucket for its history or bookkeeping, and
     const now = Date.now();
     const first = event(now - 9_000, { text: "hi Tex" });
     world.model.install([{ text: "Hey Seyi." }]);
+    // The Worker posts each text both ways to the chat's ledger (`/agent/events`), as it does beside every turn.
+    const posted = async (events) => assert.equal((await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events })).status, 200);
+    await posted([first]);
     const one = await watched(world, () => request(world.env, TOKEN_TEXTS, "/agent", { question: "hi Tex", conversation: "texts", covers: [first.id], chat: CHAT, recent: [first], turn: "turn-copy-0001" }));
     assert.equal(one.result.status, 200, JSON.stringify(one.result.body));
     // A person with no record yet (one the migration has not reached) has their old copies read once, to move them in: reads only, never a write.
     assert.deepEqual(one.bucket, ["GET /tenant-egress.context/agent/events/", "GET /tenant-egress/.context/agent/conversations/texts.json"], "the one move-in: the old log's listing and the old file");
     assert.ok(await record(world), "and the record is made, so it never happens again");
+    await posted([event(Date.now(), { from: { kind: "tex" }, text: "Hey Seyi.", turn: "turn-copy-0001", covers: [first.id], delivered: true })]);
 
     // A job reports to the chat's own turn.
     world.model.install([{ text: "Your application is drafted." }]);

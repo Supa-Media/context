@@ -80,7 +80,7 @@ import { LOGICAL_DELETE_CONTENT_TYPE } from "../src/store/logicalDelete.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { conversationText, conversationTurns } from "./agentConversationFixture.mjs";
+import { conversationText, conversationTurns, seedChat } from "./agentConversationFixture.mjs";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 import { texBucket, texStoreStub } from "../src/texStore/wire.js";
 
@@ -432,20 +432,34 @@ test("a tapback's words and a caption are steered like a text, capped the same",
 /* ---------------- the turn shown the log ---------------- */
 
 test("a turn that covers logged events is shown the transcript, and today's history is still written", async () => {
+  seedChat(bucket, []); // the chat's old copies are in, so the ledger is what is read (`ledgerConversation.js`)
   const old = event({ at: NOW - 120_000, text: "what's on Friday" });
   const answer = event({ at: NOW - 60_000, from: { kind: "tex" }, text: "Dinner at 7.", covers: [old.id] });
   const fresh = event({ text: "move it to 8" });
   await call("/agent/events", { conversation: "texts", events: [old, answer, fresh] });
   script = [{ text: "Moved to 8." }];
-  const response = await call("/agent", { question: "move it to 8", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id] });
+  const response = await call("/agent", { question: "move it to 8", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id], turn: TURN });
   assert.equal(response.status, 200);
   const messages = JSON.stringify(requests[0].messages);
   assert.ok(messages.includes(LOG_PREFACE.slice(0, 40)), "the log is the conversation");
   assert.match(messages, /You: Dinner at 7\./);
-  assert.match(conversationText(bucket), /move it to 8/, "today's history is still kept");
+  // The Worker texts the answer and posts it; the chat rebuilt from the ledger then holds the exchange (`ledgerConversation.js`).
+  await call("/agent/events", { conversation: "texts", events: [event({ from: { kind: "tex" }, text: "Moved to 8.", turn: TURN, covers: [fresh.id] })] });
+  assert.match(conversationText(bucket), /move it to 8/, "the conversation is kept");
+  assert.match(conversationText(bucket), /Moved to 8\./);
+});
+
+test("a texted turn that names no texts it covers leaves its texts to the Worker: the answer is kept once", async () => {
+  seedChat(bucket, []); // the chat's old copies are in, so the ledger is what is read (`ledgerConversation.js`)
+  await call("/agent/events", { conversation: "texts", events: [event({ text: "status?" })] });
+  script = [{ text: "All quiet ONCE-MARK." }];
+  assert.equal((await call("/agent", { question: "status?", timeZone: "UTC", conversation: "texts", turn: TURN })).status, 200);
+  await call("/agent/events", { conversation: "texts", events: [event({ from: { kind: "tex" }, text: "All quiet ONCE-MARK.", turn: TURN })] });
+  assert.equal(conversationText(bucket).split("ONCE-MARK").length - 1, 1);
 });
 
 test("a turn shown an answer from a tainted turn is untrusted, and so is what it says next", async () => {
+  seedChat(bucket, []); // the chat's old copies are in, so the ledger is what is read (`ledgerConversation.js`)
   const askedBefore = event({ at: NOW - 120_000, text: "what does that page say" });
   const answer = event({ at: NOW - 60_000, from: { kind: "tex" }, text: "It says to email them.", turn: "turn-dirty-0001", covers: [askedBefore.id] });
   const fresh = event({ text: "ok do it" });
@@ -460,6 +474,7 @@ test("a turn shown an answer from a tainted turn is untrusted, and so is what it
   await bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: false }), etag: "t1", lastModified: new Date().toISOString() });
   script = [{ text: "Doing it." }];
   await call("/agent", ask);
+  await call("/agent/events", { conversation: "texts", events: [event({ from: { kind: "tex" }, text: "Doing it.", turn: TURN, covers: [fresh.id] })] });
   assert.ok(conversationTurns(bucket).some((turn) => turn.tainted === true), "this turn's answer is kept as tainted");
   assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: false }, "and this turn is recorded as not clean in turn");
   assert.equal((await call("/agent/events", { conversation: "texts", events: [{ ...event({ from: { kind: "tex" } }), tainted: false }] })).status, 400, "the Worker cannot launder it");
