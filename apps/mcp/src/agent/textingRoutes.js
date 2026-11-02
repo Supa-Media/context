@@ -61,7 +61,7 @@ export async function handleEvents(request, store, session) {
     // And into the chat's one record (`ledger.js`), by each event's own id, so a retried post keeps one copy.
     const ledger = storeLedger(store, session);
     if (ledger !== null) await ledger.write(events.filter((event) => written.includes(event?.id)).map(eventEntry)).then(ledger.flush);
-    if (ledger !== null && conversation === "texts") startBackfill(store, session); // the chat from before the ledger, off this request's answer
+    if (ledger !== null) startBackfill(store, session); // the chat from before the ledger, a person's or a group's, off this request's answer
     return json({ written });
   } catch (error) {
     if (error instanceof EventRefusal) return invalid(error.field);

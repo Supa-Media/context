@@ -8,7 +8,7 @@ import { BACKFILLED, backfillEntries, backfillLedger } from "../src/agent/ledger
 import { earlierFromLedger, HELD_BACK, readLedger } from "../src/agent/ledgerHistory.js";
 import { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { HISTORY_KEY } from "../src/agent/history.js";
-import { LOG_PREFIX } from "../src/agent/log.js";
+import { LOG_PREFIX, logPrefix } from "../src/agent/log.js";
 import { withTexRouting } from "../src/store/texRouting.js";
 import { gatewayTexStore } from "../src/texStore/wire.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
@@ -109,7 +109,7 @@ test("the Worker's event post starts a part after its answer, and a finished wor
   const { store, ledger } = await world();
   const later = [];
   store.defer = (work) => later.push(work);
-  startBackfill(store, { workspaceId: "ws_backfill_start" });
+  startBackfill(store, { workspaceId: "ws_backfill_start", workspaceKind: "personal" });
   assert.equal(later.length, 1, "deferred, never run on the request's own way");
   assert.equal((await ledger.read(ONE_TO_ONE_CHAT)).entries.length, 1);
   const logged = [];
@@ -122,6 +122,45 @@ test("the Worker's event post starts a part after its answer, and a finished wor
   }
   assert.equal((await ledger.oldest(ONE_TO_ONE_CHAT)).id, BACKFILLED);
   assert.ok(!logged.join("\n").includes("question 1"), "counts only, never a word");
-  startBackfill(store, { workspaceId: "ws_backfill_start" });
+  startBackfill(store, { workspaceId: "ws_backfill_start", workspaceKind: "personal" });
   assert.equal(later.length, 1);
+});
+
+test("a group chat's old log goes into the group's own ledger, and no other group's", async () => {
+  const { startBackfill } = await import("../src/agent/ledgerBackfill.js");
+  const group = "a".repeat(64);
+  const other = "b".repeat(64);
+  const gev = (n, chat, from, text) => ({ ...ev(n, from, text), chat });
+  const objects = new Map();
+  for (const [chat, words, from] of [[group, "ours", 1], [other, "theirs", 11]]) {
+    const prefix = await logPrefix(chat);
+    for (let n = from; n < from + 3; n += 1) {
+      const event = gev(n, chat, "person", `${words} ${n - from + 1}`);
+      objects.set(`${prefix}${event.id}.json`, JSON.stringify(event));
+    }
+  }
+  const bucket = {
+    get: async (key) => (objects.has(key) ? { text: async () => objects.get(key) } : null),
+    head: async () => null,
+    list: async ({ prefix }) => ({ objects: [...objects.keys()].filter((key) => key.startsWith(prefix)).map((key) => ({ key })), delimitedPrefixes: [], truncated: false }),
+    put: async () => {
+      throw new Error("the bucket is never written");
+    },
+  };
+  const tex = texStoreNamespace();
+  const env = { TEX_STORE: tex.namespace };
+  const store = withTexRouting(bucket, { workspaceId: "ws_pin", chats: [group], texStore: gatewayTexStore(env) });
+  const ledger = ledgerFor(env, { chat: group });
+  await ledger.append(group, [eventEntry(gev(30, group, "person", "today in the group"))]);
+  const later = [];
+  store.defer = (work) => later.push(work);
+  startBackfill(store, { workspaceId: "ws_pin", texChatId: group });
+  assert.equal(later.length, 1);
+  await later[0]();
+  const texts = (await ledger.read(group)).entries.filter((entry) => entry.kind === "text").map((entry) => entry.text);
+  assert.deepEqual(texts, ["ours 1", "ours 2", "ours 3", "today in the group"]);
+  assert.equal((await ledger.oldest(group)).id, BACKFILLED);
+  assert.equal((await ledgerFor(env, { person: "ws_pin" }).read(ONE_TO_ONE_CHAT)).entries.length, 0, "never into a person's chat");
+  startBackfill(store, { workspaceId: "ws_pin", texChatId: group });
+  assert.equal(later.length, 1, "a finished group is not asked again");
 });
