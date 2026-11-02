@@ -6,7 +6,8 @@
  *
  * Sabotage, each confirmed to fail a case here (2026-11-02): drop the owner
  * check (a member reads the chat); answer `next: null` after the first page
- * (the rest is never read).
+ * (the rest is never read); drop the group chat's people check (an owner
+ * reads a chat they are not in).
  */
 
 import { createRequire } from "node:module";
@@ -73,7 +74,7 @@ async function chatted(entries: number) {
   for (let at = 0; at < entries; at += 100) {
     ledger.append("texts", Array.from({ length: Math.min(100, entries - at) }, (_, i) => ({ id: `e${at + i}`, kind: "text", at: 1_700_000_000_000 + at + i, text: `text ${at + i}` })));
   }
-  return { workspaceId, owner: asUser(t, ownerId), member: asUser(t, memberId) };
+  return { t, ownerId, memberId, open, workspaceId, owner: asUser(t, ownerId), member: asUser(t, memberId) };
 }
 
 test("the owner reads their whole chat with Tex, page after page, oldest first, with its manifest", async () => {
@@ -96,4 +97,40 @@ test("anyone but the owner is answered an empty, finished page", async () => {
 test("a person who never texted Tex has no ledger, and nothing is written", async () => {
   const f = await chatted(0);
   expect(await f.owner.action(api.functions.texLedgerExport.readChatLedgerForExport, { workspaceId: f.workspaceId })).toEqual({ manifest: null, lines: [], next: null });
+});
+
+// A group chat's ledger rides its people's own exports (owner, 2026-11-02; `chat-ledger.md`), and nobody else's.
+async function inGroups() {
+  const f = await chatted(1);
+  const outsiderId = await createUser(f.t, "ledger-outsider@example.invalid");
+  const outsiderSpace = await createWorkspace(f.t, outsiderId, "ledger-outsider");
+  const sharedId = await createWorkspace(f.t, f.ownerId, "ledger-team", { kind: "shared" });
+  const mine = "a".repeat(64);
+  const theirs = "b".repeat(64);
+  await f.t.run(async (ctx) => {
+    await ctx.db.insert("textGroups", { groupKey: mine, homeUsers: [f.ownerId, outsiderId], lastSeenAt: 1 } as never);
+    await ctx.db.insert("textGroups", { groupKey: theirs, homeUsers: [outsiderId], lastSeenAt: 2 } as never);
+  });
+  f.open(`chat:${mine}`).ledger!.append(mine, [{ id: "g1", kind: "text", at: 1_700_000_000_000, text: "group text" }]);
+  f.open(`chat:${theirs}`).ledger!.append(theirs, [{ id: "g2", kind: "text", at: 1_700_000_000_000, text: "not yours" }]);
+  return { ...f, mine, theirs, sharedId, outsiderSpace, outsider: asUser(f.t, outsiderId) };
+}
+
+test("a person's export lists and reads the group chats they are in, and only those", async () => {
+  const f = await inGroups();
+  expect(await f.owner.action(api.functions.texLedgerExport.listChatLedgersForExport, { workspaceId: f.workspaceId })).toEqual({ chats: [f.mine] });
+  const page = await f.owner.action(api.functions.texLedgerExport.readChatLedgerForExport, { workspaceId: f.workspaceId, chat: f.mine });
+  expect(page.lines.map((line) => JSON.parse(line).text)).toEqual(["group text"]);
+  expect(JSON.parse(page.manifest!)).toMatchObject({ chat: f.mine, count: 1 });
+  expect(await f.owner.action(api.functions.texLedgerExport.readChatLedgerForExport, { workspaceId: f.workspaceId, chat: f.theirs })).toEqual({ manifest: null, lines: [], next: null });
+});
+
+test("a group chat rides only its people's personal exports: not a shared workspace's, not a member's", async () => {
+  const f = await inGroups();
+  expect(await f.owner.action(api.functions.texLedgerExport.listChatLedgersForExport, { workspaceId: f.sharedId })).toEqual({ chats: [] });
+  expect(await f.owner.action(api.functions.texLedgerExport.readChatLedgerForExport, { workspaceId: f.sharedId, chat: f.mine })).toEqual({ manifest: null, lines: [], next: null });
+  expect(await f.member.action(api.functions.texLedgerExport.listChatLedgersForExport, { workspaceId: f.workspaceId })).toEqual({ chats: [] });
+  expect(await f.member.action(api.functions.texLedgerExport.readChatLedgerForExport, { workspaceId: f.workspaceId, chat: f.mine })).toEqual({ manifest: null, lines: [], next: null });
+  // The other person in the chat reads it from their own export.
+  expect((await f.outsider.action(api.functions.texLedgerExport.listChatLedgersForExport, { workspaceId: f.outsiderSpace })).chats).toEqual([f.mine, f.theirs]);
 });
