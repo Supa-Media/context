@@ -28,7 +28,8 @@
  *     "presence's tapback, once dropped…" fails.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDLE_DECIDE_MS } from "./decide";
 import { ACKNOWLEDGE_AFTER_MS, startPresence } from "./presence";
 import type { Line } from "./line";
@@ -131,6 +132,19 @@ const act = (what: "silent" | "react") => () => ({ ok: true, act: what, covers: 
  */
 /** Stepping fake time takes real time too: a loaded runner went past the default 5 s (2026-11-02). */
 const FAKE_TIME_TEST_MS = 20_000;
+
+// A turn hashes as it goes (`crypto.subtle.digest`), and that resolves on real time, off the thread. While a
+// hash was out, the steps below ran fake time on without the turn, so a loaded runner used up all 120 before
+// the turn set its 12 s agent timer, and nothing fired it (CI, 2026-11-02). The same hash, done in step with
+// fake time, keeps every run on one schedule.
+beforeEach(() => {
+  vi.spyOn(crypto.subtle, "digest").mockImplementation(async (algorithm, data) => {
+    if (algorithm !== "SHA-256") throw new Error(`unexpected digest ${String(algorithm)}`);
+    const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    return Uint8Array.from(createHash("sha256").update(bytes).digest()).buffer;
+  });
+});
+afterEach(() => vi.restoreAllMocks());
 
 async function drainedUnderFakeTimers(work: Promise<unknown>): Promise<void> {
   let done = false;
