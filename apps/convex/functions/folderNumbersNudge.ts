@@ -17,6 +17,7 @@ import type { Id } from "../_generated/dataModel";
 import { internalAction, internalQuery } from "../_generated/server";
 import { folderRole } from "@context/shared/src/folderRoles.cjs";
 import { errorWords } from "./lib/nodes/folderNumbers";
+import { markedRowMovePage } from "./nodeRowMovesMarked";
 
 /** A move this long without a page is stopped, not slow: the watchdog's lease is thirty seconds. */
 const STOPPED_MS = 10 * 60_000;
@@ -91,10 +92,8 @@ export const nudge = internalAction({
         continue;
       }
       try {
-        const answer = await ctx.runMutation(
-          internal.functions.nodeRowMoves.rowMovePage,
-          { id: move.id },
-        );
+        // Told to the workspace's object first, as the watchdog's own pages are (`nodeRowMovesMarked.ts`).
+        const answer = await markedRowMovePage(ctx, move.id);
         // Back to the watchdog: the page just ran, so it waits a lease and goes on.
         await ctx.runMutation(internal.functions.nodeRowMoves.continueRowMove, {
           id: move.id,

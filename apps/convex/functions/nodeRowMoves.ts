@@ -270,11 +270,18 @@ export const continueRowMove = internalMutation({
       await ctx.scheduler.runAfter(ROW_MOVE_LEASE_MS - idle, internal.functions.nodeRowMoves.continueRowMove, { id });
       return null;
     }
-    const page = await moveRowPage(ctx, id);
-    if (page.state === "moving") await ctx.scheduler.runAfter(0, internal.functions.nodeRowMoves.continueRowMove, { id });
-    if (page.state === "done") await ctx.scheduler.runAfter(ROW_MOVE_SETTLE_MS, internal.functions.nodeRowMoves.continueRowMove, { id });
+    // The page moves rows, which may hide them from someone: it runs from an action that tells the workspace's
+    // object first (`nodeRowMovesMarked.ts`), never from here, where the object cannot be asked.
+    await ctx.scheduler.runAfter(0, internal.functions.nodeRowMovesMarked.watchdogPage, { id });
     return null;
   },
+});
+
+/** The workspace a chunked move belongs to, or `null` once it is gone: what its page's mark is opened in. */
+export const moveWorkspace = internalQuery({
+  args: { id: v.id("rowMoves") },
+  returns: v.union(v.id("workspaces"), v.null()),
+  handler: async (ctx, { id }) => (await ctx.db.get(id))?.workspaceId ?? null,
 });
 
 /** A file-mode chunked move's rules were carried again: its pages compare against this version now. */

@@ -14,6 +14,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import type { FileStore } from "../fileOps/store";
+import { objectFirst } from "../rowWatch/objectFirst";
 
 /** Erasures one run claims before it hands the rest to tomorrow's pass. */
 export const CLAIMS_PER_RUN = 25;
@@ -43,12 +44,17 @@ function codeOf(error: unknown): string {
 }
 
 export async function eraseWorkspaceTrash(ctx: ActionCtx, workspaceId: Id<"workspaces">, open: OpenStore): Promise<EraseOutcome> {
-  let claimed = 0;
-  while (claimed < CLAIMS_PER_RUN) {
-    const id = await ctx.runMutation(internal.functions.trash.claimErasure, { workspaceId });
-    if (id === null) break;
-    claimed += 1;
-  }
+  // Claiming removes the rows: the workspace's object hears first (`../rowWatch/objectFirst.ts`), and a refused mark
+  // leaves the trash for the next pass.
+  const claimed = await objectFirst(ctx, workspaceId, async () => {
+    let count = 0;
+    while (count < CLAIMS_PER_RUN) {
+      const id = await ctx.runMutation(internal.functions.trash.claimErasure, { workspaceId });
+      if (id === null) break;
+      count += 1;
+    }
+    return count;
+  });
   const pending = await ctx.runQuery(internal.functions.trash.pendingErasures, { workspaceId });
   if (pending.length === 0) return { claimed, finished: 0, failed: 0 };
 

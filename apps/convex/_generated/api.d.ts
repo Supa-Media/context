@@ -162,6 +162,7 @@ import type * as functions_nodeLinkSources from "../functions/nodeLinkSources.js
 import type * as functions_nodeMoves from "../functions/nodeMoves.js";
 import type * as functions_nodeMovesAdmin from "../functions/nodeMovesAdmin.js";
 import type * as functions_nodeRowMoves from "../functions/nodeRowMoves.js";
+import type * as functions_nodeRowMovesMarked from "../functions/nodeRowMovesMarked.js";
 import type * as functions_nodesPrivacy from "../functions/nodesPrivacy.js";
 import type * as functions_nodesAccess from "../functions/nodesAccess.js";
 import type * as functions_nodesAccessFirst from "../functions/nodesAccessFirst.js";
@@ -415,6 +416,7 @@ declare const fullApi: ApiFromModules<{
   "functions/nodeMoves": typeof functions_nodeMoves;
   "functions/nodeMovesAdmin": typeof functions_nodeMovesAdmin;
   "functions/nodeRowMoves": typeof functions_nodeRowMoves;
+  "functions/nodeRowMovesMarked": typeof functions_nodeRowMovesMarked;
   "functions/nodesPrivacy": typeof functions_nodesPrivacy;
   "functions/nodesAccess": typeof functions_nodesAccess;
   "functions/nodesAccessFirst": typeof functions_nodesAccessFirst;
