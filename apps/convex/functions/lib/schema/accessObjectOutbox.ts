@@ -29,4 +29,19 @@ export const accessObjectOutboxTables = {
     workspaceId: v.id("workspaces"),
     until: v.number(),
   }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * A deletion waiting for the objects to take it first (`functions/accessTakeAway.ts`): once an account's or a
+   * workspace's access is decided in its objects, deleting it removes the members and revokes the connections there,
+   * and only then deletes Convex's rows behind. Ids only.
+   */
+  accessTakeAways: defineTable({
+    kind: v.union(v.literal("account"), v.literal("workspace")),
+    userId: v.optional(v.id("users")),
+    workspaceId: v.optional(v.id("workspaces")),
+    at: v.number(),
+    attempt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_workspace", ["workspaceId"]),
 };

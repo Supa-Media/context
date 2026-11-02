@@ -69,9 +69,11 @@ export async function objectsChanged(
 export async function flushAccessWrites(
   ctx: MutationCtx,
   writes: readonly AccessWrite[],
-  options: { writeBehind: boolean },
+  options: { writeBehind: boolean | "authorityTaken" },
 ): Promise<void> {
-  if (writes.length === 0 || options.writeBehind) return;
+  if (writes.length === 0 || options.writeBehind === true) return;
+  // After a take-away the switched objects already hold the change to their authority tables (`accessTakeAway.ts`).
+  const taken = options.writeBehind === "authorityTaken";
   const changed = await objectsChanged(ctx, writes);
   for (const [workspaceId, tables] of changed) {
     const homes = { workspace: await accessHomeOf(ctx.db, workspaceId, "workspace"), person: await accessHomeOf(ctx.db, workspaceId, "person") };
@@ -79,7 +81,10 @@ export async function flushAccessWrites(
     for (const table of tables) {
       const home = homes[scopeOf(table)];
       if (home === "convex") continue;
-      if (home === "object" && AUTHORITY_TABLES.has(table)) throw new ConvexError({ code: WORKSPACE_SWITCHED });
+      if (home === "object" && AUTHORITY_TABLES.has(table)) {
+        if (taken) continue;
+        throw new ConvexError({ code: WORKSPACE_SWITCHED });
+      }
       sending.push(table);
     }
     if (sending.length === 0) continue;
