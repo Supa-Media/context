@@ -201,6 +201,8 @@ export const pages = internalAction({
           continue;
         }
         if (record.onPage !== 1) note(record.carried === 1 ? "carried" : "not_carried");
+        // Why the last turn's page write was refused, as the gateway coded it (`groupMemoryNote.js` `reasonCode`).
+        if (typeof record.pageRefused === "string") note(/^[a-z][a-z0-9_]{0,39}$/.test(record.pageRefused) ? `refused_${record.pageRefused}` : "refused_other");
         note(record.onPage === 1 ? "on_page" : "not_on_page");
         if (Array.isArray(record.turns)) note(`record_turns_${record.turns.length > 0 ? "some" : "none"}`);
         const key = (record.direct as { memory?: unknown } | undefined)?.memory;
