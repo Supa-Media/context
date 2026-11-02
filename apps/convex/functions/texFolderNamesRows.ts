@@ -6,7 +6,7 @@
 
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
-import { liveNodeAt } from "./lib/nodes/paths";
+import { liveNodeAt, rowsAfter } from "./lib/nodes/paths";
 import { chatHomeOf } from "./lib/textGroupHome";
 
 const DEFAULT_PAGE = 25;
@@ -51,5 +51,20 @@ export const liveFiles = internalQuery({
       if (row !== null && row.kind === "file") live.push(path);
     }
     return live;
+  },
+});
+
+/** Rows read under one home: far more than a chat's own notes. */
+const HOME_ROWS = 200;
+
+/** The names of the live files directly in a home's folder, for counting their shapes (never printed). */
+export const homeFiles = internalQuery({
+  args: { workspaceId: v.id("workspaces"), folder: v.string() },
+  returns: v.array(v.string()),
+  handler: async (ctx, { workspaceId, folder }) => {
+    const rows = await rowsAfter(ctx.db, workspaceId, folder, undefined, HOME_ROWS);
+    return rows
+      .filter((row) => row.kind === "file" && row.goneAt === undefined && row.path.startsWith(`${folder}/`) && !row.path.slice(folder.length + 1).includes("/"))
+      .map((row) => row.path.slice(folder.length + 1));
   },
 });

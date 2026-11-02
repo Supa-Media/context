@@ -66,7 +66,19 @@ async function liveOf(ctx: ActionCtx, workspaceId: Id<"workspaces">, renames: re
 
 type Counts = { wouldRename: number; renamed: number; both: number; failed: Record<string, number> };
 type PersonalCounts = Counts & { workspaces: number; personal: number; cursor: string; done: boolean };
-type HomeCounts = Counts & { chats: number; homes: number };
+type HomeCounts = Counts & { chats: number; homes: number; shapes: Record<string, number> };
+
+/**
+ * What kind of note a file in a home is, as a fixed code a public log may carry: one of the chat's own (old or new
+ * name, by this chat's key or not), or anything else.
+ */
+export function homeFileShape(name: string, keyHash: string): string {
+  const id = keyHash.slice(0, 12);
+  if (["history.md", "voice.md", "about.md", "about-us.md"].includes(name)) return name.replace(".md", "").replace("-", "_");
+  const old = /^(chat|voice)-([0-9a-f]{12,16})\.md$/.exec(name);
+  if (old !== null) return `${old[1]}_${old[2] === id ? "key" : "other"}`;
+  return "other";
+}
 
 const countsValidator = {
   wouldRename: v.number(),
@@ -111,13 +123,16 @@ export const personal = internalAction({
 
 export const homes = internalAction({
   args: { dryRun: v.boolean() },
-  returns: v.object({ chats: v.number(), homes: v.number(), ...countsValidator }),
+  returns: v.object({ chats: v.number(), homes: v.number(), shapes: v.record(v.string(), v.number()), ...countsValidator }),
   handler: async (ctx, { dryRun }): Promise<HomeCounts> => {
     const found: { chats: number; homes: { groupKey: string; workspaceId: Id<"workspaces">; folder: string; noteId: string }[] } = await ctx.runQuery(internal.functions.texFolderNamesRows.homes, {});
-    const totals = { chats: found.chats, homes: found.homes.length, wouldRename: 0, renamed: 0, both: 0, failed: {} as Record<string, number> };
+    const totals = { chats: found.chats, homes: found.homes.length, wouldRename: 0, renamed: 0, both: 0, failed: {} as Record<string, number>, shapes: {} as Record<string, number> };
     for (const home of found.homes) {
       try {
-        const renames = homeRenames(home.folder, await hashToken(home.groupKey));
+        const keyHash = await hashToken(home.groupKey);
+        const names: string[] = await ctx.runQuery(internal.functions.texFolderNamesRows.homeFiles, { workspaceId: home.workspaceId, folder: home.folder });
+        for (const name of names) count(totals.shapes, homeFileShape(name, keyHash));
+        const renames = homeRenames(home.folder, keyHash);
         const { moves, both } = planRenames(renames, await liveOf(ctx, home.workspaceId, renames));
         totals.both += both;
         totals.wouldRename += moves.length;
