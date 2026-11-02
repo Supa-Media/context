@@ -59,37 +59,8 @@ env:
   INGEST_DOMAIN: context.lc
 
 jobs:
-  test:
-    name: Test email worker
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --filter "./infra/email-worker..." --frozen-lockfile
-
-      - name: Typecheck
-        working-directory: infra/email-worker
-        run: pnpm typecheck
-
-      # The suite holds this Worker's security properties: authentication
-      # before the allow-list, personal contexts only, one indistinguishable
-      # refusal for every kind of no. It gates the deploy for that reason.
-      - name: Test
-        working-directory: infra/email-worker
-        run: pnpm test
-
   deploy:
     name: Deploy + verify context-email
-    needs: test
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20
@@ -199,6 +170,20 @@ jobs:
 
       - name: Install
         run: pnpm install --filter "./infra/email-worker..." --frozen-lockfile
+
+      # The suite holds this Worker's security properties: authentication
+      # before the allow-list, personal contexts only, one indistinguishable
+      # refusal for every kind of no. It gates the deploy for that reason, as
+      # steps of this job rather than a job of its own: a second job waited
+      # for a free runner a second time, which on a busy day cost production
+      # minutes for a suite that takes seconds (2026-11-02).
+      - name: Typecheck
+        working-directory: infra/email-worker
+        run: pnpm typecheck
+
+      - name: Test
+        working-directory: infra/email-worker
+        run: pnpm test
 
       # This used to compare infra/router/wrangler.jsonc's CONVEX_ORIGIN
       # against this worker's own CONTROL_PLANE_URL, both committed literals
