@@ -19,10 +19,11 @@
 
 import { ABOUT_ME_PATH, OLD_ABOUT_ME_PATH } from "./aboutMe.js";
 import { JOBS_PATH } from "./jobs.js";
+import { VOICE_PATH } from "./personVoice.js";
 import { deskNotes, keepDeskKeys } from "./history.js";
 import { splitTexKey } from "../store/texRouting.js";
 
-const PATHS = { about: ABOUT_ME_PATH, jobs: JOBS_PATH };
+const PATHS = { about: ABOUT_ME_PATH, jobs: JOBS_PATH, voice: VOICE_PATH };
 
 /** A note's name before the 2026-11-01 rename, looked up when the new one has nothing (`aboutMe.js`). */
 const OLD_PATHS = { about: OLD_ABOUT_ME_PATH };

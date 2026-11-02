@@ -30,16 +30,17 @@ const READ_RESULT = (path, body) => ({
   content: [{ type: "text", text: `etag: e1\npath: ${path}\nvisibility: private\ndocument_id: doc-1\n\n${body}` }],
 });
 
-test("a texted turn reads its about-me and its jobs, side by side", async () => {
+test("a texted turn reads its about-me, its jobs and its voice note, side by side", async () => {
   const asked = [];
   const notes = await readTexNotes(async (name, args) => {
     asked.push(args.path);
+    if (args.path === "tex/voice.md") return READ_RESULT(args.path, "- Short replies.");
     return args.path === JOBS_PATH ? READ_RESULT(JOBS_PATH, JOB) : READ_RESULT(ABOUT_ME_PATH, "- Goes by Mo.");
   });
-  assert.deepEqual(asked.sort(), [JOBS_PATH, ABOUT_ME_PATH].sort());
+  assert.deepEqual(asked.sort(), [JOBS_PATH, ABOUT_ME_PATH, "tex/voice.md"].sort());
   // No account given (a dream, a test): who they are is null, not asked (`identity.js`).
-  assert.deepEqual(notes, { aboutMe: "- Goes by Mo.", jobs: JOB, identity: null });
-  assert.deepEqual(await readTexNotes(async () => { throw new Error("down"); }), { aboutMe: "", jobs: "", identity: null });
+  assert.deepEqual(notes, { aboutMe: "- Goes by Mo.", jobs: JOB, voice: "- Short replies.", identity: null });
+  assert.deepEqual(await readTexNotes(async () => { throw new Error("down"); }), { aboutMe: "", jobs: "", voice: "", identity: null });
 });
 
 test("the prompt says how a job becomes a task note, and lists the open ones", () => {
