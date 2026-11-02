@@ -42,9 +42,9 @@ jobs:
         run: |
           if [ -n "$LIMIT" ]; then
             case "$LIMIT" in *[!0-9]*) echo "limit must be a whole number" >&2; exit 1;; esac
-            npx convex run functions/treeFlips:flipDue "{\"limit\": $LIMIT}"
+            npx convex run functions/treeFlips:flipDue "{\"limit\": $LIMIT}" 2>/dev/null
           else
-            npx convex run functions/treeFlips:flipDue
+            npx convex run functions/treeFlips:flipDue 2>/dev/null
           fi
         env:
           LIMIT: ${{ inputs.limit }}
@@ -55,6 +55,6 @@ jobs:
         run: sleep 60
 
       - name: Report
-        run: npx convex run functions/treeFlips:report
+        run: npx convex run functions/treeFlips:report 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
