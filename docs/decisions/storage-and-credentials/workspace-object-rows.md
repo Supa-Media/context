@@ -27,6 +27,12 @@ failing push records its reason as a short code (`workspaceObjectPushFailures`),
 the `Workspace object marks` workflow (`__tests__/workspaceObjectGatewaySettle.test.ts`,
 `__tests__/workspaceObjectFirst.test.ts`).
 
+A round reads at most `ROUND_IDS` (500) rows, and an entry naming more is taken in parts, its rest left in the entry
+for the next round; a full-set page reads the same number. Fifty entries of up to 2,000 rows each went over
+Convex's per-query read limit: one workspace's push failed every time from about 11 AM ET on 2026-11-02 with
+`Error: limit` and its outbox (136 entries) never drained. A failure's code now also names the step that failed
+(`pending`, `push`, `ack`) (`__tests__/workspaceObjectPushRounds.test.ts`).
+
 **What a simplification would cost.** Importing `mutation` from `_generated/server` again, or hooking writers one by
 one, lets one missed writer narrow access in Convex while the object goes on showing the note.
 `__tests__/rowWatchGuard.test.ts` refuses any file that builds a mutation around the wrapper;

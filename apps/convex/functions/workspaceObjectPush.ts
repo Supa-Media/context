@@ -23,8 +23,13 @@ import { objectRowOf } from "./lib/workspaceObjects/rows";
 
 /** Outbox entries one round takes. */
 const ENTRIES_PER_ROUND = 50;
-/** Rows per object call: the object's `MAX_ROWS_PER_PUT`. */
-const ROWS_PER_CALL = 2_000;
+/**
+ * Rows one round reads. Entries name up to `OUTBOX_MAX_IDS` rows each, so fifty of them could name tens of thousands,
+ * and a round that read them all went over Convex's per-query read limit and failed every time: the workspace's
+ * outbox never drained, and every save waited on it (production, 2026-11-02). A round takes entries until it names
+ * this many rows, and an entry naming more is taken in parts (`trim`), the rest left in the entry for the next round.
+ */
+export const ROUND_IDS = 500;
 /** How long a drain holds a workspace; longer than any one round. */
 export const LEASE_MS = 2 * 60 * 1000;
 /** A writer's clock and a query's may differ: a mark closes only from a read this long after its writer said done. */
@@ -83,12 +88,27 @@ export const failed = internalMutation({
  * go in the same transaction, so an entry written after this commits schedules a drain that finds it free.
  */
 export const ack = internalMutation({
-  args: { workspaceId: v.id("workspaces"), entryIds: v.array(v.id("workspaceObjectOutbox")), now: v.number() },
+  args: {
+    workspaceId: v.id("workspaces"),
+    entryIds: v.array(v.id("workspaceObjectOutbox")),
+    /** An entry the round took only part of: the rows it pushed leave the entry, the rest wait in it. */
+    trim: v.optional(v.object({ entryId: v.id("workspaceObjectOutbox"), nodeIds: v.array(v.id("nodes")) })),
+    now: v.number(),
+  },
   returns: v.boolean(),
-  handler: async (ctx, { workspaceId, entryIds, now }) => {
+  handler: async (ctx, { workspaceId, entryIds, trim, now }) => {
     for (const id of entryIds) {
       const entry = await ctx.db.get(id);
       if (entry !== null && entry.workspaceId === workspaceId) await ctx.db.delete(id);
+    }
+    if (trim !== undefined) {
+      const entry = await ctx.db.get(trim.entryId);
+      if (entry !== null && entry.workspaceId === workspaceId) {
+        const pushed = new Set<string>(trim.nodeIds);
+        const rest = entry.nodeIds.filter((id) => !pushed.has(id));
+        if (rest.length === 0) await ctx.db.delete(entry._id);
+        else await ctx.db.patch(entry._id, { nodeIds: rest });
+      }
     }
     const next = await ctx.db
       .query("workspaceObjectOutbox")
@@ -118,26 +138,43 @@ export const pending = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, { workspaceId }) => {
     const readAt = Date.now();
-    const entries = await ctx.db
+    const waiting = await ctx.db
       .query("workspaceObjectOutbox")
       .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId))
       .take(ENTRIES_PER_ROUND);
+    // Oldest first, until the round names `ROUND_IDS` rows; an entry naming more than that alone is taken in part.
+    const named = new Set<Id<"nodes">>();
+    const entries: typeof waiting = [];
+    let trim: { entryId: Id<"workspaceObjectOutbox">; nodeIds: Id<"nodes">[] } | undefined;
+    for (const entry of waiting) {
+      const fresh = entry.nodeIds.filter((id) => !named.has(id));
+      if (named.size + fresh.length > ROUND_IDS) {
+        if (entries.length === 0) {
+          trim = { entryId: entry._id, nodeIds: fresh.slice(0, ROUND_IDS) };
+          for (const id of trim.nodeIds) named.add(id);
+        }
+        break;
+      }
+      for (const id of fresh) named.add(id);
+      entries.push(entry);
+    }
+    const considered = trim === undefined ? entries : waiting.filter((entry) => entry._id === trim.entryId);
     const entryIds = entries.map((entry) => entry._id);
-    const access = entries.some((entry) => entry.access);
-    const binding = entries.some((entry) => entry.binding === true);
+    const access = considered.some((entry) => entry.access);
+    const binding = considered.some((entry) => entry.binding === true);
     // A change that may narrow and told the object nothing first (`lib/rowWatch/mutations.ts`): the drain opens a mark
     // for it before it pushes, so a push that fails leaves the object saying behind rather than serving the old rows.
-    const unmarked = entries.some((entry) => entry.unmarked === true);
+    const unmarked = considered.some((entry) => entry.unmarked === true);
     // Marks whose writer committed well before this read, when this round takes every entry still waiting: the rows
     // read here carry their change, so they close with them. A round that leaves entries behind closes none.
-    const takesAll = entries.length < ENTRIES_PER_ROUND;
+    const takesAll = waiting.length < ENTRIES_PER_ROUND && entries.length === waiting.length && trim === undefined;
     const close = takesAll
       ? (await ctx.db.query("workspaceObjectMarks").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect())
           .filter((mark) => mark.doneAt !== undefined && mark.doneAt <= readAt - MARK_CLOCK_MARGIN_MS)
           .map((mark) => mark.token)
       : [];
-    if (entries.some((entry) => entry.all === true)) return { entryIds, all: true as const, access, readAt, rows: [], removed: [], close, binding, unmarked };
-    const ids = [...new Set(entries.flatMap((entry) => entry.nodeIds))];
+    if (considered.some((entry) => entry.all === true)) return { entryIds, trim, all: true as const, access, readAt, rows: [], removed: [], close, binding, unmarked };
+    const ids = [...named];
     const paths = await nodePaths(ctx.db, workspaceId);
     const rows: ObjectRow[] = [];
     const removed: string[] = [];
@@ -149,7 +186,7 @@ export const pending = internalQuery({
       if (row === null) removed.push(id);
       else rows.push(row);
     }
-    return { entryIds, all: false as const, access, readAt, rows, removed, close, binding, unmarked };
+    return { entryIds, trim, all: false as const, access, readAt, rows, removed, close, binding, unmarked };
   },
 });
 
@@ -157,12 +194,13 @@ export const pending = internalQuery({
 export const page = internalQuery({
   args: { workspaceId: v.id("workspaces"), after: v.optional(v.string()), readAt: v.number() },
   handler: async (ctx, { workspaceId, after, readAt }) => {
-    const found = await rowsAfter(ctx.db, workspaceId, "", after, ROWS_PER_CALL);
+    // A page reads as many rows as a round may (`ROUND_IDS`), for the same reason.
+    const found = await rowsAfter(ctx.db, workspaceId, "", after, ROUND_IDS);
     const rows = found.flatMap((doc) => {
       const row = objectRowOf(doc, readAt);
       return row === null ? [] : [row];
     });
-    return { rows, after: found.length < ROWS_PER_CALL ? null : found[found.length - 1].path };
+    return { rows, after: found.length < ROUND_IDS ? null : found[found.length - 1].path };
   },
 });
 

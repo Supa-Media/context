@@ -90,11 +90,11 @@ async function coverUnmarked(ctx: ActionCtx, call: Call, workspaceId: Id<"worksp
  * or `op: ErrorClass` (`ObjectUnreachable`), `limit` for a function over Convex's read or write limits, and the
  * error's class otherwise. Never the rest of a message, which may quote a path.
  */
-function failureCode(error: unknown): string {
-  if (!(error instanceof Error)) return "failed";
+function failureCode(error: unknown, step: string): string {
+  if (!(error instanceof Error)) return `${step}: failed`;
   if (error.name === "ObjectUnreachable") return error.message;
-  if (/too many|limit/i.test(error.message)) return `${error.name}: limit`;
-  return error.name;
+  if (/too many|limit/i.test(error.message)) return `${step}: ${error.name}: limit`;
+  return `${step}: ${error.name}`;
 }
 
 /**
@@ -109,22 +109,29 @@ export async function drainWorkspace(
 ): Promise<"done" | "busy" | "more"> {
   if (!(await ctx.runMutation(internal.functions.workspaceObjectPush.claim, { workspaceId, now: Date.now() }))) return "busy";
   const call = objectDoor(ctx, workspaceId, options);
+  // Which step failed, for the failure's code: a query over its limits is told apart by where it ran.
+  let step = "pending";
   try {
     for (let round = 0; round < ROUNDS_PER_DRAIN; round += 1) {
+      step = "pending";
       const next = await ctx.runQuery(internal.functions.workspaceObjectPush.pending, { workspaceId });
+      step = "push";
       // An entry that only changed the binding carries no rows or rules: it clears the object's kept copy, nothing more.
       const rowsOrRules = next.all || next.access || next.rows.length > 0 || next.removed.length > 0;
       if (next.unmarked && rowsOrRules) {
         const cover = await coverUnmarked(ctx, call, workspaceId);
         if (cover !== null) next.close = [...next.close, cover];
       }
-      if ((next.entryIds.length > 0 && (rowsOrRules || !next.binding)) || next.close.length > 0) await pushRound(ctx, call, workspaceId, next);
+      const taking = next.entryIds.length > 0 || next.trim !== undefined;
+      if ((taking && (rowsOrRules || !next.binding)) || next.close.length > 0) await pushRound(ctx, call, workspaceId, next);
       // The kept binding is cleared before the entry is acked, so the workspace reads as behind until it is gone.
       if (next.binding) await call("ws.binding.clear");
       if (next.close.length > 0) await ctx.runMutation(internal.functions.workspaceObjectMarks.drop, { tokens: next.close });
+      step = "ack";
       const more = await ctx.runMutation(internal.functions.workspaceObjectPush.ack, {
         workspaceId,
         entryIds: next.entryIds,
+        ...(next.trim !== undefined ? { trim: next.trim } : {}),
         now: Date.now(),
       });
       if (!more) return "done";
@@ -132,7 +139,7 @@ export async function drainWorkspace(
   } catch (error) {
     await ctx.runMutation(internal.functions.workspaceObjectPush.release, { workspaceId });
     await ctx
-      .runMutation(internal.functions.workspaceObjectPush.failed, { workspaceId, reason: failureCode(error), now: Date.now() })
+      .runMutation(internal.functions.workspaceObjectPush.failed, { workspaceId, reason: failureCode(error, step), now: Date.now() })
       .catch(() => null);
     await ctx.scheduler.runAfter(RETRY_MS, internal.functions.workspaceObjectPush.drain, { workspaceId });
     console.warn(JSON.stringify({ event: "workspace_object_push_failed", workspaceId, reason: error instanceof Error ? error.message : "failed" }));
