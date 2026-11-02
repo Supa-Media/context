@@ -25,6 +25,8 @@ import { asUser, drainScheduled, seedStorageBinding, seedTreeRows, type TestConv
 import { drain, outbox, setFolder, setHome, world } from "./workspaceObjectWorld.helpers";
 import { idKeyFor } from "../functions/lib/nodes/noteIds";
 import { ensureCopyRow } from "../functions/lib/noteIds/state";
+import { setAccessRow } from "../functions/lib/nodes/setAccess";
+import type { MutationCtx } from "../_generated/server";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -152,6 +154,27 @@ describe("background writers tell the object first", () => {
     const inner = await t.run(async (ctx) => await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "old/inner")).collect());
     expect(inner.map((row) => [row.kind, row.goneAt])).toEqual([["file", undefined]]);
     expect(await unmarked(t)).toEqual([]);
+  });
+
+  test("a new note born with the access asked for it before it existed narrows nothing", async () => {
+    const { t, owner, workspaceId, lookup } = await inObject();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1, updatedBy: "test" });
+      await ctx.db.patch((await ensureCopyRow(ctx, workspaceId))._id, { keyedAt: 1 });
+    });
+    const path = "plans/secret.md";
+    // Asked private before the note exists: it waits as a pending entry, and readers already treat the path as closed.
+    expect(await t.run(async (ctx) => setAccessRow(ctx as MutationCtx, { workspaceId, path, base: "private", grantees: [], actor: { userId: owner, role: "owner" } }))).toMatchObject({ ok: true });
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("workspaceObjectUnmarked").collect()) await ctx.db.delete(row._id);
+    });
+    const noteId = "0190a000-0000-7000-8000-00000000000f";
+    expect(await t.mutation(internal.functions.noteIdsKeyed.adoptKeyed, { workspaceId, path, noteId, key: idKeyFor(noteId, path), etag: "k-f", at: 100 })).toEqual({ adopted: true });
+    const row = await t.run(async (ctx) => await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path)).first());
+    expect(row?.access).toEqual({ base: "private" });
+    expect(await unmarked(t)).toEqual([]);
+    await drain(t, workspaceId);
+    expect(await lookup(path, "team")).toMatchObject({ found: false });
   });
 
   test("a keyed folder move opens a mark before its rows move", async () => {
