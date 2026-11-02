@@ -8,6 +8,7 @@
  * registrations (names, args, returns) stay there.
  */
 
+import { objectFirst } from "../rowWatch/objectFirst";
 import { ConvexError, type Infer } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
@@ -86,7 +87,7 @@ async function rowsChange(
   if (change.kind === "folder" && isPlumbing(change.path)) {
     throw new ConvexError({ code: "PATH_INVALID", message: "That path is reserved." });
   }
-  const answer = await ctx.runMutation(internal.functions.nodesAccess.consoleAccess, change);
+  const answer = await objectFirst(ctx, change.workspaceId, () => ctx.runMutation(internal.functions.nodesAccess.consoleAccess, change));
   if (!answer.ok) {
     if (answer.code === "GROUP_NOT_FOUND") {
       throw new ConvexError({ code: "GROUP_NOT_FOUND", message: "That is not a group or a member of this context." });

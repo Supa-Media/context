@@ -17,7 +17,9 @@
  * Whether the object is behind (a change committed in the control plane and not yet pushed, such as a share just
  * taken back): either the binding's `notesBehind`, read once when the store was built, or `checkBehind`, one small
  * control-plane question asked beside every object call, so a read that skips the binding still never serves a
- * revoked share. A check that fails counts as behind.
+ * revoked share. A check that fails counts as behind. The object also says so itself: a writer that may narrow
+ * leaves a mark there before it commits, and an answer given while one is still open says `behind: true`
+ * (`workspaceStore/marks.js`), which is treated the same way.
  */
 
 import { narrowNote } from "../controlPlane/noteIds.js";
@@ -81,9 +83,12 @@ export function objectReader({ client, home, behind = false, checkBehind = null,
           .then((answer) => answer !== false)
           .catch(() => true)
       : Promise.resolve(false);
-  const settledBehind = async (pending) => {
-    if (!(await pending)) return false;
-    log("workspace_object_behind", { workspaceId });
+  // Behind by the object's own word (a writer's mark still open past its wait: `workspaceStore/marks.js`), or by
+  // the control plane's answer to `checkBehind`.
+  const settledBehind = async (pending, answer) => {
+    const own = answer?.behind === true;
+    if (!(await pending) && !own) return false;
+    log("workspace_object_behind", { workspaceId, ...(own ? { by: "object" } : {}) });
     return true;
   };
   return { client, workspaceId, log, judged, askBehind, settledBehind };
@@ -109,7 +114,7 @@ export function objectFirstHooks(hooks, options) {
       log("workspace_object_lookup_failed", { workspaceId, error: String(error?.message ?? error) });
       return await hooks.lookup(paths);
     }
-    if (await settledBehind(pending)) return await hooks.lookup(paths);
+    if (await settledBehind(pending, answer)) return await hooks.lookup(paths);
     const notes = {};
     const missing = [];
     paths.forEach((path, at) => {
@@ -133,7 +138,7 @@ export function objectFirstHooks(hooks, options) {
       log("workspace_object_resolve_failed", { workspaceId, error: String(error?.message ?? error) });
       return await hooks.resolve(noteIds);
     }
-    if (await settledBehind(pending)) return await hooks.resolve(noteIds);
+    if (await settledBehind(pending, answer)) return await hooks.resolve(noteIds);
     const paths = {};
     const missing = [];
     noteIds.forEach((noteId, at) => {
