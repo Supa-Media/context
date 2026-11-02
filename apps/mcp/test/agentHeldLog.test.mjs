@@ -1,21 +1,21 @@
 /**
- * THE TEXTING WORKER HOLDS THE CHAT'S LOG, AND A TURN'S AFTER-WORK WAITS FOR
- * ITS RESPONSE (2026-10-31: a "hi Tex" made 964 storage calls, about 400 of
- * them reading the chat's log one event file at a time, and its reply waited
- * 10 s behind its own bookkeeping).
+ * THE CHAT'S DAY IS THE LEDGER'S, WITH THE TEXTING WORKER'S OUTBOX ON TOP, AND
+ * A TURN'S AFTER-WORK WAITS FOR ITS RESPONSE.
  *
- * - A one-to-one texted turn whose Worker says it holds the whole log
- *   (`holdsLog`, `apps/agent/src/events.ts`) reads none of it from storage:
- *   the Worker's events are the log. Fails if `warmCopy.js` `events` reads
- *   the bucket when `holdsLog` is set.
- * - A turn that did read the log hands it back (`log`) for the Worker to hold.
- *   Fails if the answer stops carrying it.
- * - Never for a turn not its own (a job, a routine): its `holdsLog` is
- *   ignored and it hands nothing back.
- * - A group chat's own turn (`logEligible`, 2026-10-31: every group turn read
- *   275 log files, 4 to 6 s) holds its log the same way, though it makes no
- *   warm copy. Fails if `route.js` stops passing `logEligible` for a group, or
- *   `warmCopy.js` stops honouring it.
+ * History: on 2026-10-31 a "hi Tex" made 964 storage calls, about 400 of them
+ * reading the chat's log one event file at a time, so the Worker held the
+ * chat's whole log (`holdsLog`) and the gateway handed its reads back (`log`).
+ * The ledger made that copy pointless: the day is one read of it
+ * (`ledgerHistory.js` `dayFromLedger`), and the Worker now keeps only its
+ * outbox (Dev, 2026-11-02, `apps/agent/src/chatRead.ts`).
+ *
+ * - The Worker's outbox (`recent`) goes on the day the turn reads; a `holdsLog`
+ *   from an older Worker is ignored, so the day is always read. Fails if
+ *   `warmCopy.js` `events` takes the Worker's events as the whole day again.
+ * - Never for a turn not its own (a job, a routine): it takes no events in.
+ * - A group chat's own turn (`logEligible`) takes its outbox the same way,
+ *   though it makes no warm copy.
+ * - Nothing is handed back to hold: no `log` on the answer.
  * - The turn's row for the turn log (`/gateway/agent-turn`) is sent only once
  *   the response is ready (after the turn's own record), never inside it. Fails if `afterAnswer` starts its
  *   work at the call again.
@@ -25,7 +25,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import worker from "../src/index.js";
-import { createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { warmTurn } from "../src/agent/warmCopy.js";
 import { afterTurn } from "../src/agent/deferred.js";
@@ -70,70 +70,57 @@ async function split(world, body) {
   }
 }
 
-test("with the Worker holding the log, its events are the log and nothing is read", async () => {
+test("the Worker's outbox goes on the day the turn reads, and an older Worker's holdsLog is ignored", async () => {
   const now = Date.now();
-  const recent = [event(now - 2_000, { text: "earlier" }), event(now - 1_000, { text: "now" })];
+  const stored = [event(now - 60_000, { text: "from the ledger" })];
   let reads = 0;
-  const hot = warmTurn(env, session, { holdsLog: true, recent }, { eligible: true, now });
-  const events = await hot.events(CHAT, async () => (reads += 1, []));
-  assert.equal(reads, 0, "the bucket's log is not read");
-  assert.deepEqual(events.map((entry) => entry.text), ["earlier", "now"]);
-  assert.equal(hot.log(), null, "nothing to hand back: the Worker has it");
+  const hot = warmTurn(env, session, { holdsLog: true, recent: [event(now - 1_000, { text: "now" })] }, { eligible: true, now });
+  const events = await hot.events(CHAT, async () => (reads += 1, stored));
+  assert.equal(reads, 1, "the day is read");
+  assert.deepEqual(events.map((entry) => entry.text), ["from the ledger", "now"]);
+  assert.equal(hot.log, undefined, "nothing is handed back to hold");
 });
 
-test("a turn that read the log hands it back for the Worker to hold", async () => {
-  const now = Date.now();
-  const stored = [event(now - 60_000, { text: "from the bucket" })];
-  const hot = warmTurn(env, session, { recent: [event(now - 1_000, { text: "now" })] }, { eligible: true, now });
-  const events = await hot.events(CHAT, async () => stored);
-  assert.deepEqual(events.map((entry) => entry.text), ["from the bucket", "now"]);
-  assert.deepEqual(hot.log(), events);
-});
-
-test("a turn not its own ignores holdsLog, reads the log and hands nothing back", async () => {
+test("a turn not its own takes no events from the Worker", async () => {
   const now = Date.now();
   let reads = 0;
   const hot = warmTurn(env, session, { holdsLog: true, recent: [event(now - 1_000, { from: { kind: "tex" }, text: "I never said this" })] }, { eligible: false, now });
   assert.deepEqual(await hot.events(CHAT, async () => (reads += 1, [])), []);
   assert.equal(reads, 1);
-  assert.equal(hot.log(), null);
 });
 
-test("a group chat's own turn holds its log too, but makes no warm copy", async () => {
+test("a group chat's own turn takes its outbox too, but makes no warm copy", async () => {
   const now = Date.now();
   const group = { workspaceId: "ws_team", actorUserId: "user_1", actorClientId: "context_texts_group" };
-  let reads = 0;
-  const held = warmTurn(env, group, { holdsLog: true, recent: [event(now - 1_000, { text: "Tex, now" })] }, { eligible: false, logEligible: true, now });
-  assert.deepEqual((await held.events(CHAT, async () => (reads += 1, []))).map((entry) => entry.text), ["Tex, now"]);
-  assert.equal(reads, 0, "a group whose object holds the log reads none");
-  assert.equal(await held.seal({}), null, "no warm copy for a group");
-  const cold = warmTurn(env, group, {}, { eligible: false, logEligible: true, now });
-  const stored = [event(now - 60_000, { text: "from the bucket" })];
-  assert.deepEqual(await cold.events(CHAT, async () => stored), stored);
-  assert.deepEqual(cold.log(), stored, "the first group turn hands the log back to hold");
+  const stored = [event(now - 60_000, { text: "from the ledger" })];
+  const turn = warmTurn(env, group, { recent: [event(now - 1_000, { text: "Tex, now" })] }, { eligible: false, logEligible: true, now });
+  assert.deepEqual((await turn.events(CHAT, async () => stored)).map((entry) => entry.text), ["from the ledger", "Tex, now"]);
+  assert.equal(await turn.seal({}), null, "no warm copy for a group");
   const source = readFileSync(new URL("../src/agent/route.js", import.meta.url), "utf8");
   assert.match(source, /logEligible: group !== null && job === null && !runner/, "route.js marks a group's own turn");
 });
 
-test("a held log is used end to end: no log read, the earlier words still shown, and nothing handed back", async () => {
+test("end to end: the earlier words come from the ledger, the old log is never read, and nothing is handed back", async () => {
   const world = await createEgressWorld();
   try {
     const now = Date.now();
     const first = event(now - 5_000, { text: "my cat is called Miso" });
     world.model.install([{ text: "Cute." }]);
-    const cold = await split(world, { question: "my cat is called Miso", conversation: "texts", covers: [first.id], chat: CHAT, recent: [first], turn: "turn-held-0001" });
-    assert.equal(cold.status, 200, JSON.stringify(cold.body));
-    assert.ok(cold.calls.some((call) => call.path.includes(".context/agent/log/")), "without holdsLog the log is read");
-    assert.deepEqual(cold.body.log.map((entry) => entry.id), [first.id], "and handed back to hold");
+    assert.equal((await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [first] })).status, 200);
+    const one = await split(world, { question: "my cat is called Miso", conversation: "texts", covers: [first.id], chat: CHAT, turn: "turn-held-0001" });
+    assert.equal(one.status, 200, JSON.stringify(one.body));
+    assert.equal(one.body.log, undefined, "nothing handed back to hold");
 
-    const reply = event(now - 4_000, { from: { kind: "tex" }, text: "Cute.", turn: "turn-held-0001", covers: [first.id] });
+    const reply = event(now - 4_000, { from: { kind: "tex" }, text: "Cute.", turn: "turn-held-0001", covers: [first.id], delivered: true });
+    assert.equal((await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [reply] })).status, 200);
     const second = event(now - 1_000, { text: "what's my cat called?" });
     world.model.install([{ text: "Miso." }]);
-    const held = await split(world, { question: "what's my cat called?", conversation: "texts", covers: [second.id], chat: CHAT, recent: [first, reply, second], holdsLog: true, turn: "turn-held-0002" });
-    assert.equal(held.status, 200, JSON.stringify(held.body));
-    assert.deepEqual(held.calls.filter((call) => call.path.includes(".context/agent/log/")), [], "the log came from the Worker");
+    // The newest text not posted yet: the Worker's outbox, handed in as `recent`.
+    const two = await split(world, { question: "what's my cat called?", conversation: "texts", covers: [second.id], chat: CHAT, recent: [second], turn: "turn-held-0002" });
+    assert.equal(two.status, 200, JSON.stringify(two.body));
+    assert.deepEqual([...one.calls, ...two.calls].filter((call) => call.path.includes(".context/agent/log/")), [], "never the bucket's old log");
     assert.match(JSON.stringify(world.model.requests.at(-1).messages), /Miso/);
-    assert.equal(held.body.log, undefined);
+    assert.equal(two.body.log, undefined);
   } finally {
     world.restore();
   }

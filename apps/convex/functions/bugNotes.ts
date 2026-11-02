@@ -39,6 +39,7 @@ import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { guestNamesIn, pinReadersAreGuests } from "./lib/pinnedReaders";
 import { getMembership } from "./lib/workspaceAuth";
 import { nodeAt } from "./lib/nodes/paths";
+import { objectFirst } from "./lib/rowWatch/objectFirst";
 
 export const destination = internalQuery({
   args: { userId: v.id("users") },
@@ -123,7 +124,7 @@ export interface BugDestination {
  * readable through the pin (nothing written) or the bucket refused it.
  */
 export async function fileBugNote(
-  ctx: Pick<ActionCtx, "runAction" | "runMutation">,
+  ctx: ActionCtx,
   where: BugDestination,
   report: { message: string; texts?: string; eventId: string; now: number },
 ): Promise<boolean> {
@@ -145,7 +146,7 @@ export async function fileBugNote(
  * review of a day lands rather than conflicting with the first.
  */
 export async function fileTeamNote(
-  ctx: Pick<ActionCtx, "runAction" | "runMutation">,
+  ctx: ActionCtx,
   where: Pick<BugDestination, "workspaceId" | "pinReaders">,
   path: string,
   text: string,
@@ -192,7 +193,10 @@ export async function fileTeamNote(
     // Its own catch: outside one, a throw here is read as "not sent", which releases the person's
     // budget and asks them to send the same texts again, though the note already holds them.
     try {
-      if (!(await ctx.runMutation(internal.functions.bugNotes.shareWithTeam, { workspaceId, path }))) {
+      // Setting the note's access is a narrowing write to the row watch: the workspace's object hears of it first
+      // (`lib/rowWatch/objectFirst.ts`).
+      const shared = await objectFirst(ctx, workspaceId, () => ctx.runMutation(internal.functions.bugNotes.shareWithTeam, { workspaceId, path }));
+      if (!shared) {
         console.error(`${log}_not_shared`, { workspaceId });
       }
     } catch (error) {

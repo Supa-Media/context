@@ -71,6 +71,7 @@ import { watchFailed } from "./reviewWatch";
 import { addressesTex, groupCommand, namesTex, unquoted, type Command } from "./groupWords";
 import type { JobRun, JobSteer } from "./jobs";
 import { armBy, flushChat, pruneEvents, type Conversation } from "./events";
+import { rememberChatReader } from "./chatRead";
 import { reactionFor } from "./reactEmoji";
 import { runningTurn } from "./steer";
 import { canWait, chatEvent, readChatState, stillGathering } from "./chatState";
@@ -227,7 +228,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     await storage.put(seen, now);
     return "kept";
   }
-  if (await askedJustNow(storage, message, now)) {
+  if (!byCode && (await askedJustNow(storage, message, now))) { // Code's to answer, never the same ask twice: "Tex, settings" again shows the menu again (Dev2, 2026-10-29).
     await storage.put(seen, now);
     return "duplicate";
   }
@@ -549,6 +550,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
   // The chat's events reach its log before the turn reads it, written with the chat's own grant.
   const conversation: Conversation = { group: message.groupId };
+  rememberChatReader(storage, message.groupId, { token: asked.accessToken, conversation, fetch: deps.fetch, gatewayOrigin: deps.gatewayOrigin }); // the next read of this chat asks the ledger (`chatRead.ts`)
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   // The introduction is one-shot (the control plane marks it given), so it goes before anything else.
   if (asked.intro) await fixed(GROUP_LINES.intro(asked.reach ?? []));

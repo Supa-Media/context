@@ -15,6 +15,10 @@
  * And the app's access screens (`workspaceStore/accessSockets.js`): members,
  * invitations, connected apps and "shared with me", on a socket the gateway's
  * `/presence/access` route opened.
+ *
+ * And a personal workspace's object is also its person's Tex
+ * (`workspaceStore/texHost.js`): Tex's notes, ledger, page and routine alarms,
+ * in tables of their own, answered to a call that names the person.
  */
 
 import { workspaceMarks } from "./workspaceStore/marks.js";
@@ -34,6 +38,7 @@ import { treeSockets } from "./workspaceStore/treeSockets.js";
 import { accessSockets } from "./workspaceStore/accessSockets.js";
 import { watchMembers, watchPerson } from "./workspaceStore/accessWatch.js";
 import { createControlPlane } from "./controlPlane/index.js";
+import { isTexCall, texHost } from "./workspaceStore/texHost.js";
 
 const CALL = "x-tex-call";
 /** How long a person-object write that failed waits before it is sent again. */
@@ -47,6 +52,14 @@ function opOf(request) {
   }
 }
 
+function closeQuietly(ws) {
+  try {
+    ws.close(1000, "closed");
+  } catch {
+    // Already closed.
+  }
+}
+
 export class WorkspaceStore {
   constructor(state, env) {
     this.state = state;
@@ -54,6 +67,17 @@ export class WorkspaceStore {
     this.store = null;
     this.tree = null;
     this.access = null;
+    this.texSide = null;
+  }
+
+  /** The person's Tex kept here (`workspaceStore/texHost.js`), built on first use. */
+  tex() {
+    if (this.texSide === null) {
+      const store = this.ready();
+      // An owed member write waits its retry, whatever Tex arms the one alarm for.
+      this.texSide = texHost(this.state, this.env, { otherWake: () => (store.members.pending().length > 0 ? Date.now() + REACH_RETRY_MS : null) });
+    }
+    return this.texSide;
   }
 
   ready() {
@@ -93,7 +117,10 @@ export class WorkspaceStore {
         };
       },
       retryLater: async () => {
-        if ((await this.state.storage.getAlarm()) === null) await this.state.storage.setAlarm(Date.now() + REACH_RETRY_MS);
+        // The one alarm may be set later, for a routine of the person's Tex: the retry comes first.
+        const set = await this.state.storage.getAlarm();
+        const at = Date.now() + REACH_RETRY_MS;
+        if (set === null || set > at) await this.state.storage.setAlarm(at);
       },
       // One storage transaction for `ws.apply`: all of a change lands, or none of it.
       transact: (work) => this.state.storage.transactionSync(work),
@@ -110,6 +137,8 @@ export class WorkspaceStore {
   }
 
   async fetch(request) {
+    // A call naming its person is their Tex's, sockets included, and nothing of the workspace's.
+    if (isTexCall(request)) return await this.tex().fetch(request);
     const store = this.ready();
     if ((request.headers.get("Upgrade") || "").toLowerCase() === "websocket") {
       return new URL(request.url).pathname === "/access" ? this.access.accept(request) : this.tree.accept(request);
@@ -120,25 +149,31 @@ export class WorkspaceStore {
     return response;
   }
 
-  /** Person-object writes still owed by member changes, sent again. */
+  /** Person-object writes still owed by member changes, sent again; then the person's Tex routines that are due. */
   async alarm() {
     await flushReach(this.ready());
+    const tex = this.tex();
+    await tex.alarm();
+    tex.arm();
   }
 
   async webSocketMessage(ws, raw) {
     this.ready();
+    if (this.tex().owns(ws)) return this.tex().message(ws, raw);
     if (this.access.owns(ws)) return await this.access.message(ws, raw);
     await this.tree.message(ws, raw);
   }
 
   async webSocketClose(ws) {
     this.ready();
+    if (this.tex().owns(ws)) return closeQuietly(ws);
     if (this.access.owns(ws)) return this.access.closed(ws);
     this.tree.closed(ws);
   }
 
   async webSocketError(ws) {
     this.ready();
+    if (this.tex().owns(ws)) return closeQuietly(ws);
     if (this.access.owns(ws)) return this.access.closed(ws);
     this.tree.closed(ws);
   }

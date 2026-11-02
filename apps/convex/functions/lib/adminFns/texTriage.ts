@@ -5,7 +5,10 @@
  * owner, 2026-10-24; `docs/decisions/observability/tex-telemetry.md`).
  *
  * Read from each note's facts (`props`: its front matter and first heading),
- * never its text, so the list costs one indexed range per folder. What the
+ * never its text, so the list costs one indexed range per folder. Where the
+ * pinned context's notes live in its workspace object, the object answers the
+ * facts, read at each note's current text (`texTriageFacts.ts`); the rows
+ * still decide which notes are on the desk and who may see them. What the
  * triage agent and the reports keep in front matter is codes, dates, counts
  * and short names; a report's own words are read only when a staff member
  * opens it (`functions/texDashboard.ts`), at their own clearance.
@@ -277,16 +280,44 @@ export async function notesUnder(
   );
 }
 
-/** Everything on the desk the caller may see, from the rows alone. */
-export async function triageRows(db: DatabaseReader, workspaceId: Id<"workspaces">, folders: TriageFolders, visible: (path: string) => boolean) {
+export const deskNoteValidator = v.object({ path: v.string(), props: v.union(v.string(), v.null()) });
+export const deskNotesValidator = v.object({ bugs: v.array(deskNoteValidator), themes: v.array(deskNoteValidator), reviews: v.array(deskNoteValidator) });
+/** One note on the desk, and its facts as the control plane's row holds them (`null`: none read). */
+export type DeskNote = Infer<typeof deskNoteValidator>;
+export type DeskNotes = Infer<typeof deskNotesValidator>;
+
+/** The notes on the desk the caller may see, from the rows alone: which notes, not yet what they say. */
+export async function deskNotes(db: DatabaseReader, workspaceId: Id<"workspaces">, folders: TriageFolders, visible: (path: string) => boolean): Promise<DeskNotes> {
+  const note = (row: { path: string; props?: string }): DeskNote => ({ path: row.path, props: row.props ?? null });
   // Reports and reviews are named with their stamp; a folder's own README or about note is not one.
-  const bugs = (await notesUnder(db, workspaceId, folders.bugs, visible)).filter((row) => stampOf(row.path) !== null).map((row) => bugRowOf(row.path, row.props));
-  const themes = (await notesUnder(db, workspaceId, folders.themes, visible)).filter((row) => !ABOUT_NOTES.has(row.name.toLowerCase())).map((row) => themeRowOf(row.path, row.props));
+  const bugs = (await notesUnder(db, workspaceId, folders.bugs, visible)).filter((row) => stampOf(row.path) !== null).map(note);
+  const themes = (await notesUnder(db, workspaceId, folders.themes, visible)).filter((row) => !ABOUT_NOTES.has(row.name.toLowerCase())).map(note);
   const reviews = (await notesUnder(db, workspaceId, folders.reviews, visible))
     .filter((row) => !row.path.startsWith(`${folders.themes}/`) && !row.path.startsWith(`${folders.reviews}/scores/`))
     .filter((row) => stampOf(row.path) !== null)
-    .map((row) => reviewRowOf(row.path, row.props));
+    .map(note);
   return { bugs, themes, reviews };
+}
+
+/**
+ * The desk's rows from its notes. `held` is what the workspace object says each note's props are now, read at its
+ * current text (`texTriageFacts.ts`); a note it has no answer for keeps the control plane's.
+ */
+export function deskFrom(notes: DeskNotes, held: ReadonlyMap<string, { props: string | null }> | null = null) {
+  const props = (note: DeskNote) => {
+    const found = held?.get(note.path);
+    return (found === undefined ? note.props : found.props) ?? undefined;
+  };
+  return {
+    bugs: notes.bugs.map((note) => bugRowOf(note.path, props(note))),
+    themes: notes.themes.map((note) => themeRowOf(note.path, props(note))),
+    reviews: notes.reviews.map((note) => reviewRowOf(note.path, props(note))),
+  };
+}
+
+/** Everything on the desk the caller may see, from the rows alone. */
+export async function triageRows(db: DatabaseReader, workspaceId: Id<"workspaces">, folders: TriageFolders, visible: (path: string) => boolean) {
+  return deskFrom(await deskNotes(db, workspaceId, folders, visible));
 }
 
 /**

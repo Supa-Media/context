@@ -38,9 +38,11 @@ const BYTES_ONLY = new Set(["etag", "size", "uploaded", "observedAt", "idCopy", 
 
 /**
  * Fields of a `nodes` row that place it or decide who sees it: a patch naming one may narrow. Everything else on the
- * row (its bytes' version, parsed facts, order, chaos flag) never hides anything from anyone.
+ * row (its bytes' version, parsed facts, order, chaos flag) never hides anything from anyone. `sealed` is a parsed
+ * fact too (the note's text could not be read, so it keeps no props or links: `lib/nodes/facts.ts` `writeFacts`), not
+ * the sealed chat homes, which are a rule (`lib/nodes/sealedChats.ts`); the object's row does not carry it.
  */
-const PLACES_OR_JUDGES = new Set(["workspaceId", "path", "parentId", "name", "kind", "goneAt", "access", "sealed", "role", "archiveOf"]);
+const PLACES_OR_JUDGES = new Set(["workspaceId", "path", "parentId", "name", "kind", "goneAt", "access", "role", "archiveOf"]);
 
 /** What one workspace's writes in this mutation amount to. */
 export type WorkspaceChange = {
@@ -130,8 +132,22 @@ function record(
   // Rules are keyed by path and carry each row's own access, so anything but a bytes-only patch may change them.
   if (fields === null || fields.some((field) => !BYTES_ONLY.has(field))) change.access = true;
   if (op === "delete" || op === "replace" || (op === "patch" && (fields === null || fields.some((field) => PLACES_OR_JUDGES.has(field))))) {
-    change.narrows = true;
+    if (!bringsBackOrClears(doc, fields, op)) change.narrows = true;
   }
+}
+
+/**
+ * The two writes of a new note's path (`lib/nodes/observeRows.ts`) that touch a placing field and hide nothing:
+ * a gone row brought back where it was (its `goneAt` cleared and no other place or rule named), and a tombstone
+ * folder that names no rule removed. A gone row is seen by nobody, and a folder is gone only while nothing live is
+ * under it, so bringing one back or clearing one away takes nothing from anyone. A tombstone that carries a rule
+ * (`access`) still judges, and its removal stays a narrowing.
+ */
+function bringsBackOrClears(doc: Doc | null, fields: string[] | null, op: "insert" | "patch" | "replace" | "delete"): boolean {
+  if (doc === null) return false;
+  if (op === "delete") return doc.goneAt !== undefined && doc.access === undefined;
+  if (op !== "patch" || fields === null || doc.goneAt !== undefined) return false;
+  return fields.includes("goneAt") && fields.every((field) => field === "goneAt" || !PLACES_OR_JUDGES.has(field));
 }
 
 /**

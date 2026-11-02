@@ -1,8 +1,8 @@
 /**
  * TEX'S NIGHTLY DREAM, END TO END THROUGH `/agent` (owner, 2026-10-15).
  *
- * The dreams client's turn reads the transcripts written since the last
- * dream, rewrites `tex/about.md`, and logs what it read, thought and
+ * The dreams client's turn reads the chat's ledger since the last dream
+ * (the daily transcripts it read before are no longer written), rewrites `tex/about.md`, and logs what it read, thought and
  * changed in `tex/dreams/<day>.md`. It can write that one note and nothing
  * else, a quiet night costs no model turn, and only the dreams client dreams.
  *
@@ -12,7 +12,7 @@
  *
  *  1. `dreamCallTool` passing every write_note through.
  *     → "a dream's dispatcher refuses every write but the note's own text…" fails.
- *  2. `handleDream` running the model on a night with no transcripts.
+ *  2. `handleDream` running the model on a night with no texts.
  *     → "a quiet night is nothing_new and costs no model turn" fails.
  *  3. `http/route.js` sending the dreams client to the ordinary turn.
  *     → "only the dreams client dreams" fails.
@@ -29,7 +29,7 @@
  */
 
 import worker from "../src/index.js";
-import { transcriptPath } from "../src/agent/transcript.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { PRODUCTION_DREAM_PATH } from "../src/agent/production.js";
 import {
   DREAM_INSTRUCTIONS,
@@ -39,9 +39,9 @@ import {
   dreamCallTool,
   dreamQuestion,
   dreamPath,
-  transcriptsToRead,
-  MAX_DREAM_TRANSCRIPTS,
 } from "../src/agent/dream.js";
+import { HISTORY_PATH } from "../src/agent/historyFile.js";
+import { chatTurns, renderChatDays } from "../src/agent/ledgerDays.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
@@ -112,30 +112,31 @@ async function ask(env, token, body) {
 }
 
 function unitChecks(check) {
-  const now = Date.UTC(2026, 9, 16, 3, 0);
-  const listing = [
-    "tex/transcripts/2026-10-12.md (10 bytes)",
-    "tex/transcripts/2026-10-14.md (10 bytes)",
-    "tex/transcripts/2026-10-15-2.md (10 bytes)",
-    "tex/transcripts/2026-10-15.md (10 bytes)",
-    "tex/transcripts/notes.md (10 bytes)",
-    "tex/about.md (10 bytes)",
-  ].join("\n");
+  const day = (d, h) => Date.UTC(2026, 9, d, h, 0);
+  const entries = [
+    { kind: "text", at: day(14, 9), from: { kind: "person" }, text: "book the dentist" },
+    { kind: "thinking", at: day(14, 9), turn: "t1", text: "They want a slot this week." },
+    { kind: "tool", at: day(14, 9), turn: "t1", name: "calendar", args: { title: "Dentist", password: "[hidden]" }, ok: true, ms: 900, result: "SECRET RESULT" },
+    { kind: "reply", at: day(14, 9), turn: "t1", text: "Booked Thursday 3pm." },
+    { kind: "text", at: day(14, 9), from: { kind: "tex" }, text: "Booked Thursday 3pm.", delivered: true },
+    { kind: "note", at: day(15, 8), text: "Morning: rain later.", routine: "tex/routines/weather.md" },
+    { kind: "reply", at: day(15, 8), turn: "t2", text: "Morning: rain later." },
+    { kind: "text", at: day(15, 10), from: { kind: "person" }, text: "thanks" },
+  ];
+  const rendered = renderChatDays(entries, { timeZone: "UTC" });
   check(
-    "a dream reads the days since the last one, in order, parts after the first",
-    JSON.stringify(transcriptsToRead(listing, { since: Date.UTC(2026, 9, 14, 3, 0), now, timeZone: "UTC" })) ===
-      JSON.stringify(["tex/transcripts/2026-10-14.md", "tex/transcripts/2026-10-15.md", "tex/transcripts/2026-10-15-2.md"]),
+    "a dream reads the chat by day, thinking and tools in, never a tool's result",
+    rendered.includes("## 2026-10-14") && rendered.includes("## 2026-10-15") && rendered.includes("book the dentist") &&
+      rendered.includes("💭 They want a slot this week.") && rendered.includes("`calendar`") && !rendered.includes("SECRET RESULT") &&
+      rendered.indexOf("book the dentist") < rendered.indexOf("thanks"),
   );
+  check("a long chat keeps its newest words", renderChatDays(entries, { timeZone: "UTC", chars: 40 }).includes("thanks") && !renderChatDays(entries, { timeZone: "UTC", chars: 40 }).includes("book the dentist"));
+  check("nothing texted is nothing to read", renderChatDays(entries.filter((entry) => entry.kind !== "text"), { timeZone: "UTC" }) === "");
+  const turns = chatTurns(entries);
   check(
-    "a first dream looks back three days",
-    JSON.stringify(transcriptsToRead(listing, { since: null, now, timeZone: "UTC" })) ===
-      JSON.stringify(["tex/transcripts/2026-10-14.md", "tex/transcripts/2026-10-15.md", "tex/transcripts/2026-10-15-2.md"]),
-  );
-  const many = Array.from({ length: 10 }, (_, i) => `tex/transcripts/2026-10-${String(i + 1).padStart(2, "0")}.md (1 bytes)`).join("\n");
-  const kept = transcriptsToRead(many, { since: Date.UTC(2026, 9, 1), now: Date.UTC(2026, 9, 11), timeZone: "UTC" });
-  check(
-    "a long gap reads only the newest few days",
-    kept.length === MAX_DREAM_TRANSCRIPTS && kept.at(-1) === "tex/transcripts/2026-10-10.md",
+    "the hand-back count reads each texted turn, never a routine's run",
+    turns.length === 1 && turns[0].question === "book the dentist" && turns[0].answer === "Booked Thursday 3pm." &&
+      JSON.stringify(turns[0].steps) === JSON.stringify([{ name: "calendar", ok: true }]),
   );
   const changes = aboutMeChanges("# About\n\n- Likes tea\n- Lives in Leeds\n", "# About\n- Likes tea\n- Lives in York\n- Has a dog\n");
   check(
@@ -239,12 +240,17 @@ export async function runAgentDreamChecks(check) {
     controlPlane.setBuiltinVerdict("ws_dream", BUILTIN_ALLOWED);
 
     const bucket = s3.bucketFor("tenant-dream");
-    const today = transcriptPath(Date.now(), "UTC");
+    const today = HISTORY_PATH;
+    const saidAt = Date.now() - 2 * 60 * 60 * 1000;
     bucket.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "d0" });
     bucket.set("todo.md", { body: "# To do\n\n- Pay rent\n", etag: "d1" });
     bucket.set("tex/about.md", { body: "# About them\n\n- Lives in Leeds\n- Likes tea\n", etag: "d2" });
-    bucket.set(today, { body: "# Tex\n\n**Them:** I moved to York last week, and the dog says hi\n", etag: "d3" });
     const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    // What they texted, in the chat's ledger: the one record a dream reads.
+    await ledgerFor(env, { person: "ws_dream" }).append(ONE_TO_ONE_CHAT, [
+      { v: 1, id: "evdream1", eid: `${saidAt}-000001`, at: saidAt, kind: "text", event: "text", from: { kind: "person" }, text: "I moved to York last week, and the dog says hi" },
+      { v: 1, id: "evdream2", eid: `${saidAt + 1000}-000002`, at: saidAt + 1000, kind: "text", event: "text", from: { kind: "tex" }, text: "Welcome to York! Say hi back." },
+    ]);
     controlPlane.serveTreesFrom(env, { s3 });
     const log = () => bucket.get(dreamPath(Date.now(), "UTC"))?.body ?? "";
     const dream = (since = Date.now() - DAY_MS) => ({ dream: { timeZone: "UTC", since } });
@@ -263,7 +269,7 @@ export async function runAgentDreamChecks(check) {
     model.install([
       {
         thinking: "They moved, and they have a dog.",
-        toolCalls: [{ name: "read_note", args: { path: today } }, { name: "read_note", args: { path: "tex/about.md" } }],
+        toolCalls: [{ name: "read_note", args: { path: "tex/about.md" } }],
       },
       (seen) => ({
         toolCalls: [
@@ -292,7 +298,7 @@ export async function runAgentDreamChecks(check) {
     check(
       "the log says exactly what changed, why, and every step it took",
       written.startsWith("# Tex dreamed,") &&
-        written.includes(`_Read \`${today}\``) &&
+        written.includes(`_Read 2 entries of \`${today}\``) &&
         // The log shows each line as saved: write_note dates a new about line on save (`agent/aboutLines.js`).
         written.includes(`- Added \`- Lives in York (Tex noticed, ${new Date().toISOString().slice(0, 10)})\``) &&
         written.includes(`- Added \`- Has a dog (Tex noticed, ${new Date().toISOString().slice(0, 10)})\``) &&
@@ -300,14 +306,14 @@ export async function runAgentDreamChecks(check) {
         !written.includes("Removed `- Likes tea`") &&
         written.includes("They moved from Leeds to York and have a dog.") &&
         written.includes("> 💭 They moved, and they have a dog.") &&
-        written.includes(`\`read_note\` \`{"path":"${today}"}\` → ok`) &&
+        written.includes('`read_note` `{"path":"tex/about.md"}` → ok') &&
         written.includes("`write_note` `{\"path\":\"todo.md\"") &&
         !written.includes("hi\n**"),
     );
     const prompt = JSON.stringify(model.requests[0]);
     check(
-      "the dream is shown the note and pointed at the transcripts",
-      prompt.includes("Lives in Leeds") && prompt.includes(today) && prompt.includes("nightly dream") &&
+      "the dream is shown the note and the day's texts from the chat's ledger",
+      prompt.includes("Lives in Leeds") && prompt.includes("I moved to York last week") && prompt.includes("Welcome to York") && prompt.includes(today) && prompt.includes("nightly dream") &&
         !prompt.includes("read it only when they ask about an earlier conversation"),
     );
 
@@ -328,18 +334,18 @@ export async function runAgentDreamChecks(check) {
     const asked1 = model.requests.at(-1);
     const sent = JSON.stringify(asked1);
     check(
-      "the dream runs on its setup note's words and model, with tonight's transcripts after them",
+      "the dream runs on its setup note's words and model, with tonight's texts after them",
       noted.status === 200 &&
         sent.includes(DREAM_NOTE_WORDS) &&
         !sent.includes("This is your nightly dream, not a text from a person") &&
         sent.includes("## Tonight") &&
-        sent.includes(today) &&
+        sent.includes("I moved to York last week") &&
         String(asked1?.model ?? "").includes("claude-sonnet-5-5"),
     );
     check(
       "without a setup note the dream keeps its built-in words",
       DREAM_INSTRUCTIONS.includes("nightly dream") &&
-        dreamQuestion({ transcripts: [], first: false, since: 0, timeZone: "UTC" }).startsWith(DREAM_INSTRUCTIONS),
+        dreamQuestion({ first: false, since: 0, timeZone: "UTC" }).startsWith(DREAM_INSTRUCTIONS),
     );
 
     /* ---------------- a quiet night ---------------- */
@@ -356,12 +362,10 @@ export async function runAgentDreamChecks(check) {
     // A fact saved through Claude with `remember` lands in its own inbox note
     // (`tools/notes/remember.js`); before 2026-10-23 no dream read it, so Tex
     // never learned what they told their other apps.
-    const memory = `inbox/memories/${transcriptPath(Date.now(), "UTC").slice("tex/transcripts/".length, "tex/transcripts/".length + 10)}-plays-jazz-piano.md`;
-    const transcript = bucket.get(today);
-    bucket.delete(today);
+    const memory = `inbox/memories/${new Date().toISOString().slice(0, 10)}-plays-jazz-piano.md`;
     bucket.set(memory, { body: "- Plays jazz piano on Sundays\n", etag: "m1" });
     model.install([{ text: "Nothing new worth keeping." }]);
-    const remembered = await ask(env, TOKEN_DREAMS, dream());
+    const remembered = await ask(env, TOKEN_DREAMS, dream(Date.now() - 60_000)); // after the texts: a night with none
     const memoryPrompt = JSON.stringify(model.requests.at(-1) ?? {});
     check(
       "facts their other AI apps saved are read by the dream, even on a night with no texts",
@@ -369,11 +373,10 @@ export async function runAgentDreamChecks(check) {
         memoryPrompt.includes(memory) && memoryPrompt.includes("other AI apps") && log().includes(memory),
     );
     bucket.delete(memory);
-    bucket.set(today, transcript);
 
     /* ---------------- a first look ---------------- */
 
-    // No note yet, no transcripts since the last dream, and an earlier dream
+    // No note yet, no texts since the last dream, and an earlier dream
     // already ran (`since` is set): before 2026-10-17 this was nothing_new, so
     // anyone whose first dream wrote nothing never got the note at all.
     controlPlane.addWorkspace("ws_first", "firstlook", {
@@ -421,8 +424,8 @@ export async function runAgentDreamChecks(check) {
     );
     check(
       "a first dream is told never to leave the note unwritten",
-      dreamQuestion({ transcripts: [], first: true, since: null, timeZone: "UTC" }).includes(FIRST_LOOK) &&
-        !dreamQuestion({ transcripts: [], first: false, since: 0, timeZone: "UTC" }).includes(FIRST_LOOK),
+      dreamQuestion({ first: true, since: null, timeZone: "UTC" }).includes(FIRST_LOOK) &&
+        !dreamQuestion({ first: false, since: 0, timeZone: "UTC" }).includes(FIRST_LOOK),
     );
     check(
       "a first dream never points at copied mail: mail is read from Gmail, and never written into the person's memory",

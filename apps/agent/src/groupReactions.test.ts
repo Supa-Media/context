@@ -17,7 +17,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { acceptGroup, drainGroup, type GroupDeps } from "./groupInbox";
-import { keptEvents } from "./events";
+import { keptEvents, type TexEvent } from "./events";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { parseWhapiWebhook } from "./whapiInbound";
 import type { GroupMessage } from "./sendblueGroups";
@@ -47,6 +47,15 @@ const reacted = (from: string, id: string, reaction: Reaction) => msg(`${reactio
 type Answer = { answer: string; verbatim?: string[] };
 
 /** A bound chat whose decide stays silent on everything untagged, so only what code answers or a tag gets a turn; a tag's answer goes. */
+/** Each test's chat ledger, by its asks list: what was posted to the gateway (`chatRead.ts`). */
+const ledgers = new WeakMap<Record<string, unknown>[], TexEvent[]>();
+const ledgerOf = (asks: Record<string, unknown>[]) => (ledgers.has(asks) ? ledgers.get(asks)! : (ledgers.set(asks, []), ledgers.get(asks)!));
+
+/** The chat as logged: what the gateway took and the outbox. */
+async function logged(storage: MemoryStorage, asks: Record<string, unknown>[]): Promise<TexEvent[]> {
+  return [...ledgerOf(asks), ...(await keptEvents(storage, GROUP))];
+}
+
 function groupDeps(asks: Record<string, unknown>[], answer: Answer, control: Record<string, unknown> = {}): GroupDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
@@ -54,7 +63,8 @@ function groupDeps(asks: Record<string, unknown>[], answer: Answer, control: Rec
     const body = JSON.parse(String(init.body));
     if (path === "/agent-texts/group") return Response.json({ status: "ready", slug: "band", intro: false, bound: true, handle: "ada", accessToken: "cat", ...control });
     if (path === "/agent-texts/decide") return Response.json({ ok: true, act: body.addressed ? "answer" : "silent", covers: body.addressed ? body.candidates : [], stale: [], movedOn: false, confidence: 0.9 });
-    if (path === "/agent/events") return Response.json({ written: body.events.map((event: { id: string }) => event.id) });
+    if (path === "/agent/events") return ledgerOf(asks).push(...body.events), Response.json({ written: body.events.map((event: { id: string }) => event.id) });
+    if (path === "/agent/chat") return Response.json({ events: ledgerOf(asks) });
     if (path === "/agent") {
       asks.push(body);
       return Response.json(answer);
@@ -84,7 +94,7 @@ describe("a reaction in a group", () => {
       expect(asks[1].question).toBe(`${emoji} (${answer}) on Tex's message "${SETTINGS}"`);
       // Its line alone: no tapback reaches the gateway, so it can release nothing held.
       expect(asks[1]).not.toHaveProperty("tapback");
-      expect((await keptEvents(storage, GROUP)).some((event) => event.kind === "reaction" && event.text === asks[1].question)).toBe(true);
+      expect((await logged(storage, asks)).some((event) => event.kind === "reaction" && event.text === asks[1].question)).toBe(true);
     });
   }
 
@@ -96,7 +106,7 @@ describe("a reaction in a group", () => {
     expect(await acceptGroup(storage, reacted(BO, "r1", { how: "Loved", words: "drinks after load in" }), 1_000)).not.toBe("queued");
     await drainGroup(storage, groupDeps(asks, { answer: "Hm." }));
     expect(asks).toHaveLength(1);
-    expect((await keptEvents(storage, GROUP)).map((event) => event.text)).toContain(`❤️ (yes) on the message "drinks after load in"`);
+    expect((await logged(storage, asks)).map((event) => event.text)).toContain(`❤️ (yes) on the message "drinks after load in"`);
     expect(logs.mock.calls.flat().join("\n")).toContain('"outcome":"reaction_context"');
   });
 
@@ -130,7 +140,7 @@ describe("a reaction in a group", () => {
     const logs = vi.spyOn(console, "log");
     expect(await acceptGroup(storage, reacted(BO, "bo", { how: "Liked", words: EMAIL, removed: true }), 1_000)).toBe("ignored");
     expect(await storage.get("gthumb")).toBeDefined();
-    expect((await keptEvents(storage, GROUP)).some((event) => event.kind === "reaction" && event.text?.startsWith("took back 👍 on Tex's message"))).toBe(true);
+    expect((await logged(storage, asks)).some((event) => event.kind === "reaction" && event.text?.startsWith("took back 👍 on Tex's message"))).toBe(true);
     expect(logs.mock.calls.flat().join("\n")).toContain('"outcome":"reaction_removed"');
   });
 });

@@ -62,7 +62,13 @@ const SNAPSHOT_CHUNK = 1000;
 /** How long one page of a run may work before it hands back its cursor. */
 const PAGE_BUDGET_MS = 2 * 60 * 1000;
 /** Bucket keys listed per body page: small enough that one page never runs far past the budget. */
-const KEYS_PER_PAGE = 100;
+const KEYS_PER_PAGE = 400;
+/**
+ * Keys read at once within a body page. At 8, @supa's ~59,000 keys took about
+ * 75 minutes to copy and 50 to check, nearly all of it waiting on one read at
+ * a time; reads that come back busy are asked again (`withRetries`).
+ */
+const KEYS_AT_ONCE = 32;
 /** How recent a clean parity check must be for a workspace to be read from its object. */
 const PARITY_FRESH_MS = 60 * 60 * 1000;
 /** A difference is asked again after this long: a save in flight is mirrored by then. */
@@ -76,10 +82,10 @@ const OBJECT_BYTES_CAP = 8 * 1024 * 1024 * 1024;
 const ROWS_RECHECK_MS = 70_000;
 
 /** What a failure log may carry: the error's name and its code (a ConvexError's `data.code`, the gateway's `code`), never its message. */
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The bucket alone, decrypted, logical-delete view; no workspace routing (no `workspaceStore` passed). `null` without a binding. */
-async function openBucket(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<BodyStore | null> {
+export async function openBucket(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<BodyStore | null> {
   const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
@@ -186,7 +192,7 @@ async function setHomeFor(ctx: ActionCtx, workspaceId: Id<"workspaces">, home: N
 }
 
 /** Where a run stands: the workspace page, the workspaces left in it, and the body walk inside the first. */
-interface RunCursor {
+export interface RunCursor {
   page: string | null;
   queue: string[];
   exhausted: boolean;
@@ -206,7 +212,7 @@ function readCursor(raw: string | undefined): RunCursor {
 }
 
 /** The next workspace of a run, fetching the next page when the queue is empty; `null` when every one is done. */
-async function nextWorkspace(ctx: ActionCtx, state: RunCursor): Promise<Id<"workspaces"> | null> {
+export async function nextWorkspace(ctx: ActionCtx, state: RunCursor): Promise<Id<"workspaces"> | null> {
   while (state.queue.length === 0) {
     if (state.exhausted) return null;
     const page = await ctx.runQuery(internal.functions.workspaceObjectsRows.workspacesPage, { cursor: state.page });
@@ -217,7 +223,7 @@ async function nextWorkspace(ctx: ActionCtx, state: RunCursor): Promise<Id<"work
   return state.queue[0] as Id<"workspaces">;
 }
 
-async function startState(ctx: ActionCtx, cursor: string | undefined, only: string | undefined): Promise<RunCursor | "NO_WORKSPACE"> {
+export async function startState(ctx: ActionCtx, cursor: string | undefined, only: string | undefined): Promise<RunCursor | "NO_WORKSPACE"> {
   if (cursor) return readCursor(cursor);
   if (only === undefined || only === "") return readCursor(undefined);
   const id = await ctx.runQuery(internal.functions.workspaceObjectsRows.workspaceBySlug, { slug: only });
@@ -408,6 +414,7 @@ export const backfill = internalAction({
         const page = await copyPage(bucket, withRetries(client.bodies as unknown as BodyStore, sleep), {
           at: state.at,
           limit: KEYS_PER_PAGE,
+          width: KEYS_AT_ONCE,
           dryRun,
           onFailure: (error) => {
             const failure = failureOf(error);
@@ -642,6 +649,7 @@ export const parity = internalAction({
         const page = await parityPage(bucket, withRetries(client.bodies as unknown as BodyStore, sleep), {
           at: state.check ?? { side: 0, prefix: 0 },
           limit: KEYS_PER_PAGE,
+          width: KEYS_AT_ONCE,
           recheckMs: RECHECK_MS,
           sleep,
         });

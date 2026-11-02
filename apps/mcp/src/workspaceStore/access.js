@@ -150,6 +150,7 @@ export async function accessDigest(table, rows) {
       ...row,
       ...(Array.isArray(row.scopes) ? { scopes: [...row.scopes].sort() } : {}),
       ...(Array.isArray(row.groups) ? { groups: [...row.groups].sort() } : {}),
+      ...(Array.isArray(row.rowNames) ? { rowNames: [...row.rowNames].sort() } : {}),
     })).sort((a, b) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0));
   const bytes = new TextEncoder().encode(canonicalJson(sorted));
   const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
@@ -227,11 +228,21 @@ const refuse = (message) => {
   throw new AccessRowRefused(message);
 };
 
+/** The most row names one reach row holds: one person named on this many notes in one workspace is far past any real one. */
+export const MAX_ROW_NAMES = 1000;
+/** A row grant's name as the control plane sends it, without its `@` (`privacy/rowAccess.js` `ROW_NAME_PATTERN`). */
+const ROW_NAME = /^#[a-z0-9-]{8,64}(?:!edit)?$/;
+const rowNames = (value) => Array.isArray(value) && value.length <= MAX_ROW_NAMES && value.every((name) => typeof name === "string" && ROW_NAME.test(name));
+
 /**
  * One workspace the person is in: `{workspaceId, slug, kind, role, groups[], pinned?, at}`. `groups` are the names of
  * the groups the person is in there, without `@`, as the workspace object's members row holds them; the person's own
  * handle is added when a session is built (it is the slug of their personal workspace's row).
  * `pinned` marks the workspace every account reaches (`@context-lc`); its `groups` are the pin reader's names.
+ * `rowNames` are the names the person holds there by a grant on a row (`#<noteId>`, and `#<noteId>!edit` for edit),
+ * as the control plane's `grantedNamesFor` gives them: what opens a note or folder shared with them by name, and a
+ * Tex group chat's sealed home (2026-11-02: without them the app's connection opened none of a person's chat homes).
+ * Only the app's own client is given them, as its groups (`personRows.js` `sessionFor`). Left out when there are none.
  */
 export function checkReachRow(row) {
   if (!row || typeof row !== "object") refuse("not a reach row");
@@ -240,9 +251,20 @@ export function checkReachRow(row) {
   if (row.kind !== "personal" && row.kind !== "shared") refuse("a workspace is personal or shared");
   if (!ROLES.includes(row.role)) refuse("not a role");
   if (!names(row.groups ?? [])) refuse("not a list of names");
+  if (!rowNames(row.rowNames ?? [])) refuse("not a list of row names");
   if (row.pinned !== undefined && typeof row.pinned !== "boolean") refuse("pinned is true or false");
   if (!clock(row.at)) refuse("a row needs its writer's clock");
-  return { workspaceId: row.workspaceId, slug: row.slug.toLowerCase(), kind: row.kind, role: row.role, groups: [...(row.groups ?? [])], pinned: row.pinned === true, at: row.at };
+  const held = [...new Set(row.rowNames ?? [])];
+  return {
+    workspaceId: row.workspaceId,
+    slug: row.slug.toLowerCase(),
+    kind: row.kind,
+    role: row.role,
+    groups: [...(row.groups ?? [])],
+    ...(held.length > 0 ? { rowNames: held } : {}),
+    pinned: row.pinned === true,
+    at: row.at,
+  };
 }
 
 /** One group chat the person is in: `{chatId, role, at}`, `chatId` the chat's key (sha256 hex, as Tex's objects name it). */

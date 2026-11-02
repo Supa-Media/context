@@ -14,7 +14,8 @@
  */
 
 import { recheck, type ControlDeps } from "./decide";
-import { keptEvents, renderTranscript } from "./events";
+import { renderTranscript } from "./events";
+import { chatEvents } from "./chatRead";
 import { groupStyle } from "./groupStyle";
 import type { GroupPending } from "./groupTurn";
 import type { InboxStorage } from "./inbox";
@@ -49,7 +50,7 @@ export async function recheckDraft(
       sender: message.from,
       style: (await groupStyle(storage)).style,
       // The chat's whole log, as decide is shown.
-      transcript: renderTranscript(await keptEvents(storage, message.groupId)),
+      transcript: renderTranscript(await chatEvents(storage, message.groupId)),
       candidates: [...covers, ...newer.map(([, item]) => item.ev!)],
       newest,
     },

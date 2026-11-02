@@ -202,11 +202,12 @@ text and history costs about $0.20 a month in its object.
 ## Limits that bind
 
 - **10 GB per object.** Supa Media's bucket holds 13.3 GB and 78,096 objects,
-  pictures and files included; how much of it is note text and editing
-  history is not measurable with this deployment's read-only token (listing
-  the bucket is refused). The backfill counts each workspace's bodies and
-  history before it copies, and a workspace that would not fit is held back
-  and named, never cut short.
+  pictures and files included. What its object holds was measured by the
+  production copy on 2026-11-02: 11.8 MB of note text for 4,951 notes and
+  103.5 MB of editing history (32,347 keys), 115 MB in all; the other
+  13.7 GB is older saved versions, which stay in the bucket. The backfill
+  counts each workspace's bodies and history before it copies, and a
+  workspace that would not fit is held back and named, never cut short.
 - **2 MB per row.** Bodies are chunked, as Tex's are.
 - **One object is single-threaded.** A busy workspace's reads are batched
   (`read(ids)`) rather than one request per note.
@@ -217,3 +218,24 @@ Note reads go back to five serial network calls, a turn's reads back through
 the six-connection queue, and no read-many. Tests: the workspace object's
 suite (`apps/mcp/test/workspaceStore*.test.mjs`), today's privacy suite run
 against the object unchanged, and the parity checker.
+
+## A store over an object-home workspace never writes the bucket alone (2026-11-02)
+
+The store factory routes note texts to the object only for a binding that names its workspace. The console's
+credential named none, so from the moment a workspace's home became `object` every note the app made, duplicated
+or saved went to the bucket alone. The gateway reads the object, never the bucket, so live editing could not open
+the note and the app showed it read-only.
+
+**Decision.** `consoleWorkspaceRouting` puts the workspace, its home and its backfill time on the credential, and the
+factory refuses (`StorageUnavailable`) a binding whose home is `dual` or `object` when it names no workspace or its
+object cannot be reached: refused, never built over the bucket. Notes already written to the bucket alone are put back
+by the repair (`workspace-objects-repair` workflow): a note text the object lacks is restored when a live tree row
+still reads its key, and left alone otherwise. The same split means editing history the object lacks may be the only
+copy of a live note's history, not an erase the bucket missed, so the repair deletes such a key from the bucket only
+when its copy was written before the erase leak was fixed (2026-11-02 09:37 UTC) and its note, named by the head's
+note id or path or by the bucket state's path, has no live row; anything else is left alone
+(`workspaceObjectsRepair.test.ts`, "history only the bucket ever held is never deleted as an erase").
+
+**What a simplification would cost.** Letting the factory fall back to the bucket store again brings the silent
+split back. `apps/convex/__tests__/consoleObjectWrites.test.ts` creates and saves a note through the console in an
+object-home workspace and finds it in the object; `apps/mcp/test/storeFactory.test.mjs` holds the refusal.

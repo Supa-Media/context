@@ -12,6 +12,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalQuery, type DatabaseReader } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import { nodePaths } from "./lib/nodes/paths";
+import { readsKey } from "./lib/cleanup/rows";
 
 const homeValidator = v.union(v.literal("bucket"), v.literal("dual"), v.literal("object"));
 export type NotesHome = "bucket" | "dual" | "object";
@@ -51,9 +52,49 @@ export const homeOf = internalQuery({
 });
 
 /**
+ * Where `workspaceId`'s notes are read from and when they were last copied whole, as the gateway's binding carries
+ * them (`notesHome`, `notesBackfilledAt`), so a store the console builds reads exactly what the gateway's does.
+ */
+export const notesOf = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ home: homeValidator, backfilledAt: v.union(v.number(), v.null()) }),
+  handler: async (ctx, { workspaceId }) => {
+    const record = await recordOf(ctx.db, workspaceId);
+    return { home: record?.home ?? "bucket", backfilledAt: record?.backfilledAt ?? null };
+  },
+});
+
+/**
  * A workspace a check could not open, in closed words and counts only (the answer is public): its kind, or `gone`
  * once deleted; whether it has a storage row and of which provider; and how many tree rows it still has.
  */
+/** Whether a live tree row reads this storage key: the repair's test for a note text the object lacks. */
+export const rowReadsKey = internalQuery({
+  args: { workspaceId: v.id("workspaces"), key: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId, key }) => await readsKey(ctx.db, workspaceId, key),
+});
+
+/**
+ * The storage keys of live notes written after `since` (the `observedAt` index), up to `limit`: what a repair of
+ * only the recent writes walks instead of the whole bucket. `complete` is false when more were written since.
+ */
+export const keysWrittenSince = internalQuery({
+  args: { workspaceId: v.id("workspaces"), since: v.number(), limit: v.number() },
+  returns: v.object({ keys: v.array(v.string()), complete: v.boolean() }),
+  handler: async (ctx, { workspaceId, since, limit }) => {
+    const observed = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_observed", (q) => q.eq("workspaceId", workspaceId).gt("observedAt", since))
+      .take(limit + 1);
+    const keys = new Set<string>();
+    for (const row of observed.slice(0, limit)) {
+      if (row.kind === "file" && row.goneAt === undefined && typeof row.storageKey === "string") keys.add(row.storageKey);
+    }
+    return { keys: [...keys].sort(), complete: observed.length <= limit };
+  },
+});
+
 export const describeUnopened = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.string(),

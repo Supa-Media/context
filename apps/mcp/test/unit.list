@@ -276,7 +276,7 @@ test/agentMapCard.test.mjs
 test/agentRouteCheck.test.mjs
 test/agentSameAsk.test.mjs
 test/agentPictureSearch.test.mjs
-test/agentPublishedText.test.mjs
+test/agentOtherSites.test.mjs
 test/agentHandoffGate.test.mjs
 test/pages.test.mjs
 test/pagesFormat.test.mjs
@@ -309,6 +309,7 @@ test/agentWarmCopy.test.mjs
 test/texHistoryOneCopy.test.mjs
 test/agentHeldLog.test.mjs
 test/texStore.test.mjs
+test/texMerge.test.mjs
 test/texStoreMove.test.mjs
 test/texRouting.test.mjs
 test/texAlarms.test.mjs
@@ -356,3 +357,4 @@ test/texPageRoutes.test.mjs
 test/workspaceMarks.test.mjs
 test/texPageViews.test.mjs
 test/ledgerWorkEntries.test.mjs
+test/ledgerConversation.test.mjs

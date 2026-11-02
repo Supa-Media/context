@@ -128,6 +128,10 @@ jobs:
           - 'apps/mcp/src/agent/events.js'
           - 'apps/mcp/src/agent/history.js'
           - 'apps/mcp/src/agent/ledger.js'
+          - 'apps/mcp/src/agent/ledgerBackfill.js'
+          - 'apps/mcp/src/agent/ledgerConversation.js'
+          - 'apps/mcp/src/agent/log.js'
+          - 'apps/mcp/src/agent/logRender.js'
           - 'apps/mcp/src/agent/sources.js'
           - 'apps/mcp/src/chaos/**'
           - 'apps/mcp/src/communications/**'
@@ -142,6 +146,7 @@ jobs:
           - 'apps/mcp/src/forwarding.js'
           - 'apps/mcp/src/history/**'
           - 'apps/mcp/src/http/**'
+          - 'apps/mcp/src/ingestion/inbox.js'
           - 'apps/mcp/src/links.js'
           - 'apps/mcp/src/lists.js'
           - 'apps/mcp/src/lists/**'
@@ -408,6 +413,7 @@ jobs:
           node --test scripts/promote-production.test.mjs
           node --test scripts/convex-tests.test.mjs
           node --test scripts/deploy-plan.test.mjs
+          node --test scripts/worker-secrets.test.mjs
           node --test scripts/ci-performance-report.test.mjs
           node --test scripts/release-communication-evidence.test.mjs
           node --test scripts/tex-alert.test.mjs
@@ -739,6 +745,10 @@ jobs:
             apps/mcp/src/agent/events.js
             apps/mcp/src/agent/history.js
             apps/mcp/src/agent/ledger.js
+            apps/mcp/src/agent/ledgerBackfill.js
+            apps/mcp/src/agent/ledgerConversation.js
+            apps/mcp/src/agent/log.js
+            apps/mcp/src/agent/logRender.js
             apps/mcp/src/agent/sources.js
             apps/mcp/src/chaos/**
             apps/mcp/src/communications/**
@@ -753,6 +763,7 @@ jobs:
             apps/mcp/src/forwarding.js
             apps/mcp/src/history/**
             apps/mcp/src/http/**
+            apps/mcp/src/ingestion/inbox.js
             apps/mcp/src/links.js
             apps/mcp/src/lists.js
             apps/mcp/src/lists/**

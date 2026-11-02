@@ -45,6 +45,8 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { secretNamesIn } from "./worker-secrets.mjs";
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WORKFLOWS_DIR = join(ROOT, ".github/workflows");
 
@@ -86,6 +88,10 @@ export function secretNamesPushed(text) {
   const names = new Set();
   for (const m of stripComments(text).matchAll(/\bpnpm\s+exec\s+wrangler\s+secret\s+put\s+([A-Za-z0-9_]+)/g)) {
     names.add(m[1]);
+  }
+  // And every name handed to `wrangler secret bulk` by scripts/worker-secrets.mjs.
+  for (const line of stripComments(text).split("\n")) {
+    for (const name of secretNamesIn(line)) names.add(name);
   }
   return [...names];
 }
@@ -274,6 +280,11 @@ function selfTest() {
       JSON.stringify(["A", "B"]),
   );
   expect("a file that pushes nothing yields no names", secretNamesPushed("pnpm exec wrangler deploy\n").length === 0);
+  expect(
+    "names sent in one `secret bulk` are collected from the worker-secrets.mjs line",
+    JSON.stringify(secretNamesPushed("node ../../scripts/worker-secrets.mjs A B=C '?D' \\\n  | pnpm exec wrangler secret bulk\n")) ===
+      JSON.stringify(["A", "B", "D"]),
+  );
   expect(
     "prose mentioning `wrangler secret put NAME` is not itself a push — every header narrates this bug by name",
     secretNamesPushed("# past: `wrangler secret put OLD_NAME` ran before deploy\npnpm exec wrangler deploy\n").length === 0,

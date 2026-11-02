@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 
 import { texLedger } from "../src/texStore/ledger.js";
 import { eventEntry, toolEntry, wordsEntry } from "../src/agent/ledger.js";
-import { earlierFromLedger, readLedger, HELD_BACK } from "../src/agent/ledgerHistory.js";
+import { dayFromLedger, earlierFromLedger, readLedger, HELD_BACK } from "../src/agent/ledgerHistory.js";
 import { loggedTurn } from "../src/agent/loggedTurn.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
@@ -93,4 +93,58 @@ test("a ledger that cannot be read leaves the turn as it was", async () => {
     console.log = log;
   }
   assert.match(logged[0], /ledger_history_unread/);
+});
+
+test("a turn the Worker does not hold the day for reads it from the ledger, never the bucket's log", async () => {
+  const { ledger, today } = weekOfChat();
+  const read = readLedger({ read: async (chat, options) => ledger.read(chat, options) }, "texts").then((entries) => ({ entries, chat: "texts" }));
+  const bucket = { list: async () => assert.fail("the bucket's log is not read when the ledger holds the turn's texts"), get: async () => null };
+  const lines = [];
+  const log = console.log;
+  console.log = (line) => lines.push(String(line));
+  let logged;
+  try {
+    logged = await loggedTurn(bucket, { covers: [today.id], chat: "c" }, { timeZone: "UTC", workspace: "ws1", ledger: read, record: Promise.resolve([]) });
+  } finally {
+    console.log = log;
+  }
+  assert.equal(logged.question, "when is my dentist?");
+  assert.match(logged.history[0].text, /@ada: my dentist is Dr Lee/);
+  // As with the log: Tex's answers among the newest texts are shown, and any whose turn has no clean record taints this turn.
+  assert.equal(logged.tainted, true);
+  assert.ok(!lines.some((line) => line.includes("tex_turn_day_missed")));
+});
+
+test("a ledger missing a text the turn covers is counted, and the bucket's old log is never read", async () => {
+  const { ledger } = weekOfChat();
+  const posted = person(1_000, 7, "a text the ledger never got");
+  const read = readLedger({ read: async (chat, options) => ledger.read(chat, options) }, "texts").then((entries) => ({ entries, chat: "texts" }));
+  const bucket = { list: async () => assert.fail("the bucket's log is no longer written, so never read for a chat with a ledger"), get: async () => assert.fail("never read") };
+  const lines = [];
+  const log = console.log;
+  console.log = (line) => lines.push(String(line));
+  let logged;
+  try {
+    logged = await loggedTurn(bucket, { covers: [posted.id], chat: "c" }, { timeZone: "UTC", workspace: "ws1", ledger: read, record: Promise.resolve([]), records: async () => false });
+  } finally {
+    console.log = log;
+  }
+  assert.deepEqual(lines.filter((line) => line.includes("tex_turn_day_missed")), ['{"event":"tex_turn_day_missed"}'], "counted, never a word");
+  assert.equal(logged, null, "the turn is today's, from the question it was sent");
+});
+
+test("dayFromLedger: the Worker's events only, checked as the log checks them, oldest first", () => {
+  const a = person(3_000, 1, "first");
+  const b = tex(2_000, 2, "second", "turnZ1234", [a.id]);
+  const entries = [
+    { ...eventEntry(b), seq: 4 },
+    { ...eventEntry({ ...a, kind: "text" }), seq: 3, smuggled: "not an event field" },
+    { v: 1, id: "hist1q", eid: id(5_000, 9), event: "text", at: at(5_000), kind: "text", from: { kind: "person" }, text: "rebuilt from the record", backfill: "record", seq: 2 },
+    { ...eventEntry(a), seq: 1 },
+  ];
+  const day = dayFromLedger(entries, "c", [a.id]);
+  assert.deepEqual(day.map((event) => event.text), ["first", "second"]);
+  assert.deepEqual(Object.keys(day[1]).sort(), ["at", "chat", "covers", "delivered", "from", "id", "kind", "text", "turn"]);
+  assert.equal(dayFromLedger(entries, "c", [id(9_000, 8)]), null, "a covered text it does not hold");
+  assert.equal(dayFromLedger(null, "c", [a.id]), null);
 });

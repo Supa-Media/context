@@ -152,10 +152,25 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       "functions.workspaceObjects.setHome",
       "functions.workspaceObjects.setHomeBySlug",
       "functions.workspaceObjects.syncRows",
+      // Settles each key an object-home workspace's object and bucket disagree about (`workspaceObjectsRepair.ts`), run
+      // by hand from the repair workflow. internalAction, reached only from that workflow's deploy key; it answers counts
+      // and key shapes only, never a key, a path or a body.
+      "functions.workspaceObjectsRepair.repair",
+      // The same rules over only the notes one workspace wrote after a time, read from the tree. Same workflow, same
+      // deploy key, counts only.
+      "functions.workspaceObjectsRepair.repairRecent",
       // Copies each workspace's one-to-one Tex history and turn records from its bucket into its Tex Durable Object
       // (`texHistoryMigration.ts`, `apps/mcp/src/agent/agentHomeMove.js`), run by hand from the workflow. internalAction,
       // reached only from that workflow's deploy key; it answers counts only, and deletes nothing.
       "functions.texHistoryMigration.run",
+      // Copies each personal workspace's one-to-one Tex chat into its ledger (`texLedgerBackfill.ts`,
+      // `apps/mcp/src/agent/ledgerBackfill.js`), run by hand from its workflow. internalAction, reached only from that
+      // workflow's deploy key; it answers counts and fixed codes only, and deletes nothing.
+      "functions.texLedgerBackfill.run",
+      // Makes each personal workspace's first Tex call, which moves the person's Tex into the workspace's object
+      // (`texPersonMerge.ts`, `apps/mcp/src/texStore/merge.js`), run by hand from its workflow. internalAction, reached
+      // only from that workflow's deploy key; it reads one key's metadata, answers counts and fixed codes, deletes nothing.
+      "functions.texPersonMerge.run",
       // Reads each group chat's event log in a window and answers counts, bytes and runs by set of people
       // (`texGroupLogShape.ts`), run by hand from its workflow. internalAction, reached only from that workflow's deploy
       // key; it answers fixed codes and counts, never a word, and writes nothing.

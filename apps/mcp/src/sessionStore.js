@@ -54,29 +54,6 @@ export async function storeForSession(session, env, controlPlane) {
 }
 
 /**
- * The group chat whose Tex notes this session's store may reach: its own chat's key and no other (`store/texRouting.js`).
- * The key is the control plane's, read from the grant under the group client (`session.js` `normalizeSession`), so a
- * person's turn, or another chat's, is built with none.
- */
-/**
- * The per-call "is the object behind?" check (`store/objectLookup.js`), timed: `null` without the control plane's
- * method. Logs how long the question took, with the workspace id as every object log line carries, never a path.
- */
-function behindCheck(controlPlane, workspaceId) {
-  if (typeof controlPlane?.objectBehind !== "function") return null;
-  return async () => {
-    const started = Date.now();
-    let behind = true;
-    try {
-      behind = await controlPlane.objectBehind(workspaceId);
-      return behind;
-    } finally {
-      console.log(JSON.stringify({ event: "workspace_object_behind_check", workspaceId, ms: Date.now() - started, behind }));
-    }
-  };
-}
-
-/**
  * The binding and its siblings: from the workspace's object in one call where it may answer (`store/objectBinding.js`),
  * else from the control plane, whose answer is then kept there for the next request. One log line says which.
  */
@@ -111,6 +88,11 @@ async function openBinding(session, env, controlPlane) {
   return opened;
 }
 
+/**
+ * The group chat whose Tex notes this session's store may reach: its own chat's key and no other (`store/texRouting.js`).
+ * The key is the control plane's, read from the grant under the group client (`session.js` `normalizeSession`), so a
+ * person's turn, or another chat's, is built with none.
+ */
 function texChatsOf(session) {
   return typeof session?.texChatId === "string" && /^[0-9a-f]{64}$/.test(session.texChatId) ? [session.texChatId] : [];
 }
@@ -179,8 +161,6 @@ async function openSessionStore(session, env, controlPlane) {
     client: workspaceClient(env, session.workspaceId),
     home: binding.notesHome ?? null,
     behind: binding.notesBehind === true,
-    // Asked again beside every object call: the binding's answer is from when this store was built.
-    checkBehind: behindCheck(controlPlane, session.workspaceId),
     scope: session.scope,
     names: session.grantedGroups,
     chatNames: session.chatNames ?? null,

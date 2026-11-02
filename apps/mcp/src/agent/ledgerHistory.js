@@ -3,8 +3,8 @@
  * 2026-11-02: one record per chat, every view rebuilt from it;
  * `docs/decisions/texting-assistant/chat-ledger.md`).
  *
- * The texting Worker hands a turn the last day of the chat (`events.ts`
- * `holdsLog`); before this, that day was all a turn saw. The ledger keeps the
+ * A turn's last day of the chat comes from the ledger (`dayFromLedger`), with
+ * the Worker's outbox on top; before the ledger, that day was all a turn saw. The ledger keeps the
  * whole chat, so a turn is shown everything before that day from it too, the
  * newest first until the log's character budget is spent, and, beside each of
  * Tex's answers, the tools it used (names only: the prompt reads the ledger
@@ -21,7 +21,7 @@
  * whatever it reads (`route.js`), so a group is shown every answer.
  */
 
-import { EVENT_ID, EVENT_KINDS, READ_CHARS } from "./log.js";
+import { checkEvent, EVENT_ID, EVENT_KINDS, READ_CHARS, READ_LIMIT } from "./log.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
 
 /** The most entries one read of the ledger asks for; a turn reads at most `MAX_PAGES` of them. */
@@ -64,6 +64,38 @@ export async function readLedger(ledger, chat, { chars = READ_CHARS, first = nul
     return [];
   }
   return entries;
+}
+
+/**
+ * The chat's newest texts as the bucket's log (`log.js` `readEvents`) would
+ * give them, from the ledger entries a turn already read (`readLedger`, newest
+ * first): the Worker's own events only, by their `eid`, never what the
+ * backfill rebuilt from the history record, each checked again as the log
+ * checks an event (its day window aside), at most `READ_LIMIT` of them within
+ * `READ_CHARS`, oldest first. Null unless every event the turn covers is
+ * among them, so a ledger that missed a post leaves the turn to the log.
+ */
+export function dayFromLedger(entries, chat, covers) {
+  if (!Array.isArray(entries) || !Array.isArray(covers)) return null;
+  const events = [];
+  const seen = new Set();
+  let room = READ_CHARS;
+  for (const entry of entries) {
+    if (events.length >= READ_LIMIT) break;
+    if (entry?.kind !== "text" || entry.backfill === "record" || typeof entry.eid !== "string" || seen.has(entry.eid) || !Number.isSafeInteger(entry.at)) continue;
+    let event;
+    try {
+      event = checkEvent(asEvent(entry, chat), { chat, now: entry.at });
+    } catch {
+      continue; // Not one the log would have kept.
+    }
+    room -= JSON.stringify(event).length;
+    if (room < 0) break;
+    seen.add(event.id);
+    events.push(event);
+  }
+  if (!covers.every((id) => seen.has(id))) return null;
+  return events.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 /**

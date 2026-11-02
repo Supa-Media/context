@@ -38,7 +38,7 @@ import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { OLD_COPIES_ROOT } from "./lib/fileOps/store";
 import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";
 import { applyRowMove, type RowMoveRefusal } from "./lib/nodes/rowMove";
-import { rowVerdict } from "./lib/oldCopies/classify";
+import { rowVerdict, type RowVerdict } from "./lib/oldCopies/classify";
 import { CHANNEL_FOLDERS, hideChannelFolders, pinUnkeyed, unpin } from "./lib/oldCopies/folders";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import type { HidePass } from "./lib/oldCopies/hiding";
@@ -242,14 +242,18 @@ export const recordPass = internalMutation({
   },
 });
 
-/** One page of the workspace's live rows, and what each copy among them is (`classify.ts`). */
+/**
+ * One page of the workspace's live rows, and what each copy among them is (`classify.ts`). With `everyNote`, asked
+ * where the notes live in their object, the control plane's copy of their facts is not consulted: every note comes
+ * back as `facts`, and the pass asks the object what each one's front matter says (`hiding.ts`).
+ */
 export const candidatePage = internalQuery({
-  args: { workspaceId: v.id("workspaces"), cursor: v.union(v.string(), v.null()) },
+  args: { workspaceId: v.id("workspaces"), cursor: v.union(v.string(), v.null()), everyNote: v.optional(v.boolean()) },
   returns: v.object({
     rows: v.array(
       v.object({
         path: v.string(),
-        verdict: v.union(v.literal("day"), v.literal("attachment"), v.literal("read")),
+        verdict: v.union(v.literal("day"), v.literal("attachment"), v.literal("read"), v.literal("facts")),
         /** Where a keyed note's bytes are, for a note whose text decides. */
         key: v.optional(v.string()),
       }),
@@ -257,7 +261,7 @@ export const candidatePage = internalQuery({
     cursor: v.string(),
     done: v.boolean(),
   }),
-  handler: async (ctx, { workspaceId, cursor }) => {
+  handler: async (ctx, { workspaceId, cursor, everyNote }) => {
     const folders = await attachmentFolders(ctx, workspaceId);
     // Channel folders already handed to a whole-folder move: rows its pages have not reached yet are its to move.
     const record = await hideRecord(ctx, workspaceId);
@@ -275,9 +279,9 @@ export const candidatePage = internalQuery({
         found.goneAt === undefined ? await located(ctx.db, found, paths) : null;
       if (row === null || isPlumbing(row.path)) continue;
       if (moving.some((prefix) => row.path.startsWith(prefix))) continue;
-      const verdict = rowVerdict(row, folders);
+      const verdict: RowVerdict | "facts" = everyNote === true && row.kind === "file" && row.path.endsWith(".md") ? "facts" : rowVerdict(row, folders);
       if (verdict === null) continue;
-      rows.push({ path: row.path, verdict, ...(verdict === "read" && row.storageKey !== undefined ? { key: row.storageKey } : {}) });
+      rows.push({ path: row.path, verdict, ...((verdict === "read" || verdict === "facts") && row.storageKey !== undefined ? { key: row.storageKey } : {}) });
     }
     return { rows, cursor: page.continueCursor, done: page.isDone };
   },

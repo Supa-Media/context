@@ -13,6 +13,8 @@
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { assertUnitSlices, jobBlock, stepBlocks } from "./lib/workflow-jobs.mjs";
 import { convexGatewayReads } from "./convex-gateway-reads.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -81,14 +83,6 @@ export function workspacePaths(rootNames, root = ROOT) {
   return paths;
 }
 
-function jobBlock(yaml, job) {
-  const start = yaml.search(new RegExp(`^  ${job}:$`, "m"));
-  if (start === -1) throw new Error(`Missing job ${job}`);
-  const rest = yaml.slice(start);
-  const next = rest.slice(rest.indexOf("\n") + 1).search(/^  [A-Za-z0-9_-]+:$/m);
-  return next === -1 ? rest : rest.slice(0, rest.indexOf("\n") + 1 + next);
-}
-
 /** One named list from ci.yml's `change-filters: |` block. */
 export function changeFilter(yaml, name) {
   const block = /\n {6}change-filters: \|\n((?: {8}.*\n)+)/.exec(yaml);
@@ -130,10 +124,6 @@ export function assertPaths(actual, required, label) {
   }
   const missing = [...required].filter((path) => !actual.has(path));
   if (missing.length > 0) throw new Error(`${label} is missing: ${missing.join(", ")}`);
-}
-
-function stepBlocks(job) {
-  return job.split(/^      - /m).slice(1).map((step) => `      - ${step}`);
 }
 
 /**
@@ -544,6 +534,7 @@ export function check(root = ROOT) {
     [".github/workflows/ci.yml", "convex-deploy-typecheck", ["@context/convex"]],
     [".github/workflows/gateway-contracts.yml", "contracts", ["@context/mcp", "@context/convex"]],
     [".github/workflows/mcp.yml", "test", ["@context/mcp"]],
+    [".github/workflows/mcp.yml", "unit", ["@context/mcp"]],
     [".github/workflows/mcp.yml", "desktop", ["@context/desktop"]],
     [".github/workflows/email-worker.yml", "test", ["@context/email-worker"]],
     [".github/workflows/cli.yml", "test", ["@supa-media/context"]],
@@ -566,6 +557,8 @@ export function check(root = ROOT) {
     agent: { packages: ["@context/agent"], runs: "apps/agent" },
   });
 
+  assertUnitSlices(readFileSync(join(root, ".github/workflows/mcp.yml"), "utf8"));
+
   for (const [workflow, job, packages] of scoped) {
     assertScopedJob(readFileSync(join(root, workflow), "utf8"), job, workflow, packages);
   }
@@ -587,6 +580,10 @@ function expectFailure(name, fn, includes) {
 }
 
 export function selfTest() {
+  const mcp = readFileSync(join(ROOT, ".github/workflows/mcp.yml"), "utf8");
+  expectFailure("a unit slice dropped from the matrix", () => assertUnitSlices(mcp.replace("shard: [1, 2, 3]", "shard: [1, 2]")), "does not run slice");
+  expectFailure("a unit slice numbered wrong", () => assertUnitSlices(mcp.replace("shard: [1, 2, 3]", "shard: [1, 3, 4]")), "not 1 to 3");
+  expectFailure("the units check stops waiting", () => assertUnitSlices(mcp.replace("    needs: unit\n", "")), "is not the one");
   expectFailure(
     "broad package scope",
     () => assertPaths(new Set(["apps/mobile/**", "packages/**"]), new Set(["apps/mobile/**"]), "test"),

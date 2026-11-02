@@ -243,10 +243,8 @@ test("the object failing, not serving, or found behind falls back to the control
   assert.equal(await failing({ ask: "props", paths: ["a.md"] }), null);
   const notServed = objectFirstFacts(READING({ facts: async () => ({ served: false }) }));
   assert.equal(await notServed({ ask: "links", sources: [], names: [] }), null);
-  const behind = objectFirstFacts(READING({ facts: async () => ({ served: true, props: [] }) }, { checkBehind: async () => true }));
+  const behind = objectFirstFacts(READING({ facts: async () => ({ served: true, props: [], behind: true }) }));
   assert.equal(await behind({ ask: "props", paths: ["a.md"] }), null);
-  const brokenCheck = objectFirstFacts(READING({ facts: async () => ({ served: true, props: [] }) }, { checkBehind: async () => { throw new Error("x"); } }));
-  assert.equal(await brokenCheck({ ask: "props", paths: ["a.md"] }), null);
 });
 
 test("store.treeFacts answers from the object when it serves, and from the control plane otherwise", async () => {
@@ -294,4 +292,31 @@ test("a move's candidates through the door are unfiltered: a private note pointi
   const { ws } = await seeded();
   const answer = await ws.factRows({ ask: "candidates", sources: ["projects/plan.md"], names: ["plan"] });
   assert.deepEqual(answer.candidates.pointing.sort(), ["projects/brief.md", "projects/secret/hidden.md"]);
+});
+
+test("which moved notes hold links, through the door: unfiltered, read at their text, an untrusted note counted", { skip }, async () => {
+  const { ws } = await seeded();
+  const answer = await ws.factRows({ ask: "linking", paths: ["projects/plan.md", "projects/notes.md", "projects/secret/hidden.md", "projects/none.md"] });
+  assert.deepEqual(answer, { served: true, linking: ["projects/plan.md", "projects/secret/hidden.md"] });
+  // An edit that adds a link is seen at once: the etag moved, so the note is read again.
+  await ws.bodies.put(`notes/${ID(4)}.md`, "# Notes\n\nNow see [[brief]].\n");
+  assert.deepEqual((await ws.factRows({ ask: "linking", paths: ["projects/notes.md"] })).linking, ["projects/notes.md"]);
+  // A note whose text lives elsewhere cannot be vouched for: answered as linking, so a move still reads it.
+  await ws.rows.put([{ id: "n5", path: "projects/elsewhere.md", kind: "file", storageKey: "tex/elsewhere.md", at: 11 }]);
+  assert.deepEqual((await ws.factRows({ ask: "linking", paths: ["projects/elsewhere.md"] })).linking, ["projects/elsewhere.md"]);
+  // Not served before the notes live here.
+  const dual = await seeded({ home: HOMES.DUAL, workspaceId: "ws_two" });
+  assert.deepEqual(await dual.ws.factRows({ ask: "linking", paths: ["projects/plan.md"] }), { served: false });
+});
+
+test("a note's neighbor rows through the door are unfiltered, in the control plane's shape", { skip }, async () => {
+  const { ws } = await seeded();
+  const answer = await ws.factRows({ ask: "neighborRows", path: "projects/plan.md" });
+  assert.equal(answer.served, true);
+  assert.equal(answer.rows.present, true);
+  assert.equal(answer.rows.current, true);
+  assert.deepEqual(answer.rows.byName.sort(), ["projects/brief.md", "projects/secret/hidden.md"]);
+  assert.deepEqual(answer.rows.links.map((link) => `${link.kind} ${link.target}`).sort(), ["name brief", "path projects/notes.md"]);
+  const missing = await ws.factRows({ ask: "neighborRows", path: "projects/none.md" });
+  assert.deepEqual(missing.rows, { present: false, current: false, links: [], byPath: [], byName: [] });
 });

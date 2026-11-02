@@ -21,7 +21,7 @@
  * drain took every one-to-one 👍 as a group's and dropped it (2026-10-22).
  */
 
-import { keptEvents } from "./events";
+import { chatEvents } from "./chatRead";
 import type { InboxStorage } from "./inbox";
 import type { Reaction } from "./reactions";
 
@@ -190,5 +190,5 @@ export async function onTexText(storage: InboxStorage, chat: string, reaction: R
   if (reaction.onOther) return false;
   if (reaction.onTex) return true;
   if (reaction.words === "") return false;
-  return (await keptEvents(storage, chat)).some((event) => event.from.kind !== "person" && event.text !== undefined && sameWords(event.text, reaction.words));
+  return (await chatEvents(storage, chat)).some((event) => event.from.kind !== "person" && event.text !== undefined && sameWords(event.text, reaction.words));
 }

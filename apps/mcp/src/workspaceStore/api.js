@@ -98,7 +98,7 @@ export function workspaceStub(env, workspaceId) {
  * - `facts({ask, ..., scope, groups, audience})`: a note facts ask (`props`, `links`, `neighbors`) answered from the
  *   text held here (`workspaceStore/facts.js`), in the control plane's `/gateway/tree/facts` shape; `{served: false}`
  *   before the notes live here
- * - `factRows({ask: "props"|"links"|"chaos", paths?})`: the same facts unfiltered, for the control plane's own readers
+ * - `factRows({ask: "props"|"links"|"chaos"|"candidates"|"linking", paths?})`: the same facts unfiltered, for the control plane's own readers
  *   through the door, which judge every path themselves
  * - `rules.put(heldRules, audience)`, `rules.get(audience)`
  * - `apply({rows, removed, at, rules: {member?, guest?}})`: rows, removals and rules in one storage transaction

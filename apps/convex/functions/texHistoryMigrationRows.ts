@@ -25,3 +25,10 @@ export const describe = internalQuery({
     return { slug: workspace.slug, kind: workspace.kind, owners };
   },
 });
+
+/** A workspace's kind alone, for the ledger copy-in (`texLedgerBackfill.ts`): only a personal workspace has a one-to-one chat with Tex. */
+export const kindOf = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.string(),
+  handler: async (ctx, { workspaceId }) => (await ctx.db.get(workspaceId))?.kind ?? "gone",
+});
