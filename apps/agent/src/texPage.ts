@@ -12,6 +12,7 @@
  */
 
 import { chatDirectoryName, chatWhereOf } from "./groupRoutines";
+import { lastTurnPeople } from "./groupChat";
 import { groupInboxName } from "./groupInbox";
 import { inboxByName } from "./objectPlace";
 import type { InboxStorage } from "./inbox";
@@ -40,6 +41,9 @@ export type PageJob = {
   stopped?: true;
 };
 
+/** What a chat's inbox answers a page: its jobs, and for a group the people hash its browser is tagged by. */
+export type PageJobs = { now: number; jobs: PageJob[]; people?: string };
+
 /** Which chat a page names: a 1:1 chat's phone, or a group's key. */
 export type PageChat = { phone: string } | { groupKey: string };
 
@@ -52,7 +56,7 @@ export type PageSteer = { id: string; text: string; stop?: true };
  * `JOB_KEPT_MS` is deleted, and a running one past `JOB_STALE_MS` is marked
  * failed, since its object is gone.
  */
-export async function pageJobsOf(storage: InboxStorage, now: number): Promise<{ now: number; jobs: PageJob[] }> {
+export async function pageJobsOf(storage: InboxStorage, now: number): Promise<PageJobs> {
   const entries = await storage.list<JobEntry>({ prefix: JOB_PREFIX });
   const kept: JobEntry[] = [];
   for (const [key, entry] of entries) {
@@ -82,7 +86,9 @@ export async function pageJobsOf(storage: InboxStorage, now: number): Promise<{ 
       ...(entry.state !== "running" && entry.result ? { result: entry.result } : {}),
       ...(entry.stopped === true ? { stopped: true as const } : {}),
     }));
-  return { now, jobs };
+  // A group's browser is tagged by its people (`lastTurnPeople`); a 1:1 inbox keeps none.
+  const people = await lastTurnPeople(storage);
+  return { now, jobs, ...(people !== null ? { people } : {}) };
 }
 
 /** A page's chat, read strictly: exactly one of a phone or a group key, each in its own shape. Anything else is null. */

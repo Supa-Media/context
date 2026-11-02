@@ -1,7 +1,7 @@
 // A request's binding from its workspace's object (`store/objectBinding.js`, `workspaceStore/bindingRows.js`,
 // `workspaceStore/bindingSeal.js`): one object call instead of the control plane's `/gateway/binding`, and every
 // way it must refuse and ask the control plane instead: another workspace's sealed binding, another secret, a
-// removed member, a guest or chat reader, a keyed workspace, a change still behind, a stale copy, and a change made
+// removed member, a guest or chat reader, a workspace whose keying is unknown or contradicted, a change still behind, a stale copy, and a change made
 // while the control plane was being asked.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -99,13 +99,15 @@ async function world({ workspaceId = "ws_one", behind = false } = {}) {
   const calls = { binding: 0, behind: 0 };
   const controlPlane = {
     behind,
+    /** What the control plane's answer carries beyond the plain one: a data key, managed encryption. */
+    extra: {},
     objectBehind: async () => {
       calls.behind += 1;
       return controlPlane.behind;
     },
     getStorageBinding: async () => {
       calls.binding += 1;
-      return answerFor(workspaceId);
+      return answerFor(workspaceId, controlPlane.extra);
     },
   };
   const session = { workspaceId, actorUserId: "user_a", scope: "team", grantedGroups: [], accessToken: "token" };
@@ -239,11 +241,50 @@ test("a change the control plane has not pushed yet sends the request to the con
   assert.equal((await open(w)).reason, "behind", "a behind question that fails reads as behind");
 });
 
-test("a keyed workspace, or notes not in the object, always asks the control plane", { skip }, async () => {
+const DATA_KEY = { current: "g2", keys: { g1: "data-key-one", g2: "data-key-two" } };
+
+test("a keyed workspace's data key is kept in the seal and served from the object, never readable in its storage", { skip }, async () => {
   const w = await world();
-  await open(w);
   await w.client.setEncryption("keyed");
-  assert.equal((await open(w)).reason, "encryption_not_none");
+  w.controlPlane.extra = { encryptionKey: DATA_KEY, managedEncryption: { mode: "encrypted" } };
+  const first = await open(w);
+  assert.equal(first.reason, "none_kept");
+  assert.deepEqual(first.kept, { kept: true, reason: null });
+  const second = await open(w);
+  assert.equal(second.source, "object");
+  assert.deepEqual(second.opened.encryptionKey, DATA_KEY);
+  assert.deepEqual(second.opened.managedEncryption, { mode: "encrypted" });
+  const sealed = w.object.store.binding.get().sealed;
+  for (const plain of ["data-key-one", "data-key-two"]) {
+    assert.equal(sealed.includes(plain), false);
+    assert.equal(Buffer.from(sealed.split(".")[2], "base64url").toString("latin1").includes(plain), false);
+  }
+});
+
+test("ATTACK: a keyed workspace answered with no key (a key that would not open) is never kept or served", { skip }, async () => {
+  const w = await world();
+  await w.client.setEncryption("keyed");
+  const first = await open(w);
+  assert.deepEqual(first.kept, { kept: false, reason: "not_keepable" });
+  assert.equal((await open(w)).source, "control_plane");
+  // A copy kept while the workspace was unkeyed is not served once the object says it is keyed.
+  const v = await world({ workspaceId: "ws_two" });
+  await open(v);
+  await v.client.setEncryption("keyed");
+  assert.equal((await open(v)).reason, "kept_not_usable");
+});
+
+test("ATTACK: an unkeyed workspace answered with a key is never kept", { skip }, async () => {
+  const w = await world();
+  w.controlPlane.extra = { encryptionKey: DATA_KEY };
+  assert.deepEqual((await open(w)).kept, { kept: false, reason: "not_keepable" });
+});
+
+test("a workspace whose object does not know its keying, or whose notes are not in the object, always asks", { skip }, async () => {
+  const w = await world();
+  w.object.store.rows.encryption = () => null;
+  assert.equal((await open(w)).reason, "encryption_unknown");
+  assert.equal((await open(w)).reason, "encryption_unknown");
   const v = await world({ workspaceId: "ws_two" });
   await open(v);
   await v.client.setHome("dual");
@@ -283,11 +324,12 @@ test("a clear drops the kept binding, and the next request asks the control plan
   assert.equal(w.calls.binding, 2);
 });
 
-test("an answer carrying a data key, a rotation, managed encryption or a behind mark is never kept", { skip }, async () => {
+test("an answer carrying a key the object does not expect, a rotation, managed encryption moving, or a behind mark is never kept", { skip }, async () => {
   for (const extra of [
     { encryptionKey: { current: "g1", keys: { g1: "k" } } },
     { rotation: { fromGeneration: "g1", toGeneration: "g2" } },
-    { managedEncryption: { mode: "encrypted" } },
+    { managedEncryption: { mode: "migrating" } },
+    { managedEncryption: { mode: "decrypting" } },
     { binding: { ...answerFor("ws_one").binding, notesBehind: true } },
     { binding: { ...answerFor("ws_one").binding, notesHome: "dual" } },
     { binding: { ...answerFor("ws_one").binding, workspaceId: "ws_two" } },

@@ -4,7 +4,7 @@
  * `apps/mcp/src/workspaceStore/bindingRows.js`), through the gateway's real door into a real object on node:sqlite.
  *
  * Until the clear lands the workspace reads as behind, so the gateway never opens a store from the old copy
- * (`apps/mcp/src/store/objectBinding.js`). Sabotage, each confirmed to fail a case here: drop the binding tables from
+ * (`apps/mcp/src/store/objectBinding.js`). Sabotage, each confirmed to fail a case here: drop the binding tables (the data keys among them) from
  * the watch (no entry), drop the clear from the drain (the copy survives), drop the scheduled clear for a workspace
  * not on its object (the copy survives a switch back).
  */
@@ -133,6 +133,20 @@ describe("a binding change clears the object's kept copy", () => {
     expect(await outbox(t, workspaceId)).toMatchObject([{ binding: true }]);
     await drainScheduled(t);
     expect(kept.get().sealed).toBeNull();
+  });
+
+  test("a new data key, and a rotation starting, each clear it", async () => {
+    const { t, workspaceId, kept } = await world();
+    await setHome(t, workspaceId, "object");
+    await watched(t, (db) => db.insert("workspaceDataKeys", { workspaceId, generation: "g1", encryptedDataKey: "sealed-fake", createdAt: Date.now() } as never));
+    expect(await outbox(t, workspaceId)).toMatchObject([{ binding: true }]);
+    await drainScheduled(t);
+    expect(kept.get()).toMatchObject({ sealed: null, epoch: 1 });
+    kept.put({ sealed: "v1.aaaa.bbbb", at: Date.now(), epoch: 1 });
+    await watched(t, (db) => db.insert("workspaceKeyRotations", { workspaceId, fromGeneration: "g1", toGeneration: "g2", status: "in_progress", startedAt: Date.now() } as never));
+    expect(await outbox(t, workspaceId)).toMatchObject([{ binding: true }]);
+    await drainScheduled(t);
+    expect(kept.get()).toMatchObject({ sealed: null, epoch: 2 });
   });
 
   test("a field no store is built from leaves the copy alone", async () => {

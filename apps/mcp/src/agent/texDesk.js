@@ -22,6 +22,7 @@ import { JOBS_PATH } from "./jobs.js";
 import { VOICE_PATH } from "./personVoice.js";
 import { deskNotes, keepDeskKeys } from "./history.js";
 import { splitTexKey } from "../store/texRouting.js";
+import { HISTORY_PATH, ensureHistoryFile } from "./historyFile.js";
 
 const PATHS = { about: ABOUT_ME_PATH, jobs: JOBS_PATH, voice: VOICE_PATH };
 
@@ -55,7 +56,9 @@ export async function deskTexts(store) {
 export async function learnDeskKeys(store, workspaceId) {
   try {
     if (!deskEligible(store) || typeof store?.keysAt !== "function") return;
-    const keys = await store.keysAt([...Object.values(PATHS), ...Object.values(OLD_PATHS)]);
+    const keys = await store.keysAt([...Object.values(PATHS), ...Object.values(OLD_PATHS), HISTORY_PATH]);
+    // The chat's history file, made once, in the same lookup (`historyFile.js`).
+    await ensureHistoryFile(store, HISTORY_PATH, keys);
     const own = (key) => {
       const split = typeof key === "string" ? splitTexKey(key) : null;
       return split !== null && split.owner === `person:${workspaceId}` && split.key.startsWith("notes/") && split.key.endsWith(".md") ? split.key : null;

@@ -38,7 +38,8 @@ trade. Per-request caching is fine; anything that outlives a request is not.
 Decided by the owner, 2026-11-02, for speed: `/gateway/binding` was about 260 ms
 of every tool call, and the workspace's object already decides who is a member
 and holds the rules every read is judged by. So the gateway keeps a copy of the
-binding (bucket credential, index tokens, note cap, deployment switches) **in
+binding (bucket credential, index tokens, note cap, deployment switches, and
+the workspace's data key with its managed-encryption mode) **in
 that workspace's own object**, and a request opens its store from one call to
 it (`store/objectBinding.js`, `workspaceStore/bindingRows.js`).
 
@@ -54,11 +55,19 @@ to prevent:
   another workspace's object does not open.
 - **Only for a live member, where the object decides access.** The object
   answers the sealed copy only to a member it holds (`accessHome: "object"`),
-  only where it holds the notes, and only where it knows the workspace has no
-  data key. Guests, Tex chats, Tex's setup read, keyed or managed-encrypted
-  workspaces and rotations always ask the control plane.
+  only where it holds the notes, and only where it knows whether the workspace
+  holds a data key. Guests, Tex chats, Tex's setup read, rotations, and managed
+  encryption moving in or out always ask the control plane.
+- **A data key only where the object says there is one.** The control plane
+  answers "no key" and "a key that would not open" alike, so a copy is kept
+  and served only when it carries a key exactly where the object records the
+  workspace as `keyed` (`functions/workspaceObjectEncryption.ts` records it
+  from the key rows). The data key went in on 2026-11-02, under the owner's
+  "keys in the box": 35 of 38 object workspaces in production hold one, and
+  without it almost no request took this path.
 - **Never stale past a change.** Every write to the tables a binding is made of
-  (`storageBindings`, `managedEncryptionWorkspaces`, `workspaceObjectHomes`) is
+  (`storageBindings`, `managedEncryptionWorkspaces`, `workspaceObjectHomes`,
+`workspaceDataKeys`, `workspaceKeyRotations`) is
   watched like a row write (`lib/rowWatch/watch.ts` `BINDING_TABLES`): the
   workspace reads as behind until the push clears the copy, and a clear moves an
   epoch on so an answer read before it can never be put back. A copy is used for

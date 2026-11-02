@@ -68,6 +68,16 @@ export async function notePeople(storage: InboxStorage, message: GroupMessage, f
 }
 
 /**
+ * The people hash the chat's last model turn named the gateway, or null before
+ * one: what a group's browser is tagged by (`groupBrowserOwner` in the
+ * gateway), so the Tex page can show that browser.
+ */
+export async function lastTurnPeople(storage: InboxStorage): Promise<string | null> {
+  const full = (await storage.get<SeenPeople>(PEOPLE_KEY))?.full;
+  return typeof full === "string" && /^[0-9a-f]{64}$/.test(full) ? full : null;
+}
+
+/**
  * The people hash an inbound event is filed under: the one the last turn
  * named the gateway, while the webhook lists the same people it did then,
  * so the gateway (which starts a reader's transcript at the first event

@@ -10,6 +10,7 @@
  */
 
 import { TexObjectRefused } from "./objects.js";
+import { withHistoryView } from "./historyView.js";
 import { objectByName } from "../objectPlace.js";
 import { OWNER_HEADER, placedName } from "./move.js";
 import { DESK_LEDGER, readDesk } from "./desk.js";
@@ -62,7 +63,9 @@ const unknownOp = () => Response.json({ error: "unknown_op" }, { status: 400 });
  * (`{schedule(alarm), cancel(id)}`, `texStore.js`); without it the alarm
  * calls are unknown.
  */
-export async function serveTexStore(objects, request, timers = null, live = null) {
+export async function serveTexStore(stored, request, timers = null, live = null) {
+  // The chat's history file is answered from its ledger, never kept (`historyView.js`).
+  const objects = withHistoryView(stored);
   let call;
   try {
     call = unpack(request.headers.get(CALL));
