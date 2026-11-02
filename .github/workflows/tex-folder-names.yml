@@ -70,3 +70,4 @@ jobs:
           done
           echo "personal total: $total"
           echo "homes: $(npx convex run functions/texFolderNames:homes "$(jq -cn --argjson dry "$DRY_RUN" '{dryRun: $dry}')" 2>/dev/null | jq -c .)"
+          echo "pages: $(npx convex run functions/texFolderNames:pages '{}' 2>/dev/null | jq -c .)"
