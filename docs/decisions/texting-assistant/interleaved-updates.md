@@ -50,8 +50,10 @@ removed the same day).
 - A line goes only while the people here are the ones here when the turn
   started: the member list is read again before each line, as before the
   final send (`groupModelTurn.ts`).
-- A newcomer, or a list that cannot be read, pauses the turn's lines for
-  good; each held line is logged as never delivered, `held_newcomer`.
+- A newcomer pauses the turn's lines for good. A list that cannot be read,
+  tried twice, holds only the line it came before (2026-11-02: one failed
+  read had paused every line after it). Each held line is logged as never
+  delivered, `held_newcomer`.
 - A line is kept once per turn by its words (`groupSay.ts` `sayProgress`,
   under the turn's part keys), so a workflow retry never sends it again and
   the answer's parts keep their own positions; a redraft, a new turn over the
@@ -73,6 +75,6 @@ answer goes whole; one bubble and a job's report get no lines),
 `inbox.test.ts` (1:1 lines in order and logged; a rerun, a newer text merged
 in or not, sends none twice; kept lines pruned after a day; no control word),
 `groupProgress.test.ts` (group lines in order and logged; a newcomer pauses
-them; a routine says none; a failed line keeps the answer; a redraft sends
+them; an unread list holds one line; a routine says none; a failed line keeps the answer; a redraft sends
 none twice; a stop ends them), `groupTurnWorkflow.test.ts` (a retry sends no
 line twice).

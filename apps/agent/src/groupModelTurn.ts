@@ -77,21 +77,24 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     "group Tex should literally be the same exact as DM Tex"): a long ask
     texts its progress into the chat while it works, each line only while
     nobody new has joined, the same check the answer gets below. A newcomer
-    (or a list that can't be read) pauses the turn's lines for good, each
+    pauses the turn's lines for good; a list that can't be read (twice, as
+    `readTwice` reads it) holds only that line (2026-11-02). Each held line is
     logged as held, as the answer is. A routine (a job's report runs as one)
     texts once, so it says none (`apps/mcp/src/agent/route.js`); nor does a
     chat stopped or muted since the turn began. A line that won't send costs
     the chat a line, never the answer, as in a 1:1 text.
   */
+  // One failed read is retried at once: a blip is not a reason to hold (2026-11-02).
+  const readTwice = async () => (await app.readMembers(chat)) ?? (await app.readMembers(chat));
   let paused = false;
   const progress = async (text: string) => {
     if (routine) return;
     try {
       if (!(await isBound(storage, message))) return log("progress_unbound");
       if (!paused) {
-        const now = await app.readMembers(chat);
-        paused = now === null || now.some((phone) => phone !== message.line && !people.includes(phone));
-        if (!paused) return await sayProgress(storage, deps, message, text, meta);
+        const now = await readTwice();
+        paused = now !== null && now.some((phone) => phone !== message.line && !people.includes(phone));
+        if (now !== null && !paused) return await sayProgress(storage, deps, message, text, meta);
       }
       await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: false, reason: "held_newcomer", ...meta });
     } catch {
@@ -160,15 +163,14 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Sent only to the people it was written for: someone who joined meanwhile was never part of its scope.
   //
   // A list that could not be read is not a list with nobody new in it. On the
-  // way in, falling back to the webhook's own names is safe because more names
-  // only ever narrow the workspace the chat may use; here the fallback would
-  // run the other way, and this is the only thing standing between an answer
-  // drawn from the bound workspace and somebody who is not a member of it. So
-  // an unreadable list holds the answer, as a joiner does.
+  // way in, an unread list is retried (`answerGroup`); here falling back to the
+  // turn's people would run the other way, and this is the only thing standing
+  // between an answer drawn from the bound workspace and somebody who is not a
+  // member of it. So a list unread twice holds the answer, as a joiner does.
   if (routine && (answer.quiet || saysSkip(answer.text)) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
   const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
   const texts = [...textsWithExact(answer.text, answer.verbatim, checkIn || asked.texStyle?.bubbles === "one"), ...(checkIn ? [] : await threadsLines(answer.offers, deps.threadsLink))];
-  const now = await app.readMembers(chat);
+  const now = await readTwice();
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");
     if (routine) return void (await routineDone(deps, message, now === null ? "failed" : "no_chat"));

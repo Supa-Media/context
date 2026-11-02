@@ -17,7 +17,7 @@ import { runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
 import type { Fetch } from "./clients";
 
 /** The chat's world, its turn streaming `lines` and then `answer`. */
-function streaming(groupId: string, lines: string[], answer: string, members?: string[][], opts: Parameters<typeof setup>[1] = {}) {
+function streaming(groupId: string, lines: string[], answer: string, members?: (string[] | null)[], opts: Parameters<typeof setup>[1] = {}) {
   const w = setup(groupId, { members, ...opts });
   const fetch = w.deps.fetch;
   w.deps.fetch = (async (url: string, init?: RequestInit) => {
@@ -52,6 +52,24 @@ for (const { name, groupId } of LINES) {
       expect(w.texts).not.toContain("Comparing the plans.");
       const held = (await recentEvents(storage, groupId)).filter((event) => event.reason === "held_newcomer").map((event) => event.text);
       expect(held).toEqual(["Found the pricing table.", "Comparing the plans."]);
+    });
+
+    it("skip only the line a list unread twice comes before, and a single failed read skips none (2026-11-02)", async () => {
+      const lines = ["Reading the page now.", "Found the pricing table.", "Comparing the plans."];
+      // Turn start, then two reads per line where the first fails: the second line's both fail.
+      const storage = new MemoryStorage();
+      const w = streaming(groupId, lines, "Plan B fits.", [[ADA, BO], [ADA, BO], null, null, [ADA, BO], [ADA, BO]]);
+      await acceptGroup(storage, w.message("Tex, research this"), 0);
+      await drainGroup(storage, w.deps);
+      expect(w.texts).toEqual(["Reading the page now.", "Comparing the plans.", "Plan B fits."]);
+      const held = (await recentEvents(storage, groupId)).filter((event) => event.reason === "held_newcomer").map((event) => event.text);
+      expect(held).toEqual(["Found the pricing table."]);
+
+      const blip = new MemoryStorage();
+      const b = streaming(groupId, lines, "Plan B fits.", [[ADA, BO], [ADA, BO], null, [ADA, BO]]);
+      await acceptGroup(blip, b.message("Tex, research this"), 0);
+      await drainGroup(blip, b.deps);
+      expect(b.texts).toEqual([...lines, "Plan B fits."]);
     });
 
     it("are never said by a routine: a check-in that finds nothing posts nothing, and one that finds something posts only its answer", async () => {

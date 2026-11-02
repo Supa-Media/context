@@ -60,7 +60,7 @@ import { ackEmoji } from "./ackEmoji";
 import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onTexText } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
-import type { WhapiKeys } from "./whapi";
+import { isWhapiGroup, type WhapiKeys } from "./whapi";
 import { groupLineFor } from "./groupLine";
 import type { NoteCardDrawer } from "./noteCards";
 import { isBound, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
@@ -491,11 +491,13 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
   const command = item.engagement || item.setting || routine ? null : groupCommand(message.text);
-  // The app's own list too: more people only ever narrows what Tex may use. Unread where the webhook names only the sender, it's retried (`groupLine.ts`).
+  // The app's own list too: more people only ever narrows what Tex may use. Unread, it's retried on every app: a WhatsApp webhook
+  // names only the sender (the Crystal Care chat, 2026-10-29: bound on one person, then refused the family), and a Sendblue one may
+  // name someone by an email handle the answer's read then lists as a phone, a newcomer nobody was (2026-11-02).
   const members = await app.readMembers(chat);
   clock?.mark("members");
   if (members === null) log("members_unread");
-  if (members === null && !routine && app.senderOnlyWebhook) throw new ServiceError("whapi", null);
+  if (members === null && !routine) throw new ServiceError(isWhapiGroup(message.groupId) ? "whapi" : "sendblue", null);
   // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.
   if (routine && (members === null || !members.includes(message.from))) return void (await routineDone(deps, message, "no_chat"));
   const people = peopleOf(message.line, message.participants, members);
