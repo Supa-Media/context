@@ -29,6 +29,8 @@
  *  8. `finishChat` skipped                                     -> "a real run moves the folder" fails (guest fields stay).
  *  9. `chatHomePaths` naming no path for a read                -> "a person named on the home opens a note" fails
  *     (STORAGE_FAILED: the store refuses the chat's key).
+ * 10. `chatHomePaths` dropping its `write` arm                 -> "a save under a chat's home" fails for the person
+ *     named on it (STORAGE_FAILED), while both refusals stand: access is decided before the store is reached.
  */
 
 import { createRequire } from "node:module";
@@ -318,6 +320,31 @@ describe("a real run", () => {
     expect(await readAs(w.mel)).toContain(MARKER);
     // A member of the pin who is not named on the home is refused by the rows, whichever object the note is kept in.
     expect(await readAs(w.sayo)).toBe("FILE_NOT_FOUND");
+  });
+
+  test("a save under a chat's home reaches the chat's object for a person named on it, and is refused for anybody else", async () => {
+    const w = await world();
+    await run(w, false);
+    await drainScheduled(w.t);
+    const words = (await chatRow(w, w.chatA))!.homeWords!;
+    await w.t.run(async (ctx) => {
+      const chat = (await ctx.db.get(w.chatA))!;
+      expect(await makeChatHome(ctx as unknown as MutationCtx, chat, [w.ada, w.mel], w.ada)).toEqual({ folder: `tex/groups/${words}` });
+    });
+    const writeAs = async (userId: Id<"users">, path: string) => {
+      const { scope, grantedNames } = await clearanceOf(w, userId);
+      return await w.t
+        .action(internal.functions.files.runFileOperation, { workspaceId: w.pinned, scope, ...(grantedNames === undefined ? {} : { grantedNames }), operation: { kind: "write", path, text: "planted" } })
+        .then((result: { kind: string }) => result.kind, (error: { data?: { code?: string } }) => error?.data?.code ?? "threw");
+    };
+    // A person named on the home saves into it, which needs the ticket to name the chat whose object keeps it
+    // (`chatHomePaths`, the `write` arm): without that the store refuses the chat's key and this is STORAGE_FAILED.
+    expect(await writeAs(w.mel, `tex/groups/${words}/packing.md`)).toBe("written");
+    // The note's own row is sealed to the home's people, so a save at its path by anybody else is refused.
+    expect(await writeAs(w.sayo, `tex/groups/${words}/flights.md`)).toBe("FILE_NOT_FOUND");
+    // And a path with no row of its own: the home's folder refuses it, so a stranger cannot plant a note in the
+    // chat's object even though a path alone is what lets the ticket name that object.
+    expect(await writeAs(w.sayo, `tex/groups/${words}/planted.md`)).toBe("FILE_NOT_FOUND");
   });
 
   test("an arrival's row is sealed under the home, never opened to the pin's team", async () => {
