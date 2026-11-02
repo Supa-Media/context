@@ -35,6 +35,21 @@ async function sealedPin(ctx: QueryCtx): Promise<Id<"workspaces"> | null> {
   return (await pinnedContextWorkspace(ctx))?._id ?? null;
 }
 
+/**
+ * The folders a home holds from the start, by the names a person's Tex folder gives them (the owner, 2026-11-01: "i
+ * would like them to mirror"; 2026-11-02: the homes "still look very empty ... I don't see any of the scaffolding
+ * folders"): what Tex learned (`skills/`) and the chat's reminders (`routines/`). Its notes are made as Tex writes them.
+ */
+export const HOME_FOLDERS = ["skills", "routines"] as const;
+
+/** Whether the home and each of its folders stand as live folders. */
+async function homeStands(ctx: MutationCtx, pinned: Id<"workspaces">, folder: string): Promise<boolean> {
+  for (const path of [folder, ...HOME_FOLDERS.map((inner) => `${folder}/${inner}`)]) {
+    if ((await liveNodeAt(ctx.db, pinned, path))?.kind !== "folder") return false;
+  }
+  return true;
+}
+
 /** The chat's home folder. */
 export function chatHomePath(words: string): string {
   return `${CHAT_HOMES_FOLDER}/${words}`;
@@ -73,10 +88,10 @@ export async function makeChatHome(
   const folder = chatHomePath(words);
   const wanted = peopleList(people);
   const kept = chat.homeWords === words && sameList(chat.homeUsers ?? [], wanted);
-  // A home standing and naming the same people is left as it is: no write on an ordinary turn.
-  if (kept && (await liveNodeAt(ctx.db, pinned, folder))?.kind === "folder") return { folder };
-  // `chainAt` of a path inside the home stands every folder down to the home itself.
-  await standFolders(ctx, pinned, await chainAt(ctx.db, pinned, `${folder}/-`), now);
+  // A home standing, with its folders, and naming the same people is left as it is: no write on an ordinary turn.
+  if (kept && (await homeStands(ctx, pinned, folder))) return { folder };
+  // `chainAt` of a path inside each of the home's folders stands every folder down to it, the home's own included.
+  for (const inner of HOME_FOLDERS) await standFolders(ctx, pinned, await chainAt(ctx.db, pinned, `${folder}/${inner}/-`), now);
   const answer = await setAccessRow(ctx, {
     workspaceId: pinned,
     path: folder,
