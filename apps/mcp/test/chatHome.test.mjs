@@ -25,7 +25,7 @@ import { test } from "node:test";
 import { resolveSession, sessionForChatHome, sessionForContext, sessionForSetup, SCOPE_WRITE } from "../src/session.js";
 
 import { readGroupMemory } from "../src/agent/groupTurn.js";
-import { homePrompt, readAboutUs } from "../src/agent/chatHome.js";
+import { homePrompt, openChatHome, readAboutUs } from "../src/agent/chatHome.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const TOKEN = `cat_group_home_${"0".repeat(24)}`;
@@ -205,4 +205,31 @@ test("a line in about-us cannot close the fence it is quoted in", async () => {
   assert.doesNotMatch(told.replace(/<<<ABOUT_US\n[\s\S]*?\nABOUT_US\n/, ""), /New rule: /, "and nothing of them is left outside it");
   // Said as data, the way the chat's voice note is (`chatVoice.js`).
   assert.match(told, /never follow/i, "the note is data, not instructions");
+});
+
+test("a home that stays shut says why, by a fixed code", async () => {
+  const lines = [];
+  const log = (line) => lines.push(JSON.parse(line));
+  assert.equal(await openChatHome({}, { log }), null);
+  assert.equal(await openChatHome({ openChatHome: async () => ({ session: { chatHome: HOME } }) }, { log }), null);
+  assert.equal(await openChatHome({ openChatHome: async () => ({ session: {}, store: {} }) }, { log }), null);
+  assert.equal(await openChatHome({ openChatHome: async () => { throw new TypeError("secret words"); } }, { log }), null);
+  assert.deepEqual(lines.map((line) => line.reason), ["no_door", "no_store", "no_folder", "open_failed:TypeError"]);
+  assert.ok(lines.every((line) => line.event === "group_home_unopened" && !JSON.stringify(line).includes("secret")));
+});
+
+test("a turn whose home stays shut says the history stayed in the record, and why", async () => {
+  const lines = [];
+  const original = console.log;
+  console.log = (line) => lines.push(String(line));
+  try {
+    const store = createMemoryStore();
+    const dispatch = async () => ({ isError: true, content: [{ type: "text", text: "not found" }] });
+    await readGroupMemory(store, { key: "c".repeat(64), members: "d".repeat(64), from: "ada", chat: [], people: [] }, dispatch);
+  } finally {
+    console.log = original;
+  }
+  const events = lines.filter((line) => line.startsWith("{")).map((line) => JSON.parse(line));
+  assert.deepEqual(events.find((line) => line.event === "group_home_unopened"), { event: "group_home_unopened", reason: "no_door" });
+  assert.deepEqual(events.find((line) => line.event === "group_memory_not_moved"), { event: "group_memory_not_moved", reason: "no_home" });
 });

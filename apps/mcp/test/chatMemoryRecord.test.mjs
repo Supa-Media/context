@@ -166,8 +166,10 @@ test("an unreachable object keeps nothing, writes nothing to the bucket and leav
   assert.equal(await (await store.get(legacy)).text(), record("@ada: old"), "the old copy untouched");
   const all = [...lines, ...written];
   for (const line of all) assert.doesNotMatch(line, /a{64}|\.context|tex\/|gig|old/, "no key, path or words");
-  // The read, the read again just before the write (`keepGroupExchange`), and no write over a record it could not read.
+  // The chat has no home door, which says so once; the read, the read again just before the write
+  // (`keepGroupExchange`), and no write over a record it could not read.
   assert.deepEqual(all.map((line) => JSON.parse(line)), [
+    { event: "group_home_unopened", reason: "no_door" },
     { event: "group_memory_not_kept", step: "read", reason: "tex_store_unavailable" },
     { event: "group_memory_not_kept", step: "read", reason: "tex_store_unavailable" },
     { event: "group_exchange_not_kept", reason: "record_unreadable" },

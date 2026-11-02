@@ -336,6 +336,8 @@ async function moveOntoPage(store, group, kept, page, pagePath, dispatch, names)
     console.log(JSON.stringify({ event: "group_memory_on_page", turns: turns.length }));
     return { turns };
   }
+  // Why the history stays in the record this turn, by a fixed code (a failed write logs its own, `updateGroupPage`).
+  if (!movable) console.log(JSON.stringify({ event: "group_memory_not_moved", reason: pagePath === null ? "no_home" : pageTurns === null ? "page_unread" : "not_carried" }));
   if (carried.changed === true) await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ ...marks, turns: held })).catch(() => false);
   return { turns };
 }
