@@ -20,7 +20,7 @@ import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, resumeJobs, startJobs, steerJobs, threadsLines } from "./jobs";
 import { addEvent, holdsLog, keepLog, kindOf, logAsk, recentEvents } from "./events";
-import { staleAsks } from "./decide";
+import { cancelTurn, staleAsks } from "./decide";
 import { startTurn } from "./steer";
 import { recheckDraft } from "./groupRecheck";
 import type { GroupPending } from "./groupTurn";
@@ -39,10 +39,12 @@ export type TurnInput = {
   people: string[];
   asked: Extract<ControlAnswer, { status: "ready" }>;
   accessToken: string;
+  /** Decide on an addressed turn, asked beside it (`decideBeside`): true, nothing of the turn is sent. */
+  silenced?: Promise<boolean>;
 };
 
 /** The model's turn on a group message, its answer sent only to the people it was written for. */
-export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo, arrivedAt, covers, people, asked, accessToken }: TurnInput): Promise<"cancelled" | void> {
+export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo, arrivedAt, covers, people, asked, accessToken, silenced }: TurnInput): Promise<"cancelled" | void> {
   const app = groupLineFor(deps, message.groupId);
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
@@ -72,26 +74,34 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const { steer, end, live } = startTurn(storage, message.groupId, message.from, deps, covers, (ids) => dropSteered(storage, ids, covers));
   await steer.onSession(accessToken);
   const meta: SayMeta = { turn: steer.turn, covers, people: group.members };
+  // Decide said silent (Dev2, 2026-11-01): the turn is cancelled if it still runs, so nothing of it is kept as said either.
+  const vetoed = silenced?.then(async (silent) => {
+    if (silent && (await cancelTurn(deps, accessToken, steer.turn))) live.cancelled = true;
+    return silent;
+  });
   /*
     Asked for as a stream, as a person's own text is (the owner, 2026-10-23:
     "group Tex should literally be the same exact as DM Tex"): a long ask
     texts its progress into the chat while it works, each line only while
     nobody new has joined, the same check the answer gets below. A newcomer
-    (or a list that can't be read) pauses the turn's lines for good, each
+    pauses the turn's lines for good; a list that can't be read (twice, as
+    `readTwice` reads it) holds only that line (2026-11-02). Each held line is
     logged as held, as the answer is. A routine (a job's report runs as one)
     texts once, so it says none (`apps/mcp/src/agent/route.js`); nor does a
     chat stopped or muted since the turn began. A line that won't send costs
     the chat a line, never the answer, as in a 1:1 text.
   */
+  // One failed read is retried at once: a blip is not a reason to hold (2026-11-02).
+  const readTwice = async () => (await app.readMembers(chat)) ?? (await app.readMembers(chat));
   let paused = false;
   const progress = async (text: string) => {
-    if (routine) return;
+    if (routine || (await vetoed)) return; // no line before decide's verdict
     try {
       if (!(await isBound(storage, message))) return log("progress_unbound");
       if (!paused) {
-        const now = await app.readMembers(chat);
-        paused = now === null || now.some((phone) => phone !== message.line && !people.includes(phone));
-        if (!paused) return await sayProgress(storage, deps, message, text, meta);
+        const now = await readTwice();
+        paused = now !== null && now.some((phone) => phone !== message.line && !people.includes(phone));
+        if (now !== null && !paused) return await sayProgress(storage, deps, message, text, meta);
       }
       await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: false, reason: "held_newcomer", ...meta });
     } catch {
@@ -131,6 +141,11 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const answered = deps.now();
   // The log the gateway read from storage, held here from now on, so the next turn reads none (`events.ts` `keepLog`).
   if (answer.kind === "answer" && answer.log && covers.length > 0) await keepLog(storage, message.groupId, answer.log, deps.now());
+  // Never sent before decide's verdict, nor after its silent: Tex never spoke, so follow-along and the open ask stay as they were.
+  if (await vetoed) {
+    if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
+    return log("decide_vetoed");
+  }
   if (live.cancelled || answer.kind === "cancelled") {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.
     if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
@@ -149,6 +164,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     if (answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
     return "cancelled";
   }
+  // Nothing to text (a group's SKIP, `apps/mcp/src/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
+  if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return log("silent");
   // Filed in the chat's memory by that turn: this object's copy goes.
   await dropChatLines(storage, said.keys);
   // An answer that asks for a yes leaves it open for the one person it asks: the
@@ -160,15 +177,14 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Sent only to the people it was written for: someone who joined meanwhile was never part of its scope.
   //
   // A list that could not be read is not a list with nobody new in it. On the
-  // way in, falling back to the webhook's own names is safe because more names
-  // only ever narrow the workspace the chat may use; here the fallback would
-  // run the other way, and this is the only thing standing between an answer
-  // drawn from the bound workspace and somebody who is not a member of it. So
-  // an unreadable list holds the answer, as a joiner does.
+  // way in, an unread list is retried (`answerGroup`); here falling back to the
+  // turn's people would run the other way, and this is the only thing standing
+  // between an answer drawn from the bound workspace and somebody who is not a
+  // member of it. So a list unread twice holds the answer, as a joiner does.
   if (routine && (answer.quiet || saysSkip(answer.text)) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
   const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
   const texts = [...textsWithExact(answer.text, answer.verbatim, checkIn || asked.texStyle?.bubbles === "one"), ...(checkIn ? [] : await threadsLines(answer.offers, deps.threadsLink))];
-  const now = await app.readMembers(chat);
+  const now = await readTwice();
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");
     if (routine) return void (await routineDone(deps, message, now === null ? "failed" : "no_chat"));

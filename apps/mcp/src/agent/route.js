@@ -206,11 +206,11 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   let setAside = [], dropped = [], paid = [], thumbsUp = false; // dropped: asks Tex texted something else after by itself (`askOvertaken.js`)
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`); a guest's is nobody's (`groupGuests.js`).
   const front = env.TEX_FRONT_DOOR !== "off" && (await tex.wait("setup", setupRead))?.frontDoor !== false; // Haiku as the front door (`frontDoor.js`): only a yes or no is matched before it, and no reply checks after
-  const ownConversation = group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null;
-  if (front && (session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true && !mayAnswerAsk(group !== null ? withoutTexName(question) : question, quoted, sent.length > 0)) ({ setAside = [], dropped = [] } = (await tex.step("waiting_asks", () => waitingAsks(store, session, { conversation: ownConversation, told: body.told, now: received }), null)) ?? {});
+  const ownConversation = group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null, askChat = group?.key ?? null; // an ask, and the yes to it, belong to the chat it was made in (`approvals.js` `chatOfAsk`)
+  if (front && (session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true && !mayAnswerAsk(group !== null ? withoutTexName(question) : question, quoted, sent.length > 0)) ({ setAside = [], dropped = [] } = (await tex.step("waiting_asks", () => waitingAsks(store, session, { conversation: ownConversation, told: body.told, now: received, chat: askChat }), null)) ?? {});
   else if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true) {
-    thumbsUp = await tex.step("thumbs_up", () => thumbsUpIsYes(store, session, quoted, { who: group?.from || null })); // a 👍 on the ask is that yes
-    const thumbsDown = !thumbsUp && (await tex.step("thumbs_down", () => thumbsDownIsNo(store, session, quoted, { who: group?.from || null }))); // and a 👎 the no
+    thumbsUp = await tex.step("thumbs_up", () => thumbsUpIsYes(store, session, quoted, { who: group?.from || null, chat: askChat })); // a 👍 on the ask is that yes
+    const thumbsDown = !thumbsUp && (await tex.step("thumbs_down", () => thumbsDownIsNo(store, session, quoted, { who: group?.from || null, chat: askChat }))); // and a 👎 the no
     const settled = await tex.step("settle_yes", () => settleTextedText(store, session, {
       dispatch,
       // A tapback's own text is its emoji: a 👍 on other words is not a typed 👍, so it is no verdict.
@@ -223,7 +223,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       // Kept on the same terms as a model turn's history, below, with the Worker's fixed texts (`told`).
       conversation: ownConversation,
       told: body.told,
-      thumbsUp,
+      thumbsUp, chat: askChat,
     }));
     if (settled?.answer !== undefined) return (outcome.clean = true), json({ ...settled, warm: (await tex.step("seal_warm", () => hot.seal({ wrote: true }))) ?? undefined }); // the gateway's words, nothing read; its yes goes in the copy too
     ({ setAside = [], dropped = [] } = settled ?? {});
@@ -611,9 +611,9 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     // relaying it is a courtesy rather than the mechanism.
     // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
     // A flattering opener ("You're so right!") comes off first (`pushback.js`).
-    const { answer: replied, quiet } = reportReply(report, turn.answer), { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet ? "" : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`)
+    const { answer: replied, quiet } = reportReply(report, turn.answer), silent = group !== null && job === null && /^\W*SKIP\W*$/.test(String(replied ?? "")), { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet || silent ? "" : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`); a group's bare SKIP is silence, never the fallback, and only SKIP: "Quiet." answers a question (Dev2, 2026-11-01: Tex texted "my answer got lost" to a message for Instinct)
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
-    const { ask, verbatim } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null }));
+    const { ask, verbatim } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null, chat: askChat }));
     const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
     const answer = [answerWithAsk(claims?.stale() === true && ledger.asked.length === 0 && ask !== null && !/\?/.test(told) ? "" : told, ask, ledger.asked), offerText].filter(Boolean).join("\n\n"); // a drop's line replaces the model's unless it asked something
     /*
@@ -632,7 +632,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     // A hard job, written down for next time (`reflect.js`): after the answer; a tainted turn reflects on their own text and step names only.
     await tex.after("reflect", () => afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, ownText: !runner && job === null && group === null, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
-    if (group !== null && job === null && !turn.exhausted && !replaced) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
+    if (group !== null && job === null && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
     const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
     const kept = { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID }; // addresses only (`sources.js`)
     if (saving) await tex.behind(front, "save_chat", () => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
@@ -647,7 +647,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     // "fix this" or frustration scores the conversation now (`selfReview.js`); quiet ends do it from the Worker.
     if (!turn.exhausted) await tex.after("self_review", () => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null }));
     return json({
-      answer: sent, ...(quiet && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
+      answer: sent, ...((quiet || silent) && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
       // How many held calls the answer's last line asks about, so a caller that
       // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
       asked: ledger.asked.length,

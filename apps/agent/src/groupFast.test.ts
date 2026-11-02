@@ -7,7 +7,8 @@
  *
  * Sabotage record (applied, run, observed failing, reverted):
  *  1. `chooseGroupTurn` without `addressedTurn` (decide asked first, as
- *     before) → "a named message never waits on decide" fails.
+ *     before) → "a named message never waits on decide" fails (its turn
+ *     starts only after decide's time is up).
  *  2. `drainOnce` returning on a handed turn without `answerBesideTurn` →
  *     "Tex, settings is answered while another turn runs" fails.
  *  3. `answeredByCode` true for anything `byCode` → "a yes, a 👍, a
@@ -26,7 +27,7 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { answerAll, BO, LINES, setup, silent, type Answer, type Decide } from "./groupWorld.testing";
+import { answerAll, BO, LINES, setup, untaggedSilent, type Answer, type Decide } from "./groupWorld.testing";
 import { answerHanded, failHanded, TURN_KEY } from "./groupTurnRun";
 import { runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
 import { answeredByCode } from "./groupBeside";
@@ -51,17 +52,21 @@ function handed(groupId: string, opts: Parameters<typeof setup>[1] = {}) {
 
 for (const { name, groupId } of LINES) {
   describe(`a group answered fast, ${name}`, () => {
-    it("a named message never waits on decide: it is answered with decide never answering", async () => {
+    // Dev2, 2026-11-01: decide is asked beside the turn; slower than `GROUP_DECIDE_MS`, the answer goes (fail open).
+    it("a named message never waits on decide: its turn starts at once, and with decide never answering its answer still goes", async () => {
       const storage = new MemoryStorage();
-      const w = setup(groupId, { decideWait: () => new Promise<void>(() => {}), control: { engagement: "helpful", engagementChosen: true } });
+      const started = Date.now();
+      let askedAfter = Infinity;
+      const w = setup(groupId, { decideWait: () => new Promise<void>(() => {}), agent: (body) => ((askedAfter = Date.now() - started), { answer: `answer to ${body.question}` }), control: { engagement: "helpful", engagementChosen: true } });
       await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
       await drainGroup(storage, w.deps);
-      expect(w.decided).toEqual([]);
-      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex what's on tonight"]);
+      expect(askedAfter).toBeLessThan(1_000); // the turn was asked at once, never after decide's 3 s
+      expect(w.decided).toEqual([expect.objectContaining({ addressed: true })]);
+      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex what's on tonight"]);
     });
 
     it("Tex, settings is answered while another turn runs, and that turn still answers after", async () => {
-      const { storage, w, deps, run } = handed(groupId, { hold: true, decide: silent });
+      const { storage, w, deps, run } = handed(groupId, { hold: true, decide: untaggedSilent });
       await acceptGroup(storage, w.message("Tex make a poster"), 0);
       await drainGroup(storage, deps);
       const turn = run();
@@ -84,7 +89,7 @@ for (const { name, groupId } of LINES) {
       let fail = true;
       const { storage, w, deps, run } = handed(groupId, {
         hold: true,
-        decide: silent,
+        decide: untaggedSilent,
         agent: (body) => {
           if (fail) throw new Error("the gateway fell over");
           return { answer: `answer to ${body.question}` };

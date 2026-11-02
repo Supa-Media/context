@@ -5,7 +5,7 @@ import { texStyleValidator } from "../texStyle";
 /**
  * The iMessage group chats Tex has been tagged in (`functions/textGroups.ts`).
  *
- * Metadata only, never a message: which workspace the chat is bound to, who
+ * Metadata only, never a message: which workspaces the chat reaches, who
  * muted it, and whether its intro went. A chat is named by a hash of its line
  * and Sendblue's `group_id`, so this table never holds the id itself, and the
  * participants are never stored here: they arrive with every message and are
@@ -46,9 +46,9 @@ export const textGroupTables = {
     /** Hashes of senders who are not set up and were told so once (`groupKey`-salted, never a number). */
     toldUnknown: v.optional(v.array(v.string())),
     /**
-     * Guest mode (`lib/textGroupGuests.ts`, decided by the owner, 2026-10-25): the chat's own group in
-     * `workspaceId`, named with three words, and its folder, shared with that group to edit. Set together, by an
-     * owner or editor saying "Tex, use @slug"; while set the chat reads only what is shared with the group.
+     * Legacy guest mode (`lib/textGroupGuests.ts`, decided by the owner 2026-10-25, retired 2026-10-31): the chat's own group in
+     * `workspaceId`, named with three words, and its folder, shared with that group to edit. Nothing sets these now;
+     * old rows keep them until `clearGuests` clears them, and `guestBinder` reads them.
      */
     guestGroupId: v.optional(v.id("workspaceGroups")),
     guestFolder: v.optional(v.string()),

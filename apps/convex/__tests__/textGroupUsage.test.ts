@@ -76,7 +76,7 @@ async function finish(t: T, accessToken: string, inputTokens: number, outputToke
 describe("the sponsor", () => {
   test("is the first tagger, set once, and a later tagger does not overwrite it", async () => {
     const t = setupTest();
-    const { ada, bo } = await crew(t);
+    const { ada } = await crew(t);
     await turn(t, ADA, [ADA, BO, CY, LINE]);
     expect((await theChat(t))?.sponsorId).toBe(ada.userId);
     await turn(t, BO, [ADA, BO, CY, LINE]);

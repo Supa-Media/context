@@ -17,11 +17,13 @@ export const LINES = [
   { name: "WhatsApp (Whapi)", groupId: whapiGroupId(JID) },
 ];
 
-export type Decide = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; line?: string; waitingAsks: string[] };
+export type Decide = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; line?: string; waitingAsks: string[]; addressed?: true };
 export type Answer = { ok: true; act: "silent" | "react" | "answer" | "wait"; covers: string[]; midTurn?: string; stale: string[]; movedOn: boolean; confidence: number; emoji?: string; waitSeconds?: number } | { ok: false; reason: string };
 
 export const answerAll = (body: Decide): Answer => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 });
 export const silent = (): Answer => ({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 });
+/** Decide answering what looks addressed to Tex (asked beside its turn, `decideBeside`) and silent on everything else. */
+export const untaggedSilent = (body: Decide): Answer => (body.addressed ? answerAll(body) : silent());
 
 export function setup(
   groupId: string,
@@ -31,7 +33,8 @@ export function setup(
     controlFor?: (body: Record<string, unknown>) => Record<string, unknown> | undefined;
     agent?: (body: Record<string, unknown>) => unknown;
     hold?: boolean;
-    members?: string[][];
+    /** One list per member read, the last repeated; `null` is that read failing. */
+    members?: (string[] | null)[];
     /** What `/agent/cancel` says it did. */
     cancelled?: boolean;
     /** Decide waits for this before it answers (a slow decide). */
@@ -68,7 +71,10 @@ export function setup(
     const path = parsed.pathname;
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     // Sendblue
-    if (path.startsWith("/api/v2/groups/")) return Response.json({ data: { participants: members().map((number) => ({ number })) } });
+    if (path.startsWith("/api/v2/groups/")) {
+      const list = members();
+      return list === null ? new Response("{}", { status: 404 }) : Response.json({ data: { participants: list.map((number) => ({ number })) } });
+    }
     if (path === "/api/send-group-message") {
       texts.push(body.content ?? body.media_url);
       return Response.json({ message_handle: `h_out_${texts.length}` });
@@ -79,19 +85,23 @@ export function setup(
     }
     // Whapi
     if (parsed.host === "gate.whapi.cloud") {
-      if (path.startsWith("/groups/")) return Response.json({ participants: members().map((phone) => ({ id: `${phone.slice(1)}@s.whatsapp.net` })) });
+      if (path.startsWith("/groups/")) {
+        const list = members();
+        return list === null ? new Response("{}", { status: 404 }) : Response.json({ participants: list.map((phone) => ({ id: `${phone.slice(1)}@s.whatsapp.net` })) });
+      }
       if (path.endsWith("/reaction")) {
         reactions.push(body.emoji);
         return Response.json({ success: true });
       }
-      if (path.startsWith("/messages/")) {
+      if (path.startsWith("/messages/") && init?.method === "POST") { // a GET is the quoted message read, never a send
         texts.push(body.body ?? body.media);
         return Response.json({ sent: true, message: { id: `wa_out_${texts.length}` } });
       }
     }
     if (path === "/agent-texts/decide") {
       decided.push(body);
-      await opts.decideWait?.();
+      // A slow decide is cut off by its own timeout, as a real fetch is (`post`'s AbortSignal).
+      await Promise.race([opts.decideWait?.(), new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)))]);
       return Response.json((opts.decide ?? answerAll)(body));
     }
     if (path === "/agent-texts/recheck") {
@@ -184,9 +194,9 @@ export function setup(
   return { deps, decided, rechecks, asks, control, engagement, styles, sharing, events, steers, cancels, stale, texts, reactions, release, running, message };
 }
 
-/** The words of each candidate decide was shown at the drain (not mid-turn). */
+/** The words of each candidate decide was shown at the drain (not mid-turn, nor beside an addressed turn). */
 export async function decidedWords(storage: MemoryStorage, w: ReturnType<typeof setup>, groupId: string): Promise<string[]> {
   const byId = new Map((await keptEvents(storage, groupId)).map((event) => [event.id, event.text ?? ""]));
-  return w.decided.filter((body) => !body.running).flatMap((body) => body.candidates.map((id) => byId.get(id) ?? "?"));
+  return w.decided.filter((body) => !body.running && !body.addressed).flatMap((body) => body.candidates.map((id) => byId.get(id) ?? "?"));
 }
 

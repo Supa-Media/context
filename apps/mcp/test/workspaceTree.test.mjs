@@ -250,6 +250,18 @@ test("a workspace not read from its object says not_served, and one switched bac
   assert.equal(socket.closed.code, TREE_CLOSE_NOT_SERVED);
 });
 
+test("a reader marked behind is answered not_served, so the app reads the Convex tree that has the change", { skip }, async () => {
+  // While a change the control plane committed waits in the outbox, the object's rows are older: a share just
+  // taken back would still be listed. The route asks `objectBehind` and marks the reader; the object then answers
+  // as it does for a workspace it does not serve. Sabotage: drop the `reader.behind` test in `accept`.
+  const w = socketWorld();
+  const socket = w.open({ ...reader("team"), behind: true }).server;
+  assert.deepEqual(socket.sent, [{ t: "not_served" }]);
+  assert.equal(socket.closed.code, TREE_CLOSE_NOT_SERVED);
+  assert.equal(readerOf(JSON.stringify({ scope: "team", groups: [], deadline: 1, behind: true }))?.behind, true);
+  assert.equal(readerOf(JSON.stringify({ scope: "team", groups: [], deadline: 1 }))?.behind, false);
+});
+
 test("a reader the gateway did not write is refused, and a bad frame closes the socket", { skip }, async () => {
   assert.equal(readerOf("{}"), null);
   assert.equal(readerOf(JSON.stringify({ scope: "owner", groups: [], deadline: 1 })), null);
@@ -282,6 +294,10 @@ const session = (role = "member", grantedNames = []) => ({
 });
 
 function routeWorld(resolved) {
+  let behind = () => false;
+  const setBehind = (value) => {
+    behind = () => value;
+  };
   const forwarded = [];
   const env = {
     WORKSPACE_STORE: {
@@ -294,7 +310,7 @@ function routeWorld(resolved) {
       }),
     },
   };
-  const deps = { controlPlane: { resolveSession: async () => resolved }, upgraded: (headers, webSocket) => ({ status: 101, headers, webSocket }) };
+  const deps = { controlPlane: { resolveSession: async () => resolved, objectBehind: async () => behind() }, upgraded: (headers, webSocket) => ({ status: 101, headers, webSocket }) };
   const ask = (headers = {}) =>
     handleTree(
       new Request("https://gateway/presence/tree", {
@@ -304,8 +320,22 @@ function routeWorld(resolved) {
       { slug: null, pathToken: null, origin: null },
       deps,
     );
-  return { env, ask, forwarded };
+  return { env, ask, forwarded, setBehind };
 }
+
+test("the tree route asks whether the object is behind, and says so in the reader it writes", async () => {
+  // `/presence/tree` never opens a binding (that would decrypt a storage credential for one boolean), so the
+  // freshness question is `POST /gateway/objects/behind`: one indexed read, the gateway secret only. Anything but
+  // a clear false counts as behind, so a refusal or a timeout sends the reader to Convex rather than to older rows.
+  const serving = routeWorld(session("member", ["design"]));
+  assert.equal((await serving.ask()).status, 101);
+  assert.equal(JSON.parse(serving.forwarded[0].request.headers.get(TREE_READER_HEADER)).behind, undefined);
+
+  const stale = routeWorld(session("member", ["design"]));
+  stale.setBehind(true);
+  assert.equal((await stale.ask()).status, 101);
+  assert.equal(JSON.parse(stale.forwarded[0].request.headers.get(TREE_READER_HEADER)).behind, true);
+});
 
 test("the tree route opens the grant's workspace with a reader it wrote itself, never the client's", async () => {
   const { ask, forwarded } = routeWorld(session("member", ["design"]));

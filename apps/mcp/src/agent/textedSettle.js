@@ -31,7 +31,7 @@ import { appendConversation, appendTold, readTold } from "./conversation.js";
  * or what goes on to the model: `{ setAside }`, the asks still waiting for
  * their yes, which the model is told about (`setAsideLine`), or null.
  */
-export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer, conversation = null, told, keep = null, thumbsUp = false }) {
+export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer, conversation = null, told, keep = null, thumbsUp = false, chat = null }) {
   // The Worker's fixed texts since the last turn go in the history first (`conversation.js` `TOLD`).
   if (conversation !== null) await appendTold(store, conversation, readTold(told));
   const verdict = hasAttachments ? null : approvalVerdict(question); // a yes with a photo is about the photo
@@ -42,7 +42,7 @@ export async function settleTextedText(store, session, { dispatch, question, has
     ask's own words was put on it, so it still counts (`thumbsUpIsYes`).
   */
   if (!thumbsUp) {
-    const armed = await listPending(store, { userId: session.actorUserId, texting: true, now });
+    const armed = await listPending(store, { userId: session.actorUserId, texting: true, chat, now });
     if (await askOvertaken(store, conversation, armed.map(({ record }) => record))) {
       // One that cannot be dropped stays armed, but this same check keeps every later bare yes off it too.
       const stuck = await disarmRecords(store, armed);
@@ -51,9 +51,9 @@ export async function settleTextedText(store, session, { dispatch, question, has
     }
   }
   // A yes to a card's payment goes on to the model, which fills the card (`textedPay.js`).
-  const pay = await settlePayByText(store, session, verdict, question, now);
+  const pay = await settlePayByText(store, session, verdict, question, now, chat);
   if (verdict !== null && pay.allowed.length === 0) {
-    const released = await settleByText(store, session, verdict);
+    const released = await settleByText(store, session, verdict, { chat });
     const settled = [...pay.replies, ...(released === null ? [] : [released])].join("\n") || null;
     if (settled !== null) {
       // The yes and what it released go in today's transcript too (`transcript.js`), after the reply.
@@ -73,7 +73,7 @@ export async function settleTextedText(store, session, { dispatch, question, has
     when it expires. The model is told it still stands, so it neither asks
     again nor says it was dropped.
   */
-  const asked = await listPending(store, { userId: session.actorUserId, texting: true, now });
+  const asked = await listPending(store, { userId: session.actorUserId, texting: true, chat, now });
   // `id` and `args` let a correction drop exactly these (`claimCheck.js` rule 6); only `summary` is ever shown.
   const setAside = asked.length > 0 ? { setAside: asked.map(({ record }) => ({ id: record.id, tool: record.tool, summary: record.summary, args: record.args })) } : null;
   return pay.allowed.length > 0 ? { ...setAside, allowed: pay.allowed } : setAside;

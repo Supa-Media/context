@@ -38,7 +38,7 @@ import { test } from "node:test";
 
 import { aiGatewayConfig, resetCreditState } from "../src/agent/aiGateway.js";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { meterParts, modelForRound, thinkRoundsFor } from "../src/agent/modelPlan.js";
+import { meterParts, modelForRound, thinkRoundsFor, whyFailed } from "../src/agent/modelPlan.js";
 import { parseSetup } from "../src/agent/production.js";
 import { runTurn } from "../src/agent/turn.js";
 import { priceUsd, runPriceUsd } from "../bench/report.mjs";
@@ -279,4 +279,20 @@ test("a background job plans on think and drives on main without asking the rout
   await turn(gw.fetchImpl, { router: lookup, planned: true });
   assert.deepEqual(gw.models(), [OPUS, HAIKU, HAIKU]);
   assert.equal(asked, 0);
+});
+
+test("a failed call's reason is one short line: the tool's own why, else the refusal's first sentence", () => {
+  const refusal = (text, extra = {}) => ({ content: [{ type: "text", text }], isError: true, ...extra });
+  assert.equal(whyFailed(refusal("That's more pages than one question can open. Answer with what you have.")), "That's more pages than one question can open.");
+  // A failed browse's text is a page reading: its own why is used, never the page.
+  assert.equal(whyFailed(refusal("PAGE TEXT FROM A SITE\n[1] Sign in", { why: "goto step: out of time" })), "goto step: out of time");
+  assert.equal(whyFailed({ content: [{ type: "text", text: "fine" }] }), undefined, "a call that worked has no reason");
+  assert.equal(whyFailed(refusal("held", { held: true })), undefined, "one held for their yes did not fail");
+  assert.ok(whyFailed(refusal("x".repeat(500))).length <= 160);
+});
+
+test("a failed browse's reason is its failed step, never the page it read", async () => {
+  const { whyBrowseFailed } = await import("../src/agent/pageWalls.js");
+  assert.equal(whyBrowseFailed([{ do: "goto", ok: true }, { do: "click", ok: false, reason: "no element [5]" }], false), "click step: no element [5]");
+  assert.equal(whyBrowseFailed([{ do: "read", ok: true }], true), "Not one for the person to finish");
 });

@@ -64,3 +64,10 @@ export function builtFormLink(url) {
 export const BUILT_FORM_LINK_ERROR =
   "That form address is built from the form's published link, and a published form id never opens its editor or responses. " +
   "Find the real one: search their email for the form's title (Google Forms and Drive send the edit link), or open Google Drive or forms.google.com in this browser signed in as them and open the form from there.";
+
+/** Why a browse call failed: its first failed step and the browser's reason, never the page it read (`browse.js`). */
+export function whyBrowseFailed(ran, notTheirs) {
+  const missed = (ran ?? []).find((r) => !r?.ok);
+  if (missed) return `${missed.do ?? "A"} step: ${missed.reason ?? "the browser could not do that"}`;
+  return notTheirs ? "Not one for the person to finish" : "The file was not kept";
+}

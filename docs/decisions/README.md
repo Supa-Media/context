@@ -153,6 +153,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A note shared by name through its access list is reported and blocked the same way](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-17)
 - [Sharing runs when the person's own words ask for it, read by a judge](./privacy-and-sharing/agent-egress.md) (2026-10-18)
 - [Naming people on a note](./privacy-and-sharing/agent-egress.md) (2026-10-17)
+- [A yes answers the ask made in its own chat, and only the latest](./privacy-and-sharing/agent-egress.md) (2026-11-02)
 - [In the pinned workspace, `team` means its members, and All Context users is its own grant](./privacy-and-sharing/all-context-users.md) (2026-10-19, superseding the morning's "`team` is shown as All Context users")
 - [A linked page's card is its cover, for team links too](./privacy-and-sharing/page-covers.md) (2026-10-27)
 

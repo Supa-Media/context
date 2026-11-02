@@ -82,10 +82,22 @@ export async function handleTree(request, env, { slug, pathToken, origin }, deps
   const stub = workspaceStub(env, session.workspaceId);
   if (stub === null) return json({ error: "tree_unavailable" }, 501);
   const expiresAt = typeof session.expiresAt === "number" ? session.expiresAt : Infinity;
+  // A tree change the control plane committed and has not pushed to the object yet -- a share just taken back --
+  // would be served from the object's older rows, and this route holds no binding to read `notesBehind` from
+  // (opening one decrypts a storage credential for one boolean). `objectBehind` is that boolean: one indexed read
+  // there, the gateway secret only, and anything but a clear false counts as behind. The object then answers
+  // `not_served`, so the app reads the Convex tree, which has the change.
+  let behind = true;
+  try {
+    behind = await controlPlane.objectBehind(session.workspaceId);
+  } catch {
+    behind = true;
+  }
   const reader = {
     scope: session.scope,
     groups,
     deadline: Math.min(expiresAt, Date.now() + TREE_SOCKET_MAX_MS),
+    ...(behind ? { behind: true } : {}),
     // Who is reading, for an object that decides access from its own members (`workspaceStore/members.js`).
     ...(typeof session.actorUserId === "string" ? { userId: session.actorUserId } : {}),
   };

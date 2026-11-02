@@ -23,7 +23,7 @@ import type { JobReport } from "./jobs";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 import { readChoices, type Choice } from "./pickCard";
 import { readOffers, type Offer } from "./dataCards";
-import { readStartedJobs, readSteers, type JobAsk, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
+import { readStartedJobs, readSteers, type JobAsk, type StepHow, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
 import type { TexEvent } from "./events";
 import { readLog } from "./logHold";
 
@@ -308,7 +308,7 @@ export async function askAgent(
     /** The background job this turn runs. */
     job?: JobAsk;
     /** Handed each step a background job's turn takes, as it takes it (`jobRun.ts`). */
-    onStep?: (text: string) => Promise<void>;
+    onStep?: (text: string, how?: StepHow) => Promise<void>;
     /** A turn with no text of theirs: a login Tex asked for was saved (`vaultWatch.ts`). */
     event?: "vault_saved" | "job_report";
     /** A background job's report to this chat's own turn, which decides what they get (`jobTexts.ts`). */
@@ -435,7 +435,7 @@ export async function askAgentStream(
   accessToken: string,
   ask: { question: string } & Record<string, unknown>,
   onProgress: (text: string) => Promise<void>,
-  onStep?: (text: string) => Promise<void>,
+  onStep?: (text: string, how?: StepHow) => Promise<void>,
 ): Promise<AgentAnswer> {
   const abort = new AbortController();
   let timedOut = false;
@@ -496,7 +496,9 @@ export async function askAgentStream(
           continue;
         }
         if (typeof parsed.step === "string" && parsed.step.trim()) {
-          await onStep?.(parsed.step.trim().slice(0, 140));
+          // Whether it failed, and the tool's short reason, for the jobs page (`apps/mcp/src/agent/background.js` `stepWhy`).
+          const why = typeof parsed.why === "string" ? parsed.why.replace(/\s+/g, " ").trim().slice(0, 160) : "";
+          await onStep?.(parsed.step.trim().slice(0, 140), parsed.failed === true ? { failed: true, ...(why ? { why } : {}) } : undefined);
           touch();
           continue;
         }

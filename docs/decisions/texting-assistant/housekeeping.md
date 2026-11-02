@@ -5,7 +5,7 @@ as a workspace heartbeat … going in and fiercely organizing things, updating
 project statuses, archiving, getting the chaos score lower", naming finished
 projects that belong in the archive, contacts to merge and folders holding one
 file, "measured on how well it does on different tasks". It is built from
-scratch, not on the app's auto-organize suggestions (`functions/organizer.ts`),
+scratch, not on the app's auto-organize suggestions (`functions/organizer.ts`, since deleted),
 at the owner's word: "I'd rather you start from scratch."
 
 **This reverses "It reports; it never tidies"** in

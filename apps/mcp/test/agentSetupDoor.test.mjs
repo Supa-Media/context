@@ -187,6 +187,7 @@ test("the setup door is Tex's alone, read-only, with no names, and opens no furt
   assert.equal(door.scope, "team");
   assert.equal(door.grantedGroups.size, 0, "never the guest's names: the setup read's own rules judge it");
   assert.equal(door.setupRead, true);
+  assert.equal(door.chatNames, null, "never a chat's names either");
   assert.equal(door.accessToken, TOKEN_GUEST, "the same proof, for the control plane's own check");
   assert.equal(sessionForSetup(door), null);
   for (const clientId of ["mcp_client_any", "context_console", "context_cards"]) {

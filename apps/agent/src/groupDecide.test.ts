@@ -40,7 +40,7 @@ import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { keptEvents } from "./events";
 import { ENGAGEMENT_QUESTION, FOLLOW_TEXTS } from "./groupStyle";
-import { ADA, answerAll, BO, CY, decidedWords, LINE, LINES, setup, silent, type Answer } from "./groupWorld.testing";
+import { ADA, answerAll, BO, CY, decidedWords, LINE, LINES, setup, silent, untaggedSilent, type Answer } from "./groupWorld.testing";
 
 for (const { name, groupId } of LINES) {
   describe(`a group's decided turns, ${name}`, () => {
@@ -59,8 +59,8 @@ for (const { name, groupId } of LINES) {
       it(`which untagged messages reach decide (${style})`, async () => {
         const storage = new MemoryStorage();
         const w = setup(groupId, {
-          // The tag is never put to decide: it is answered (code's floor).
-          decide: silent,
+          // The tag is put to decide beside its turn, and answered; the untagged texts after it are left silent.
+          decide: untaggedSilent,
           control: { engagement: style, engagementChosen: true },
           agent: () => ({ answer: "Here's the email I'd send. Give it a 👍 and I'll send it.", verbatim: ["Give it a 👍 and I'll send it."] }),
         });
@@ -78,7 +78,7 @@ for (const { name, groupId } of LINES) {
 
     it("followAlong is the default when the group has no style, and stops after 20 untagged texts", async () => {
       const storage = new MemoryStorage();
-      const w = setup(groupId, { decide: silent });
+      const w = setup(groupId, { decide: untaggedSilent });
       await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
       await drainGroup(storage, w.deps);
       for (let i = 0; i < FOLLOW_TEXTS + 3; i += 1) {
@@ -90,7 +90,7 @@ for (const { name, groupId } of LINES) {
 
     it("decide saying the chat moved on stops followAlong at once", async () => {
       const storage = new MemoryStorage();
-      const w = setup(groupId, { decide: () => ({ ...silent(), movedOn: true }) as Answer });
+      const w = setup(groupId, { decide: (body) => (body.addressed ? answerAll(body) : ({ ...silent(), movedOn: true } as Answer)) });
       await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
       await drainGroup(storage, w.deps);
       await acceptGroup(storage, w.message("anyway, dinner?", { from: BO }), 10);
@@ -128,9 +128,9 @@ for (const { name, groupId } of LINES) {
       await acceptGroup(storage, w.message("Tex check this link out"), 0);
       await acceptGroup(storage, w.message("https://reasonmachines.example/page"), 1_000);
       await drainGroup(storage, w.deps);
-      // Addressed: answered whatever decide would say, so decide is never asked (the group review of 2026-10-30).
-      expect(w.decided).toEqual([]);
+      // Addressed: its turn never waits on decide (the group review of 2026-10-30); decide is asked beside it, on the tag (Dev2, 2026-11-01).
       const ids = (await keptEvents(storage, groupId)).filter((event) => event.from.kind === "person").map((event) => event.id);
+      expect(w.decided).toEqual([expect.objectContaining({ addressed: true, running: false, candidates: [ids[0]], newest: ids[0] })]);
       expect(w.asks).toHaveLength(1);
       expect(w.asks[0]).toMatchObject({ question: "Tex check this link out\nhttps://reasonmachines.example/page", covers: ids, chat: groupId });
       expect(typeof w.asks[0].turn).toBe("string");
@@ -144,7 +144,7 @@ for (const { name, groupId } of LINES) {
     it("react puts a tapback on the newest untagged message and sends no answer; silent sends nothing", async () => {
       for (const act of ["react", "silent"] as const) {
         const storage = new MemoryStorage();
-        // Untagged: an addressed message is always answered (code's floor), so only an untagged one can be left.
+        // The untagged message after the tag is the one judged here: decide's react or silent leaves it unanswered.
         const w = setup(groupId, {
           decide: () => ({ ok: true, act, covers: [], stale: [], movedOn: false, confidence: 0.9 }),
           control: { engagement: "helpful", engagementChosen: true },
@@ -169,7 +169,7 @@ for (const { name, groupId } of LINES) {
         hold: true,
         members: [[ADA, BO, CY]],
         control: { engagement: "helpful", engagementChosen: true },
-        decide: (body) => (body.running ? { ...answerAll(body), midTurn: "fold" } : silent()),
+        decide: (body) => (body.running ? { ...answerAll(body), midTurn: "fold" } : untaggedSilent(body)),
       });
       await acceptGroup(storage, w.message("Tex make a graphic", everyone), 0);
       const draining = drainGroup(storage, w.deps);
@@ -186,7 +186,8 @@ for (const { name, groupId } of LINES) {
       expect(await decidedWords(storage, w, groupId)).toEqual(["wtf", "you are disappointing us"]);
     });
 
-    it("an addressed repeat from someone else is answered as their own turn whatever decide says (code's floor)", async () => {
+    // Code's floor ended (Dev2, 2026-11-01): their turn still runs at once, and decide's silent keeps its answer unsent.
+    it("an addressed repeat from someone else runs as their own turn, and decide's silent keeps its answer unsent", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, {
         hold: true,
@@ -202,6 +203,7 @@ for (const { name, groupId } of LINES) {
       expect(w.steers).toEqual([]);
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex make a graphic", "Tex where is it"]);
       expect(w.control.map((body) => body.sender)).toEqual([ADA, BO]);
+      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex make a graphic"]);
     });
 
     it("Ada's own follow-up during her turn folds into it: one answer", async () => {
@@ -264,7 +266,8 @@ for (const { name, groupId } of LINES) {
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex hi", "Tex check the setlist", "Tex and the weather?"]);
       expect((w.asks[1].group as { chat: unknown[] }).chat).toEqual([]);
       expect((w.asks[2].group as { chat: unknown[] }).chat).toEqual([{ from: "bo", text: "lol" }]);
-      expect(w.decided).toEqual([]);
+      // Each tag's decide is asked beside its own turn, never before it.
+      expect(w.decided.map((body) => body.addressed)).toEqual([true, true, true]);
       expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA, BO]);
     });
 
@@ -356,7 +359,7 @@ for (const { name, groupId } of LINES) {
     it("a guest's yes never releases the asker's ask, decided or not; the asker's yes is code's, never decide's", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, {
-        decide: silent,
+        decide: untaggedSilent,
         control: { engagement: "helpful", engagementChosen: true },
         agent: () => ({ answer: "Here's the email I'd send. Give it a 👍 and I'll send it.", verbatim: ["Give it a 👍 and I'll send it."] }),
       });

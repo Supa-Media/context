@@ -188,7 +188,7 @@ export function streamTurn(run, { waitUntil = null, heartbeatMs = HEARTBEAT_MS }
   const work = (async () => {
     try {
       // `step`: a background job's own steps, for the chat to audit (`background.js`).
-      const response = await run((text) => write({ progress: text }), (text) => write({ step: text }));
+      const response = await run((text) => write({ progress: text }), (text, how) => write({ step: text, ...(how?.failed ? { failed: true } : {}), ...(how?.why ? { why: how.why } : {}) }));
       const body = await response.json().catch(() => null);
       await write({ status: response.status, body });
     } catch (error) {

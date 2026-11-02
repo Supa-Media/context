@@ -4,6 +4,7 @@
  * link in words anywhere else, a group included.
  *
  * Sabotage record (applied, suite run, named check observed failing, reverted):
+ *   `stepOf` keeping a reason with no failure → "keeps that it failed and the tool's short reason" fails.
  *   `serveThreads` not checking the age → "a token it never made, a malformed one and an expired link" fails.
  *   `threadsPart` ignoring `cardsOn` → "the link in words where cards are off" fails.
  */
@@ -100,5 +101,28 @@ describe("offering the view", () => {
     expect(await withAnswerCards(["Hi."], { texts: ["Hi."], choices: [], offers: ["threads"] }, CONFIG, broken)).toEqual(["Hi."]);
     expect(await threadsLines(["threads"], broken)).toEqual([]);
     expect(await threadsLines(undefined, mint)).toEqual([]);
+  });
+});
+
+describe("a failed step on the live view", () => {
+  it("keeps that it failed and the tool's short reason, and a step that worked carries neither", async () => {
+    const { noteJobUpdate, readJobUpdate, chatJobs } = await import("./jobs");
+    const storage = new MemoryStorage();
+    await withJob(storage);
+    const [job] = await chatJobs(storage, NOW);
+    const failed = readJobUpdate({ id: job!.id, state: "running", step: "browse: maritime.sh (failed)", stepFailed: true, stepWhy: "  goto step:   out of time; run it again " });
+    expect(failed).toMatchObject({ stepFailed: true, stepWhy: expect.any(String) });
+    await noteJobUpdate(storage, failed!, NOW + 1);
+    // A reason with no failure is dropped: only a failed step says why.
+    await noteJobUpdate(storage, readJobUpdate({ id: job!.id, state: "running", step: "browse: maritime.sh/pricing", stepWhy: "made up" })!, NOW + 2);
+    expect(readJobUpdate({ id: job!.id, state: "running", step: "s", stepWhy: "made up" })).not.toHaveProperty("stepWhy");
+    // And kept that way when an update skips the reader.
+    await noteJobUpdate(storage, { id: job!.id, state: "running", step: "read: x", stepWhy: "made up" }, NOW + 2);
+    const [after] = await chatJobs(storage, NOW + 3);
+    expect(after!.steps).toEqual([
+      { at: NOW + 1, text: "browse: maritime.sh (failed)", failed: true, why: "goto step: out of time; run it again" },
+      { at: NOW + 2, text: "browse: maritime.sh/pricing" },
+      { at: NOW + 2, text: "read: x" },
+    ]);
   });
 });

@@ -12,6 +12,8 @@ This is how that is built, and the decisions the owner made on the way.
 
 > **Superseded in part (Dev2, 2026-10-27):** an inline reply to one of Tex's texts is no longer addressed by itself. Tex answered replies meant for the people in the chat ("Yea, don't use the API"), so a reply that says more than thanks now always reaches decide, whatever the style, and decide judges it; with decide down, it is answered only if it is a question. Its name opening or closing a message, or in a question, still always gets an answer.
 
+> **Superseded in part (Dev2, 2026-11-01):** its bare name in a question no longer addresses Tex; an @-tag of Tex anywhere does, and an inline reply to Tex that says more than thanks does again (superseding the 2026-10-27 note above). Decide judges every message: an addressed one's turn starts at once with decide asked beside it, and decide's silent drops the answer unsent. See [chat-state-machine](./chat-state-machine.md#decide-judges-every-message-an-addressed-one-beside-its-turn-dev2-2026-11-01).
+
 Tex answers in a group only when it is addressed: its name ("Tex" or
 "Context") opening or closing the message, its name in a question, or an
 inline reply to one of Tex's own texts in that group that says more than
@@ -24,6 +26,19 @@ Each tagged message is resolved again by the control plane
 - Everyone in the chat except the line the message came in on must be a phone
   linked to an account, with texting not paused. The list is the webhook's
   and Sendblue's members read together, so more people can only narrow it.
+  A question whose members can't be read is retried, never decided on the
+  webhook's names alone (2026-11-02): a Sendblue webhook may name someone by
+  an email handle that the read before the answer lists as a phone, which
+  held the answer for a newcomer nobody was, and the control plane mints the
+  turn's grant and spends the one-shot introduction on the people it is
+  given. A command on Sendblue is still answered from the webhook's names,
+  so "Tex, stop" works with the groups API down; "what can you see" waits
+  for the list, since it names the workspaces those people share. On
+  WhatsApp, whose webhook names only the sender, every turn waits for the
+  list, as before. Before the answer and before
+  each progress line, a failed read is tried once more at once; a list unread
+  twice still holds the answer, since a list nobody can read is not one with
+  nobody new in it (`groupModelTurn.ts`; tests in `groupMembersRead.test.ts`).
   One person who isn't on Context means no notes in that chat, until an
   owner or editor turns guest mode on
   ([group-guests](./group-guests.md), 2026-10-25).
