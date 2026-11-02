@@ -86,7 +86,7 @@ jobs:
             answer=$(npx convex run "$fn" "$args" 2>/dev/null)
             echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
             total=$(jq -cn --argjson a "$total" --argjson b "$(echo "$answer" | jq -c '(.failedCodes // {} | with_entries(.key |= "failed_" + .)) + del(.cursor, .done, .failedCodes)')" '$a + ($b | to_entries | map({key, value: (.value + ($a[.key] // 0))}) | from_entries)')
-            if [ "$(echo "$answer" | jq -r '.done // true')" = "true" ]; then break; fi
+            if [ "$(echo "$answer" | jq -r 'if .done == null then true else .done end')" = "true" ]; then break; fi
             cursor=$(echo "$answer" | jq -r '.cursor')
             if [ "$page" -ge 4000 ]; then echo "stopped after $page pages"; exit 1; fi
           done
