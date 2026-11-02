@@ -102,7 +102,7 @@ export const repair = internalAction({
         }
         const object = withRetries(client.bodies as unknown as BodyStore, sleep);
         // One set of facts per call: a document settled by an earlier call is read again, as it now is.
-        const facts = new Facts(object);
+        const facts = new Facts(object, async (key) => await ctx.runQuery(internal.functions.workspaceObjectsRows.rowReadsKey, { workspaceId, key }));
         let at = state.at ?? { prefix: 0 };
         let finished = false;
         while (Date.now() - started < PAGE_BUDGET_MS) {

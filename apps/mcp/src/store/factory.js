@@ -215,10 +215,11 @@ export function storeForBinding(binding, env, options = {}) {
   const texRouted = withTexRouting(withLogicalDelete(probed), { workspaceId: options.texWorkspaceId ?? binding.workspaceId, chats: options.texChats ?? [], texStore: options.texStore ?? null });
   // Note texts and shared-editing history, to the workspace's object by its home (`workspaceRouting.js`). Only when
   // the caller passed `workspaceStore`: a caller that must see the bucket alone (the copy and compare) leaves it out.
-  const routed = typeof options.workspaceStore === "function"
+  const client = typeof options.workspaceStore === "function" ? routingClient(binding, options.workspaceStore) : null;
+  const routed = client !== null
     ? withWorkspaceRouting(texRouted, {
         workspaceId: binding.workspaceId,
-        client: options.workspaceStore(binding.workspaceId),
+        client,
         known: { home: binding.notesHome, backfilledAt: binding.notesBackfilledAt ?? null },
         defer: options.defer ?? null,
         // A failed mirror must be seen: a caller that passes no log still gets the structured line (ids only).
@@ -226,6 +227,22 @@ export function storeForBinding(binding, env, options = {}) {
       })
     : texRouted;
   return withNoteCap(withNoteLayout(routed, options.idLayout), options.noteCap, options.noteCount ?? null);
+}
+
+/**
+ * The workspace object's client for a binding whose notes live there (`dual` or `object`), or `null` for one on the
+ * bucket. A binding that names such a home and cannot be routed (no workspace on it, or no way to its object) is
+ * refused, never built over the bucket alone: a store built that way writes where no reader of the object looks, which
+ * is how every note the app made in an object-home workspace became unreadable to the gateway until 2026-11-02.
+ */
+function routingClient(binding, workspaceStore) {
+  if (binding.notesHome !== "dual" && binding.notesHome !== "object") return null;
+  if (typeof binding.workspaceId !== "string" || binding.workspaceId === "") {
+    throw new StorageUnavailable("notes live in the workspace object, and the binding names no workspace");
+  }
+  const client = workspaceStore(binding.workspaceId);
+  if (!client) throw new StorageUnavailable("notes live in the workspace object, and it cannot be reached");
+  return client;
 }
 
 /**

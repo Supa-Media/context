@@ -22,6 +22,13 @@
  * - `olderRevision`: a saved version the object's document no longer names.
  *   Those stay in the bucket alone by design; nothing to do.
  *
+ * A note's text (`notes/<noteId>.md`) the object lacks is `bucketNewer` when a
+ * live tree row still reads that key: until 2026-11-02 the app's console built
+ * its store from a binding naming no workspace, so a note it made or saved in
+ * an object-home workspace went to the bucket alone. With no live row, or no
+ * way to ask, it is `unsure`: a removed note's text is not this tool's to
+ * bring back or delete.
+ *
  * A key both hold with different bytes is `objectNewer` when the object's copy
  * was written later (the bucket's write behind failed), and the bucket is
  * brought up to date; `bucketNewer` only when the bucket's copy is later by
@@ -114,7 +121,19 @@ const stateKey = (documentId: string) => `${HISTORY_ROOT}documents/${documentId}
 export class Facts {
   private readonly states = new Map<string, Promise<Set<string> | null>>();
   private readonly lives = new Map<string, Promise<boolean>>();
-  constructor(private readonly object: BodyStore) {}
+  /**
+   * `readsNote` answers whether a live tree row reads a `notes/` key (the control plane's rows); without it a missing
+   * note text is never placed.
+   */
+  constructor(
+    private readonly object: BodyStore,
+    private readonly readsNote: ((key: string) => Promise<boolean>) | null = null,
+  ) {}
+
+  /** Whether a live row still reads this note text; `null` when nobody can say. */
+  async noteRead(key: string): Promise<boolean | null> {
+    return this.readsNote === null ? null : await this.readsNote(key);
+  }
 
   /** The revision names the object's state for `documentId` points at, or `null` when the object holds no state. */
   names(documentId: string): Promise<Set<string> | null> {
@@ -154,7 +173,8 @@ export class Facts {
 
 /** The class of a key the bucket holds and the object does not. */
 async function classifyMissing(key: string, bucketCopy: ArrayBuffer, facts: Facts): Promise<RepairClass> {
-  const part = key.startsWith("notes/") ? "notes" : historyPart(key);
+  if (key.startsWith("notes/")) return (await facts.noteRead(key)) === true ? "bucketNewer" : "unsure";
+  const part = historyPart(key);
   if (part === "heads") {
     // An erase deletes a head after purging its document; no other step deletes one.
     const documentId = parsed(bucketCopy)?.documentId;

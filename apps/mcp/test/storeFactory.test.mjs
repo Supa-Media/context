@@ -450,6 +450,38 @@ export function runStoreFactoryChecks(check) {
       );
     })()
   );
+
+  /* ------------- a workspace whose notes live in its object ------------- */
+  // Until 2026-11-02 a binding with an object home but no `workspaceId` (the
+  // console's) built a plain bucket store without a word, so every note the
+  // app made or saved went to the bucket alone, where the gateway never reads
+  // it, and the note opened read-only. Such a binding is refused now.
+  {
+    const objectStore = () => ({ bodies: storeForBinding(NATIVE_BINDING, NATIVE_ENV) });
+    const build = (binding, workspaceStore) => {
+      try {
+        return { store: storeForBinding(binding, NATIVE_ENV, { workspaceStore }), error: null };
+      } catch (error) {
+        return { store: null, error };
+      }
+    };
+    for (const home of ["object", "dual"]) {
+      const { workspaceId: _id, ...nameless } = NATIVE_BINDING;
+      const missing = build({ ...nameless, notesHome: home }, objectStore);
+      check(`a ${home}-home binding naming no workspace is refused, never built over the bucket alone`, missing.store === null && missing.error instanceof StorageUnavailable);
+      const unreachable = build({ ...NATIVE_BINDING, notesHome: home }, () => null);
+      check(`a ${home}-home binding whose object cannot be reached is refused`, unreachable.store === null && unreachable.error instanceof StorageUnavailable);
+      check(`a ${home}-home binding with its workspace and object is built`, build({ ...NATIVE_BINDING, notesHome: home }, objectStore).store !== null);
+    }
+    let asked = 0;
+    const counted = () => {
+      asked += 1;
+      return null;
+    };
+    const plain = build({ ...NATIVE_BINDING, notesHome: "bucket" }, counted);
+    const unnamed = build(NATIVE_BINDING, counted);
+    check("a bucket-home binding is built without asking for its object", plain.store !== null && unnamed.store !== null && asked === 0);
+  }
 }
 
 /** The smallest thing `nativeStore` accepts as an R2 bucket. */
