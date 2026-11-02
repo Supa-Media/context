@@ -37,6 +37,7 @@ import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
 import { siteLens } from "../websites/siteLens";
 import { mayRelocateRoutines, mayTouchNestedRoutines, routinePathsTouched } from "../routines/changes";
 import { texFolderOf } from "../routines/texFolder";
+import { chatHomePaths } from "./chatHomePaths";
 import { executeOperation } from "./executeOperation";
 import { announceTreeChange } from "./treeOps";
 import { searchDatabaseClient } from "../fastSearchFns/client";
@@ -412,10 +413,12 @@ export async function runFileOperationHandler(
   let store: FileStore;
   // The owner's Download of old copies reads each at the key its row names, a pinned path included, so past the id layer (`lib/oldCopies/folders.ts`).
   let keyStore: FileStore | null = null;
-  // A move landing notes under a chat's home keeps them in that chat's object, so the ticket and the store name it.
+  // A note under a chat's home is kept in that chat's object, so the ticket and the store name it: a move landing notes
+  // there, and a read or save of one (the app opening a group chat's history.md, 2026-11-02).
+  const homePaths = chatHomePaths(args.operation);
   const landingChats: string[] =
-    args.operation.kind === "contextMoveImport"
-      ? await ctx.runQuery(internal.functions.texChatLanding.chatsOfHomes, { workspaceId: args.workspaceId, paths: args.operation.objects.map((object) => object.destination) })
+    homePaths.length > 0
+      ? await ctx.runQuery(internal.functions.texChatLanding.chatsOfHomes, { workspaceId: args.workspaceId, paths: homePaths })
       : [];
   try {
     // One table decides which backend this workspace got — the same table
