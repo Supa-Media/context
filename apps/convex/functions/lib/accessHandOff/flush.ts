@@ -39,6 +39,22 @@ async function personObject(
   return cache.get(userId) ?? null;
 }
 
+/** The most holders one grant's change sends reach to: a workspace's members, or one group's. */
+export const HOLDERS_CAP = 500;
+
+/**
+ * Who holds a name a grant gives by group or as every member: the group's members, or the workspace's. Past
+ * `HOLDERS_CAP` the rest are said in the log, by count alone, and caught up by the next copy.
+ */
+async function holdersOf(ctx: MutationCtx, workspaceId: Id<"workspaces">, groupId: Id<"workspaceGroups"> | null): Promise<Id<"users">[]> {
+  const rows =
+    groupId === null
+      ? await ctx.db.query("workspaceMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).take(HOLDERS_CAP + 1)
+      : await ctx.db.query("workspaceGroupMembers").withIndex("by_group", (q) => q.eq("groupId", groupId)).take(HOLDERS_CAP + 1);
+  if (rows.length > HOLDERS_CAP) console.log(JSON.stringify({ event: "access_reach_holders_capped", cap: HOLDERS_CAP }));
+  return rows.slice(0, HOLDERS_CAP).map((row) => row.userId);
+}
+
 /** The objects a mutation's writes changed, each with the tables that changed in it. */
 export async function objectsChanged(
   ctx: MutationCtx,
@@ -56,7 +72,9 @@ export async function objectsChanged(
     for (const target of targetsOf(write)) {
       if (target.kind === "workspace") add(target.workspaceId, target.table);
       else if (target.kind === "person") add(await personObject(ctx, target.userId, persons), target.table);
-      else if (target.recipientKind === "name" || target.recipientKind === "email") {
+      else if (target.kind === "holders") {
+        for (const userId of await holdersOf(ctx, target.workspaceId, target.groupId)) add(await personObject(ctx, userId, persons), target.table);
+      } else if (target.recipientKind === "name" || target.recipientKind === "email") {
         const userId = await resolveAddressedUser(ctx, { kind: target.recipientKind, value: target.recipient });
         if (userId !== null) add(await personObject(ctx, userId, persons), target.table);
       }

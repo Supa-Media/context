@@ -81,7 +81,20 @@ describe("which object a write lands in", () => {
     expect(targetsOf({ id: "x", op: "insert", table: "oauthGrants", doc: { userId: "u", clientId: "claude" } })).toEqual([{ kind: "person", userId: "u", table: "connections" }]);
     expect(targetsOf({ id: "x", op: "insert", table: "oauthGrants", doc: { userId: "u", clientId: "claude", texGroup: {} } })).toEqual([]);
     expect(targetsOf({ id: "x", op: "insert", table: "oauthGrants", doc: { userId: "u", clientId: "context_texts" } })).toEqual([]);
-    expect(targetsOf({ id: "x", op: "insert", table: "nodeAccess", doc: { granteeKind: "members", workspaceId: "w" } })).toEqual([]);
+    // A grant on a row gives its holders a name the person object keeps on their reach row (`rowNames`).
+    expect(targetsOf({ id: "x", op: "insert", table: "nodeAccess", doc: { granteeKind: "members", workspaceId: "w" } })).toEqual([
+      { kind: "holders", workspaceId: "w", groupId: null, table: "reach" },
+    ]);
+    expect(targetsOf({ id: "x", op: "insert", table: "nodeAccess", doc: { granteeKind: "user", granteeUserId: "u", workspaceId: "w" } })).toEqual([
+      { kind: "person", userId: "u", table: "sharedToMe" },
+      { kind: "person", userId: "u", table: "reach" },
+    ]);
+    expect(targetsOf({ id: "x", op: "insert", table: "nodeAccess", doc: { granteeKind: "group", granteeGroupId: "g", workspaceId: "w" } })).toEqual([
+      { kind: "holders", workspaceId: "w", groupId: "g", table: "reach" },
+    ]);
+    expect(targetsOf({ id: "x", op: "insert", table: "nodeAccess", doc: { granteeKind: "email", granteeEmail: "a@example.invalid", workspaceId: "w" } })).toEqual([
+      { kind: "recipient", recipientKind: "email", recipient: "a@example.invalid", table: "reach" },
+    ]);
   });
 });
 

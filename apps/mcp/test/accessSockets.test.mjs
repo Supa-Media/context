@@ -350,7 +350,7 @@ test("accessReaderOf accepts the gateway's reader and refuses one with a missing
   assert.equal(accessReaderOf(JSON.stringify(goodReader({ workspaceId: "w/1" }))), null, "a workspace id with a slash is refused");
   assert.equal(accessReaderOf(JSON.stringify(goodReader({ userId: "" }))), null);
   assert.equal(accessReaderOf(JSON.stringify(goodReader({ groups: "design" }))), null, "groups must be an array");
-  assert.equal(accessReaderOf(JSON.stringify(goodReader({ groups: Array.from({ length: 501 }, (_, i) => `g${i}`) }))), null, "more than 500 groups is refused");
+  assert.equal(accessReaderOf(JSON.stringify(goodReader({ groups: Array.from({ length: 1201 }, (_, i) => `g${i}`) }))), null, "more than 1,200 names (groups and row names) is refused");
   assert.equal(accessReaderOf(JSON.stringify(goodReader({ groups: [""] }))), null, "an empty group name is refused");
 });
 

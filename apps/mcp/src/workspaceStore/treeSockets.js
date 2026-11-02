@@ -38,7 +38,8 @@ import { treeRows } from "./treeRows.js";
 
 export const TREE_READER_HEADER = "x-tree-reader";
 const SCOPES = new Set(["private", "team"]);
-const MAX_GROUPS = 500;
+/** Group names and row names one reader carries: 100 groups and 1,000 row names (`MAX_ROW_NAMES`), with room. */
+const MAX_GROUPS = 1200;
 /** Writes are gathered this long before watchers are listed again, so a burst is one pass. */
 const NOTICE_GATHER_MS = 25;
 

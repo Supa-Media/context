@@ -7,6 +7,8 @@ import { migrate, pinnedWorld, type PinnedWorld } from "./pinnedReaders.helpers"
 import { nodeAt } from "../functions/lib/nodes/paths";
 import { setAccessRow } from "../functions/lib/nodes/setAccess";
 import { ensureChatHome } from "../functions/lib/textGroupHome";
+import { grantedNamesFor } from "../functions/lib/grantedNames";
+import { checkReachRow } from "../../mcp/src/workspaceStore/access.js";
 
 /**
  * A GROUP CHAT'S HOME: MADE FOR ITS PEOPLE, AND THE ONE PLACE ITS TURN MAY CHANGE IN THE PIN (decided by the owner,
@@ -26,6 +28,7 @@ import { ensureChatHome } from "../functions/lib/textGroupHome";
  *   `sealedPin` answering any workspace → "no home where there is no pin" fails
  *   `withSameNumber` dropped from `makeChatHome` → "a person's other account that holds their number" fails
  *   an unconfirmed sign-in phone counted → the same case fails (the claimer is named)
+ *   `rowNames` left off the person object's reach row → "a member of the pin named on a home holds its names" fails
  */
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -172,6 +175,28 @@ describe("a chat's home", () => {
     expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, w.bo]));
     await turn(w.t, ADA, [ADA, BO, CY, LINE]);
     expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, w.bo, w.cy]));
+  });
+
+  test("a member of the pin named on a home holds its names in the reach row the person object keeps, as the app's session gives them", async () => {
+    const w = await world();
+    // Ada is also a member of the pin, as the people who run it are: her session there is her membership's.
+    await addMember(w.t, w.pinned, w.ada, "member", w.staff);
+    await turn(w.t, ADA, [ADA, BO, CY, LINE]);
+    const folder = `tex/groups/${(await chatRow(w.t))!.homeWords}`;
+    const noteId = (await homeRow(w, folder))!.row.noteId;
+    // What the control plane's own session gives the app's client in the pin (`grantedNamesFor`).
+    const convexNames = await w.t.run(async (ctx) => await grantedNamesFor(ctx, w.pinned, w.ada));
+    expect(convexNames).toEqual(expect.arrayContaining([`#${noteId}`, `#${noteId}!edit`]));
+    // The person object's copy of the same (2026-11-02: it had only the groups, so the app opened no home).
+    const person = await w.t.query(internal.functions.accessObjectsExpected.person, { userId: w.ada, now: 1 });
+    const pinRow = (person.reach.rows as { workspaceId: string; rowNames?: string[] }[]).find((row) => row.workspaceId === String(w.pinned));
+    expect(pinRow?.rowNames).toEqual(convexNames.filter((name) => name.startsWith("#")).sort());
+    expect(() => checkReachRow(pinRow)).not.toThrow();
+    // Bo is not a member of the pin: his reach of it is the pin reader's, and carries no names of his.
+    const bo = await w.t.query(internal.functions.accessObjectsExpected.person, { userId: w.bo, now: 1 });
+    const boPin = (bo.reach.rows as { workspaceId: string; rowNames?: string[]; pinned?: boolean }[]).find((row) => row.workspaceId === String(w.pinned));
+    expect(boPin?.pinned).toBe(true);
+    expect(boPin?.rowNames).toBeUndefined();
   });
 
   test("no home where there is no pin", async () => {
