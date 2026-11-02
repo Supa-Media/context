@@ -9,7 +9,8 @@
  *   the person's texts its own texts name in `covers`.
  * - `advisor`: each `advisor` entry, and each `ask_advisor` tool call.
  * - `mailcheck`: each `mail_check` entry; the checker's `yes` is "sent", `no`
- *   is "stopped", anything else is "waiting" for the person's yes.
+ *   is "stopped", anything else is "waiting" for the person's yes. A check a
+ *   later entry names in `ref` (the person settled it) shows as that entry.
  *
  * A cursor is the log's `seq` to read on before. `count` is how many are at
  * or after `since` (the viewer's start of today). Pure over a ledger with the
@@ -54,6 +55,12 @@ function whoOf(entry, chat) {
 
 function verdictOf(raw) {
   return VERDICT[raw] ?? "waiting";
+}
+
+/** A check a later entry settles (its `ref`) is shown only as that later entry: the log is appended to, never rewritten (`agent/workEntries.js`). */
+function latestChecks(entries) {
+  const settled = new Set(entries.filter((entry) => entry.kind === "mail_check" && typeof entry.ref === "string").map((entry) => entry.ref));
+  return settled.size === 0 ? entries : entries.filter((entry) => entry.kind !== "mail_check" || !settled.has(entry.id));
 }
 
 function mailItem(entry) {
@@ -178,7 +185,7 @@ export function pageViews(ledgerOf) {
     const before = cursorOf(cursor);
     // Slim: a tool's result is read only for the asks shown, one at a time.
     const entries = read(chat, { before, kinds, limit: VIEW_READ, slim: true });
-    const wanted = entries.filter((entry) => entry.kind !== "tool" || entry.name === ADVISOR_TOOL);
+    const wanted = latestChecks(entries).filter((entry) => entry.kind !== "tool" || entry.name === ADVISOR_TOOL);
     const size = sizeOf(limit);
     const page = wanted.slice(0, size).map((entry) => (entry.kind === "tool" ? (read(chat, { before: entry.seq + 1, kinds: ["tool"], limit: 1 })[0] ?? entry) : entry));
     const turnSaid = page.some((entry) => entry.kind === "tool") ? saidByTurn(chat, before) : new Map();
@@ -208,7 +215,7 @@ export function pageViews(ledgerOf) {
     /** How many emails wait for the person's yes, from the last day. */
     waiting(chat = "texts", { now = Date.now() } = {}) {
       const day = now - 24 * 3_600_000;
-      return read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["mail_check"], limit: VIEW_READ }).filter((entry) => entry.at >= day && verdictOf(entry.verdict) === "waiting").length;
+      return latestChecks(read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["mail_check"], limit: VIEW_READ })).filter((entry) => entry.at >= day && verdictOf(entry.verdict) === "waiting").length;
     },
   };
 }
