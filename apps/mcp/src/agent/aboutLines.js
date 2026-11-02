@@ -86,7 +86,7 @@ export function stampAboutLines(content, storedBody, now) {
   if (typeof content !== "string") return content;
   const stored = new Map();
   if (typeof storedBody === "string") {
-    const lines = storedBody.replace(/^﻿/, "").split("\n");
+    const lines = storedBody.replace(/^\uFEFF/, "").split("\n");
     for (let i = bodyStart(lines); i < lines.length; i++) {
       const entry = itemOf(lines[i]);
       if (entry !== null && (entry.at !== undefined || !stored.has(sameText(entry.text)))) stored.set(sameText(entry.text), entry);
@@ -94,7 +94,7 @@ export function stampAboutLines(content, storedBody, now) {
   }
   const today = dayOf(now);
   const lines = content.split("\n");
-  for (let i = bodyStart(lines.map((line) => line.replace(/^﻿/, ""))); i < lines.length; i++) {
+  for (let i = bodyStart(lines); i < lines.length; i++) {
     const raw = lines[i];
     const entry = itemOf(raw);
     if (entry === null || entry.at !== undefined) continue;
