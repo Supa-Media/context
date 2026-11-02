@@ -618,6 +618,9 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       );
       // The page it read, kept with the answer (`sources.js`), even when a step on the way failed.
       result.sources = [done.reading.url];
+      // Why it failed, for the jobs page (`modelPlan.js` `whyFailed`): the text above is a page reading.
+      const missed = done.ran.find((r) => !r.ok);
+      if (result.isError) result.why = missed ? `${missed.do ?? "A"} step: ${missed.reason ?? "the browser could not do that"}` : notTheirs ? "Not one for the person to finish" : "The file was not kept";
       // For the answer check: a captcha that outlasted every try is the only one the person may be asked to solve (`claimCheck.js`).
       if (captchas.stuck() || submits.stuck()) result.captchaStuck = true;
       Object.assign(result, passkeyMarks(done.reading)); // A passkey wall met, or Google's other ways reached (`browserWalls.js`).

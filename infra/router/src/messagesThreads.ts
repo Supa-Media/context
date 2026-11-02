@@ -26,7 +26,7 @@ const MAX_JOBS = 6;
 const MAX_STEPS = 12;
 const MAX_WORDS = 300;
 
-type Step = { at: number; text: string };
+type Step = { at: number; text: string; failed?: true; why?: string };
 type Job = { title: string; state: "running" | "done" | "failed" | "waiting" | "stuck"; startedAt: number; finishedAt?: number; status?: string; steps: Step[] };
 type View = { now: number; max: number; jobs: Job[] };
 
@@ -55,7 +55,9 @@ export function readView(raw: unknown): View | null {
       .flatMap((step) => {
         const at = instant((step as Step | null)?.at);
         const text = words((step as Step | null)?.text);
-        return at !== null && text ? [{ at, text }] : [];
+        const failed = (step as Step | null)?.failed === true;
+        const why = failed ? words((step as Step | null)?.why).slice(0, 160) : "";
+        return at !== null && text ? [{ at, text, ...(failed ? { failed: true as const } : {}), ...(why ? { why } : {}) }] : [];
       })
       .slice(-MAX_STEPS);
     jobs.push({ title, state, startedAt, ...(finishedAt !== null ? { finishedAt } : {}), ...(status ? { status } : {}), steps });
@@ -77,7 +79,7 @@ const STATE_WORDS: Record<Job["state"], string> = { running: "Working", done: "D
 function jobBlock(job: Job, now: number): string {
   const elapsed = job.state === "running" ? `${span(now - job.startedAt)} so far` : `${STATE_WORDS[job.state].toLowerCase()} ${span(now - (job.finishedAt ?? job.startedAt))} ago`;
   const steps = job.steps.length
-    ? `<ol>${job.steps.map((step) => `<li><span class="when">${escaped(span(now - step.at))}</span>${escaped(step.text)}</li>`).join("")}</ol>`
+    ? `<ol>${job.steps.map((step) => `<li${step.failed ? ' class="failed"' : ""}><span class="when">${escaped(span(now - step.at))}</span>${escaped(step.text)}${step.why ? `<span class="why">${escaped(step.why)}</span>` : ""}</li>`).join("")}</ol>`
     : `<p class="small">No steps yet.</p>`;
   return (
     `<details${job.state === "running" ? " open" : ""}><summary><span class="dot ${job.state}" aria-hidden="true"></span>` +
@@ -93,7 +95,8 @@ h1{margin:0;font-size:17px;font-weight:600}p{margin:0;color:var(--muted);font-si
 details{border:1px solid var(--line);border-radius:12px;padding:10px 14px}summary{display:flex;gap:10px;align-items:flex-start;cursor:pointer;list-style:none;min-height:44px}
 summary::-webkit-details-marker{display:none}.what{display:flex;flex-direction:column;gap:2px;min-width:0}.detail{font-size:13px;color:var(--muted)}
 .dot{width:10px;height:10px;border-radius:5px;margin-top:6px;flex-shrink:0}.dot.running{background:var(--run)}.dot.done{background:var(--done)}.dot.failed,.dot.stuck{background:var(--fail)}.dot.waiting{background:var(--run)}
-ol{margin:8px 0 0;padding:0 0 0 20px;display:flex;flex-direction:column;gap:6px;font-size:14px}.when{display:inline-block;min-width:64px;color:var(--muted);font-size:12px}`;
+ol{margin:8px 0 0;padding:0 0 0 20px;display:flex;flex-direction:column;gap:6px;font-size:14px}.when{display:inline-block;min-width:64px;color:var(--muted);font-size:12px}
+li.failed{color:var(--fail)}.why{display:block;margin-left:64px;font-size:13px;color:var(--muted)}`;
 
 function page(title: string, body: string, refresh: boolean): Response {
   const html =

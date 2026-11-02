@@ -72,6 +72,8 @@ const VERDICTS = new Set(["done", "keep_going", "waiting", "stuck"]);
 /** Steps of a job `job_status` shows, and how long each is. */
 export const MAX_STEPS_SHOWN = 40;
 const MAX_STEP = 140;
+/** A failed step's reason, as the jobs page shows it. */
+const MAX_WHY = 160;
 const MAX_ADVICE = 600;
 /** The most of a finished job's report `job_status` shows. */
 const MAX_RESULT = 1_500;
@@ -204,9 +206,27 @@ export function stepLine(event) {
   const args = event.args && typeof event.args === "object" ? event.args : {};
   const inner = args.args && typeof args.args === "object" ? args.args : {};
   const action = typeof args.action === "string" ? ` ${args.action}` : "";
-  const target = [...TARGET_KEYS.map((key) => inner[key]), ...TARGET_KEYS.map((key) => args[key])].find((value) => typeof value === "string" && value.trim());
+  const target = [...TARGET_KEYS.map((key) => inner[key]), ...TARGET_KEYS.map((key) => args[key])].find((value) => typeof value === "string" && value.trim()) ?? browseTarget(args);
   const how = event.held ? " (waiting for their yes)" : event.ok === false ? " (failed)" : "";
   return line(`${event.name}${action}${target ? `: ${line(target, 80)}` : ""}${how}`, MAX_STEP);
+}
+
+/**
+ * Where a browse call went (Dev2, 2026-11-02: the jobs page said only "browse (failed)"): its steps sit in
+ * `args.steps`, so the first page it opened, else the kinds of step it took ("click, type").
+ */
+function browseTarget(args) {
+  const steps = Array.isArray(args.steps) ? args.steps.filter((step) => step && typeof step === "object") : [];
+  const opened = steps.find((step) => step.do === "goto" && typeof step.url === "string" && step.url.trim());
+  if (opened) return opened.url.replace(/^https?:\/\/(www\.)?/, "").replace(/[?#].*$/, "").replace(/\/$/, "");
+  const kinds = [...new Set(steps.map((step) => step.do).filter((kind) => typeof kind === "string" && /^[a-z]{2,12}$/.test(kind)))];
+  return kinds.length ? kinds.slice(0, 4).join(", ") : undefined;
+}
+
+/** Why a step failed, in a line: the tool's own short reason (`turn.js` `whyFailed`), for the jobs page's tap. */
+export function stepWhy(event) {
+  if (event?.kind !== "tool" || event.ok !== false || event.held) return "";
+  return line(event.reason, MAX_WHY);
 }
 
 /** A job's turn tells its steps to the stream as it goes, beside the transcript; any other turn is unchanged. */
@@ -215,7 +235,8 @@ export function withJobSteps(job, step, record) {
   return (event) => {
     if (typeof record === "function") record(event);
     const text = stepLine(event);
-    if (text) Promise.resolve(step(text)).catch(() => {});
+    const why = stepWhy(event);
+    if (text) Promise.resolve(step(text, event.ok === false && !event.held ? { failed: true, ...(why ? { why } : {}) } : {})).catch(() => {});
   };
 }
 

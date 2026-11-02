@@ -34,7 +34,7 @@ import { groupLineFor } from "./groupLine";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
-import { JOB_KEPT_MS, JOB_LIMIT_MS, JOB_LINES, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate, type JobVerdict } from "./jobs";
+import { JOB_KEPT_MS, JOB_LIMIT_MS, JOB_LINES, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
 import { STEER_TIMEOUT_MS } from "./steer";
@@ -213,7 +213,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     await tell({ state: "running", status: text, ...(HAS_LINK.test(text) ? { texts: [text] } : {}) });
   };
   // Each step, kept by the chat for "what is it doing?"; a step that failed to arrive costs only that line.
-  const onStep = async (text: string) => void (await tell({ state: "running", step: text }));
+  const onStep = async (text: string, how?: StepHow) => void (await tell({ state: "running", step: text, ...(how?.failed ? { stepFailed: true as const, ...(how.why ? { stepWhy: how.why } : {}) } : {}) }));
 
   // Their later texts it hasn't seen yet are shown to this turn; ones sent while it runs are sent into it.
   const shown = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
@@ -393,7 +393,7 @@ async function phoneTurn(
   turn: Live,
   deps: JobDeps,
   onProgress: (text: string) => Promise<void>,
-  onStep: (text: string) => Promise<void>,
+  onStep: (text: string, how?: StepHow) => Promise<void>,
 ): Promise<Outcome> {
   if (run.origin.kind !== "phone") return { kind: "stop" };
   const session = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, run.origin.phone);
@@ -417,7 +417,7 @@ async function phoneTurn(
   return outcome;
 }
 
-async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, onStep: (text: string) => Promise<void>): Promise<Outcome> {
+async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, onStep: (text: string, how?: StepHow) => Promise<void>): Promise<Outcome> {
   if (run.origin.kind !== "group") return { kind: "stop" };
   const message = run.origin.message;
   const app = groupLineFor(deps, message.groupId);

@@ -50,6 +50,7 @@ import {
   sameJob,
   startedJobs,
   stepLine,
+  stepWhy,
   withJobSteps,
   withBackground,
 } from "../src/agent/background.js";
@@ -289,6 +290,13 @@ test("a job's steps are told by tool and target, never a note's text", async () 
   assert.equal(stepLine({ kind: "tool", name: "send", args: { action: "open_page", args: { url: "https://example.com/a" } }, ok: false }), "send open_page: https://example.com/a (failed)");
   assert.equal(stepLine({ kind: "tool", name: "send", args: { action: "email", args: { to: "a@example.com", body: "secret words" } }, held: true }), "send email: a@example.com (waiting for their yes)");
 
+  // A browse call names the page it opened, never only "browse" (Dev2, 2026-11-02).
+  assert.equal(stepLine({ kind: "tool", name: "browse", args: { steps: [{ do: "goto", url: "https://www.maritime.sh/docs?ref=x" }, { do: "read" }] }, ok: false }), "browse: maritime.sh/docs (failed)");
+  assert.equal(stepLine({ kind: "tool", name: "browse", args: { steps: [{ do: "click", ref: 3 }, { do: "type", text: "secret words" }] }, ok: true }), "browse: click, type");
+  assert.equal(stepWhy({ kind: "tool", name: "browse", ok: false, reason: "goto step:   out of time" }), "goto step: out of time");
+  assert.equal(stepWhy({ kind: "tool", name: "browse", ok: true, reason: "x" }), "", "only a failed step says why");
+  assert.equal(stepWhy({ kind: "tool", name: "send", ok: false, held: true, reason: "x" }), "", "a held step did not fail");
+
   const recorded = [];
   const streamed = [];
   const record = (event) => recorded.push(event);
@@ -298,6 +306,11 @@ test("a job's steps are told by tool and target, never a note's text", async () 
   observe({ kind: "thinking", text: "hmm" });
   assert.equal(recorded.length, 2, "the transcript still gets every event");
   assert.deepEqual(streamed, ["search: logo colours"]);
+
+  // A failed step streams that it failed and why, for the jobs page.
+  const hows = [];
+  withJobSteps(jobOf({ id: "job-abcdef-5", title: "Logo", brief: "b" }), async (line, how) => hows.push([line, how]), null)({ kind: "tool", name: "search", args: { query: "q" }, ok: false, reason: "No results." });
+  assert.deepEqual(hows, [["search: q (failed)", { failed: true, why: "No results." }]]);
 });
 
 test("a running job is shown in one line, and job_status gives its steps, check and report", async () => {
