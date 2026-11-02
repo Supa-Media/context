@@ -12,6 +12,8 @@ import { workspaceClient } from "../src/workspaceStore/api.js";
 import { ACCESS_HOMES, objectToken } from "../src/workspaceStore/access.js";
 import { createControlPlane, sha256Hex } from "../src/controlPlane/index.js";
 import { tokenIndexClient } from "../src/workspaceStore/tokenIndex.js";
+import { workspaceMembers } from "../src/workspaceStore/members.js";
+import { callTexStore } from "../src/texStore/wire.js";
 import { resolveSession, SessionRefusal } from "../src/session.js";
 
 let DatabaseSync = null;
@@ -47,7 +49,17 @@ function namespace() {
     get(id) {
       if (!objects.has(id.name)) {
         const sql = durableSql();
-        const store = { objects: texObjects(sql), rows: workspaceRows(sql), person: personRows(sql), sql, indexRefresh: async (hash, pwid) => await tokenIndexClient({ WORKSPACE_STORE: self }, hash).set(pwid) };
+        const store = {
+          objects: texObjects(sql),
+          rows: workspaceRows(sql),
+          person: personRows(sql),
+          members: workspaceMembers(sql),
+          sql,
+          indexRefresh: async (hash, pwid) => await tokenIndexClient({ WORKSPACE_STORE: self }, hash).set(pwid),
+          // As the object wires it (`workspaceStore.js`): a member change is told to the person's own object.
+          reach: (pwid) => ({ call: async (op, body) => await (await callTexStore(self.get({ name: `workspace:${pwid}` }), op, {}, new TextEncoder().encode(JSON.stringify(body)))).json() }),
+          log: () => {},
+        };
         objects.set(id.name, { fetch: (request) => (calls.push(id.name), serveWorkspaceStore(store, request)) });
       }
       return objects.get(id.name);
@@ -235,4 +247,19 @@ test("while dual, the object holds the copy and answers no session", { skip }, a
   await client.setHome(ACCESS_HOMES.DUAL);
   assert.equal(await client.session(await sha256Hex(token)), null);
   assert.equal((await client.state()).home, "dual");
+});
+
+test("a member added or removed in the workspace object reaches the person's next session, through their own object", { skip }, async () => {
+  const env = { WORKSPACE_STORE: namespace() };
+  const { token } = await person(env, { pwid: "pJ", userId: "uJ", grantId: "gJ", secret: SECRET("j") });
+  const controlPlane = createControlPlane({ ...env, CONTROL_PLANE_URL: "https://control.invalid", CONTROL_PLANE_SECRET: "x".repeat(40) }, {
+    fetchImpl: async () => {
+      throw new Error("the control plane was asked");
+    },
+  });
+  const team = workspaceClient(env, "wsTeam");
+  await team.members.put([{ userId: "uJ", personalWorkspaceId: "pJ", role: "member", groups: ["crew"], at: 50 }], { workspace: { slug: "team", kind: "shared" } });
+  assert.equal((await resolveSession(token, "team", controlPlane)).role, "member");
+  await team.members.remove(["uJ"], 60);
+  await assert.rejects(() => resolveSession(token, "team", controlPlane), (error) => error instanceof SessionRefusal && error.status === 403);
 });

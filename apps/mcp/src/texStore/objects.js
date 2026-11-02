@@ -100,9 +100,11 @@ function passes(meta, onlyIf) {
  * The objects over one Durable Object's `sql`.
  *
  * @param {{exec: (query: string, ...binds: unknown[]) => {toArray(): object[]}}} sql
- * @param {{now?: () => number}} [options]
+ * @param {{now?: () => number, guard?: () => void}} [options] `guard` runs
+ *   synchronously right before every write, and throws to stop it: an object
+ *   that has moved (`move.js`) keeps no write.
  */
-export function texObjects(sql, { now = Date.now } = {}) {
+export function texObjects(sql, { now = Date.now, guard = () => {} } = {}) {
   for (const statement of SCHEMA) sql.exec(statement);
 
   const metaRow = (key) => rows(sql.exec("SELECT * FROM objects WHERE key = ?", key))[0] ?? null;
@@ -161,6 +163,7 @@ export function texObjects(sql, { now = Date.now } = {}) {
       const count = Math.ceil(bytes.byteLength / CHUNK_BYTES);
       // One Durable Object runs one request's synchronous code at a time, so
       // the check above and these writes cannot interleave with another put.
+      guard();
       remove(key);
       for (let n = 0; n < count; n += 1) {
         sql.exec("INSERT INTO chunks (key, n, data) VALUES (?, ?, ?)", key, n, bytes.subarray(n * CHUNK_BYTES, (n + 1) * CHUNK_BYTES));
@@ -181,6 +184,7 @@ export function texObjects(sql, { now = Date.now } = {}) {
 
     /** Removes each key given; a missing one is not an error, as in R2. */
     delete(keys) {
+      guard();
       for (const key of Array.isArray(keys) ? keys : [keys]) remove(checkKey(key));
     },
 
@@ -230,8 +234,38 @@ export function texObjects(sql, { now = Date.now } = {}) {
 
     /** Everything this object keeps, removed. */
     wipe() {
+      guard();
       sql.exec("DELETE FROM chunks");
       sql.exec("DELETE FROM objects");
+    },
+
+    /**
+     * One object copied in as another Tex store kept it (`move.js`): the same
+     * bytes, etag, time and metadata. Refused when the bytes are not the ones
+     * the etag names, so a copy cut short or garbled is never kept.
+     */
+    async restore(meta, value) {
+      const key = checkKey(meta?.key);
+      const bytes = bytesOf(value);
+      if (bytes.byteLength !== Number(meta.size) || (await etagOf(bytes)) !== meta.etag) throw new TexObjectRefused("a copied object whose bytes are not its etag's");
+      guard();
+      const count = Math.ceil(bytes.byteLength / CHUNK_BYTES);
+      remove(key);
+      for (let n = 0; n < count; n += 1) {
+        sql.exec("INSERT INTO chunks (key, n, data) VALUES (?, ?, ?)", key, n, bytes.subarray(n * CHUNK_BYTES, (n + 1) * CHUNK_BYTES));
+      }
+      const contentType = meta.httpMetadata?.contentType ?? null;
+      const custom = meta.customMetadata && Object.keys(meta.customMetadata).length > 0 ? JSON.stringify(meta.customMetadata) : null;
+      sql.exec(
+        "INSERT INTO objects (key, etag, size, uploaded, content_type, custom, chunks) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        key,
+        meta.etag,
+        bytes.byteLength,
+        Number(meta.uploaded),
+        contentType,
+        custom,
+        count,
+      );
     },
   };
 }

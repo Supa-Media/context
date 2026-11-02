@@ -86,6 +86,8 @@ export async function handleTree(request, env, { slug, pathToken, origin }, deps
     scope: session.scope,
     groups,
     deadline: Math.min(expiresAt, Date.now() + TREE_SOCKET_MAX_MS),
+    // Who is reading, for an object that decides access from its own members (`workspaceStore/members.js`).
+    ...(typeof session.actorUserId === "string" ? { userId: session.actorUserId } : {}),
   };
   const forwarded = new Request("https://workspace-store.internal/tree", {
     headers: { Upgrade: "websocket", [TREE_READER_HEADER]: JSON.stringify(reader) },
