@@ -35,7 +35,7 @@ breaking one, stop and say so rather than working around it.
    heading and paragraph;
    [convex-facts](./docs/decisions/app-and-console/convex-facts.md)); a
    workspace object keeps its own notes' facts beside their text, and the
-   gateway reads them there (decided by the owner, 2026-11-02;
+   gateway, Lists, the map and the chaos score read them there (decided by the owner, 2026-11-02;
    [facts-in-objects](./docs/decisions/storage-and-credentials/facts-in-objects.md)).
    The control plane **never** holds a note's body. Leaving is **Download as folders**: a complete, decrypted copy with
    real names, free on every plan, still available after cancelling, never

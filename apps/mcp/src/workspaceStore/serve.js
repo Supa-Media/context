@@ -16,7 +16,7 @@ import { chatRulesFrom, chatTokens } from "./chatRules.js";
 import { isPersonCall, servePersonCall } from "./personServe.js";
 import { isTokenIndexCall, serveTokenIndex } from "./tokenIndex.js";
 import { membersState, serveMembersCall } from "./serveMembers.js";
-import { FactAskRefused, OBJECT_FACT_ASKS } from "./facts.js";
+import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.js";
 
 const CALL = "x-tex-call";
 
@@ -211,6 +211,10 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(lookUp(rows, fields, "noteId", store.members ?? null));
       case "ws.facts":
         return Response.json(answerFacts(store, fields));
+      case "ws.facts.rows":
+        // The control plane's own readers, through the door: unfiltered, as its internal queries are.
+        if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ROW_ASKS.has(fields.ask)) return Response.json({ served: false });
+        return Response.json(store.facts.rows(fields));
       case "ws.rows.get":
         return Response.json({ rows: rows.get(fields.ids) });
       case "ws.rows.list":

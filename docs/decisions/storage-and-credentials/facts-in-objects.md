@@ -43,16 +43,26 @@ is never named, and a hidden seed answers what a missing one does. Anything
 the object does not serve (another ask, a failure, behind, not caught up) is
 the control plane's, as before.
 
+**The app's readers too.** The control plane's own readers that run as
+actions read the object through its door (`ws.facts.rows`, unfiltered like
+the internal queries they stand in for, each caller judging every path with
+`canSee`; `apps/convex/functions/lib/nodes/objectFacts.ts`): a List's or
+Board's front matter, the chaos score's extras and the map's links
+(`lib/nodes/treeReads.ts`). Each falls back to the control plane's copy for
+whatever the object does not answer, path by path for a List, so a row whose
+push has not landed yet still shows.
+
 **What has not moved yet.** The control plane still computes its copy
 ([convex-facts](../app-and-console/convex-facts.md)) for every workspace,
-because the app's own readers query it directly: the map's links, Lists and
-Boards, the chaos score and its daily history, a website's page lists,
-routines' scan, shares' inbox titles. Moving those readers to the object,
-then stopping the control plane's fill for object-home workspaces and
-dropping its rows there, is the next step. The asks that are not note facts
-stay on the control plane: `names` (with note writes), `jobs` and
-`forwarding` (rows and the ledger), and `chaos` (its history is a control-plane
-table).
+because some readers still read it inside queries and mutations, where the
+object cannot be asked: a website's page lists (`publishedRows`,
+`visibleNotes`), routines' scan (`propsNow`), shares' inbox titles,
+`references`, the tree's rename checks (`candidates`), the old-copies
+classifier and Tex triage. Moving those, then stopping the control plane's
+fill for object-home workspaces and dropping its rows there, is the next
+step. The asks that are not note facts stay on the control plane: `names`
+(with note writes), `jobs` and `forwarding` (rows and the ledger), and the
+chaos score's daily history (`nodeChaosDays`).
 
 **What it changes about non-negotiable #1.** The control plane no longer is
 the only keeper of a note's rebuildable facts: for an object-home workspace
@@ -64,4 +74,5 @@ Convex round trip (and a fill that lags the text) in front of every List, move
 and `related_notes` on a workspace whose text is one call away. Skipping the
 etag check serves an edited note's old props; keying links by path loses a
 moved note's links; skipping `sees` names private notes to a team reader.
-**The tests that fail:** `apps/mcp/test/objectFacts.test.mjs`.
+**The tests that fail:** `apps/mcp/test/objectFacts.test.mjs` and
+`apps/convex/__tests__/nodes/objectFacts.test.ts`.

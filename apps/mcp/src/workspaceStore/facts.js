@@ -26,6 +26,7 @@ import { resolveNeighbors } from "../tree/neighbors.js";
 import { indexableText } from "../encryption/format.js";
 import { isIndexableNote } from "../search/indexable.js";
 import { isWorkspaceObjectKey } from "./api.js";
+import { chaosExtraOf } from "../tree/chaosExtra.js";
 
 /** Paths one props ask names (the control plane's `PROPS_AT_PATHS`). */
 export const PROPS_ASK_PATHS = 100;
@@ -164,7 +165,46 @@ export function workspaceFacts(sql, objects) {
     return byKey;
   }
 
+  /** Every note's facts current, or `false` when more changed than one ask reads. */
+  const current = () => {
+    const byPath = notes();
+    return catchUp(byPath) ? byPath : null;
+  };
+
   return {
+    /**
+     * Unfiltered rows for the control plane's readers (`OBJECT_FACT_ROW_ASKS`).
+     * - `props` with `paths`: `{props: [{path, version, sealed, props}]}`, a note without facts absent.
+     * - `links`: `{links: [[source, kind, target]], unparsed}`, every link of every live note, at their paths now.
+     * - `chaos`: `{extras: [{path, lines, exempt, review}]}`, the notes the score needs more than a key for.
+     * `{served: false}` when more changed than one ask reads.
+     */
+    rows(fields) {
+      if (fields.ask === "props") return { served: true, ...this.props({ paths: fields.paths }, () => true) };
+      const byPath = current();
+      if (byPath === null) return NOT_SERVED;
+      if (fields.ask === "links") {
+        const byKey = keyed(byPath);
+        const links = [];
+        for (const row of all(sql.exec("SELECT key, kind, target FROM ws_links ORDER BY key"))) {
+          const source = byKey.get(row.key);
+          if (typeof source === "string") links.push([source, row.kind, row.target]);
+        }
+        return { served: true, links, unparsed: [...byPath.values()].filter((note) => !parsed(note)).length };
+      }
+      if (fields.ask === "chaos") {
+        const extras = [];
+        for (const note of byPath.values()) {
+          if (!parsed(note)) continue;
+          const row = all(sql.exec("SELECT props FROM ws_facts WHERE key = ?", note.key))[0];
+          const extra = chaosExtraOf(note.path, row?.props ?? null);
+          if (extra !== null) extras.push({ path: note.path, ...extra });
+        }
+        return { served: true, extras };
+      }
+      throw new FactAskRefused("not a facts ask");
+    },
+
     /**
      * `{ask: "props", paths}`: each named note the reader may see, with its props (`propsOf` as JSON) at the
      * version they were read at; a sealed note's props are `null`; a note with no facts is absent.
@@ -233,3 +273,10 @@ export function workspaceFacts(sql, objects) {
 
 /** The asks a workspace object answers itself. Every other ask is the control plane's. */
 export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors"]);
+
+/**
+ * The asks the control plane's own readers make through the door (`ws.facts.rows`): unfiltered, like the control
+ * plane's internal queries they stand in for (`nodeFacts.propsAt`, `nodeFacts.page`, `nodeChaos.extras`), because
+ * every caller judges each path itself. Never sent on a person's behalf by the gateway.
+ */
+export const OBJECT_FACT_ROW_ASKS = new Set(["props", "links", "chaos"]);

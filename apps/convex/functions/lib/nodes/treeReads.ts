@@ -42,6 +42,7 @@ import type { FileOperation, OperationResult } from "../filesFns/operationTypes"
 import { folderNotesFromNodes } from "../filesFns/folderNotes";
 import { liveChaosScoreOf, NO_CHAOS, type ChaosSource } from "../filesFns/chaosOps";
 import { factChaosSource, factPropSource } from "./factSources";
+import { objectChaosSource, objectFactRows, objectLinkTable, objectPropSource } from "./objectFacts";
 import { scheduleFactFill } from "./factFill";
 import { attachLinkTable, convexLinkTable } from "./linkTable";
 import { notServed, servedStoreOrNotServed } from "./treeGate";
@@ -129,6 +130,9 @@ async function manifestPage(ctx: ActionCtx, args: ReadArgs, clearance: Clearance
  * missing or behind. Never the search index.
  */
 async function withLinks(ctx: ActionCtx, workspaceId: Id<"workspaces">, served: FileStore): Promise<FileStore> {
+  // Where the notes live in their object, it reads their links from the text it holds (`objectFacts.ts`).
+  const fromObject = await objectLinkTable(await objectFactRows(ctx, workspaceId), served).catch(() => null);
+  if (fromObject !== null) return attachLinkTable(served, fromObject);
   const table = await convexLinkTable(ctx, workspaceId, served).catch(() => null);
   if (table === null || table.unparsed > 0) await scheduleFactFill(ctx, workspaceId);
   return table === null ? served : attachLinkTable(served, table);
@@ -149,7 +153,7 @@ async function folderNotes(
 ): Promise<OperationResult> {
   const answer = await folderNotesFromNodes(
     served,
-    factPropSource(ctx, workspaceId),
+    objectPropSource(await objectFactRows(ctx, workspaceId), factPropSource(ctx, workspaceId)),
     operation as unknown as { folder: string; subfolders: boolean; cursor?: string },
     clearance,
   ).catch((error) => {
@@ -172,7 +176,7 @@ async function chaosScore(
   operation: ReadArgs["operation"],
   clearance: Clearance,
 ): Promise<OperationResult> {
-  const facts = factChaosSource(ctx, workspaceId);
+  const facts = objectChaosSource(await objectFactRows(ctx, workspaceId), factChaosSource(ctx, workspaceId));
   let whole = true;
   const source: ChaosSource = {
     ...facts,

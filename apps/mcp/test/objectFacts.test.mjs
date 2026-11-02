@@ -262,3 +262,30 @@ test("store.treeFacts answers from the object when it serves, and from the contr
   attachLinkCalls(plain, { accessToken: "t", workspaceId: "ws_one" }, controlPlane, {});
   assert.equal((await plain.treeFacts({ ask: "props", paths: [] })).from, "convex");
 });
+
+/* ------------------------- the control plane's readers ------------------------- */
+
+test("the control plane's readers get unfiltered rows through the door: props, every link, the chaos extras", { skip }, async () => {
+  const { ws } = await seeded();
+  const props = await ws.factRows({ ask: "props", paths: ["projects/secret/hidden.md", "projects/plan.md"] });
+  assert.deepEqual(props.props.map((row) => row.path).sort(), ["projects/plan.md", "projects/secret/hidden.md"]);
+  const links = await ws.factRows({ ask: "links" });
+  assert.equal(links.served, true);
+  assert.equal(links.unparsed, 0);
+  assert.deepEqual(
+    links.links.map((link) => link.join(" ")).sort(),
+    ["projects/brief.md name plan", "projects/plan.md name brief", "projects/plan.md path projects/notes.md", "projects/secret/hidden.md name plan"],
+  );
+  const long = Array.from({ length: 1200 }, (_, n) => `line ${n}`).join("\n");
+  await ws.bodies.put(`notes/${ID(4)}.md`, `# Notes\n\n${long}\n`);
+  const chaos = await ws.factRows({ ask: "chaos" });
+  assert.deepEqual(chaos.extras.map((extra) => extra.path), ["projects/notes.md"]);
+  assert.ok(chaos.extras[0].lines > 1000);
+});
+
+test("the door's rows are not served before the notes live here, and an unknown ask is not served", { skip }, async () => {
+  const { ws } = await seeded({ home: HOMES.DUAL });
+  assert.deepEqual(await ws.factRows({ ask: "links" }), { served: false });
+  const live = await seeded();
+  assert.deepEqual(await live.ws.factRows({ ask: "neighbors" }), { served: false });
+});
