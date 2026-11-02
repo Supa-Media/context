@@ -20,13 +20,16 @@ import { flushAccessWrites } from "../accessHandOff/flush";
 /** The most rows one outbox entry names; a mutation that changes more is pushed whole (`all`). */
 export const OUTBOX_MAX_IDS = 2_000;
 
-/** Whether this workspace's notes are judged in its object. No row means the bucket, which needs nothing. */
-async function judgedInObject(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+/**
+ * Where this workspace's notes are judged: `object`, another home, or `null` with no row (the bucket, which needs
+ * nothing, and whose object never kept a binding: the gateway keeps one only while the notes are in the object).
+ */
+async function homeOf(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<string | null> {
   const home = await ctx.db
     .query("workspaceObjectHomes")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
-  return home?.home === "object";
+  return home?.home ?? null;
 }
 
 /** One outbox entry per object-mode workspace, and its push, in the mutation's own transaction. */
@@ -35,9 +38,10 @@ export async function flushRowChanges(
   changes: Map<Id<"workspaces">, WorkspaceChange>,
 ): Promise<void> {
   for (const [workspaceId, change] of changes) {
-    if (!(await judgedInObject(ctx, workspaceId))) {
+    const home = await homeOf(ctx, workspaceId);
+    if (home !== "object") {
       // No outbox here, but a binding the object kept must still go (a workspace switched back off its object).
-      if (change.binding) await ctx.scheduler.runAfter(0, internal.functions.workspaceObjectBinding.clear, { workspaceId });
+      if (change.binding && home !== null) await ctx.scheduler.runAfter(0, internal.functions.workspaceObjectBinding.clear, { workspaceId });
       continue;
     }
     const ids = [...change.nodeIds];
