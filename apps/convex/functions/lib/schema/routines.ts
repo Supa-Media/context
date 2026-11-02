@@ -83,7 +83,8 @@ export const routineTables = {
   })
     .index("by_workspace_path", ["workspaceId", "path"])
     .index("by_nextRunAt", ["nextRunAt"])
-    .index("by_run_id", ["runId"]),
+    .index("by_run_id", ["runId"])
+    .index("by_chat", ["chat"]),
 
   /**
    * A reconcile waiting to run, one per workspace, so a burst of saves shares

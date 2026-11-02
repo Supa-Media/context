@@ -338,3 +338,7 @@ test/objectGrants.test.mjs
 test/personTopics.test.mjs
 test/agentGroupAskChat.test.mjs
 test/objectManifest.test.mjs
+test/texPage.test.mjs
+test/texPageLive.test.mjs
+test/texPageNotes.test.mjs
+test/texPageRoutes.test.mjs
