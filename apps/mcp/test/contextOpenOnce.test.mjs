@@ -216,6 +216,10 @@ test("a chat's home lists its own folder: the door's store asks the control plan
   const listed = await servedListingStore(home.store).list({ prefix: "tex/groups/example/" });
   assert.deepEqual(listed.objects.map((object) => object.key), ["tex/groups/example/history.md"]);
   assert.deepEqual(asked, [{ token: TOKEN, workspaceId: "ws_pinned", folder: "tex/groups/example" }], "asked as the home, with the chat's token");
+  // And its store knows it is the home, so a write there sets no row the seal would refuse (`chatHomeWrite.test.mjs`).
+  assert.equal(home.store.chatHome, "tex/groups/example");
+  assert.ok(!Object.keys(home.store).includes("chatHome"), "not enumerable");
+  if (typeof store.openPinnedSetup === "function") assert.equal((await store.openPinnedSetup()).store.chatHome, undefined, "the setup door is not the home");
 });
 
 test("a held store reads the turn's search settings and held passes as they are now", async () => {
