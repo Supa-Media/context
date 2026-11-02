@@ -160,10 +160,18 @@ jobs:
         if: steps.scope.outputs.affected == 'true'
         run: pnpm --filter @context/collaboration test
 
+  # The unit files in three slices on three runners (2026-11-02): on one they
+  # took about 110 seconds, the longest job on every gateway pull request,
+  # bound by its four cores. `node --test --test-shard` splits them by file;
+  # `units` below is the one check that says whether every slice passed.
   unit:
-    name: Test Gateway units
+    name: Test Gateway units (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v5
 
@@ -200,7 +208,26 @@ jobs:
       - name: Run unit tests
         if: steps.scope.outputs.affected == 'true'
         working-directory: apps/mcp
-        run: pnpm test:unit
+        run: pnpm test:unit ${{ matrix.shard }}/3
+
+  # The name the slices used to share, kept as one check: red unless every
+  # slice passed or skipped as out of scope.
+  units:
+    name: Test Gateway units
+    needs: unit
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every slice passed
+        env:
+          RESULT: ${{ needs.unit.result }}
+        run: |
+          if [ "$RESULT" != "success" ] && [ "$RESULT" != "skipped" ]; then
+            echo "::error::A gateway unit slice did not pass ($RESULT)."
+            exit 1
+          fi
+          echo "Every gateway unit slice passed."
 
   packages:
     # Six suites that need no install, in one job (2026-10-07). Each was its

@@ -82,6 +82,8 @@ const SHARED_IGNORED = [
 const APP_IMPORT_ONLY = ["@context/convex"];
 
 const workflow = (name) => `.github/workflows/${name}.yml`;
+/** What turns a Worker's secrets into one `wrangler secret bulk` request. */
+const WORKER_SECRETS = "scripts/worker-secrets.mjs";
 
 /**
  * What each target deploys. A staging `worker` carries what that workflow's
@@ -98,10 +100,10 @@ export const TARGETS = {
       transcribe: { packages: ["@context/transcribe-worker"], worker: "infra/transcribe-worker" },
       egress: { packages: ["@context/egress-service"], worker: "infra/egress-service" },
       email: { packages: ["@context/email-worker"], worker: "infra/email-worker" },
-      agent: { packages: ["@context/agent"], worker: "apps/agent" },
+      agent: { packages: ["@context/agent"], worker: "apps/agent", files: [WORKER_SECRETS] },
       // The gateway's job deploys its screenshot Worker first (a service
       // binding needs its target), so either one changing deploys both.
-      mcp: { packages: ["@context/mcp", "@context/site-shots"], worker: "apps/mcp" },
+      mcp: { packages: ["@context/mcp", "@context/site-shots"], worker: "apps/mcp", files: [WORKER_SECRETS] },
       // Staging publishes the app export inside this Worker's Static Assets
       // version, so an app input is also a router input.
       router: { packages: ["@context/router", "@context/mobile"], importOnly: APP_IMPORT_ONLY, worker: "infra/router" },
@@ -116,10 +118,10 @@ export const TARGETS = {
     workflow: "deploy-production.yml",
     components: {
       convex: { packages: ["@context/convex"], files: ["convex.json", workflow("deploy-convex")] },
-      gateway: { packages: ["@context/mcp", "@context/site-shots"], files: [workflow("deploy-mcp")] },
+      gateway: { packages: ["@context/mcp", "@context/site-shots"], files: [workflow("deploy-mcp"), WORKER_SECRETS] },
       email: { packages: ["@context/email-worker"], files: [workflow("deploy-email-worker")] },
       transcribe: { packages: ["@context/transcribe-worker"], files: [workflow("deploy-transcribe-worker")] },
-      agent: { packages: ["@context/agent"], files: [workflow("deploy-agent-worker")] },
+      agent: { packages: ["@context/agent"], files: [workflow("deploy-agent-worker"), WORKER_SECRETS] },
       egress: { packages: ["@context/egress-service"], files: [workflow("deploy-egress-service")] },
       sentry: { packages: ["@context/sentry-worker"], files: [workflow("deploy-sentry-worker")] },
       // The router publishes the web export as one Worker version. Either

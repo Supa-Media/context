@@ -24,6 +24,7 @@ const ROOT_INPUTS = [
   ".github/actions/ci-scope/**",
   "scripts/ci-change-scope.mjs",
   "scripts/check-ci-path-gates.mjs",
+  "scripts/lib/workflow-jobs.mjs",
   "scripts/import-reach.mjs",
 ];
 
