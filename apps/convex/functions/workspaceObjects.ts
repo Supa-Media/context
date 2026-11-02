@@ -534,6 +534,8 @@ const parityCounts = v.object({
   rowsDiffer: v.number(),
   rulesDiffer: v.number(),
   visibilityDiffer: v.number(),
+  /** Clean `dual` workspaces this page put on `object` (`switchClean`); a refusal is counted in `why` as `switch:<reason>`. */
+  switched: v.number(),
   /**
    * What this page found, summed over its workspaces, with no workspace named: the job log is public and the
    * function's own log lines go only to the private dashboard. `why` counts failures by
@@ -581,9 +583,9 @@ async function treeParity(ctx: ActionCtx, workspaceId: Id<"workspaces">, client:
 
 /** One page of the parity check over every workspace that is not `bucket` (or one, by handle). Counts only. */
 export const parity = internalAction({
-  args: { cursor: v.optional(v.string()), only: v.optional(v.string()) },
+  args: { cursor: v.optional(v.string()), only: v.optional(v.string()), switchClean: v.optional(v.boolean()) },
   returns: parityCounts,
-  handler: async (ctx, { cursor, only }) => {
+  handler: async (ctx, { cursor, only, switchClean }) => {
     const counts = {
       workspaces: 0,
       clean: 0,
@@ -593,6 +595,7 @@ export const parity = internalAction({
       rowsDiffer: 0,
       rulesDiffer: 0,
       visibilityDiffer: 0,
+      switched: 0,
       found: { missingInObject: 0, extraInObject: 0, differ: 0, hidden: 0, shown: 0 },
       why: {} as Record<string, number>,
       shapes: {} as Record<string, number>,
@@ -652,7 +655,15 @@ export const parity = internalAction({
         if (!tree.rules.match) counts.rulesDiffer += 1;
         if (tree.visibility.differ > 0) counts.visibilityDiffer += 1;
         if (bodiesDiffer || !tree.rows.match || !tree.rules.match || tree.visibility.differ > 0) counts.differing += 1;
-        else counts.clean += 1;
+        else {
+          counts.clean += 1;
+          // Straight after its own clean check, so the switch's freshness rule is met by this run.
+          if (switchClean === true && (await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId })) === "dual") {
+            const flipped = await setHomeFor(ctx, workspaceId, "object", false).catch((error: unknown) => ({ ok: false, reason: failureOf(error).reason }));
+            if (flipped.ok) counts.switched += 1;
+            else counts.why[`switch:${flipped.reason ?? "refused"}`] = (counts.why[`switch:${flipped.reason ?? "refused"}`] ?? 0) + 1;
+          }
+        }
       } catch (error) {
         counts.unreachable += 1;
         const failure = failureOf(error);
