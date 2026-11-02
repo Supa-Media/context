@@ -20,7 +20,7 @@ import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, resumeJobs, startJobs, steerJobs, threadsLines } from "./jobs";
 import { addEvent, holdsLog, keepLog, kindOf, logAsk, recentEvents } from "./events";
-import { staleAsks } from "./decide";
+import { cancelTurn, staleAsks } from "./decide";
 import { startTurn } from "./steer";
 import { recheckDraft } from "./groupRecheck";
 import type { GroupPending } from "./groupTurn";
@@ -39,10 +39,12 @@ export type TurnInput = {
   people: string[];
   asked: Extract<ControlAnswer, { status: "ready" }>;
   accessToken: string;
+  /** Decide on an addressed turn, asked beside it (`decideBeside`): true, nothing of the turn is sent. */
+  silenced?: Promise<boolean>;
 };
 
 /** The model's turn on a group message, its answer sent only to the people it was written for. */
-export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo, arrivedAt, covers, people, asked, accessToken }: TurnInput): Promise<"cancelled" | void> {
+export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo, arrivedAt, covers, people, asked, accessToken, silenced }: TurnInput): Promise<"cancelled" | void> {
   const app = groupLineFor(deps, message.groupId);
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
@@ -72,6 +74,11 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const { steer, end, live } = startTurn(storage, message.groupId, message.from, deps, covers, (ids) => dropSteered(storage, ids, covers));
   await steer.onSession(accessToken);
   const meta: SayMeta = { turn: steer.turn, covers, people: group.members };
+  // Decide said silent (Dev2, 2026-11-01): the turn is cancelled if it still runs, so nothing of it is kept as said either.
+  const vetoed = silenced?.then(async (silent) => {
+    if (silent && (await cancelTurn(deps, accessToken, steer.turn))) live.cancelled = true;
+    return silent;
+  });
   /*
     Asked for as a stream, as a person's own text is (the owner, 2026-10-23:
     "group Tex should literally be the same exact as DM Tex"): a long ask
@@ -85,7 +92,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   */
   let paused = false;
   const progress = async (text: string) => {
-    if (routine) return;
+    if (routine || (await vetoed)) return; // no line before decide's verdict
     try {
       if (!(await isBound(storage, message))) return log("progress_unbound");
       if (!paused) {
@@ -131,6 +138,11 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const answered = deps.now();
   // The log the gateway read from storage, held here from now on, so the next turn reads none (`events.ts` `keepLog`).
   if (answer.kind === "answer" && answer.log && covers.length > 0) await keepLog(storage, message.groupId, answer.log, deps.now());
+  // Never sent before decide's verdict, nor after its silent: Tex never spoke, so follow-along and the open ask stay as they were.
+  if (await vetoed) {
+    if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
+    return log("decide_vetoed");
+  }
   if (live.cancelled || answer.kind === "cancelled") {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.
     if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
@@ -149,6 +161,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     if (answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
     return "cancelled";
   }
+  // Nothing to text (a group's SKIP, `apps/mcp/src/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
+  if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return log("silent");
   // Filed in the chat's memory by that turn: this object's copy goes.
   await dropChatLines(storage, said.keys);
   // An answer that asks for a yes leaves it open for the one person it asks: the

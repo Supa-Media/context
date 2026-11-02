@@ -17,11 +17,13 @@ export const LINES = [
   { name: "WhatsApp (Whapi)", groupId: whapiGroupId(JID) },
 ];
 
-export type Decide = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; line?: string; waitingAsks: string[] };
+export type Decide = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; line?: string; waitingAsks: string[]; addressed?: true };
 export type Answer = { ok: true; act: "silent" | "react" | "answer" | "wait"; covers: string[]; midTurn?: string; stale: string[]; movedOn: boolean; confidence: number; emoji?: string; waitSeconds?: number } | { ok: false; reason: string };
 
 export const answerAll = (body: Decide): Answer => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 });
 export const silent = (): Answer => ({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 });
+/** Decide answering what looks addressed to Tex (asked beside its turn, `decideBeside`) and silent on everything else. */
+export const untaggedSilent = (body: Decide): Answer => (body.addressed ? answerAll(body) : silent());
 
 export function setup(
   groupId: string,
@@ -84,14 +86,15 @@ export function setup(
         reactions.push(body.emoji);
         return Response.json({ success: true });
       }
-      if (path.startsWith("/messages/")) {
+      if (path.startsWith("/messages/") && init?.method === "POST") { // a GET is the quoted message read, never a send
         texts.push(body.body ?? body.media);
         return Response.json({ sent: true, message: { id: `wa_out_${texts.length}` } });
       }
     }
     if (path === "/agent-texts/decide") {
       decided.push(body);
-      await opts.decideWait?.();
+      // A slow decide is cut off by its own timeout, as a real fetch is (`post`'s AbortSignal).
+      await Promise.race([opts.decideWait?.(), new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)))]);
       return Response.json((opts.decide ?? answerAll)(body));
     }
     if (path === "/agent-texts/recheck") {
@@ -184,9 +187,9 @@ export function setup(
   return { deps, decided, rechecks, asks, control, engagement, styles, sharing, events, steers, cancels, stale, texts, reactions, release, running, message };
 }
 
-/** The words of each candidate decide was shown at the drain (not mid-turn). */
+/** The words of each candidate decide was shown at the drain (not mid-turn, nor beside an addressed turn). */
 export async function decidedWords(storage: MemoryStorage, w: ReturnType<typeof setup>, groupId: string): Promise<string[]> {
   const byId = new Map((await keptEvents(storage, groupId)).map((event) => [event.id, event.text ?? ""]));
-  return w.decided.filter((body) => !body.running).flatMap((body) => body.candidates.map((id) => byId.get(id) ?? "?"));
+  return w.decided.filter((body) => !body.running && !body.addressed).flatMap((body) => body.candidates.map((id) => byId.get(id) ?? "?"));
 }
 

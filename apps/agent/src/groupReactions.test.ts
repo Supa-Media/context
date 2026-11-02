@@ -46,14 +46,14 @@ const reacted = (from: string, id: string, reaction: Reaction) => msg(`${reactio
 
 type Answer = { answer: string; verbatim?: string[] };
 
-/** A bound chat whose decide stays silent on everything it is asked, so only what code answers gets a turn. */
+/** A bound chat whose decide stays silent on everything untagged, so only what code answers or a tag gets a turn; a tag's answer goes. */
 function groupDeps(asks: Record<string, unknown>[], answer: Answer, control: Record<string, unknown> = {}): GroupDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
     if (path.startsWith("/api/v2/groups/")) return Response.json({ participants: [{ number: ADA }, { number: BO }] });
     const body = JSON.parse(String(init.body));
     if (path === "/agent-texts/group") return Response.json({ status: "ready", slug: "band", intro: false, bound: true, handle: "ada", accessToken: "cat", ...control });
-    if (path === "/agent-texts/decide") return Response.json({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 });
+    if (path === "/agent-texts/decide") return Response.json({ ok: true, act: body.addressed ? "answer" : "silent", covers: body.addressed ? body.candidates : [], stale: [], movedOn: false, confidence: 0.9 });
     if (path === "/agent/events") return Response.json({ written: body.events.map((event: { id: string }) => event.id) });
     if (path === "/agent") {
       asks.push(body);
