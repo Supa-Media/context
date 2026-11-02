@@ -9,8 +9,9 @@ import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 
-/** How long one ticket opens its workspace's Tex objects. */
-export const TEX_STORE_TICKET_TTL_MS = 5 * 60 * 1000;
+import { TEX_STORE_TICKET_TTL_MS } from "./lib/texStoreTicketTtl";
+
+export { TEX_STORE_TICKET_TTL_MS };
 
 /** Store one ticket, hashed, and clear this workspace's expired ones. */
 export const mint = internalMutation({
