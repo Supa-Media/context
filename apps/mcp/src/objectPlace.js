@@ -21,3 +21,8 @@ export const OBJECT_LOCATION = "enam";
 export function objectByName(namespace, name) {
   return namespace.get(namespace.idFromName(name), { locationHint: OBJECT_LOCATION });
 }
+
+/** The id the object named `name` has, as Cloudflare's analytics show it: for logs that tie a name to its object. Makes no stub. */
+export function objectIdOf(namespace, name) {
+  return String(namespace.idFromName(name));
+}
