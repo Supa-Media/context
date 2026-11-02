@@ -77,11 +77,11 @@ async function grant(t: TestConvex, workspaceId: Id<"workspaces">, userId: Id<"u
 
 describe("which object a write lands in", () => {
   test("a membership changes its workspace's members and its person's reach; a group chat's grant reaches nobody", () => {
-    expect(targetsOf({ table: "workspaceMembers", doc: { workspaceId: "w", userId: "u" } }).map((target) => target.table)).toEqual(["members", "reach"]);
-    expect(targetsOf({ table: "oauthGrants", doc: { userId: "u", clientId: "claude" } })).toEqual([{ kind: "person", userId: "u", table: "connections" }]);
-    expect(targetsOf({ table: "oauthGrants", doc: { userId: "u", clientId: "claude", texGroup: {} } })).toEqual([]);
-    expect(targetsOf({ table: "oauthGrants", doc: { userId: "u", clientId: "context_texts" } })).toEqual([]);
-    expect(targetsOf({ table: "nodeAccess", doc: { granteeKind: "members", workspaceId: "w" } })).toEqual([]);
+    expect(targetsOf({ id: "x", op: "insert", table: "workspaceMembers", doc: { workspaceId: "w", userId: "u" } }).map((target) => target.table)).toEqual(["members", "reach"]);
+    expect(targetsOf({ id: "x", op: "insert", table: "oauthGrants", doc: { userId: "u", clientId: "claude" } })).toEqual([{ kind: "person", userId: "u", table: "connections" }]);
+    expect(targetsOf({ id: "x", op: "insert", table: "oauthGrants", doc: { userId: "u", clientId: "claude", texGroup: {} } })).toEqual([]);
+    expect(targetsOf({ id: "x", op: "insert", table: "oauthGrants", doc: { userId: "u", clientId: "context_texts" } })).toEqual([]);
+    expect(targetsOf({ id: "x", op: "insert", table: "nodeAccess", doc: { granteeKind: "members", workspaceId: "w" } })).toEqual([]);
   });
 });
 
@@ -135,14 +135,15 @@ describe("on dual", () => {
 });
 
 describe("on object", () => {
-  test("a Convex write to members is refused; written behind the object it goes through and is not sent back", async () => {
+  test("a Convex role change is refused; written behind the object it goes through and is not sent back", async () => {
     const { t, shared, guest } = await world();
+    const memberId = await t.run((ctx) => ctx.db.insert("workspaceMembers", { workspaceId: shared, userId: guest, role: "member", joinedAt: 1 }));
     await setHomes(t, shared, { access: "object" });
-    const refused = await watched(t, (db) => db.insert("workspaceMembers", { workspaceId: shared, userId: guest, role: "member", joinedAt: 1 })).catch((error) => error);
+    const refused = await watched(t, (db) => db.patch(memberId, { role: "editor" })).catch((error) => error);
     expect(errorCode(refused)).toBe(WORKSPACE_SWITCHED);
-    expect(await t.run((ctx) => ctx.db.query("workspaceMembers").withIndex("by_workspace_user", (q) => q.eq("workspaceId", shared).eq("userId", guest)).unique())).toBeNull();
+    expect((await t.run((ctx) => ctx.db.get(memberId)))?.role).toBe("member");
 
-    await watched(t, (db) => db.insert("workspaceMembers", { workspaceId: shared, userId: guest, role: "member", joinedAt: 1 }), true);
+    await watched(t, (db) => db.patch(memberId, { role: "editor" }), true);
     expect(await outbox(t)).toEqual([]);
   });
 

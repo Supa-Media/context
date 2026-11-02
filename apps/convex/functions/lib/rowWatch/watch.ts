@@ -99,14 +99,14 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
   const changes = new Map<Id<"workspaces">, WorkspaceChange>();
   const accessWrites: AccessWrite[] = [];
   const watched = Object.create(db) as MutationCtx["db"];
-  const noteAccess = (table: AccessSource, doc: unknown) => {
-    if (doc !== null && typeof doc === "object") accessWrites.push({ table, doc: doc as Record<string, unknown> });
+  const noteAccess = (table: AccessSource, id: string, doc: unknown, op: AccessWrite["op"]) => {
+    if (doc !== null && typeof doc === "object") accessWrites.push({ table, id, op, doc: doc as Record<string, unknown> });
   };
   // Before and after: a patch that moves a row to another person or workspace changes both.
   const accessBefore = async (id: string, fields: string[] | null) => {
     const table = accessTableOf(db, id);
     if (table === null || !mayMatter(table, fields)) return null;
-    noteAccess(table, await db.get(id as GenericId<AccessSource>));
+    noteAccess(table, id, await db.get(id as GenericId<AccessSource>), "before");
     return table;
   };
 
@@ -120,7 +120,7 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
     async insert(table: string, value: Doc) {
       const id = await (db.insert as (table: string, value: unknown) => Promise<GenericId<string>>)(table, value);
       if ((WATCHED_TABLES as readonly string[]).includes(table)) record(changes, table as Watched, id, value, null);
-      if ((ACCESS_TABLES as readonly string[]).includes(table)) noteAccess(table as AccessSource, value);
+      if ((ACCESS_TABLES as readonly string[]).includes(table)) noteAccess(table as AccessSource, String(id), value, "insert");
       return id;
     },
     async patch(...args: unknown[]) {
@@ -129,7 +129,7 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
       const fields = value !== null && typeof value === "object" ? Object.keys(value) : null;
       const access = await accessBefore(id, fields);
       await (db.patch as (...a: unknown[]) => Promise<void>)(...args);
-      if (access !== null) noteAccess(access, await db.get(id as GenericId<AccessSource>));
+      if (access !== null) noteAccess(access, id, await db.get(id as GenericId<AccessSource>), "after");
       const table = tableOf(db, id);
       if (table === null) return;
       record(changes, table, id, (await db.get(id as GenericId<Watched>)) as Doc | null, fields);
@@ -138,7 +138,7 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
       const { id } = split(args);
       const access = await accessBefore(id, null);
       await (db.replace as (...a: unknown[]) => Promise<void>)(...args);
-      if (access !== null) noteAccess(access, await db.get(id as GenericId<AccessSource>));
+      if (access !== null) noteAccess(access, id, await db.get(id as GenericId<AccessSource>), "after");
       const table = tableOf(db, id);
       if (table === null) return;
       record(changes, table, id, (await db.get(id as GenericId<Watched>)) as Doc | null, null);
