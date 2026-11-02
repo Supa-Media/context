@@ -351,7 +351,6 @@ export const gatewayPageCover = gatewayRoute(gatewayPageCoverHandler, MAX_COVER_
 export const gatewayTreeTouch = gatewayRoute(signals.gatewayTreeTouchHandler);
 export const gatewayTreeManifest = gatewayRoute(gatewayTreeManifestHandler);
 export const gatewayTreeFacts = gatewayRoute(gatewayTreeFactsHandler);
-
 /* -------------------------------------------------------------------------- */
 /* 2b-noteids. POST /gateway/note-ids/lookup and /wrote — the id copy         */
 /* -------------------------------------------------------------------------- */
@@ -809,6 +808,7 @@ http.route({ path: "/gateway/moves/batch", method: "POST", handler: gatewayRoute
 http.route({ path: "/gateway/moves/across", method: "POST", handler: gatewayRoute(gatewayMoveAcrossHandler) });
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/tree/touch", method: "POST", handler: gatewayTreeTouch });
+http.route({ path: "/gateway/objects/behind", method: "POST", handler: gatewayRoute(signals.gatewayObjectBehindHandler) });
 http.route({ path: "/gateway/tree/manifest", method: "POST", handler: gatewayTreeManifest });
 http.route({ path: "/gateway/tree/facts", method: "POST", handler: gatewayTreeFacts });
 http.route({ path: "/gateway/page-cover", method: "POST", handler: gatewayPageCover });
