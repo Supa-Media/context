@@ -117,10 +117,31 @@ export function documentOfKey(key: string): string | null {
 
 const stateKey = (documentId: string) => `${HISTORY_ROOT}documents/${documentId}.json`;
 
+/**
+ * When the erase leak was fixed (#2694 live). A bucket copy written after it cannot be an erase the bucket missed:
+ * an erase since then reaches the bucket on its own. Such a copy is far likelier history the app's console wrote to
+ * the bucket alone (before #2710), the only copy there is, so it is never deleted as an erase.
+ */
+export const ERASE_LEAK_FIXED_AT = Date.parse("2026-11-02T09:37:00Z");
+
+/** The live notes of a workspace, by the paths its rows read and the note ids they carry. */
+export interface LiveNotes {
+  paths: Set<string>;
+  noteIds: Set<string>;
+}
+
+/** What `Facts` needs to tell an erase the bucket missed from history only the bucket ever held. */
+export interface EraseGuard {
+  bucket: BodyStore;
+  liveNotes: () => Promise<LiveNotes>;
+}
+
 /** What the object's live editing history says about one document, read once per document per `Facts`. */
 export class Facts {
   private readonly states = new Map<string, Promise<Set<string> | null>>();
   private readonly lives = new Map<string, Promise<boolean>>();
+  private readonly owners = new Map<string, Promise<{ path?: string; noteId?: string } | null>>();
+  private notes: Promise<LiveNotes> | null = null;
   /**
    * `readsNote` answers whether a live tree row reads a `notes/` key (the control plane's rows); without it a missing
    * note text is never placed.
@@ -128,7 +149,50 @@ export class Facts {
   constructor(
     private readonly object: BodyStore,
     private readonly readsNote: ((key: string) => Promise<boolean>) | null = null,
+    private readonly guard: EraseGuard | null = null,
   ) {}
+
+  /** The note a document was made for, from the bucket's copy of its state: its path, `null` when unreadable. */
+  private owner(documentId: string): Promise<{ path?: string; noteId?: string } | null> {
+    let found = this.owners.get(documentId);
+    if (found === undefined) {
+      const guard = this.guard;
+      found = (async () => {
+        if (guard === null) return null;
+        const state = await guard.bucket.get(stateKey(documentId));
+        if (state === null) return null;
+        const path = parsed(await state.arrayBuffer())?.path;
+        return typeof path === "string" && path !== "" ? { path } : null;
+      })();
+      this.owners.set(documentId, found);
+    }
+    return found;
+  }
+
+  /**
+   * Whether a key of `documentId` the object lacks may be deleted from the bucket as an erase it missed. Only a copy
+   * written before the leak was fixed, whose note is known (a head's own note id and path, else the bucket state's
+   * path) and has no live row at that id or path. Anything else may be the one copy of a live note's history.
+   */
+  async mayBeErased(documentId: string, bucketCopy: StoredObject, bytes: ArrayBuffer, isHead: boolean): Promise<boolean> {
+    if (this.guard === null) return false;
+    const at = uploadedAt(bucketCopy);
+    if (at === null || at >= ERASE_LEAK_FIXED_AT) return false;
+    let owner: { path?: string; noteId?: string } | null = null;
+    if (isHead) {
+      const head = parsed(bytes);
+      const path = typeof head?.path === "string" && head.path !== "" ? head.path : undefined;
+      const noteId = typeof head?.noteId === "string" && head.noteId !== "" ? head.noteId : undefined;
+      owner = path === undefined && noteId === undefined ? null : { ...(path ? { path } : {}), ...(noteId ? { noteId } : {}) };
+    }
+    owner ??= await this.owner(documentId);
+    if (owner === null) return false;
+    this.notes ??= this.guard.liveNotes();
+    const live = await this.notes;
+    if (owner.noteId !== undefined && live.noteIds.has(owner.noteId)) return false;
+    if (owner.path !== undefined && live.paths.has(owner.path)) return false;
+    return true;
+  }
 
   /** Whether a live row still reads this note text; `null` when nobody can say. */
   async noteRead(key: string): Promise<boolean | null> {
@@ -172,18 +236,19 @@ export class Facts {
 }
 
 /** The class of a key the bucket holds and the object does not. */
-async function classifyMissing(key: string, bucketCopy: ArrayBuffer, facts: Facts): Promise<RepairClass> {
+async function classifyMissing(key: string, stored: StoredObject, bucketCopy: ArrayBuffer, facts: Facts): Promise<RepairClass> {
   if (key.startsWith("notes/")) return (await facts.noteRead(key)) === true ? "bucketNewer" : "unsure";
   const part = historyPart(key);
   if (part === "heads") {
     // An erase deletes a head after purging its document; no other step deletes one.
     const documentId = parsed(bucketCopy)?.documentId;
     if (typeof documentId !== "string" || documentId === "") return "unsure";
-    return (await facts.live(documentId)) ? "bucketNewer" : "eraseNotApplied";
+    if (await facts.live(documentId)) return "bucketNewer";
+    return (await facts.mayBeErased(documentId, stored, bucketCopy, true)) ? "eraseNotApplied" : "unsure";
   }
   const documentId = documentOfKey(key);
   if (documentId === null) return "unsure";
-  if (!(await facts.live(documentId))) return "eraseNotApplied";
+  if (!(await facts.live(documentId))) return (await facts.mayBeErased(documentId, stored, bucketCopy, false)) ? "eraseNotApplied" : "unsure";
   if (part === "documents") return "bucketNewer";
   if (part === "revisions") {
     const revision = revisionOf(key);
@@ -219,7 +284,7 @@ export async function settleKey(
   if (bucketCopy === null) return { verdict: "same", done: null };
   const bucketBytes = await bucketCopy.arrayBuffer();
   let verdict: RepairClass;
-  if (objectCopy === null) verdict = await classifyMissing(key, bucketBytes, facts);
+  if (objectCopy === null) verdict = await classifyMissing(key, bucketCopy, bucketBytes, facts);
   else if (sameBytes(bucketBytes, await objectCopy.arrayBuffer())) return { verdict: "same", done: null };
   else verdict = classifyDiffer(bucketCopy, objectCopy);
   if (!apply) return { verdict, done: null };
