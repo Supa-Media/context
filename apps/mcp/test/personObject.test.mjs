@@ -228,3 +228,11 @@ test("the app's own client carries the names the person answers to; other client
   assert.deepEqual(shared.grantedNames, ["leads", "uh"]);
   assert.deepEqual(session.workspaces.find((entry) => entry.slug === "context-lc").grantedNames, ["#pin-reader"]);
 });
+
+test("while dual, the object holds the copy and answers no session", { skip }, async () => {
+  const env = { WORKSPACE_STORE: namespace() };
+  const { client, token } = await person(env, { pwid: "pI", userId: "uI", grantId: "gI", secret: SECRET("i") });
+  await client.setHome(ACCESS_HOMES.DUAL);
+  assert.equal(await client.session(await sha256Hex(token)), null);
+  assert.equal((await client.state()).home, "dual");
+});
