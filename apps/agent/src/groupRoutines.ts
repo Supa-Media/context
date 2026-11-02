@@ -76,10 +76,13 @@ export function lastRanWords(since: number | undefined, timeZone: string | undef
   }
 }
 
+/** Whether a routine is kept in its chat's home, `tex/groups/<words>/routines/` in `@context-lc` (the owner, 2026-11-02). */
+const inChatHome = (path: string): boolean => /^tex\/groups\/[a-z][a-z0-9-]*\/routines\//i.test(path);
+
 /** What a chat routine's turn is asked: its writer's tag, in words only this Worker writes. */
 export function chatRoutineQuestion(path: string, lastRan: string | null = null): string {
   return (
-    `(It's time for this chat's routine, ${path}. Read that note and do what it says now, for everyone here, ` +
+    `(It's time for this chat's routine, ${path}${inChatHome(path) ? ` (context: "@context-lc")` : ""}. Read that note and do what it says now, for everyone here, ` +
     "as if it had just been asked. " +
     (lastRan === null ? "" : `It last ran ${lastRan}: anything "new" means since then. `) +
     "If it only wants a word when there is something to say and there isn't, answer exactly SKIP.)"
