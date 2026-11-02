@@ -30,10 +30,14 @@ breaking one, stop and say so rather than working around it.
    `bucket` | `dual` | `object`), its bodies stay in the bucket and its rows in
    the control plane ([notes-by-id](./docs/decisions/storage-and-credentials/notes-by-id.md)).
    The control plane keeps accounts, usernames, sign-in, AI client grants,
-   billing, audit, a "shared with me" index and each note's rebuildable facts
-   (links, front matter, first heading and paragraph;
-   [convex-facts](./docs/decisions/app-and-console/convex-facts.md)), and
-   **never** holds a note's body. Leaving is **Download as folders**: a complete, decrypted copy with
+   billing, audit, a "shared with me" index and, until the app reads them from
+   the objects, each note's rebuildable facts (links, front matter, first
+   heading and paragraph;
+   [convex-facts](./docs/decisions/app-and-console/convex-facts.md)); a
+   workspace object keeps its own notes' facts beside their text, and the
+   gateway, Lists, the map and the chaos score read them there (decided by the owner, 2026-11-02;
+   [facts-in-objects](./docs/decisions/storage-and-credentials/facts-in-objects.md)).
+   The control plane **never** holds a note's body. Leaving is **Download as folders**: a complete, decrypted copy with
    real names, free on every plan, still available after cancelling, never
    gated, degraded or behind a paywall — gate it and this is a different
    product. Bring-your-own bucket is retired: nobody new connects one, and a

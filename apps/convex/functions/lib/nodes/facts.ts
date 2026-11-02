@@ -36,8 +36,7 @@
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "../../../_generated/server";
 import { expiredBefore, seqAt } from "./log";
-import { CONTACTS_FOLDER, asInboxKey } from "../../../../../packages/communications/src/protocol.js";
-import { hasReview, isExempt, LONG_NOTE_LINES } from "../../../../mcp/src/chaos/rubric.js";
+import { chaosExtraOf as sharedChaosExtraOf } from "../../../../mcp/src/tree/chaosExtra.js";
 import { nodeAt } from "./paths";
 
 /** Notes one fill pass reads from the bucket. */
@@ -158,24 +157,11 @@ export interface ChaosExtra {
 }
 
 /**
- * What the chaos score needs beyond a note's key (`scoreKeys`' extras in
- * `apps/mcp/src/chaos/live.js`), or `null` for a note it needs nothing more
- * of: one past the long-note line, or a contact page carrying a `review:`.
+ * What the chaos score needs beyond a note's key, or `null` for a note it needs nothing more of: one copy, shared
+ * with the workspace objects (`apps/mcp/src/tree/chaosExtra.js`).
  */
 export function chaosExtraOf(path: string, props: string | null | undefined): ChaosExtra | null {
-  if (props === null || props === undefined) return null;
-  let parsed: { lines?: unknown; properties?: Record<string, unknown> };
-  try {
-    parsed = JSON.parse(props);
-  } catch {
-    return null;
-  }
-  const properties = parsed.properties ?? {};
-  const lines = typeof parsed.lines === "number" && Number.isFinite(parsed.lines) ? parsed.lines : null;
-  const review = hasReview(properties.review);
-  const long = lines !== null && lines > LONG_NOTE_LINES;
-  if (!long && !(asInboxKey(path).startsWith(`${CONTACTS_FOLDER}/`) && review)) return null;
-  return { lines, exempt: isExempt(path, properties.type, properties.generated), review };
+  return sharedChaosExtraOf(path, props);
 }
 
 /** A note's live row, or `null` when it is not in the tree. */

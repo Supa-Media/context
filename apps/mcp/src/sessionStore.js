@@ -13,7 +13,7 @@
 
 import { gatewayTexStore } from "./texStore/wire.js";
 import { workspaceClient } from "./workspaceStore/api.js";
-import { objectFirstHooks } from "./store/objectLookup.js";
+import { objectFirstFacts, objectFirstHooks } from "./store/objectLookup.js";
 import { openedFromObject } from "./store/objectBinding.js";
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { treeNoteCount } from "./tree/names.js";
@@ -215,6 +215,13 @@ async function openSessionStore(session, env, controlPlane) {
   // the object's client, which nothing that spreads or logs a store should carry.
   Object.defineProperty(store, "objectReading", { value: objectReading, enumerable: false, writable: false, configurable: true });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
+  // Notes' links and props from the object that holds their text, before the control plane (`http/routing.js` `treeFacts`).
+  Object.defineProperty(store, "objectFacts", {
+    value: objectFirstFacts(objectReading),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
 
   /**
    * The search projection's coordinates, where this workspace opted in.
