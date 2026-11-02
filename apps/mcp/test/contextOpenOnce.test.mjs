@@ -6,6 +6,8 @@ import { before, test } from "node:test";
 import worker from "../src/index.js";
 import { attachContextOpener, onceEach, namedContextsOf } from "../src/http/contextOpener.js";
 import { attachPinnedDoors } from "../src/http/pinnedDoors.js";
+import { attachLinkCalls } from "../src/http/routing.js";
+import { servedListingStore } from "../src/tree/served.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
@@ -188,6 +190,31 @@ test("attachPinnedDoors opens each door once, and only when the grant carries it
   attachPinnedDoors(bare, { ...session, setupReach: null }, openStore);
   assert.equal(bare.openPinnedSetup, undefined);
   assert.equal(bare.openChatHome, undefined);
+});
+
+test("a chat's home lists its own folder: the door's store asks the control plane for the tree as the home (2026-11-02)", async () => {
+  // Without the tree manifest on the home's store, every listing there was refused ("this workspace's file list
+  // could not be read") and no chat's history page could be written in its home.
+  const session = {
+    workspaceId: "ws_mine",
+    grantScopes: ["context:read", "context:write"],
+    workspaces: [],
+    setupReach: { workspaceId: "ws_pinned", slug: "context-lc", kind: "shared", role: "editor", grantedNames: ["#reads-as-chat"], chatHome: "tex/groups/example" },
+  };
+  Object.defineProperty(session, "accessToken", { value: TOKEN, enumerable: false });
+  const asked = [];
+  const controlPlane = {
+    readTreeManifest: async (token, workspaceId, page) => {
+      asked.push({ token, workspaceId, folder: page.folder });
+      return { served: true, entries: [{ path: "tex/groups/example/history.md", etag: "e1" }], cursor: null };
+    },
+  };
+  const store = {};
+  attachPinnedDoors(store, session, async () => ({ list: async () => ({ objects: [] }) }), (opened, sibling) => attachLinkCalls(opened, sibling, controlPlane, {}));
+  const home = await store.openChatHome();
+  const listed = await servedListingStore(home.store).list({ prefix: "tex/groups/example/" });
+  assert.deepEqual(listed.objects.map((object) => object.key), ["tex/groups/example/history.md"]);
+  assert.deepEqual(asked, [{ token: TOKEN, workspaceId: "ws_pinned", folder: "tex/groups/example" }], "asked as the home, with the chat's token");
 });
 
 test("a held store reads the turn's search settings and held passes as they are now", async () => {
