@@ -6,7 +6,7 @@
 
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
-import { liveNodeAt, rowsAfter } from "./lib/nodes/paths";
+import { liveNodeAt, located, nodePaths, rowsAfter } from "./lib/nodes/paths";
 import { chatHomeOf } from "./lib/textGroupHome";
 
 const DEFAULT_PAGE = 25;
@@ -66,5 +66,23 @@ export const homeFiles = internalQuery({
     return rows
       .filter((row) => row.kind === "file" && row.goneAt === undefined && row.path.startsWith(`${folder}/`) && !row.path.slice(folder.length + 1).includes("/"))
       .map((row) => row.path.slice(folder.length + 1));
+  },
+});
+
+/** The path of the live row a note id names in the workspace, or null. */
+export const rowOfNote = internalQuery({
+  args: { workspaceId: v.id("workspaces"), noteId: v.string() },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, { workspaceId, noteId }) => {
+    const rows = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_noteId", (q) => q.eq("workspaceId", workspaceId).eq("noteId", noteId))
+      .collect();
+    const paths = await nodePaths(ctx.db, workspaceId);
+    for (const row of rows) {
+      const live = await located(ctx.db, row, paths);
+      if (live !== null && live.goneAt === undefined) return live.path;
+    }
+    return null;
   },
 });

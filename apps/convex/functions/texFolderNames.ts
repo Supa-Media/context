@@ -25,6 +25,7 @@ import { internalAction, type ActionCtx } from "../_generated/server";
 import type { OperationResult } from "./lib/filesFns/operationTypes";
 import { hashToken } from "./lib/crypto";
 import { READS_AS_CHAT_NAME } from "./lib/nodes/chatFolders";
+import { consoleTexBuckets } from "./lib/texStore";
 
 export type Rename = { from: string; to: string };
 
@@ -153,5 +154,54 @@ export const homes = internalAction({
       }
     }
     return totals;
+  },
+});
+
+/** The record's one name in its chat's object: sha256 of "memory" (`apps/mcp/src/agent/chatMemoryRecord.js`). */
+async function chatRecord(ctx: ActionCtx, pin: Id<"workspaces">, groupKey: string): Promise<Record<string, unknown> | null> {
+  const owner = `chat:${groupKey}`;
+  const buckets = consoleTexBuckets(ctx, pin, { ticketOwners: [owner] });
+  if (buckets === null) return null;
+  const held = await buckets(owner).get(`state/${await hashToken("memory")}.json`);
+  if (held === null) return null;
+  const record = JSON.parse(await held.text()) as unknown;
+  return record !== null && typeof record === "object" && !Array.isArray(record) ? (record as Record<string, unknown>) : null;
+}
+
+/**
+ * Where each homed chat's history page is, by the key its record keeps for it (`direct.memory`), as fixed codes: the
+ * record (`no_record`, `on_page` or not), the key (`no_key`), and the row that key's note id names (`no_row`, or the
+ * shape of its name, `homeFileShape`). Read only; reads each chat's record from its object.
+ */
+export const pages = internalAction({
+  args: {},
+  returns: v.object({ homes: v.number(), codes: v.record(v.string(), v.number()) }),
+  handler: async (ctx): Promise<{ homes: number; codes: Record<string, number> }> => {
+    const found: { homes: { groupKey: string; workspaceId: Id<"workspaces">; folder: string; noteId: string }[] } = await ctx.runQuery(internal.functions.texFolderNamesRows.homes, {});
+    const codes: Record<string, number> = {};
+    for (const home of found.homes) {
+      try {
+        const record = await chatRecord(ctx, home.workspaceId, home.groupKey);
+        if (record === null) {
+          count(codes, "no_record");
+          continue;
+        }
+        count(codes, record.onPage === 1 ? "on_page" : "not_on_page");
+        if (Array.isArray(record.turns)) count(codes, `record_turns_${record.turns.length > 0 ? "some" : "none"}`);
+        const key = (record.direct as { memory?: unknown } | undefined)?.memory;
+        const id = typeof key === "string" ? /(?:^|\/)notes\/([^/]+)\.md$/.exec(key)?.[1] : undefined;
+        if (id === undefined) {
+          count(codes, "no_key");
+          continue;
+        }
+        const path: string | null = await ctx.runQuery(internal.functions.texFolderNamesRows.rowOfNote, { workspaceId: home.workspaceId, noteId: id });
+        if (path === null) count(codes, "no_row");
+        else if (!path.startsWith(`${home.folder}/`)) count(codes, "row_elsewhere");
+        else count(codes, `row_${homeFileShape(path.slice(home.folder.length + 1), await hashToken(home.groupKey))}`);
+      } catch {
+        count(codes, "FAILED");
+      }
+    }
+    return { homes: found.homes.length, codes };
   },
 });
