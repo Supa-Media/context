@@ -43,6 +43,7 @@ import { RESERVED_FIRST_SEGMENTS, SLUG_PATTERN } from "./workspacePath.js";
 import { ROW_NAME_PATTERN } from "./privacy/rowAccess.js";
 import { SessionRefusal, normalizeSession } from "./sessionPayload.js";
 import { READS_AS_CHAT } from "./privacy/engine.js";
+import { PINNED_CONTEXT_NAME } from "./orient/globalNote.js";
 
 /**
  * Re-exported so every caller keeps importing it from here.
@@ -325,28 +326,53 @@ export function sessionForContext(session, name) {
 }
 
 /**
- * A group chat's session, addressed at the pin only to read Tex's setup
- * (`agent/production.js`), or `null` when the grant carries none.
+ * The clients that are Tex (its texted turns, group chats, routines and its own jobs), each of which reads its setup
+ * in the pin through `sessionForSetup`. Mirrors `apps/convex/functions/lib/texSetupRead.ts` `TEX_SETUP_CLIENTS`, which
+ * the control plane checks again before it opens anything.
+ */
+export const TEX_SETUP_CLIENTS = new Set([
+  "context_texts",
+  "context_texts_group",
+  "context_routines",
+  "context_heartbeat",
+  "context_housekeeping",
+  "context_dreams",
+]);
+
+/**
+ * A Tex turn's session, addressed at the pin only to read Tex's setup (`agent/production.js`), or `null` for every
+ * other client, and where the grant reaches no pin.
  *
- * Read-only whatever the grant holds, at the pin's own role and names, and
- * never reached through `sessionForContext`: the pin is not in `workspaces`,
- * so no tool argument and no URL can name it.
+ * Every Tex turn runs on `ai/production/` (owner, 2026-11-02: "peoples tex should always have access to the
+ * production note"), whoever the person is: a member of the pin, a pin reader (read as a guest, who sees no staff
+ * note), or a group chat (whose setup row is read as the chat). So this is not the person's own reach there. It asks
+ * the control plane for the pin with `setupRead` (`sessionStore.js`), which answers only a Tex client's token and the
+ * pin, with a member's rules narrowed to `ai/production/` and `ai/agents/` (`texSetupRead.ts`): everything else there
+ * is private to it. Read-only whatever the grant holds, at `team` with no names, and never reached through
+ * `sessionForContext`: no tool argument and no URL can name it.
  */
 export function sessionForSetup(session) {
-  const setup = session?.setupReach;
-  if (!setup || typeof setup.workspaceId !== "string") return null;
-  const scopes = effectiveScopes(session.grantScopes, setup.role).filter((scope) => scope === SCOPE_READ);
-  if (scopes.length === 0) return null;
+  if (!TEX_SETUP_CLIENTS.has(session?.actorClientId)) return null;
+  // A door's own session (this one, or a chat's home door) opens no further door.
+  if (session.setupRead === true || typeof session.chatHome === "string") return null;
+  const pin =
+    session.setupReach && typeof session.setupReach.workspaceId === "string"
+      ? session.setupReach
+      : (session.workspaces || []).find((entry) => `@${entry.slug}` === PINNED_CONTEXT_NAME && typeof entry.workspaceId === "string");
+  if (!pin) return null;
+  if (!(session.grantScopes || []).includes(SCOPE_READ)) return null;
   const sibling = {
     ...session,
-    workspaceId: setup.workspaceId,
-    workspaceSlug: setup.slug,
-    workspaceKind: setup.kind,
-    role: setup.role,
-    scope: visibilityTierForGrant(scopes, setup.role),
-    scopes,
-    grantedGroups: grantedGroupsOf(setup.grantedNames),
+    workspaceId: pin.workspaceId,
+    workspaceSlug: pin.slug,
+    workspaceKind: pin.kind,
+    role: "member",
+    scope: "team",
+    scopes: [SCOPE_READ],
+    grantedGroups: new Set(),
     setupReach: null,
+    // Asked of the control plane as Tex's setup read, never as the person's reach (`sessionStore.js`).
+    setupRead: true,
   };
   Object.defineProperty(sibling, "accessToken", { value: session.accessToken, enumerable: false, writable: false });
   return sibling;

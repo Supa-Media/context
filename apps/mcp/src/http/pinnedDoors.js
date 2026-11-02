@@ -1,8 +1,10 @@
 /**
- * The two doors a group chat's turn has into the pin it may not otherwise
- * address (`session.js`): `openPinnedSetup`, to read Tex's setup
- * (`agent/production.js`), and `openChatHome`, to keep the chat's memory in
- * its home there and nowhere else (`agent/chatHome.js`). Each answers
+ * The two doors a Tex turn has into the pin it may not otherwise address
+ * (`session.js`): `openPinnedSetup`, for every Tex turn, to read Tex's setup
+ * through the control plane's setup read (`agent/production.js`,
+ * docs/decisions/texting-assistant/setup-read.md), and `openChatHome`, for a
+ * group chat, to keep the chat's memory in its home there and nowhere else
+ * (`agent/chatHome.js`). Each answers
  * `{ session, store }`, and is attached only when the grant carries it.
  *
  * Each door opens at most once per request (a turn reads its setup and home

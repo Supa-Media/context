@@ -97,7 +97,9 @@ async function openSessionStore(session, env, controlPlane) {
   try {
     opened = await controlPlane.getStorageBinding(
       session.accessToken,
-      session.workspaceId
+      session.workspaceId,
+      // Tex's own read of its setup in the pin (`session.js` `sessionForSetup`): asked as that, never as the person.
+      ...(session.setupRead === true ? [undefined, { setupRead: true }] : [])
     );
   } catch (error) {
     if (error instanceof ControlPlaneError) throw new StorageUnavailable(`control plane ${error.status ?? error.reason}`);

@@ -160,6 +160,7 @@ test("attachPinnedDoors opens each door once, and only when the grant carries it
   // chat-reads grant and a home, so both doors exist.
   const session = {
     workspaceId: "ws_mine",
+    actorClientId: "context_texts_group",
     grantScopes: ["context:read", "context:write"],
     workspaces: [],
     setupReach: { workspaceId: "ws_pinned", slug: "context-lc", kind: "shared", role: "owner", grantedNames: ["#reads-as-chat"], chatHome: "tex/groups/example.md" },
@@ -183,7 +184,7 @@ test("attachPinnedDoors opens each door once, and only when the grant carries it
   // Two doors, each opened once: two opens in total.
   assert.deepEqual(opened, ["ws_pinned", "ws_pinned"]);
 
-  // Without a setup reach, neither door is attached.
+  // Without a setup reach (and no pin among its workspaces), neither door is attached.
   const bare = {};
   attachPinnedDoors(bare, { ...session, setupReach: null }, openStore);
   assert.equal(bare.openPinnedSetup, undefined);
