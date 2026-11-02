@@ -19,6 +19,7 @@ import type * as functions_accountSetup from "../functions/accountSetup.js";
 import type * as functions_audit from "../functions/audit.js";
 import type * as functions_billing from "../functions/billing.js";
 import type * as functions_texChatHomeCensus from "../functions/texChatHomeCensus.js";
+import type * as functions_texChatHomeGrants from "../functions/texChatHomeGrants.js";
 import type * as functions_texGroupMigration from "../functions/texGroupMigration.js";
 import type * as functions_texGroupMigrationRows from "../functions/texGroupMigrationRows.js";
 import type * as functions_texFolderNames from "../functions/texFolderNames.js";
@@ -262,6 +263,7 @@ declare const fullApi: ApiFromModules<{
   "functions/audit": typeof functions_audit;
   "functions/billing": typeof functions_billing;
   "functions/texChatHomeCensus": typeof functions_texChatHomeCensus;
+  "functions/texChatHomeGrants": typeof functions_texChatHomeGrants;
   "functions/texGroupMigration": typeof functions_texGroupMigration;
   "functions/texGroupMigrationRows": typeof functions_texGroupMigrationRows;
   "functions/texFolderNames": typeof functions_texFolderNames;
