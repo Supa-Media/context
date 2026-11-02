@@ -295,3 +295,18 @@ test("a move's candidates through the door are unfiltered: a private note pointi
   const answer = await ws.factRows({ ask: "candidates", sources: ["projects/plan.md"], names: ["plan"] });
   assert.deepEqual(answer.candidates.pointing.sort(), ["projects/brief.md", "projects/secret/hidden.md"]);
 });
+
+test("which moved notes hold links, through the door: unfiltered, read at their text, an untrusted note counted", { skip }, async () => {
+  const { ws } = await seeded();
+  const answer = await ws.factRows({ ask: "linking", paths: ["projects/plan.md", "projects/notes.md", "projects/secret/hidden.md", "projects/none.md"] });
+  assert.deepEqual(answer, { served: true, linking: ["projects/plan.md", "projects/secret/hidden.md"] });
+  // An edit that adds a link is seen at once: the etag moved, so the note is read again.
+  await ws.bodies.put(`notes/${ID(4)}.md`, "# Notes\n\nNow see [[brief]].\n");
+  assert.deepEqual((await ws.factRows({ ask: "linking", paths: ["projects/notes.md"] })).linking, ["projects/notes.md"]);
+  // A note whose text lives elsewhere cannot be vouched for: answered as linking, so a move still reads it.
+  await ws.rows.put([{ id: "n5", path: "projects/elsewhere.md", kind: "file", storageKey: "tex/elsewhere.md", at: 11 }]);
+  assert.deepEqual((await ws.factRows({ ask: "linking", paths: ["projects/elsewhere.md"] })).linking, ["projects/elsewhere.md"]);
+  // Not served before the notes live here.
+  const dual = await seeded({ home: HOMES.DUAL, workspaceId: "ws_two" });
+  assert.deepEqual(await dual.ws.factRows({ ask: "linking", paths: ["projects/plan.md"] }), { served: false });
+});

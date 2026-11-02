@@ -19,6 +19,7 @@ import { useAction, useQuery } from "convex/react";
 import { Tex } from "../../chaos/Tex";
 import { api } from "@context/convex/_generated/api";
 import { DASHBOARD_CSS } from "./dashboardCss";
+import { useTriageDesk } from "./useTriageDesk";
 import { BugsPanel, NoteReader } from "./DashboardBugs.web";
 import { DashboardExplore } from "./DashboardExplore.web";
 import { PainPanel } from "./DashboardPain.web";
@@ -57,7 +58,7 @@ export function TexDashboard() {
   const [who, setWho] = useState<Who>("all");
   const [task, setTask] = useState<string>("all");
   const report = useQuery(api.functions.admin.texReport, isAdmin === true ? { days: FETCH_DAYS[days] } : "skip");
-  const triage = useQuery(api.functions.texDashboard.triage, isAdmin === true ? {} : "skip");
+  const triage = useTriageDesk(isAdmin === true);
   const spend = useTexSpend(isAdmin === true ? Number(days) : null);
   const [reading, setReading] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<Record<string, string>>({});

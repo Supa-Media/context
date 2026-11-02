@@ -20,7 +20,8 @@ import { carryRowHistory } from "../nodes/rowHistory";
 import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import { normalizePath } from "../fileOps/paths";
 import { OLD_COPIES_ROOT, type FileStore } from "../fileOps/store";
-import { bodyVerdict, dayOf } from "./classify";
+import { objectFactRows, objectPropsAt } from "../nodes/objectFacts";
+import { bodyVerdict, dayOf, rowVerdict } from "./classify";
 
 /** Rows one mutation hides: each is a row move, with its access and links followed. */
 export const HIDE_BATCH = 25;
@@ -52,6 +53,33 @@ async function textAt(store: FileStore, path: string): Promise<string | null> {
   }
 }
 
+type Candidate = { path: string; verdict: "day" | "attachment" | "read" | "facts"; key?: string };
+
+/**
+ * Each note the page left to the object (`facts`) decided by its props there, as `rowVerdict` decides a row by the
+ * control plane's: a copied day, one to read, or the person's (dropped). A note the object does not answer for is
+ * decided by its name alone, as a row with no facts is.
+ */
+export async function decidedByObject(
+  facts: Parameters<typeof objectPropsAt>[0],
+  rows: readonly Candidate[],
+): Promise<Array<Candidate & { verdict: "day" | "attachment" | "read" }>> {
+  const asked = rows.filter((row) => row.verdict === "facts").map((row) => row.path);
+  const held = asked.length === 0 ? null : await objectPropsAt(facts, asked);
+  const decided: Array<Candidate & { verdict: "day" | "attachment" | "read" }> = [];
+  for (const row of rows) {
+    if (row.verdict !== "facts") {
+      decided.push({ ...row, verdict: row.verdict });
+      continue;
+    }
+    const props = held?.get(row.path)?.props ?? undefined;
+    // Read at the note's current text, so its own version vouches for it.
+    const verdict = rowVerdict({ path: row.path, kind: "file", ...(props === undefined || props === null ? {} : { props, parsed: "object", etag: "object" }) }, []);
+    if (verdict === "day" || verdict === "read") decided.push({ ...row, verdict });
+  }
+  return decided;
+}
+
 /** One page of the workspace's rows looked at, and its copies hidden. */
 export async function hideOldCopiesPass(
   ctx: ActionCtx,
@@ -60,12 +88,15 @@ export async function hideOldCopiesPass(
   projection: ProjectionClient | null,
   cursor: string | null,
 ): Promise<HidePass> {
-  const page = await ctx.runQuery(internal.functions.oldCopies.candidatePage, { workspaceId, cursor });
-  const looked = { rows: page.rows.length, unread: 0, theirs: 0 };
+  // Where the notes live in their object, it says what each note's front matter is, read at its current text.
+  const facts = await objectFactRows(ctx, workspaceId);
+  const page = await ctx.runQuery(internal.functions.oldCopies.candidatePage, { workspaceId, cursor, ...(facts === null ? {} : { everyNote: true }) });
+  const rows = await decidedByObject(facts, page.rows);
+  const looked = { rows: rows.length, unread: 0, theirs: 0 };
   const pass: HidePass = { kind: "oldCopiesHidden", cursor: page.done ? null : page.cursor, days: 0, contacts: 0, files: 0, looked };
 
   const hide: { path: string; as: "day" | "contact" | "file" }[] = [];
-  for (const row of page.rows) {
+  for (const row of rows) {
     if (row.verdict === "day") hide.push({ path: row.path, as: "day" });
     else if (row.verdict === "attachment") hide.push({ path: row.path, as: "file" });
     else {

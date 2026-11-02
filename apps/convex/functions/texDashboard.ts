@@ -33,6 +33,8 @@ import {
   STATUS_AFTER,
   TRIAGE_ACTIONS,
   TRIAGE_AGENT,
+  deskNotes,
+  deskNotesValidator,
   mailFor,
   onTheDesk,
   texTriageValidator,
@@ -42,6 +44,7 @@ import {
   type TexTriage,
   type TriageAction,
 } from "./lib/adminFns/texTriage";
+import { deskFromObject } from "./lib/adminFns/texTriageFacts";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { getMembership } from "./lib/workspaceAuth";
@@ -81,6 +84,36 @@ export const triage = query({
     if (!desk.ok) return { available: false, reason: desk.reason };
     const visible = await deskVisibility(ctx, desk.userId, desk.workspaceId);
     return { available: true, slug: PINNED_CONTEXT_SLUG, ...(await triageRows(ctx.db, desk.workspaceId, desk.folders, visible)) };
+  },
+});
+
+/** The notes on the desk this member may see, for `triageNow`: which notes, from the rows; what they say comes after. */
+export const deskNotesFor = internalQuery({
+  args: {},
+  returns: v.union(
+    v.object({ available: v.literal(false), reason: v.union(v.literal("no_pinned_context"), v.literal("not_a_member")) }),
+    v.object({ available: v.literal(true), workspaceId: v.id("workspaces"), notes: deskNotesValidator }),
+  ),
+  handler: async (ctx) => {
+    const desk = await deskOf(ctx);
+    if (!desk.ok) return { available: false as const, reason: desk.reason };
+    const visible = await deskVisibility(ctx, desk.userId, desk.workspaceId);
+    return { available: true as const, workspaceId: desk.workspaceId, notes: await deskNotes(ctx.db, desk.workspaceId, desk.folders, visible) };
+  },
+});
+
+/**
+ * The desk as `triage` lists it, with each note's facts read from the pinned context's workspace object at its
+ * current text where its notes live there (`lib/adminFns/texTriageFacts.ts`). The page shows this one, and keeps
+ * `triage` only to hear that the rows changed: a query cannot ask the object.
+ */
+export const triageNow = action({
+  args: {},
+  returns: texTriageValidator,
+  handler: async (ctx): Promise<TexTriage> => {
+    const found = await ctx.runQuery(internal.functions.texDashboard.deskNotesFor, {});
+    if (!found.available) return found;
+    return { available: true, slug: PINNED_CONTEXT_SLUG, ...(await deskFromObject(ctx, found.workspaceId, found.notes)) };
   },
 });
 

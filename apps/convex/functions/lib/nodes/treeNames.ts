@@ -25,7 +25,7 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { internal } from "../../../_generated/api";
-import { objectCandidates, objectFactRows } from "./objectFacts";
+import { objectCandidates, objectFactRows, objectLinking, type FactRows } from "./objectFacts";
 import type { FileStore } from "../fileOps/store";
 import type { TreeNames } from "../fileOps/treeChecks";
 import { notServed, servedStoreOrNotServed } from "./treeGate";
@@ -37,6 +37,9 @@ import { notServed, servedStoreOrNotServed } from "./treeGate";
  */
 export function attachTreeListing(ctx: ActionCtx, workspaceId: Id<"workspaces">, store: FileStore): void {
   let served: Promise<FileStore> | null = null;
+  // Asked once per operation, the first time a rewrite wants facts: whether this workspace's notes live in its object.
+  let facts: Promise<FactRows | null> | null = null;
+  const objectRows = () => (facts ??= objectFactRows(ctx, workspaceId));
   const tree = () => {
     served ??= servedStoreOrNotServed(ctx, workspaceId);
     return served;
@@ -52,11 +55,15 @@ export function attachTreeListing(ctx: ActionCtx, workspaceId: Id<"workspaces">,
     // A move's link rewrite reads only the notes these name (`fileOps/references.ts`).
     // Where the notes live in their object, it answers from the text it holds (`objectFacts.ts`).
     links: async ({ sources, names }) => {
-      const fromObject = await objectCandidates(await objectFactRows(ctx, workspaceId), [...sources], [...names]);
+      const fromObject = await objectCandidates(await objectRows(), [...sources], [...names]);
       if (fromObject !== undefined) return fromObject;
       return await ctx.runQuery(internal.functions.nodeFacts.candidates, { workspaceId, sources, names });
     },
-    linking: async (paths) => await ctx.runQuery(internal.functions.nodeLinkSources.linking, { workspaceId, paths }),
+    linking: async (paths) => {
+      const fromObject = await objectLinking(await objectRows(), paths);
+      if (fromObject !== undefined) return fromObject;
+      return await ctx.runQuery(internal.functions.nodeLinkSources.linking, { workspaceId, paths });
+    },
   };
   Object.defineProperty(store, "treeListing", { value: listing, enumerable: false, configurable: true });
 }
