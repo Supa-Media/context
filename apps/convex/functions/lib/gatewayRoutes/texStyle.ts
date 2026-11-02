@@ -5,6 +5,8 @@
  * (`readTexStyle`): anything else is refused whole.
  */
 
+import { gatewayTexPageHandler, gatewayTexPageSettingsHandler } from "./texPage";
+import { gatewayTexCommandHandler as texCommandHandler } from "./texCommand";
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { groupKeyOf } from "../../textGroups";
@@ -36,3 +38,10 @@ export async function agentTextsGroupStyleHandler(ctx: ActionCtx, body: Record<s
 
 /** `POST /gateway/tex/command`: the agent's chat commands, on the turn's own grant (`texCommand.ts`). */
 export { gatewayTexCommandHandler } from "./texCommand";
+
+/** Routes registered together in `http.ts`: the agent's chat commands, and the Tex page's two (`texPage.ts`). */
+export const TEX_ROUTES = [
+  ["/gateway/tex/command", texCommandHandler],
+  ["/gateway/tex/page", gatewayTexPageHandler],
+  ["/gateway/tex/page/settings", gatewayTexPageSettingsHandler],
+] as const;
