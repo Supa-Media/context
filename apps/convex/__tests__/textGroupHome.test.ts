@@ -6,7 +6,8 @@ import { addMember, asUser, createUser, createWorkspace, gatewayPost } from "./f
 import { migrate, pinnedWorld, type PinnedWorld } from "./pinnedReaders.helpers";
 import { nodeAt } from "../functions/lib/nodes/paths";
 import { setAccessRow } from "../functions/lib/nodes/setAccess";
-import { ensureChatHome } from "../functions/lib/textGroupHome";
+import { ensureChatHome, HOME_FOLDERS } from "../functions/lib/textGroupHome";
+import { PERSON_ONLY_TEX_PARTS, TEX_PARTS } from "@context/shared/src/folderJobInfo.cjs";
 import { grantedNamesFor } from "../functions/lib/grantedNames";
 import { checkReachRow } from "../../mcp/src/workspaceStore/access.js";
 
@@ -106,6 +107,13 @@ function sorted(ids: Id<"users">[]) {
 const PERSON_TEX_FOLDERS = ["skills", "routines", "heartbeat", "attention", "dreams", "handbacks", "housekeeping", "pictures"];
 
 describe("a chat's home", () => {
+  test("holds every folder a person's Tex has but the person-only ones, from one list", () => {
+    // A folder added to a person's Tex reaches every home unless it is named person-only: the two never drift.
+    expect([...PERSON_ONLY_TEX_PARTS].sort()).toEqual(["chats", "groups", "transcripts"]);
+    expect([...HOME_FOLDERS].sort()).toEqual([...PERSON_TEX_FOLDERS].sort());
+    expect([...HOME_FOLDERS, ...PERSON_ONLY_TEX_PARTS].sort()).toEqual([...TEX_PARTS].sort());
+  });
+
   test("the first turn makes the home, three words under the homes folder, naming everyone in the chat to edit", async () => {
     const w = await world();
     expect(await turn(w.t, ADA, [ADA, BO, CY, LINE])).toMatchObject({ status: "ready", slug: "context-lc", reach: ["studio"], minted: true });

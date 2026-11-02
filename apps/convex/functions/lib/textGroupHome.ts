@@ -15,6 +15,7 @@
  */
 
 import { CHAT_HOMES_FOLDER } from "@context/shared";
+import { HOME_TEX_PARTS } from "@context/shared/src/folderJobInfo.cjs";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { pinnedContextWorkspace } from "./pinnedContext";
@@ -40,10 +41,11 @@ async function sealedPin(ctx: QueryCtx): Promise<Id<"workspaces"> | null> {
  * The folders a home holds from the start: every folder a person's Tex folder has, by the same names (the owner,
  * 2026-11-01: "i would like them to mirror"; 2026-11-02: the homes "still look very empty ... I don't see any of the
  * scaffolding folders", then "Both with the same type of folders in them? so routines, heartbeats, about, skills,
- * dreams, etc"). Its notes are made as Tex writes them; `docs/decisions/texting-assistant/tex-folders.md` says which
- * of them a chat's turns fill today.
+ * dreams, etc"). It is one list with a person's (`HOME_TEX_PARTS`, `folderJobInfo.cjs`), so a folder added there
+ * stands here too unless it is named person-only. Its notes are made as Tex writes them;
+ * `docs/decisions/texting-assistant/tex-folders.md` says which of them a chat's turns fill today.
  */
-export const HOME_FOLDERS = ["skills", "routines", "heartbeat", "attention", "dreams", "handbacks", "housekeeping", "pictures"] as const;
+export const HOME_FOLDERS = HOME_TEX_PARTS;
 
 /** Whether the home and each of its folders stand as live folders. */
 export async function homeStands(ctx: MutationCtx, pinned: Id<"workspaces">, folder: string): Promise<boolean> {
