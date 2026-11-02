@@ -21,6 +21,7 @@ import { liveNodeAt } from "./lib/nodes/paths";
 import { grantedNamesFor } from "./lib/grantedNames";
 import { listFolderFromNodes } from "./lib/nodes/listing";
 import { clearanceOf } from "./lib/clearance";
+import { scopeForRole } from "./lib/filesFns/access";
 
 /** How one chat's home stands, as a code. */
 type HomeCode = "ok" | "no_words" | "folder_missing" | "not_a_folder" | "no_note_id" | "bound_to_pin";
@@ -76,18 +77,19 @@ export const census = internalQuery({
 });
 
 /**
- * What each owner of the pin sees of the homes, as counts (2026-11-02: an owner saw `tex/` empty in the app): how
+ * What each owner and editor of the pin sees of the homes, as counts (2026-11-02: an owner saw `tex/` empty in the app): how
  * many chats name them among a home's people, how many row names their grants give them in the pin, and how many
  * entries their own listing of `tex` and `tex/groups` returns, as the app's tree asks (`nodesListing.listFolder`).
  */
 async function ownersSee(ctx: QueryCtx, pinned: Id<"workspaces">, chats: Doc<"textGroups">[]) {
+  // Every role that can change the pin, not only owners: the one who saw `tex/` empty may hold another (2026-11-02).
   const owners = (await ctx.db.query("workspaceMembers").withIndex("by_workspace_user", (q) => q.eq("workspaceId", pinned)).collect()).filter(
-    (row) => row.role === "owner",
+    (row) => row.role === "owner" || row.role === "editor",
   );
   const out: Record<string, unknown>[] = [];
-  for (const owner of owners.slice(0, 5)) {
+  for (const owner of owners.slice(0, 10)) {
     const names = await grantedNamesFor(ctx, pinned, owner.userId);
-    const clearance = clearanceOf("private", names);
+    const clearance = clearanceOf(scopeForRole(owner.role), names);
     const listed = async (path: string) => {
       try {
         const listing = await listFolderFromNodes(ctx, pinned, path, clearance);
@@ -97,6 +99,7 @@ async function ownersSee(ctx: QueryCtx, pinned: Id<"workspaces">, chats: Doc<"te
       }
     };
     out.push({
+      role: owner.role,
       inHomeUsers: chats.filter((chat) => (chat.homeUsers ?? []).includes(owner.userId)).length,
       names: names.length,
       tex: await listed("tex"),
