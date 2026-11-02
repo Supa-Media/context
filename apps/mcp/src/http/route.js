@@ -7,7 +7,7 @@
 
 import { openaiAppsChallengeResponse } from "./openaiAppsChallenge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
-import { matchWellKnown } from "./routing.js";
+import { attachLinkCalls, matchWellKnown } from "./routing.js";
 import { decorateRequestStore } from "./requestStore.js";
 import { serveMcp } from "./mcpRoute.js";
 import {
@@ -390,7 +390,7 @@ export async function route(request, env, ctx) {
       // Other contexts, each opened at most once this request (`contextOpener.js`).
       attachContextOpener(store, session, { env, controlPlane, origin, openOnce, pinnedName: PINNED_CONTEXT_NAME });
       // A group chat's turn reads Tex's setup in the pin it may not otherwise address, and keeps its home there.
-      attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, env, controlPlane));
+      attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, env, controlPlane), (opened, sibling) => attachLinkCalls(opened, sibling, controlPlane, env));
 
       // After `store.openContext` is attached, deliberately: a turn may address
       // another context by name exactly as a client's tool call can, through

@@ -18,6 +18,7 @@ import { hasScope, SCOPE_READ, SessionRefusal, StorageUnavailable, storeForSessi
 import { json } from "./responses.js";
 import { createControlPlane } from "../controlPlane.js";
 import { decorateRequestStore } from "./requestStore.js";
+import { attachLinkCalls } from "./routing.js";
 import { handleMcp } from "../mcp/handlers.js";
 import { callOf, mcpEntry } from "../mcp/mcpEntryPoint.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
@@ -95,5 +96,5 @@ async function storeOrRefusal(session, env, controlPlane) {
 function equip(store, { session, env, controlPlane, ctx, request, origin, openOnce, mcp }) {
   decorateRequestStore(store, { session, env, controlPlane, ctx, request, origin });
   attachContextOpener(store, session, { env, controlPlane, origin, openOnce, pinnedName: PINNED_CONTEXT_NAME });
-  attachPinnedDoors(store, session, (sibling) => mcp.step("open_pinned_context", () => storeForSession(sibling, env, controlPlane)).then(mcp.watch));
+  attachPinnedDoors(store, session, (sibling) => mcp.step("open_pinned_context", () => storeForSession(sibling, env, controlPlane)).then(mcp.watch), (opened, sibling) => attachLinkCalls(opened, sibling, controlPlane, env));
 }
