@@ -149,22 +149,21 @@ async function openSessionStore(session, env, controlPlane) {
       : null;
   // Where the workspace's notes are judged in its object, its row questions go there first (`store/objectLookup.js`).
   const controlHooks = idLayoutHooks(opened.idLayout, session, controlPlane);
-  const hooks =
-    controlHooks === null
-      ? null
-      : objectFirstHooks(controlHooks, {
-          client: workspaceClient(env, session.workspaceId),
-          home: binding.notesHome ?? null,
-          behind: binding.notesBehind === true,
-          // Asked again beside every object call: the binding's answer is from when this store was built.
-          checkBehind: behindCheck(controlPlane, session.workspaceId),
-          scope: session.scope,
-          names: session.grantedGroups,
-          chatNames: session.chatNames ?? null,
-          workspaceId: session.workspaceId,
-          userId: session.actorUserId ?? null,
-          log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
-        });
+  // Who reads, as the workspace's object judges them: its row questions and the agent tools' listing go there first.
+  const objectReading = {
+    client: workspaceClient(env, session.workspaceId),
+    home: binding.notesHome ?? null,
+    behind: binding.notesBehind === true,
+    // Asked again beside every object call: the binding's answer is from when this store was built.
+    checkBehind: behindCheck(controlPlane, session.workspaceId),
+    scope: session.scope,
+    names: session.grantedGroups,
+    chatNames: session.chatNames ?? null,
+    workspaceId: session.workspaceId,
+    userId: session.actorUserId ?? null,
+    log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
+  };
+  const hooks = controlHooks === null ? null : objectFirstHooks(controlHooks, objectReading);
   // A keyed workspace's path objects are frozen copies (`notes-by-id.md`): a store
   // without the id layer would serve them as the note. Refused, never served paths.
   if (opened.keyed === true && hooks === null) throw new StorageUnavailable("keyed workspace needs the id layer");
@@ -187,6 +186,9 @@ async function openSessionStore(session, env, controlPlane) {
   // credential and never an endpoint, and no code branches on it: the whole
   // point of `storeForBinding` is that one `provider` check builds the store
   // and nothing above it asks again.
+  // For the agent tools' listing (`http/routing.js` `treeManifest`, `store/objectManifest.js`). Non-enumerable: it holds
+  // the object's client, which nothing that spreads or logs a store should carry.
+  Object.defineProperty(store, "objectReading", { value: objectReading, enumerable: false, writable: false, configurable: true });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
 
   /**
