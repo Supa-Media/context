@@ -65,7 +65,12 @@ removal still counts. A legacy guest chat's turn may take its people off the cha
 gateway route asks which workspace such a chat touches and runs the turn inside `objectFirst`
 (`textGroupsMarked.ts`); every other chat's turn writes no rule and runs with no mark. The same report named one more
 `nodeRowMoves.rowMove`: a keyed move (`nodesMoveStart`, `nodesMoveBatch`) was run by the barrier before its marked
-path, so it never opened the mark its kind is listed for; it now runs inside `markedIfNarrowing` too.
+path, so it never opened the mark its kind is listed for; it now runs inside `markedIfNarrowing` too. After that
+deploy the report still named `adoptKeyed`: a note born where access was asked for it before it existed takes
+that access in the same mutation (`lib/nodes/pendingAccess.ts`), a patch of the new row and of `nodeAccessState`.
+The row watch now treats a patch of a row inserted in the same mutation as no narrowing, and a `nodeAccessState`
+patch that only drops pending entries and appends snapshot entries for those born rows the same way; a private
+pending entry already closed the path for every reader.
 
 **The per-read behind check is gone (2026-11-02).** With the report empty after the background writers moved, the
 gateway stopped asking Convex `/gateway/objects/behind` beside every object lookup, resolve, manifest and facts call:

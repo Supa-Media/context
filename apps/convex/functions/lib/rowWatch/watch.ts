@@ -57,6 +57,10 @@ export type WorkspaceChange = {
   narrows: boolean;
   /** Whether the storage binding may have changed, so the object's kept copy is cleared. */
   binding: boolean;
+  /** `nodes` rows inserted by this mutation: nobody saw them before it, so setting them up narrows nothing. */
+  born: Set<string>;
+  /** Their paths, as inserted. */
+  bornPaths: Set<string>;
 };
 
 export type RowWatch = {
@@ -83,7 +87,7 @@ function accessTableOf(db: MutationCtx["db"], id: string): AccessSource | null {
 function changeFor(changes: Map<Id<"workspaces">, WorkspaceChange>, workspaceId: Id<"workspaces">): WorkspaceChange {
   let change = changes.get(workspaceId);
   if (change === undefined) {
-    change = { nodeIds: new Set(), access: false, narrows: false, binding: false };
+    change = { nodeIds: new Set(), access: false, narrows: false, binding: false, born: new Set(), bornPaths: new Set() };
     changes.set(workspaceId, change);
   }
   return change;
@@ -117,23 +121,59 @@ function record(
   doc: Doc | null,
   fields: string[] | null,
   op: "insert" | "patch" | "replace" | "delete",
+  before: Doc | null = null,
 ): void {
   const workspaceId = doc?.workspaceId;
   if (typeof workspaceId !== "string") return;
   const change = changeFor(changes, workspaceId);
   if (table === "nodeAccess" || table === "nodeAccessState") {
     change.access = true;
-    change.narrows = true;
+    if (!(table === "nodeAccessState" && op === "patch" && pendingLanded(change, before, doc, fields))) change.narrows = true;
     return;
   }
   const nodeId = id as Id<"nodes">;
   change.nodeIds.add(nodeId);
+  if (op === "insert") {
+    change.born.add(id);
+    if (typeof doc?.path === "string") change.bornPaths.add(doc.path);
+  }
+  // A row born in this mutation, set up after its insert (the access asked for it before it existed:
+  // `lib/nodes/pendingAccess.ts`), was seen by nobody before it.
+  if (op === "patch" && change.born.has(id)) {
+    if (fields === null || fields.some((field) => !BYTES_ONLY.has(field))) change.access = true;
+    return;
+  }
   // A folder whose path changed is pushed as one row; the object rewrites everything under it (`ws.rows.put`).
   // Rules are keyed by path and carry each row's own access, so anything but a bytes-only patch may change them.
   if (fields === null || fields.some((field) => !BYTES_ONLY.has(field))) change.access = true;
   if (op === "delete" || op === "replace" || (op === "patch" && (fields === null || fields.some((field) => PLACES_OR_JUDGES.has(field))))) {
     if (!bringsBackOrClears(doc, fields, op)) change.narrows = true;
   }
+}
+
+/** One entry of a workspace's access snapshot, as far as this check reads it. */
+type SnapshotEntry = { path: string };
+
+/**
+ * Whether a patch of `nodeAccessState` is only a row born in this mutation taking the access asked for it before it
+ * existed (`lib/nodes/pendingAccess.ts` `applyPendingAccess`): `pending` loses entries and `snapshot` gains entries
+ * for born rows' paths, nothing else. A private pending entry already closed its path for every reader
+ * (`withPendingPrivate`), and a born row was seen by nobody, so this hides nothing. Any other change, the version
+ * included, is a narrowing as before.
+ */
+function pendingLanded(change: WorkspaceChange, before: Doc | null, after: Doc | null, fields: string[] | null): boolean {
+  if (before === null || after === null || fields === null || change.born.size === 0) return false;
+  if (!fields.every((field) => field === "pending" || field === "snapshot")) return false;
+  const pendingBefore = (before.pending ?? []) as unknown[];
+  const pendingAfter = (after.pending ?? []) as unknown[];
+  if (!pendingAfter.every((entry) => pendingBefore.some((was) => JSON.stringify(was) === JSON.stringify(entry)))) return false;
+  const snapBefore = before.snapshot as SnapshotEntry[] | undefined;
+  const snapAfter = after.snapshot as SnapshotEntry[] | undefined;
+  // Grown past its cap, the snapshot is dropped and readers scan the rows, which hold the same rules.
+  if (snapAfter === undefined) return true;
+  if (snapBefore === undefined || snapAfter.length < snapBefore.length) return false;
+  if (!snapBefore.every((entry, index) => JSON.stringify(entry) === JSON.stringify(snapAfter[index]))) return false;
+  return snapAfter.slice(snapBefore.length).every((entry) => change.bornPaths.has(entry.path));
 }
 
 /**
@@ -188,12 +228,13 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
       const value = rest[0];
       const fields = value !== null && typeof value === "object" ? Object.keys(value) : null;
       const access = await accessBefore(id, fields);
+      const stateBefore = db.normalizeId("nodeAccessState", id) === null ? null : ((await db.get(id as GenericId<"nodeAccessState">)) as Doc | null);
       await (db.patch as (...a: unknown[]) => Promise<void>)(...args);
       if (access !== null) noteAccess(access, id, await db.get(id as GenericId<AccessSource>), "after");
       if (bindingTableOf(db, id) !== null) recordBinding(changes, (await db.get(id as GenericId<BindingTable>)) as Doc | null, fields);
       const table = tableOf(db, id);
       if (table === null) return;
-      record(changes, table, id, (await db.get(id as GenericId<Watched>)) as Doc | null, fields, "patch");
+      record(changes, table, id, (await db.get(id as GenericId<Watched>)) as Doc | null, fields, "patch", stateBefore);
     },
     async replace(...args: unknown[]) {
       const { id } = split(args);
