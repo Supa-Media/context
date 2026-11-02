@@ -93,6 +93,9 @@ export function workspaceStub(env, workspaceId) {
  * - `rows.snapshot({epoch, rows, last, mode})`: a whole copy in pages; `replace` swaps on the last page, `merge` upserts
  * - `rows.digest()` → `{rows, sha256}` over the live rows in id order (fields: id, noteId, path, kind, storageKey, etag, size, collaborates, uploaded, role, order, archiveOf)
  * Every `ws.*` call names its workspace; the object pins the first it sees and refuses any other.
+ * - `facts({ask, ..., scope, groups, audience})`: a note facts ask (`props`, `links`, `neighbors`) answered from the
+ *   text held here (`workspaceStore/facts.js`), in the control plane's `/gateway/tree/facts` shape; `{served: false}`
+ *   before the notes live here
  * - `rules.put(heldRules, audience)`, `rules.get(audience)`
  * - `apply({rows, removed, at, rules: {member?, guest?}})`: rows, removals and rules in one storage transaction
  * - `state()` → `{home, backfilledAt, encryption, rows, objects, accessVersion, members: {home, members, invites, reachPending}}`; `setHome(home)`; `setEncryption("none"|"keyed")`; `markBackfilled(at)`
@@ -116,6 +119,7 @@ export function workspaceClient(env, workspaceId) {
       snapshot: async ({ epoch, rows, last = false, mode = "replace" }) => await ask("ws.rows.snapshot", { epoch, rows, last, mode }),
       digest: async () => await ask("ws.rows.digest"),
     },
+    facts: async (request) => await ask("ws.facts", request),
     rules: {
       put: async (rules, audience = "member") => await ask("ws.rules.put", { rules, audience }),
       get: async (audience = "member") => await ask("ws.rules.get", { audience }),

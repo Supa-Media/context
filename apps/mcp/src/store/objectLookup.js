@@ -23,6 +23,7 @@
 import { narrowNote } from "../controlPlane/noteIds.js";
 import { isPlumbing, READS_AS_CHAT, READS_AS_GUEST } from "../privacy/engine.js";
 import { HOMES } from "../workspaceStore/api.js";
+import { OBJECT_FACT_ASKS } from "../workspaceStore/facts.js";
 
 /** Whether a session's names read the workspace as a member: no guest or chat marker (row tokens are a member's). */
 export function readsAsMember(names) {
@@ -47,22 +48,23 @@ function entryOf(row) {
 }
 
 /**
- * The `lookup` and `resolve` hooks for `withIdLayout`, object first. `hooks` are the control plane's.
+ * How one session reads its workspace's object, or `null` where it may not: no object, notes not living there, a
+ * scope the object does not judge, a chat whose names are unknown, or the object behind the control plane. Shared by
+ * the row hooks and the facts below, so both decide alike.
  *
- * @param {{lookup: (paths: string[]) => Promise<object>, resolve?: (ids: string[]) => Promise<object>}} hooks
- * @param {{client: object|null, home?: string|null, behind?: boolean, checkBehind?: () => Promise<boolean>, scope: string, names: Iterable<string>, chatNames?: string[]|null, userId?: string|null, log?: (event: string, fields: object) => void}} options
+ * @param {{client: object|null, home?: string|null, behind?: boolean, checkBehind?: () => Promise<boolean>, scope: string, names: Iterable<string>, chatNames?: string[]|null, workspaceId: string, userId?: string|null, log?: (event: string, fields: object) => void}} options
  */
-export function objectFirstHooks(hooks, { client, home, behind = false, checkBehind = null, scope, names, chatNames = null, workspaceId, userId = null, log = () => {} }) {
+function objectReader({ client, home, behind = false, checkBehind = null, scope, names, chatNames = null, workspaceId, userId = null, log = () => {} }) {
   const groups = [...(names ?? [])];
   const audience = audienceOf(groups);
-  if (!client || home !== HOMES.OBJECT || (scope !== "private" && scope !== "team")) return hooks;
-  if (audience === "chat" && !Array.isArray(chatNames)) return hooks;
+  if (!client || home !== HOMES.OBJECT || (scope !== "private" && scope !== "team")) return null;
+  if (audience === "chat" && !Array.isArray(chatNames)) return null;
   // A change the object has not taken yet (the binding's `notesBehind`): a share just taken back by a mutation that
   // could not wait for the push must not be served from the object's older rows, so the whole request asks the
   // control plane, which already has it.
   if (behind === true) {
     log("workspace_object_behind", { workspaceId });
-    return hooks;
+    return null;
   }
   // `userId`: who is reading, for an object that decides access from its own members (`workspaceStore/members.js`).
   const judged = {
@@ -85,6 +87,51 @@ export function objectFirstHooks(hooks, { client, home, behind = false, checkBeh
     log("workspace_object_behind", { workspaceId });
     return true;
   };
+  return { client, workspaceId, log, judged, askBehind, settledBehind };
+}
+
+/**
+ * The note facts the object answers itself (`workspaceStore/facts.js`: `props`, `links`, `neighbors`), asked of it
+ * before the control plane's `/gateway/tree/facts`. `null` where this session does not read the object; otherwise a
+ * function that answers an ask, or `null` for one the object did not serve (another ask, notes not caught up, the
+ * object failing or behind), and the caller asks the control plane as before.
+ *
+ * @param {Parameters<typeof objectReader>[0]} options
+ * @returns {((request: {ask: string}) => Promise<object|null>) | null}
+ */
+export function objectFirstFacts(options) {
+  const reader = objectReader(options);
+  if (reader === null || typeof reader.client.facts !== "function") return null;
+  const { client, workspaceId, log, judged, askBehind, settledBehind } = reader;
+  return async (request) => {
+    if (!OBJECT_FACT_ASKS.has(request?.ask)) return null;
+    const started = Date.now();
+    const pending = askBehind();
+    let answer;
+    try {
+      answer = await client.facts({ ...request, ...judged });
+    } catch (error) {
+      log("workspace_object_facts_failed", { workspaceId, ask: request.ask, error: String(error?.message ?? error) });
+      return null;
+    }
+    if (await settledBehind(pending)) return null;
+    const served = answer?.served === true;
+    log("workspace_object_facts", { workspaceId, ask: request.ask, served, ms: Date.now() - started });
+    return served ? answer : null;
+  };
+}
+
+/**
+ * The `lookup` and `resolve` hooks for `withIdLayout`, object first. `hooks` are the control plane's.
+ *
+ * @param {{lookup: (paths: string[]) => Promise<object>, resolve?: (ids: string[]) => Promise<object>}} hooks
+ * @param {{client: object|null, home?: string|null, behind?: boolean, checkBehind?: () => Promise<boolean>, scope: string, names: Iterable<string>, chatNames?: string[]|null, userId?: string|null, log?: (event: string, fields: object) => void}} options
+ */
+export function objectFirstHooks(hooks, options) {
+  const reader = objectReader(options);
+  if (reader === null) return hooks;
+  const { client, workspaceId, log } = reader;
+  const { judged, askBehind, settledBehind } = reader;
 
   const lookup = async (paths) => {
     const pending = askBehind();

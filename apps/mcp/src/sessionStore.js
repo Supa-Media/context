@@ -13,7 +13,7 @@
 
 import { gatewayTexStore } from "./texStore/wire.js";
 import { workspaceClient } from "./workspaceStore/api.js";
-import { objectFirstHooks } from "./store/objectLookup.js";
+import { objectFirstFacts, objectFirstHooks } from "./store/objectLookup.js";
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
@@ -147,22 +147,20 @@ async function openSessionStore(session, env, controlPlane) {
       : null;
   // Where the workspace's notes are judged in its object, its row questions go there first (`store/objectLookup.js`).
   const controlHooks = idLayoutHooks(opened.idLayout, session, controlPlane);
-  const hooks =
-    controlHooks === null
-      ? null
-      : objectFirstHooks(controlHooks, {
-          client: workspaceClient(env, session.workspaceId),
-          home: binding.notesHome ?? null,
-          behind: binding.notesBehind === true,
-          // Asked again beside every object call: the binding's answer is from when this store was built.
-          checkBehind: behindCheck(controlPlane, session.workspaceId),
-          scope: session.scope,
-          names: session.grantedGroups,
-          chatNames: session.chatNames ?? null,
-          workspaceId: session.workspaceId,
-          userId: session.actorUserId ?? null,
-          log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
-        });
+  const objectReading = {
+    client: workspaceClient(env, session.workspaceId),
+    home: binding.notesHome ?? null,
+    behind: binding.notesBehind === true,
+    // Asked again beside every object call: the binding's answer is from when this store was built.
+    checkBehind: behindCheck(controlPlane, session.workspaceId),
+    scope: session.scope,
+    names: session.grantedGroups,
+    chatNames: session.chatNames ?? null,
+    workspaceId: session.workspaceId,
+    userId: session.actorUserId ?? null,
+    log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
+  };
+  const hooks = controlHooks === null ? null : objectFirstHooks(controlHooks, objectReading);
   // A keyed workspace's path objects are frozen copies (`notes-by-id.md`): a store
   // without the id layer would serve them as the note. Refused, never served paths.
   if (opened.keyed === true && hooks === null) throw new StorageUnavailable("keyed workspace needs the id layer");
@@ -186,6 +184,13 @@ async function openSessionStore(session, env, controlPlane) {
   // point of `storeForBinding` is that one `provider` check builds the store
   // and nothing above it asks again.
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
+  // Notes' links and props from the object that holds their text, before the control plane (`http/routing.js` `treeFacts`).
+  Object.defineProperty(store, "objectFacts", {
+    value: objectFirstFacts(objectReading),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
 
   /**
    * The search projection's coordinates, where this workspace opted in.
