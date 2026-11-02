@@ -104,7 +104,8 @@ export const pending = internalQuery({
       .take(ENTRIES_PER_ROUND);
     const entryIds = entries.map((entry) => entry._id);
     const access = entries.some((entry) => entry.access);
-    if (entries.some((entry) => entry.all === true)) return { entryIds, all: true as const, access, readAt, rows: [], removed: [] };
+    const binding = entries.some((entry) => entry.binding === true);
+    if (entries.some((entry) => entry.all === true)) return { entryIds, all: true as const, access, binding, readAt, rows: [], removed: [] };
     const ids = [...new Set(entries.flatMap((entry) => entry.nodeIds))];
     const paths = await nodePaths(ctx.db, workspaceId);
     const rows: ObjectRow[] = [];
@@ -117,7 +118,7 @@ export const pending = internalQuery({
       if (row === null) removed.push(id);
       else rows.push(row);
     }
-    return { entryIds, all: false as const, access, readAt, rows, removed };
+    return { entryIds, all: false as const, access, binding, readAt, rows, removed };
   },
 });
 
@@ -193,7 +194,10 @@ export async function drainWorkspace(
   try {
     for (let round = 0; round < ROUNDS_PER_DRAIN; round += 1) {
       const next = await ctx.runQuery(internal.functions.workspaceObjectPush.pending, { workspaceId });
-      if (next.entryIds.length > 0) await pushRound(ctx, call, workspaceId, next);
+      const rowsOrRules = next.all || next.access || next.rows.length > 0 || next.removed.length > 0;
+      if (next.entryIds.length > 0 && (rowsOrRules || !next.binding)) await pushRound(ctx, call, workspaceId, next);
+      // Before the entries go: while they wait the workspace reads as behind, so the old copy is never used.
+      if (next.binding) await call("ws.binding.clear");
       const more = await ctx.runMutation(internal.functions.workspaceObjectPush.ack, {
         workspaceId,
         entryIds: next.entryIds,

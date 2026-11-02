@@ -17,6 +17,7 @@ import { isPersonCall, servePersonCall } from "./personServe.js";
 import { isTokenIndexCall, serveTokenIndex } from "./tokenIndex.js";
 import { membersState, serveMembersCall } from "./serveMembers.js";
 import { manifestPage } from "./manifest.js";
+import { BindingRowRefused, serveBindingCall } from "./bindingRows.js";
 
 const CALL = "x-tex-call";
 
@@ -153,6 +154,9 @@ export async function serveWorkspaceStore(store, request) {
     rows.pinWorkspace(fields.workspaceId);
     const membership = await serveMembersCall(store, op, fields);
     if (membership !== null) return membership;
+    // The sealed binding and the one call a request's store is opened from (`bindingRows.js`).
+    const opened = serveBindingCall(store, op, fields, ACCESS_HOMES.OBJECT);
+    if (opened !== null) return opened;
     switch (op) {
       case "ws.read":
         return Response.json(await readNotes(store, fields));
@@ -233,7 +237,7 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json({ error: "unknown_op" }, { status: 400 });
     }
   } catch (error) {
-    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
+    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof BindingRowRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
   }
 }

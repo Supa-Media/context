@@ -23,6 +23,7 @@ import { callTexStore } from "./texStore/wire.js";
 import { workspaceStub } from "./workspaceStore/api.js";
 import { workspaceMembers } from "./workspaceStore/members.js";
 import { workspaceRows } from "./workspaceStore/rows.js";
+import { bindingRows } from "./workspaceStore/bindingRows.js";
 import { personRows } from "./workspaceStore/personRows.js";
 import { tokenIndexClient } from "./workspaceStore/tokenIndex.js";
 import { serveWorkspaceStore } from "./workspaceStore/serve.js";
@@ -59,6 +60,8 @@ export class WorkspaceStore {
     this.store = {
       objects: texObjects(sql),
       rows: workspaceRows(sql),
+      // The storage binding, sealed so this object cannot read it (`workspaceStore/bindingRows.js`).
+      binding: bindingRows(sql),
       // A personal workspace's object is also its person's: reach, shares to them and their connections.
       person: personRows(sql),
       sql,

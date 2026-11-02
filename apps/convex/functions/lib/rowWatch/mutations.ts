@@ -35,7 +35,11 @@ export async function flushRowChanges(
   changes: Map<Id<"workspaces">, WorkspaceChange>,
 ): Promise<void> {
   for (const [workspaceId, change] of changes) {
-    if (!(await judgedInObject(ctx, workspaceId))) continue;
+    if (!(await judgedInObject(ctx, workspaceId))) {
+      // No outbox here, but a binding the object kept must still go (a workspace switched back off its object).
+      if (change.binding) await ctx.scheduler.runAfter(0, internal.functions.workspaceObjectBinding.clear, { workspaceId });
+      continue;
+    }
     const ids = [...change.nodeIds];
     const all = ids.length > OUTBOX_MAX_IDS;
     await ctx.db.insert("workspaceObjectOutbox", {
@@ -43,6 +47,9 @@ export async function flushRowChanges(
       nodeIds: all ? [] : ids,
       access: change.access,
       ...(all ? { all: true } : {}),
+      // The storage binding changed: the push clears the copy the object keeps, and until then the workspace reads
+      // as behind, so no request opens a store from that copy (`apps/mcp/src/store/objectBinding.js`).
+      ...(change.binding ? { binding: true } : {}),
       at: Date.now(),
     });
     await ctx.scheduler.runAfter(0, internal.functions.workspaceObjectPush.drain, { workspaceId });

@@ -99,6 +99,9 @@ export function workspaceStub(env, workspaceId) {
  * - `apply({rows, removed, at, rules: {member?, guest?}})`: rows, removals and rules in one storage transaction
  * - `state()` → `{home, backfilledAt, encryption, rows, objects, accessVersion, members: {home, members, invites, reachPending}}`; `setHome(home)`; `setEncryption("none"|"keyed")`; `markBackfilled(at)`
  * - `members.*`, `invites.*`: who belongs to the workspace (`workspaceStore/members.js`): see `membershipClient`.
+ * - `open(userId)` → `{home, backfilledAt, encryption, accessHome, member, rules, binding: {sealed, at}|null, epoch}`:
+ *   what a request's store is built from, in one call; `binding.put({sealed, at, epoch})` → `{kept, epoch}`,
+ *   `binding.clear()` → `{epoch}` (`workspaceStore/bindingRows.js`)
  */
 export function workspaceClient(env, workspaceId) {
   const stub = workspaceStub(env, workspaceId);
@@ -130,6 +133,11 @@ export function workspaceClient(env, workspaceId) {
     setHome: async (home) => await ask("ws.home", { home }),
     setEncryption: async (state) => await ask("ws.encryption", { state }),
     markBackfilled: async (at) => await ask("ws.backfilled", { at }),
+    open: async (userId) => await ask("ws.open", { userId }),
+    binding: {
+      put: async ({ sealed, at, epoch }) => await ask("ws.binding.put", { sealed, at, epoch }),
+      clear: async () => await ask("ws.binding.clear"),
+    },
     // A personal workspace's object is its person's too (`workspaceStore/access.js`).
     access: personAccessClient(ask, workspaceId),
   };

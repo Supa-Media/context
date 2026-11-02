@@ -19,6 +19,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The gateway is a Cloudflare Worker, not Convex
 - Credential retrieval takes two independent proofs
 - Never cache a decrypted credential across requests
+- A binding kept in its workspace's object is sealed to it
 - Scheduling is not calling
 - Credential barriers are enumerated, never inferred
 - The credential graph follows imports, and refuses what it cannot follow

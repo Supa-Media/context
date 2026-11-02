@@ -17,6 +17,8 @@ export const workspaceObjectOutboxTables = {
     access: v.boolean(),
     /** More rows changed than an entry names: push the workspace's rows whole. */
     all: v.optional(v.boolean()),
+    /** The storage binding may have changed: clear the copy the object keeps (`workspaceObjectBinding.ts`). */
+    binding: v.optional(v.boolean()),
     at: v.number(),
   }).index("by_workspace_at", ["workspaceId", "at"]),
 

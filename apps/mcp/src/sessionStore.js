@@ -14,6 +14,7 @@
 import { gatewayTexStore } from "./texStore/wire.js";
 import { workspaceClient } from "./workspaceStore/api.js";
 import { objectFirstHooks } from "./store/objectLookup.js";
+import { openedFromObject } from "./store/objectBinding.js";
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
@@ -75,6 +76,41 @@ function behindCheck(controlPlane, workspaceId) {
   };
 }
 
+/**
+ * The binding and its siblings: from the workspace's object in one call where it may answer (`store/objectBinding.js`),
+ * else from the control plane, whose answer is then kept there for the next request. One log line says which.
+ */
+async function openBinding(session, env, controlPlane) {
+  const started = Date.now();
+  let fromObject = { opened: null, reason: "object_failed" };
+  try {
+    fromObject = await openedFromObject(session, env, controlPlane);
+  } catch {
+    // Anything unexpected asks the control plane, as before.
+  }
+  const logged = (source, extra = {}) =>
+    console.log(JSON.stringify({ event: "workspace_binding_opened", workspaceId: session.workspaceId, source, reason: fromObject.reason, ms: Date.now() - started, ...extra }));
+  if (fromObject.opened !== null) {
+    logged("object");
+    return fromObject.opened;
+  }
+  let opened;
+  try {
+    opened = await controlPlane.getStorageBinding(
+      session.accessToken,
+      session.workspaceId,
+      // Tex's own read of its setup in the pin (`session.js` `sessionForSetup`): asked as that, never as the person.
+      ...(session.setupRead === true ? [undefined, { setupRead: true }] : [])
+    );
+  } catch (error) {
+    if (error instanceof ControlPlaneError) throw new StorageUnavailable(`control plane ${error.status ?? error.reason}`);
+    throw error;
+  }
+  const kept = typeof fromObject.keep === "function" ? await fromObject.keep(opened) : null;
+  logged("control_plane", kept === null ? {} : { kept: kept.kept, keptReason: kept.reason });
+  return opened;
+}
+
 function texChatsOf(session) {
   return typeof session?.texChatId === "string" && /^[0-9a-f]{64}$/.test(session.texChatId) ? [session.texChatId] : [];
 }
@@ -93,18 +129,7 @@ async function openSessionStore(session, env, controlPlane) {
   // as siblings; reading only the first, and then hunting for the second
   // inside it, is what left fast search dead in production. See
   // `getStorageBinding`.
-  let opened;
-  try {
-    opened = await controlPlane.getStorageBinding(
-      session.accessToken,
-      session.workspaceId,
-      // Tex's own read of its setup in the pin (`session.js` `sessionForSetup`): asked as that, never as the person.
-      ...(session.setupRead === true ? [undefined, { setupRead: true }] : [])
-    );
-  } catch (error) {
-    if (error instanceof ControlPlaneError) throw new StorageUnavailable(`control plane ${error.status ?? error.reason}`);
-    throw error;
-  }
+  const opened = await openBinding(session, env, controlPlane);
   const { binding, searchIndex, meaningIndex, encryptionKey, rotation, noteCap } = opened;
 
   if (binding === null) throw new StorageUnavailable("not bound");
