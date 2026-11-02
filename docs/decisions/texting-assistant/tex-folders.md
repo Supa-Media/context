@@ -13,15 +13,19 @@ _Part of [the texting assistant](../texting-assistant.md). Decided by the owner,
 | Open jobs | `jobs.md` | `jobs.md` (`chatJobs.js`, read straight from the chat's object once its key is kept) |
 | Reminders and check-ins | `routines/` | `routines/` (since 2026-11-02; a routine in the bound workspace tagged `chat:` still runs) |
 | Daily notes | `transcripts/` (no longer written since 2026-11-02; the ledger is the record) | none |
-| Pictures they texted | `pictures/` (one note a month, `textedPictures.js`) | none |
+| Pictures they texted | `pictures/` (one note a month, `textedPictures.js`) | `pictures/` (the folder stands; not written yet) |
 | What Tex learned | `skills/` | `skills/` (`chatSkills.js`: the same notes and rules; written unless the turn read something from outside the chat) |
-| Mail, calendar, tidying | `heartbeat/`, `attention/`, `dreams/`, `handbacks/`, `housekeeping/` | none: a chat has no mailbox or calendar |
+| Mail, calendar, tidying | `heartbeat/`, `attention/`, `dreams/`, `handbacks/`, `housekeeping/` | the same folders stand (since 2026-11-02); no chat job writes them yet, and a chat has no mailbox or calendar |
 
 A chat's people are inside it (the owner, 2026-11-02: "as long as it's inside the texts from people in that group, then it's fine ... it's almost like they give combined consent"). A group turn still holds its sends as any turn carrying other people's words does (`markChatWords`), but only a page, an email or a file read that turn (`ledger.outside`) stops it writing a skill in its home. A home's skill is never archived (that would carry it out of the seal) and has no `used:` stamp or dream retiring it yet.
 
 Where each home is does not change. The workspace's playbook stays in the bound workspace (`tex/groups/playbook.md`). Each history stays one copy in its Durable Object, read before the model with About me; nothing here adds a second.
 
 `history.ledger.json` is a row like any Tex note, made by the chat's next turn (`agent/historyFile.js`), whose key in the chat's object holds a marker and never a copy: a read answers the chat's ledger as it is now, its newest 1,000 entries oldest first, under 4 MB, with `view.older` saying more is kept (the owner, 2026-11-02: "I just want people to be able to see it, like, okay, this is exactly what Tex sees"). Every tool that can change a note refuses the path with words the model can act on, and the object refuses any write over the marker. Download as folders carries the whole ledger as `.context/tex/ledger/`, and skips this row, so the chat leaves once.
+
+## Every home holds every folder (2026-11-02)
+
+The owner, 2026-11-02: "Both with the same type of folders in them? so routines, heartbeats, about, skills, dreams, etc". A home is made with every folder a person's Tex has. Since the owner's "I want 1:1 tex and group tex to start mirroring each other and not diverging so much" (2026-11-02) the two are one list: a home's folders (`HOME_FOLDERS`, `lib/textGroupHome.ts`) are `HOME_TEX_PARTS` in `packages/shared/src/folderJobInfo.cjs`, which is a person's `TEX_PARTS` less `PERSON_ONLY_TEX_PARTS`. A folder added for a person reaches every home unless it is named person-only, and only three are: `chats` and `groups` (they hold the chats themselves) and `transcripts` (no longer written). `apps/convex/__tests__/textGroupHome.test.ts` fails if the lists drift. A home that lacks any of them gets them on its chat's next turn, or from the `Tex chat home people` workflow (`unstood` counts them) without waiting for a text. A folder is a row under the home's own row, so it is sealed as the home is. Which of them a chat's jobs write is a separate step: today a chat's turns write `skills/`, `routines/`, `about.md`, `voice.md`, `history.md` and `jobs.md`.
 
 ## The rename
 

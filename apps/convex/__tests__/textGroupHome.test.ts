@@ -6,7 +6,8 @@ import { addMember, asUser, createUser, createWorkspace, gatewayPost } from "./f
 import { migrate, pinnedWorld, type PinnedWorld } from "./pinnedReaders.helpers";
 import { nodeAt } from "../functions/lib/nodes/paths";
 import { setAccessRow } from "../functions/lib/nodes/setAccess";
-import { ensureChatHome } from "../functions/lib/textGroupHome";
+import { ensureChatHome, HOME_FOLDERS } from "../functions/lib/textGroupHome";
+import { PERSON_ONLY_TEX_PARTS, TEX_PARTS } from "@context/shared/src/folderJobInfo.cjs";
 import { grantedNamesFor } from "../functions/lib/grantedNames";
 import { checkReachRow } from "../../mcp/src/workspaceStore/access.js";
 
@@ -102,7 +103,17 @@ function sorted(ids: Id<"users">[]) {
   return [...ids].sort().map((user) => ({ user, role: "edit" }));
 }
 
+/** Every folder a person's Tex has (`HOME_FOLDERS`), written out so a dropped name fails here. */
+const PERSON_TEX_FOLDERS = ["skills", "routines", "heartbeat", "attention", "dreams", "handbacks", "housekeeping", "pictures"];
+
 describe("a chat's home", () => {
+  test("holds every folder a person's Tex has but the person-only ones, from one list", () => {
+    // A folder added to a person's Tex reaches every home unless it is named person-only: the two never drift.
+    expect([...PERSON_ONLY_TEX_PARTS].sort()).toEqual(["chats", "groups", "transcripts"]);
+    expect([...HOME_FOLDERS].sort()).toEqual([...PERSON_TEX_FOLDERS].sort());
+    expect([...HOME_FOLDERS, ...PERSON_ONLY_TEX_PARTS].sort()).toEqual([...TEX_PARTS].sort());
+  });
+
   test("the first turn makes the home, three words under the homes folder, naming everyone in the chat to edit", async () => {
     const w = await world();
     expect(await turn(w.t, ADA, [ADA, BO, CY, LINE])).toMatchObject({ status: "ready", slug: "context-lc", reach: ["studio"], minted: true });
@@ -113,7 +124,7 @@ describe("a chat's home", () => {
     expect(home?.row.kind).toBe("folder");
     expect(home?.people).toEqual(sorted([w.ada, w.bo, w.cy]));
     // It holds a person's Tex folders from the start, under its own row.
-    for (const inner of ["skills", "routines"]) expect((await homeRow(w, `${folder}/${inner}`))?.row.kind).toBe("folder");
+    for (const inner of PERSON_TEX_FOLDERS) expect((await homeRow(w, `${folder}/${inner}`))?.row.kind).toBe("folder");
     // The same chat keeps its home: no second folder, no new words.
     await turn(w.t, BO, [ADA, BO, CY, LINE]);
     expect((await chatRow(w.t))?.homeWords).toBe(chat!.homeWords);
@@ -132,7 +143,7 @@ describe("a chat's home", () => {
     });
     expect(await homeRow(w, `${folder}/skills`)).toBeNull();
     await turn(w.t, BO, [ADA, BO, CY, LINE]);
-    for (const inner of ["skills", "routines"]) expect((await homeRow(w, `${folder}/${inner}`))?.row.kind).toBe("folder");
+    for (const inner of PERSON_TEX_FOLDERS) expect((await homeRow(w, `${folder}/${inner}`))?.row.kind).toBe("folder");
     expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, w.bo, w.cy]));
   });
 
@@ -160,11 +171,31 @@ describe("a chat's home", () => {
     const adaApp = await createUser(w.t, "ada-app@example.invalid");
     await w.t.run(async (ctx) => ctx.db.patch(adaApp, { phone: ADA, phoneVerificationTime: Date.now() }));
     const folder = `tex/groups/${(await chatRow(w.t))!.homeWords}`;
-    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toEqual({ dryRun: true, homes: 1, widened: 1, added: 1, refused: 0 });
+    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toEqual({ dryRun: true, homes: 1, widened: 1, added: 1, unstood: 0, refused: 0 });
     expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, w.bo, w.cy]));
-    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: false })).toEqual({ dryRun: false, homes: 1, widened: 1, added: 1, refused: 0 });
+    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: false })).toEqual({ dryRun: false, homes: 1, widened: 1, added: 1, unstood: 0, refused: 0 });
     expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, adaApp, w.bo, w.cy]));
     expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toMatchObject({ widened: 0 });
+  });
+
+  test("a quiet chat's home missing folders gets them from the workflow, dry run first", async () => {
+    const w = await world();
+    await turn(w.t, BO, [ADA, BO, CY, LINE]);
+    const folder = `tex/groups/${(await chatRow(w.t))!.homeWords}`;
+    // As every home made before 2026-11-02's full set stands: skills and routines alone.
+    await w.t.run(async (ctx) => {
+      for (const inner of PERSON_TEX_FOLDERS.filter((name) => name !== "skills" && name !== "routines")) {
+        const row = await nodeAt(ctx.db, w.pinned, `${folder}/${inner}`);
+        if (row !== null) await ctx.db.delete(row._id);
+      }
+    });
+    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toEqual({ dryRun: true, homes: 1, widened: 0, added: 0, unstood: 1, refused: 0 });
+    expect(await homeRow(w, `${folder}/dreams`)).toBeNull();
+    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: false })).toMatchObject({ unstood: 1, refused: 0 });
+    for (const inner of PERSON_TEX_FOLDERS) expect((await homeRow(w, `${folder}/${inner}`))?.row.kind).toBe("folder");
+    // The home's people are unchanged, and a second pass finds nothing to do.
+    expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, w.bo, w.cy]));
+    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toMatchObject({ unstood: 0, widened: 0 });
   });
 
   test("somebody who leaves the chat is taken off, and somebody added is named", async () => {
