@@ -24,8 +24,8 @@ type Options = Parameters<typeof objectDoor>[2];
 
 /**
  * File operations (`lib/filesFns/operationValidators.ts`) that may take something away from someone who could see
- * it: a move (into a private folder), a trash, a delete, a visibility change, a hide. `files.runFileOperation` runs
- * these inside `objectFirst`. One that only adds (a write, a copy, a new folder, a restore) never narrows, and its
+ * it: a move (into a private folder), a trash, a delete, a visibility change, a hide. The file-operation barrier runs
+ * these inside `objectFirst`, after its own checks. One that only adds (a write, a copy, a new folder, a restore) never narrows, and its
  * row reaches the object by the ordinary push. A narrowing write this list misses is logged by the row watch
  * (`workspace_object_unmarked_narrowing`).
  */
@@ -99,12 +99,12 @@ async function closeMark(ctx: ActionCtx, call: ReturnType<typeof objectDoor>, wo
   }
 }
 
-/** A file operation, inside `objectFirst` when its kind may narrow (`files.runFileOperation`). */
-export async function operationFirst<A extends { workspaceId: Id<"workspaces">; operation: { kind: string } }, T>(
+/** A file operation's run, inside `objectFirst` when its kind may narrow (`lib/filesFns/fileOperationBarrier.ts`). */
+export async function markedIfNarrowing<T>(
   ctx: ActionCtx,
-  args: A,
-  run: (ctx: ActionCtx, args: A) => Promise<T>,
+  args: { workspaceId: Id<"workspaces">; operation: { kind: string } },
+  run: () => Promise<T>,
 ): Promise<T> {
-  if (!NARROWING_OPERATIONS.has(args.operation.kind)) return await run(ctx, args);
-  return await objectFirst(ctx, args.workspaceId, () => run(ctx, args));
+  if (!NARROWING_OPERATIONS.has(args.operation.kind)) return await run();
+  return await objectFirst(ctx, args.workspaceId, run);
 }

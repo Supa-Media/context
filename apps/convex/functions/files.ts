@@ -67,7 +67,6 @@
  * the build report.
  */
 
-import { operationFirst } from "./lib/rowWatch/objectFirst";
 import { settledAfter } from "./workspaceObjectPush";
 import { v } from "convex/values";
 import { action, internalAction, internalQuery, query } from "../_generated/server";
@@ -312,7 +311,7 @@ export const runFileOperation = internalAction({
   returns: operationResultValidator,
   // Annotated rather than inferred: this action calls another function in the
   // same deployment, which is the inference cycle `bindStorage` has.
-  handler: async (ctx, args): Promise<OperationResult> => await operationFirst(ctx, args, runFileOperationHandler),
+  handler: async (ctx, args): Promise<OperationResult> => await runFileOperationHandler(ctx, args),
 });
 
 /** See `runStorageLayoutMigrationHandler` in `lib/filesFns/storageLayout.ts`. */

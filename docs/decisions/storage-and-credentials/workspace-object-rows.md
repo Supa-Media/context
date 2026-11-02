@@ -40,7 +40,7 @@ refused: the object goes first or the change does not happen. A mark whose write
 until then the object fails toward the control plane, never toward wider rows. Writes that only add (a new note, a
 copy, a restore) or only change bytes take no mark: an object behind on those shows less, never more.
 
-Who opens marks: every narrowing file operation (`files.runFileOperation`, `NARROWING_OPERATIONS`), the gateway's
+Who opens marks: every narrowing file operation (the barrier in `lib/filesFns/fileOperationBarrier.ts`, `NARROWING_OPERATIONS`), the gateway's
 `setAccess`/`addGrantees` and removals, the console's visibility change, and the share dialog, which now calls the
 action `nodesAccessFirst.setGrantees` instead of the mutation. Any narrowing written with no mark open is still let
 through (the gateway's `notesBehind`/`checkBehind` keeps covering it) and recorded with the module that defined its
