@@ -132,6 +132,18 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
     writable: true,
     configurable: false,
   });
+  // The chat's ledger (`texStore/ledger.js`): the person's own (`person:<workspaceId>`), or a group chat's this store was built for; null when the object has none.
+  Object.defineProperty(wrapped, "texLedger", {
+    value: (chat = null) => {
+      const owner = chat === null ? `person:${workspaceId}` : `chat:${chat}`;
+      if (typeof workspaceId !== "string" || workspaceId === "" || !allowed.has(owner)) return null;
+      if (!opened.has(owner)) opened.set(owner, typeof texStore === "function" ? texStore(owner) : null);
+      return opened.get(owner)?.ledger ?? null;
+    },
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
   // The bucket beneath, for the one move of the old bookkeeping into the object (`agent/agentHomeMove.js`) and nothing else.
   Object.defineProperty(wrapped, "agentHomeBucket", { value: store, enumerable: false, writable: false, configurable: false });
 

@@ -6,7 +6,7 @@
  *
  * Sabotage record (applied, suite run, named test observed failing, reverted):
  *  1. `finish` keeping no run for an unfinished job → "a stuck job picks back up on its own task, with what it had got to".
- *  2. `resumeJob` ignoring `JOB_KEPT_MS` → "nothing to pick up after two hours, or after it finished".
+ *  2. `resumeJob` ignoring `JOB_SHOWN_MS` → "nothing to pick up after two hours, or after it finished".
  *  3. `runJob` without the repeat guard → "two parts in a row with no tool call end the job stuck".
  *  4. `resumeJobs` past the running limit → "the chat picks up only this chat's ended jobs, within the limit".
  *  5. `readSteers` dropping `resume` → "the chat picks up only this chat's ended jobs, within the limit".
@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
 import { acceptJob, ENDED_KEY, resumeJob, runJob, type JobDeps } from "./jobRun";
-import { chatJobs, JOB_KEPT_MS, notResumedText, readSteers, resumeJobs, RUN_KEY, startJobs, type JobRun, type JobUpdate } from "./jobs";
+import { chatJobs, JOB_SHOWN_MS, notResumedText, readSteers, resumeJobs, RUN_KEY, startJobs, type JobRun, type JobUpdate } from "./jobs";
 import { MemoryStorage } from "./memoryStorage.testing";
 
 const NOW = 1_000_000;
@@ -69,7 +69,7 @@ describe("picking an ended job back up", () => {
     await runJob(storage, first.deps);
     expect(first.reports.at(-1)).toMatchObject({ state: "stuck" });
     expect(storage.data.has(RUN_KEY)).toBe(false);
-    expect(storage.alarms.at(-1)).toBeGreaterThan(NOW + JOB_KEPT_MS);
+    expect(storage.alarms.at(-1)).toBeGreaterThan(NOW + JOB_SHOWN_MS);
 
     const started: Array<[string, number]> = [];
     expect(await resumeJob(storage, NOW + 60_000, async (id, resumes) => void started.push([id, resumes]))).toBe(true);
@@ -92,8 +92,8 @@ describe("picking an ended job back up", () => {
     await acceptJob(storage, run({ attempt: 10 }), NOW);
     await runJob(storage, jobDeps([{ body: { answer: "Short.", unfinished: true } }]).deps);
     expect(storage.data.has(ENDED_KEY)).toBe(true);
-    expect(await resumeJob(storage, NOW + JOB_KEPT_MS + 1)).toBe(false);
-    await runJob(storage, jobDeps([], NOW + JOB_KEPT_MS + 1).deps);
+    expect(await resumeJob(storage, NOW + JOB_SHOWN_MS + 1)).toBe(false);
+    await runJob(storage, jobDeps([], NOW + JOB_SHOWN_MS + 1).deps);
     expect(storage.data.has(ENDED_KEY)).toBe(false);
 
     const done = new MemoryStorage();

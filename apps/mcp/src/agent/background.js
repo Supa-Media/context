@@ -390,7 +390,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
         true,
       );
     }
-    started.push({ title, brief, doneWhen: line(args?.done_when, MAX_STATUS), startedAt: now });
+    started.push({ id: crypto.randomUUID(), title, brief, doneWhen: line(args?.done_when, MAX_STATUS), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
     justStarted = title;
     return text(
       `Started in the background as "${title}". Tell them in one short line that you're on it and will text the result, ` +
@@ -571,7 +571,7 @@ export function startedJobs(background, tainted) {
   if (background === null) return {};
   return {
     ...(background.started.length > 0
-      ? { jobs: background.started.map(({ title, brief, doneWhen }) => ({ title, brief, doneWhen, ...(tainted ? { tainted: true } : {}) })) }
+      ? { jobs: background.started.map(({ id, title, brief, doneWhen }) => ({ id, title, brief, doneWhen, ...(tainted ? { tainted: true } : {}) })) }
       : {}),
     ...(background.steered.length + background.resumed.length > 0
       ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true }))] }

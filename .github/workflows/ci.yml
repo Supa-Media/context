@@ -127,6 +127,7 @@ jobs:
           - 'apps/mcp/src/agent/conversation.js'
           - 'apps/mcp/src/agent/events.js'
           - 'apps/mcp/src/agent/history.js'
+          - 'apps/mcp/src/agent/ledger.js'
           - 'apps/mcp/src/agent/sources.js'
           - 'apps/mcp/src/chaos/**'
           - 'apps/mcp/src/communications/**'
@@ -737,6 +738,7 @@ jobs:
             apps/mcp/src/agent/conversation.js
             apps/mcp/src/agent/events.js
             apps/mcp/src/agent/history.js
+            apps/mcp/src/agent/ledger.js
             apps/mcp/src/agent/sources.js
             apps/mcp/src/chaos/**
             apps/mcp/src/communications/**

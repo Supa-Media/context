@@ -107,9 +107,28 @@ describe("a chat's home", () => {
     const home = await homeRow(w, folder);
     expect(home?.row.kind).toBe("folder");
     expect(home?.people).toEqual(sorted([w.ada, w.bo, w.cy]));
+    // It holds a person's Tex folders from the start, under its own row.
+    for (const inner of ["skills", "routines"]) expect((await homeRow(w, `${folder}/${inner}`))?.row.kind).toBe("folder");
     // The same chat keeps its home: no second folder, no new words.
     await turn(w.t, BO, [ADA, BO, CY, LINE]);
     expect((await chatRow(w.t))?.homeWords).toBe(chat!.homeWords);
+  });
+
+  test("a home made before it held its folders gets them on the chat's next turn", async () => {
+    const w = await world();
+    await turn(w.t, ADA, [ADA, BO, CY, LINE]);
+    const folder = `tex/groups/${(await chatRow(w.t))!.homeWords}`;
+    // As every home made before 2026-11-02 stands: the folder alone.
+    await w.t.run(async (ctx) => {
+      for (const inner of ["skills", "routines"]) {
+        const row = await nodeAt(ctx.db, w.pinned, `${folder}/${inner}`);
+        if (row !== null) await ctx.db.delete(row._id);
+      }
+    });
+    expect(await homeRow(w, `${folder}/skills`)).toBeNull();
+    await turn(w.t, BO, [ADA, BO, CY, LINE]);
+    for (const inner of ["skills", "routines"]) expect((await homeRow(w, `${folder}/${inner}`))?.row.kind).toBe("folder");
+    expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, w.bo, w.cy]));
   });
 
   test("somebody who leaves the chat is taken off, and somebody added is named", async () => {
