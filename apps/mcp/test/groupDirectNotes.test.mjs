@@ -60,7 +60,7 @@ function setup({ direct, objectEntries, onPage = false }) {
   return { group, store, reads, homeStore, dispatch };
 }
 
-const KEPT = { voice: OWN("v1"), about: OWN("a1"), memory: OWN("m1") };
+const KEPT = { voice: OWN("v1"), about: OWN("a1"), memory: OWN("m1"), jobs: false }; // no jobs list: kept as missing, as the lookup keeps it (`chatJobs.js`)
 const ENTRIES = {
   [OWN("m1")]: { etag: "v-memory", text: renderGroupNote(TURNS) },
   [OWN("v1")]: { etag: "v-voice", text: "- dry humor\n- lowercase" },
@@ -121,7 +121,7 @@ test("the id layer names the keys of keyed notes at several paths in one lookup"
 });
 
 test("a voice and about-us note known missing are read as empty, with no read through the tool", async () => {
-  const { group, store, reads, dispatch } = setup({ direct: { voice: false, about: false, memory: OWN("m1") }, objectEntries: ENTRIES, onPage: true });
+  const { group, store, reads, dispatch } = setup({ direct: { voice: false, about: false, jobs: false, memory: OWN("m1") }, objectEntries: ENTRIES, onPage: true });
   await readGroupMemory(store, group, dispatch);
   assert.equal(group.voice, "");
   assert.equal(group.aboutUs, "");

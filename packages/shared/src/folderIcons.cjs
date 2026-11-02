@@ -162,6 +162,8 @@ const TEX_PART_ICONS = Object.freeze({
   routines: contextPartMarker("tex_routines"),
   skills: contextPartMarker("tex_skills"),
   transcripts: contextPartMarker("tex_transcripts"),
+  // How they talk (`personVoice.js`, a chat's `chatVoice.js`): a speech bubble, as the chats are.
+  "voice.md": contextPartMarker("tex_chats"),
 });
 const CADENCE_ICONS = Object.freeze({
   once: contextPartMarker("cadence_once"),
