@@ -284,6 +284,9 @@ describe("a grant's tools-listed stamp at a person on object", () => {
 
     await w.t.mutation(internal.functions.grants.noteToolsListed, { hashedAccessToken });
     expect((await w.t.run((ctx) => ctx.db.get(grantId)))?.toolsListedAt).toEqual(expect.any(Number));
+    // The token-in-URL stamp is the same kind of note.
+    await w.t.mutation(internal.functions.tokenTransport.notePathToken, { grantId, route: "mcp" });
+    expect((await w.t.run((ctx) => ctx.db.get(grantId)))?.pathTokenSeenAt).toEqual(expect.any(Number));
     expect(await outbox(w.t)).toEqual([]);
 
     const refused = await w.t

@@ -57,7 +57,7 @@ export const CONVEX_ONLY_CLIENTS: ReadonlySet<string> = new Set([
  * minutes costs no push and is never refused.
  */
 const VOLATILE: Partial<Record<AccessSource, ReadonlySet<string>>> = {
-  oauthGrants: new Set(["lastUsedAt", "consoleInstanceId", "toolsListedAt"]),
+  oauthGrants: new Set(["lastUsedAt", "consoleInstanceId", "toolsListedAt", "pathTokenSeenAt", "pathTokenRoute"]),
   workspaceMembers: new Set(["activitySeenAt", "setupRetiredAt"]),
   workspaceInvitations: new Set(["emailSentAt"]),
 };
