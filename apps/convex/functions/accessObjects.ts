@@ -40,6 +40,7 @@ import { accessDoor, type AccessDoor, type AccessScope } from "./lib/accessObjec
 import { PERSON_TABLES, WORKSPACE_TABLES, type AccessTable } from "./lib/accessObjects/expected";
 import type { AccessHome } from "./lib/accessObjects/home";
 import { failureOf } from "./lib/workspaceObjects/failures";
+import { accessFailureKind, tally } from "./lib/accessObjects/failure";
 import { accessValidator, scopeValidator } from "./accessObjectsRows";
 
 /** Rows per snapshot call: half the contract's `MAX_ROWS_PER_CALL`. */
@@ -190,6 +191,8 @@ const backfillCounts = v.object({
   notReady: v.number(),
   unreachable: v.number(),
   failed: v.number(),
+  /** Why scopes failed, in closed words (`lib/accessObjects/failure.ts`), never an id. */
+  failures: v.array(v.object({ kind: v.string(), count: v.number() })),
   refused: v.optional(v.string()),
   cursor: v.string(),
   done: v.boolean(),
@@ -206,7 +209,7 @@ export const backfill = internalAction({
   },
   returns: backfillCounts,
   handler: async (ctx, { step, dryRun, cursor, only }) => {
-    const counts = { workspaces: 0, armed: 0, alreadyArmed: 0, copied: 0, wouldCopy: 0, people: 0, rows: 0, skippedRows: 0, skippedObject: 0, notReady: 0, unreachable: 0, failed: 0 };
+    const counts = { workspaces: 0, armed: 0, alreadyArmed: 0, copied: 0, wouldCopy: 0, people: 0, rows: 0, skippedRows: 0, skippedObject: 0, notReady: 0, unreachable: 0, failed: 0, failures: [] as { kind: string; count: number }[] };
     const state = await startState(ctx, cursor, only);
     if (state === "NO_WORKSPACE") return { ...counts, refused: "NO_WORKSPACE", cursor: "", done: true };
     const started = Date.now();
@@ -254,6 +257,7 @@ export const backfill = internalAction({
           if (scope === "person") counts.people += 1;
         } catch (error) {
           counts.failed += 1;
+          tally(counts.failures, `${step}/${scope}: ${accessFailureKind(error)}`);
           console.warn(JSON.stringify({ event: "access_backfill_failed", step, scope, ...failureOf(error) }));
         }
       }
