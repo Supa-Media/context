@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { objectChaosSource, objectLinkTable, objectPropSource, type FactRows } from "../../functions/lib/nodes/objectFacts";
+import { objectCandidates, objectChaosSource, objectLinkTable, objectPropSource, objectPropsAt, type FactRows } from "../../functions/lib/nodes/objectFacts";
 import type { FileStore } from "../../functions/lib/fileOps/store";
 
 const convexProps = (rows: Record<string, string>) => ({
@@ -61,5 +61,22 @@ describe("object facts for the control plane's readers", () => {
     const table = await objectLinkTable(async () => ({ served: true, links: [["a.md", "name", "b"]], unparsed: 1 }), served);
     expect(table?.unparsed).toBe(1);
     expect(await objectLinkTable(async () => ({ served: false }), served)).toBeNull();
+  });
+
+  it("props at paths: the object's answer by path, null when it does not serve, so the caller keeps its row", async () => {
+    const rows: FactRows = async (request) => ({ served: true, props: (request.paths ?? []).map((path) => ({ path, sealed: path === "s.md", props: path === "s.md" ? null : "{}" })) });
+    const held = await objectPropsAt(rows, ["a.md", "s.md", "a.md"]);
+    expect(held?.get("a.md")).toEqual({ sealed: false, props: "{}" });
+    expect(held?.get("s.md")).toEqual({ sealed: true, props: null });
+    expect(await objectPropsAt(async () => ({ served: false }), ["a.md"])).toBeNull();
+    expect(await objectPropsAt(async () => { throw new Error("down"); }, ["a.md"])).toBeNull();
+    expect(await objectPropsAt(null, ["a.md"])).toBeNull();
+  });
+
+  it("a move's candidates: the object's answer, its null kept (read every note), undefined when it does not serve", async () => {
+    expect(await objectCandidates(async () => ({ served: true, candidates: { pointing: ["b.md"], unparsed: [] } }), ["a.md"], [])).toEqual({ pointing: ["b.md"], unparsed: [] });
+    expect(await objectCandidates(async () => ({ served: true, candidates: null }), ["a.md"], [])).toBeNull();
+    expect(await objectCandidates(async () => ({ served: false }), ["a.md"], [])).toBeUndefined();
+    expect(await objectCandidates(null, ["a.md"], [])).toBeUndefined();
   });
 });

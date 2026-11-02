@@ -177,10 +177,12 @@ export function workspaceFacts(sql, objects) {
      * - `props` with `paths`: `{props: [{path, version, sealed, props}]}`, a note without facts absent.
      * - `links`: `{links: [[source, kind, target]], unparsed}`, every link of every live note, at their paths now.
      * - `chaos`: `{extras: [{path, lines, exempt, review}]}`, the notes the score needs more than a key for.
+     * - `candidates` with `sources` and `names`: a move's link candidates, as the `links` ask answers them, unfiltered.
      * `{served: false}` when more changed than one ask reads.
      */
     rows(fields) {
       if (fields.ask === "props") return { served: true, ...this.props({ paths: fields.paths }, () => true) };
+      if (fields.ask === "candidates") return this.links({ sources: fields.sources, names: fields.names }, () => true);
       const byPath = current();
       if (byPath === null) return NOT_SERVED;
       if (fields.ask === "links") {
@@ -279,4 +281,4 @@ export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors"]);
  * plane's internal queries they stand in for (`nodeFacts.propsAt`, `nodeFacts.page`, `nodeChaos.extras`), because
  * every caller judges each path itself. Never sent on a person's behalf by the gateway.
  */
-export const OBJECT_FACT_ROW_ASKS = new Set(["props", "links", "chaos"]);
+export const OBJECT_FACT_ROW_ASKS = new Set(["props", "links", "chaos", "candidates"]);

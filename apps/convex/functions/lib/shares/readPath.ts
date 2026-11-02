@@ -12,6 +12,7 @@ import { ConvexError } from "convex/values";
 import type { ObjectType } from "convex/values";
 import { getAuthUserId } from "../signedIn";
 import { api, internal } from "../../../_generated/api";
+import { objectFactRows, objectPropsAt } from "../nodes/objectFacts";
 import type { ActionCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { normalizePath } from "../fileOps";
@@ -523,7 +524,11 @@ async function sealedInTree(
       paths: [path],
     })
     .catch(() => null);
-  return rows?.some((row) => row.path === path && row.sealed) ?? false;
+  const row = rows?.find((entry) => entry.path === path);
+  if (row === undefined) return false;
+  // Where the notes live in their object, whether this one is sealed is read at the text it holds.
+  const held = await objectPropsAt(await objectFactRows(ctx, workspaceId), [row.at]);
+  return held?.get(row.at)?.sealed ?? row.sealed;
 }
 
 /**

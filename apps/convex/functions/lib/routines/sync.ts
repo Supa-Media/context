@@ -10,6 +10,7 @@
  */
 
 import { internal } from "../../../_generated/api";
+import { objectFactRows, objectPropsAt } from "../nodes/objectFacts";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader } from "../../../_generated/server";
 import type { ActionCtx, MutationCtx } from "../../../_generated/server";
@@ -211,12 +212,15 @@ export async function scanRoutines(
   const waiting: string[] = [];
   // Rows read the tree at the real path; a routine is named under `tex/` (`asTexPath`).
   const candidates = files.slice(0, MAX_ROUTINES_PER_WORKSPACE).filter((path) => scheduleFromNote(asTexPath(path, tex), "") !== null);
+  // Where the notes live in their object, its props are read at the text it holds, so a routine never waits on them.
+  const objectRows = await objectFactRows(ctx, workspaceId);
   for (let at = 0; at < candidates.length; at += PROPS_AT_PATHS) {
-    const rows = await ctx.runQuery(internal.functions.nodeFacts.propsNow, {
-      workspaceId,
-      paths: candidates.slice(at, at + PROPS_AT_PATHS),
-    });
-    for (const row of rows) {
+    const page = candidates.slice(at, at + PROPS_AT_PATHS);
+    const rows = await ctx.runQuery(internal.functions.nodeFacts.propsNow, { workspaceId, paths: page });
+    const held = await objectPropsAt(objectRows, page);
+    for (const tree of rows) {
+      const fresh = held?.get(tree.path);
+      const row = fresh === undefined ? tree : { ...tree, current: true, sealed: fresh.sealed, props: fresh.props };
       if (!row.current) {
         waiting.push(asTexPath(row.path, tex));
         continue;
