@@ -24,6 +24,7 @@ import { callTexStore } from "./texStore/wire.js";
 import { workspaceStub } from "./workspaceStore/api.js";
 import { workspaceMembers } from "./workspaceStore/members.js";
 import { workspaceRows } from "./workspaceStore/rows.js";
+import { workspaceFacts } from "./workspaceStore/facts.js";
 import { personRows } from "./workspaceStore/personRows.js";
 import { tokenIndexClient } from "./workspaceStore/tokenIndex.js";
 import { serveWorkspaceStore } from "./workspaceStore/serve.js";
@@ -57,9 +58,13 @@ export class WorkspaceStore {
   ready() {
     if (this.store !== null) return this.store;
     const sql = this.state.storage.sql;
+    const objects = texObjects(sql);
+    const rows = workspaceRows(sql);
     this.store = {
-      objects: texObjects(sql),
-      rows: workspaceRows(sql),
+      objects,
+      rows,
+      // What its notes say about themselves: links and props, read from the text held here (`workspaceStore/facts.js`).
+      facts: workspaceFacts(sql, objects),
       // "A change is coming" (`workspaceStore/marks.js`): left by a writer before it changes the tree in Convex.
       marks: workspaceMarks(sql),
       // A personal workspace's object is also its person's: reach, shares to them and their connections.

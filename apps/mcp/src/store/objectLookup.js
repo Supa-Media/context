@@ -25,6 +25,7 @@
 import { narrowNote } from "../controlPlane/noteIds.js";
 import { isPlumbing, READS_AS_CHAT, READS_AS_GUEST } from "../privacy/engine.js";
 import { HOMES } from "../workspaceStore/api.js";
+import { OBJECT_FACT_ASKS } from "../workspaceStore/facts.js";
 
 /** Whether a session's names read the workspace as a member: no guest or chat marker (row tokens are a member's). */
 export function readsAsMember(names) {
@@ -92,6 +93,37 @@ export function objectReader({ client, home, behind = false, checkBehind = null,
     return true;
   };
   return { client, workspaceId, log, judged, askBehind, settledBehind };
+}
+
+/**
+ * The note facts the object answers itself (`workspaceStore/facts.js`: `props`, `links`, `neighbors`), asked of it
+ * before the control plane's `/gateway/tree/facts`. `null` where this session does not read the object; otherwise a
+ * function that answers an ask, or `null` for one the object did not serve (another ask, notes not caught up, the
+ * object failing or behind), and the caller asks the control plane as before.
+ *
+ * @param {Parameters<typeof objectReader>[0]} options
+ * @returns {((request: {ask: string}) => Promise<object|null>) | null}
+ */
+export function objectFirstFacts(options) {
+  const reader = objectReader(options);
+  if (reader === null || typeof reader.client.facts !== "function") return null;
+  const { client, workspaceId, log, judged, askBehind, settledBehind } = reader;
+  return async (request) => {
+    if (!OBJECT_FACT_ASKS.has(request?.ask)) return null;
+    const started = Date.now();
+    const pending = askBehind();
+    let answer;
+    try {
+      answer = await client.facts({ ...request, ...judged });
+    } catch (error) {
+      log("workspace_object_facts_failed", { workspaceId, ask: request.ask, error: String(error?.message ?? error) });
+      return null;
+    }
+    if (await settledBehind(pending, answer)) return null;
+    const served = answer?.served === true;
+    log("workspace_object_facts", { workspaceId, ask: request.ask, served, ms: Date.now() - started });
+    return served ? answer : null;
+  };
 }
 
 /**

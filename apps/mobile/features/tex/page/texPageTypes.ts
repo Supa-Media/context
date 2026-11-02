@@ -1,0 +1,218 @@
+/**
+ * The Tex page's data, as the gateway's `/tex/page` routes answer it
+ * (the contract: `docs/decisions/texting-assistant/tex-page.md`).
+ *
+ * Every field is read defensively in `texPageRead.ts`: a section whose records
+ * do not exist yet answers empty, never an error, so the page draws whatever
+ * the gateway has and nothing else.
+ */
+
+export type ChatKey = string; // "me" or a group's key
+
+export interface ChatRef {
+  key: ChatKey;
+  name: string;
+  /** How many people are in a group chat. */
+  people?: number;
+}
+
+export type ActionKind = "advisor" | "job" | "mailcheck" | "tool";
+
+export interface TurnAction {
+  kind: ActionKind;
+  label: string;
+  /** A job id, an advisor ask id, or an email check id. */
+  ref?: string;
+}
+
+export interface Turn {
+  at: number;
+  who: string;
+  said: string;
+  thought: string;
+  did: TurnAction[];
+  /** `null` when Tex stayed quiet. */
+  reply: string | null;
+  ms: number;
+}
+
+export type JobState = "running" | "waiting" | "done" | "failed" | "stopped";
+
+export interface JobSummary {
+  id: string;
+  title: string;
+  state: JobState;
+  startedAt: number;
+  endedAt?: number;
+  failedSteps: number;
+  /** What the job is waiting on the person for. */
+  needs?: string;
+  /** In a group: who asked for it. */
+  for?: string;
+  /** The step it is on now. */
+  now?: string;
+  slot?: number;
+}
+
+export interface JobStep {
+  at: number;
+  text: string;
+  failed?: boolean;
+  why?: string;
+}
+
+export interface JobDetail extends JobSummary {
+  steps: JobStep[];
+  result?: { summary?: string; href?: string; label?: string };
+}
+
+export interface Slot {
+  slot: number;
+  job: JobSummary | null;
+}
+
+export interface Tiles {
+  /** `next` is words ("8:00") or, as the gateway sends it, the instant. */
+  routines: { on: number; next?: string | number };
+  checkins: { next?: string | number };
+  about: { count: number; newToday: number };
+  computer: { running: boolean; url?: string };
+  settings: { summary: string };
+}
+
+export interface Behind {
+  advisor: { today: number; last?: string };
+  mailcheck: { today: number; waiting: number };
+}
+
+export interface Overview {
+  chats: ChatRef[];
+  chat: ChatRef;
+  status: { jobs: number; needsYou: number };
+  thinking: Turn[];
+  thinkingToday: number;
+  minions: Slot[];
+  earlier: JobSummary[];
+  earlierWeek: number;
+  tiles: Tiles;
+  behind: Behind;
+}
+
+export interface AdvisorAsk {
+  id: string;
+  at: number;
+  job?: string;
+  question: string;
+  answer: string;
+  read: string;
+  ms: number;
+}
+
+export type Verdict = "sent" | "waiting" | "stopped";
+
+export interface MailCheck {
+  id: string;
+  at: number;
+  to: string;
+  subject: string;
+  verdict: Verdict;
+  why: string;
+  from: string;
+}
+
+export interface Routine {
+  id: string;
+  title: string;
+  when: string;
+  what?: string;
+  on: boolean;
+  pausedSince?: string;
+}
+
+export interface CheckIn {
+  id: string;
+  when: string;
+  what: string;
+  done?: boolean;
+  result?: string;
+  /** When it next runs, where it is set. */
+  at?: number;
+}
+
+export interface AboutLine {
+  line: string;
+  text: string;
+  source: string;
+  at: number;
+  isNew?: boolean;
+}
+
+export type ListKind = "thinking" | "jobs" | "advisor" | "mailcheck" | "routines" | "checkins" | "about" | "settings";
+
+export interface ListItems {
+  thinking: Turn;
+  jobs: JobSummary;
+  advisor: AdvisorAsk;
+  mailcheck: MailCheck;
+  routines: Routine;
+  checkins: CheckIn;
+  about: AboutLine;
+  settings: never;
+}
+
+/** What a list read answers: its items, and the extras some kinds carry. */
+export interface ListPage<K extends ListKind> {
+  items: ListItems[K][];
+  cursor?: string;
+  /** checkins */
+  looksAt?: string[];
+  quietHours?: string;
+  /** about */
+  total?: number;
+  /** settings: the person's TexSettings values, or the group's. */
+  values?: Record<string, string | number>;
+  number?: string;
+  approver?: string;
+  people?: string[];
+}
+
+export type PageAction =
+  | { type: "steer"; job: string; text: string }
+  | { type: "stop"; job: string }
+  | { type: "report"; job: string; step: number }
+  | { type: "routine.toggle"; id: string; on: boolean }
+  | { type: "routine.remove"; id: string }
+  | { type: "checkin.edit"; id: string; when?: string; what?: string }
+  | { type: "checkin.cancel"; id: string }
+  | { type: "checkin.add"; when: string; what: string }
+  | { type: "about.fix"; line: string; text: string }
+  | { type: "about.remove"; line: string }
+  | { type: "settings"; values: Record<string, string | number> }
+  | { type: "group.settings"; values: Record<string, string | number> };
+
+/** The page's own views, addressed in the URL so a reload or a back press keeps the place. */
+export type SubView =
+  | "routines"
+  | "checkins"
+  | "about"
+  | "computer"
+  | "settings"
+  | "thinking"
+  | "jobs"
+  | "advisor"
+  | "mailcheck";
+
+export const SUB_VIEWS: readonly SubView[] = [
+  "routines",
+  "checkins",
+  "about",
+  "computer",
+  "settings",
+  "thinking",
+  "jobs",
+  "advisor",
+  "mailcheck",
+];
+
+/** Which Tex the page draws: calm #, busy, stuck tugging at its yarn, wild, resting. */
+export type Mood = "calm" | "busy" | "stuck" | "wild" | "rest";

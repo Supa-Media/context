@@ -8,7 +8,7 @@
 
 import { canSee, PrivacyOverrides } from "../privacy/engine.js";
 import { serveTexStore } from "../texStore/wire.js";
-import { isWorkspaceObjectKey, MAX_READ_IDS } from "./api.js";
+import { HOMES, isWorkspaceObjectKey, MAX_READ_IDS } from "./api.js";
 import { ACCESS_HOMES, AccessRowRefused } from "./access.js";
 import { judgedReader } from "./members.js";
 import { AUDIENCES, WorkspaceRowRefused } from "./rows.js";
@@ -16,6 +16,7 @@ import { chatRulesFrom, chatTokens } from "./chatRules.js";
 import { isPersonCall, servePersonCall } from "./personServe.js";
 import { isTokenIndexCall, serveTokenIndex } from "./tokenIndex.js";
 import { membersState, serveMembersCall } from "./serveMembers.js";
+import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.js";
 import { manifestPage } from "./manifest.js";
 import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
 
@@ -132,8 +133,20 @@ function lookUp(rows, fields, by, members = null) {
  */
 async function settledAnswer(store, answer) {
   const behind = await waitForMarks(store.marks ?? null);
-  const settled = answer();
+  const settled = await answer();
   return behind ? { ...settled, behind: true } : settled;
+}
+
+/**
+ * A note facts ask (`workspaceStore/facts.js`), judged like a read: the reader's audience, scope and row tokens over
+ * this object's rows and rules. Served only once the notes live here (home `object`): before that the text here may
+ * be behind the bucket's, and the control plane answers.
+ */
+function answerFacts(store, fields) {
+  if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ASKS.has(fields.ask)) return { served: false };
+  const judge = judgeFor(store.rows, fields, store.members ?? null);
+  const sees = (path) => judge.sees({ path });
+  return store.facts[fields.ask](fields, sees);
 }
 
 /** The paths a row change touches, before and after, for a tree watcher (`store.onTreeChange`). */
@@ -218,6 +231,12 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "path", store.members ?? null)));
       case "ws.rows.resolve":
         return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "noteId", store.members ?? null)));
+      case "ws.facts":
+        return Response.json(await settledAnswer(store, () => answerFacts(store, fields)));
+      case "ws.facts.rows":
+        // The control plane's own readers, through the door: unfiltered, as its internal queries are.
+        if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ROW_ASKS.has(fields.ask)) return Response.json({ served: false });
+        return Response.json(store.facts.rows(fields));
       case "ws.rows.manifest":
         return Response.json(await settledAnswer(store, () => manifestPage(rows, fields, judgeFor(rows, fields, store.members ?? null))));
       case "ws.mark.open":
@@ -258,7 +277,7 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json({ error: "unknown_op" }, { status: 400 });
     }
   } catch (error) {
-    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
+    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
   }
 }

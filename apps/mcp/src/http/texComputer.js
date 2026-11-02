@@ -66,13 +66,17 @@ export function ownHandle(session) {
 
 /**
  * The page Tex texts when the person must take over, or null when this
- * deployment has no https app origin or the person has no handle.
+ * deployment has no https app origin or the person has no handle. It opens
+ * on the Tex page's "Tex's computer" view (`?view=computer`): since the page
+ * became the person's whole Tex page (2026-11-02), the bare address is its
+ * first screen, and a handoff should land on the browser, one tap from
+ * taking it over.
  */
 export function texViewerUrl(env, session) {
   const handle = ownHandle(session);
   const origin = typeof env?.APP_ORIGIN === "string" ? env.APP_ORIGIN : "";
   if (handle === null || !/^https:\/\/[^/]+$/.test(origin.replace(/\/$/, ""))) return null;
-  return `${origin.replace(/\/$/, "")}/tex/${handle}`;
+  return `${origin.replace(/\/$/, "")}/tex/${handle}?view=computer`;
 }
 
 /** The action, rebuilt from named fields only. The screenshot Worker bounds every value. */
