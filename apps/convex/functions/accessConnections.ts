@@ -8,7 +8,8 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { internalQuery } from "../_generated/server";
+import { internalQuery, type MutationCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
 import { internalMutationWriteBehind } from "./lib/rowWatch/mutations";
 import { createGrantArgs, createGrantHandler } from "./lib/grants/create";
 import { personHome } from "./lib/accessHandOff/heldGrants";
@@ -49,3 +50,25 @@ export const createHeld = internalMutationWriteBehind({
     return { grantId, connection };
   },
 });
+
+/** One grant as its person object keeps it, or `null` (`objectMint.ts` hands it to the object). */
+export const connectionOf = internalQuery({
+  args: { grantId: v.id("oauthGrants") },
+  returns: v.any(),
+  handler: async (ctx, { grantId }) => {
+    const grant = await ctx.db.get(grantId);
+    if (grant === null) return null;
+    const client = await ctx.db
+      .query("oauthClients")
+      .withIndex("by_clientId", (q) => q.eq("clientId", grant.clientId))
+      .first();
+    return connectionRow(grant, { name: client?.clientName ?? null, machine: client !== null && isDesktopShellClient(client) }, Date.now());
+  },
+});
+
+/** Refuses a write behind for anyone whose connections are not decided in their object (the mint's own check). */
+export async function requireSwitched(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
+  const home = await personHome(ctx, userId);
+  if (home === null || home.access !== "object") throw new ConvexError({ code: "NOT_SWITCHED", message: "This person's connections are not held by their object." });
+}
+

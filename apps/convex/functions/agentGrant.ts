@@ -1,7 +1,10 @@
 import { getAuthUserId } from "./lib/signedIn";
 import { ConvexError, v } from "convex/values";
 import { action, type MutationCtx } from "../_generated/server";
-import { internalMutation } from "./lib/rowWatch/mutations";
+import { internalMutation, internalMutationWriteBehind } from "./lib/rowWatch/mutations";
+import type { ObjectType } from "convex/values";
+import { keepConnection, objectPair, switchedPerson } from "./lib/accessHandOff/objectMint";
+import { requireSwitched } from "./accessConnections";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
@@ -150,12 +153,12 @@ export const mintConsoleGrant = action({
     if (args.consoleInstanceId !== undefined && !/^[a-zA-Z0-9-]{1,64}$/.test(args.consoleInstanceId)) {
       throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Invalid console instance." });
     }
-    const accessToken = `cat_${randomOpaqueToken(32)}`;
+    // A person whose connections live in their object gets a token naming it (`lib/accessHandOff/objectMint.ts`).
+    const personal = await switchedPerson(ctx, userId as Id<"users">);
+    const accessToken = personal === null ? `cat_${randomOpaqueToken(32)}` : objectPair(personal).accessToken;
     const expiresAt = Date.now() + CONSOLE_GRANT_TTL_MS;
 
-    const scopes: string[] = await ctx.runMutation(
-      internal.functions.agentGrant.applyConsoleGrant,
-      {
+    const grant = {
         actorUserId: userId as Id<"users">,
         consoleInstanceId: args.consoleInstanceId,
         workspaceId: args.workspaceId,
@@ -173,9 +176,13 @@ export const mintConsoleGrant = action({
         */
         hashedRefreshToken: await hashToken(`unissued_${randomOpaqueToken(32)}`),
         expiresAt,
-      },
-    );
-
+    };
+    if (personal !== null) {
+      const { granted, grantId } = await ctx.runMutation(internal.functions.agentGrant.applyConsoleGrantBehind, grant);
+      await keepConnection(ctx, personal, grantId, userId as Id<"users">);
+      return { accessToken, expiresAt, scopes: granted };
+    }
+    const scopes: string[] = await ctx.runMutation(internal.functions.agentGrant.applyConsoleGrant, grant);
     return { accessToken, expiresAt, scopes };
   },
 });
@@ -189,111 +196,130 @@ export const mintConsoleGrant = action({
  * Membership is what authorizes, and it is read in this transaction against the
  * workspace actually being granted.
  */
+const applyConsoleGrantArgs = {
+  actorUserId: v.id("users"),
+  consoleInstanceId: v.optional(v.string()),
+  workspaceId: v.id("workspaces"),
+  hashedAccessToken: v.string(),
+  hashedRefreshToken: v.string(),
+  expiresAt: v.number(),
+};
+
 export const applyConsoleGrant = internalMutation({
-  args: {
-    actorUserId: v.id("users"),
-    consoleInstanceId: v.optional(v.string()),
-    workspaceId: v.id("workspaces"),
-    hashedAccessToken: v.string(),
-    hashedRefreshToken: v.string(),
-    expiresAt: v.number(),
-  },
+  args: applyConsoleGrantArgs,
   returns: v.array(v.string()),
+  handler: async (ctx, args) => (await applyConsoleGrantWork(ctx, args)).granted,
+});
+
+/** `applyConsoleGrant` written behind a switched person's object (`lib/accessHandOff/objectMint.ts`). */
+export const applyConsoleGrantBehind = internalMutationWriteBehind({
+  args: applyConsoleGrantArgs,
+  returns: v.object({ granted: v.array(v.string()), grantId: v.id("oauthGrants") }),
   handler: async (ctx, args) => {
-    // Keyed on the caller and consumed first, so a caller out of budget is
-    // refused whether or not the workspace they named is one they can reach.
-    await consumeRateLimit(ctx, {
-      key: `agent.consoleGrant:${args.actorUserId}`,
-      limit: CONSOLE_MINT_LIMIT,
-      windowMs: CONSOLE_MINT_WINDOW_MS,
-    });
-
-    // Membership, read here rather than taken from the caller. Not a member is
-    // identical to no such workspace, by construction.
-    const { membership } = await requireWorkspaceAccess(
-      ctx,
-      args.workspaceId,
-      args.actorUserId,
-    );
-
-    const granted = clampScopes(CONSOLE_SCOPES, membership.role);
-    if (!hasOperationScope(granted)) {
-      throw new ConvexError({
-        code: "NO_SCOPES_GRANTED",
-        message: "Your role in this context grants nothing the agent could use.",
-      });
-    }
-
-    await ensureConsoleClient(ctx);
-
-    /*
-      ONE LIVE GRANT PER CONSOLE INSTANCE, PERSON AND CONTEXT.
-
-      Independent browser instances must not revoke each other. Older clients
-      without an instance id retain the legacy replacement behavior.
-      The console mints on load and on expiry, so appending would leave a
-      person's connections list growing a row an hour — and, worse, would leave
-      every token they had ever been issued live until it timed out. The
-      existing row is reused and its hashes replaced, which revokes the previous
-      token in the same transaction that issues the next one.
-
-      Revoked is not reused. Somebody who pressed Disconnect gets a *new* row,
-      so the revoked one stays in their trail as the record that they did.
-    */
-    const existing = await ctx.db
-      .query("oauthGrants")
-      .withIndex("by_workspace_user", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("userId", args.actorUserId),
-      )
-      .collect();
-    const reusable = existing.find(
-      (grant) => grant.clientId === CONSOLE_CLIENT_ID && grant.status === "active" &&
-        grant.consoleInstanceId === args.consoleInstanceId,
-    ) ?? existing.find(
-      (grant) => grant.clientId === CONSOLE_CLIENT_ID && grant.status === "active" &&
-        grant.consoleInstanceId !== undefined &&
-        (grant.accessTokenExpiresAt ?? 0) <= Date.now(),
-    );
-
-    if (reusable === undefined) {
-      await ctx.db.insert("oauthGrants", {
-        workspaceId: args.workspaceId,
-        userId: args.actorUserId,
-        clientId: CONSOLE_CLIENT_ID,
-        consoleInstanceId: args.consoleInstanceId,
-        scopes: granted,
-        hashedRefreshToken: args.hashedRefreshToken,
-        hashedAccessToken: args.hashedAccessToken,
-        accessTokenExpiresAt: args.expiresAt,
-        status: "active",
-        createdAt: Date.now(),
-      });
-    } else {
-      await ctx.db.patch(reusable._id, {
-        consoleInstanceId: args.consoleInstanceId,
-        // Re-clamped every time, so a role that narrowed since the last mint
-        // narrows the grant rather than leaving yesterday's scopes in place.
-        scopes: granted,
-        hashedRefreshToken: args.hashedRefreshToken,
-        hashedAccessToken: args.hashedAccessToken,
-        accessTokenExpiresAt: args.expiresAt,
-      });
-    }
-
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: args.actorUserId,
-      action: reusable === undefined ? "agent.session.opened" : "agent.session.renewed",
-      details: {
-        // The scopes and nothing else. Not the token, not its hash — a hash in
-        // an audit row is a value somebody can compare a stolen token against.
-        scopes: granted.join(" "),
-      },
-    });
-
-    return granted;
+    await requireSwitched(ctx, args.actorUserId);
+    return await applyConsoleGrantWork(ctx, args);
   },
 });
+
+async function applyConsoleGrantWork(
+  ctx: MutationCtx,
+  args: ObjectType<typeof applyConsoleGrantArgs>,
+): Promise<{ granted: string[]; grantId: Id<"oauthGrants"> }> {
+  // Keyed on the caller and consumed first, so a caller out of budget is
+  // refused whether or not the workspace they named is one they can reach.
+  await consumeRateLimit(ctx, {
+    key: `agent.consoleGrant:${args.actorUserId}`,
+    limit: CONSOLE_MINT_LIMIT,
+    windowMs: CONSOLE_MINT_WINDOW_MS,
+  });
+
+  // Membership, read here rather than taken from the caller. Not a member is
+  // identical to no such workspace, by construction.
+  const { membership } = await requireWorkspaceAccess(
+    ctx,
+    args.workspaceId,
+    args.actorUserId,
+  );
+
+  const granted = clampScopes(CONSOLE_SCOPES, membership.role);
+  if (!hasOperationScope(granted)) {
+    throw new ConvexError({
+      code: "NO_SCOPES_GRANTED",
+      message: "Your role in this context grants nothing the agent could use.",
+    });
+  }
+
+  await ensureConsoleClient(ctx);
+
+  /*
+    ONE LIVE GRANT PER CONSOLE INSTANCE, PERSON AND CONTEXT.
+
+    Independent browser instances must not revoke each other. Older clients
+    without an instance id retain the legacy replacement behavior.
+    The console mints on load and on expiry, so appending would leave a
+    person's connections list growing a row an hour — and, worse, would leave
+    every token they had ever been issued live until it timed out. The
+    existing row is reused and its hashes replaced, which revokes the previous
+    token in the same transaction that issues the next one.
+
+    Revoked is not reused. Somebody who pressed Disconnect gets a *new* row,
+    so the revoked one stays in their trail as the record that they did.
+  */
+  const existing = await ctx.db
+    .query("oauthGrants")
+    .withIndex("by_workspace_user", (q) =>
+      q.eq("workspaceId", args.workspaceId).eq("userId", args.actorUserId),
+    )
+    .collect();
+  const reusable = existing.find(
+    (grant) => grant.clientId === CONSOLE_CLIENT_ID && grant.status === "active" &&
+      grant.consoleInstanceId === args.consoleInstanceId,
+  ) ?? existing.find(
+    (grant) => grant.clientId === CONSOLE_CLIENT_ID && grant.status === "active" &&
+      grant.consoleInstanceId !== undefined &&
+      (grant.accessTokenExpiresAt ?? 0) <= Date.now(),
+  );
+
+  let grantId: Id<"oauthGrants">;
+  if (reusable === undefined) {
+    grantId = await ctx.db.insert("oauthGrants", {
+      workspaceId: args.workspaceId,
+      userId: args.actorUserId,
+      clientId: CONSOLE_CLIENT_ID,
+      consoleInstanceId: args.consoleInstanceId,
+      scopes: granted,
+      hashedRefreshToken: args.hashedRefreshToken,
+      hashedAccessToken: args.hashedAccessToken,
+      accessTokenExpiresAt: args.expiresAt,
+      status: "active",
+      createdAt: Date.now(),
+    });
+  } else {
+    grantId = reusable._id;
+    await ctx.db.patch(reusable._id, {
+      consoleInstanceId: args.consoleInstanceId,
+      // Re-clamped every time, so a role that narrowed since the last mint
+      // narrows the grant rather than leaving yesterday's scopes in place.
+      scopes: granted,
+      hashedRefreshToken: args.hashedRefreshToken,
+      hashedAccessToken: args.hashedAccessToken,
+      accessTokenExpiresAt: args.expiresAt,
+    });
+  }
+
+  await recordAudit(ctx, {
+    workspaceId: args.workspaceId,
+    actorUserId: args.actorUserId,
+    action: reusable === undefined ? "agent.session.opened" : "agent.session.renewed",
+    details: {
+      // The scopes and nothing else. Not the token, not its hash — a hash in
+      // an audit row is a value somebody can compare a stolen token against.
+      scopes: granted.join(" "),
+    },
+  });
+
+  return { granted, grantId };
+}
 
 /**
  * The client row, written once and then left alone.

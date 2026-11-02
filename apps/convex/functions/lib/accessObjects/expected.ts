@@ -26,6 +26,7 @@ import { isDesktopShellClient } from "../machineGrant";
 import { pinnedContextRow } from "../pinnedContext";
 import { pinReaderNames } from "../pinnedReaders";
 import { sharedWithUser } from "../shares/recipients";
+import { CONVEX_ONLY_CLIENTS } from "../accessHandOff/record";
 
 export type AccessTable = "members" | "invites" | "reach" | "sharedToMe" | "connections";
 export const WORKSPACE_TABLES: readonly AccessTable[] = ["members", "invites"];
@@ -37,8 +38,8 @@ export const MEMBERS_PER_PAGE = 100;
 export const ROWS_CAP = 1000;
 /** The most grant rows one person's copy walks, texting ones included: well inside one query's read limit. */
 export const GRANTS_SCANNED_CAP = 8000;
-/** Clients the person object never holds: their checks stay with the control plane (contract, `checkConnectionRow`). */
-export const TEXTING_CLIENTS: ReadonlySet<string> = new Set(["context_texts", "context_texts_group"]);
+/** Clients the person object never holds: their checks stay with the control plane (`accessHandOff/record.ts`). */
+export const TEXTING_CLIENTS: ReadonlySet<string> = CONVEX_ONLY_CLIENTS;
 
 type Row = Record<string, unknown>;
 export interface Rows {
