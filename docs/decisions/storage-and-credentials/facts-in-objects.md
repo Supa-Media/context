@@ -68,17 +68,22 @@ A screen that lives on a query keeps the query only to hear that its rows
 changed, and asks an action for what the notes say: the triage desk
 (`triageNow`, `apps/mobile/features/tex/dashboard/useTriageDesk.ts`) is read
 again when its rows change and once a minute, and shows the query's own
-answer until the action's arrives.
+answer until the action's arrives. Shared with me's titles
+(`functions/sharedTitles.ts`, `features/console/shared/useSharedWithMe.ts`)
+are asked when the list's notes change; the action builds the list again for
+the signed-in person and asks only about the notes it may title (a share's as
+`readThroughShare` opens it, a grant's as `guestCanSee` did), never paths the
+app names. The rows wait up to two seconds for those titles, so a title does
+not flick from a file name to a heading.
 
-**What has not moved yet.** The control plane still computes its copy
-([convex-facts](../app-and-console/convex-facts.md)) for every workspace,
-because one reader reads it inside a query, where the object cannot be asked:
-Shared with me's titles (shares' and grants', `lib/shares/inboxTitle.ts`,
-`grantedInbox.ts`). The trash and a move's follow-ups (`dropLinks`,
-`followMovedFiles`, `folderLinks`) only keep the control plane's copy in step
-with its rows; they read nothing for anyone. Moving the titles, then stopping
-the control plane's fill for object-home workspaces and dropping its rows
-there, is the next step. The asks that are not note facts stay on the
+**What has not moved yet.** Nothing reads the control plane's copy of an
+object-home workspace's facts that the object cannot answer. The trash and a
+move's follow-ups (`dropLinks`, `followMovedFiles`, `folderLinks`) only keep
+that copy in step with its rows; they read nothing for anyone. Stopping the
+control plane's fill for object-home workspaces and dropping its rows there
+is the next step; until then it still computes its copy
+([convex-facts](../app-and-console/convex-facts.md)) for every workspace, as
+every reader's fallback. The asks that are not note facts stay on the
 control plane: `names` (with note writes), `jobs` and `forwarding` (rows and
 the ledger), and the chaos score's daily history (`nodeChaosDays`).
 
@@ -94,6 +99,8 @@ etag check serves an edited note's old props; keying links by path loses a
 moved note's links; skipping `sees` names private notes to a team reader.
 **The tests that fail:** `apps/mcp/test/objectFacts.test.mjs`,
 `apps/convex/__tests__/nodes/objectFacts.test.ts`,
-`apps/convex/__tests__/oldCopies/oldCopiesObject.test.ts` and the "where the
+`apps/convex/__tests__/oldCopies/oldCopiesObject.test.ts`,
+`apps/convex/__tests__/sharedTitles.test.ts`,
+`apps/mobile/__tests__/useSharedWithMe.test.ts` and the "where the
 notes live in their object" cases of
 `apps/convex/__tests__/controlPlane/texTriage.test.ts`.
