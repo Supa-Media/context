@@ -7,16 +7,39 @@
  * person's Tex has) gets them stood here too, so a quiet chat's home has the same shape without waiting for a text.
  *
  * Run from the `Tex chat home people` workflow, whose log is public: it answers counts only. `dryRun` counts what
- * would change and writes nothing.
+ * would change and writes nothing. A run that writes does it inside `objectFirst` for the pinned workspace: a home's row
+ * names exactly its people, so naming it again may take someone off it, and production's report of unmarked
+ * narrowings named this run (2026-11-02).
  */
 
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
+import { internalAction, internalQuery } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
+import { objectFirst } from "./lib/rowWatch/objectFirst";
 import { withSameNumber } from "./lib/textGroupAccounts";
-import { chatHomePath, homeStands, makeChatHome } from "./lib/textGroupHome";
+import { chatHomePath, homeStands, makeChatHome, sealedPin } from "./lib/textGroupHome";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 
-export const nameAgain = internalMutation({
+type Counts = { dryRun: boolean; homes: number; widened: number; added: number; unstood: number; refused: number };
+
+export const nameAgain = internalAction({
+  args: { dryRun: v.boolean() },
+  handler: async (ctx, { dryRun }): Promise<Counts> => {
+    const run = async (): Promise<Counts> => await ctx.runMutation(internal.functions.texChatHomePeople.nameAgainNow, { dryRun });
+    const pinned = dryRun ? null : await ctx.runQuery(internal.functions.texChatHomePeople.pinnedWorkspace, {});
+    return pinned === null ? await run() : await objectFirst(ctx, pinned, run);
+  },
+});
+
+/** The pinned workspace the homes live in, or null on a deployment with none. */
+export const pinnedWorkspace = internalQuery({
+  args: {},
+  handler: async (ctx) => await sealedPin(ctx),
+});
+
+/** The run itself, called only by `nameAgain`. */
+export const nameAgainNow = internalMutation({
   args: { dryRun: v.boolean() },
   handler: async (ctx, { dryRun }) => {
     const chats = await ctx.db.query("textGroups").collect();

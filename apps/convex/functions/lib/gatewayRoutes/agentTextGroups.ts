@@ -66,8 +66,8 @@ export async function agentTextsGroupHandler(ctx: ActionCtx, body: Record<string
   const mint = body.mint === true && command === undefined;
   const accessToken = `cat_${randomOpaqueToken(32)}`;
   const groupKey = await groupKeyOf(line, groupId);
-  // A legacy guest chat's turn may take its people off a folder: the object hears it first (`textGroupsMarked.ts`).
-  const guestWorkspace = await ctx.runQuery(internal.functions.textGroupsMarked.guestChatWorkspace, { groupKey });
+  // A turn that may take people off a folder or a home: each object it touches hears it first (`textGroupsMarked.ts`).
+  const marked = await ctx.runQuery(internal.functions.textGroupsMarked.turnWorkspaces, { groupKey });
   const turn = async (): Promise<GroupAnswer> => await ctx.runMutation(internal.functions.textGroups.applyGroupTurn, {
     line,
     groupKey,
@@ -81,7 +81,8 @@ export async function agentTextsGroupHandler(ctx: ActionCtx, body: Record<string
     hashedRefreshToken: await hashToken(`unissued_${randomOpaqueToken(32)}`),
     expiresAt: Date.now() + TEXTS_GROUP_GRANT_TTL_MS,
   });
-  const answer: GroupAnswer = guestWorkspace === null ? await turn() : await objectFirst(ctx, guestWorkspace, turn);
+  const run = marked.reduceRight<() => Promise<GroupAnswer>>((inner, workspaceId) => () => objectFirst(ctx, workspaceId, inner), turn);
+  const answer = await run();
   if (answer.status === "ready" && answer.minted) return json({ ...answer, accessToken });
   return json(answer);
 }

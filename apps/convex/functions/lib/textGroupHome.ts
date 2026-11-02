@@ -33,7 +33,7 @@ const NAME_TRIES = 12;
  * The pinned workspace, or null. It is found by the name the seal is drawn by (`PINNED_CONTEXT_SLUG`,
  * `sealsChatHomes`), so a home is never made anywhere the homes aren't sealed.
  */
-async function sealedPin(ctx: QueryCtx): Promise<Id<"workspaces"> | null> {
+export async function sealedPin(ctx: QueryCtx): Promise<Id<"workspaces"> | null> {
   return (await pinnedContextWorkspace(ctx))?._id ?? null;
 }
 

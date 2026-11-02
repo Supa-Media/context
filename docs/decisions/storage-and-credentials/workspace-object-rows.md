@@ -62,8 +62,11 @@ places or judges it named) and may remove a bare tombstone folder (gone, no `acc
 seen by nobody and a folder is gone only while nothing live is under it, so the row watch no longer counts either as
 a narrowing (`lib/rowWatch/watch.ts` `bringsBackOrClears`). A tombstone that carries a rule still judges, and its
 removal still counts. A legacy guest chat's turn may take its people off the chat's folder (`clearGuests`), so the
-gateway route asks which workspace such a chat touches and runs the turn inside `objectFirst`
-(`textGroupsMarked.ts`); every other chat's turn writes no rule and runs with no mark. The same report named one more
+gateway route asks which workspaces a turn may touch and runs the turn inside `objectFirst` for each
+(`textGroupsMarked.ts`). A chat with a home is the other such turn: the home's row in the pinned workspace names
+exactly the chat's people (`makeChatHome`), so a turn after somebody left takes them off it, and the backfill that
+names every home again (`texChatHomePeople.ts`, named by the report once it ran) is an action that writes inside the
+pinned workspace's mark. A chat with neither writes no rule and runs with no mark. The same report named one more
 `nodeRowMoves.rowMove`: a keyed move (`nodesMoveStart`, `nodesMoveBatch`) was run by the barrier before its marked
 path, so it never opened the mark its kind is listed for; it now runs inside `markedIfNarrowing` too. After that
 deploy the report still named `adoptKeyed`: a note born where access was asked for it before it existed takes
