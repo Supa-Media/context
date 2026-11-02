@@ -23,6 +23,7 @@
  *  - `readHistory` ignoring the desk (`openDesk` returning null): "... in one desk call";
  *  - `deskTexts` answering {} (About me read as a note again): "About me and the jobs list come from the desk";
  *  - `openWarm` passing `copy.chat` whole: "a copy sealed before ... is never used for the history".
+ * 2026-11-02: `copiedIn` answering false (the record written beside a copied-in ledger): "a texted turn never touches ...".
  */
 
 import assert from "node:assert/strict";
@@ -87,9 +88,10 @@ test("a texted turn never touches the bucket for its history or bookkeeping, and
     await posted([first]);
     const one = await watched(world, () => request(world.env, TOKEN_TEXTS, "/agent", { question: "hi Tex", conversation: "texts", covers: [first.id], chat: CHAT, recent: [first], turn: "turn-copy-0001" }));
     assert.equal(one.result.status, 200, JSON.stringify(one.result.body));
-    // A person with no record yet (one the migration has not reached) has their old copies read once, to move them in: reads only, never a write.
-    assert.deepEqual(one.bucket, ["GET /tenant-egress.context/agent/events/", "GET /tenant-egress/.context/agent/conversations/texts.json"], "the one move-in: the old log's listing and the old file");
-    assert.ok(await record(world), "and the record is made, so it never happens again");
+    // Their chat's past is copied into the ledger (`ledgerBackfill.js`) after the Worker's post, so the turn reads the ledger:
+    // no old copy is moved in and no history record is made (`conversation.js` `appendConversation`).
+    assert.deepEqual(one.bucket, [], "nothing of the old copies is read");
+    assert.equal(await record(world), null, "and no history record is made: the ledger is the one copy");
     await posted([event(Date.now(), { from: { kind: "tex" }, text: "Hey Seyi.", turn: "turn-copy-0001", covers: [first.id], delivered: true })]);
 
     // A job reports to the chat's own turn.
@@ -118,9 +120,9 @@ test("a texted turn never touches the bucket for its history or bookkeeping, and
     assert.match(shown, /Nothing changed since yesterday\./, "the routine's text reached the record the next text read");
     assert.ok(shown.includes(TOLD.setup.slice(0, 40)), "the Worker's fixed text too");
 
-    const kept = await record(world);
-    const texts = kept.turns.map((turn) => turn.text);
-    for (const said of ["hi Tex", "Hey Seyi.", "Nothing changed since yesterday.", "That it's drafted."]) assert.ok(texts.some((text) => text.includes(said)), `${said} is in the one record`);
+    assert.equal(await record(world), null, "still no history record");
+    const ledger = JSON.stringify(await texBucket(texStoreStub(world.env, { person: PERSON.slice("person:".length) })).ledgerRead("texts"));
+    for (const said of ["hi Tex", "Hey Seyi.", "Nothing changed since yesterday.", "That it's drafted."]) assert.ok(ledger.includes(said), `${said} is in the one record, the chat's ledger`);
     const inBucket = [...world.bucket.keys()].filter((key) => BOOKKEEPING.test(key));
     assert.deepEqual(inBucket, [], "the bucket holds none of it");
   } finally {

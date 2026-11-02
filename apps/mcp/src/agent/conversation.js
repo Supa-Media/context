@@ -26,7 +26,7 @@
 
 import { eventKey, idOfKey, newExchange } from "./events.js";
 import { appendHistory, readHistory } from "./history.js";
-import { readLedgerConversation } from "./ledgerConversation.js";
+import { copiedIn, readLedgerConversation } from "./ledgerConversation.js";
 import { ONE_TO_ONE_CHAT, ledgerWriter, wordsEntry } from "./ledger.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isNoteSource, isReadSource, sourcesOf } from "./sources.js";
 
@@ -247,7 +247,8 @@ export async function appendConversation(store, name, question, answer, { tainte
   if (conversationPath(name) === null) return null;
   const exchange = typeof chosen === "string" ? { at, id: chosen } : tag !== null ? { at, id: idOfKey(eventKey(at, tag)) } : newExchange(at);
   const id = exchange.id;
-  await appendHistory(
+  // The old record only while the chat's ledger does not hold its whole past: once it is copied in, the ledger is the one copy.
+  if (!(await copiedIn(store))) await appendHistory(
     store,
     [
       keptTurn({ role: "user", text: question, id, at: exchange.at, ...(thread ? { thread } : {}), theirs }),

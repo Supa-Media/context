@@ -168,6 +168,22 @@ export async function readLedgerConversation(store) {
   return HISTORY.keep(conversationFromLedger(entries));
 }
 
+/**
+ * Whether the person's chat from before their ledger began is copied in (its
+ * `BACKFILLED` mark sits first): from then on the ledger is the chat's one copy
+ * and the old history record is no longer written. False when the store keeps
+ * no ledger for them, or the ledger can't be read: the record goes on.
+ */
+export async function copiedIn(store) {
+  const ledger = typeof store?.texLedger === "function" ? store.texLedger(null) : null;
+  if (ledger === null || typeof ledger?.oldest !== "function") return false;
+  try {
+    return (await ledger.oldest(ONE_TO_ONE_CHAT))?.id === BACKFILLED;
+  } catch {
+    return false;
+  }
+}
+
 const eventId = (at) => `${String(Math.max(0, Math.floor(at))).padStart(13, "0")}-${String(crypto.getRandomValues(new Uint32Array(1))[0] % 1_000_000).padStart(6, "0")}`;
 
 /**
