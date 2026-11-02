@@ -62,6 +62,22 @@ export const release = internalMutation({
   },
 });
 
+/** A push's failure, kept for the marks report (`workspaceObjectMarks.ts` `report`): the reason as a short code. */
+export const failed = internalMutation({
+  args: { workspaceId: v.id("workspaces"), reason: v.string(), now: v.number() },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId, reason, now }) => {
+    const code = reason.replace(/[^A-Za-z0-9 ._:-]/g, "").slice(0, 80) || "failed";
+    const held = await ctx.db
+      .query("workspaceObjectPushFailures")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    if (held === null) await ctx.db.insert("workspaceObjectPushFailures", { workspaceId, reason: code, at: now, count: 1 });
+    else await ctx.db.patch(held._id, { reason: code, at: now, count: held.count + 1 });
+    return null;
+  },
+});
+
 /**
  * The entries the object took, gone; `true` while more wait (the lease is kept for them), else the lease is let
  * go in the same transaction, so an entry written after this commits schedules a drain that finds it free.
@@ -84,6 +100,12 @@ export const ack = internalMutation({
       .unique();
     if (next === null) {
       if (held !== null) await ctx.db.delete(held._id);
+      // Every entry is in: the last failure, if any, is over.
+      const failure = await ctx.db
+        .query("workspaceObjectPushFailures")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      if (failure !== null) await ctx.db.delete(failure._id);
       return false;
     }
     if (held !== null) await ctx.db.patch(held._id, { until: now + LEASE_MS });
@@ -204,4 +226,4 @@ export const waitingSince = internalQuery({
 });
 
 // What actions wait on, from where it lives (`lib/rowWatch/drain.ts`), for the callers that import it from here.
-export { drainWorkspace, objectSettled, RETRY_MS, SETTLE_MS, settledAfter } from "./lib/rowWatch/drain";
+export { drainWorkspace, GATEWAY_SETTLE, objectSettled, RETRY_MS, SETTLE_MS, settledAfter } from "./lib/rowWatch/drain";

@@ -12,6 +12,7 @@
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
+import { GATEWAY_SETTLE } from "../rowWatch/drain";
 import { objectFirst } from "../rowWatch/objectFirst";
 import { badRequest, json, randomOpaqueToken, stringField } from "../gatewayAuth";
 import { groupKeyOf, MAX_GROUP_PARTICIPANTS, TEXTS_GROUP_GRANT_TTL_MS, type GroupAnswer } from "../../textGroups";
@@ -81,7 +82,7 @@ export async function agentTextsGroupHandler(ctx: ActionCtx, body: Record<string
     hashedRefreshToken: await hashToken(`unissued_${randomOpaqueToken(32)}`),
     expiresAt: Date.now() + TEXTS_GROUP_GRANT_TTL_MS,
   });
-  const run = marked.reduceRight<() => Promise<GroupAnswer>>((inner, workspaceId) => () => objectFirst(ctx, workspaceId, inner), turn);
+  const run = marked.reduceRight<() => Promise<GroupAnswer>>((inner, workspaceId) => () => objectFirst(ctx, workspaceId, inner, { settle: GATEWAY_SETTLE }), turn);
   const answer = await run();
   if (answer.status === "ready" && answer.minted) return json({ ...answer, accessToken });
   return json(answer);

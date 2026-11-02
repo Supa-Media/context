@@ -17,9 +17,10 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { objectDoor } from "./objectDoor";
 import { MARK_TTL_MS, markToken } from "./markRules";
-import { objectSettled } from "./drain";
+import { objectSettled, type SettleOptions } from "./drain";
 
-type Options = Parameters<typeof objectDoor>[2];
+/** The door's own options, and how long the write waits for the object afterwards (`./drain.ts` `GATEWAY_SETTLE`). */
+type Options = Parameters<typeof objectDoor>[2] & { settle?: SettleOptions };
 
 /**
  * File operations (`lib/filesFns/operationValidators.ts`) that may take something away from someone who could see
@@ -61,13 +62,14 @@ export const NARROWING_OPERATIONS: ReadonlySet<string> = new Set([
  * from before it starts until its change has reached the object. Answers what `write` answered.
  */
 export async function objectFirst<T>(ctx: ActionCtx, workspaceId: Id<"workspaces">, write: () => Promise<T>, options: Options = {}): Promise<T> {
+  const { settle, ...doorOptions } = options;
   const token = markToken();
   if (!(await ctx.runMutation(internal.functions.workspaceObjectMarks.open, { workspaceId, token, now: Date.now() }))) {
     const result = await write();
-    await objectSettled(ctx, workspaceId);
+    await objectSettled(ctx, workspaceId, settle);
     return result;
   }
-  const call = objectDoor(ctx, workspaceId, options);
+  const call = objectDoor(ctx, workspaceId, doorOptions);
   try {
     await call("ws.mark.open", { token, ttlMs: MARK_TTL_MS });
   } catch (error) {
@@ -82,7 +84,7 @@ export async function objectFirst<T>(ctx: ActionCtx, workspaceId: Id<"workspaces
     // mark closes only once what committed is in the object. Settled: every change written before now is there.
     // Not settled: the push goes on retrying and closes the mark when it lands; until then the object says behind.
     await ctx.runMutation(internal.functions.workspaceObjectMarks.done, { token, at: Date.now() });
-    if (await objectSettled(ctx, workspaceId)) await closeMark(ctx, call, workspaceId, token);
+    if (await objectSettled(ctx, workspaceId, settle)) await closeMark(ctx, call, workspaceId, token);
   }
 }
 

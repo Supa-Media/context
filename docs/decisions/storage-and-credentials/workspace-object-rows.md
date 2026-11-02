@@ -18,6 +18,15 @@ waits, every binding the gateway opens carries `notesBehind`, and that request's
 which already has the change. A share taken back is never served from the object's older rows
 (`__tests__/workspaceObjectPush.test.ts`, "a share taken back by the app's own mutation…").
 
+A gateway request's own write (a save's `setAccess`, a keyed note's `wrote`/`adopt`/`removed`, a group turn) waits
+only 2.5 s and does not run the push inline (`GATEWAY_SETTLE`), and the gateway gives that bookkeeping 15 s
+(`CONTROL_PLANE_WRITE_TIMEOUT_MS`). With the full ten-second wait under the gateway's 8-second lookup timeout, a
+workspace whose push stopped landing refused every note save as "control plane unavailable: timed out" although each
+change had committed (2026-11-02). Not waiting longer is safe because the read side already covers the gap above. A
+failing push records its reason as a short code (`workspaceObjectPushFailures`), read with the outbox's depth from
+the `Workspace object marks` workflow (`__tests__/workspaceObjectGatewaySettle.test.ts`,
+`__tests__/workspaceObjectFirst.test.ts`).
+
 **What a simplification would cost.** Importing `mutation` from `_generated/server` again, or hooking writers one by
 one, lets one missed writer narrow access in Convex while the object goes on showing the note.
 `__tests__/rowWatchGuard.test.ts` refuses any file that builds a mutation around the wrapper;

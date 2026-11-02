@@ -11,6 +11,15 @@
 export const CONTROL_PLANE_TIMEOUT_MS = 8_000;
 
 /**
+ * How long a note save's own bookkeeping may take: a row's access (`/gateway/privacy`) and a keyed note's version
+ * (`/gateway/note-ids/wrote`, `adopt`, `removed`). Each tells the workspace's object first and then waits briefly for
+ * it (`apps/convex/functions/lib/rowWatch/drain.ts` `GATEWAY_SETTLE`), so it is a few calls rather than one lookup.
+ * Under the 8-second lookup timeout, a push that was not landing made every save answer "control plane unavailable:
+ * timed out" although the control plane had taken it (2026-11-02).
+ */
+export const CONTROL_PLANE_WRITE_TIMEOUT_MS = 15_000;
+
+/**
  * How long a website status, check or publish may take. These read the site's
  * pages from the bucket (and a publish writes a copy of each), so they are
  * real work rather than a lookup, and an agent waits for the answer anyway.

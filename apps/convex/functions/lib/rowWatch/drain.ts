@@ -86,6 +86,18 @@ async function coverUnmarked(ctx: ActionCtx, call: Call, workspaceId: Id<"worksp
 }
 
 /**
+ * A failed push's reason as a short code for the marks report, whose log is public: the object's own `op: status`
+ * or `op: ErrorClass` (`ObjectUnreachable`), `limit` for a function over Convex's read or write limits, and the
+ * error's class otherwise. Never the rest of a message, which may quote a path.
+ */
+function failureCode(error: unknown): string {
+  if (!(error instanceof Error)) return "failed";
+  if (error.name === "ObjectUnreachable") return error.message;
+  if (/too many|limit/i.test(error.message)) return `${error.name}: limit`;
+  return error.name;
+}
+
+/**
  * Carry the workspace's waiting changes to its object, now. What an action that narrows access awaits before it
  * answers, so nothing reports success while the object could still show what was taken away. `"busy"`: another
  * drain holds the workspace and will carry them; `"done"`: none wait.
@@ -119,6 +131,9 @@ export async function drainWorkspace(
     }
   } catch (error) {
     await ctx.runMutation(internal.functions.workspaceObjectPush.release, { workspaceId });
+    await ctx
+      .runMutation(internal.functions.workspaceObjectPush.failed, { workspaceId, reason: failureCode(error), now: Date.now() })
+      .catch(() => null);
     await ctx.scheduler.runAfter(RETRY_MS, internal.functions.workspaceObjectPush.drain, { workspaceId });
     console.warn(JSON.stringify({ event: "workspace_object_push_failed", workspaceId, reason: error instanceof Error ? error.message : "failed" }));
     throw error;
@@ -130,6 +145,18 @@ export async function drainWorkspace(
 
 /** How long an action that narrowed access waits for the object before it answers anyway, and says so in the log. */
 export const SETTLE_MS = 10_000;
+
+/**
+ * How a gateway request's own write waits for the object: briefly, and without running the push itself. The gateway
+ * gives up on a control-plane answer after a few seconds (`apps/mcp/src/controlPlane/client.js`
+ * `CONTROL_PLANE_WRITE_TIMEOUT_MS`), so a wait as long as `SETTLE_MS`, or a push run inline that hangs on the object,
+ * turned every note save into "control plane unavailable: timed out" whenever a workspace's push was not landing
+ * (2026-11-02), although the save itself had committed. The push already scheduled by the write carries the change;
+ * until it lands the object says behind and readers ask the control plane, which has it.
+ */
+export const GATEWAY_SETTLE: SettleOptions = { settleMs: 2_500, drain: false };
+
+export type SettleOptions = { settleMs?: number; drain?: boolean };
 const SETTLE_POLL_MS = 150;
 /** Entries stamped this far after the action's clock still count as the action's own: the mutation's clock may lead. */
 const CLOCK_MARGIN_MS = 2_000;
@@ -139,9 +166,9 @@ const CLOCK_MARGIN_MS = 2_000;
  * access calls after its mutation and before it answers. `true` at once for a workspace not judged in its object
  * (it has no outbox). `false` past `SETTLE_MS`, logged: the change is kept and the push goes on retrying.
  */
-export async function objectSettled(ctx: ActionCtx, workspaceId: Id<"workspaces">, settleMs = SETTLE_MS): Promise<boolean> {
+export async function objectSettled(ctx: ActionCtx, workspaceId: Id<"workspaces">, options: SettleOptions = {}): Promise<boolean> {
   try {
-    return await settle(ctx, workspaceId, settleMs);
+    return await settle(ctx, workspaceId, options.settleMs ?? SETTLE_MS, options.drain ?? true);
   } catch (error) {
     // Never the caller's failure: its change is kept, and the push goes on retrying.
     console.warn(JSON.stringify({ event: "workspace_object_settle_failed", workspaceId, reason: error instanceof Error ? error.message : "failed" }));
@@ -149,17 +176,19 @@ export async function objectSettled(ctx: ActionCtx, workspaceId: Id<"workspaces"
   }
 }
 
-async function settle(ctx: ActionCtx, workspaceId: Id<"workspaces">, settleMs: number): Promise<boolean> {
+async function settle(ctx: ActionCtx, workspaceId: Id<"workspaces">, settleMs: number, drain: boolean): Promise<boolean> {
   const started = Date.now();
   const since = started + CLOCK_MARGIN_MS;
   for (;;) {
     if (!(await ctx.runQuery(internal.functions.workspaceObjectPush.waitingSince, { workspaceId, at: since }))) return true;
-    try {
-      await drainWorkspace(ctx, workspaceId);
-    } catch {
-      // Logged and retried by `drainWorkspace`.
+    if (drain) {
+      try {
+        await drainWorkspace(ctx, workspaceId);
+      } catch {
+        // Logged and retried by `drainWorkspace`.
+      }
+      if (!(await ctx.runQuery(internal.functions.workspaceObjectPush.waitingSince, { workspaceId, at: since }))) return true;
     }
-    if (!(await ctx.runQuery(internal.functions.workspaceObjectPush.waitingSince, { workspaceId, at: since }))) return true;
     if (Date.now() - started > settleMs) {
       console.warn(JSON.stringify({ event: "workspace_object_narrowing_late", workspaceId, waitedMs: Date.now() - started }));
       return false;
