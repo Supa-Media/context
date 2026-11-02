@@ -243,10 +243,8 @@ test("the object failing, not serving, or found behind falls back to the control
   assert.equal(await failing({ ask: "props", paths: ["a.md"] }), null);
   const notServed = objectFirstFacts(READING({ facts: async () => ({ served: false }) }));
   assert.equal(await notServed({ ask: "links", sources: [], names: [] }), null);
-  const behind = objectFirstFacts(READING({ facts: async () => ({ served: true, props: [] }) }, { checkBehind: async () => true }));
+  const behind = objectFirstFacts(READING({ facts: async () => ({ served: true, props: [], behind: true }) }));
   assert.equal(await behind({ ask: "props", paths: ["a.md"] }), null);
-  const brokenCheck = objectFirstFacts(READING({ facts: async () => ({ served: true, props: [] }) }, { checkBehind: async () => { throw new Error("x"); } }));
-  assert.equal(await brokenCheck({ ask: "props", paths: ["a.md"] }), null);
 });
 
 test("store.treeFacts answers from the object when it serves, and from the control plane otherwise", async () => {

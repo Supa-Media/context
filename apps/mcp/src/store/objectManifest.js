@@ -52,13 +52,12 @@ export function manifestDifference(objectPage, controlPage) {
 export function objectFirstManifest(readControl, options, { defer = null } = {}) {
   const reader = objectReader(options);
   if (reader === null) return readControl;
-  const { client, workspaceId, log, judged, askBehind, settledBehind } = reader;
+  const { client, workspaceId, log, judged, settledBehind } = reader;
 
   return async (page = {}, readOptions) => {
     const control = () => (readOptions === undefined ? readControl(page) : readControl(page, readOptions));
     if (Number.isFinite(page?.changedSince)) return await control();
     const started = Date.now();
-    const pending = askBehind();
     let answer;
     try {
       answer = await client.rows.manifest({
@@ -70,7 +69,7 @@ export function objectFirstManifest(readControl, options, { defer = null } = {})
       log("workspace_object_manifest_failed", { workspaceId, error: String(error?.message ?? error) });
       return await control();
     }
-    if (await settledBehind(pending, answer)) return await control();
+    if (settledBehind(answer)) return await control();
     if (!wellFormed(answer)) {
       log("workspace_object_manifest_unserved", { workspaceId });
       return await control();

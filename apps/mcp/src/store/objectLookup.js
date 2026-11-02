@@ -15,11 +15,11 @@
  * Any failure of the object falls back to the control plane for the whole question, and is logged.
  *
  * Whether the object is behind (a change committed in the control plane and not yet pushed, such as a share just
- * taken back): either the binding's `notesBehind`, read once when the store was built, or `checkBehind`, one small
- * control-plane question asked beside every object call, so a read that skips the binding still never serves a
- * revoked share. A check that fails counts as behind. The object also says so itself: a writer that may narrow
- * leaves a mark there before it commits, and an answer given while one is still open says `behind: true`
- * (`workspaceStore/marks.js`), which is treated the same way.
+ * taken back): the object says so itself. A writer that may narrow leaves a mark there before it commits, and an
+ * answer given while one is still open says `behind: true` (`workspaceStore/marks.js`); the binding's `notesBehind`,
+ * read once when the store was built, says so too. The control plane is no longer asked beside every object call
+ * (2026-11-02): every narrowing writer, background jobs included, opens its mark first, and the production report of
+ * writes that did not (`workspaceObjectMarks.report`) was empty before this went.
  */
 
 import { narrowNote } from "../controlPlane/noteIds.js";
@@ -54,9 +54,9 @@ function entryOf(row) {
  * at home there, an unknown scope, a chat whose names are not known, or a change the object has not taken yet, which
  * the binding's `notesBehind` says), else the reader as the object judges it and the per-call behind check.
  *
- * @param {{client: object|null, home?: string|null, behind?: boolean, checkBehind?: (() => Promise<boolean>)|null, scope: string, names: Iterable<string>, chatNames?: string[]|null, workspaceId?: string, userId?: string|null, log?: (event: string, fields: object) => void}} options
+ * @param {{client: object|null, home?: string|null, behind?: boolean, scope: string, names: Iterable<string>, chatNames?: string[]|null, workspaceId?: string, userId?: string|null, log?: (event: string, fields: object) => void}} options
  */
-export function objectReader({ client, home, behind = false, checkBehind = null, scope, names, chatNames = null, workspaceId, userId = null, log = () => {} }) {
+export function objectReader({ client, home, behind = false, scope, names, chatNames = null, workspaceId, userId = null, log = () => {} }) {
   const groups = [...(names ?? [])];
   const audience = audienceOf(groups);
   if (!client || home !== HOMES.OBJECT || (scope !== "private" && scope !== "team")) return null;
@@ -76,23 +76,15 @@ export function objectReader({ client, home, behind = false, checkBehind = null,
     ...(audience === "member" && typeof userId === "string" ? { userId } : {}),
     ...(audience === "chat" ? { chatNames: [...chatNames] } : {}),
   };
-  // Asked at the same time as the object, never before it: the read costs the slower of the two, not both.
-  const askBehind = () =>
-    typeof checkBehind === "function"
-      ? Promise.resolve()
-          .then(checkBehind)
-          .then((answer) => answer !== false)
-          .catch(() => true)
-      : Promise.resolve(false);
-  // Behind by the object's own word (a writer's mark still open past its wait: `workspaceStore/marks.js`), or by
-  // the control plane's answer to `checkBehind`.
-  const settledBehind = async (pending, answer) => {
-    const own = answer?.behind === true;
-    if (!(await pending) && !own) return false;
-    log("workspace_object_behind", { workspaceId, ...(own ? { by: "object" } : {}) });
+  // Behind by the object's own word: a writer that may narrow opened a mark there before it committed, and the
+  // change has not landed within the object's wait (`workspaceStore/marks.js`). Every narrowing writer goes first
+  // (`apps/convex/functions/lib/rowWatch/objectFirst.ts`), so nobody asks the control plane beside each read.
+  const settledBehind = (answer) => {
+    if (answer?.behind !== true) return false;
+    log("workspace_object_behind", { workspaceId, by: "object" });
     return true;
   };
-  return { client, workspaceId, log, judged, askBehind, settledBehind };
+  return { client, workspaceId, log, judged, settledBehind };
 }
 
 /**
@@ -107,11 +99,10 @@ export function objectReader({ client, home, behind = false, checkBehind = null,
 export function objectFirstFacts(options) {
   const reader = objectReader(options);
   if (reader === null || typeof reader.client.facts !== "function") return null;
-  const { client, workspaceId, log, judged, askBehind, settledBehind } = reader;
+  const { client, workspaceId, log, judged, settledBehind } = reader;
   return async (request) => {
     if (!OBJECT_FACT_ASKS.has(request?.ask)) return null;
     const started = Date.now();
-    const pending = askBehind();
     let answer;
     try {
       answer = await client.facts({ ...request, ...judged });
@@ -119,7 +110,7 @@ export function objectFirstFacts(options) {
       log("workspace_object_facts_failed", { workspaceId, ask: request.ask, error: String(error?.message ?? error) });
       return null;
     }
-    if (await settledBehind(pending, answer)) return null;
+    if (settledBehind(answer)) return null;
     const served = answer?.served === true;
     log("workspace_object_facts", { workspaceId, ask: request.ask, served, ms: Date.now() - started });
     return served ? answer : null;
@@ -130,15 +121,14 @@ export function objectFirstFacts(options) {
  * The `lookup` and `resolve` hooks for `withIdLayout`, object first. `hooks` are the control plane's.
  *
  * @param {{lookup: (paths: string[]) => Promise<object>, resolve?: (ids: string[]) => Promise<object>}} hooks
- * @param {{client: object|null, home?: string|null, behind?: boolean, checkBehind?: () => Promise<boolean>, scope: string, names: Iterable<string>, chatNames?: string[]|null, userId?: string|null, log?: (event: string, fields: object) => void}} options
+ * @param {{client: object|null, home?: string|null, behind?: boolean, scope: string, names: Iterable<string>, chatNames?: string[]|null, userId?: string|null, log?: (event: string, fields: object) => void}} options
  */
 export function objectFirstHooks(hooks, options) {
   const reader = objectReader(options);
   if (reader === null) return hooks;
-  const { client, workspaceId, log, judged, askBehind, settledBehind } = reader;
+  const { client, workspaceId, log, judged, settledBehind } = reader;
 
   const lookup = async (paths) => {
-    const pending = askBehind();
     let answer;
     try {
       answer = await client.rows.lookup({ paths, ...judged });
@@ -146,7 +136,7 @@ export function objectFirstHooks(hooks, options) {
       log("workspace_object_lookup_failed", { workspaceId, error: String(error?.message ?? error) });
       return await hooks.lookup(paths);
     }
-    if (await settledBehind(pending, answer)) return await hooks.lookup(paths);
+    if (settledBehind(answer)) return await hooks.lookup(paths);
     const notes = {};
     const missing = [];
     paths.forEach((path, at) => {
@@ -162,7 +152,6 @@ export function objectFirstHooks(hooks, options) {
 
   if (typeof hooks.resolve !== "function") return { ...hooks, lookup };
   const resolve = async (noteIds) => {
-    const pending = askBehind();
     let answer;
     try {
       answer = await client.rows.resolve({ noteIds, ...judged });
@@ -170,7 +159,7 @@ export function objectFirstHooks(hooks, options) {
       log("workspace_object_resolve_failed", { workspaceId, error: String(error?.message ?? error) });
       return await hooks.resolve(noteIds);
     }
-    if (await settledBehind(pending, answer)) return await hooks.resolve(noteIds);
+    if (settledBehind(answer)) return await hooks.resolve(noteIds);
     const paths = {};
     const missing = [];
     noteIds.forEach((noteId, at) => {

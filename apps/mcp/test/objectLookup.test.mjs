@@ -178,14 +178,20 @@ test("resolve: a note's path from the object; under a dot folder, or not found, 
   assert.deepEqual(answer.paths, { [NOTE]: "plans/a.md", [hidden]: null, [missing]: null });
 });
 
-// `checkBehind`: asked beside every object call, so a read that skips the binding still never serves a share just
-// taken back. Sabotage, each confirmed to fail a case here: ignore the check's `true`, treat a failed check as not
-// behind, or ask the check only after the object answered.
-test("checkBehind: behind sends lookup and resolve to the control plane even when the object found the note", async () => {
+// Behind by the object's own word: a writer that may narrow left a mark there, and its change has not landed. The
+// control plane is never asked beside the object (2026-11-02: every narrowing writer goes first). Sabotage, each
+// confirmed to fail a case here: ignore the object's `behind`, or ask the control plane before the object answers.
+test("the object's own behind sends lookup and resolve to the control plane even when it found the note", async () => {
   const cp = control();
   const ob = object({ "plans/a.md": seen });
+  const behind = {
+    rows: {
+      lookup: async (fields) => ({ ...(await ob.client.rows.lookup(fields)), behind: true }),
+      resolve: async (fields) => ({ ...(await ob.client.rows.resolve(fields)), behind: true }),
+    },
+  };
   const logged = [];
-  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", checkBehind: async () => true, scope: "team", names: [], workspaceId: "w1", log: (event) => logged.push(event) });
+  const hooks = objectFirstHooks(cp.hooks, { client: behind, home: "object", scope: "team", names: [], workspaceId: "w1", log: (event) => logged.push(event) });
   assert.deepEqual((await hooks.lookup(["plans/a.md"])).notes, { "plans/a.md": { state: "gone" } });
   assert.deepEqual(await hooks.resolve([NOTE]), { paths: { [NOTE]: null } });
   assert.deepEqual(cp.asked.lookup, [["plans/a.md"]]);
@@ -193,47 +199,11 @@ test("checkBehind: behind sends lookup and resolve to the control plane even whe
   assert.deepEqual(logged, ["workspace_object_behind", "workspace_object_behind"]);
 });
 
-test("checkBehind: a check that fails counts as behind; a clear false keeps the object's answer", async () => {
-  const failing = control();
-  const hooks = objectFirstHooks(failing.hooks, { client: object({ "plans/a.md": seen }).client, home: "object", checkBehind: async () => { throw new Error("control plane down"); }, scope: "team", names: [], workspaceId: "w1" });
-  assert.deepEqual((await hooks.lookup(["plans/a.md"])).notes, { "plans/a.md": { state: "gone" } });
-
-  const clear = control();
-  const fine = objectFirstHooks(clear.hooks, { client: object({ "plans/a.md": seen }).client, home: "object", checkBehind: async () => false, scope: "team", names: [], workspaceId: "w1" });
-  assert.deepEqual((await fine.lookup(["plans/a.md"])).notes, { "plans/a.md": { state: "keyed", key: KEY, etag: "e1", noteId: NOTE } });
-  assert.deepEqual(clear.asked.lookup, []);
-});
-
-test("checkBehind: asked at the same time as the object, not after it", async () => {
+test("an object that is not behind is the whole answer: the control plane is not asked", async () => {
   const cp = control();
-  const order = [];
-  let releaseObject;
-  const objectAnswered = new Promise((resolve) => (releaseObject = resolve));
-  const client = {
-    rows: {
-      lookup: async (fields) => {
-        order.push("object asked");
-        await objectAnswered;
-        order.push("object answered");
-        return { rows: fields.paths.map(() => seen) };
-      },
-    },
-  };
-  const hooks = objectFirstHooks(cp.hooks, {
-    client,
-    home: "object",
-    checkBehind: async () => {
-      order.push("check asked");
-      return false;
-    },
-    scope: "team",
-    names: [],
-    workspaceId: "w1",
-  });
-  const answer = hooks.lookup(["plans/a.md"]);
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.ok(order.includes("check asked"), "the check is asked before the object answers");
-  releaseObject();
-  await answer;
-  assert.ok(order.indexOf("check asked") < order.indexOf("object answered"));
+  const hooks = objectFirstHooks(cp.hooks, { client: object({ "plans/a.md": seen }).client, home: "object", scope: "team", names: [], workspaceId: "w1" });
+  assert.deepEqual((await hooks.lookup(["plans/a.md"])).notes, { "plans/a.md": { state: "keyed", key: KEY, etag: "e1", noteId: NOTE } });
+  assert.deepEqual(await hooks.resolve([NOTE]), { paths: { [NOTE]: "plans/a.md" } });
+  assert.deepEqual(cp.asked.lookup, []);
+  assert.deepEqual(cp.asked.resolve, []);
 });
