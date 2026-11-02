@@ -8,6 +8,9 @@
  */
 import { ControlPlaneError } from "./client.js";
 
+/** The "is the object behind?" question is one indexed read; past this the reader asks the control plane instead. */
+export const OBJECT_BEHIND_TIMEOUT_MS = 2_000;
+
 /** A manifest page is a few thousand names; a slow one costs the tool its answer, and it says so. */
 export const TREE_MANIFEST_TIMEOUT_MS = 6_000;
 
@@ -21,6 +24,18 @@ export const TREE_RESPONSE_BYTE_CAP = 16_000_000;
 
 export function createTreeMethods({ post }) {
   return {
+    /**
+     * Whether `workspaceId`'s object is behind (`/gateway/objects/behind`): a tree or access change the control plane
+     * committed and has not pushed yet, such as a share just taken back. One indexed read there. Anything but a clear
+     * `false` (a refusal, a malformed answer) is `true`, so a reader falls back to the control plane, which has it.
+     *
+     * @param {string} workspaceId
+     */
+    async objectBehind(workspaceId) {
+      const parsed = await post("/gateway/objects/behind", { workspaceId }, { timeoutMs: OBJECT_BEHIND_TIMEOUT_MS });
+      return parsed?.behind !== false;
+    },
+
     /**
      * One page of the keys this grant may see in the workspace, from the
      * Convex tree: `{ served: true, entries, cursor }`, or `{ served: false }`
