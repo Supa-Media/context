@@ -36,9 +36,9 @@ function entryOf(row) {
  * The `lookup` and `resolve` hooks for `withIdLayout`, object first. `hooks` are the control plane's.
  *
  * @param {{lookup: (paths: string[]) => Promise<object>, resolve?: (ids: string[]) => Promise<object>}} hooks
- * @param {{client: object|null, home?: string|null, behind?: boolean, scope: string, names: Iterable<string>, log?: (event: string, fields: object) => void}} options
+ * @param {{client: object|null, home?: string|null, behind?: boolean, scope: string, names: Iterable<string>, userId?: string|null, log?: (event: string, fields: object) => void}} options
  */
-export function objectFirstHooks(hooks, { client, home, behind = false, scope, names, workspaceId, log = () => {} }) {
+export function objectFirstHooks(hooks, { client, home, behind = false, scope, names, workspaceId, userId = null, log = () => {} }) {
   const groups = [...(names ?? [])];
   if (!client || home !== HOMES.OBJECT || (scope !== "private" && scope !== "team") || !readsAsMember(groups)) return hooks;
   // A change the object has not taken yet (the binding's `notesBehind`): a share just taken back by a mutation that
@@ -48,7 +48,8 @@ export function objectFirstHooks(hooks, { client, home, behind = false, scope, n
     log("workspace_object_behind", { workspaceId });
     return hooks;
   }
-  const judged = { scope, groups, audience: "member" };
+  // `userId`: who is reading, for an object that decides access from its own members (`workspaceStore/members.js`).
+  const judged = { scope, groups, audience: "member", ...(typeof userId === "string" ? { userId } : {}) };
 
   const lookup = async (paths) => {
     let answer;

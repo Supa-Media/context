@@ -78,6 +78,39 @@ the search databases, and still nothing of ours. Isolation between workspaces
 is the object boundary: one object per workspace, a name derived from the
 immutable id, and a store that is never handed another workspace's object.
 
+**Every object of ours is placed in eastern North America** (decided by the
+owner, 2026-11-01): workspace objects, Tex's objects, the live-typing rooms,
+the texting Worker's inboxes and the small infra objects. An object is placed
+once, near whatever first asks for it, and never moves. Tex's objects were
+asked for without a hint, and the first calls to the six busiest (about 80% of
+their traffic, 2026-10-25 to 11-01) came from gateway requests that ran in
+London on 2026-10-31, so they live in London and Amsterdam while 98% of
+gateway requests run in Virginia. Each Worker makes stubs only through its
+`objectPlace` helper; `scripts/check-durable-object-location.mjs` (fast
+guards) fails on any other. The hint changes nothing for an object that
+already exists: those six are copied to new names to move.
+
+**How Tex's objects moved** (2026-11-02, `apps/mcp/src/texStore/move.js`).
+Every Tex store, not only the six, now lives under `enam:<owner>`
+(`enam:person:<workspaceId>`, `enam:chat:<chatId>`), so the name says where
+it was placed and no list of moved owners has to be kept anywhere (a list
+would be customer identifiers in config). The first call to a placed store
+copies the old store in before it answers: the old store stops keeping
+writes in one synchronous step (a write already under way is stopped by the
+objects' guard), every object comes across checked against its etag, the
+routine alarms come with it, and the placed store compares its own list with
+the old one, key by key, before it is marked arrived. Any difference throws
+the copy away and the call fails; the next call starts again. A store is
+never answered from half-copied. The old store passes every later call on
+(a gateway still on the old code during a deploy loses nothing), runs no
+routine, and clears its copy after three days by its own alarm, or at once
+when the store is wiped. Every move is one `tex_entry` point (step
+`tex_store_move`) carrying the old object's id, which is how the six are
+tied to their owners. *Simplification cost:* moving only the six, by a list,
+puts workspace ids in config and leaves two naming rules forever; dropping
+the parity check lets a cut-short copy answer as if whole. Tests:
+`apps/mcp/test/texStoreMove.test.mjs`.
+
 ## Measured (production, 2026-10-31 18:00 to 2026-11-01 18:00 UTC)
 
 Tex's objects use the same storage code a workspace object will, so they are

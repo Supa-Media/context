@@ -33,6 +33,7 @@ test/agentOtherRoutes.test.mjs
 test/agentInstructions.test.mjs
 test/agentJobPlanner.test.mjs
 test/agentJobs.test.mjs
+test/contextOpenOnce.test.mjs
 test/jobLogAppend.test.mjs
 test/agentLocalNow.test.mjs
 test/agentPromptCache.test.mjs
@@ -301,6 +302,7 @@ test/agentWarmCopy.test.mjs
 test/texHistoryOneCopy.test.mjs
 test/agentHeldLog.test.mjs
 test/texStore.test.mjs
+test/texStoreMove.test.mjs
 test/texRouting.test.mjs
 test/texAlarms.test.mjs
 test/texRoutineAlarms.test.mjs
@@ -319,3 +321,7 @@ test/workspaceTree.test.mjs
 test/objectLookup.test.mjs
 test/agentHomeMove.test.mjs
 test/accessSockets.test.mjs
+test/accessContract.test.mjs
+test/texFolderNames.test.mjs
+test/workspaceMembers.test.mjs
+test/workspaceMembersAccess.test.mjs

@@ -261,7 +261,7 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-17",
     text:
-      "manage action dream_now (no args) starts Tex's dream for the person now instead of at 3 am: it rewrites tex/about-me.md " +
+      "manage action dream_now (no args) starts Tex's dream for the person now instead of at 3 am: it rewrites tex/about.md " +
       "within a few minutes and texts nobody. For onboarding, after you have read their recent email; read the note in a later turn " +
       "and confirm it with them. Owner of their own personal workspace only, where their plan includes dreams, never while one runs, at most once every six hours; " +
       "the answer says which, in words you can pass on.",

@@ -213,5 +213,5 @@ test("the control plane's door reaches a chat's state in that chat's object, as 
     );
   assert.equal((await call("put", record("@ada: hi"))).status, 200);
   assert.equal(await (await call("get")).text(), record("@ada: hi"));
-  assert.deepEqual(named, [`chat:${KEY}`, `chat:${KEY}`]);
+  assert.deepEqual(named, [`enam:chat:${KEY}`, `enam:chat:${KEY}`], "the chat's store placed in eastern North America (`texStore/move.js`)");
 });

@@ -21,6 +21,7 @@ import {
 } from "../oauth.js";
 import { resolvePresentedSession } from "./presentedToken.js";
 import { attachPinnedDoors } from "./pinnedDoors.js";
+import { attachContextOpener, namedContextsOf, onceEach, prefetchNamedContexts } from "./contextOpener.js";
 import {
   decodePathSegment,
   hasScope,
@@ -66,7 +67,6 @@ import { publishMeetingNote, resolveMeetingNotePath } from "../meetings/notes.js
 import { searchBudgetFor } from "../search/budget.js";
 import { searchSettingsFor } from "../search/settings.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
-import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { PRODUCTION_MEETING_SUMMARIES_PATH, readJobSetupWith } from "../agent/production.js";
 import { handleTryIt } from "../agent/tryIt.js";
@@ -313,6 +313,9 @@ export async function route(request, env, ctx) {
         if (refusal) return refusal;
       }
 
+      // A tool call that names another workspace opens it beside this one, not after (`contextOpener.js`).
+      const openOnce = onceEach((target) => storeForSession(target, env, controlPlane));
+      if (path === "/mcp") namedContextsOf(request).then((names) => prefetchNamedContexts(session, names, openOnce));
       let store;
       try {
         store = await storeForSession(session, env, controlPlane);
@@ -576,87 +579,10 @@ export async function route(request, env, ctx) {
         });
       }
 
-      /**
-       * Open one of the *other* contexts this connection covers.
-       *
-       * A grant covers every context its person is a live member of, so a tool
-       * call may name one — and this is the only thing in the worker that acts
-       * on that name. It rides on the per-request store for the same reason
-       * `store.actor` and the search budget do: the tool layer never sees `env`
-       * or the control plane, and everything it hands back dies with the
-       * request, so a reused isolate carries no other tenant's credential.
-       *
-       * Two properties it must keep:
-       *
-       *  - **A second store, never a second grant.** `sessionForContext` clamps
-       *    the grant's scopes and the visibility tier to the caller's role in
-       *    the addressed context, and `storeForSession` spends the same
-       *    two-factor proof — the same user token, for a context the control
-       *    plane independently agrees they are a member of.
-       *  - **No general chaining.** The store it returns has no `openContext`
-       *    of its own. The routing dry-run is the single narrow exception: it
-       *    may re-clamp at most six caller-supplied candidate names and opens
-       *    only the selected destination, solely to append its audit event.
-       */
-      store.openContext = async (name) => {
-        const target = sessionForContext(session, name);
-        if (target === session) return { session, store };
-        const targetStore = await storeForSession(target, env, controlPlane);
-        targetStore.searchSubrequestBudget = searchBudgetFor(env);
-        // Read at open time, so a turn's setup settings reach the contexts it addresses.
-        targetStore.searchSettings = store.searchSettings;
-        attachLinkCalls(targetStore, target, controlPlane, env);
-        attachImageUploads(targetStore, target, controlPlane, origin, env);
-        targetStore.defer = store.defer;
-        // A turn's held index passes include the contexts it opens (`search/heldPasses.js`).
-        if (typeof store.holdSearchPass === "function") targetStore.holdSearchPass = store.holdSearchPass;
-        // The same binding, keyed later by the *target's* workspace id: a
-        // write routed into another context is announced in that context's
-        // note room and recorded in its activity, never in the caller's.
-        targetStore.presenceRooms = store.presenceRooms;
-        // Its tree hint and activity dot go to the context written into: the
-        // people watching `@theirs` are the ones whose console must move.
-        attachChangeReporters(targetStore, target.workspaceId, controlPlane);
-        targetStore.actor = actorFor(target);
-        targetStore.contexts = contextsFor(target);
-        // The connection's own listing, wherever orient was addressed.
-        targetStore.offeredTools = store.offeredTools;
-        // Against the context that was routed to, never the connection's own.
-        // `targetStore.searchIndex` came from that context's own binding, so
-        // the projection and the figure describing it name one workspace.
-        targetStore.reportSearchIndexProgress = (progress) =>
-          controlPlane.reportSearchIndexProgress({
-            ...progress,
-            workspaceId: target.workspaceId,
-          });
-        // Likewise against the context that was routed to. A form answered in
-        // somebody else's context tells *their* owner, and a notification
-        // filed against the caller's own workspace would resolve `notify:
-        // owner` to the wrong person entirely.
-        targetStore.reportFormSubmission = (submission) => {
-          const send = controlPlane
-            .notifyFormSubmission(target.workspaceId, submission)
-            .catch(() => {});
-          if (typeof targetStore.defer !== "function") return;
-          try {
-            targetStore.defer(send);
-          } catch {
-            // A host whose `waitUntil` refuses the work simply does not report.
-          }
-        };
-        targetStore.suggestDestination = (args) =>
-          toolSuggestDestination(target, args, (candidate) => store.openContext(candidate));
-        // The one other name an addressed store may open, and only to read the
-        // Context.LC-wide note orient shows first. See `orient/globalNote.js`.
-        targetStore.openPinnedContext = store.openPinnedContext;
-        return { session: target, store: targetStore };
-      };
-      store.openPinnedContext = () => store.openContext(PINNED_CONTEXT_NAME);
+      // Other contexts, each opened at most once this request (`contextOpener.js`).
+      attachContextOpener(store, session, { env, controlPlane, origin, openOnce, pinnedName: PINNED_CONTEXT_NAME });
       // A group chat's turn reads Tex's setup in the pin it may not otherwise address, and keeps its home there.
       attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, env, controlPlane));
-
-      store.suggestDestination = (args) =>
-        toolSuggestDestination(session, args, (candidate) => store.openContext(candidate));
 
       // After `store.openContext` is attached, deliberately: a turn may address
       // another context by name exactly as a client's tool call can, through

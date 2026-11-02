@@ -57,6 +57,18 @@ export function isAgentHomeKey(key) {
   return typeof key === "string" && AGENT_HOME.test(key) && !key.includes("..");
 }
 
+/**
+ * Whether a call goes to a Tex Durable Object rather than the bucket, by the
+ * same rules as `withTexRouting`: a person's bookkeeping key, a Tex or chat
+ * state key, or (for a listing, `prefix: true`) a prefix under either. For
+ * timing only (`agent/texEntryPoint.js`); the routing itself decides access.
+ */
+export function goesToObject(key, { prefix = false } = {}) {
+  if (typeof key !== "string" || key.includes("..")) return false;
+  if (prefix) return AGENT_HOME_PREFIX.test(key) || /^tex\/(?:person|chat):[A-Za-z0-9_-]{1,64}\//.test(key);
+  return isAgentHomeKey(key) || splitTexKey(key) !== null;
+}
+
 /** `{owner, key}` for a Tex key or a chat's state key: whose object, and the key inside it. */
 export function splitTexKey(key) {
   if (!isTexKey(key) && !isTexStateKey(key)) return null;
@@ -116,7 +128,8 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
       return typeof target.desk === "function" ? await target.desk() : null;
     },
     enumerable: false,
-    writable: false,
+    // Writable so the turn's timer can wrap it (`texEntryPoint.js` `watch`), as it wraps `get` and `put`.
+    writable: true,
     configurable: false,
   });
   // The bucket beneath, for the one move of the old bookkeeping into the object (`agent/agentHomeMove.js`) and nothing else.

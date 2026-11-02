@@ -16,6 +16,7 @@
  * and it means we structurally cannot "just email you your token".
  */
 
+import { TOUCH_GRANT_EVERY_MS } from "./lib/controlPlane/session";
 import { ConvexError, v } from "convex/values";
 import { requireAuthId } from "./lib/signedIn";
 import { internalQuery, query } from "../_generated/server";
@@ -652,7 +653,7 @@ export const resolveGrantByRefreshToken = internalQuery({
   },
 });
 
-export const TOUCH_GRANT_EVERY_MS = 5 * 60 * 1000;
+export { TOUCH_GRANT_EVERY_MS };
 
 /**
  * Stamp `lastUsedAt`: the "last seen 3 minutes ago" line by which a person

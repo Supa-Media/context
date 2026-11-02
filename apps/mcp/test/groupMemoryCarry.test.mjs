@@ -42,7 +42,7 @@ const KEY = "a".repeat(64);
 const MEMBERS = "b".repeat(64);
 const GROUP = { key: KEY, members: MEMBERS, from: "ada", people: ["ada"], chat: [] };
 const hashOf = (text) => createHash("sha256").update(text).digest("hex").slice(0, 12);
-const homeNote = (hash = hashOf(KEY)) => `${HOME}/chat-${hash}.md`;
+const homeNote = () => `${HOME}/history.md`;
 const boundNote = (hash = hashOf(`${KEY}:${MEMBERS}`)) => `tex/groups/chat-${hash}.md`;
 
 const OLD = [

@@ -11,10 +11,10 @@
  * `/agent` to dream. This file is that turn:
  *
  *   1. It finds the day's transcripts (`tex/transcripts/`, `transcript.js`)
- *      written since the last dream, and reads `tex/about-me.md` (`aboutMe.js`).
+ *      written since the last dream, and reads `tex/about.md` (`aboutMe.js`).
  *      With no note yet it is a first look: it also looks around their
  *      workspace and always starts the note (`FIRST_LOOK`).
- *   2. A model reads them and rewrites `tex/about-me.md`, under the same
+ *   2. A model reads them and rewrites `tex/about.md`, under the same
  *      500-line cap every write to it has. It may read their notes and write
  *      that one note, and nothing else: no other note, no other workspace, no
  *      visibility, no link, no web, no text to anyone.
@@ -96,7 +96,7 @@ function refused(text) {
 }
 
 /**
- * The dream's dispatcher: their own notes to read, and `tex/about-me.md` to
+ * The dream's dispatcher: their own notes to read, and `tex/about.md` to
  * write, with nothing but its text and etag. Everything else is refused here,
  * before the session's dispatcher is reached, so a dream steered by something
  * it read can still only change the one note it is for.
@@ -140,7 +140,7 @@ export const DREAM_INSTRUCTIONS = [
 ].join("\n\n");
 
 /**
- * A first dream's extra words: `tex/about-me.md` does not exist yet, so it
+ * A first dream's extra words: `tex/about.md` does not exist yet, so it
  * takes a first look around their workspace and starts the note from that,
  * even with no texts to read (the owner, 2026-10-17: "some users do not have
  * an about me and a first look at their workspaces"). Before this a first

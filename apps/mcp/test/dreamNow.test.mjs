@@ -137,7 +137,7 @@ test("manage dream_now reaches the control plane with the connection's own token
   const answer = await manageDreamNow(TOKEN_OWNER);
   assert.equal(answer.isError, false, answer.text);
   assert.match(answer.text, /^Started/);
-  assert.match(answer.text, /tex\/about-me\.md/);
+  assert.match(answer.text, /tex\/about\.md/);
   assert.deepEqual(controlPlane.dreams.asks, [{ accessToken: TOKEN_OWNER, workspaceId: "ws_dream", userId: "user_dreamer" }]);
 });
 

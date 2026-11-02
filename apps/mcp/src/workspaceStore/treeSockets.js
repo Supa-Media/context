@@ -31,6 +31,8 @@ import {
   TREE_WATCH_MAX,
 } from "../../../../packages/shared/src/treeFrames.cjs";
 import { HOMES } from "./api.js";
+import { ACCESS_HOMES } from "./access.js";
+import { judgedReader } from "./members.js";
 import { folderPathOf, listFolderFromRows } from "./listing.js";
 import { treeRows } from "./treeRows.js";
 
@@ -63,7 +65,8 @@ export function readerOf(raw) {
   if (!Array.isArray(reader.groups) || reader.groups.length > MAX_GROUPS) return null;
   if (!reader.groups.every((group) => typeof group === "string" && group.length > 0 && group.length <= 128)) return null;
   if (!Number.isFinite(reader.deadline)) return null;
-  return { scope: reader.scope, groups: [...new Set(reader.groups)], deadline: reader.deadline };
+  if (reader.userId !== undefined && !(typeof reader.userId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(reader.userId))) return null;
+  return { scope: reader.scope, groups: [...new Set(reader.groups)], deadline: reader.deadline, ...(reader.userId ? { userId: reader.userId } : {}) };
 }
 
 async function digest(text) {
@@ -74,7 +77,7 @@ async function digest(text) {
 /**
  * @param {{acceptWebSocket: Function, getWebSockets: Function}} state  the Durable Object's state
  * @param {{exec: Function}} sql
- * @param {{rows: {rules: () => object|null, home: () => string}}} store
+ * @param {{rows: {rules: () => object|null, home: () => string}, members?: object}} store
  * @param {{now?: () => number, pair?: () => [WebSocket, WebSocket], schedule?: (fn: () => void, ms: number) => unknown, upgraded?: (client: WebSocket) => Response}} [deps]
  *   `pair` and `upgraded` are the runtime's (`WebSocketPair`, a 101) unless a test passes its own.
  */
@@ -115,12 +118,24 @@ export function treeSockets(state, sql, store, deps = {}) {
   };
   const openSockets = () => state.getWebSockets("tree").filter((ws) => ws.readyState === undefined || ws.readyState === 1);
 
-  /** One folder at this reader's clearance. */
-  const listingFor = (folder, reader) => {
+  /**
+   * The reader's clearance: the gateway's, or, where this object decides access, the reader as a member here
+   * (`members.js` `judgedReader`). `null` (not a member, or a socket that names nobody) and the socket is closed.
+   */
+  const clearanceOf = (reader) => {
+    const members = store.members ?? null;
+    if (members === null || members.home() !== ACCESS_HOMES.OBJECT) return { scope: reader.scope, names: new Set(reader.groups) };
+    if (typeof reader.userId !== "string") return null;
+    const judged = judgedReader(members, { userId: reader.userId, scope: reader.scope, groups: reader.groups });
+    return judged === null ? null : { scope: judged.scope, names: judged.tokens };
+  };
+
+  /** One folder at this clearance. */
+  const listingFor = (folder, clearance) => {
     const { rows: children, more } = tree.children(folder);
     return listFolderFromRows({
       folder,
-      clearance: { scope: reader.scope, names: new Set(reader.groups) },
+      clearance,
       // The console reads as a member (`resolveFileAccess` asks for one), so the members' rules judge it.
       held: store.rows.rules("member"),
       children,
@@ -132,8 +147,16 @@ export function treeSockets(state, sql, store, deps = {}) {
 
   /** List `folders` for one socket, sending each that differs from what it was last sent. */
   const sendListings = async (ws, id, reader, folders) => {
+    if (folders.length === 0) return;
+    const clearance = clearanceOf(reader);
+    if (clearance === null) {
+      // No longer a member here: nothing more is listed, and the client must ask the gateway again.
+      forget(id);
+      close(ws, TREE_CLOSE_REAUTH, "reauthorize");
+      return;
+    }
     for (const folder of folders) {
-      const frame = listingFrame(folder, listingFor(folder, reader));
+      const frame = listingFrame(folder, listingFor(folder, clearance));
       const sent = await digest(frame);
       const held = all(sql.exec("SELECT sent FROM ws_tree_watch WHERE socket = ? AND folder = ?", id, folder))[0];
       if (held === undefined || held.sent === sent) continue;

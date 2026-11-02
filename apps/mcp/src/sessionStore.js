@@ -139,6 +139,7 @@ async function openSessionStore(session, env, controlPlane) {
           scope: session.scope,
           names: session.grantedGroups,
           workspaceId: session.workspaceId,
+          userId: session.actorUserId ?? null,
           log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
         });
   // A keyed workspace's path objects are frozen copies (`notes-by-id.md`): a store
