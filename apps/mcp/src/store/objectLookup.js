@@ -11,6 +11,11 @@
  * Only a member's own reading goes to the object. A guest's or a Tex guest chat's reading (`READS_AS_GUEST`,
  * `READS_AS_CHAT` in the session's names) is judged by rules rendered for that reader, which the control plane keeps; it is asked there.
  * Any failure of the object falls back to the control plane for the whole question, and is logged.
+ *
+ * Whether the object is behind (a change committed in the control plane and not yet pushed, such as a share just
+ * taken back): either the binding's `notesBehind`, read once when the store was built, or `checkBehind`, one small
+ * control-plane question asked beside every object call, so a read that skips the binding still never serves a
+ * revoked share. A check that fails counts as behind.
  */
 
 import { narrowNote } from "../controlPlane/noteIds.js";
@@ -36,9 +41,9 @@ function entryOf(row) {
  * The `lookup` and `resolve` hooks for `withIdLayout`, object first. `hooks` are the control plane's.
  *
  * @param {{lookup: (paths: string[]) => Promise<object>, resolve?: (ids: string[]) => Promise<object>}} hooks
- * @param {{client: object|null, home?: string|null, behind?: boolean, scope: string, names: Iterable<string>, userId?: string|null, log?: (event: string, fields: object) => void}} options
+ * @param {{client: object|null, home?: string|null, behind?: boolean, checkBehind?: () => Promise<boolean>, scope: string, names: Iterable<string>, userId?: string|null, log?: (event: string, fields: object) => void}} options
  */
-export function objectFirstHooks(hooks, { client, home, behind = false, scope, names, workspaceId, userId = null, log = () => {} }) {
+export function objectFirstHooks(hooks, { client, home, behind = false, checkBehind = null, scope, names, workspaceId, userId = null, log = () => {} }) {
   const groups = [...(names ?? [])];
   if (!client || home !== HOMES.OBJECT || (scope !== "private" && scope !== "team") || !readsAsMember(groups)) return hooks;
   // A change the object has not taken yet (the binding's `notesBehind`): a share just taken back by a mutation that
@@ -50,8 +55,22 @@ export function objectFirstHooks(hooks, { client, home, behind = false, scope, n
   }
   // `userId`: who is reading, for an object that decides access from its own members (`workspaceStore/members.js`).
   const judged = { scope, groups, audience: "member", ...(typeof userId === "string" ? { userId } : {}) };
+  // Asked at the same time as the object, never before it: the read costs the slower of the two, not both.
+  const askBehind = () =>
+    typeof checkBehind === "function"
+      ? Promise.resolve()
+          .then(checkBehind)
+          .then((answer) => answer !== false)
+          .catch(() => true)
+      : Promise.resolve(false);
+  const settledBehind = async (pending) => {
+    if (!(await pending)) return false;
+    log("workspace_object_behind", { workspaceId });
+    return true;
+  };
 
   const lookup = async (paths) => {
+    const pending = askBehind();
     let answer;
     try {
       answer = await client.rows.lookup({ paths, ...judged });
@@ -59,6 +78,7 @@ export function objectFirstHooks(hooks, { client, home, behind = false, scope, n
       log("workspace_object_lookup_failed", { workspaceId, error: String(error?.message ?? error) });
       return await hooks.lookup(paths);
     }
+    if (await settledBehind(pending)) return await hooks.lookup(paths);
     const notes = {};
     const missing = [];
     paths.forEach((path, at) => {
@@ -74,6 +94,7 @@ export function objectFirstHooks(hooks, { client, home, behind = false, scope, n
 
   if (typeof hooks.resolve !== "function") return { ...hooks, lookup };
   const resolve = async (noteIds) => {
+    const pending = askBehind();
     let answer;
     try {
       answer = await client.rows.resolve({ noteIds, ...judged });
@@ -81,6 +102,7 @@ export function objectFirstHooks(hooks, { client, home, behind = false, scope, n
       log("workspace_object_resolve_failed", { workspaceId, error: String(error?.message ?? error) });
       return await hooks.resolve(noteIds);
     }
+    if (await settledBehind(pending)) return await hooks.resolve(noteIds);
     const paths = {};
     const missing = [];
     noteIds.forEach((noteId, at) => {
