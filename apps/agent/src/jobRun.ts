@@ -123,6 +123,16 @@ export async function armJobNext(storage: InboxStorage, next: JobNext, now: numb
   if (next.kind === "after") await storage.setAlarm(now + next.ms);
 }
 
+/**
+ * The object's alarm. Without a workflow it runs each pass and arms the next. With one, its only alarm is the
+ * one a job's end sets to drop the kept run (`finish`), and a run stored then is a resumed one its own instance
+ * passes, so the alarm leaves it alone.
+ */
+export async function jobAlarm(storage: InboxStorage, deps: JobDeps, workflow: boolean): Promise<void> {
+  if (workflow && (await storage.get<Stored>(RUN_KEY)) !== undefined) return;
+  await armJobNext(storage, await runJob(storage, deps), deps.now());
+}
+
 /** The workflow gave up on the job's pass: it ends, and the chat is told it couldn't finish. */
 export async function failJob(storage: InboxStorage, deps: JobDeps): Promise<JobNext> {
   const run = await storage.get<Stored>(RUN_KEY);
