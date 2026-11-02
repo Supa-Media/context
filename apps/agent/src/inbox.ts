@@ -74,7 +74,7 @@ import { answers, clearReactions, noteReaction, notedReactions, reactionLine, ta
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
-import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events"; import { warmDeps } from "./warm"; import { rememberChatReader } from "./chatRead";
+import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
 import { chatJobs, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
@@ -536,8 +536,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
     covers,
     (ids) => dropSteered(storage, ids, covers),
     async (token) => {
-      rememberSession(storage, token);
-      if (deps.gatewayOrigin) rememberChatReader(storage, message.chatId, { token, conversation: "texts", fetch: deps.fetch, gatewayOrigin: deps.gatewayOrigin }); // the next read of this chat asks the ledger (`chatRead.ts`)
+      rememberSession(storage, token, { chat: message.chatId, fetch: deps.fetch, gatewayOrigin: deps.gatewayOrigin });
       void flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(message.from)).catch(() => {}); // beside the turn, not before: it is handed the same events (`warm.ts`)
     },
   );
