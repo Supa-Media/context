@@ -7,6 +7,7 @@
  * Only people already linked to an account are ever written, by account id.
  */
 
+import { keepInGroup, ungroupFirst } from "./accessHandOff/ungroup";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx } from "../../_generated/server";
 import { MAX_MEMBERS_PER_GROUP } from "../groups";
@@ -50,9 +51,13 @@ async function syncGroupRows(
     .withIndex("by_group", (q) => q.eq("groupId", groupId))
     .take(MAX_MEMBERS_PER_GROUP);
   const wanted = new Set(members);
-  for (const row of rows) {
-    if (row.viaChat === chatId && !wanted.has(row.userId)) await ctx.db.delete(row._id);
+  const leaving = rows.filter((row) => row.viaChat === chatId && !wanted.has(row.userId));
+  // Leaving the chat's group can take access away: where the object decides, it hears it first (`accessHandOff/ungroup.ts`).
+  if (leaving.length > 0 && !(await ungroupFirst(ctx, { workspaceId, groupId, userIds: leaving.map((row) => row.userId) }))) {
+    for (const row of leaving) await ctx.db.delete(row._id);
   }
+  // Wanted and still named, perhaps only because a queued leave has not finished: they stay.
+  await keepInGroup(ctx, workspaceId, groupId, rows.filter((row) => row.viaChat === chatId && wanted.has(row.userId)).map((row) => row.userId));
   if (actor === null) return;
   let count = rows.filter((row) => row.viaChat !== chatId || wanted.has(row.userId)).length;
   const named = new Set(rows.map((row) => row.userId));

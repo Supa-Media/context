@@ -35,8 +35,8 @@ export type TakeAwayStep =
       home: AccessHome;
       userIds: string[];
       inviteIds: string[];
-      /** A member row to put first (a fold's account moved into), with the workspace's name. */
-      put?: { row: Record<string, unknown>; workspace: { slug: string; kind: string } };
+      /** Member rows to put first (a fold's account moved into, members leaving a group), with the workspace's name. */
+      puts?: { rows: Record<string, unknown>[]; workspace: { slug: string; kind: string } };
     }
   | { scope: "person"; workspaceId: Id<"workspaces">; home: AccessHome; grantIds: string[] };
 
@@ -129,8 +129,8 @@ export async function takeAwayFirst(ctx: MutationCtx, target: TakeAwayTarget): P
     const queued =
       target.kind === "account"
         ? (await ctx.db.query("accessTakeAways").withIndex("by_user", (q) => q.eq("userId", target.userId)).collect()).find((job) => job.kind === "account")
-        : await ctx.db.query("accessTakeAways").withIndex("by_workspace", (q) => q.eq("workspaceId", target.workspaceId)).first();
-    if (queued !== undefined && queued !== null) return true;
+        : (await ctx.db.query("accessTakeAways").withIndex("by_workspace", (q) => q.eq("workspaceId", target.workspaceId)).collect()).find((job) => job.kind === "workspace");
+    if (queued !== undefined) return true;
   }
   const id = await ctx.db.insert("accessTakeAways", { ...target, at: Date.now(), attempt: 0 });
   await ctx.scheduler.runAfter(0, internal.functions.accessTakeAway.run, { id });

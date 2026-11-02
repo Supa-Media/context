@@ -42,8 +42,12 @@ export const accessObjectOutboxTables = {
      * `account` / `workspace`: a deletion. `leave`: `userId` leaves `workspaceIds` (a dropped sign-in domain). `fold`:
      * `userId`'s memberships in `workspaceIds` moved to `intoId` (one person's two accounts), already in Convex.
      */
-    kind: v.union(v.literal("account"), v.literal("workspace"), v.literal("leave"), v.literal("fold")),
+    kind: v.union(v.literal("account"), v.literal("workspace"), v.literal("leave"), v.literal("fold"), v.literal("ungroup")),
     userId: v.optional(v.id("users")),
+    /** `ungroup`: `userIds` leave `groupId` in `workspaceId`, or the whole group goes (`accessHandOff/ungroup.ts`). */
+    groupId: v.optional(v.id("workspaceGroups")),
+    userIds: v.optional(v.array(v.id("users"))),
+    wholeGroup: v.optional(v.boolean()),
     workspaceId: v.optional(v.id("workspaces")),
     workspaceIds: v.optional(v.array(v.id("workspaces"))),
     intoId: v.optional(v.id("users")),
