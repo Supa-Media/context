@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useConsoleGrant } from "../../agent/useConsoleGrant";
@@ -27,16 +27,25 @@ export function HistoryFileView({
   /** The viewer's own personal workspace, whose Tex page this reads through. */
   own: { id: string; slug: string } | null;
 }) {
+  // The grant minter and the workspace rows change identity whenever the
+  // console's data refreshes (every few seconds while anything moves): the
+  // source is keyed on the ids alone, so a refresh never reads the history
+  // again from the top (Dev, 2026-11-02: "the page randomly refreshes every
+  // 20 or so seconds").
   const mint = useConsoleGrant();
-  const place = historyFileChat(path, workspace, own);
+  const minting = useRef(mint);
+  minting.current = mint;
+  const ownId = own?.id ?? null;
+  const ownSlug = own?.slug ?? null;
+  const place = historyFileChat(path, workspace, ownId === null ? null : { id: ownId });
   const source = useMemo(() => {
-    if (own === null) return null;
+    if (ownId === null || ownSlug === null) return null;
     return gatewaySource({
       endpoint: MCP_ENDPOINT,
-      handle: own.slug,
-      token: async (refresh) => (await mint({ workspaceId: own.id as Id<"workspaces"> }, refresh)).accessToken,
+      handle: ownSlug,
+      token: async (refresh) => (await minting.current({ workspaceId: ownId as Id<"workspaces"> }, refresh)).accessToken,
     });
-  }, [mint, own]);
+  }, [ownId, ownSlug]);
   const folder = place.kind === "group" ? place.folder : null;
   const [group, setGroup] = useState<{ key: string; name: string } | null | undefined>(undefined);
 

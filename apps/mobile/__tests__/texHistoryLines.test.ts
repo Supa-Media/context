@@ -17,6 +17,10 @@
  *     workspace that is not the viewer's own → "the file names its chat"
  *     fails.
  *  4. `groupChatAt` matching the folder in any workspace → same test fails.
+ *  5. `HistoryFileView`'s source keyed on the `own` row and the minter again
+ *     → "a person's own file reads their own chat" fails (read twice).
+ *  6. `collapseCalls` left out → "tool calls in a row are one line" fails.
+ *  7. Reactions not folded → "a reaction sits under the text it is on" fails.
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -57,16 +61,67 @@ describe("the history's lines", () => {
       { id: "c1", at: at(2, 18, 12), kind: "text", eid: "w1", event: "picture", from: { kind: "person", name: "Ada" }, text: "the list" },
     ];
     const lines = historyDays(entries, NOW, { group: true }).flatMap((d) => d.turns.flatMap((t) => t.lines));
-    expect(lines.map((l) => [l.who, l.text, l.replyTo ?? null])).toEqual([
-      ["Ada", "(sent a picture) the list", null],
-      ["Seyi", "I'll do the rice.", "Ada: (sent a picture) the list"],
-      ["mom", "(reacted) 👍", null],
+    expect(lines.map((l) => [l.who, l.text, l.replyTo ?? null, l.reactions ?? null])).toEqual([
+      ["Ada", "(sent a picture) the list", null, null],
+      ["Seyi", "I'll do the rice.", "Ada: (sent a picture) the list", "👍 mom"],
+    ]);
+  });
+
+  test("a reaction sits under the text it is on, never as a line, as in the mock; one taken back is gone", () => {
+    const entries: LedgerEntry[] = [
+      { id: "r5", at: at(2, 12, 5), kind: "text", event: "reaction", from: { kind: "person", name: "Ada" }, text: 'took back ❤️ on the message "Will do. I\'ll text you"' },
+      { id: "r4", at: at(2, 12, 4), kind: "text", event: "reaction", from: { kind: "person", name: "Ada" }, text: '❤️ on the message "Will do. I\'ll text you"' },
+      { id: "r3", at: at(2, 12, 3), kind: "text", event: "reaction", from: { kind: "person", name: "Mom" }, text: '👍 (yes) on Tex\'s message "Will do. I\'ll text you"' },
+      { id: "r2", at: at(2, 12, 2), kind: "text", event: "reaction", from: { kind: "person", name: "Seyi" }, text: "👍" },
+      { id: "r1", at: at(2, 12, 1), kind: "text", turn: "t1", from: { kind: "tex" }, text: "Will do. I'll text you Saturday." },
+      { id: "r0", at: at(2, 12, 0), kind: "text", from: { kind: "person", name: "Seyi" }, text: "remind me Saturday" },
+    ];
+    const lines = historyDays(entries, NOW, { group: true }).flatMap((d) => d.turns.flatMap((t) => t.lines));
+    expect(lines.map((l) => [l.who, l.text, l.reactions ?? null])).toEqual([
+      ["Seyi", "remind me Saturday", null],
+      ["Tex", "Will do. I'll text you Saturday.", "👍 Seyi, Mom"],
+    ]);
+  });
+
+  test("a reaction whose text isn't in view stays a line of its own", () => {
+    const lines = historyDays([{ id: "x", at: at(2, 9, 0), kind: "text", event: "reaction", from: { kind: "person" }, text: "👍" }], NOW).flatMap((d) => d.turns.flatMap((t) => t.lines));
+    expect(lines.map((l) => l.text)).toEqual(["(reacted) 👍"]);
+  });
+
+  test("tool calls in a row are one line that opens to them; a single call stays a line", () => {
+    const entries: LedgerEntry[] = [
+      { id: "k6", at: at(2, 9, 6), kind: "text", turn: "t", from: { kind: "tex" }, text: "Done." },
+      { id: "k5", at: at(2, 9, 5), kind: "tool", turn: "t", name: "write_note", ok: true },
+      { id: "k4", at: at(2, 9, 4), kind: "said", turn: "t", text: "Writing it down." },
+      { id: "k3", at: at(2, 9, 3), kind: "tool", turn: "t", name: "browse", ok: false },
+      { id: "k2", at: at(2, 9, 2), kind: "tool", turn: "t", name: "vault_list", ok: true },
+      { id: "k1", at: at(2, 9, 1), kind: "tool", turn: "t", name: "browse", ok: true },
+    ];
+    const lines = historyDays(entries, NOW)[0]!.turns[0]!.lines;
+    expect(lines.map((l) => l.text)).toEqual(["3 tool calls · browse ×2, vault_list · 1 failed", "Writing it down.", "write_note", "Done."]);
+    expect(lines[0]!.calls!.map((c) => c.id)).toEqual(["k1", "k2", "k3"]);
+    expect(lines[2]!.calls).toBeUndefined();
+  });
+
+  test("background lines say what each is", () => {
+    const entries: LedgerEntry[] = [
+      { id: "n4", at: at(2, 9, 4), kind: "job", job: "j1", title: "Code transactions", state: "keep_going" },
+      { id: "n3", at: at(2, 9, 3), kind: "mail_check", to: "jo@example.com", verdict: "stopped", why: "they said Thursday" },
+      { id: "n2", at: at(2, 9, 2), kind: "advisor", question: "Is this right?" },
+      { id: "n1", at: at(2, 9, 1), kind: "note", routine: "tex/routines/morning.md", text: "Sent the brief." },
+    ];
+    const lines = historyDays(entries, NOW).flatMap((d) => d.turns.flatMap((t) => t.lines));
+    expect(lines.map((l) => l.text)).toEqual([
+      "routine · tex/routines/morning · Sent the brief.",
+      "advisor · asked: Is this right?",
+      "mail checker · email to jo@example.com · stopped · they said Thursday",
+      "job · Code transactions · keep going",
     ]);
   });
 
   test("days and kinds as the gateway is asked for them", () => {
     expect(kindsFor(DEFAULT_SHOWN)).toEqual(["text", "tool", "note", "advisor", "mail_check", "job"]);
-    expect(kindsFor({ texts: false, tools: false, thinking: true, notes: false })).toEqual(["thinking", "said"]);
+    expect(kindsFor({ texts: false, tools: false, thinking: true, background: false })).toEqual(["thinking", "said"]);
     expect(dayAsked("today", "", NOW)).toBe("2026-11-02");
     expect(dayAsked("yesterday", "", new Date(2026, 10, 1, 9))).toBe("2026-10-31");
     expect(dayAsked("all", "", NOW)).toBeUndefined();
@@ -100,7 +155,8 @@ describe("the history file opened in the app", () => {
 
 let mockSource = fixtureSource();
 jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => async () => ({ accessToken: "t" }) }));
-jest.mock("../features/tex/page/texPageSource", () => ({ gatewaySource: () => mockSource }));
+// A new source each call, as the real one is: a view that builds it again reads again.
+jest.mock("../features/tex/page/texPageSource", () => ({ gatewaySource: () => ({ ...mockSource }) }));
 
 // Imported after the mocks, so the view reads the fixture.
 import { HistoryFileView } from "../features/tex/history/HistoryFileView";
@@ -140,6 +196,10 @@ describe("the history file's view", () => {
     await tick();
     expect(asked).toEqual(["me"]);
     expect(container.textContent).toContain("what's on my calendar today?");
+    // The console's data refreshing hands new rows and a new minter (the mock's is new each render): nothing is read again.
+    act(() => root.render(createElement(HistoryFileView, { path: "tex/history.ledger.json", workspace: { ...own }, own: { ...own } })));
+    await tick();
+    expect(asked).toEqual(["me"]);
 
     act(() => root.render(createElement(HistoryFileView, { path: "tex/groups/blue-lake-fox/history.ledger.json", workspace: { id: "ws_cl", slug: "context-lc" }, own })));
     await tick();

@@ -96,6 +96,10 @@ describe("the chat's history file", () => {
     expect(byTestId("tex-history-day-2026-11-02")?.textContent).toContain("Today");
     const line = (id: string) => byTestId(`tex-history-entry-${id}`)?.textContent ?? "";
     expect(line("me-e1")).toBe("9:02 AMYouwhat's on my calendar today?");
+    // The turn's two calls are one line, opened on a tap.
+    expect(line("calls:me-e3")).toBe("▸ 2 tool calls · calendar_events, read_note");
+    expect(byTestId("tex-history-entry-me-e3")).toBeNull();
+    await press("tex-history-entry-calls:me-e3");
     expect(line("me-e3")).toBe("calendar_events");
     expect(line("me-e4")).toBe("read_note · result withheld (another workspace)");
     expect(line("me-e6")).toBe("9:03 AMTexStandup at 10 and the dentist at 3.");
@@ -197,7 +201,9 @@ describe("the chat's history file", () => {
     await render(fixtureSource(), { chat: "g-team", view: "history" });
     expect(text()).toContain("History · Team Night");
     expect(byTestId("tex-history-entry-g-team-e1")?.textContent).toBe("9:02 AMAdawhat's on my calendar today?");
-    expect(byTestId("tex-history-entry-g-team-e7")?.textContent).toBe("9:04 AMCy(reacted) 👍");
+    // Cy's 👍 sits under the text it was on, never as a line of its own.
+    expect(byTestId("tex-history-entry-g-team-e7")).toBeNull();
+    expect(byTestId("tex-history-reactions-g-team-e6")?.textContent).toBe("👍 Cy");
     expect(byTestId("tex-history-entry-g-team-e8")?.textContent).toBe("9:05 AMBo↳ Ada: what's on my calendar today?I'll bring snacks to standup");
     const source = fixtureSource();
     expect((await source.ledger("g-someone-elses", {})).kind).toBe("notYours");
