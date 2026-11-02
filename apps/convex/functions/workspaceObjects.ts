@@ -277,6 +277,8 @@ export const backfill = internalAction({
     historyBytes: v.number(),
     historyKeys: v.number(),
     largest: v.number(),
+    /** Failures by `<stage>:<error>:<reason>@<code location>` (keys: `key:<error>:<reason>`), no workspace named. */
+    why: v.record(v.string(), v.number()),
     /** Editing history by part (heads, documents, operations, revisions, structural, other): counts only. */
     historyParts: v.record(v.string(), v.object({ keys: v.number(), bytes: v.number(), largest: v.number() })),
     finished: v.number(),
@@ -293,12 +295,16 @@ export const backfill = internalAction({
     const bodies: CopyCounts = emptyCopyCounts();
     const historyParts: Record<string, { keys: number; bytes: number; largest: number }> = {};
     const revisions = emptyRevisionCounts();
+    const why: Record<string, number> = {};
+    const tally = (label: string) => {
+      why[label] = (why[label] ?? 0) + 1;
+    };
     const state = await startState(ctx, cursor, only);
-    if (state === "NO_WORKSPACE") return { ...counts, bodies, historyParts, refused: "NO_WORKSPACE", cursor: "", done: true };
+    if (state === "NO_WORKSPACE") return { ...counts, bodies, historyParts, why, refused: "NO_WORKSPACE", cursor: "", done: true };
     const started = Date.now();
     while (Date.now() - started < PAGE_BUDGET_MS) {
       const workspaceId = await nextWorkspace(ctx, state);
-      if (workspaceId === null) return { ...counts, bodies, historyParts, ...(step === "revisions" ? { revisions } : {}), cursor: "", done: true };
+      if (workspaceId === null) return { ...counts, bodies, historyParts, why, ...(step === "revisions" ? { revisions } : {}), cursor: "", done: true };
       const home = await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId });
       if (step === "arm") {
         counts.workspaces += 1;
@@ -331,7 +337,9 @@ export const backfill = internalAction({
           addRevisionCounts(revisions, measuring.counts);
         } catch (error) {
           counts.failed += 1;
-          console.warn(JSON.stringify({ event: "workspace_revisions_failed", workspaceId, error: error instanceof Error ? error.name : "unknown" }));
+          const failure = failureOf(error);
+          console.warn(JSON.stringify({ event: "workspace_revisions_failed", workspaceId, ...failure }));
+          tally(`revisions:${failure.error}:${failure.reason}@${failure.at ?? "?"}`);
         }
         state.revisions = undefined;
         state.queue.shift();
@@ -400,6 +408,7 @@ export const backfill = internalAction({
           onFailure: (error) => {
             const reason = `${failureOf(error).error}:${reasonOf(error)}`;
             keyFailures[reason] = (keyFailures[reason] ?? 0) + 1;
+            tally(`key:${reason}`);
           },
         });
         if (page.counts.failed > 0) console.warn(JSON.stringify({ event: "workspace_backfill_keys_failed", workspaceId, reasons: keyFailures }));
@@ -425,14 +434,16 @@ export const backfill = internalAction({
       } catch (error) {
         // One workspace that cannot be read (a revoked or broken binding) is counted and passed over, never the run's end.
         counts.failed += 1;
-        console.warn(JSON.stringify({ event: "workspace_backfill_failed", workspaceId, stage, ...failureOf(error) }));
+        const failure = failureOf(error);
+        console.warn(JSON.stringify({ event: "workspace_backfill_failed", workspaceId, stage, ...failure }));
+        tally(`${stage}:${failure.error}:${failure.reason}@${failure.at ?? "?"}`);
         state.queue.shift();
         state.at = undefined;
         state.sizing = undefined;
       }
     }
     const running = step === "revisions" ? addRevisionCounts(addRevisionCounts(emptyRevisionCounts(), revisions), state.revisions?.counts ?? emptyRevisionCounts()) : null;
-    return { ...counts, bodies, historyParts, ...(running ? { revisions: running } : {}), cursor: JSON.stringify(state), done: false };
+    return { ...counts, bodies, historyParts, why, ...(running ? { revisions: running } : {}), cursor: JSON.stringify(state), done: false };
   },
 });
 
@@ -481,7 +492,7 @@ async function visibilityParity(
   workspaceId: Id<"workspaces">,
   client: WorkspaceObjectClient,
   rows: ObjectRow[],
-): Promise<{ principals: number; checked: number; differ: number }> {
+): Promise<{ principals: number; checked: number; differ: number; hidden: number; shown: number }> {
   const readerRules = (await ctx.runQuery(internal.functions.nodesPrivacy.readerRules, { workspaceId })) as ReaderRules;
   const notes = noteRows(rows);
   const principals = samplePrincipals(readerRules);
@@ -510,7 +521,7 @@ async function visibilityParity(
     }
   }
   if (differ > 0) console.warn(JSON.stringify({ event: "workspace_visibility_differs", workspaceId, principals: principals.length, checked, hidden, shown }));
-  return { principals: principals.length, checked, differ };
+  return { principals: principals.length, checked, differ, hidden, shown };
 }
 
 const parityCounts = v.object({
@@ -522,6 +533,19 @@ const parityCounts = v.object({
   rowsDiffer: v.number(),
   rulesDiffer: v.number(),
   visibilityDiffer: v.number(),
+  /**
+   * What this page found, summed over its workspaces, with no workspace named: the job log is public and the
+   * function's own log lines go only to the private dashboard. `why` counts failures by
+   * `<error>:<reason>@<code location>`.
+   */
+  found: v.object({
+    missingInObject: v.number(),
+    extraInObject: v.number(),
+    differ: v.number(),
+    hidden: v.number(),
+    shown: v.number(),
+  }),
+  why: v.record(v.string(), v.number()),
   refused: v.optional(v.string()),
   cursor: v.string(),
   done: v.boolean(),
@@ -557,7 +581,18 @@ export const parity = internalAction({
   args: { cursor: v.optional(v.string()), only: v.optional(v.string()) },
   returns: parityCounts,
   handler: async (ctx, { cursor, only }) => {
-    const counts = { workspaces: 0, clean: 0, differing: 0, unreachable: 0, bodiesDiffer: 0, rowsDiffer: 0, rulesDiffer: 0, visibilityDiffer: 0 };
+    const counts = {
+      workspaces: 0,
+      clean: 0,
+      differing: 0,
+      unreachable: 0,
+      bodiesDiffer: 0,
+      rowsDiffer: 0,
+      rulesDiffer: 0,
+      visibilityDiffer: 0,
+      found: { missingInObject: 0, extraInObject: 0, differ: 0, hidden: 0, shown: 0 },
+      why: {} as Record<string, number>,
+    };
     const state = await startState(ctx, cursor, only);
     if (state === "NO_WORKSPACE") return { ...counts, refused: "NO_WORKSPACE", cursor: "", done: true };
     const started = Date.now();
@@ -598,7 +633,12 @@ export const parity = internalAction({
         }
         const bodies = state.found ?? emptyBodyParity();
         const tree = await treeParity(ctx, workspaceId, client);
-        const result = { at: Date.now(), bodies, ...tree };
+        counts.found.missingInObject += bodies.missingInObject;
+        counts.found.extraInObject += bodies.extraInObject;
+        counts.found.differ += bodies.differ;
+        counts.found.hidden += tree.visibility.hidden;
+        counts.found.shown += tree.visibility.shown;
+        const result = { at: Date.now(), bodies, ...tree, visibility: { principals: tree.visibility.principals, checked: tree.visibility.checked, differ: tree.visibility.differ } };
         await ctx.runMutation(internal.functions.workspaceObjectsRows.recordParity, { workspaceId, parity: result });
         console.log(JSON.stringify({ event: "workspace_parity_result", workspaceId, bodies, rows: tree.rows, rules: tree.rules, visibility: tree.visibility }));
         const bodiesDiffer = bodies.missingInObject + bodies.extraInObject + bodies.differ > 0;
@@ -610,7 +650,10 @@ export const parity = internalAction({
         else counts.clean += 1;
       } catch (error) {
         counts.unreachable += 1;
-        console.warn(JSON.stringify({ event: "workspace_parity_failed", workspaceId, ...failureOf(error) }));
+        const failure = failureOf(error);
+        console.warn(JSON.stringify({ event: "workspace_parity_failed", workspaceId, ...failure }));
+        const why = `${failure.error}:${failure.reason}@${failure.at ?? "?"}`;
+        counts.why[why] = (counts.why[why] ?? 0) + 1;
       }
       finishWorkspace();
     }
