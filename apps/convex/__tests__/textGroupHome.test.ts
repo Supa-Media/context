@@ -315,17 +315,23 @@ describe("a chat's name on its home", () => {
     const words = (await chatRow(w.t))!.homeWords!;
     const path = `tex/groups/${words}`;
     // No name yet: Ada sees the others by handle; nobody else is named.
-    expect(await titles(w, w.ada)).toEqual([{ path, title: "@bo, @cy", named: false, words }]);
+    expect(await titles(w, w.ada)).toEqual([{ path, title: "@bo, @cy", named: false, words, service: null }]);
     expect(await agentPost(w.t, "/agent-texts/group/name", { line: LINE, groupId: GROUP, name: "  Weekend\u202e Crew\n" })).toEqual({ ok: true });
-    expect(await titles(w, w.bo)).toEqual([{ path, title: "Weekend Crew", named: true, words }]);
+    expect(await titles(w, w.bo)).toEqual([{ path, title: "Weekend Crew", named: true, words, service: "imessage" }]);
     // The name is the app's alone: nothing a turn reads is touched, and the folder keeps its words.
     expect((await chatRow(w.t))!.homeWords).toBe(words);
     // Cleared by an empty name, the people again.
     expect(await agentPost(w.t, "/agent-texts/group/name", { line: LINE, groupId: GROUP, name: "" })).toEqual({ ok: true });
-    expect(await titles(w, w.bo)).toEqual([{ path, title: "@ada, @cy", named: false, words }]);
+    expect(await titles(w, w.bo)).toEqual([{ path, title: "@ada, @cy", named: false, words, service: "imessage" }]);
+    // A message with no name (a WhatsApp line gives none) leaves it.
+    await agentPost(w.t, "/agent-texts/group/name", { line: LINE, groupId: GROUP, name: "Back" });
+    expect(await agentPost(w.t, "/agent-texts/group/name", { line: LINE, groupId: GROUP })).toEqual({ ok: true });
+    expect(await titles(w, w.bo)).toEqual([{ path, title: "Back", named: true, words, service: "imessage" }]);
     // A chat Tex has no row for, and a malformed body.
     expect(await agentPost(w.t, "/agent-texts/group/name", { line: LINE, groupId: "OTHER", name: "x" })).toEqual({ ok: false });
-    expect(await agentPost(w.t, "/agent-texts/group/name", { line: LINE, groupId: GROUP })).toMatchObject({});
+    expect(await agentPost(w.t, "/agent-texts/group/name", { line: LINE, name: "x" })).toMatchObject({});
+    expect(await agentPost(w.t, "/agent-texts/group/name", { line: LINE, groupId: GROUP, name: 7 })).toMatchObject({});
+    expect((await chatRow(w.t))!.chatName).toBe("Back");
   });
 
   test("only the people named on a home see its name, and only in the pinned workspace", async () => {
@@ -349,6 +355,12 @@ describe("a chat's name, as text", () => {
     expect(peopleTitle(["", "cy"], 0)).toBe("@cy +1");
     expect(peopleTitle([], 0)).toBe("Group chat");
     expect(peopleTitle([], 2)).toBe("Group chat +2");
+  });
+
+  test("tells WhatsApp from iMessage by the Worker's id for the chat", async () => {
+    const { serviceOfGroupId } = await import("../functions/textGroupNames");
+    expect(serviceOfGroupId("whapi:120363000000000000@g.us")).toBe("whatsapp");
+    expect(serviceOfGroupId("11111111-2222-3333-4444-555555555555")).toBe("imessage");
   });
 });
 

@@ -10,6 +10,7 @@ import type { FileBrowser } from "./browser";
 import { relabelled } from "./linkedTitle";
 import { buildTreeRows, type TreeRow } from "./tree";
 import { useChatHomeTitles, withChatHomeTitles } from "./chatHomeTitles";
+import { ChatServiceMark } from "./ChatServiceMark";
 
 /**
  * The whole tree, on a phone: what the bar's folder key opens.
@@ -128,6 +129,7 @@ function TreeSheetRow({ row, onPress }: { row: TreeRow; onPress: () => void }) {
   const styles = useThemedStyles(makeStyles);
   const [focused, setFocused] = useState(false);
   const indent = { paddingLeft: 10 + row.depth * 16 };
+  const service = useChatHomeTitles().get(row.path)?.service ?? null;
 
   if (row.kind === "loading" || row.kind === "empty") {
     return (
@@ -154,6 +156,7 @@ function TreeSheetRow({ row, onPress }: { row: TreeRow; onPress: () => void }) {
         size={folder ? 14 : 16}
         color={row.selected ? colors.accent : colors.muted}
       />
+      {service === null ? null : <ChatServiceMark service={service} size={16} />}
       <Text variant="rowTitle" numberOfLines={1} style={styles.rowText}>
         {row.label}
       </Text>

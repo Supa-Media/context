@@ -3,6 +3,10 @@
  * 2026-11-02: "instead of showing the ID, why don't we just show the actual group chat name? ... or the group chat
  * name might just be a list of people and then, you know, ellipses when it gets too long").
  *
+ * Its home is also drawn with the mark of the app the chat is in, iMessage or WhatsApp (the owner, 2026-11-02: "a
+ * drawn green whatsapp logo or a drawn blue imessage logo, that way its easy to see whats imessge and whats
+ * whatsapp"), told by the same report: a WhatsApp chat's id is `whapi:<jid>`, any other is Sendblue's iMessage.
+ *
  * The texting Worker sends the chat's name with each message (`apps/agent/src/sendblueGroups.ts` `groupNameOf`),
  * beside it and never in it, so a rename shows on the chat's next message. Anyone in the chat can set it, so it is
  * text to show and nothing else: it never reaches a model, a path or a permission. The home's three words stay its
@@ -43,21 +47,44 @@ export function peopleTitle(handles: readonly string[], others: number): string 
   return `${named.slice(0, NAMED).join(", ")}${rest > 0 ? ` +${rest}` : ""}`;
 }
 
-/** The Worker's report of a chat's name: kept, or cleared for "". Answers whether Tex has the chat. */
+export const chatServiceValidator = v.union(v.literal("imessage"), v.literal("whatsapp"));
+export type ChatService = "imessage" | "whatsapp";
+
+/** The app a chat is in, from the Worker's id for it: `whapi:<jid>` is WhatsApp, Sendblue's ids are iMessage. */
+export function serviceOfGroupId(groupId: string): ChatService {
+  return groupId.startsWith("whapi:") ? "whatsapp" : "imessage";
+}
+
+/**
+ * The Worker's report of a chat, with each message: its app, and its name when the message gave one (kept, or
+ * cleared for ""; a line that gives none leaves it). Answers whether Tex has the chat.
+ */
 export const setChatName = internalMutation({
-  args: { groupKey: v.string(), name: v.string() },
+  args: { groupKey: v.string(), name: v.optional(v.string()), service: chatServiceValidator },
   returns: v.object({ ok: v.boolean() }),
-  handler: async (ctx, { groupKey, name }) => {
+  handler: async (ctx, { groupKey, name, service }) => {
     const chat = await ctx.db.query("textGroups").withIndex("by_key", (q) => q.eq("groupKey", groupKey)).unique();
     if (chat === null) return { ok: false };
-    const clean = cleanChatName(name);
-    const next = clean === "" ? undefined : clean;
-    if (chat.chatName !== next) await ctx.db.patch(chat._id, { chatName: next });
+    const patch: { chatName?: string; chatService?: ChatService } = {};
+    if (name !== undefined) {
+      const clean = cleanChatName(name);
+      const next = clean === "" ? undefined : clean;
+      if (chat.chatName !== next) patch.chatName = next;
+    }
+    if (chat.chatService !== service) patch.chatService = service;
+    if (Object.keys(patch).length > 0) await ctx.db.patch(chat._id, patch);
     return { ok: true };
   },
 });
 
-const titleValidator = v.object({ path: v.string(), title: v.string(), named: v.boolean(), words: v.string() });
+const titleValidator = v.object({
+  path: v.string(),
+  title: v.string(),
+  named: v.boolean(),
+  words: v.string(),
+  /** The app the chat is in, `null` until its next message says. */
+  service: v.union(chatServiceValidator, v.null()),
+});
 
 /**
  * What the app draws each of the reader's chat homes as, in the pinned workspace and nowhere else: its name, or its
@@ -74,7 +101,7 @@ export const homeTitles = query({
     const mine = (await ctx.db.query("textGroups").take(CHAT_SCAN)).filter(
       (chat) => typeof chat.homeWords === "string" && chat.homeWords !== "" && (chat.homeUsers ?? []).includes(userId),
     );
-    return await Promise.all(mine.map(async (chat) => await titleOf(ctx, chat.homeWords as string, chat.chatName, chat.homeUsers ?? [], chat._id, userId)));
+    return await Promise.all(mine.map(async (chat) => ({ ...(await titleOf(ctx, chat.homeWords as string, chat.chatName, chat.homeUsers ?? [], chat._id, userId)), service: chat.chatService ?? null })));
   },
 });
 

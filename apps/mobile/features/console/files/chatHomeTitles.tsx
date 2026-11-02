@@ -20,6 +20,36 @@ export interface ChatHomeTitle {
   named: boolean;
   /** The three words, said beside the title where there is room (a hover, an accessibility hint). */
   words: string;
+  /** The app the chat is in, drawn as the home's icon; `null` until its next message says. */
+  service: ChatService | null;
+}
+
+export type ChatService = "imessage" | "whatsapp";
+
+const MARK_PREFIX = "context:chat:";
+
+/**
+ * A chat home's icon, spelled as a folder icon the way a built-in folder's job is (`jobIcons/marker.ts`), so the
+ * tree's glyph draws `ChatServiceMark` without learning about chats. Drawn, never written.
+ */
+export function chatServiceMarker(service: ChatService): string {
+  return `${MARK_PREFIX}${service}`;
+}
+
+/** The app a marker names, or `null` for an emoji or anything else. */
+export function chatServiceOfIcon(icon: string | null | undefined): ChatService | null {
+  if (typeof icon !== "string" || !icon.startsWith(MARK_PREFIX)) return null;
+  const service = icon.slice(MARK_PREFIX.length);
+  return service === "imessage" || service === "whatsapp" ? service : null;
+}
+
+/** `iconOf` with each chat home whose app is known answering that app's mark; every other path as it was. */
+export function withChatIcons(iconOf: ((path: string) => string | null) | undefined, titles: ReadonlyMap<string, ChatHomeTitle>) {
+  if (titles.size === 0) return iconOf;
+  return (path: string): string | null => {
+    const service = titles.get(path)?.service ?? null;
+    return service !== null ? chatServiceMarker(service) : (iconOf?.(path) ?? null);
+  };
 }
 
 const NONE: ReadonlyMap<string, ChatHomeTitle> = new Map();

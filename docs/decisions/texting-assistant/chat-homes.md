@@ -207,8 +207,18 @@ Anyone in the chat can set it, so it never goes into the group's queue, its log,
 nothing: not a path, not who sees what. Only the people named on a home are told its name, and only in the pinned
 workspace (`textGroupNames.homeTitles`).
 
-Tests: `apps/agent/src/groupInbox.test.ts` (the name never in the message; cleaned; sent alone),
-`apps/convex/__tests__/textGroupHome.test.ts` ("a chat's name on its home"), `apps/mobile/__tests__/chatHomeTitles.test.ts`.
+The home's icon is the app the chat is in (the owner, 2026-11-02: "a drawn green whatsapp logo or a drawn blue
+imessage logo, that way its easy to see whats imessge and whats whatsapp"): a blue tile with a bubble for iMessage, a
+green bubble with a handset for WhatsApp, drawn by us (`ChatServiceMark.tsx`). The Worker reports the chat with every
+message, name or not, and the control plane tells the app by the chat's id (`whapi:<jid>` is WhatsApp;
+`textGroups.chatService`). A chat shows its mark after its next message. The folders inside a home draw the same
+icons as a person's own Tex folders (`texPartIcon`, the owner: "please update the folder icons to be the proper
+logos").
+
+Tests: `apps/agent/src/groupName.test.ts` (the name never in the message; cleaned; sent alone, and the chat reported
+with no name), `apps/convex/__tests__/textGroupHome.test.ts` ("a chat's name on its home"; WhatsApp told from
+iMessage), `apps/mobile/__tests__/chatHomeTitles.test.ts` (the mark on the folder page),
+`apps/mobile/__tests__/contextIconPicker.test.ts` (a home's folders draw their parts).
 
 ## Still to build
 

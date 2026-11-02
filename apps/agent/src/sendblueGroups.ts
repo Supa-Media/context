@@ -235,14 +235,15 @@ export function groupNameOf(payload: unknown): string | null {
 }
 
 /**
- * Tells the control plane the chat's name now (`POST /agent-texts/group/name`), beside the message and never in it,
- * so a rename shows on the chat's next message. An empty name clears it; null sends nothing. Never throws: a name
- * that does not land is sent again with the next message.
+ * Tells the control plane about the chat now (`POST /agent-texts/group/name`), beside the message and never in it:
+ * its name, so a rename shows on the chat's next message, and by its id which app it is in, so its home draws that
+ * app's mark. An empty name clears it; null (a WhatsApp line gives none) leaves it. Never throws: a report that does
+ * not land is sent again with the next message.
  */
 export async function sendGroupName(fetcher: Fetch, origin: string, secret: string, message: { line: string; groupId: string }, name: string | null): Promise<void> {
-  if (name === null) return;
+  const body = name === null ? { line: message.line, groupId: message.groupId } : { line: message.line, groupId: message.groupId, name };
   try {
-    await post(fetcher, "control_plane", `${origin}/agent-texts/group/name`, secret, { line: message.line, groupId: message.groupId, name }, 2_000);
+    await post(fetcher, "control_plane", `${origin}/agent-texts/group/name`, secret, body, 2_000);
   } catch {
     // Counted by the next message's try.
   }

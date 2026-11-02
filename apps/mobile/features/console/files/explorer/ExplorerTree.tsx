@@ -10,7 +10,7 @@ import { FileTree } from "../FileTree";
 import { NO_PICK } from "../selection";
 import { makeStyles } from "./styles";
 import type { ExplorerState } from "./useExplorer";
-import { useChatHomeTitles, withChatHomeTitles } from "../chatHomeTitles";
+import { useChatHomeTitles, withChatHomeTitles, withChatIcons } from "../chatHomeTitles";
 
 /**
  * The scrolling body of the column: the tree, or the flat ranked list a
@@ -116,7 +116,7 @@ export function ExplorerTree({
           markedPaths={markedPaths}
           agentMarks={agentMarks}
           workspaceId={files.contextId}
-          iconOf={files.iconOf}
+          iconOf={withChatIcons(files.iconOf, titles)}
           onIconPress={onIconPress}
           onIconIntent={onIconPress === undefined || files.suggestIcon === undefined ? undefined : (path) => void files.suggestIcon!(path, "context")}
           onIntent={files.prefetch}

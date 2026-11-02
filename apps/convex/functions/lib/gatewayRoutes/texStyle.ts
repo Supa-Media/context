@@ -11,6 +11,7 @@ import { gatewayTexCommandHandler as texCommandHandler } from "./texCommand";
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { groupKeyOf } from "../../textGroups";
+import { serviceOfGroupId } from "../../textGroupNames";
 import { badRequest, json, stringField } from "../gatewayAuth";
 import { readTexStyle } from "../texStyle";
 
@@ -52,9 +53,11 @@ export const TEX_ROUTES = [
 export async function agentTextsGroupNameHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const line = stringField(body, "line");
   const groupId = stringField(body, "groupId");
-  const name = typeof body.name === "string" ? body.name : null;
-  if (line === null || groupId === null || groupId.length > MAX_CHAT || name === null || name.length > 2_000) return badRequest();
-  return json(await ctx.runMutation(internal.functions.textGroupNames.setChatName, { groupKey: await groupKeyOf(line, groupId), name }));
+  const name = typeof body.name === "string" ? body.name : undefined;
+  if (line === null || groupId === null || groupId.length > MAX_CHAT || (body.name !== undefined && name === undefined) || (name?.length ?? 0) > 2_000) return badRequest();
+  return json(
+    await ctx.runMutation(internal.functions.textGroupNames.setChatName, { groupKey: await groupKeyOf(line, groupId), name, service: serviceOfGroupId(groupId) }),
+  );
 }
 
 /** The texting Worker's group settings routes, registered together in `http.ts`. */

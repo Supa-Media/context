@@ -5,12 +5,13 @@
  * 2026-11-02, "Group chat names" artboard); the words stay its path. `features/console/files/chatHomeTitles.tsx`.
  *
  * Sabotage: `withChatHomeTitles` returning `rows` unchanged fails "relabels only the home"; FolderRow reading
- * `displayName(row.name)` alone fails "the folder page draws the chat's name".
+ * `displayName(row.name)` alone fails "the folder page draws the chat's name"; FolderRow drawing `folderIcon` alone
+ * fails it too (no WhatsApp mark).
  */
 import { afterEach, describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { ChatHomeTitlesContext, titlesByPath, withChatHomeTitles } from "../features/console/files/chatHomeTitles";
+import { ChatHomeTitlesContext, chatServiceMarker, chatServiceOfIcon, titlesByPath, withChatHomeTitles, withChatIcons } from "../features/console/files/chatHomeTitles";
 import { crumbsFor } from "../features/console/files/crumbs";
 import { FolderView } from "../features/console/files/FolderView";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
@@ -20,7 +21,10 @@ import type { FileEntry, FolderListing } from "../features/console/files/types";
 const HOMES = "tex/groups";
 const HOME = `${HOMES}/chair-blast-tiger`;
 const OTHER = `${HOMES}/lamp-river-stone`;
-const TITLES = titlesByPath([{ path: HOME, title: "Weekend Crew", named: true, words: "chair-blast-tiger" }]);
+const TITLES = titlesByPath([
+  { path: HOME, title: "Weekend Crew", named: true, words: "chair-blast-tiger", service: "whatsapp" },
+  { path: `${HOMES}/oak-signal-plum`, title: "@bo", named: false, words: "oak-signal-plum", service: null },
+]);
 
 describe("a chat home's title", () => {
   test("relabels only the home, keeping every path", () => {
@@ -35,6 +39,20 @@ describe("a chat home's title", () => {
     expect(titled.slice(1)).toEqual(rows.slice(1));
     // Nothing answered: the very same rows.
     expect(withChatHomeTitles(rows, titlesByPath(undefined))).toBe(rows);
+  });
+
+  test("draws a home by its app, and leaves every other icon as it was", () => {
+    const iconOf = withChatIcons((path) => (path === OTHER ? "🌲" : null), TITLES)!;
+    expect(chatServiceOfIcon(iconOf(HOME))).toBe("whatsapp");
+    expect(iconOf(OTHER)).toBe("🌲");
+    // A home whose app is not known yet keeps its folder icon.
+    expect(iconOf(`${HOMES}/oak-signal-plum`)).toBeNull();
+    expect(chatServiceOfIcon(chatServiceMarker("imessage"))).toBe("imessage");
+    expect(chatServiceOfIcon("🙂")).toBeNull();
+    expect(chatServiceOfIcon("context:chat:sms")).toBeNull();
+    // Nothing answered: the very same function.
+    const plain = () => null;
+    expect(withChatIcons(plain, titlesByPath(undefined))).toBe(plain);
   });
 
   test("names the home in a note's breadcrumb", () => {
@@ -81,4 +99,5 @@ test("the folder page draws the chat's name, and the words for a home it has no 
   expect(container.textContent).toContain("Weekend Crew");
   expect(container.textContent).not.toContain("chair-blast-tiger");
   expect(container.textContent).toContain("lamp-river-stone");
+  expect(container.querySelectorAll('[data-testid="chat-service-whatsapp"]')).toHaveLength(1);
 });
