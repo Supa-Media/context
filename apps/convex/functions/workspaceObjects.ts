@@ -547,6 +547,8 @@ const parityCounts = v.object({
     shown: v.number(),
   }),
   why: v.record(v.string(), v.number()),
+  /** Body disagreements on this page by `<verdict>#<key shape>` (`keyShape`): never a key. */
+  shapes: v.record(v.string(), v.number()),
   refused: v.optional(v.string()),
   cursor: v.string(),
   done: v.boolean(),
@@ -593,6 +595,7 @@ export const parity = internalAction({
       visibilityDiffer: 0,
       found: { missingInObject: 0, extraInObject: 0, differ: 0, hidden: 0, shown: 0 },
       why: {} as Record<string, number>,
+      shapes: {} as Record<string, number>,
     };
     const state = await startState(ctx, cursor, only);
     if (state === "NO_WORKSPACE") return { ...counts, refused: "NO_WORKSPACE", cursor: "", done: true };
@@ -628,6 +631,7 @@ export const parity = internalAction({
           sleep,
         });
         state.found = addCounts(state.found ?? emptyBodyParity(), page.parity);
+        for (const [label, n] of Object.entries(page.shapes)) counts.shapes[label] = (counts.shapes[label] ?? 0) + n;
         if (page.next !== null) {
           state.check = page.next;
           continue;

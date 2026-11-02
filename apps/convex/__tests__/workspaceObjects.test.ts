@@ -200,6 +200,22 @@ describe("comparing bodies", () => {
     return total;
   }
 
+  test("each disagreement is described by its key's shape, never its key", async () => {
+    const bucket = bucketWith({ [A]: "same", [B]: "bucket", [HISTORY]: "u1" });
+    const { bodies } = objectFor();
+    await bodies.put(A, new TextEncoder().encode("same"), { contentType: MARKDOWN });
+    await bodies.put(B, new TextEncoder().encode("object"), { contentType: MARKDOWN });
+    const shapes: Record<string, number> = {};
+    let at: Parameters<typeof parityPage>[2]["at"] | null = { side: 0, prefix: 0 };
+    while (at !== null) {
+      const page = await parityPage(bucket as unknown as BodyStore, bodies, { at, limit: 10, recheckMs: 0, sleep: noSleep });
+      for (const [label, n] of Object.entries(page.shapes)) shapes[label] = (shapes[label] ?? 0) + n;
+      at = page.next;
+    }
+    expect(Object.keys(shapes).sort()).toEqual([`differ#notes/<64/plain`, "missingInObject#other/<256/plain"].sort());
+    expect(JSON.stringify(shapes)).not.toContain(B.slice(6, 14));
+  });
+
   test("a missing, a changed and an extra key are each counted once", async () => {
     const bucket = bucketWith({ [A]: "same", [B]: "bucket", [HISTORY]: "u1" });
     const { bodies } = objectFor();
