@@ -136,7 +136,8 @@ export function jobsOverview(jobs, now, { timeZone = null, waitingMail = 0 } = {
 }
 
 /**
- * The chat's jobs from the texting Worker: `chat` is `{phone}` or `{groupKey}`.
+ * The chat's jobs from the texting Worker: `chat` is `{phone}` or `{groupKey}`,
+ * and for a group the people hash its browser is tagged by (`people`).
  * `{now, jobs: []}` when there is no binding, no phone, or the Worker fails:
  * the page then shows free slots, never an error.
  */
@@ -146,7 +147,9 @@ export async function fetchPageJobs(env, chat, now = Date.now()) {
   try {
     const answer = await texting.pageJobs({ chat });
     const jobs = (Array.isArray(answer?.jobs) ? answer.jobs : []).map(readJob).filter((job) => job !== null);
-    return { now: instant(answer?.now) ?? now, jobs };
+    // A group's people hash, which its browser is tagged by (`texPage/browser.js`).
+    const people = typeof answer?.people === "string" && /^[0-9a-f]{64}$/.test(answer.people) ? answer.people : null;
+    return { now: instant(answer?.now) ?? now, jobs, ...(people !== null ? { people } : {}) };
   } catch {
     return { now, jobs: [] };
   }

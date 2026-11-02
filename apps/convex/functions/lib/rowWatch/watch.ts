@@ -24,11 +24,11 @@ export const WATCHED_TABLES = ["nodes", "nodeAccess", "nodeAccessState"] as cons
 type Watched = (typeof WATCHED_TABLES)[number];
 
 /**
- * The tables a workspace's storage binding is made of: the bucket and its credential, managed encryption, and where
+ * The tables a workspace's storage binding is made of: the bucket and its credential, managed encryption, the data keys and their rotations, and where
  * the notes live. A write to one clears the binding the workspace's object keeps (`apps/mcp/src/workspaceStore/
  * bindingRows.js`), so a request never opens a store from a binding older than the change.
  */
-export const BINDING_TABLES = ["storageBindings", "managedEncryptionWorkspaces", "workspaceObjectHomes"] as const;
+export const BINDING_TABLES = ["storageBindings", "managedEncryptionWorkspaces", "workspaceObjectHomes", "workspaceDataKeys", "workspaceKeyRotations"] as const;
 type BindingTable = (typeof BINDING_TABLES)[number];
 /** Fields of a binding row that no request's store is built from. */
 const BINDING_QUIET = new Set(["scaffoldQueuedAt", "leftBehind"]);

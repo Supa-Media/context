@@ -56,6 +56,8 @@ export function TexPageScreen() {
     workspaceId: showsComputer ? workspaceId : null,
     handle: showsComputer ? handle : null,
     endpoint: showsComputer && ready ? MCP_ENDPOINT : null,
+    // A group's page shows that chat's browser (`apps/mcp/src/http/texPage/browser.js`).
+    chat: place.chat,
   });
 
   const go = useCallback(

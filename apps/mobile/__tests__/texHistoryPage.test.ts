@@ -68,7 +68,7 @@ async function render(source: TexPageSource, start: Place = { chat: "me" }) {
 }
 
 const text = () => container.textContent ?? "";
-// A select's list is drawn in a layer over the whole page (`TexSelect.tsx`), outside the container.
+// A select's list opens over the whole page (TexSelect), outside the page's own element.
 const byTestId = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 async function press(id: string) {
   const el = byTestId(id);

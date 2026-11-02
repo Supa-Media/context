@@ -24,6 +24,8 @@ import { ensureChatHome } from "../functions/lib/textGroupHome";
  *   people list not re-synced (`kept` always true) → "somebody who leaves the chat is taken off" fails
  *   `groupSetupRow` without `READS_AS_CHAT` → "the rules the session reads by" fails
  *   `sealedPin` answering any workspace → "no home where there is no pin" fails
+ *   `withSameNumber` dropped from `makeChatHome` → "a person's other account that holds their number" fails
+ *   an unconfirmed sign-in phone counted → the same case fails (the claimer is named)
  */
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -129,6 +131,37 @@ describe("a chat's home", () => {
     await turn(w.t, BO, [ADA, BO, CY, LINE]);
     for (const inner of ["skills", "routines"]) expect((await homeRow(w, `${folder}/${inner}`))?.row.kind).toBe("folder");
     expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, w.bo, w.cy]));
+  });
+
+  test("a person's other account that holds their number is named too; one that only claims it is not", async () => {
+    const w = await world();
+    // Ada signs in to the app with a second account, confirmed on her number; another claims her number unconfirmed.
+    const adaApp = await createUser(w.t, "ada-app@example.invalid");
+    const claimer = await createUser(w.t, "claimer@example.invalid");
+    const stranger = await createUser(w.t, "stranger@example.invalid");
+    await w.t.run(async (ctx) => {
+      await ctx.db.patch(adaApp, { phone: ADA, phoneVerificationTime: Date.now() });
+      await ctx.db.patch(claimer, { phone: ADA });
+      await ctx.db.patch(stranger, { phone: "+15555550199", phoneVerificationTime: Date.now() });
+    });
+    await turn(w.t, BO, [ADA, BO, CY, LINE]);
+    const chat = await chatRow(w.t);
+    const home = await homeRow(w, `tex/groups/${chat!.homeWords}`);
+    expect(home?.people).toEqual(sorted([w.ada, adaApp, w.bo, w.cy]));
+    expect([...(chat?.homeUsers ?? [])].sort()).toEqual([w.ada, adaApp, w.bo, w.cy].sort());
+  });
+
+  test("homes made before are named again by the workflow, dry run first, without waiting for a text", async () => {
+    const w = await world();
+    await turn(w.t, BO, [ADA, BO, CY, LINE]);
+    const adaApp = await createUser(w.t, "ada-app@example.invalid");
+    await w.t.run(async (ctx) => ctx.db.patch(adaApp, { phone: ADA, phoneVerificationTime: Date.now() }));
+    const folder = `tex/groups/${(await chatRow(w.t))!.homeWords}`;
+    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toEqual({ dryRun: true, homes: 1, widened: 1, added: 1, refused: 0 });
+    expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, w.bo, w.cy]));
+    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: false })).toEqual({ dryRun: false, homes: 1, widened: 1, added: 1, refused: 0 });
+    expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, adaApp, w.bo, w.cy]));
+    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toMatchObject({ widened: 0 });
   });
 
   test("somebody who leaves the chat is taken off, and somebody added is named", async () => {

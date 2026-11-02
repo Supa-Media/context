@@ -293,8 +293,9 @@ export async function runAgentDreamChecks(check) {
       "the log says exactly what changed, why, and every step it took",
       written.startsWith("# Tex dreamed,") &&
         written.includes(`_Read \`${today}\``) &&
-        written.includes("- Added `- Lives in York`") &&
-        written.includes("- Added `- Has a dog`") &&
+        // The log shows each line as saved: write_note dates a new about line on save (`agent/aboutLines.js`).
+        written.includes(`- Added \`- Lives in York (Tex noticed, ${new Date().toISOString().slice(0, 10)})\``) &&
+        written.includes(`- Added \`- Has a dog (Tex noticed, ${new Date().toISOString().slice(0, 10)})\``) &&
         written.includes("- Removed `- Lives in Leeds`") &&
         !written.includes("Removed `- Likes tea`") &&
         written.includes("They moved from Leeds to York and have a dog.") &&

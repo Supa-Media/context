@@ -1,0 +1,41 @@
+# Name each Tex group chat's home again with its people by every account that
+# holds their number (2026-11-02), now rather than on the chat's next turn.
+# Manual only, dry run first. It prints `functions/texChatHomePeople.ts`'s
+# answer: counts only, because this repository is public and so is this log.
+name: Tex chat home people
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Count only, write nothing."
+        type: boolean
+        required: true
+        default: true
+
+jobs:
+  name-again:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Name the homes again
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = "true" ]; then args='{"dryRun":true}'; else args='{"dryRun":false}'; fi
+          npx convex run functions/texChatHomePeople:nameAgain "$args" 2>/dev/null
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}

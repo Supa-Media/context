@@ -24,6 +24,7 @@
 import { callToolForSession } from "../../tools/session.js";
 import { actorFor, contextsFor } from "../../context/identity.js";
 import { browserOwner } from "../../agent/browserProviders.js";
+import { groupTagOf } from "./browser.js";
 import { readPageRecords } from "../../texStore/pageRecords.js";
 import { pokeTexPage } from "../../texStore/pageLive.js";
 import { json } from "../responses.js";
@@ -53,10 +54,10 @@ async function settled(work, empty) {
   }
 }
 
-/** Is Tex's browser open for this person, and where. Never the frame. */
-async function computerOf(env, session) {
+/** Is Tex's browser open for this chat (the person's own, or a group's by its people), and where. Never the frame. */
+async function computerOf(env, session, chat, jobs) {
   const binding = env?.SITE_SHOTS;
-  const owner = await browserOwner(env, session.actorUserId);
+  const owner = chat.kind === "group" ? await groupTagOf(env, chat, (await jobs)?.people) : await browserOwner(env, session.actorUserId);
   if (typeof binding?.fetch !== "function" || owner === null) return { running: false };
   const response = await binding.fetch("https://site-shots/view/frame", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner }) });
   const body = response.ok ? await response.json().catch(() => null) : null;
@@ -90,14 +91,16 @@ async function overview(env, session, page, chat, call, sections) {
   const since = startOfDay(now, page.timeZone);
   const needJobs = ["status", "minions", "earlier", "earlierWeek"].some((key) => want.has(key));
   const needTiles = want.has("tiles");
+  // A group's computer tile needs its people hash, which comes with its jobs.
+  const jobsRead = needJobs || (needTiles && chat.kind === "group") ? fetchPageJobs(env, chat.jobsChat, now) : null;
   const [thinking, advisor, mailcheck, jobs, routines, about, computer] = await Promise.all([
     want.has("thinking") || want.has("thinkingToday") ? readPageRecords(env, chat.owner, "thinking", { limit: 3, since }) : null,
     want.has("behind") ? readPageRecords(env, chat.owner, "advisor", { limit: 1, since }) : null,
     want.has("behind") || needJobs ? readPageRecords(env, chat.owner, "mailcheck", { limit: 1, since }) : null,
-    needJobs ? fetchPageJobs(env, chat.jobsChat, now) : null,
+    needJobs ? jobsRead : null,
     needTiles ? settled(() => notes.readRoutines(call, chat.routines, { now, timeZone: page.timeZone }), { routines: [], checkins: [] }) : null,
     needTiles && chat.about ? settled(() => notes.readAbout(call, chat.about), { items: [], total: 0 }) : null,
-    needTiles && chat.kind === "me" ? settled(() => computerOf(env, session), { running: false }) : null,
+    needTiles ? settled(() => computerOf(env, session, chat, jobsRead), { running: false }) : null,
   ]);
   const answer = {};
   if (want.has("chats")) answer.chats = pickerOf(page);
