@@ -179,36 +179,46 @@ export const ON_PAGE_SINCE = Date.parse("2026-11-01T14:30:00Z");
  */
 export const pages = internalAction({
   args: {},
-  returns: v.object({ homes: v.number(), codes: v.record(v.string(), v.number()) }),
-  handler: async (ctx): Promise<{ homes: number; codes: Record<string, number> }> => {
+  returns: v.object({ homes: v.number(), codes: v.record(v.string(), v.number()), chats: v.record(v.string(), v.number()) }),
+  handler: async (ctx): Promise<{ homes: number; codes: Record<string, number>; chats: Record<string, number> }> => {
     const found: { homes: { groupKey: string; workspaceId: Id<"workspaces">; folder: string; noteId: string; lastSeenAt: number }[] } = await ctx.runQuery(internal.functions.texFolderNamesRows.homes, {});
     const codes: Record<string, number> = {};
+    // Each chat's codes joined, so two codes can be told to belong to one chat (`seen+not_carried`).
+    const chats: Record<string, number> = {};
     for (const home of found.homes) {
+      const own: string[] = [];
+      const note = (code: string) => {
+        own.push(code);
+        count(codes, code);
+      };
       // Whether the chat has spoken since a turn could move its history onto its page (`ON_PAGE_SINCE`).
-      count(codes, home.lastSeenAt >= ON_PAGE_SINCE ? "seen_since_page_move" : "not_seen_since_page_move");
+      note(home.lastSeenAt >= ON_PAGE_SINCE ? "seen_since_page_move" : "not_seen_since_page_move");
       try {
         const record = await chatRecord(ctx, home.workspaceId, home.groupKey);
         if (record === null) {
-          count(codes, "no_record");
+          note("no_record");
+          count(chats, own.join("+"));
           continue;
         }
-        if (record.onPage !== 1) count(codes, record.carried === 1 ? "carried" : "not_carried");
-        count(codes, record.onPage === 1 ? "on_page" : "not_on_page");
-        if (Array.isArray(record.turns)) count(codes, `record_turns_${record.turns.length > 0 ? "some" : "none"}`);
+        if (record.onPage !== 1) note(record.carried === 1 ? "carried" : "not_carried");
+        note(record.onPage === 1 ? "on_page" : "not_on_page");
+        if (Array.isArray(record.turns)) note(`record_turns_${record.turns.length > 0 ? "some" : "none"}`);
         const key = (record.direct as { memory?: unknown } | undefined)?.memory;
         const id = typeof key === "string" ? /(?:^|\/)notes\/([^/]+)\.md$/.exec(key)?.[1] : undefined;
         if (id === undefined) {
-          count(codes, "no_key");
+          note("no_key");
+          count(chats, own.join("+"));
           continue;
         }
         const path: string | null = await ctx.runQuery(internal.functions.texFolderNamesRows.rowOfNote, { workspaceId: home.workspaceId, noteId: id });
-        if (path === null) count(codes, "no_row");
-        else if (!path.startsWith(`${home.folder}/`)) count(codes, "row_elsewhere");
-        else count(codes, `row_${homeFileShape(path.slice(home.folder.length + 1), await hashToken(home.groupKey))}`);
+        if (path === null) note("no_row");
+        else if (!path.startsWith(`${home.folder}/`)) note("row_elsewhere");
+        else note(`row_${homeFileShape(path.slice(home.folder.length + 1), await hashToken(home.groupKey))}`);
       } catch {
-        count(codes, "FAILED");
+        note("FAILED");
       }
+      count(chats, own.join("+"));
     }
-    return { homes: found.homes.length, codes };
+    return { homes: found.homes.length, codes, chats };
   },
 });
