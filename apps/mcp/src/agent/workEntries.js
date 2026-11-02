@@ -4,10 +4,10 @@
  * `docs/decisions/texting-assistant/chat-ledger.md`).
  *
  * The ledger (`ledger.js`) keeps what a turn said and did; these are the
- * entries for three things a turn's own steps don't show: what the advisor
- * was asked and answered, what the Mail checker made of an email and how the
- * person settled it, and the jobs a turn started and how each part of a job
- * was judged. The "What Tex is working on" page reads them from the ledger
+ * entries for three things a turn's own steps don't show: how the advisor
+ * judged each part of a job, what the Mail checker made of an email and how
+ * the person settled it, and the jobs a turn started. (An ask the model makes
+ * is its `ask_advisor` tool entry already, never written twice.) The "What Tex is working on" page reads them from the ledger
  * like everything else (its Behind the scenes section); nothing here keeps a
  * second copy.
  *
@@ -34,7 +34,7 @@ export function chatLedger(store, session) {
 
 /** An `advisor` entry: what the everyday model asked with, the answer, how much of the turn it read, how long. */
 export function advisorEntry({ question, answer, steps = 0, ms = 0 }, { turn = null, job = null, check = false, at = Date.now() } = {}) {
-  return { v: 1, id: newId(), at, kind: "advisor", ...turnOf(turn), ...(job ? { job } : {}), ...(check ? { check: true } : {}), question: String(question ?? ""), answer: String(answer ?? ""), steps, ms: Math.max(0, Math.round(ms)) };
+  return { v: 1, id: newId(), at, kind: "advisor", ...turnOf(turn), ...(job ? { jobTitle: job } : {}), ...(check ? { check: true } : {}), question: String(question ?? ""), answer: String(answer ?? ""), steps, ms: Math.max(0, Math.round(ms)) };
 }
 
 /** The id a held email's check is kept under, so its settling names it (`settledMail`). */
@@ -69,13 +69,6 @@ export function mailVerdict(checked, { held = false, sent = false } = {}) {
 /** A `job` entry: the job's id (the one the texting Worker runs it under), its title, and its state. */
 export function jobEntry({ id, title }, state, { turn = null, advice = null, at = Date.now() } = {}) {
   return { v: 1, id: newId(), at, kind: "job", ...turnOf(turn), job: String(id), ...(title ? { title: cut(title, 120) } : {}), state, ...(advice ? { advice: cut(advice, 600) } : {}) };
-}
-
-/** What a turn hands the advisor (`advisor.js` `record`): each answered ask, written to the ledger. */
-export function advisorRecorder(session, { turn = null, job = null } = {}) {
-  const ledger = session?.ledger;
-  if (!ledger) return null;
-  return (asked) => void ledger.write(advisorEntry(asked, { turn, job }));
 }
 
 /** An email the Mail checker read, written to the ledger; a session with no ledger keeps nothing. */

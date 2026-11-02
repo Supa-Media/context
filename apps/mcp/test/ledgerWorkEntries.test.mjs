@@ -11,17 +11,18 @@
  *     settled: sent on a yes, stopped on a no or a failed send" fails.
  *  2. `recordMail` keeping a held email under a fresh id. → "a texted email's
  *     check is read back from the chat's ledger, and its yes names it" fails.
- *  3. `advisorTools` not telling `record`. → "an advisor ask is told with the
- *     model's own words and what it read" fails.
- *  4. `jobChecked` writing nothing for the advisor's verdict. → "a job's check
+ *  3. `jobChecked` writing nothing for the advisor's verdict. → "a job's check
  *     by the advisor" fails.
+ *  4. `pageViews` ignoring `ref` (`latestChecks` returning every entry). → "a
+ *     texted email's check is read back…" fails: the sent email still counts
+ *     as waiting.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { advisorEntry, advisorRecorder, heldCheckId, jobChecked, jobEntry, mailEntry, mailVerdict, recordMail, settledMail, startedJobEntries } from "../src/agent/workEntries.js";
-import { advisorTools } from "../src/agent/advisor.js";
+import { advisorEntry, heldCheckId, jobChecked, jobEntry, mailEntry, mailVerdict, recordMail, settledMail, startedJobEntries } from "../src/agent/workEntries.js";
+import { pageViews } from "../src/texStore/pageViews.js";
 import { ledgerFor } from "../src/agent/ledger.js";
 import { settlePending, createPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
@@ -37,7 +38,7 @@ test("entries carry the ledger's envelope and only the turn ids it takes", () =>
   assert.equal(advice.v, 1);
   assert.equal(advice.kind, "advisor");
   assert.match(advice.id, /^[A-Za-z0-9_-]{1,64}$/);
-  assert.deepEqual({ ...advice, id: "", at: 0 }, { v: 1, id: "", at: 0, kind: "advisor", turn: "turn_0123456789", job: "Trip", question: "Book or ask?", answer: "Ask.", steps: 2, ms: 900 });
+  assert.deepEqual({ ...advice, id: "", at: 0 }, { v: 1, id: "", at: 0, kind: "advisor", turn: "turn_0123456789", jobTitle: "Trip", question: "Book or ask?", answer: "Ask.", steps: 2, ms: 900 });
   assert.equal(advisorEntry({ question: "q", answer: "a" }, { turn: "bad turn id" }).turn, undefined, "a malformed turn id is left out");
   const mail = mailEntry({ to: ["jo@example.com"], cc: ["al@example.com"], subject: "Trip" }, { verdict: "waiting", why: "Waiting for their yes", ask: "0f-1" });
   assert.deepEqual({ ...mail, id: "", at: 0 }, { v: 1, id: "", at: 0, kind: "mail_check", to: "jo@example.com, al@example.com", subject: "Trip", verdict: "waiting", why: "Waiting for their yes", from: "your texts", ask: "0f-1" });
@@ -52,43 +53,9 @@ test("what a mail check's verdict reads as", () => {
   assert.equal(mailVerdict({ verdict: "unasked" }, { sent: true }).verdict, "sent");
 });
 
-test("an advisor ask is told with the model's own words and what it read", async () => {
-  const told = [];
-  let now = 0;
-  const [{ call }] = advisorTools({
-    model: "anthropic/claude-opus-5-5",
-    history: [],
-    question: "the person's text",
-    request: async () => {
-      now += 1_200;
-      return { text: "Check the calendar first." };
-    },
-    record: (entry) => told.push(entry),
-    clock: () => now,
-  });
-  const live = {
-    system: "",
-    tools: [],
-    messages: [
-      { role: "user", text: "the person's text" },
-      { role: "assistant", text: "", toolCalls: [{ name: "read_note", args: {} }] },
-      { role: "tool", name: "read_note", text: "..." },
-      { role: "assistant", text: "Should I book now or ask them?", toolCalls: [{ name: "ask_advisor", args: {} }] },
-    ],
-  };
-  await call({}, live);
-  assert.deepEqual(told, [{ question: "Should I book now or ask them?", answer: "Check the calendar first.", steps: 1, ms: 1_200 }]);
-  await call({}, { ...live, messages: live.messages.slice(0, 1) });
-  assert.equal(told[1].question, "the person's text", "no words of its own: the person's text");
-  const failing = advisorTools({ model: "m", history: [], question: "q", request: async () => { throw new Error("down"); }, record: (entry) => told.push(entry) });
-  await failing[0].call({}, live);
-  assert.equal(told.length, 2, "an ask that never got an answer is not kept as one");
-
-  const ledger = fakeLedger();
-  advisorRecorder({ ledger }, { turn: "turn_0123456789", job: null })(told[0]);
-  assert.equal(ledger.entries[0].kind, "advisor");
-  assert.equal(ledger.entries[0].question, "Should I book now or ask them?");
-  assert.equal(advisorRecorder({ ledger: null }), null, "no ledger, nothing to tell");
+test("a model's own ask of the advisor is its tool entry, never written twice", async () => {
+  const route = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../src/agent/route.js", import.meta.url), "utf8"));
+  assert.doesNotMatch(route, /advisorTools\(\{[^)]*record:/, "the turn's ask_advisor tool entry already holds the ask and its answer");
 });
 
 test("a job's check by the advisor is an ask and a job state in the ledger", async () => {
@@ -97,7 +64,7 @@ test("a job's check by the advisor is an ask and a job state in the ledger", asy
   const fields = await jobChecked({ ledger }, { job, steps: 6, turn: "turn_0123456789" }, async () => ({ verdict: "keep_going", advice: "Use the email link.", unfinished: true }));
   assert.equal(fields.verdict, "keep_going", "the fields pass through untouched");
   const [asked, state] = ledger.entries;
-  assert.deepEqual([asked.kind, asked.check, asked.question, asked.answer, asked.steps, asked.job], ["advisor", true, 'Is the job "Fill the form" done?', "Not yet: keep going. Use the email link.", 6, "Fill the form"]);
+  assert.deepEqual([asked.kind, asked.check, asked.question, asked.answer, asked.steps, asked.jobTitle], ["advisor", true, 'Is the job "Fill the form" done?', "Not yet: keep going. Use the email link.", 6, "Fill the form"]);
   assert.deepEqual([state.kind, state.job, state.state, state.advice], ["job", "job-0123456789", "keep_going", "Use the email link."]);
   const quiet = fakeLedger();
   await jobChecked({ ledger: quiet }, { job }, async () => ({ unfinished: true }));
@@ -148,6 +115,11 @@ test("a texted email's check is read back from the chat's ledger, and its yes na
     const after = (await ledger.read("texts", { kinds: ["mail_check"] })).entries;
     assert.equal(after.length, 2, "the yes is a new entry, the first is never rewritten");
     assert.deepEqual([after[1].verdict, after[1].ref], ["sent", held[0].id]);
+    // The page's view of the same log: one check, sent, and nothing waiting.
+    const views = pageViews(() => ({ read: (chat, { kinds }) => ({ entries: after.filter((entry) => kinds.includes(entry.kind)).map((entry, index) => ({ ...entry, seq: index + 1 })).reverse() }) }));
+    const shown = views.list("mailcheck", { chat: "texts" });
+    assert.deepEqual(shown.items.map((item) => item.verdict), ["sent"], "a settled check shows once, as how it was settled");
+    assert.equal(views.waiting("texts", { now: after[1].at }), 0, "a sent email no longer waits");
   } finally {
     await world.close?.();
   }
