@@ -152,6 +152,10 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       "functions.workspaceObjects.setHome",
       "functions.workspaceObjects.setHomeBySlug",
       "functions.workspaceObjects.syncRows",
+      // Settles each key an object-home workspace's object and bucket disagree about (`workspaceObjectsRepair.ts`), run
+      // by hand from the repair workflow. internalAction, reached only from that workflow's deploy key; it answers counts
+      // and key shapes only, never a key, a path or a body.
+      "functions.workspaceObjectsRepair.repair",
       // Copies each workspace's one-to-one Tex history and turn records from its bucket into its Tex Durable Object
       // (`texHistoryMigration.ts`, `apps/mcp/src/agent/agentHomeMove.js`), run by hand from the workflow. internalAction,
       // reached only from that workflow's deploy key; it answers counts only, and deletes nothing.
