@@ -19,7 +19,8 @@
  * replaces lines, and in a group Tex says who changed them so anyone can undo.
  *
  * The tools that act for the person or widen who sees something (sharing or
- * unsharing their mail, their review sharing) run only when the turn's own
+ * unsharing their mail, their review sharing), and the one that writes free
+ * text every later turn reads (the instructions), run only when the turn's own
  * message, from the person the grant names, asks for it (`consentFor`). Those
  * words come from the texting Worker (`body.question`, the tagger's own
  * message), never from the model's arguments, so another member's text, a
@@ -66,11 +67,14 @@ const CONSENT_WORDS = {
   share_mail: /\b(mail|email|e-mail|inbox|gmail)\b/i,
   unshare_mail: /\b(mail|email|e-mail|inbox|gmail)\b/i,
   review_sharing: /\b(shar\w*|review\w*|conversations?|chats?)\b/i,
+  // A lasting request about how Tex talks, in their own words (Dev2, 2026-11-01): never a line an email or a quote put there.
+  instructions: /\b(from now on|going forward|always|never|stop|don'?t|do not|no more|call (?:me|us)|instructions?|settings?|remember|be (?:more|less)|answer in|reply in|talk|write|use|undo|remove|forget)\b/i,
 };
 const CONSENT_ACTIONS = {
   share_mail: "share the person's own email inbox with this group chat",
   unshare_mail: "stop sharing the person's own email inbox with this group chat",
   review_sharing: "change whether the person's finished conversations are shared with the Context team",
+  instructions: "change, from now on, how Tex talks in this chat",
 };
 export const OWN_WORDS_REFUSAL = "They have to ask for that in their own words. Nothing was changed; tell them so.";
 
@@ -170,6 +174,7 @@ export function commandTools({ run, group, consent = async () => false }) {
       const action = args?.action;
       if (!["add", "remove", "replace", "clear"].includes(action)) return text("Say add, remove, replace or clear. Nothing was changed.", true);
       if (action !== "clear" && (typeof args?.text !== "string" || args.text.trim() === "")) return text("Pass the line as text. Nothing was changed.", true);
+      if (!(await asked("instructions"))) return text(OWN_WORDS_REFUSAL, true);
       return await call({ kind: "instructions", action, ...(action !== "clear" ? { text: args.text } : {}) }, confirm)();
     },
   };

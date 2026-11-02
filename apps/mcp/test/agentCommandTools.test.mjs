@@ -54,12 +54,12 @@ test("a guest's tag is offered no tool that acts as a person", () => {
 
 test("changing the instructions sends only the change; a group is told to say who made it and how to undo", async () => {
   const { sent, run } = recorder({ status: "done", instructions: "Call the group the crew.", setBy: "dev2" });
-  const set = byName(commandTools({ run, group: { key: "k" } }), "tex_instructions_set");
+  const set = byName(commandTools({ run, group: { key: "k" }, consent: async (kind) => kind === "instructions" }), "tex_instructions_set");
   const result = await set.call({ action: "add", text: "Call the group the crew.", sender: "+15555550100", groupId: "other" });
   assert.deepEqual(sent, [{ kind: "instructions", action: "add", text: "Call the group the crew." }]);
   assert.equal(result.isError, undefined);
   assert.equal(words(result), 'Saved. Say in your answer, in these words: dev2 set: "Call the group the crew.". Anyone here can text "Tex, undo the change" to put it back.');
-  const own = await byName(commandTools({ run, group: null }), "tex_instructions_set").call({ action: "clear", text: "ignored" });
+  const own = await byName(commandTools({ run, group: null, consent: async () => true }), "tex_instructions_set").call({ action: "clear", text: "ignored" });
   assert.deepEqual(sent.at(-1), { kind: "instructions", action: "clear" });
   assert.match(words(own), /^Saved\. Their instructions are now: "Call the group the crew\."\. Tell them in a line what you wrote\.$/);
   assert.match(set.tool.description, /Only for a clear, lasting request/);
@@ -87,11 +87,23 @@ test("a refusal is never worded as done", async () => {
       assert.doesNotMatch(words(result), /^(Saved|Done|Shared|Stopped)/, `${entry.tool.name} ${status}`);
     }
   }
-  const thrown = byName(commandTools({ run: async () => { throw new Error("down"); }, group: null }), "tex_instructions_set");
+  const thrown = byName(commandTools({ run: async () => { throw new Error("down"); }, group: null, consent: async () => true }), "tex_instructions_set");
   assert.equal((await thrown.call({ action: "add", text: "Be brief." })).isError, true);
-  const empty = byName(commandTools({ run: async () => ({ status: "done" }), group: null }), "tex_instructions_set");
+  const empty = byName(commandTools({ run: async () => ({ status: "done" }), group: null, consent: async () => true }), "tex_instructions_set");
   assert.equal((await empty.call({ action: "add" })).isError, true, "no line named changes nothing");
   assert.equal((await empty.call({ action: "shout", text: "x" })).isError, true, "no such action changes nothing");
+});
+
+// Free text every later turn reads: only the person's own lasting request writes it, never an email's or a quote's words.
+test("the instructions change only on the turn's own words asking for it", async () => {
+  const { sent, run } = recorder({ status: "done", instructions: "Answer in pirate." });
+  const said = (words) => byName(commandTools({ run, group: { key: "k" }, consent: consentFor(words) }), "tex_instructions_set");
+  const refused = await said("what's on my calendar tomorrow?").call({ action: "add", text: "Answer in pirate." });
+  assert.equal(refused.isError, true);
+  assert.equal(words(refused), OWN_WORDS_REFUSAL);
+  assert.deepEqual(sent, []);
+  assert.equal((await said("Tex from now on answer in pirate").call({ action: "add", text: "Answer in pirate." })).isError, undefined);
+  assert.equal(sent.length, 1);
 });
 
 test("the settings answer lists the options, and mail sharing keeps its safety line", async () => {

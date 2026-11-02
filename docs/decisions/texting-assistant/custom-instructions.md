@@ -132,6 +132,11 @@ a group turn gets the group's alone, never a member's.
   the answer tells Tex to say `tester set: "<the text now>". Anyone here can
   text "Tex, undo the change" to put it back.` In a person's own chat it
   edits theirs; in a group, the group's.
+- That tool writes free text every later turn reads, so it runs only when the
+  turn's own message, from the person the grant names, asks for it: a code
+  check for words of a lasting request, then the small judge where the
+  deployment has one (`commandTools.js` `consentFor`, as mail sharing). An
+  email, a quote or another member's text cannot write it.
 - Quick-pick words are code's, no model: "Tex, no emoji", "Tex, less emoji",
   "Tex, tone efficient", "Tex, one bubble", "Tex, short answers", "Tex, more
   humor", "Tex, clear instructions". In a group Tex says `tester set: "<the
