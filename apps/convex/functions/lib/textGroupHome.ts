@@ -37,14 +37,16 @@ async function sealedPin(ctx: QueryCtx): Promise<Id<"workspaces"> | null> {
 }
 
 /**
- * The folders a home holds from the start, by the names a person's Tex folder gives them (the owner, 2026-11-01: "i
- * would like them to mirror"; 2026-11-02: the homes "still look very empty ... I don't see any of the scaffolding
- * folders"): what Tex learned (`skills/`) and the chat's reminders (`routines/`). Its notes are made as Tex writes them.
+ * The folders a home holds from the start: every folder a person's Tex folder has, by the same names (the owner,
+ * 2026-11-01: "i would like them to mirror"; 2026-11-02: the homes "still look very empty ... I don't see any of the
+ * scaffolding folders", then "Both with the same type of folders in them? so routines, heartbeats, about, skills,
+ * dreams, etc"). Its notes are made as Tex writes them; `docs/decisions/texting-assistant/tex-folders.md` says which
+ * of them a chat's turns fill today.
  */
-export const HOME_FOLDERS = ["skills", "routines"] as const;
+export const HOME_FOLDERS = ["skills", "routines", "heartbeat", "attention", "dreams", "handbacks", "housekeeping", "pictures"] as const;
 
 /** Whether the home and each of its folders stand as live folders. */
-async function homeStands(ctx: MutationCtx, pinned: Id<"workspaces">, folder: string): Promise<boolean> {
+export async function homeStands(ctx: MutationCtx, pinned: Id<"workspaces">, folder: string): Promise<boolean> {
   for (const path of [folder, ...HOME_FOLDERS.map((inner) => `${folder}/${inner}`)]) {
     if ((await liveNodeAt(ctx.db, pinned, path))?.kind !== "folder") return false;
   }
