@@ -110,8 +110,8 @@ export async function serveTexStore(objects, request, timers = null, live = null
       case "page_list":
         if (!objects.records) return Response.json({ items: [], count: 0 });
         return Response.json({
-          ...objects.records.list(call.kind, { limit: call.limit, cursor: call.cursor, since: call.since }),
-          ...(call.kind === "mailcheck" ? { waiting: objects.records.waiting() } : {}),
+          ...objects.records.list(call.kind, { chat: call.chat ?? undefined, limit: call.limit, cursor: call.cursor, since: call.since }),
+          ...(call.kind === "mailcheck" ? { waiting: objects.records.waiting(call.chat ?? undefined) } : {}),
         });
       case "page_poke":
         live?.changed(Array.isArray(call.sections) ? call.sections : []);

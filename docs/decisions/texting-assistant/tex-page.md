@@ -25,7 +25,10 @@ each group chat they are in.
   through the control plane, with the rules the texted commands use. What Tex
   thought, asked the advisor and emailed are views of the chat's one log
   (decided by the owner the same day: one JSON log per chat in its Tex object,
-  everything else rebuilt from it); there is no page store of them.
+  everything else rebuilt from it); there is no page store of them
+  (`texStore/pageViews.js`: a turn is the entries sharing its `turn`, and what
+  it answered is the texts its own texts name in `covers`; the log is `texts`
+  for a person's chat and the group key for a group's).
 - **Live from the box.** The page's socket (`GET /tex/page/live`, token as a
   subprotocol) is held by the chat's own Tex object (`person:<workspaceId>`,
   `chat:<groupKey>`), which pushes a patch when a note in it is written, when
