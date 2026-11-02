@@ -25,7 +25,6 @@ import { readChoices, type Choice } from "./pickCard";
 import { readOffers, type Offer } from "./dataCards";
 import { readStartedJobs, readSteers, type JobAsk, type StepHow, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
 import type { TexEvent } from "./events";
-import { readLog } from "./logHold";
 
 /** The gateway seals a warm copy only this large (`apps/mcp/src/agent/warmCopy.js` `WARM_MAX_CHARS`). */
 export const MAX_WARM_CHARS = 1_500_000;
@@ -236,7 +235,7 @@ export type AgentAnswer =
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; log?: TexEvent[] }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -298,7 +297,6 @@ export async function askAgent(
     arrivedAt,
     warm, beside,
     recent,
-    holdsLog,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -324,8 +322,7 @@ export async function askAgent(
     arrivedAt?: number;
     /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
     warm?: string; beside?: readonly string[]; // and what was written to the history beside it (`warm.ts` `keepBeside`)
-    recent?: readonly TexEvent[];
-    holdsLog?: boolean; // `recent` is the chat's whole log (`events.ts` `holdsLog`): the gateway reads none from storage
+    recent?: readonly TexEvent[]; // the outbox: what the gateway has not taken yet, added to the ledger's day (`warmCopy.js` `mergeEvents`)
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -350,7 +347,6 @@ export async function askAgent(
     ...(arrivedAt !== undefined ? { arrivedAt } : {}),
     ...(warm ? { warm, ...(beside && beside.length > 0 ? { beside } : {}) } : {}),
     ...(recent && recent.length > 0 ? { recent } : {}),
-    ...(holdsLog === true ? { holdsLog: true } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };
@@ -405,7 +401,6 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
       ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),
-      ...(readLog(body.log).length > 0 ? { log: readLog(body.log) } : {}), // the chat's log the gateway read, held here from now on (`events.ts` `keepLog`)
     };
   }
   if (status === 409) return { kind: "no_model" };

@@ -99,6 +99,12 @@ export async function runFactFill(
   if ((await ctx.runQuery(internal.functions.nodes.served, { workspaceId })) === null) {
     return { kind: "nodesKept", complete: false };
   }
+  // Where the notes live in their object, it keeps their facts beside the text and every reader asks it: the
+  // control plane's copy is dropped rather than filled (`functions/nodeFactsDrop.ts`, `facts-in-objects.md`).
+  if ((await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId })) === "object") {
+    await ctx.runMutation(internal.functions.nodeFactsDrop.drop, { workspaceId });
+    return { kind: "nodesKept", complete: true };
+  }
   const state = await ctx.runMutation(internal.functions.nodeFacts.claim, { workspaceId, now: Date.now() });
   // Another pass holds it, and checks the log again as it finishes (`behind`),
   // so a change it read too early starts the next pass; the cron catches one

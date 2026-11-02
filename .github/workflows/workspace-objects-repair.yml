@@ -32,6 +32,10 @@ on:
         description: "Every object-home workspace, not only those whose last parity check differed."
         type: boolean
         default: false
+      since_hours:
+        description: "With a handle: settle only the notes that workspace wrote in the last N hours, read from the tree instead of walking the bucket (empty walks everything)."
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -59,8 +63,20 @@ jobs:
           ONLY: ${{ inputs.only }}
           APPLY: ${{ inputs.apply }}
           EVERY_OBJECT: ${{ inputs.every_object }}
+          SINCE_HOURS: ${{ inputs.since_hours }}
         run: |
           set -euo pipefail
+          if [ -n "$SINCE_HOURS" ]; then
+            if [ -z "$ONLY" ]; then echo "since_hours needs a handle in only"; exit 1; fi
+            since=$(( $(date +%s) * 1000 - SINCE_HOURS * 3600 * 1000 ))
+            args=$(jq -cn --arg only "$ONLY" --argjson since "$since" --argjson apply "${APPLY:-false}" '{only: $only, since: $since, apply: $apply}')
+            answer=$(npx convex run functions/workspaceObjectsRepair:repairRecent "$args" 2>/dev/null)
+            echo "$answer" | jq .
+            echo "### Workspace objects repair (recent writes)" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`$(echo "$answer" | jq -c .)\`" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$(echo "$answer" | jq -r '.refused // empty')" != "" ] || [ "$(echo "$answer" | jq -r '.counts.failed')" != "0" ]; then exit 1; fi
+            exit 0
+          fi
           cursor=""
           page=0
           total='{"workspaces":0,"skipped":0,"unreachable":0,"counts":{},"shapes":{},"why":{}}'
@@ -69,7 +85,16 @@ jobs:
             args=$(jq -cn --argjson apply "${APPLY:-false}" --argjson every "${EVERY_OBJECT:-false}" '{apply: $apply, everyObject: $every}')
             if [ -n "$cursor" ]; then args=$(echo "$args" | jq -c --arg cursor "$cursor" '. + {cursor: $cursor}'); fi
             if [ -n "$ONLY" ]; then args=$(echo "$args" | jq -c --arg only "$ONLY" '. + {only: $only}'); fi
-            answer=$(npx convex run functions/workspaceObjectsRepair:repair "$args" 2>/dev/null)
+            # A page call can fail on its own (a network blip, a deploy restarting the backend): try it again, since
+            # every fix is conditional on what it read. stderr stays hidden because it can carry a key.
+            answer=""
+            for try in 1 2 3 4; do
+              if answer=$(npx convex run functions/workspaceObjectsRepair:repair "$args" 2>/dev/null); then break; fi
+              answer=""
+              echo "page $page: call failed (try $try of 4)"
+              sleep $((try * 15))
+            done
+            if [ -z "$answer" ]; then echo "page $page: gave up after 4 tries"; exit 1; fi
             echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
             total=$(jq -cn --argjson a "$total" --argjson b "$answer" '
               def merge($x; $y): reduce ($y | keys_unsorted[]) as $k ($x; .[$k] = ((.[$k] // 0) + $y[$k]));

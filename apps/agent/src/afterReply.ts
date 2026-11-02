@@ -20,6 +20,7 @@ import type { InboxStorage } from "./inbox";
 import type { Pending } from "./inboxTurn";
 import type { Fetch } from "./clients";
 import { flushChat } from "./events";
+import { rememberChatReader } from "./chatRead";
 import { sha256Hex } from "./groupChat";
 import { writeTextTiming, type TimingDataset } from "./textTiming";
 
@@ -30,9 +31,10 @@ const deferred = new WeakMap<InboxStorage, Promise<void>>();
 /** The last session's token, in memory only, so what a turn sent is written to the log once it went (`events.ts`). */
 const sessions = new WeakMap<InboxStorage, string>();
 
-/** A turn's session, once it has one: what its sends are flushed with. */
-export function rememberSession(storage: InboxStorage, token: string): void {
+/** A turn's session, once it has one: what its sends are flushed with, and what the next read of its chat asks the ledger with (`chatRead.ts`). */
+export function rememberSession(storage: InboxStorage, token: string, chat?: { chat: string; fetch: Fetch; gatewayOrigin?: string | null }): void {
   sessions.set(storage, token);
+  if (chat?.gatewayOrigin) rememberChatReader(storage, chat.chat, { token, conversation: "texts", fetch: chat.fetch, gatewayOrigin: chat.gatewayOrigin });
 }
 
 /**

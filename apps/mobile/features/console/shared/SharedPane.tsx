@@ -15,6 +15,7 @@ import { atName } from "../format";
 import { ReportLink } from "../../report/ReportLink";
 import { SharedNoteView } from "./SharedNoteView";
 import { SharedGrantView } from "./SharedGrantView";
+import { useSharedWithMe } from "./useSharedWithMe";
 import { openKeyOf, type GrantTarget } from "./sharedGrant";
 import {
   groupByDay,
@@ -66,7 +67,7 @@ export function SharedPane({
   /** Go to another address: a link inside an open note follows the share's own page. */
   onGo: (href: string) => void;
 }) {
-  const items = useQuery(api.functions.shares.listSharedWithMe) as SharedItem[] | undefined;
+  const items = useSharedWithMe();
   const seenAt = useQuery(api.functions.sharedInbox.sharedSeenAt) as number | null | undefined;
   const markSeen = useMutation(api.functions.sharedInbox.markSharedSeen);
   const count = items?.length;

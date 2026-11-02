@@ -308,3 +308,15 @@ test("which moved notes hold links, through the door: unfiltered, read at their 
   const dual = await seeded({ home: HOMES.DUAL, workspaceId: "ws_two" });
   assert.deepEqual(await dual.ws.factRows({ ask: "linking", paths: ["projects/plan.md"] }), { served: false });
 });
+
+test("a note's neighbor rows through the door are unfiltered, in the control plane's shape", { skip }, async () => {
+  const { ws } = await seeded();
+  const answer = await ws.factRows({ ask: "neighborRows", path: "projects/plan.md" });
+  assert.equal(answer.served, true);
+  assert.equal(answer.rows.present, true);
+  assert.equal(answer.rows.current, true);
+  assert.deepEqual(answer.rows.byName.sort(), ["projects/brief.md", "projects/secret/hidden.md"]);
+  assert.deepEqual(answer.rows.links.map((link) => `${link.kind} ${link.target}`).sort(), ["name brief", "path projects/notes.md"]);
+  const missing = await ws.factRows({ ask: "neighborRows", path: "projects/none.md" });
+  assert.deepEqual(missing.rows, { present: false, current: false, links: [], byPath: [], byName: [] });
+});

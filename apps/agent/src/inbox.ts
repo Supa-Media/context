@@ -536,7 +536,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
     covers,
     (ids) => dropSteered(storage, ids, covers),
     async (token) => {
-      rememberSession(storage, token);
+      rememberSession(storage, token, { chat: message.chatId, fetch: deps.fetch, gatewayOrigin: deps.gatewayOrigin });
       void flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(message.from)).catch(() => {}); // beside the turn, not before: it is handed the same events (`warm.ts`)
     },
   );

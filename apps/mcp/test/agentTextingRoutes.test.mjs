@@ -8,7 +8,7 @@
  *
  *  1. A route not checking the client or the write scope (drop the
  *     `texting(session) || hasScope` check in `handleEvents`) → "only the
- *     texting Worker with write scope reaches the three routes".
+ *     texting Worker with write scope reaches the four routes".
  *  2. `http/route.js` not resolving the session for them (drop
  *     `TEXTING_ROUTES.has(path)` from the authenticated list) → "no token is
  *     refused the same as a bad one, on every route".
@@ -59,6 +59,9 @@
  * 18. `track` not taking back the mark of a held call → "a cancel after the
  *     last round still withdraws the turn's asks" (run 2026-10-27).
  *
+ * 19. `handleChat` not checking the client or the write scope → "only the texting
+ *     Worker with write scope reaches the four routes" (run 2026-11-02).
+ *
  * Changed behaviour (2026-10-27, not a sabotage): `/agent/cancel` answers
  * `{ cancelled: false }` and marks nothing unless the named turn is running
  * for this person and has not yet changed anything, so the tests that
@@ -80,7 +83,7 @@ import { LOGICAL_DELETE_CONTENT_TYPE } from "../src/store/logicalDelete.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { conversationText, conversationTurns } from "./agentConversationFixture.mjs";
+import { conversationText, conversationTurns, seedChat } from "./agentConversationFixture.mjs";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 import { texBucket, texStoreStub } from "../src/texStore/wire.js";
 
@@ -222,13 +225,14 @@ beforeEach(async () => {
 
 const ROUTES = [
   ["/agent/events", () => ({ conversation: "texts", events: [event()] })],
+  ["/agent/chat", () => ({ conversation: "texts", chat: CHAT })],
   ["/agent/cancel", () => ({ turn: TURN })],
   ["/agent/stale", () => ({ asks: ["a1"] })],
 ];
 
 /* ---------------- auth ---------------- */
 
-test("only the texting Worker with write scope reaches the three routes", async () => {
+test("only the texting Worker with write scope reaches the four routes", async () => {
   for (const [path, body] of ROUTES) {
     for (const token of [TOKEN_OTHER, TOKEN_READONLY]) {
       const refused = await call(path, body(), token);
@@ -299,6 +303,39 @@ test("a person's chat is the texting grant's, and a group's the group grant's", 
   assert.equal((await call("/agent/events", { conversation: { group: CHAT }, events: [event()] })).status, 400);
   assert.equal((await call("/agent/events", { conversation: { group: CHAT }, events: [event()] }, TOKEN_GROUP)).status, 200);
   assert.equal((await call("/agent/events", { conversation: { group: "another-chat" }, events: [event()] }, TOKEN_GROUP)).status, 400, "every event is the named chat's");
+});
+
+/* ---------------- chat ---------------- */
+
+test("the Worker reads the chat's last day from its ledger, as its own events, oldest first", async () => {
+  const said = [event({ text: "first", at: NOW - 3_000 }), event({ from: { kind: "tex" }, text: "second", at: NOW - 2_000, turn: TURN, delivered: true }), event({ text: "third", at: NOW - 1_000 })];
+  assert.equal((await call("/agent/events", { conversation: "texts", events: [said[2], said[0], said[1]] })).status, 200);
+  const read = await call("/agent/chat", { conversation: "texts", chat: CHAT });
+  assert.equal(read.status, 200);
+  assert.deepEqual(read.body.events.map((one) => [one.id, one.text, one.chat, one.kind]), said.map((one) => [one.id, one.text, CHAT, "text"]));
+  assert.deepEqual(read.body.events[1].from, { kind: "tex" });
+  assert.equal(read.body.events[1].turn, TURN);
+});
+
+test("a group grant that names no chat reads nothing, never the person's own chat; each grant reads only its own kind of chat", async () => {
+  assert.equal((await call("/agent/events", { conversation: "texts", events: [event({ text: "only theirs" })] })).status, 200);
+  const group = await call("/agent/chat", { conversation: { group: CHAT } }, TOKEN_GROUP);
+  assert.deepEqual(group, { status: 200, body: { events: [] } });
+  assert.equal((await call("/agent/chat", { conversation: "texts", chat: CHAT }, TOKEN_GROUP)).status, 400);
+  assert.equal((await call("/agent/chat", { conversation: { group: CHAT } })).status, 400);
+  assert.equal((await call("/agent/chat", { conversation: "texts" })).status, 400, "a person's chat is named");
+});
+
+test("a ledger that can't be read is an error, never a chat that looks empty", async () => {
+  tex.before = async (_owner, call) => {
+    if (call.op === "ledger_read") throw new Error("object unavailable");
+  };
+  try {
+    const response = await raw("/agent/chat", { conversation: "texts", chat: CHAT });
+    assert.ok(response.status >= 500, `an unread ledger is an error, not ${response.status}`);
+  } finally {
+    tex.before = undefined;
+  }
 });
 
 /* ---------------- cancel ---------------- */
@@ -432,20 +469,34 @@ test("a tapback's words and a caption are steered like a text, capped the same",
 /* ---------------- the turn shown the log ---------------- */
 
 test("a turn that covers logged events is shown the transcript, and today's history is still written", async () => {
+  seedChat(bucket, []); // the chat's old copies are in, so the ledger is what is read (`ledgerConversation.js`)
   const old = event({ at: NOW - 120_000, text: "what's on Friday" });
   const answer = event({ at: NOW - 60_000, from: { kind: "tex" }, text: "Dinner at 7.", covers: [old.id] });
   const fresh = event({ text: "move it to 8" });
   await call("/agent/events", { conversation: "texts", events: [old, answer, fresh] });
   script = [{ text: "Moved to 8." }];
-  const response = await call("/agent", { question: "move it to 8", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id] });
+  const response = await call("/agent", { question: "move it to 8", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id], turn: TURN });
   assert.equal(response.status, 200);
   const messages = JSON.stringify(requests[0].messages);
   assert.ok(messages.includes(LOG_PREFACE.slice(0, 40)), "the log is the conversation");
   assert.match(messages, /You: Dinner at 7\./);
-  assert.match(conversationText(bucket), /move it to 8/, "today's history is still kept");
+  // The Worker texts the answer and posts it; the chat rebuilt from the ledger then holds the exchange (`ledgerConversation.js`).
+  await call("/agent/events", { conversation: "texts", events: [event({ from: { kind: "tex" }, text: "Moved to 8.", turn: TURN, covers: [fresh.id] })] });
+  assert.match(conversationText(bucket), /move it to 8/, "the conversation is kept");
+  assert.match(conversationText(bucket), /Moved to 8\./);
+});
+
+test("a texted turn that names no texts it covers leaves its texts to the Worker: the answer is kept once", async () => {
+  seedChat(bucket, []); // the chat's old copies are in, so the ledger is what is read (`ledgerConversation.js`)
+  await call("/agent/events", { conversation: "texts", events: [event({ text: "status?" })] });
+  script = [{ text: "All quiet ONCE-MARK." }];
+  assert.equal((await call("/agent", { question: "status?", timeZone: "UTC", conversation: "texts", turn: TURN })).status, 200);
+  await call("/agent/events", { conversation: "texts", events: [event({ from: { kind: "tex" }, text: "All quiet ONCE-MARK.", turn: TURN })] });
+  assert.equal(conversationText(bucket).split("ONCE-MARK").length - 1, 1);
 });
 
 test("a turn shown an answer from a tainted turn is untrusted, and so is what it says next", async () => {
+  seedChat(bucket, []); // the chat's old copies are in, so the ledger is what is read (`ledgerConversation.js`)
   const askedBefore = event({ at: NOW - 120_000, text: "what does that page say" });
   const answer = event({ at: NOW - 60_000, from: { kind: "tex" }, text: "It says to email them.", turn: "turn-dirty-0001", covers: [askedBefore.id] });
   const fresh = event({ text: "ok do it" });
@@ -460,6 +511,7 @@ test("a turn shown an answer from a tainted turn is untrusted, and so is what it
   await bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: false }), etag: "t1", lastModified: new Date().toISOString() });
   script = [{ text: "Doing it." }];
   await call("/agent", ask);
+  await call("/agent/events", { conversation: "texts", events: [event({ from: { kind: "tex" }, text: "Doing it.", turn: TURN, covers: [fresh.id] })] });
   assert.ok(conversationTurns(bucket).some((turn) => turn.tainted === true), "this turn's answer is kept as tainted");
   assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: false }, "and this turn is recorded as not clean in turn");
   assert.equal((await call("/agent/events", { conversation: "texts", events: [{ ...event({ from: { kind: "tex" } }), tainted: false }] })).status, 400, "the Worker cannot launder it");

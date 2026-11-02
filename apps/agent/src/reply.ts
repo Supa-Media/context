@@ -276,7 +276,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId), holdsLog: message.chatId ? await deps.warm?.holds(message.chatId) : undefined },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId) },
     );
     if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
@@ -285,7 +285,6 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       deps.onAnswered?.();
       // Kept when it started a job too: a job reports through the chat's own turn (never writes the chat itself), and the gateway reads notes and skills fresh while one runs (`warmCopy.js` `jobBusy`).
       await deps.warm?.keep(answer.warm);
-      if (answer.log && message.chatId) await deps.warm?.keepLog(message.chatId, answer.log); // the chat's log, held here from now on (`events.ts` `keepLog`)
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();

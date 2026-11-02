@@ -9,8 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroup, acceptGroupRoutine, drainGroup, type GroupDeps } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { ADA, BO, CY, LINE, LINES, answerAll, setup, type Answer, type Decide } from "./groupWorld.testing";
-import { recentEvents } from "./events";
+import { ADA, BO, CY, LINE, LINES, answerAll, chatLog, setup, type Answer, type Decide } from "./groupWorld.testing";
 import { CHAT_LOOK_PATH } from "./groupRoutines";
 import { answerHanded, failHanded } from "./groupTurnRun";
 import { runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
@@ -36,7 +35,7 @@ for (const { name, groupId } of LINES) {
       await acceptGroup(storage, w.message("Tex, find us a table Friday"), 0);
       await drainGroup(storage, w.deps);
       expect(w.texts).toEqual(["Checking OpenTable for Friday.", "Found 3 tables at Nopa.", "Reading their reviews.", "Nopa at 7, want it?"]);
-      const log = (await recentEvents(storage, groupId)).filter((event) => event.from.kind === "tex");
+      const log = (await chatLog(storage, w, groupId)).filter((event) => event.from.kind === "tex");
       expect(log.map((event) => [event.text, event.delivered])).toEqual([["Checking OpenTable for Friday.", true], ["Found 3 tables at Nopa.", true], ["Reading their reviews.", true], ["Nopa at 7, want it?", true]]);
       expect(log.every((event) => event.turn !== undefined && event.turn === log[0].turn)).toBe(true);
     });
@@ -50,7 +49,7 @@ for (const { name, groupId } of LINES) {
       expect(w.texts[0]).toBe("Reading the page now.");
       expect(w.texts).not.toContain("Found the pricing table.");
       expect(w.texts).not.toContain("Comparing the plans.");
-      const held = (await recentEvents(storage, groupId)).filter((event) => event.reason === "held_newcomer").map((event) => event.text);
+      const held = (await chatLog(storage, w, groupId)).filter((event) => event.reason === "held_newcomer").map((event) => event.text);
       expect(held).toEqual(["Found the pricing table.", "Comparing the plans."]);
     });
 
@@ -62,7 +61,7 @@ for (const { name, groupId } of LINES) {
       await acceptGroup(storage, w.message("Tex, research this"), 0);
       await drainGroup(storage, w.deps);
       expect(w.texts).toEqual(["Reading the page now.", "Comparing the plans.", "Plan B fits."]);
-      const held = (await recentEvents(storage, groupId)).filter((event) => event.reason === "held_newcomer").map((event) => event.text);
+      const held = (await chatLog(storage, w, groupId)).filter((event) => event.reason === "held_newcomer").map((event) => event.text);
       expect(held).toEqual(["Found the pricing table."]);
 
       const blip = new MemoryStorage();

@@ -25,7 +25,7 @@
  * again copies nothing. Answers counts only, never a word.
  */
 
-import { eventEntry, ledgerPlace, ONE_TO_ONE_CHAT } from "./ledger.js";
+import { BACKFILLED, eventEntry, ledgerPlace, ONE_TO_ONE_CHAT } from "./ledger.js";
 import { EVENT_ID, EVENT_KINDS, LOG_PREFIX, logPrefix } from "./log.js";
 import { HISTORY_KEY } from "./history.js";
 
@@ -120,8 +120,7 @@ export function backfillEntries(events, turns, { before = Number.MAX_SAFE_INTEGE
   return entries.sort((a, b) => a.at - b.at);
 }
 
-/** The entry that says the whole old chat is in, kept first: once it is, nothing is copied again. */
-export const BACKFILLED = "backfilledv1";
+export { BACKFILLED };
 /**
  * A group's own mark. Until 2026-11-02 a group's log was looked for under its group key, where it never is, so every group
  * that texted was marked `BACKFILLED` with nothing copied; a group is done only under this mark, and its old log goes in

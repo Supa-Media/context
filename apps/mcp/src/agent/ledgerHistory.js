@@ -3,8 +3,8 @@
  * 2026-11-02: one record per chat, every view rebuilt from it;
  * `docs/decisions/texting-assistant/chat-ledger.md`).
  *
- * The texting Worker hands a turn the last day of the chat (`events.ts`
- * `holdsLog`); before this, that day was all a turn saw. The ledger keeps the
+ * A turn's last day of the chat comes from the ledger (`dayFromLedger`), with
+ * the Worker's outbox on top; before the ledger, that day was all a turn saw. The ledger keeps the
  * whole chat, so a turn is shown everything before that day from it too, the
  * newest first until the log's character budget is spent, and, beside each of
  * Tex's answers, the tools it used (names only: the prompt reads the ledger

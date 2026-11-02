@@ -75,6 +75,26 @@ export const rowReadsKey = internalQuery({
   handler: async (ctx, { workspaceId, key }) => await readsKey(ctx.db, workspaceId, key),
 });
 
+/**
+ * The storage keys of live notes written after `since` (the `observedAt` index), up to `limit`: what a repair of
+ * only the recent writes walks instead of the whole bucket. `complete` is false when more were written since.
+ */
+export const keysWrittenSince = internalQuery({
+  args: { workspaceId: v.id("workspaces"), since: v.number(), limit: v.number() },
+  returns: v.object({ keys: v.array(v.string()), complete: v.boolean() }),
+  handler: async (ctx, { workspaceId, since, limit }) => {
+    const observed = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_observed", (q) => q.eq("workspaceId", workspaceId).gt("observedAt", since))
+      .take(limit + 1);
+    const keys = new Set<string>();
+    for (const row of observed.slice(0, limit)) {
+      if (row.kind === "file" && row.goneAt === undefined && typeof row.storageKey === "string") keys.add(row.storageKey);
+    }
+    return { keys: [...keys].sort(), complete: observed.length <= limit };
+  },
+});
+
 export const describeUnopened = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.string(),

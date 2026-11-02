@@ -30,12 +30,13 @@ breaking one, stop and say so rather than working around it.
    `bucket` | `dual` | `object`), its bodies stay in the bucket and its rows in
    the control plane ([notes-by-id](./docs/decisions/storage-and-credentials/notes-by-id.md)).
    The control plane keeps accounts, usernames, sign-in, AI client grants,
-   billing, audit, a "shared with me" index and, until the app reads them from
-   the objects, each note's rebuildable facts (links, front matter, first
+   billing, audit, a "shared with me" index and, only for a workspace not yet
+   on its object, each note's rebuildable facts (links, front matter, first
    heading and paragraph;
    [convex-facts](./docs/decisions/app-and-console/convex-facts.md)); a
-   workspace object keeps its own notes' facts beside their text, and the
-   gateway, Lists, the map and the chaos score read them there (decided by the owner, 2026-11-02;
+   workspace object keeps its own notes' facts beside their text, every
+   reader (gateway and app) reads them there, and the control plane keeps no
+   copy for it (decided by the owner, 2026-11-02;
    [facts-in-objects](./docs/decisions/storage-and-credentials/facts-in-objects.md)).
    The control plane **never** holds a note's body. Leaving is **Download as folders**: a complete, decrypted copy with
    real names, free on every plan, still available after cancelling, never
@@ -282,8 +283,9 @@ statement of what is blocking, not a request for permission. Longer form:
 [repository-and-review](./docs/decisions/repository-and-review.md).
 
 **Merging deploys staging and production side by side.** Every merge to
-`main` runs `Deploy Staging`, and its first job starts `Deploy to Production`
-at the same time (decided by the owner, 2026-10-23). Check that production
+`main` runs `Deploy Staging` and, from `deploy-production-start.yml`, starts
+`Deploy to Production` at the same time, outside staging's queue (decided by
+the owner, 2026-10-23). Check that production
 finished; do not dispatch it a second time. The repository variable
 `AUTO_DEPLOY_PRODUCTION` puts staging back in front: `after-staging` waits
 for green staging and main CI, `off` makes production manual.

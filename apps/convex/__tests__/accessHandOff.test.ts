@@ -271,3 +271,19 @@ describe("the push", () => {
     void internal;
   });
 });
+
+describe("sending every person's reach again", () => {
+  test("queues reach for each person whose access is not on convex, and nothing on a dry run", async () => {
+    {
+      const { t, ownerPersonal, guestPersonal } = await world();
+      await setHomes(t, ownerPersonal, { personAccess: "object" });
+      await setHomes(t, guestPersonal, { personAccess: "convex" });
+      const dry = await t.mutation(internal.functions.accessReachResend.resend, { dryRun: true });
+      expect(dry).toMatchObject({ people: 2, queued: 1, done: true });
+      expect(await outbox(t)).toEqual([]);
+      const real = await t.mutation(internal.functions.accessReachResend.resend, { dryRun: false });
+      expect(real).toMatchObject({ people: 2, queued: 1 });
+      expect(await outbox(t)).toEqual([{ workspaceId: ownerPersonal, tables: ["reach"] }]);
+    }
+  });
+});

@@ -1,0 +1,38 @@
+name: Start Production
+
+# A merge to main starts Deploy to Production at once, beside staging (decided
+# by the owner, 2026-10-23: a Tex change should reach production in minutes).
+#
+# This lived in deploy-staging.yml's first job until 2026-11-02, and so it
+# waited in staging's queue (`concurrency: deploy-staging`): with several
+# threads merging, #2710 merged at 10:07 AM ET, its staging run sat behind a
+# ten-minute full staging deploy and was then replaced by the next merge's,
+# and production heard of it at 10:14 and finished at 10:21. Here it has no
+# queue of its own. Production's queue collapses a burst by itself: a
+# workflow_dispatch on `main` deploys main as it is when dispatched, and
+# `concurrency: deploy-production` keeps one run and the newest pending one,
+# so a burst of merges is at most one run behind the latest.
+#
+# The repository variable AUTO_DEPLOY_PRODUCTION puts staging back in front:
+# `after-staging` leaves this to promote-production.yml, `off` to a manual run.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  production:
+    name: Start production alongside staging
+    if: ${{ vars.AUTO_DEPLOY_PRODUCTION != 'off' && vars.AUTO_DEPLOY_PRODUCTION != 'after-staging' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Start Deploy to Production for main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run deploy-production.yml --ref main -f alongside_staging=true

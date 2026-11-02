@@ -21,7 +21,8 @@
  */
 
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
-import { addEvent, keptEvents, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
+import { addEvent, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
+import { chatEvents } from "./chatRead";
 import { decide, IDLE_DECIDE_MS, RUNNING_DECIDE_MS, type ControlDeps, type Decision } from "./decide";
 import { sha256Hex } from "./groupChat";
 import { linkCode, type Message } from "./reply";
@@ -106,7 +107,7 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       chat,
       sender: newest.from,
       style: "direct",
-      transcript: renderTranscript(await keptEvents(storage, chat)),
+      transcript: renderTranscript(await chatEvents(storage, chat)), // the ledger's day, with the outbox (`chatRead.ts`)
       candidates,
       running,
       waitingAsks: asks,

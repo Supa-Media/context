@@ -38,9 +38,8 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { AlarmStorage, MemoryStorage } from "./memoryStorage.testing";
-import { keptEvents } from "./events";
 import { ENGAGEMENT_QUESTION, QUESTION_OPEN_MS } from "./groupStyle";
-import { ADA, answerAll, BO, CY, decidedWords, LINES, setup, silent, untaggedSilent, type Answer } from "./groupWorld.testing";
+import { ADA, answerAll, BO, CY, decidedWords, LINES, setup, silent, untaggedSilent, type Answer, chatLog } from "./groupWorld.testing";
 
 const PICTURE = { attachments: [{ url: "https://cdn.example.test/shot.png", filename: "shot.png", mimeType: "image/png", size: null }] };
 const ASK_ID = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -221,7 +220,7 @@ for (const { name, groupId } of LINES) {
       await drainGroup(storage, w.deps);
       const members = (w.asks[1].group as { members: string }).members;
       expect((w.asks[0].group as { members: string }).members).toBe(members);
-      const events = await keptEvents(storage, groupId);
+      const events = await chatLog(storage, w, groupId);
       const second = events.find((event) => event.text === "Tex and now?")!;
       const answer = events.find((event) => event.text === "answer to Tex hi")!;
       expect(second.people).toBe(members);

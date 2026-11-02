@@ -4,8 +4,10 @@
 
 > **2026-11-02:** for a workspace whose notes live in its object, the gateway
 > reads notes' links and props from the object instead
-> ([facts-in-objects](../storage-and-credentials/facts-in-objects.md)); the
-> copy below remains for the app's readers until they move too.
+> ([facts-in-objects](../storage-and-credentials/facts-in-objects.md)), and so
+> does every app reader; the control plane drops its copy for such a workspace
+> and stops filling it. The copy below is kept only for workspaces whose
+> `home` is still `bucket` or `dual`.
 
 *Decided by the owner, 2026-10-13* ("let's move the front matter, keep it on
 the same row, but update the readme about this, no need to surface in the app

@@ -23,7 +23,6 @@ import { disarmRecords, listPending } from "../tools/approvals.js";
 import { askOvertaken, droppedLine } from "./askOvertaken.js";
 import { approvalVerdict, settleByText } from "./textedApprovals.js";
 import { settlePayByText } from "./textedPay.js";
-import { openTranscript } from "./transcript.js";
 import { appendConversation, appendTold, readTold } from "./conversation.js";
 
 /**
@@ -31,7 +30,7 @@ import { appendConversation, appendTold, readTold } from "./conversation.js";
  * or what goes on to the model: `{ setAside }`, the asks still waiting for
  * their yes, which the model is told about (`setAsideLine`), or null.
  */
-export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer, conversation = null, told, keep = null, thumbsUp = false, chat = null }) {
+export async function settleTextedText(store, session, { question, hasAttachments, now, conversation = null, told, keep = null, thumbsUp = false, chat = null }) {
   // The Worker's fixed texts since the last turn go in the history first (`conversation.js` `TOLD`).
   if (conversation !== null) await appendTold(store, conversation, readTold(told));
   const verdict = hasAttachments ? null : approvalVerdict(question); // a yes with a photo is about the photo
@@ -56,8 +55,7 @@ export async function settleTextedText(store, session, { dispatch, question, has
     const released = await settleByText(store, session, verdict, { chat });
     const settled = [...pay.replies, ...(released === null ? [] : [released])].join("\n") || null;
     if (settled !== null) {
-      // The yes and what it released go in today's transcript too (`transcript.js`), after the reply.
-      await defer(openTranscript(dispatch, { now, timeZone, question }).finish({ answer: settled }));
+      // The yes and what it released reach the chat's ledger as the Worker's events, like any text and answer (`chat-ledger.md`).
       await remember(store, conversation, question, settled);
       // A group chat keeps it in its own memory instead (`groupTurn.js`).
       if (keep !== null) await keep(question, settled);

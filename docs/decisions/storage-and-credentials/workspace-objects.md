@@ -229,7 +229,11 @@ the note and the app showed it read-only.
 factory refuses (`StorageUnavailable`) a binding whose home is `dual` or `object` when it names no workspace or its
 object cannot be reached: refused, never built over the bucket. Notes already written to the bucket alone are put back
 by the repair (`workspace-objects-repair` workflow): a note text the object lacks is restored when a live tree row
-still reads its key, and left alone otherwise.
+still reads its key, and left alone otherwise. The same split means editing history the object lacks may be the only
+copy of a live note's history, not an erase the bucket missed, so the repair deletes such a key from the bucket only
+when its copy was written before the erase leak was fixed (2026-11-02 09:37 UTC) and its note, named by the head's
+note id or path or by the bucket state's path, has no live row; anything else is left alone
+(`workspaceObjectsRepair.test.ts`, "history only the bucket ever held is never deleted as an erase").
 
 **What a simplification would cost.** Letting the factory fall back to the bucket store again brings the silent
 split back. `apps/convex/__tests__/consoleObjectWrites.test.ts` creates and saves a note through the console in an
