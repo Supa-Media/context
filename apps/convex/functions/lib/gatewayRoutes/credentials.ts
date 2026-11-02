@@ -72,6 +72,8 @@ export async function gatewayBindingHandler(
       expectedWorkspaceId: expected.value,
       startEncryptionRotation,
       completeEncryptionRotation,
+      // Tex reading its own setup in the pin (`lib/texSetupRead.ts`); absent on every other request.
+      ...(body?.setupRead === true ? { setupRead: true } : {}),
     }),
     // The id-copy switch (`functions/noteIds.ts`): `"ids"` only while reads use the id keys, absent otherwise.
     // Not caught: a switch the gateway cannot read must not be guessed at.
@@ -90,6 +92,8 @@ export async function gatewayBindingHandler(
       // A pin reader holds the rows as a guest sees them (`lib/pinnedReaders.ts`), so every read the gateway
       // judges by these rules, listing and search included, gives them the notes open to All Context users only.
       ...(opened.audience === "guest" ? { audience: "guest" as const } : {}),
+      // Tex's setup read: a member's rules, narrowed to the setup's folders (`lib/texSetupRead.ts`).
+      ...(opened.setupRead === true ? { setupOnly: true as const } : {}),
       // A Tex guest chat holds the guest rules read for it: only its group's rows (`lib/nodes/chatFolders.ts`).
       ...(opened.chatNames !== undefined ? { chatNames: opened.chatNames } : {}),
     })

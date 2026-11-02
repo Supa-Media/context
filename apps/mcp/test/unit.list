@@ -39,6 +39,7 @@ test/agentLocalNow.test.mjs
 test/agentPromptCache.test.mjs
 test/agentOpenWebBrowse.test.mjs
 test/agentProduction.test.mjs
+test/agentSetupDoor.test.mjs
 test/agentBugReportAsked.test.mjs
 test/groupSetupReach.test.mjs
 test/agentProgress.test.mjs
