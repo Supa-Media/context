@@ -28,6 +28,8 @@ import { mailConnectEnabled } from "../googleConnect/config";
 import { agentClientConfigured } from "../googleConnect/clients";
 import { hashToken } from "../crypto";
 import { httpsAppOrigin, json, stringField } from "../gatewayAuth";
+// Members' display profiles for a workspace object, registered beside these (`./accessProfiles.ts`).
+export { gatewayAccessProfilesHandler } from "./accessProfiles";
 import { isLayoutName, layoutStructure } from "../workspaces/layouts";
 import { clearanceOf } from "../clearance";
 import { toConvexError } from "../filesFns/operationErrors";

@@ -10,6 +10,7 @@ export declare const ACCESS_OPS: Record<AccessSide, string[]>;
 export declare const ACCESS_SOCKET_MAX_MS: number;
 export declare const ACCESS_CLOSE_REAUTH: number;
 export declare const ACCESS_CLOSE_NOT_SERVED: number;
+export declare const ACCESS_CLOSE_FORBIDDEN: number;
 
 export type ClientFrame =
   | { t: "ping" }

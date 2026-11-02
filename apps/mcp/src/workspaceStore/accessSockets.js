@@ -11,8 +11,9 @@
  *
  * What each topic holds, and what each write does, is not decided here: the
  * object's access tables (threads B and C) register them as `providers`:
- *   topics[name] = { served(): boolean, rows(reader): any }
+ *   topics[name] = { served(): boolean, rows(reader): any | Promise<any> }
  *   ops[name]    = async (reader, args) => result      (throw {code} to refuse)
+ *   admit(reader) => boolean                           (false: this reader may not see this object)
  * A topic or write with no provider, or whose provider is not served yet, is
  * `not_served`, and the app keeps reading Convex. Switching back is the
  * rollback, as on the tree.
@@ -27,6 +28,7 @@
  */
 
 import {
+  ACCESS_CLOSE_FORBIDDEN,
   ACCESS_CLOSE_NOT_SERVED,
   ACCESS_CLOSE_REAUTH,
   ACCESS_SOCKET_MAX_MS,
@@ -102,7 +104,7 @@ export function accessSockets(state, sql, deps = {}) {
     return [made[0], made[1]];
   });
   const upgraded = deps.upgraded ?? ((client) => new Response(null, { status: 101, webSocket: client }));
-  const providers = { topics: {}, ops: {} };
+  const providers = { topics: {}, ops: {}, admit: null };
   let pending = null;
 
   const socketId = (ws) => {
@@ -138,6 +140,16 @@ export function accessSockets(state, sql, deps = {}) {
     }
   };
 
+  /** Whether the object still lets this reader in; a provider that throws lets nobody in. */
+  const admitted = (reader) => {
+    if (providers.admit === null) return true;
+    try {
+      return providers.admit(reader) === true;
+    } catch {
+      return false;
+    }
+  };
+
   const expired = (ws, id, reader) => {
     if (reader !== null && reader.deadline > now()) return false;
     forget(id);
@@ -152,7 +164,7 @@ export function accessSockets(state, sql, deps = {}) {
       if (!served(topic)) frame = notServedFrame(topic);
       else {
         try {
-          frame = rowsFrame(topic, providers.topics[topic].rows(reader));
+          frame = rowsFrame(topic, await providers.topics[topic].rows(reader));
         } catch {
           frame = notServedFrame(topic);
         }
@@ -192,9 +204,10 @@ export function accessSockets(state, sql, deps = {}) {
 
   return {
     /** Threads B and C register what each topic holds and what each write does. */
-    provide({ topics = {}, ops = {} } = {}) {
+    provide({ topics = {}, ops = {}, admit } = {}) {
       Object.assign(providers.topics, topics);
       Object.assign(providers.ops, ops);
+      if (typeof admit === "function") providers.admit = admit;
       this.changed();
     },
 
@@ -204,6 +217,10 @@ export function accessSockets(state, sql, deps = {}) {
       if (reader === null) return new Response(JSON.stringify({ error: "bad_reader" }), { status: 400 });
       const [client, server] = pair();
       state.acceptWebSocket(server, [TAG]);
+      if (!admitted(reader)) {
+        close(server, ACCESS_CLOSE_FORBIDDEN, "forbidden");
+        return upgraded(client);
+      }
       const live = new Set(openSockets().map(socketId).filter((held) => held !== null));
       for (const { id: held } of all(sql.exec("SELECT id FROM ws_access_sockets"))) if (!live.has(held)) forget(held);
       const id = crypto.randomUUID();
@@ -223,6 +240,10 @@ export function accessSockets(state, sql, deps = {}) {
       if (id === null) return close(ws, 1008, "unknown socket");
       const reader = readerFor(id);
       if (expired(ws, id, reader)) return;
+      if (!admitted(reader)) {
+        forget(id);
+        return close(ws, ACCESS_CLOSE_FORBIDDEN, "forbidden");
+      }
       const frame = decodeClientFrame(reader.side, typeof raw === "string" ? raw : null);
       if (frame === null) return close(ws, 1008, "bad frame");
       if (frame.t === "ping") return ws.send(pongFrame());
@@ -266,6 +287,17 @@ export function accessSockets(state, sql, deps = {}) {
         forget(id);
         close(ws, ACCESS_CLOSE_REAUTH, "reauthorize");
       }
+    },
+
+    /** The people holding a socket here now. */
+    readers() {
+      const held = new Set();
+      for (const ws of openSockets()) {
+        const id = socketId(ws);
+        const reader = id === null ? null : readerFor(id);
+        if (reader !== null) held.add(reader.userId);
+      }
+      return [...held];
     },
 
     /** For tests: run a gathered notice now. */

@@ -29,6 +29,7 @@ import { serveWorkspaceStore } from "./workspaceStore/serve.js";
 import { flushReach } from "./workspaceStore/serveMembers.js";
 import { treeSockets } from "./workspaceStore/treeSockets.js";
 import { accessSockets } from "./workspaceStore/accessSockets.js";
+import { watchMembers } from "./workspaceStore/accessWatch.js";
 
 const CALL = "x-tex-call";
 /** How long a person-object write that failed waits before it is sent again. */
@@ -89,6 +90,7 @@ export class WorkspaceStore {
     this.store.onTreeChange = (change) => tree.changed(change);
     this.tree = tree;
     this.access = accessSockets(this.state, sql);
+    watchMembers(this.store, this.access, this.env);
     return this.store;
   }
 

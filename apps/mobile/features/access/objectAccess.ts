@@ -12,7 +12,8 @@
  * What the socket can say, and what the screens do about it:
  * - a topic's rows: show them, in place of the Convex query's;
  * - `not_served` for a topic: read that topic from Convex as before;
- * - closed as not served (nothing asked for is in the object yet): read
+ * - closed as not served (nothing asked for is in the object yet), or as
+ *   forbidden (the object does not count this person as a member): read
  *   Convex, and ask the object again after a while, so a workspace switched
  *   over later moves to it without a reload;
  * - closed to be authorized again (every five minutes, or the person lost
@@ -25,6 +26,7 @@
  */
 
 import {
+  ACCESS_CLOSE_FORBIDDEN,
   ACCESS_CLOSE_NOT_SERVED,
   ACCESS_CLOSE_REAUTH,
   ACCESS_PROTOCOL,
@@ -182,7 +184,7 @@ export function openObjectAccess(options: ObjectAccessOptions): ObjectAccess {
       clear();
       unserved();
       if (stopped) return;
-      if (event.code === ACCESS_CLOSE_NOT_SERVED) return later(NOT_SERVED_RETRY_MS);
+      if (event.code === ACCESS_CLOSE_NOT_SERVED || event.code === ACCESS_CLOSE_FORBIDDEN) return later(NOT_SERVED_RETRY_MS);
       if (event.code === ACCESS_CLOSE_REAUTH) {
         refresh = true;
         return later(0);
