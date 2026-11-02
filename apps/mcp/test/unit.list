@@ -316,6 +316,7 @@ test/groupMemoryCarry.test.mjs
 test/pictureCompressionUnit.test.mjs
 test/readNoteCalls.test.mjs
 test/workspaceStore.test.mjs
+test/workspaceReaders.test.mjs
 test/workspaceRouting.test.mjs
 test/mcpEntryPoint.test.mjs
 test/texEntryPoint.test.mjs
