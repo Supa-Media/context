@@ -16,6 +16,7 @@
  * with the same arguments and be handed what the person released.
  */
 
+import { settledMail } from "../agent/workEntries.js";
 import { listAllKeysWithLegacy } from "../notes/storage.js";
 import { deleteWithLegacyFallback, getWithLegacyFallback } from "../storageLayout.js";
 import { timestampSlug } from "../notes/paths.js";
@@ -359,7 +360,10 @@ export async function settlePending(store, id, { userId, action, run, actorScope
     client_id: record.actor?.clientId ?? null,
     team_visible: false,
   }).catch(() => {});
-  if (action === "deny") return { status: "denied", record };
+  if (action === "deny") {
+    await settledMail(store, record, action, null).catch(() => {});
+    return { status: "denied", record };
+  }
   // The record is already off the queue, so a call that throws must still
   // leave the person an answer: a failed replay is kept as a failed result,
   // never as an approval that silently did nothing.
@@ -379,6 +383,7 @@ export async function settlePending(store, id, { userId, action, run, actorScope
     expires_at: now + DONE_TTL_MS,
   };
   await store.put(`${DONE_PREFIX}${timestampSlug(new Date(now))}-${record.id}.json`, JSON.stringify(done));
+  await settledMail(store, record, action, result).catch(() => {}); // a held email's check, settled, in the chat's ledger (`agent/workEntries.js`)
   return { status: "approved", record, result };
 }
 

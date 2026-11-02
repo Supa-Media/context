@@ -79,9 +79,10 @@ const quoted = (value) => BRIEF_TAGS.reduce((text, tag) => withoutTag(tag, text)
  * @param {string} options.question the person's text, likewise
  * @param {Function} options.request `(params) => answer`, `requestBuiltin` bound to the turn's provider
  * @param {Function} [options.meter] `(usage, failed, model, whole)`, `route.js`'s
+ * @param {Function} [options.record] `({question, answer, steps, ms})`, told each answered ask, for the chat's ledger (`workEntries.js`)
  * @returns {Array<{tool: object, call: Function}>}
  */
-export function advisorTools({ model, effort, history, question, request, meter = async () => {} }) {
+export function advisorTools({ model, effort, history, question, request, meter = async () => {}, record = null, clock = Date.now }) {
   if (typeof model !== "string" || typeof request !== "function") return [];
   let asks = 0;
   /** `live`: the turn as it stands (`turn.js`): its system prompt, its tools and its messages so far. */
@@ -90,6 +91,7 @@ export function advisorTools({ model, effort, history, question, request, meter 
     asks += 1;
     const transcript = Array.isArray(live?.messages) ? live.messages : [...history, { role: "user", text: question }];
     let answer;
+    const asked = clock();
     try {
       answer = await request({ model, system: ADVISOR_PROMPT, messages: [{ role: "user", text: advisorBrief(live, transcript) }], tools: [], ...(effort ? { effort } : {}) });
     } catch {
@@ -98,9 +100,23 @@ export function advisorTools({ model, effort, history, question, request, meter 
     }
     await meter(answer?.usage ?? null, false, model, false);
     const words = typeof answer?.text === "string" ? answer.text.trim() : "";
+    if (words && typeof record === "function") {
+      try {
+        record({ question: askedWith(transcript) || question, answer: words, steps: transcript.filter((message) => message?.role === "tool").length, ms: clock() - asked });
+      } catch {
+        // The page's record of it costs the page, never the answer.
+      }
+    }
     return words ? text(words, false) : text("Your advisor had nothing to add. Answer with what you have.", false);
   };
   return [{ tool: ADVISOR_DEFINITION, call }];
+}
+
+/** What the everyday model asked with: its own words just before it called, the person's text when it said none. */
+function askedWith(transcript) {
+  const last = transcript.at(-1);
+  if (last?.role === "assistant" && typeof last.text === "string" && last.text.trim()) return last.text.trim();
+  return "";
 }
 
 /**
