@@ -22,11 +22,22 @@ import { personalWorkspaceOf } from "../faces/people";
 import { soleOwnerOf } from "../account/soleOwner";
 import { CONVEX_ONLY_CLIENTS } from "./record";
 
-export type TakeAwayTarget = { kind: "account"; userId: Id<"users"> } | { kind: "workspace"; workspaceId: Id<"workspaces"> };
+export type TakeAwayTarget =
+  | { kind: "account"; userId: Id<"users"> }
+  | { kind: "workspace"; workspaceId: Id<"workspaces"> }
+  | { kind: "leave"; userId: Id<"users">; workspaceIds: Id<"workspaces">[] };
 
 /** One object's part of a deletion. Ids only. */
 export type TakeAwayStep =
-  | { scope: "workspace"; workspaceId: Id<"workspaces">; home: AccessHome; userIds: string[]; inviteIds: string[] }
+  | {
+      scope: "workspace";
+      workspaceId: Id<"workspaces">;
+      home: AccessHome;
+      userIds: string[];
+      inviteIds: string[];
+      /** A member row to put first (a fold's account moved into), with the workspace's name. */
+      put?: { row: Record<string, unknown>; workspace: { slug: string; kind: string } };
+    }
   | { scope: "person"; workspaceId: Id<"workspaces">; home: AccessHome; grantIds: string[] };
 
 /** Everyone in a workspace that is going away, and its invitations still open. */
@@ -62,6 +73,8 @@ export async function takeAwaySteps(ctx: QueryCtx, target: TakeAwayTarget): Prom
 
   if (target.kind === "workspace") {
     deleting.push(target.workspaceId);
+  } else if (target.kind === "leave") {
+    for (const workspaceId of target.workspaceIds) removed.set(workspaceId, { userIds: new Set([String(target.userId)]), inviteIds: new Set() });
   } else {
     const memberships = await ctx.db
       .query("workspaceMembers")
@@ -112,11 +125,13 @@ export async function takeAwaySteps(ctx: QueryCtx, target: TakeAwayTarget): Prom
 export async function takeAwayFirst(ctx: MutationCtx, target: TakeAwayTarget): Promise<boolean> {
   const steps = await takeAwaySteps(ctx, target);
   if (!steps.some((step) => step.home === "object")) return false;
-  const queued =
-    target.kind === "account"
-      ? await ctx.db.query("accessTakeAways").withIndex("by_user", (q) => q.eq("userId", target.userId)).first()
-      : await ctx.db.query("accessTakeAways").withIndex("by_workspace", (q) => q.eq("workspaceId", target.workspaceId)).first();
-  if (queued !== null) return true;
+  if (target.kind !== "leave") {
+    const queued =
+      target.kind === "account"
+        ? (await ctx.db.query("accessTakeAways").withIndex("by_user", (q) => q.eq("userId", target.userId)).collect()).find((job) => job.kind === "account")
+        : await ctx.db.query("accessTakeAways").withIndex("by_workspace", (q) => q.eq("workspaceId", target.workspaceId)).first();
+    if (queued !== undefined && queued !== null) return true;
+  }
   const id = await ctx.db.insert("accessTakeAways", { ...target, at: Date.now(), attempt: 0 });
   await ctx.scheduler.runAfter(0, internal.functions.accessTakeAway.run, { id });
   return true;

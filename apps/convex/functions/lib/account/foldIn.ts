@@ -3,6 +3,7 @@ import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { MAX_EMAILS_PER_ACCOUNT } from "../signInEmails";
 import { deletePersonalRows } from "./personalRows";
+import { queueFold } from "../accessHandOff/fold";
 
 /**
  * Option C (Dev2, 2026-10-09): accounts are never joined, but an account that
@@ -31,6 +32,8 @@ export async function foldIn(ctx: MutationCtx, fromId: Id<"users">, intoId: Id<"
     .query("workspaceMembers")
     .withIndex("by_user", (q) => q.eq("userId", fromId))
     .take(200);
+  // Workspaces whose members live in their objects hear of the move from a queue (`accessHandOff/fold.ts`).
+  await queueFold(ctx, fromId, intoId, moving.map((membership) => membership.workspaceId));
   for (const membership of moving) {
     const existing = await ctx.db
       .query("workspaceMembers")

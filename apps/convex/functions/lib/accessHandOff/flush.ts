@@ -13,6 +13,7 @@
  */
 
 import { ConvexError } from "convex/values";
+import { foldCovers } from "./fold";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
@@ -74,7 +75,10 @@ export async function flushAccessWrites(
   if (writes.length === 0 || options.writeBehind === true) return;
   // After a take-away the switched objects already hold the change to their authority tables (`accessTakeAway.ts`).
   const taken = options.writeBehind === "authorityTaken";
-  const changed = await objectsChanged(ctx, writes);
+  // A fold's own membership rows are written here first and taken to the objects by its queue (`fold.ts`).
+  const own: AccessWrite[] = [];
+  for (const write of writes) if (!(await foldCovers(ctx, write))) own.push(write);
+  const changed = await objectsChanged(ctx, own);
   for (const [workspaceId, tables] of changed) {
     const homes = { workspace: await accessHomeOf(ctx.db, workspaceId, "workspace"), person: await accessHomeOf(ctx.db, workspaceId, "person") };
     const sending: ObjectTable[] = [];
