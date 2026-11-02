@@ -249,3 +249,24 @@ export function unseenCount(items: readonly SharedItem[] | undefined, seenAt: nu
   if (seenAt === null) return items.length;
   return items.filter((item) => item.createdAt > seenAt).length;
 }
+
+/** A title the note's workspace object answered (`sharedTitles.now`). */
+export interface ObjectTitle {
+  workspaceId: string;
+  entryPath: string;
+  title: string;
+}
+
+/**
+ * The rows with each title the workspace objects answered over the list's own, read at the note's current text.
+ * Only notes the list may title are ever answered (`sharedTitles.ts`), so a row the object has no title for keeps
+ * whatever the list gave it.
+ */
+export function withObjectTitles(items: SharedItem[], titles: readonly ObjectTitle[]): SharedItem[] {
+  if (titles.length === 0) return items;
+  const byNote = new Map(titles.map((entry) => [`${entry.workspaceId}\u0000${entry.entryPath}`, entry.title]));
+  return items.map((item) => {
+    const title = byNote.get(`${item.workspaceId}\u0000${item.entryPath}`);
+    return title === undefined || title === item.title ? item : { ...item, title };
+  });
+}

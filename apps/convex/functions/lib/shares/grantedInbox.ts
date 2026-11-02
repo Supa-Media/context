@@ -16,7 +16,7 @@ import type { QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { outsiderGrantsFor } from "../grants/outsider";
 import { handleForUser } from "../identities";
-import { sharerName, titleFromProps } from "./inboxTitle";
+import { sharerName, titleFromProps, type TitleAsk } from "./inboxTitle";
 
 export const grantedItemValidator = v.object({
   kind: v.literal("grant"),
@@ -55,12 +55,14 @@ export function fallbackTitle(path: string, kind: "file" | "folder"): string {
 /**
  * The caller's grants, shaped as list items, minus any note already listed as a share.
  *
- * `shared` holds `itemKey`s of the share items the list already has. Newest first is left to the caller.
+ * `shared` holds `itemKey`s of the share items the list already has. Newest first is left to the caller. Each
+ * note's title is also named in `asks`, when given, to be read from its workspace object (`sharedTitles.ts`).
  */
 export async function grantedItemsFor(
   ctx: QueryCtx,
   userId: Id<"users">,
   shared: ReadonlySet<string>,
+  asks?: TitleAsk[],
 ): Promise<GrantedItem[]> {
   const grants = await outsiderGrantsFor(ctx, userId);
   const workspaces = new Map<Id<"workspaces">, { slug: string; displayName: string; kind: "personal" | "shared" } | null>();
@@ -92,6 +94,8 @@ export async function grantedItemsFor(
       sharer = sharers.get(grant.grantedBy) ?? null;
     }
 
+    // A grant already opens the note to its holder (`guestCanSee`), so its title may be told.
+    if (grant.kind === "file") asks?.push({ workspaceId: grant.workspaceId, path: grant.path });
     items.push({
       kind: "grant",
       workspaceId: grant.workspaceId,

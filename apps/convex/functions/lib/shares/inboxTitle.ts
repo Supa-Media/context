@@ -4,7 +4,9 @@
  *
  * The title comes from the control plane's copy of the note's facts — its
  * front matter `title:` or first heading (`nodes.props`, `lib/nodes/facts.ts`)
- * — so the list costs no bucket read. A sealed note keeps no props and falls
+ * — so the list costs no bucket read. Where a workspace's notes live in its
+ * object, the app asks the object for the same titles after the list loads
+ * (`functions/sharedTitles.ts`), for exactly the notes this file lets be told. A sealed note keeps no props and falls
  * back to its file name, which the client draws from `entryPath`.
  *
  * ## AND IT IS RE-DERIVED, BECAUSE A SHARE ROW IS NOT A READ
@@ -78,14 +80,33 @@ export async function shareableRules(
   return await mirrorRules(mirror);
 }
 
-/** The shared note's title, or `null` when it is not the recipient's to be told. */
+/**
+ * A note whose title the recipient may be told, to be read from its workspace object where its notes live there
+ * (`sharedTitles.ts`): the control plane's rows decide that the title may be told, the object says what it is now.
+ */
+export interface TitleAsk {
+  workspaceId: Id<"workspaces">;
+  path: string;
+}
+
+/** Whether the recipient may be told this shared note's title: as `readThroughShare` opens it. */
+export function titleMayShow(entryPath: string, rules: Rules | null): boolean {
+  return rules !== null && canSee(entryPath, "team", rules.rules, rules.overrides);
+}
+
+/**
+ * The shared note's title, or `null` when it is not the recipient's to be told. A title that may be told is also
+ * named in `asks`, when given, so it can be read from the workspace object.
+ */
 export async function sharedNoteTitle(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
   entryPath: string,
   rules: Rules | null,
+  asks?: TitleAsk[],
 ): Promise<string | null> {
-  if (rules === null || !canSee(entryPath, "team", rules.rules, rules.overrides)) return null;
+  if (!titleMayShow(entryPath, rules)) return null;
+  asks?.push({ workspaceId, path: entryPath });
   const row = await liveNode(ctx.db, workspaceId, entryPath);
   return row === null ? null : titleFromProps(row.props);
 }
