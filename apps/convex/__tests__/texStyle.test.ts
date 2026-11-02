@@ -72,6 +72,8 @@ describe("quick picks edit the text", () => {
     expect(applyInstructionsChange({}, { replace: "x".repeat(MAX_INSTRUCTIONS + 1) })).toEqual({ refused: "too_long" });
     expect(applyInstructionsChange({}, { undo: true })).toEqual({ refused: "nothing_to_undo" });
     expect(applyInstructionsChange({ instructions: "a", instructionsBefore: "" }, { undo: true })).toEqual({});
+    // A remove that finds nothing changes nothing, and the last real change stays the one to undo.
+    expect(applyInstructionsChange({ instructions: "a", instructionsBefore: "b" }, { remove: "c" })).toEqual({ instructions: "a", instructionsBefore: "b" });
   });
 
   test("every old dial becomes its line", () => {

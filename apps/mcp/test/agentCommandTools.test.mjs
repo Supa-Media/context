@@ -103,7 +103,9 @@ test("the instructions change only on the turn's own words asking for it", async
   assert.equal(words(refused), OWN_WORDS_REFUSAL);
   assert.deepEqual(sent, []);
   assert.equal((await said("Tex from now on answer in pirate").call({ action: "add", text: "Answer in pirate." })).isError, undefined);
-  assert.equal(sent.length, 1);
+  // The old dials' words still reach it: they used to work by code.
+  assert.equal((await said("Tex, more emoji please").call({ action: "add", text: "Use emoji freely where they fit." })).isError, undefined);
+  assert.equal(sent.length, 2);
 });
 
 test("the settings answer lists the options, and mail sharing keeps its safety line", async () => {

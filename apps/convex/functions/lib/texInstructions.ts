@@ -101,6 +101,8 @@ export function applyInstructionsChange(kept: Kept, change: InstructionsChange):
   }
   const text = tidy(next);
   if (text.length > MAX_INSTRUCTIONS) return { refused: "too_long" };
+  // Nothing changed (a line removed that was not there): the last real change stays the one to undo.
+  if (text === now) return { ...(text !== "" ? { instructions: text } : {}), ...(kept.instructionsBefore !== undefined ? { instructionsBefore: kept.instructionsBefore } : {}) };
   return { ...(text !== "" ? { instructions: text } : {}), instructionsBefore: now };
 }
 

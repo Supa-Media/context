@@ -13,7 +13,7 @@
  * acting come off that grant, never from these arguments, and the rules are
  * the ones the texting Worker's exact commands use, so the tool and the texted
  * command cannot behave differently. A guest's tag gets only mute, the
- * settings, the instructions and when Tex speaks up; a person's own chat gets
+ * settings, the instructions, progress updates and when Tex speaks up; a person's own chat gets
  * their own instructions and review sharing. Since 2026-11-01 how Tex talks is
  * the people's own words (`custom-instructions.md`): the tool adds, removes or
  * replaces lines, and in a group Tex says who changed them so anyone can undo.
@@ -68,7 +68,7 @@ const CONSENT_WORDS = {
   unshare_mail: /\b(mail|email|e-mail|inbox|gmail)\b/i,
   review_sharing: /\b(shar\w*|review\w*|conversations?|chats?)\b/i,
   // A lasting request about how Tex talks, in their own words (Dev2, 2026-11-01): never a line an email or a quote put there.
-  instructions: /\b(from now on|going forward|always|never|stop|don'?t|do not|no more|call (?:me|us)|instructions?|settings?|remember|be (?:more|less)|answer in|reply in|talk|write|use|undo|remove|forget)\b/i,
+  instructions: /\b(from now on|going forward|always|never|stop|don'?t|do not|no more|call (?:me|us)|instructions?|settings?|remember|be (?:more|less)|answer in|reply in|talk|write|use|undo|remove|forget|emoji\w*|humou?r|jokes?|tone|bubbles?|warm\w*|enthusias\w*|short\w*|long\w*|detail\w*|formal|casual|brief)\b/i,
 };
 const CONSENT_ACTIONS = {
   share_mail: "share the person's own email inbox with this group chat",
