@@ -328,6 +328,12 @@ export function readList<K extends ListKind>(kind: K, v: unknown): ListPage<K> {
     page.values = {};
     for (const [k, x] of Object.entries(values)) if (typeof x === "string" || typeof x === "number") page.values[k] = x;
   }
+  if (typeof r.instructions === "string") page.instructions = r.instructions;
+  const picks = arr(r.picks).flatMap((x) => {
+    const p = rec(x);
+    return p && str(p.id) && str(p.label) ? [{ id: str(p.id)!, label: str(p.label)! }] : [];
+  });
+  if (picks.length) page.picks = picks;
   if (str(r.number)) page.number = str(r.number);
   if (str(r.approver)) page.approver = str(r.approver);
   const people = arr(r.people).filter((x): x is string => typeof x === "string");

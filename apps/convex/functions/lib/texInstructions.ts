@@ -127,33 +127,3 @@ export function linesFromStyle(style: TexStyle | undefined): string {
   return lines.join("\n");
 }
 
-/**
- * The Tex page in the app still shows and sets the dials (`texPage.ts`, from before 2026-11-01): a dial set there
- * is its quick pick, written into the text in place of its family's line ("default" takes the line out), so the
- * text stays the one source of truth. TODO: move the page to the text itself.
- */
-export function withStyle(text: string, patch: TexStyle): string {
-  const lines = text === "" ? [] : text.split("\n");
-  let kept = lines;
-  for (const key of Object.keys(patch) as (keyof TexStyle)[]) {
-    const family = key === "length" ? "length" : key === "bubbles" ? "bubbles" : key;
-    const theirs = new Set(QUICK_PICKS.filter((pick) => pick.family === family).map((pick) => pick.line));
-    kept = [...kept.filter((entry) => !theirs.has(entry.trim())), ...linesFromStyle({ [key]: patch[key] }).split("\n").filter(Boolean)];
-  }
-  return kept.join("\n");
-}
-
-const DIAL_OF: Record<string, TexStyle> = {
-  ...Object.fromEntries(["professional", "friendly", "candid", "quirky", "efficient", "nerdy", "cynical"].map((tone) => [tone, { tone }])),
-  warmth_more: { warmth: "more" }, warmth_less: { warmth: "less" },
-  enthusiasm_more: { enthusiasm: "more" }, enthusiasm_less: { enthusiasm: "less" },
-  emoji_more: { emoji: "more" }, emoji_less: { emoji: "less" }, emoji_none: { emoji: "less" },
-  short: { length: "short" }, detailed: { length: "detailed" }, one_bubble: { bubbles: "one" },
-  humor_more: { humor: 100 }, humor_less: { humor: 40 }, humor_none: { humor: 0 },
-} as Record<string, TexStyle>;
-
-/** The dials a text's quick-pick lines stand for, for the page; a person's own lines show as no dial. */
-export function styleOf(text: string | undefined): TexStyle {
-  const lines = new Set((text ?? "").split("\n").map((entry) => entry.trim()));
-  return Object.assign({}, ...QUICK_PICKS.filter((pick) => lines.has(pick.line)).map((pick) => DIAL_OF[pick.id]));
-}

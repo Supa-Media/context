@@ -169,7 +169,9 @@ export interface ListPage<K extends ListKind> {
   quietHours?: string;
   /** about */
   total?: number;
-  /** settings: the person's TexSettings values, or the group's. */
+  /** settings: the person's or the group's own instructions, the quick picks that add a line (Dev2, 2026-11-01), and a group's `answers`. */
+  instructions?: string;
+  picks?: { id: string; label: string }[];
   values?: Record<string, string | number>;
   number?: string;
   approver?: string;

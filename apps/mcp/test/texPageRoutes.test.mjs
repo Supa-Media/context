@@ -56,11 +56,12 @@ const PAGES = {
     handle: "alice",
     phone: ALICE_PHONE,
     timeZone: "America/New_York",
-    style: { tone: "friendly", length: "short" },
+    instructions: "Be friendly.\nKeep answers short.",
+    picks: [{ id: "emoji_none", label: "No emoji" }],
     routines: [{ workspaceId: "ws_alice", slug: null, path: "tex/routines/daily/brief.md", paused: false, nextRunAt: Date.now() + 3_600_000, unit: "day", every: 1 }],
-    chats: [{ key: GROUP, name: "Team Night", people: 3, peopleNames: ["You", "ada", "cy"], homeWords: null, homeWorkspaceId: null, homeSlug: null, muted: false, engagement: "attentive", style: {}, sponsor: "alice", routines: [] }],
+    chats: [{ key: GROUP, name: "Team Night", people: 3, peopleNames: ["You", "ada", "cy"], homeWords: null, homeWorkspaceId: null, homeSlug: null, muted: false, engagement: "attentive", instructions: null, sponsor: "alice", routines: [] }],
   },
-  [T.bob]: { status: "ok", userId: "user_b2y", workspaceId: "ws_bob", handle: "bob", phone: null, timeZone: null, style: {}, routines: [], chats: [{ key: BOBS_GROUP, name: "Bob Things", people: 2, peopleNames: ["You", "eve"], homeWords: null, homeSlug: null, engagement: null, style: {}, sponsor: null, routines: [] }] },
+  [T.bob]: { status: "ok", userId: "user_b2y", workspaceId: "ws_bob", handle: "bob", phone: null, timeZone: null, instructions: null, picks: [], routines: [], chats: [{ key: BOBS_GROUP, name: "Bob Things", people: 2, peopleNames: ["You", "eve"], homeWords: null, homeSlug: null, engagement: null, instructions: null, sponsor: null, routines: [] }] },
 };
 
 async function setUp() {
@@ -84,7 +85,7 @@ async function setUp() {
       if (url.endsWith("/settings")) {
         settings.push(body);
         const known = page && (body.chat === "me" || page.chats.some((chat) => chat.key === body.chat));
-        return Response.json(known ? { status: "done", style: body.values } : { status: "not_found" });
+        return Response.json(known ? { status: "done", ...(body.values.pick ? { instructions: `${body.values.pick} line.` } : {}) } : { status: "not_found" });
       }
       return Response.json(page ?? { status: "refused" });
     }
@@ -210,16 +211,20 @@ test("job page, list and acts: a stop reaches her inbox's job; settings go to th
     const stop = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "stop", job: "job2" } } });
     assert.deepEqual(stop.body, { ok: true });
     assert.deepEqual(world.texting.steered.at(-1), { chat: { phone: ALICE_PHONE }, id: "job2", stop: true });
-    const settings = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "settings", values: { tone: "candid" } } } });
+    const settings = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "settings", values: { pick: "emoji_none" } } } });
     assert.deepEqual(settings.body, { ok: true });
-    assert.deepEqual(world.settings.at(-1), { accessToken: T.alice, chat: "me", values: { tone: "candid" } });
+    assert.deepEqual(world.settings.at(-1), { accessToken: T.alice, chat: "me", values: { pick: "emoji_none" } });
     // A group's settings are not the person's.
     const crossed = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "group.settings", values: { answers: "every" } } } });
     assert.deepEqual(crossed.body, { ok: false, error: "invalid" });
     const values = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: "me", kind: "settings" } });
-    assert.equal(values.body.values.tone, "friendly");
+    // Their own words and the quick picks, no dials (Dev2, 2026-11-01).
+    assert.equal(values.body.instructions, "Be friendly.\nKeep answers short.");
+    assert.deepEqual(values.body.picks, [{ id: "emoji_none", label: "No emoji" }]);
+    assert.equal(values.body.values, undefined);
     const group = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: GROUP, kind: "settings" } });
-    assert.deepEqual(group.body.values, { answers: "named", tone: "default" });
+    assert.deepEqual(group.body.values, { answers: "named" });
+    assert.equal(group.body.instructions, "");
     assert.equal(group.body.approver, "alice");
     const jobs = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: "me", kind: "jobs" } });
     assert.deepEqual(jobs.body.items.map((item) => item.id), ["job2", "job1", "job0"]);
