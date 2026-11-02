@@ -5,9 +5,11 @@ The staging app is served at `https://staging.context.lc`, with MCP at
 It has a separate Convex deployment in the existing Context project.
 
 Every merge to `main` runs `Deploy Staging`; it can also be run manually
-against a selected branch. A merge's staging run also starts `Deploy to
-Production` in its first job, so the two deploy side by side and neither
-waits on the other (decided by the owner, 2026-10-23). The repository
+against a selected branch. A merge also starts `Deploy to Production` from
+`Start Production` (`deploy-production-start.yml`), a workflow of its own
+outside staging's queue, so the two deploy side by side and neither waits on
+the other (decided by the owner, 2026-10-23; moved out of staging's first job
+on 2026-11-02, when a queued staging run held production back). The repository
 variable `AUTO_DEPLOY_PRODUCTION` changes that: `after-staging` makes
 `Promote to Production` start production only after the staging run passes,
 CI on `main` has passed on the same commit, and it is still `main`'s tip;
