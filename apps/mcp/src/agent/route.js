@@ -206,11 +206,11 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   let setAside = [], dropped = [], paid = [], thumbsUp = false; // dropped: asks Tex texted something else after by itself (`askOvertaken.js`)
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`); a guest's is nobody's (`groupGuests.js`).
   const front = env.TEX_FRONT_DOOR !== "off" && (await tex.wait("setup", setupRead))?.frontDoor !== false; // Haiku as the front door (`frontDoor.js`): only a yes or no is matched before it, and no reply checks after
-  const ownConversation = group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null;
-  if (front && (session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true && !mayAnswerAsk(group !== null ? withoutTexName(question) : question, quoted, sent.length > 0)) ({ setAside = [], dropped = [] } = (await tex.step("waiting_asks", () => waitingAsks(store, session, { conversation: ownConversation, told: body.told, now: received }), null)) ?? {});
+  const ownConversation = group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null, askChat = group?.key ?? null; // an ask, and the yes to it, belong to the chat it was made in (`approvals.js` `chatOfAsk`)
+  if (front && (session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true && !mayAnswerAsk(group !== null ? withoutTexName(question) : question, quoted, sent.length > 0)) ({ setAside = [], dropped = [] } = (await tex.step("waiting_asks", () => waitingAsks(store, session, { conversation: ownConversation, told: body.told, now: received, chat: askChat }), null)) ?? {});
   else if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true) {
-    thumbsUp = await tex.step("thumbs_up", () => thumbsUpIsYes(store, session, quoted, { who: group?.from || null })); // a 👍 on the ask is that yes
-    const thumbsDown = !thumbsUp && (await tex.step("thumbs_down", () => thumbsDownIsNo(store, session, quoted, { who: group?.from || null }))); // and a 👎 the no
+    thumbsUp = await tex.step("thumbs_up", () => thumbsUpIsYes(store, session, quoted, { who: group?.from || null, chat: askChat })); // a 👍 on the ask is that yes
+    const thumbsDown = !thumbsUp && (await tex.step("thumbs_down", () => thumbsDownIsNo(store, session, quoted, { who: group?.from || null, chat: askChat }))); // and a 👎 the no
     const settled = await tex.step("settle_yes", () => settleTextedText(store, session, {
       dispatch,
       // A tapback's own text is its emoji: a 👍 on other words is not a typed 👍, so it is no verdict.
@@ -223,7 +223,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       // Kept on the same terms as a model turn's history, below, with the Worker's fixed texts (`told`).
       conversation: ownConversation,
       told: body.told,
-      thumbsUp,
+      thumbsUp, chat: askChat,
     }));
     if (settled?.answer !== undefined) return (outcome.clean = true), json({ ...settled, warm: (await tex.step("seal_warm", () => hot.seal({ wrote: true }))) ?? undefined }); // the gateway's words, nothing read; its yes goes in the copy too
     ({ setAside = [], dropped = [] } = settled ?? {});
@@ -613,7 +613,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     // A flattering opener ("You're so right!") comes off first (`pushback.js`).
     const { answer: replied, quiet } = reportReply(report, turn.answer), { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet ? "" : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`)
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
-    const { ask, verbatim } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null }));
+    const { ask, verbatim } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null, chat: askChat }));
     const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
     const answer = [answerWithAsk(claims?.stale() === true && ledger.asked.length === 0 && ask !== null && !/\?/.test(told) ? "" : told, ask, ledger.asked), offerText].filter(Boolean).join("\n\n"); // a drop's line replaces the model's unless it asked something
     /*

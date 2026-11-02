@@ -333,3 +333,4 @@ test/accessTopics.test.mjs
 test/accessMirror.test.mjs
 test/objectGrants.test.mjs
 test/personTopics.test.mjs
+test/agentGroupAskChat.test.mjs
