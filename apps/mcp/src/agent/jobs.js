@@ -7,7 +7,7 @@
  * ("@maya's Tex") and a checklist, so it shows on that project's board, and
  * the next text picks it up from the first unticked step. Which jobs are open
  * is `tex/jobs.md` in the person's own workspace, one link per job, read into
- * every texted turn the way `tex/about-me.md` is (`aboutMe.js`).
+ * every texted turn the way `tex/about.md` is (`aboutMe.js`).
  *
  * Read, never written, here: the notes change only through tool calls the
  * model makes, attributed and kept in history like any other write.

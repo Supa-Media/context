@@ -176,7 +176,7 @@ const TREE: Row[] = [
   row("Running", "Running"),
   row("Assistant", "Assistant", 0, { expanded: true }),
   row("Assistant/tex", "Tex", 1, { expanded: true }),
-  row("Assistant/tex/about-me.md", "About me", 2, { kind: "file" }),
+  row("Assistant/tex/about.md", "About me", 2, { kind: "file" }),
   row("Assistant/tex/attention", "attention", 2),
   row("Assistant/tex/dreams", "dreams", 2),
   row("Assistant/tex/heartbeat", "heartbeat", 2),

@@ -25,7 +25,7 @@ Invented people and the workspaces each can reach. A test runs as one of them, t
 
 - Tomas's workspace is deliberately messy for Tex's housekeeping (`tests/housekeeping.md`): a finished project, a done one still marked in progress, duplicate contacts, a one-note folder, inbox notes older than three months, and a running folder crowded with 240 dated run logs (from `_bank/run-logs/`).
 
-- Nia is brand new (`tests/onboarding.md`): just set up by text, with only the five starting folders, no `tex/about-me.md`, and the ten emails Gmail's first import brought (`0-inbox/email/`). She codes, has a side design studio (Lumen Studio, with Theo), and uses Claude through a shared team account and ChatGPT Plus. Keep her workspace this empty: the onboarding cases are about a first look.
+- Nia is brand new (`tests/onboarding.md`): just set up by text, with only the five starting folders, no `tex/about.md`, and the ten emails Gmail's first import brought (`0-inbox/email/`). She codes, has a side design studio (Lumen Studio, with Theo), and uses Claude through a shared team account and ChatGPT Plus. Keep her workspace this empty: the onboarding cases are about a first look.
 
 - Maya and John both work on fashion-brand. John's woodshop is his alone.
 - Priya is in six workspaces and shares two with Maya (fashion-brand, band).

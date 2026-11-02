@@ -68,7 +68,7 @@ Today is 17 October. The May and early June notes are past three months; the 14 
 ## 6. What housekeeping never touches
 
 - kind: task
-- must file: tomas/tex/about-me.md under tomas/tex/about-me.md
+- must file: tomas/tex/about.md under tomas/tex/about.md
 - must file: tomas/website/index.md under tomas/website/index.md
 - must file: tomas/todo.md under tomas/todo.md
 - must file: tomas/3-resources/woodworking/joinery.md under tomas/3-resources/woodworking/

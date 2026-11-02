@@ -417,15 +417,15 @@ test("the trail's description admits the provenance the trail stores", async () 
 
 test("Tex's memory note holds at most 500 lines, from write_note and remember alike", async () => {
   const lines = (n) => Array.from({ length: n }, (_, i) => `- fact ${i + 1}`).join("\n") + "\n";
-  const full = await call(OWNER, "write_note", { path: "tex/about-me.md", content: lines(500) });
+  const full = await call(OWNER, "write_note", { path: "tex/about.md", content: lines(500) });
   assert.equal(full.isError, false, full.text);
 
-  const over = await call(OWNER, "write_note", { path: "tex/about-me.md", content: lines(501) });
+  const over = await call(OWNER, "write_note", { path: "tex/about.md", content: lines(501) });
   assert.equal(over.isError, true);
-  assert.match(over.text, /^too long: tex\/about-me\.md holds at most 500 lines/);
-  assert.equal((await read("tex/about-me.md")).trim().split("\n").length, 500);
+  assert.match(over.text, /^too long: tex\/about\.md holds at most 500 lines/);
+  assert.equal((await read("tex/about.md")).trim().split("\n").length, 500);
 
-  const remembered = await remember({ fact: "Prefers mornings.", kind: "stated", note: "tex/about-me.md" });
+  const remembered = await remember({ fact: "Prefers mornings.", kind: "stated", note: "tex/about.md" });
   assert.equal(remembered.isError, true);
   assert.match(remembered.text, /too long/);
 
