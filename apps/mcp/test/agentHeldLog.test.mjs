@@ -123,7 +123,7 @@ test("a held log is used end to end: no log read, the earlier words still shown,
     world.model.install([{ text: "Cute." }]);
     const cold = await split(world, { question: "my cat is called Miso", conversation: "texts", covers: [first.id], chat: CHAT, recent: [first], turn: "turn-held-0001" });
     assert.equal(cold.status, 200, JSON.stringify(cold.body));
-    assert.ok(cold.calls.some((call) => call.path.includes(".context/agent/log/")), "without holdsLog the log is read");
+    assert.deepEqual(cold.calls.filter((call) => call.path.includes(".context/agent/log/")), [], "without holdsLog the day is the ledger's, never the bucket's old log");
     assert.deepEqual(cold.body.log.map((entry) => entry.id), [first.id], "and handed back to hold");
 
     const reply = event(now - 4_000, { from: { kind: "tex" }, text: "Cute.", turn: "turn-held-0001", covers: [first.id] });

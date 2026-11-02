@@ -6,7 +6,9 @@
  * scope, as `/agent/steer` does.
  *
  * - `POST /agent/events` `{ conversation: "texts" | { group }, events }` →
- *   `{ written }`: appends to the chat's event log (`log.js`).
+ *   `{ written }`: checks them at the door (`log.js` `checkEvents`) and
+ *   appends them to the chat's ledger (`ledger.js`), its one record. The
+ *   bucket's event log is written only for a chat that has no ledger.
  * - `POST /agent/cancel` `{ turn }` → `{ cancelled }`: marks a named turn
  *   cancelled. The turn stops after its current round, or at its end if the
  *   mark landed after its last round, and withdraws the asks it raised
@@ -19,12 +21,12 @@
  *   is dropped or disarmed, never armed or extended.
  */
 
-import { eventEntry, storeLedger } from "./ledger.js";
+import { eventEntry, ledgerPlace } from "./ledger.js";
 import { startBackfill } from "./ledgerBackfill.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { EVERY_CHAT, disarmRecords, listPending, withdrawPending } from "../tools/approvals.js";
-import { appendEvents, EventRefusal } from "./log.js";
+import { appendEvents, checkEvents, EventRefusal } from "./log.js";
 import { cancelTurn, handleSteer } from "./steer.js";
 
 const TEXTS_CLIENT_ID = "context_texts";
@@ -57,11 +59,19 @@ export async function handleEvents(request, store, session) {
   if (conversation === "texts" ? session.actorClientId !== TEXTS_CLIENT_ID : typeof group !== "string" || session.actorClientId !== TEXTS_GROUP_CLIENT_ID) return invalid("conversation");
   const chat = conversation === "texts" ? (Array.isArray(events) ? events[0]?.chat : undefined) : group;
   try {
-    const written = await appendEvents(store, chat, events);
-    // And into the chat's one record (`ledger.js`), by each event's own id, so a retried post keeps one copy.
-    const ledger = storeLedger(store, session);
-    if (ledger !== null) await ledger.write(events.filter((event) => written.includes(event?.id)).map(eventEntry)).then(ledger.flush);
-    if (ledger !== null) startBackfill(store, session); // the chat from before the ledger, a person's or a group's, off this request's answer
+    const checked = checkEvents(chat, events);
+    // The chat's one record (`ledger.js`), and nothing else: the bucket's event log is no longer written (the owner, 2026-11-02).
+    const place = ledgerPlace(session);
+    const ledger = place !== null && typeof store?.texLedger === "function" ? store.texLedger(place.owner.chat ?? null) : null;
+    if (ledger === null) {
+      // A chat with no ledger to hold it: kept in the old log as before, and counted, so the last of these can be found and closed.
+      console.log(JSON.stringify({ event: "tex_events_to_log", group: group !== undefined }));
+      return json({ written: await appendEvents(store, chat, checked) });
+    }
+    const written = [...new Set(checked.map((event) => event.id))];
+    // Awaited and never swallowed: a refused write answers an error, so the Worker keeps the events and posts them again.
+    for (let at = 0; at < checked.length; at += 100) await ledger.append(place.chat, checked.slice(at, at + 100).map(eventEntry));
+    startBackfill(store, session, { logChat: chat }); // the chat from before the ledger, a person's or a group's, off this request's answer
     return json({ written });
   } catch (error) {
     if (error instanceof EventRefusal) return invalid(error.field);

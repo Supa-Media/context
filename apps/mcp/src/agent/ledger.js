@@ -134,6 +134,7 @@ export function ledgerWriter(ledger, chat) {
 }
 
 const GROUP_KEY = /^[0-9a-f]{64}$/;
+const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
 /** A person's one-to-one chat with Tex is one ledger, whichever line they text on, as their history record is. */
 export const ONE_TO_ONE_CHAT = "texts";
 
@@ -145,6 +146,8 @@ export const ONE_TO_ONE_CHAT = "texts";
  */
 export function ledgerPlace(session) {
   if (typeof session?.texChatId === "string" && GROUP_KEY.test(session.texChatId)) return { owner: { chat: session.texChatId }, chat: session.texChatId };
+  // A group grant that names no chat keeps none: never the person's own one-to-one ledger, which a group's words must not reach.
+  if (session?.actorClientId === TEXTS_GROUP_CLIENT_ID) return null;
   if (session?.workspaceKind === "personal" && typeof session.workspaceId === "string" && session.workspaceId !== "") return { owner: { person: session.workspaceId }, chat: ONE_TO_ONE_CHAT };
   return null;
 }
