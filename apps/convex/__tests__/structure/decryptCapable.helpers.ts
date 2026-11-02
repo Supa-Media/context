@@ -156,6 +156,10 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       // (`texHistoryMigration.ts`, `apps/mcp/src/agent/agentHomeMove.js`), run by hand from the workflow. internalAction,
       // reached only from that workflow's deploy key; it answers counts only, and deletes nothing.
       "functions.texHistoryMigration.run",
+      // Reads each group chat's event log in a window and answers counts, bytes and runs by set of people
+      // (`texGroupLogShape.ts`), run by hand from its workflow. internalAction, reached only from that workflow's deploy
+      // key; it answers fixed codes and counts, never a word, and writes nothing.
+      "functions.texGroupLogShape.shape",
       // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
       // file operation and hands it to lib/fileOps.ts, which never sees the
       // credential. internalAction, and the only member of

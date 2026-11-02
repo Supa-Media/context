@@ -25,6 +25,7 @@ import type * as functions_texGroupMigrationRows from "../functions/texGroupMigr
 import type * as functions_texFolderNames from "../functions/texFolderNames.js";
 import type * as functions_texFolderNamesRows from "../functions/texFolderNamesRows.js";
 import type * as functions_texHistoryShape from "../functions/texHistoryShape.js";
+import type * as functions_texGroupLogShape from "../functions/texGroupLogShape.js";
 import type * as functions_texReviewScoresRebuild from "../functions/texReviewScoresRebuild.js";
 import type * as functions_texTriageWatch from "../functions/texTriageWatch.js";
 import type * as functions_accessObjects from "../functions/accessObjects.js";
@@ -271,6 +272,7 @@ declare const fullApi: ApiFromModules<{
   "functions/texGroupMigrationRows": typeof functions_texGroupMigrationRows;
   "functions/texFolderNames": typeof functions_texFolderNames;
   "functions/texFolderNamesRows": typeof functions_texFolderNamesRows;
+  "functions/texGroupLogShape": typeof functions_texGroupLogShape;
   "functions/texHistoryShape": typeof functions_texHistoryShape;
   "functions/texReviewScoresRebuild": typeof functions_texReviewScoresRebuild;
   "functions/texTriageWatch": typeof functions_texTriageWatch;
