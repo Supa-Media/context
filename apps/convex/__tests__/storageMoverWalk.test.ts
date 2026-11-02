@@ -23,6 +23,9 @@ import { WALK_MOVER_RETRY_MS } from "../functions/lib/managedEncryptionFns/walk"
 import { TEST_GATEWAY_SECRET, asUser, copyTree, drainScheduled, gatewayPost, type TestConvex } from "./fixtures.helpers";
 import { fixture, isSealed, resetAfterEach, row } from "./managedEncryption.helpers";
 
+/** Where the gateway answers a workspace object's calls (`functions/lib/workspaceObjects/door.ts`). */
+const WORKSPACE_DOOR = "/internal/workspace-store";
+
 const MOVER = "https://mover.example.invalid";
 
 resetAfterEach();
@@ -65,9 +68,16 @@ async function keyedWorkspace(t: TestConvex, workspaceId: Id<"workspaces">, path
 function moverBehindFetch(t: TestConvex, backend: Backend, answer?: () => Response) {
   const outside: string[] = [];
   const opened: unknown[] = [];
+  const doorCalls: string[] = [];
   let inMover = 0;
   vi.stubGlobal("fetch", async (input: string | URL, init: RequestInit = {}) => {
     const url = String(input);
+    // The workspace object's door: keying a workspace tells its object first (`encryptionKeys.ts`).
+    if (url === `${MOVER}${WORKSPACE_DOOR}`) {
+      const call = JSON.parse(decodeURIComponent(new Headers(init.headers).get("x-tex-call") ?? "null")) as { op?: string } | null;
+      doorCalls.push(call?.op ?? "");
+      return call?.op === "ws.encryption" ? Response.json({ encryption: "keyed" }) : Response.json({ error: "unknown_op" }, { status: 400 });
+    }
     if (!url.startsWith(MOVER)) {
       if (inMover === 0 && new URL(url).pathname.split("/").filter(Boolean).length > 1) {
         outside.push(`${init.method ?? "GET"} ${new URL(url).pathname}`);
@@ -96,11 +106,16 @@ function moverBehindFetch(t: TestConvex, backend: Backend, answer?: () => Respon
       inMover -= 1;
     }
   });
-  return { outside, opened };
+  return { outside, opened, doorCalls };
 }
 
 async function walkingRow(t: TestConvex, workspaceId: Id<"workspaces">, phase: "seal" | "check", cursor?: string) {
+  // Keyed before any gateway is named, as `keyedWorkspace` copies: no workspace object is told (the first test here
+  // shows the object told), so the key is the only thing this sets up.
+  const origin = process.env.STORAGE_MOVER_ORIGIN;
+  vi.stubEnv("STORAGE_MOVER_ORIGIN", "");
   await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, { workspaceId, create: true });
+  vi.stubEnv("STORAGE_MOVER_ORIGIN", origin ?? "");
   await t.run((ctx) =>
     ctx.db.insert("managedEncryptionWorkspaces", {
       workspaceId,
@@ -128,7 +143,7 @@ describe("the encryption walk on the mover", () => {
     vi.stubEnv("STORAGE_MOVER_ORIGIN", MOVER);
     const { t, staff, ours, backend } = await fixture();
     const [index, plan] = await keyedWorkspace(t, ours, ["index.md", "1-projects/plan.md"]);
-    const { outside, opened } = moverBehindFetch(t, backend);
+    const { outside, opened, doorCalls } = moverBehindFetch(t, backend);
 
     await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
     await drainScheduled(t);
@@ -136,6 +151,8 @@ describe("the encryption walk on the mover", () => {
     // Two keyed notes and the two path copies the bucket still holds. The access map is no file any more: its
     // path was translated into rows and removed, but its keyed copy (`notes/<id>.md`, no row) was sealed too.
     expect(await row(t, ours)).toMatchObject({ state: "encrypted", filesDone: 5, filesTotal: 5 });
+    // The workspace object was told it holds a key before the key was written.
+    expect(doorCalls).toEqual(["ws.encryption"]);
     expect(backend.snapshot()[PRIVACY_KEY]).toBeUndefined();
     for (const key of [index!, plan!, "index.md", "1-projects/plan.md", ...Object.keys(backend.snapshot())]) {
       expect(isSealed(backend.bytesOf(key))).toBe(true);
