@@ -177,8 +177,48 @@ async function settled<T>(promises: Promise<T>[]): Promise<T[]> {
   return results.map((result) => (result as PromiseFulfilledResult<T>).value);
 }
 
+/**
+ * A key described without saying it: which part it is in, how long it is and
+ * what kind of characters it holds. A failure that only some keys hit carries
+ * this, so the public log can tell what those keys have in common.
+ */
+export function keyShape(key: string): string {
+  const part = key.startsWith("notes/") ? "notes" : (historyPart(key) ?? "elsewhere");
+  const length = key.length < 64 ? "<64" : key.length < 256 ? "<256" : key.length < 1024 ? "<1024" : ">=1024";
+  const chars = /^[A-Za-z0-9._/-]*$/.test(key)
+    ? "plain"
+    : /[^\x00-\x7f]/.test(key)
+      ? "nonascii"
+      : /[\x00-\x1f\x7f]/.test(key)
+        ? "control"
+        : /^[A-Za-z0-9._/ -]*$/.test(key)
+          ? "spaces"
+          : "symbols";
+  return `${part}/${length}/${chars}`;
+}
+
+/** `work`, with any failure it throws marked with the shape of the key it was about. */
+async function aboutKey<T>(key: string, work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error !== null && typeof error === "object" && !("keyShape" in error)) {
+      try {
+        (error as { keyShape?: string }).keyShape = keyShape(key);
+      } catch {
+        // A frozen error keeps no shape; its reason still says what failed.
+      }
+    }
+    throw error;
+  }
+}
+
 /** One key copied from the bucket into the object, by the rule in the header. */
-export async function copyKey(bucket: BodyStore, object: BodyStore, key: string, dryRun: boolean): Promise<keyof CopyCounts> {
+export function copyKey(bucket: BodyStore, object: BodyStore, key: string, dryRun: boolean): Promise<keyof CopyCounts> {
+  return aboutKey(key, () => copyOne(bucket, object, key, dryRun));
+}
+
+async function copyOne(bucket: BodyStore, object: BodyStore, key: string, dryRun: boolean): Promise<keyof CopyCounts> {
   // The object's state BEFORE the bucket is read: the condition the write is made on.
   const before = await object.get(key);
   const source = await bucket.get(key);
@@ -278,7 +318,11 @@ export interface ParityCursor {
 
 type Verdict = "same" | "missingInObject" | "extraInObject" | "differ" | "neither";
 
-async function verdictOf(bucket: BodyStore, object: BodyStore, key: string): Promise<Verdict> {
+function verdictOf(bucket: BodyStore, object: BodyStore, key: string): Promise<Verdict> {
+  return aboutKey(key, () => compareOne(bucket, object, key));
+}
+
+async function compareOne(bucket: BodyStore, object: BodyStore, key: string): Promise<Verdict> {
   const [left, right] = await settled([bucket.get(key), object.get(key)]);
   if (left === null && right === null) return "neither";
   if (right === null) return "missingInObject";

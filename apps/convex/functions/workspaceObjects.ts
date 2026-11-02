@@ -49,7 +49,7 @@ import {
   type SizeCursor,
   type WalkCursor,
 } from "./lib/workspaceObjects/bodies";
-import { failureOf, reasonOf, withRetries } from "./lib/workspaceObjects/failures";
+import { failureOf, withRetries } from "./lib/workspaceObjects/failures";
 import { addRevisionCounts, emptyRevisionCounts, revisionsPage, type RevisionCounts } from "./lib/workspaceObjects/revisions";
 import { consoleWorkspaceClient, type WorkspaceObjectClient } from "./lib/workspaceObjects/door";
 import { convexVisible, noteRows, objectRowOf, rowsDigest, samplePrincipals, type ObjectRow, type ReaderRules } from "./lib/workspaceObjects/rows";
@@ -406,7 +406,8 @@ export const backfill = internalAction({
           limit: KEYS_PER_PAGE,
           dryRun,
           onFailure: (error) => {
-            const reason = `${failureOf(error).error}:${reasonOf(error)}`;
+            const failure = failureOf(error);
+            const reason = `${failure.error}:${failure.reason}${failure.shape ? `#${failure.shape}` : ""}`;
             keyFailures[reason] = (keyFailures[reason] ?? 0) + 1;
             tally(`key:${reason}`);
           },
@@ -652,7 +653,7 @@ export const parity = internalAction({
         counts.unreachable += 1;
         const failure = failureOf(error);
         console.warn(JSON.stringify({ event: "workspace_parity_failed", workspaceId, ...failure }));
-        const why = `${failure.error}:${failure.reason}@${failure.at ?? "?"}`;
+        const why = `${failure.error}:${failure.reason}@${failure.at ?? "?"}${failure.shape ? `#${failure.shape}` : ""}`;
         counts.why[why] = (counts.why[why] ?? 0) + 1;
       }
       finishWorkspace();

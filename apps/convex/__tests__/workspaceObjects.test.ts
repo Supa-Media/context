@@ -391,6 +391,31 @@ describe("failure logs", () => {
     expect(seen).toHaveLength(1);
   });
 
+  test("a failed key carries its shape, never its name, and an unknown TypeError keeps only listed words", async () => {
+    const { failureOf, messageWords } = await import("../functions/lib/workspaceObjects/failures");
+    const odd = ".context/collaboration/v1/heads/Plans Ünïcode.json";
+    const bucket = bucketWith({ [odd]: "# odd", [B]: "# B" });
+    const { bodies } = objectFor();
+    const broken = {
+      list: bodies.list.bind(bodies),
+      put: bodies.put.bind(bodies),
+      delete: bodies.delete.bind(bodies),
+      get: async (key: string) => {
+        if (key === odd) throw new TypeError(`Invalid header value for ${key}`);
+        return bodies.get(key);
+      },
+    } as unknown as BodyStore;
+    const seen: unknown[] = [];
+    const page = await copyPage(bucket as unknown as BodyStore, broken, { at: { prefix: 1 }, limit: 10, dryRun: false, onFailure: (error) => seen.push(error) });
+    expect(page.counts.failed).toBe(1);
+    const failure = failureOf(seen[0]);
+    expect(failure).toMatchObject({ error: "TypeError", reason: "type_error_invalid_header_value", shape: "heads/<64/nonascii" });
+    expect(JSON.stringify(failure)).not.toMatch(/Plans|code/);
+    // Parity marks the same failure with the same shape.
+    await expect(parityPage(bucket as unknown as BodyStore, broken, { at: { side: 0, prefix: 1 }, limit: 10, recheckMs: 0, sleep: async () => {} })).rejects.toMatchObject({ keyShape: "heads/<64/nonascii" });
+    expect(messageWords("Secret Plans: invalid URL in request body")).toEqual(["invalid", "url", "request", "body"]);
+  });
+
   test("one read failing in a parity wave waits for the others before it is thrown", async () => {
     const bucket = bucketWith({ [A]: "# A", [B]: "# B", [C]: "# C" });
     const { bodies } = objectFor();
