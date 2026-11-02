@@ -28,7 +28,7 @@ import { conversationPath, readConversation } from "./conversation.js";
 import { readGroupMemory } from "./groupTurn.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { EVENT_ID, isChatKey, readEvents } from "./log.js";
-import { renderEvents, seenBy, speaker, words } from "./logRender.js";
+import { renderEvents, speaker, words } from "./logRender.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX } from "./steer.js";
 import { sentByItself, withSentByItself } from "./sentByItself.js";
 
@@ -166,7 +166,8 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
     .map((event) => (group !== null ? `${speaker(event.from)}: ${words(event)}` : words(event)))
     .join("\n");
   if (question === "") return null;
-  const shown = seenBy(events.filter((event) => !wanted.has(event.id)), group?.members ?? null);
+  // A group is shown its whole log, whoever has joined or left since (the owner, 2026-11-02): no cut by the people a text was said in front of.
+  const shown = events.filter((event) => !wanted.has(event.id));
   // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
   const own = group === null && record !== null ? sentByItself(await record, events, { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [], tainted: false };
   const transcript = renderEvents(withSentByItself(shown, own.shown), { timeZone, answeredBy: events });

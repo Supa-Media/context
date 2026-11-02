@@ -319,12 +319,11 @@ const speaker = (name: string | undefined): string => `@${oneLine(name ?? "").re
 /**
  * The transcript decide is shown (section 5), newest last, at most `limit`
  * characters: oldest lines go first. "You" is Tex, "Context" the system, and every person "@name" (`speaker`). A person's event no
- * delivered answer of Tex's covers is "(not answered)". With `people`, only
- * events said in front of exactly those people: a newcomer never sees what
- * came before they joined.
+ * delivered answer of Tex's covers is "(not answered)". A group's is the whole
+ * log, whoever has joined or left since (the owner, 2026-11-02).
  */
-export function renderTranscript(events: readonly TexEvent[], options: { timeZone?: string; people?: string; limit?: number } = {}): string {
-  const shown = options.people === undefined ? events : events.filter((event) => event.people === options.people);
+export function renderTranscript(events: readonly TexEvent[], options: { timeZone?: string; limit?: number } = {}): string {
+  const shown = events;
   const answered = new Set(shown.filter((event) => event.from.kind === "tex" && event.delivered !== false).flatMap((event) => event.covers ?? []));
   const zone = options.timeZone ?? "UTC";
   const day = (at: number) => new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "long", month: "short", day: "numeric" }).format(at);
