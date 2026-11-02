@@ -174,7 +174,7 @@ describe("on object", () => {
 
 /** A door that records every whole-table write, and can be made to fail. */
 function fakeDoor() {
-  const writes: Array<{ workspaceId: string; table: string; rows: number; epoch: number }> = [];
+  const writes: Array<{ workspaceId: string; table: string; rows: number; epoch: string }> = [];
   let failing = false;
   const open: PushDoor = (workspaceId) =>
     ({

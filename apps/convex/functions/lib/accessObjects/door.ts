@@ -24,7 +24,7 @@ export type AccessScope = "workspace" | "person";
 export type ObjectHome = "convex" | "object";
 
 export interface AccessTableDoor {
-  snapshot(input: { epoch: number; rows: unknown[]; last: boolean; mode: "replace" | "merge" }): Promise<unknown>;
+  snapshot(input: { epoch: string; rows: unknown[]; last: boolean; mode: "replace" | "merge" }): Promise<unknown>;
   digest(): Promise<{ count: number; sha: string }>;
 }
 
