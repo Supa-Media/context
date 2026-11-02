@@ -64,25 +64,37 @@ export function onceEach(openStore) {
  * transport would not.
  */
 export async function namedContextsOf(request) {
+  return namedContextsIn(await peekBody(request));
+}
+
+/**
+ * The request's JSON body, read from a clone so the transport still reads its
+ * own; `undefined` when it is not JSON or is larger than a peek may take.
+ */
+export async function peekBody(request) {
   try {
-    if (request.method !== "POST") return [];
+    if (request.method !== "POST") return undefined;
     const length = Number(request.headers.get("Content-Length"));
-    if (Number.isFinite(length) && length > PEEK_BYTE_LIMIT) return [];
+    if (Number.isFinite(length) && length > PEEK_BYTE_LIMIT) return undefined;
     const text = await request.clone().text();
-    if (text.length > PEEK_BYTE_LIMIT) return [];
-    const body = JSON.parse(text);
-    const names = new Set();
-    for (const message of Array.isArray(body) ? body : [body]) {
-      if (message?.method !== "tools/call") continue;
-      const args = message?.params?.arguments;
-      for (const key of NAMING_ARGUMENTS) {
-        if (typeof args?.[key] === "string" && args[key].trim() !== "") names.add(args[key].trim());
-      }
-    }
-    return [...names];
+    if (text.length > PEEK_BYTE_LIMIT) return undefined;
+    return JSON.parse(text);
   } catch {
-    return [];
+    return undefined;
   }
+}
+
+/** The workspaces a parsed body's tool calls name. */
+export function namedContextsIn(body) {
+  const names = new Set();
+  for (const message of Array.isArray(body) ? body : [body]) {
+    if (message?.method !== "tools/call") continue;
+    const args = message?.params?.arguments;
+    for (const key of NAMING_ARGUMENTS) {
+      if (typeof args?.[key] === "string" && args[key].trim() !== "") names.add(args[key].trim());
+    }
+  }
+  return [...names];
 }
 
 /**
