@@ -103,6 +103,20 @@ reaches no other's. A new note under a chat's home in the pinned workspace is
 keyed to that chat, and nowhere else: the home is found by its three words and
 only in the pin (`lib/noteIds/texHome.ts`).
 
+A person reading a home's notes from an AI client, or typing in one in the
+app, is not a chat's turn, and since 2026-11-02 reaches that chat's object for
+those notes. The app's store is built with the chats its paths' homes name
+(`fileOperationBarrier.ts`, `chatHomePaths.ts`); a person's gateway store asks
+the control plane, once per chat, whether that chat's home is in the
+workspace it reads (`POST /gateway/tex/chat-home`, `texChatLanding.chatHomedIn`:
+the pinned workspace, a chat with a home), and opens it only on a yes
+(`sessionStore.js` `texHomeChatOf`, `texRouting.js` `homeChat`). Which notes
+they see is still each row's access, sealed to the chat's people. Tex's own
+clients and a chat's turn never ask: a turn still reaches its own chat alone.
+Tests: `apps/mcp/test/texRouting.test.mjs` (asked once, a no never opens the
+object, Tex's clients and another chat's turn never widened),
+`apps/convex/__tests__/textGroupHome.test.ts` ("where a chat's home is").
+
 ## What changes in the non-negotiables
 
 - **#1**: a note body lives in the workspace's object (or its bucket, until it

@@ -3,7 +3,7 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { addMember, asUser, createUser, createWorkspace, gatewayPost } from "./fixtures.helpers";
-import { migrate, pinnedWorld, type PinnedWorld } from "./pinnedReaders.helpers";
+import { MEL_TOKEN, migrate, pinnedWorld, type PinnedWorld } from "./pinnedReaders.helpers";
 import { nodeAt } from "../functions/lib/nodes/paths";
 import { setAccessRow } from "../functions/lib/nodes/setAccess";
 import { ensureChatHome, HOME_FOLDERS } from "../functions/lib/textGroupHome";
@@ -351,3 +351,27 @@ describe("a chat's name, as text", () => {
     expect(peopleTitle([], 2)).toBe("Group chat +2");
   });
 });
+
+describe("where a chat's home is, asked by the gateway", () => {
+  /** `POST /gateway/tex/chat-home` as mel's AI client, a member of the pinned workspace. */
+  const ask = async (w: PinnedWorld, body: Record<string, unknown>) => (await (await gatewayPost(w.t, "/gateway/tex/chat-home", { accessToken: MEL_TOKEN, ...body })).json()) as { home: boolean };
+
+  test("a chat with a home answers yes only in the pinned workspace, for a token that reads it", async () => {
+    const w = await world();
+    await turn(w.t, ADA, [ADA, BO, CY, LINE]);
+    const chat = (await chatRow(w.t))!;
+    expect(chat.homeWords).toBeTruthy();
+    expect(await ask(w, { workspaceId: w.pinned, chat: chat.groupKey })).toEqual({ home: true });
+    // Not its home: a workspace that holds no homes, even one the token reads.
+    const melOwn = await w.t.run(async (ctx) => (await ctx.db.query("workspaces").withIndex("by_slug", (q) => q.eq("slug", "mel")).unique())!._id);
+    expect(await ask(w, { workspaceId: melOwn, chat: chat.groupKey })).toEqual({ home: false });
+    // A workspace the token does not read, a chat that does not exist, a malformed key and a stranger's token: no.
+    expect(await ask(w, { workspaceId: w.studio, chat: chat.groupKey })).toEqual({ home: false });
+    expect(await ask(w, { workspaceId: w.pinned, chat: "e".repeat(64) })).toEqual({ home: false });
+    expect(await ask(w, { workspaceId: w.pinned, chat: "../x" })).toEqual({ home: false });
+    expect(await ask(w, { workspaceId: w.pinned, chat: chat.groupKey, accessToken: "cat_nobody_000000000000000000" })).toEqual({ home: false });
+    // Without the gateway's secret the route is closed.
+    expect((await gatewayPost(w.t, "/gateway/tex/chat-home", { accessToken: MEL_TOKEN, workspaceId: w.pinned, chat: chat.groupKey }, { secret: null })).status).toBe(401);
+  });
+});
+
