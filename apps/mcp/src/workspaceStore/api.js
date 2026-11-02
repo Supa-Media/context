@@ -84,6 +84,7 @@ export function workspaceStub(env, workspaceId) {
  * The gateway's client for one workspace's object. `null` without the binding.
  *
  * - `bodies`: a ContextStore (`store/r2.js`) over the object's keys.
+ * - `userId` (optional on every read): who is reading, judged by the object's own members where it decides access
  * - `rows.lookup({paths, scope, groups, audience})`, `rows.resolve({noteIds, ...})` → `{rows: [{found, path, noteId, key, etag, kind, collaborates}], accessVersion}`
  * - `read({ids, scope, groups, audience})` → `{notes: Array<{id, found: true, path, etag, contentType, text}|{id, found: false}>, accessVersion}`
  * - `visible({ids, scope, groups})` → booleans, the same check (for the parity checker)
@@ -93,7 +94,8 @@ export function workspaceStub(env, workspaceId) {
  * Every `ws.*` call names its workspace; the object pins the first it sees and refuses any other.
  * - `rules.put(heldRules, audience)`, `rules.get(audience)`
  * - `apply({rows, removed, at, rules: {member?, guest?}})`: rows, removals and rules in one storage transaction
- * - `state()` → `{home, backfilledAt, rows, objects, accessVersion}`; `setHome(home)`; `markBackfilled(at)`
+ * - `state()` → `{home, backfilledAt, rows, objects, accessVersion, members: {home, members, invites, reachPending}}`; `setHome(home)`; `markBackfilled(at)`
+ * - `members.*`, `invites.*`: who belongs to the workspace (`workspaceStore/members.js`): see `membershipClient`.
  */
 export function workspaceClient(env, workspaceId) {
   const stub = workspaceStub(env, workspaceId);
@@ -101,14 +103,14 @@ export function workspaceClient(env, workspaceId) {
   const ask = async (op, fields = {}) => await (await callTexStore(stub, op, {}, new TextEncoder().encode(JSON.stringify({ ...fields, workspaceId })))).json();
   return {
     bodies: new R2Store(texBucket(stub)),
-    read: async ({ ids, scope, groups = [], audience = "member" }) => await ask("ws.read", { ids, scope, groups, audience }),
-    visible: async ({ ids, scope, groups = [], audience = "member" }) => (await ask("ws.visible", { ids, scope, groups, audience })).visible,
+    read: async ({ ids, scope, groups = [], audience = "member", userId = null }) => await ask("ws.read", { ids, scope, groups, audience, ...(userId ? { userId } : {}) }),
+    visible: async ({ ids, scope, groups = [], audience = "member", userId = null }) => (await ask("ws.visible", { ids, scope, groups, audience, ...(userId ? { userId } : {}) })).visible,
     rows: {
       put: async (rows) => await ask("ws.rows.put", { rows }),
       remove: async (ids, at) => await ask("ws.rows.remove", { ids, at }),
       get: async (ids) => await ask("ws.rows.get", { ids }),
-      lookup: async ({ paths, scope, groups = [], audience = "member" }) => await ask("ws.rows.lookup", { paths, scope, groups, audience }),
-      resolve: async ({ noteIds, scope, groups = [], audience = "member" }) => await ask("ws.rows.resolve", { noteIds, scope, groups, audience }),
+      lookup: async ({ paths, scope, groups = [], audience = "member", userId = null }) => await ask("ws.rows.lookup", { paths, scope, groups, audience, ...(userId ? { userId } : {}) }),
+      resolve: async ({ noteIds, scope, groups = [], audience = "member", userId = null }) => await ask("ws.rows.resolve", { noteIds, scope, groups, audience, ...(userId ? { userId } : {}) }),
       list: async ({ after = null, limit = 1000 } = {}) => await ask("ws.rows.list", { after, limit }),
       snapshot: async ({ epoch, rows, last = false, mode = "replace" }) => await ask("ws.rows.snapshot", { epoch, rows, last, mode }),
       digest: async () => await ask("ws.rows.digest"),
@@ -118,8 +120,41 @@ export function workspaceClient(env, workspaceId) {
       get: async (audience = "member") => await ask("ws.rules.get", { audience }),
     },
     apply: async ({ rows = [], removed = [], at = null, rules = {} }) => await ask("ws.apply", { rows, removed, at, rules }),
+    ...membershipClient(ask),
     state: async () => await ask("ws.state"),
     setHome: async (home) => await ask("ws.home", { home }),
     markBackfilled: async (at) => await ask("ws.backfilled", { at }),
+  };
+}
+
+/**
+ * The membership half of the client (`access.js` `ACCESS_OPS`, served by `workspaceStore/serveMembers.js`).
+ * `members` (keyed by `userId`) and `invites` (keyed by `id`) each have:
+ * - `put(rows)` → `{kept}`: rows older than the ones held are skipped. `members.put(rows, {workspace: {slug, kind}})`
+ *   names the workspace once, so each person's object can be told; it answers only once every person object took the
+ *   change, and throws (the object answered `503 copy_behind`) while one is owed: the object sends it again, and the
+ *   caller retries with the same `at`.
+ * - `remove(keys, at)` → `{removed}`: tombstones at `at`; a removed member is refused here at once (home `object`).
+ * - `list({after, limit})` → `{rows, next}`; `digest()` → `{count, sha}` (`access.js` `accessDigest`)
+ * - `snapshot({epoch, rows, last, mode: "replace"|"merge"})`: a whole copy in pages; owes no person object
+ * Plus `members.get(userId)` → `{member}`, `members.setHome("convex"|"object")` (`state().members.home`),
+ * `members.flushReach()` → `{pending}`, and `invites.find(tokenHash)` → `{invite}`.
+ */
+function membershipClient(ask) {
+  const table = (name, removeKey) => ({
+    put: async (rows, extra = {}) => await ask(`ws.${name}.put`, { rows, ...extra }),
+    remove: async (keys, at) => await ask(`ws.${name}.remove`, { [removeKey]: keys, at }),
+    list: async ({ after = null, limit = 1000 } = {}) => await ask(`ws.${name}.list`, { after, limit }),
+    digest: async () => await ask(`ws.${name}.digest`),
+    snapshot: async ({ epoch, rows, last = false, mode = "replace" }) => await ask(`ws.${name}.snapshot`, { epoch, rows, last, mode }),
+  });
+  return {
+    members: {
+      ...table("members", "userIds"),
+      get: async (userId) => await ask("ws.members.get", { userId }),
+      setHome: async (home) => await ask("ws.access.home", { home }),
+      flushReach: async () => await ask("ws.reach.flush"),
+    },
+    invites: { ...table("invites", "ids"), find: async (tokenHash) => await ask("ws.invites.find", { tokenHash }) },
   };
 }
