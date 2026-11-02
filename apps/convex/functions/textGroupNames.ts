@@ -29,7 +29,7 @@ const NAMED = 3;
 /** `name` as one plain line of at most `MAX_CHAT_NAME` characters: control and direction characters out. */
 export function cleanChatName(name: string): string {
   const plain = name
-    .replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩﻿]/g, " ")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   return [...plain].slice(0, MAX_CHAT_NAME).join("");

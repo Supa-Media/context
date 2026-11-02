@@ -39,7 +39,7 @@ describe("a chat home's title", () => {
 
   test("names the home in a note's breadcrumb", () => {
     const crumbs = withChatHomeTitles(crumbsFor(`${HOME}/skills/packing.md`), TITLES);
-    expect(crumbs.map((crumb) => crumb.label.replace(/[⁦-⁩]/g, ""))).toEqual(["tex", "groups", "Weekend Crew", "skills", "packing"]);
+    expect(crumbs.map((crumb) => crumb.label.replace(/[\u2066-\u2069]/g, ""))).toEqual(["tex", "groups", "Weekend Crew", "skills", "packing"]);
     expect(crumbs[2]!.path).toBe(HOME);
   });
 });

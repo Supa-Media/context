@@ -228,7 +228,7 @@ export function groupNameOf(payload: unknown): string | null {
   if (!isRecord(payload) || typeof payload.group_display_name !== "string") return null;
   // Control and bidi-override characters out, whitespace to single spaces.
   const plain = payload.group_display_name
-    .replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩﻿]/g, " ")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   return [...plain].slice(0, MAX_GROUP_NAME).join("");

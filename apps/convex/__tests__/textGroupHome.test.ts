@@ -316,7 +316,7 @@ describe("a chat's name on its home", () => {
     const path = `tex/groups/${words}`;
     // No name yet: Ada sees the others by handle; nobody else is named.
     expect(await titles(w, w.ada)).toEqual([{ path, title: "@bo, @cy", named: false, words }]);
-    expect(await agentPost(w.t, "/agent-texts/group/name", { line: LINE, groupId: GROUP, name: "  Weekend‮ Crew\n" })).toEqual({ ok: true });
+    expect(await agentPost(w.t, "/agent-texts/group/name", { line: LINE, groupId: GROUP, name: "  Weekend\u202e Crew\n" })).toEqual({ ok: true });
     expect(await titles(w, w.bo)).toEqual([{ path, title: "Weekend Crew", named: true, words }]);
     // The name is the app's alone: nothing a turn reads is touched, and the folder keeps its words.
     expect((await chatRow(w.t))!.homeWords).toBe(words);
@@ -343,7 +343,7 @@ describe("a chat's name on its home", () => {
 describe("a chat's name, as text", () => {
   test("is one plain line, cut at its longest", async () => {
     const { cleanChatName, MAX_CHAT_NAME, peopleTitle } = await import("../functions/textGroupNames");
-    expect(cleanChatName("a\u0000b‏c⁦d  e\tf")).toBe("a b c d e f");
+    expect(cleanChatName("a\u0000b\u200fc\u2066d  e\tf")).toBe("a b c d e f");
     expect([...cleanChatName("🙂".repeat(500))]).toHaveLength(MAX_CHAT_NAME);
     expect(peopleTitle(["bo", "cy", "dana", "femi"], 2)).toBe("@bo, @cy, @dana +3");
     expect(peopleTitle(["", "cy"], 0)).toBe("@cy +1");
