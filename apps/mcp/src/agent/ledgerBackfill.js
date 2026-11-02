@@ -1,6 +1,6 @@
 /**
- * A person's one-to-one chat with Tex, from before its ledger began, copied
- * into the ledger once (decided by the owner, 2026-11-02: "we just need to
+ * A chat with Tex from before its ledger began, a person's own or a group's,
+ * copied into the ledger once (decided by the owner, 2026-11-02: "we just need to
  * cobble together everything … just one source of all of this";
  * `docs/decisions/texting-assistant/chat-ledger.md`).
  *
@@ -25,8 +25,8 @@
  * again copies nothing. Answers counts only, never a word.
  */
 
-import { eventEntry, ONE_TO_ONE_CHAT } from "./ledger.js";
-import { EVENT_ID, EVENT_KINDS, LOG_PREFIX } from "./log.js";
+import { eventEntry, ledgerPlace, ONE_TO_ONE_CHAT } from "./ledger.js";
+import { EVENT_ID, EVENT_KINDS, LOG_PREFIX, logPrefix } from "./log.js";
 import { HISTORY_KEY } from "./history.js";
 
 const READ_BATCH = 25;
@@ -37,11 +37,11 @@ const SAME = 60;
 const key = (text) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, SAME);
 
 /** The log's event keys (`<prefix><id>.json`), oldest first, each with the time its id names. */
-async function logKeys(store) {
+async function logKeys(store, prefix) {
   const keys = [];
   let cursor;
   for (let page = 0; page < LIST_PAGES; page += 1) {
-    const listed = await store.list({ prefix: LOG_PREFIX, ...(cursor ? { cursor } : {}) });
+    const listed = await store.list({ prefix, ...(cursor ? { cursor } : {}) });
     for (const object of listed?.objects ?? []) {
       const id = object.key.slice(object.key.lastIndexOf("/") + 1, -".json".length);
       if (object.key.endsWith(".json") && EVENT_ID.test(id)) keys.push({ key: object.key, at: Number(id.slice(0, 13)), id });
@@ -132,42 +132,48 @@ export const BACKFILL_EVENTS = 400;
  * in already), `would` (a dry run), `copied` (this run added `entries`), `finished`
  * (this run copied the rest).
  */
-export async function backfillLedger(store, { dryRun = false, most = BACKFILL_EVENTS } = {}) {
-  const ledger = typeof store?.texLedger === "function" ? store.texLedger() : null;
+export async function backfillLedger(store, { dryRun = false, most = BACKFILL_EVENTS, group = null } = {}) {
+  const ledger = typeof store?.texLedger === "function" ? store.texLedger(group) : null;
   if (ledger === null || typeof ledger.prepend !== "function") return { state: "none", entries: 0 };
-  const oldest = await ledger.oldest(ONE_TO_ONE_CHAT);
+  // A group's log sits in its workspace's store beside other groups', under its own chat's prefix; it has no history record.
+  const chat = group ?? ONE_TO_ONE_CHAT;
+  const oldest = await ledger.oldest(chat);
   if (oldest?.id === BACKFILLED) return { state: "done", entries: 0 };
   const before = oldest?.at ?? Number.MAX_SAFE_INTEGER;
-  const keys = (await logKeys(store)).filter((found) => found.at < before);
+  const keys = (await logKeys(store, group === null ? LOG_PREFIX : await logPrefix(group))).filter((found) => found.at < before);
   const earliest = keys.length <= most;
-  const [events, turns] = await Promise.all([readEventsAt(store, keys.slice(-most)), recordTurns(store)]);
+  const [events, turns] = await Promise.all([readEventsAt(store, keys.slice(-most)), group === null ? recordTurns(store) : []]);
   const entries = backfillEntries(events, turns, { before, earliest });
   if (dryRun) return { state: "would", entries: entries.length };
   if (earliest) entries.unshift({ v: 1, id: BACKFILLED, at: Math.max(1, Math.min(before, ...entries.map((entry) => entry.at)) - 1), kind: "note", text: "(The chat before this ledger began was copied in here.)", backfill: "mark" });
   // Newest batch first, each placed before the last, so the whole reads oldest first.
   let added = 0;
-  for (let end = entries.length; end > 0; end -= PREPEND_BATCH) added += (await ledger.prepend(ONE_TO_ONE_CHAT, entries.slice(Math.max(0, end - PREPEND_BATCH), end))).added;
+  for (let end = entries.length; end > 0; end -= PREPEND_BATCH) added += (await ledger.prepend(chat, entries.slice(Math.max(0, end - PREPEND_BATCH), end))).added;
   return { state: earliest ? "finished" : "copied", entries: added };
 }
 
-/** Workspaces whose old chat is all in, as this isolate has seen: they are never asked again. */
+/** Chats (workspace and chat) whose old chat is all in, as this isolate has seen: they are never asked again. */
 const finished = new Set();
 
 /**
- * Run a backfill part after the answer of a request that wrote the person's
- * chat (`textingRoutes.js` `handleEvents`), never on a texted turn's own way to
+ * Run a backfill part after the answer of a request that wrote a chat
+ * (`textingRoutes.js` `handleEvents`): a person's own chat, or a group's,
+ * whose log sits in its workspace's store. Never on a texted turn's own way to
  * its model. Logs its outcome by count only.
  */
 export function startBackfill(store, session) {
   const workspace = String(session?.workspaceId ?? "");
-  if (workspace === "" || finished.has(workspace) || typeof store?.defer !== "function") return;
+  const place = ledgerPlace(session);
+  const group = place?.owner?.chat ?? null;
+  const done = `${workspace}:${group ?? ONE_TO_ONE_CHAT}`;
+  if (workspace === "" || place === null || finished.has(done) || typeof store?.defer !== "function") return;
   store.defer(async () => {
     try {
-      const done = await backfillLedger(store);
-      if (done.state === "done" || done.state === "finished" || done.state === "none") finished.add(workspace);
-      if (done.state !== "done") console.log(JSON.stringify({ event: "tex_ledger_backfill", workspace_id: workspace, state: done.state, entries: done.entries }));
+      const run = await backfillLedger(store, { group });
+      if (run.state === "done" || run.state === "finished" || run.state === "none") finished.add(done);
+      if (run.state !== "done") console.log(JSON.stringify({ event: "tex_ledger_backfill", workspace_id: workspace, group: group !== null, state: run.state, entries: run.entries }));
     } catch (error) {
-      console.log(JSON.stringify({ event: "tex_ledger_backfill_failed", workspace_id: workspace, reason: String(error?.name ?? "error").slice(0, 40) }));
+      console.log(JSON.stringify({ event: "tex_ledger_backfill_failed", workspace_id: workspace, group: group !== null, reason: String(error?.name ?? "error").slice(0, 40) }));
     }
   });
 }

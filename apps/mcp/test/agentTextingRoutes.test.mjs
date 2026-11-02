@@ -81,6 +81,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationText, conversationTurns } from "./agentConversationFixture.mjs";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
+import { texBucket, texStoreStub } from "../src/texStore/wire.js";
 
 const S3_ENDPOINT = "https://s3.example-textingroutes.test";
 const TOKEN_TEXTS = `cat_troutes_texts_${"0".repeat(24)}`;
@@ -208,11 +209,13 @@ after(() => {
   for (const undo of restore.reverse()) undo();
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   requests.length = 0;
   script = [];
   during = null;
   for (const key of [...bucket.keys()]) bucket.delete(key);
+  // The chat's ledger too, as the log in the bucket was: a turn reads its newest texts from there (`ledgerHistory.js` `dayFromLedger`).
+  await texBucket(texStoreStub(env, { person: "ws_troutes" })).wipe();
   bucket.set("1-projects/plan.md", { body: "# Plan\n\nThe plan.\n", etag: "n0" });
 });
 

@@ -31,7 +31,7 @@ import { EVENT_ID, isChatKey, READ_CHARS, readEvents } from "./log.js";
 import { renderEvents, speaker, words } from "./logRender.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX } from "./steer.js";
 import { sentByItself, withSentByItself } from "./sentByItself.js";
-import { earlierFromLedger, readLedger } from "./ledgerHistory.js";
+import { dayFromLedger, earlierFromLedger, readLedger } from "./ledgerHistory.js";
 import { ledgerPlace } from "./ledger.js";
 import { deskLedger } from "./history.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
@@ -161,7 +161,13 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   const covers = body?.covers;
   if (!Array.isArray(covers) || covers.length === 0 || covers.length > MAX_COVERS || !covers.every((id) => typeof id === "string" && EVENT_ID.test(id))) return null;
   if (!isChatKey(body.chat)) return null;
-  const [events, read] = await Promise.all([warm === null ? readEvents(store, body.chat) : warm.events(body.chat, () => readEvents(store, body.chat)), ledger]);
+  // The chat's newest texts come from its ledger, read beside this anyway; the bucket's log only when the ledger misses one this turn covers.
+  const day = () => Promise.resolve(ledger).then((read) => dayFromLedger(read?.entries, body.chat, covers)).catch(() => null).then((events) => {
+    if (events !== null) return events;
+    if (ledger !== null) console.log(JSON.stringify({ event: "tex_turn_day_from_log" })); // a ledger that missed a text this turn covers: counted, never its words
+    return readEvents(store, body.chat);
+  });
+  const [events, read] = await Promise.all([warm === null ? day() : warm.events(body.chat, day), ledger]);
   const wanted = new Set(covers);
   const covered = events.filter((event) => wanted.has(event.id));
   if (covered.length !== wanted.size) return null;
