@@ -47,22 +47,23 @@ function entryOf(row) {
 }
 
 /**
- * The `lookup` and `resolve` hooks for `withIdLayout`, object first. `hooks` are the control plane's.
+ * Whether this session's row questions may go to its object, and how: `null` where they may not (no object, notes not
+ * at home there, an unknown scope, a chat whose names are not known, or a change the object has not taken yet, which
+ * the binding's `notesBehind` says), else the reader as the object judges it and the per-call behind check.
  *
- * @param {{lookup: (paths: string[]) => Promise<object>, resolve?: (ids: string[]) => Promise<object>}} hooks
- * @param {{client: object|null, home?: string|null, behind?: boolean, checkBehind?: () => Promise<boolean>, scope: string, names: Iterable<string>, chatNames?: string[]|null, userId?: string|null, log?: (event: string, fields: object) => void}} options
+ * @param {{client: object|null, home?: string|null, behind?: boolean, checkBehind?: (() => Promise<boolean>)|null, scope: string, names: Iterable<string>, chatNames?: string[]|null, workspaceId?: string, userId?: string|null, log?: (event: string, fields: object) => void}} options
  */
-export function objectFirstHooks(hooks, { client, home, behind = false, checkBehind = null, scope, names, chatNames = null, workspaceId, userId = null, log = () => {} }) {
+export function objectReader({ client, home, behind = false, checkBehind = null, scope, names, chatNames = null, workspaceId, userId = null, log = () => {} }) {
   const groups = [...(names ?? [])];
   const audience = audienceOf(groups);
-  if (!client || home !== HOMES.OBJECT || (scope !== "private" && scope !== "team")) return hooks;
-  if (audience === "chat" && !Array.isArray(chatNames)) return hooks;
+  if (!client || home !== HOMES.OBJECT || (scope !== "private" && scope !== "team")) return null;
+  if (audience === "chat" && !Array.isArray(chatNames)) return null;
   // A change the object has not taken yet (the binding's `notesBehind`): a share just taken back by a mutation that
   // could not wait for the push must not be served from the object's older rows, so the whole request asks the
   // control plane, which already has it.
   if (behind === true) {
     log("workspace_object_behind", { workspaceId });
-    return hooks;
+    return null;
   }
   // `userId`: who is reading, for an object that decides access from its own members (`workspaceStore/members.js`).
   const judged = {
@@ -85,6 +86,19 @@ export function objectFirstHooks(hooks, { client, home, behind = false, checkBeh
     log("workspace_object_behind", { workspaceId });
     return true;
   };
+  return { client, workspaceId, log, judged, askBehind, settledBehind };
+}
+
+/**
+ * The `lookup` and `resolve` hooks for `withIdLayout`, object first. `hooks` are the control plane's.
+ *
+ * @param {{lookup: (paths: string[]) => Promise<object>, resolve?: (ids: string[]) => Promise<object>}} hooks
+ * @param {{client: object|null, home?: string|null, behind?: boolean, checkBehind?: () => Promise<boolean>, scope: string, names: Iterable<string>, chatNames?: string[]|null, userId?: string|null, log?: (event: string, fields: object) => void}} options
+ */
+export function objectFirstHooks(hooks, options) {
+  const reader = objectReader(options);
+  if (reader === null) return hooks;
+  const { client, workspaceId, log, judged, askBehind, settledBehind } = reader;
 
   const lookup = async (paths) => {
     const pending = askBehind();
