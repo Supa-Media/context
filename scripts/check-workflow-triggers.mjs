@@ -173,6 +173,9 @@ const DEPLOY_COMMANDS = [
   // which is the exemption-in-disguise the NAME rule exists to refuse.
   /\belectron-builder\b/,
   /\buses:\s*\S*deploy[^\s]*\.ya?ml/,
+  // Dispatching a deploy workflow is deploying: deploy-production-start.yml
+  // starts production on every merge with nothing else in it (2026-11-02).
+  /\bgh\s+workflow\s+run\s+deploy[\w-]*\.ya?ml\b/,
 ];
 
 /** A base-branch filter this checker accepts as "every branch". */
