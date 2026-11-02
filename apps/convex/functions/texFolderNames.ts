@@ -60,8 +60,13 @@ function refusalCode(result: OperationResult): string | null {
 
 async function liveOf(ctx: ActionCtx, workspaceId: Id<"workspaces">, renames: readonly Rename[]): Promise<Set<string>> {
   const paths = [...new Set(renames.flatMap((rename) => [rename.from, rename.to]))];
-  return new Set(await ctx.runQuery(internal.functions.texFolderNamesRows.liveFiles, { workspaceId, paths }));
+  const live: string[] = await ctx.runQuery(internal.functions.texFolderNamesRows.liveFiles, { workspaceId, paths });
+  return new Set(live);
 }
+
+type Counts = { wouldRename: number; renamed: number; both: number; failed: Record<string, number> };
+type PersonalCounts = Counts & { workspaces: number; personal: number; cursor: string; done: boolean };
+type HomeCounts = Counts & { chats: number; homes: number };
 
 const countsValidator = {
   wouldRename: v.number(),
@@ -73,8 +78,8 @@ const countsValidator = {
 export const personal = internalAction({
   args: { dryRun: v.boolean(), cursor: v.optional(v.string()), limit: v.optional(v.number()) },
   returns: v.object({ workspaces: v.number(), personal: v.number(), ...countsValidator, cursor: v.string(), done: v.boolean() }),
-  handler: async (ctx, { dryRun, cursor, limit }) => {
-    const page = await ctx.runQuery(internal.functions.texFolderNamesRows.personalPage, {
+  handler: async (ctx, { dryRun, cursor, limit }): Promise<PersonalCounts> => {
+    const page: { workspaceIds: Id<"workspaces">[]; seen: number; cursor: string; done: boolean } = await ctx.runQuery(internal.functions.texFolderNamesRows.personalPage, {
       ...(cursor === undefined ? {} : { cursor }),
       ...(limit === undefined ? {} : { limit }),
     });
@@ -107,8 +112,8 @@ export const personal = internalAction({
 export const homes = internalAction({
   args: { dryRun: v.boolean() },
   returns: v.object({ chats: v.number(), homes: v.number(), ...countsValidator }),
-  handler: async (ctx, { dryRun }) => {
-    const found = await ctx.runQuery(internal.functions.texFolderNamesRows.homes, {});
+  handler: async (ctx, { dryRun }): Promise<HomeCounts> => {
+    const found: { chats: number; homes: { groupKey: string; workspaceId: Id<"workspaces">; folder: string; noteId: string }[] } = await ctx.runQuery(internal.functions.texFolderNamesRows.homes, {});
     const totals = { chats: found.chats, homes: found.homes.length, wouldRename: 0, renamed: 0, both: 0, failed: {} as Record<string, number> };
     for (const home of found.homes) {
       try {

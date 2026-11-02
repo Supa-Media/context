@@ -21,6 +21,8 @@ import type * as functions_billing from "../functions/billing.js";
 import type * as functions_texChatHomeCensus from "../functions/texChatHomeCensus.js";
 import type * as functions_texGroupMigration from "../functions/texGroupMigration.js";
 import type * as functions_texGroupMigrationRows from "../functions/texGroupMigrationRows.js";
+import type * as functions_texFolderNames from "../functions/texFolderNames.js";
+import type * as functions_texFolderNamesRows from "../functions/texFolderNamesRows.js";
 import type * as functions_texReviewScoresRebuild from "../functions/texReviewScoresRebuild.js";
 import type * as functions_texTriageWatch from "../functions/texTriageWatch.js";
 import type * as functions_accessObjectsRows from "../functions/accessObjectsRows.js";
@@ -257,6 +259,8 @@ declare const fullApi: ApiFromModules<{
   "functions/texChatHomeCensus": typeof functions_texChatHomeCensus;
   "functions/texGroupMigration": typeof functions_texGroupMigration;
   "functions/texGroupMigrationRows": typeof functions_texGroupMigrationRows;
+  "functions/texFolderNames": typeof functions_texFolderNames;
+  "functions/texFolderNamesRows": typeof functions_texFolderNamesRows;
   "functions/texReviewScoresRebuild": typeof functions_texReviewScoresRebuild;
   "functions/texTriageWatch": typeof functions_texTriageWatch;
   "functions/accessObjectsRows": typeof functions_accessObjectsRows;
