@@ -1,5 +1,6 @@
 import { oauthError } from "./responses.js";
 import { authenticateClient, readForm, repeatedParameter } from "./token.js";
+import { revokeAnywhere } from "./objectGrants.js";
 
 /* -------------------------------- revoke ---------------------------------- */
 
@@ -14,7 +15,7 @@ import { authenticateClient, readForm, repeatedParameter } from "./token.js";
  * RFC 7009 §2.2 requires 200 whether or not anything matched — an error would
  * turn this endpoint into an oracle for which tokens are live.
  */
-export async function handleRevoke(request, env, controlPlane) {
+export async function handleRevoke(request, env, controlPlane, { objects } = {}) {
   const params = await readForm(request);
   if (!params) {
     return oauthError(
@@ -52,10 +53,10 @@ export async function handleRevoke(request, env, controlPlane) {
       still costs one call, and the answer is an unconditional 200 either way.
     */
     const hinted = hint === "access_token" ? "access" : "refresh";
-    const other = hinted === "access" ? "refresh" : "access";
     try {
-      const revoked = await controlPlane.revokeGrant(token, hinted, client.clientId);
-      if (!revoked) await controlPlane.revokeGrant(token, other, client.clientId);
+      // The hinted type first, then the other; a switched person's token is revoked in their object first
+      // (`objectGrants.js`).
+      await revokeAnywhere({ env, controlPlane, token, hint: hinted, clientId: client.clientId, ...(objects ? { objects } : {}) });
     } catch {
       // Swallowed deliberately: a failure here must not tell the caller whether
       // the token existed. The control plane logs it.

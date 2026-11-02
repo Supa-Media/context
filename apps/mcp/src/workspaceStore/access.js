@@ -56,8 +56,14 @@ export const ACCESS_OPS = Object.freeze({
   CONNECTIONS_PUT: "person.connections.put",
   CONNECTIONS_REVOKE: "person.connections.revoke",
   CONNECTIONS_LIST: "person.connections.list",
-  /** `{refreshHash, next: {tokenHash, refreshHash, expiresAt, scopes?}, at}` → `{connection}` or `{connection: null}`; a spent refresh hash revokes the grant. */
+  /**
+   * `{refreshHash, clientId, next: {tokenHash, refreshHash, expiresAt, scopes?}, at}` → `{connection}` or `{connection: null}`; a spent refresh
+   * hash revokes the grant. Only for the client that holds it, only once the person is switched, and only while the workspace the connection
+   * was made at is still in reach (the control plane's rule: nobody refreshes their way back in).
+   */
   CONNECTIONS_ROTATE: "person.connections.rotate",
+  /** `{tokenHash, clientId, at}` → `{revoked, grantId}`: RFC 7009, by either of a connection's token hashes, only for the client that holds it. */
+  CONNECTIONS_REVOKE_TOKEN: "person.connections.unplug",
   /** `{userId, personalWorkspaceId}`: which person this object belongs to, set once. `{}` → `{userId, home}`. */
   PERSON_PIN: "person.pin",
   PERSON_STATE: "person.state",

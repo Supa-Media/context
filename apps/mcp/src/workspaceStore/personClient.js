@@ -19,7 +19,8 @@ export function personAccessClient(ask, personalWorkspaceId) {
   });
   const access = Object.fromEntries(Object.entries(TABLES).map(([key, name]) => [key, table(name)]));
   access.connections.revoke = async (grantId, at) => await call(ACCESS_OPS.CONNECTIONS_REVOKE, { grantId, at });
-  access.connections.rotate = async ({ refreshHash, next, at }) => (await call(ACCESS_OPS.CONNECTIONS_ROTATE, { refreshHash, next, at })).connection ?? null;
+  access.connections.rotate = async ({ refreshHash, clientId, next, at }) => (await call(ACCESS_OPS.CONNECTIONS_ROTATE, { refreshHash, clientId, next, at })).connection ?? null;
+  access.connections.revokeToken = async ({ tokenHash, clientId, at }) => await call(ACCESS_OPS.CONNECTIONS_REVOKE_TOKEN, { tokenHash, clientId, at });
   access.session = async (tokenHash) => (await call(ACCESS_OPS.SESSION, { tokenHash })).session ?? null;
   access.touch = async (tokenHash, at = Date.now()) => await call(ACCESS_OPS.TOUCH, { tokenHash, at });
   access.pin = async (userId) => await call(ACCESS_OPS.PERSON_PIN, { userId });

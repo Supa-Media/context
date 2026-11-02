@@ -11,7 +11,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { badRequest, json } from "../gatewayAuth";
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
-const OPS = new Set(["remove_member", "set_role", "revoke_invite", "revoke_connection"]);
+const OPS = new Set(["remove_member", "set_role", "revoke_invite", "revoke_connection", "rotate_connection"]);
 
 export async function gatewayAccessMirrorHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const workspaceId = body.workspaceId;

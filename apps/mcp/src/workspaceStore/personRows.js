@@ -171,8 +171,10 @@ export function personRows(sql) {
    * A refresh: the presented refresh hash is spent and the next pair takes over, in one call. A refresh hash already
    * spent revokes its grant (OAuth 2.1 rotation: a replayed refresh token leaked). `null` for anything that is not live.
    */
-  function rotate({ refreshHash, next, at }, now = Date.now()) {
+  function rotate({ refreshHash, clientId, next, at }, now = Date.now()) {
     if (typeof refreshHash !== "string" || !TOKEN_HASH.test(refreshHash)) return { connection: null };
+    // Before the switch the control plane is the authority, and a rotation here would fork the two copies.
+    if ((meta("person.home") ?? ACCESS_HOMES.CONVEX) !== ACCESS_HOMES.OBJECT) return { connection: null };
     const spent = all(sql.exec(`SELECT grant_id FROM access_spent WHERE refresh_hash = ?`, refreshHash))[0];
     if (spent !== undefined) {
       revoke(spent.grant_id, Number.isFinite(at) ? at : now);
@@ -180,12 +182,26 @@ export function personRows(sql) {
     }
     const row = connectionBy("refresh_hash", refreshHash);
     if (row === null || row.status !== "active") return { connection: null };
+    // A client refreshes only its own grant, and nobody refreshes their way back into a workspace they left.
+    if (typeof clientId !== "string" || row.clientId !== clientId) return { connection: null };
+    if (!live("reach").some((held) => held.workspaceId === row.workspaceId && !held.pinned)) return { connection: null };
     const scopes = Array.isArray(next?.scopes) && next.scopes.length > 0 ? next.scopes.filter((scope) => row.scopes.includes(scope)) : row.scopes;
     if (scopes.length === 0) return { connection: null };
     const rotated = checkConnection({ ...row, scopes, tokenHash: next?.tokenHash, refreshHash: next?.refreshHash, expiresAt: next?.expiresAt, at: Math.max(Number.isFinite(at) ? at : now, row.at) });
     sql.exec(`INSERT INTO access_spent (refresh_hash, grant_id) VALUES (?, ?) ON CONFLICT(refresh_hash) DO NOTHING`, refreshHash, row.grantId);
     keep("connections", rotated);
     return { connection: withoutHashes(rotated) };
+  }
+
+  /**
+   * RFC 7009 by token: either hash, access or refresh (§2.1 extends the search across types), and only for the client
+   * that holds the grant, so no client can disconnect another. Every miss is the same `{revoked: false}`.
+   */
+  function revokeToken({ tokenHash, clientId, at }, now = Date.now()) {
+    const row = connectionBy("token_hash", tokenHash) ?? connectionBy("refresh_hash", tokenHash);
+    if (row === null || typeof clientId !== "string" || row.clientId !== clientId || row.status !== "active") return { revoked: false };
+    revoke(row.grantId, Number.isFinite(at) ? at : now);
+    return { revoked: true, grantId: row.grantId };
   }
 
   return {
@@ -207,6 +223,7 @@ export function personRows(sql) {
     },
     rotate,
     revoke,
+    revokeToken,
     person: () => meta("person.userId"),
     home: () => meta("person.home") ?? ACCESS_HOMES.CONVEX,
     setHome(home) {

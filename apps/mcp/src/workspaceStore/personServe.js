@@ -56,6 +56,8 @@ export async function servePersonCall(store, op, fields, now = Date.now()) {
         return Response.json(person.revoke(fields.grantId, fields.at));
       case ACCESS_OPS.CONNECTIONS_ROTATE:
         return Response.json(person.rotate(fields, now));
+      case ACCESS_OPS.CONNECTIONS_REVOKE_TOKEN:
+        return Response.json(person.revokeToken(fields, now));
       case ACCESS_OPS.PERSON_PIN:
         return Response.json(person.pin(fields.userId));
       case ACCESS_OPS.PERSON_HOME:

@@ -194,10 +194,10 @@ test("a refresh spends its token; presenting the spent one again revokes the who
   const env = { WORKSPACE_STORE: namespace() };
   const { client, refresh } = await person(env, { pwid: "pD", userId: "uD", grantId: "gD", secret: SECRET("d") });
   const next = { tokenHash: "1".repeat(64), refreshHash: "2".repeat(64), expiresAt: FUTURE };
-  const rotated = await client.connections.rotate({ refreshHash: await sha256Hex(refresh), next, at: 30 });
+  const rotated = await client.connections.rotate({ refreshHash: await sha256Hex(refresh), clientId: "claude-ai", next, at: 30 });
   assert.equal(rotated.grantId, "gD");
   assert.ok(await client.session("1".repeat(64)));
-  assert.equal(await client.connections.rotate({ refreshHash: await sha256Hex(refresh), next: { ...next, tokenHash: "3".repeat(64) }, at: 31 }), null);
+  assert.equal(await client.connections.rotate({ refreshHash: await sha256Hex(refresh), clientId: "claude-ai", next: { ...next, tokenHash: "3".repeat(64) }, at: 31 }), null);
   assert.equal(await client.session("1".repeat(64)), null, "the live token died with the grant");
 });
 

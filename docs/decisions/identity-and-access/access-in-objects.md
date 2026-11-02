@@ -47,6 +47,28 @@ object first, person object second. So a removed member is refused on their
 next request even while the copy is on its way, and a failed copy fails the
 call so it is retried, never reported done.
 
+## A switched person's connections
+
+The gateway makes, refreshes and revokes them in the person object
+(`apps/mcp/src/oauth/objectGrants.js`). A new connection: the control plane
+makes the grant row first, written behind (its id is the connection's, and it
+re-checks membership and clamps scopes as it always has), then the object
+keeps the connection; if the object refuses it, the row is revoked. A refresh
+rotates in the object (client, reach and reuse checks there), then the copy
+follows; a copy that fails to follow is logged, never a failed refresh, since
+the old refresh token is already spent. A revocation is the object first, then
+the copy, because an old access token still resolves through the control plane
+until it expires. The control plane refuses to rotate a switched person's grant
+and hands a revocation back to the gateway with the grant's id.
+
+## Convex keeps a read-only copy of membership
+
+Decided by the owner, 2026-11-02: Convex's own membership checks (about 160
+call sites in queries and mutations, which cannot call an object) keep reading
+Convex's rows, kept as a read-only copy that is written before an object's
+change reports done (`functions/accessMirror.ts`). The object stays the
+authority; nothing writes the copy except behind it.
+
 ## What a simplification would cost
 
 - Keeping a second copy in Convex "for safety" is two answers to who may read,

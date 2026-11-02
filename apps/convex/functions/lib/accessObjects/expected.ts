@@ -264,22 +264,27 @@ export async function connectionsOf(ctx: QueryCtx, userId: Id<"users">, now: num
         .first();
       names.set(grant.clientId, { name: client?.clientName ?? null, machine: client !== null && isDesktopShellClient(client) });
     }
-    rows.push({
-      grantId: String(grant._id),
-      clientId: grant.clientId,
-      clientName: names.get(grant.clientId)?.name ?? null,
-      workspaceId: String(grant.workspaceId),
-      scopes: [...grant.scopes],
-      tokenHash: grant.hashedAccessToken ?? null,
-      refreshHash: grant.hashedRefreshToken,
-      previousRefreshHash: grant.previousHashedRefreshToken ?? null,
-      expiresAt: grant.accessTokenExpiresAt ?? 0,
-      status: grant.status,
-      lastUsedAt: grant.lastUsedAt ?? null,
-      createdAt: grant.createdAt,
-      machine: names.get(grant.clientId)?.machine ?? false,
-      at: now,
-    });
+    rows.push(connectionRow(grant, names.get(grant.clientId) ?? { name: null, machine: false }, now));
   }
   return { rows, skipped };
+}
+
+/** One grant as its person object keeps it (`apps/mcp/src/workspaceStore/access.js` `checkConnectionRow`). */
+export function connectionRow(grant: Doc<"oauthGrants">, client: { name: string | null; machine: boolean }, now: number): Row {
+  return {
+    grantId: String(grant._id),
+    clientId: grant.clientId,
+    clientName: client.name,
+    workspaceId: String(grant.workspaceId),
+    scopes: [...grant.scopes],
+    tokenHash: grant.hashedAccessToken ?? null,
+    refreshHash: grant.hashedRefreshToken,
+    previousRefreshHash: grant.previousHashedRefreshToken ?? null,
+    expiresAt: grant.accessTokenExpiresAt ?? 0,
+    status: grant.status,
+    lastUsedAt: grant.lastUsedAt ?? null,
+    createdAt: grant.createdAt,
+    machine: client.machine,
+    at: now,
+  };
 }
