@@ -151,21 +151,19 @@ const DIR = fileURLToPath(new URL("../.github/workflows", import.meta.url));
  * correctly named `deploy-*.yml`, so every one of them is classified by NAME
  * before any command is read, and rules B and C apply to them whatever they run.
  * What this list actually buys is the other direction — a NEW workflow that
- * deploys in one of these eight obvious ways cannot quietly avoid the name.
+ * deploys in one of these nine obvious ways cannot quietly avoid the name.
  */
 const DEPLOY_COMMANDS = [
   /\bwrangler\s+(?:pages\s+)?deploy\b/,
   /\bwrangler\s+versions\s+upload\b/,
   /\bconvex\s+deploy\b/,
-  /\beas\s+deploy\b/,
-  /\beas\s+update\b/,
+  /\beas\s+(?:deploy|update)\b/,
   // `eas build` signs a binary with the account's distribution certificate and
   // `eas submit` hands it to a store. Both were unmatched until
   // deploy-mobile-native.yml was written, and the list above used
   // `eas build --auto-submit` as its example of the gap — accurate, and the
   // reason a workflow that submits to the App Store could have worn any name.
-  /\beas\s+build\b/,
-  /\beas\s+submit\b/,
+  /\beas\s+(?:build|submit)\b/,
   // `electron-builder` is the desktop app's `eas build`, and it is here for the
   // same reason: it signs a binary with the account's Developer ID certificate
   // and notarises it with Apple. Unmatched, `deploy-desktop.yml` would have been
@@ -173,8 +171,7 @@ const DEPLOY_COMMANDS = [
   // which is the exemption-in-disguise the NAME rule exists to refuse.
   /\belectron-builder\b/,
   /\buses:\s*\S*deploy[^\s]*\.ya?ml/,
-  // Dispatching a deploy workflow is deploying: deploy-production-start.yml
-  // starts production on every merge with nothing else in it (2026-11-02).
+  // Dispatching one is deploying: deploy-production-start.yml (2026-11-02).
   /\bgh\s+workflow\s+run\s+deploy[\w-]*\.ya?ml\b/,
 ];
 
