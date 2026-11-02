@@ -12,7 +12,7 @@
  * else, which is where a wall usually lives.
  */
 
-import { THIN_PAGE_CHARS } from "./publishedText.js";
+import { THIN_PAGE_CHARS } from "./otherSites.js";
 
 /** A short page saying it can't be read: a sign-in, a script or a robot wall, an error. */
 const WALL =
