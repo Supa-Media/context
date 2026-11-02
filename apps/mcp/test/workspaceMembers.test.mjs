@@ -109,7 +109,7 @@ test("an invite's token hash finds the live invite; once removed it is not found
   const found = m.inviteByToken(HASH);
   assert.equal(found.id, "inv_1");
   assert.equal(found.email, "a@example.com");
-  assert.equal("tokenHash" in found, false);
+  assert.equal(found.tokenHash, HASH);
 
   assert.deepEqual(m.remove("invites", ["inv_1"], 5), ["inv_1"]);
   assert.equal(m.inviteByToken(HASH), null);
@@ -184,12 +184,12 @@ test("digest(members) equals accessDigest over the live member rows, whatever or
   assert.deepEqual(after, await accessDigest("members", live().filter((row) => row.userId !== "user_c")));
 });
 
-test("digest(invites) equals accessDigest over checkInviteRow of the live invites, which never carry a token hash", { skip }, async () => {
+test("digest(invites) equals accessDigest over checkInviteRow of the live invites", { skip }, async () => {
   const m = workspaceMembers(durableSql());
   const phoneInvite = { id: "inv_2", phone: "+15555550100", role: "editor", invitedBy: "user_o", expiresAt: 9999999, at: 1 };
   const inputs = [invite("inv_1", { tokenHash: HASH }), phoneInvite, invite("inv_3")];
   m.put("invites", inputs);
-  const expected = inputs.map(({ tokenHash, ...row }) => checkInviteRow(row));
+  const expected = inputs.map((row) => checkInviteRow(row));
   assert.deepEqual(await m.digest("invites"), await accessDigest("invites", expected));
 
   m.remove("invites", ["inv_3"], 2);

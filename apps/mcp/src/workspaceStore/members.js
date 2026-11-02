@@ -5,8 +5,8 @@
  *
  * - **Members**: `checkMemberRow` rows, `{userId, personalWorkspaceId, role, groups, at}`, keyed by `userId`. `groups`
  *   are the workspace's group names the person is in, without `@`, as the control plane's `workspaceGroups.name`.
- * - **Invites**: `checkInviteRow` rows, keyed by `id`, plus an optional `tokenHash` (the invitation token's sha256) so
- *   accepting can find one here; a token itself is never kept. An invite never offers `owner`.
+ * - **Invites**: `checkInviteRow` rows, keyed by `id`, to one email, phone or handle, with an optional `tokenHash` (the
+ *   invitation token's sha256) so accepting can find one here; a token itself is never kept. Never `owner`.
  * - **Group names**: every group name a member row has ever carried, never forgotten, so a grant still carrying one
  *   is recognised as this workspace's group and judged by the member's groups now (`judgedReader`).
  * - **Home**: where this workspace's members are read from (`ACCESS_HOMES`): `convex` (the control plane decides;
@@ -40,12 +40,9 @@ function memberRow(row) {
 }
 
 function inviteRow(row) {
+  // `checkInviteRow` refuses `owner`: an invitation never hands a workspace over.
   const checked = checkInviteRow(row);
-  // An invitation never hands a workspace over: owning one is a separate, deliberate act.
-  if (checked.role === "owner") throw new AccessRowRefused("an invite's role is editor or member");
-  const tokenHash = row.tokenHash ?? null;
-  if (tokenHash !== null && !(typeof tokenHash === "string" && TOKEN_HASH.test(tokenHash))) throw new AccessRowRefused("an invite keeps only its token's sha256");
-  return { checked, tokenHash };
+  return { checked, tokenHash: checked.tokenHash };
 }
 
 const checkRow = (name, row) => (name === "members" ? { checked: memberRow(row), tokenHash: null } : inviteRow(row));
