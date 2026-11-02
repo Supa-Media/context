@@ -12,8 +12,10 @@ _Part of [the texting assistant](../texting-assistant.md). Decided by the owner,
 | Open jobs | `jobs.md` | `jobs.md` (`chatJobs.js`, read straight from the chat's object once its key is kept) |
 | Reminders and check-ins | `routines/` | `routines/` (to come; today in the bound workspace, tagged `chat:`) |
 | Daily notes | `transcripts/` | `transcripts/` (to come) |
-| What Tex learned | `skills/` | `skills/` (to come) |
+| What Tex learned | `skills/` | `skills/` (`chatSkills.js`: the same notes and rules; written unless the turn read something from outside the chat) |
 | Mail, calendar, tidying | `heartbeat/`, `attention/`, `dreams/`, `handbacks/`, `housekeeping/` | none: a chat has no mailbox or calendar |
+
+A chat's people are inside it (the owner, 2026-11-02: "as long as it's inside the texts from people in that group, then it's fine ... it's almost like they give combined consent"). A group turn still holds its sends as any turn carrying other people's words does (`markChatWords`), but only a page, an email or a file read that turn (`ledger.outside`) stops it writing a skill in its home. A home's skill is never archived (that would carry it out of the seal) and has no `used:` stamp or dream retiring it yet.
 
 Where each home is does not change. The workspace's playbook stays in the bound workspace (`tex/groups/playbook.md`). Each history stays one copy in its Durable Object, read before the model with About me; nothing here adds a second.
 

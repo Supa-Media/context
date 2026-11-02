@@ -35,6 +35,7 @@ test/agentJobPlanner.test.mjs
 test/agentJobs.test.mjs
 test/contextOpenOnce.test.mjs
 test/chatHomeWrite.test.mjs
+test/chatSkills.test.mjs
 test/jobLogAppend.test.mjs
 test/agentLocalNow.test.mjs
 test/agentPromptCache.test.mjs
