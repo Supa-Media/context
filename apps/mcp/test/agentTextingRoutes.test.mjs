@@ -8,7 +8,7 @@
  *
  *  1. A route not checking the client or the write scope (drop the
  *     `texting(session) || hasScope` check in `handleEvents`) → "only the
- *     texting Worker with write scope reaches the three routes".
+ *     texting Worker with write scope reaches the four routes".
  *  2. `http/route.js` not resolving the session for them (drop
  *     `TEXTING_ROUTES.has(path)` from the authenticated list) → "no token is
  *     refused the same as a bad one, on every route".
@@ -58,6 +58,9 @@
  *     is ignored by the turn" (each run 2026-10-27, each failed it).
  * 18. `track` not taking back the mark of a held call → "a cancel after the
  *     last round still withdraws the turn's asks" (run 2026-10-27).
+ *
+ * 19. `handleChat` not checking the client or the write scope → "only the texting
+ *     Worker with write scope reaches the four routes" (run 2026-11-02).
  *
  * Changed behaviour (2026-10-27, not a sabotage): `/agent/cancel` answers
  * `{ cancelled: false }` and marks nothing unless the named turn is running
@@ -222,13 +225,14 @@ beforeEach(async () => {
 
 const ROUTES = [
   ["/agent/events", () => ({ conversation: "texts", events: [event()] })],
+  ["/agent/chat", () => ({ conversation: "texts", chat: CHAT })],
   ["/agent/cancel", () => ({ turn: TURN })],
   ["/agent/stale", () => ({ asks: ["a1"] })],
 ];
 
 /* ---------------- auth ---------------- */
 
-test("only the texting Worker with write scope reaches the three routes", async () => {
+test("only the texting Worker with write scope reaches the four routes", async () => {
   for (const [path, body] of ROUTES) {
     for (const token of [TOKEN_OTHER, TOKEN_READONLY]) {
       const refused = await call(path, body(), token);
@@ -299,6 +303,39 @@ test("a person's chat is the texting grant's, and a group's the group grant's", 
   assert.equal((await call("/agent/events", { conversation: { group: CHAT }, events: [event()] })).status, 400);
   assert.equal((await call("/agent/events", { conversation: { group: CHAT }, events: [event()] }, TOKEN_GROUP)).status, 200);
   assert.equal((await call("/agent/events", { conversation: { group: "another-chat" }, events: [event()] }, TOKEN_GROUP)).status, 400, "every event is the named chat's");
+});
+
+/* ---------------- chat ---------------- */
+
+test("the Worker reads the chat's last day from its ledger, as its own events, oldest first", async () => {
+  const said = [event({ text: "first", at: NOW - 3_000 }), event({ from: { kind: "tex" }, text: "second", at: NOW - 2_000, turn: TURN, delivered: true }), event({ text: "third", at: NOW - 1_000 })];
+  assert.equal((await call("/agent/events", { conversation: "texts", events: [said[2], said[0], said[1]] })).status, 200);
+  const read = await call("/agent/chat", { conversation: "texts", chat: CHAT });
+  assert.equal(read.status, 200);
+  assert.deepEqual(read.body.events.map((one) => [one.id, one.text, one.chat, one.kind]), said.map((one) => [one.id, one.text, CHAT, "text"]));
+  assert.deepEqual(read.body.events[1].from, { kind: "tex" });
+  assert.equal(read.body.events[1].turn, TURN);
+});
+
+test("a group grant that names no chat reads nothing, never the person's own chat; each grant reads only its own kind of chat", async () => {
+  assert.equal((await call("/agent/events", { conversation: "texts", events: [event({ text: "only theirs" })] })).status, 200);
+  const group = await call("/agent/chat", { conversation: { group: CHAT } }, TOKEN_GROUP);
+  assert.deepEqual(group, { status: 200, body: { events: [] } });
+  assert.equal((await call("/agent/chat", { conversation: "texts", chat: CHAT }, TOKEN_GROUP)).status, 400);
+  assert.equal((await call("/agent/chat", { conversation: { group: CHAT } })).status, 400);
+  assert.equal((await call("/agent/chat", { conversation: "texts" })).status, 400, "a person's chat is named");
+});
+
+test("a ledger that can't be read is an error, never a chat that looks empty", async () => {
+  tex.before = async (_owner, call) => {
+    if (call.op === "ledger_read") throw new Error("object unavailable");
+  };
+  try {
+    const response = await raw("/agent/chat", { conversation: "texts", chat: CHAT });
+    assert.ok(response.status >= 500, `an unread ledger is an error, not ${response.status}`);
+  } finally {
+    tex.before = undefined;
+  }
 });
 
 /* ---------------- cancel ---------------- */
