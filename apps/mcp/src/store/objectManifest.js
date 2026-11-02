@@ -70,7 +70,7 @@ export function objectFirstManifest(readControl, options, { defer = null } = {})
       log("workspace_object_manifest_failed", { workspaceId, error: String(error?.message ?? error) });
       return await control();
     }
-    if (await settledBehind(pending)) return await control();
+    if (await settledBehind(pending, answer)) return await control();
     if (!wellFormed(answer)) {
       log("workspace_object_manifest_unserved", { workspaceId });
       return await control();

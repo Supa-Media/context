@@ -36,6 +36,7 @@ test/agentJobs.test.mjs
 test/contextOpenOnce.test.mjs
 test/chatHomeWrite.test.mjs
 test/chatSkills.test.mjs
+test/homeRoutines.test.mjs
 test/jobLogAppend.test.mjs
 test/agentLocalNow.test.mjs
 test/agentPromptCache.test.mjs
@@ -343,7 +344,11 @@ test/chatLedger.test.mjs
 test/objectManifest.test.mjs
 test/chatLedgerWrites.test.mjs
 test/chatLedgerReads.test.mjs
+test/chatLedgerBackfill.test.mjs
 test/texPage.test.mjs
 test/texPageLive.test.mjs
 test/texPageNotes.test.mjs
 test/texPageRoutes.test.mjs
+test/workspaceMarks.test.mjs
+test/texPageViews.test.mjs
+test/ledgerWorkEntries.test.mjs

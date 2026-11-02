@@ -141,23 +141,80 @@ export function texLedger(sql, { now = Date.now, guard = () => {} } = {}) {
     },
 
     /**
+     * Put entries before everything the chat's ledger holds, in the order
+     * given (oldest first): what the chat said before its ledger began, copied
+     * in once (`agent/ledgerBackfill.js`). Their `seq` counts down from the
+     * oldest kept, so every reader still reads the chat in order. An id
+     * already kept is left out, as in `append`.
+     */
+    prepend(chat, entries) {
+      checkChat(chat);
+      if (!Array.isArray(entries) || entries.length === 0 || entries.length > MAX_APPEND) throw new TexObjectRefused(`a prepend takes 1 to ${MAX_APPEND} entries`);
+      const at = now();
+      const checked = entries.map((entry) => {
+        const kept = checkEntry(entry, at);
+        const text = JSON.stringify(kept);
+        if (encoder.encode(text).byteLength > MAX_ENTRY_BYTES) throw new TexObjectRefused(`an entry larger than ${MAX_ENTRY_BYTES} bytes`);
+        return { kept, text };
+      });
+      guard();
+      const fresh = [];
+      const seen = new Set();
+      for (const item of checked) {
+        if (seen.has(item.kept.id)) continue;
+        seen.add(item.kept.id);
+        if (rows(sql.exec("SELECT 1 AS one FROM ledger WHERE chat = ? AND id = ?", chat, item.kept.id)).length > 0) continue;
+        fresh.push(item);
+      }
+      const lowest = rows(sql.exec("SELECT MIN(seq) AS seq FROM ledger WHERE chat = ?", chat))[0]?.seq;
+      let seq = (lowest === null || lowest === undefined ? 1 : Number(lowest)) - fresh.length;
+      let bytes = 0;
+      const kinds = new Set();
+      for (const { kept, text } of fresh) {
+        sql.exec("INSERT INTO ledger (chat, seq, id, at, kind, entry) VALUES (?, ?, ?, ?, ?, ?)", chat, seq, kept.id, kept.at, kept.kind, text);
+        seq += 1;
+        bytes += text.length;
+        kinds.add(kept.kind);
+      }
+      if (fresh.length > 0) {
+        const row = manifestRow(chat);
+        const oldest = Math.min(...fresh.map(({ kept }) => kept.at));
+        if (row === null) sql.exec("INSERT INTO ledger_chats (chat, version, created, updated, count, bytes) VALUES (?, ?, ?, ?, ?, ?)", chat, LEDGER_VERSION, oldest, at, fresh.length, bytes);
+        else sql.exec("UPDATE ledger_chats SET created = MIN(created, ?), count = count + ?, bytes = bytes + ? WHERE chat = ?", oldest, fresh.length, bytes, chat);
+      }
+      return { added: fresh.length, kinds: [...kinds] };
+    },
+
+    /** The oldest entry a chat's ledger keeps, `{id, at}`, or null when it keeps none. */
+    oldest(chat) {
+      checkChat(chat);
+      const found = rows(sql.exec("SELECT id, at FROM ledger WHERE chat = ? ORDER BY seq LIMIT 1", chat))[0];
+      return found ? { id: String(found.id), at: Number(found.at) } : null;
+    },
+
+    /**
      * A chat's ledger as one document: `{manifest, entries}`, each entry with
      * its `seq`. Oldest first; with `before`, the newest `limit` entries
      * before that seq, newest first. `after` reads on from a seq, `kinds`
      * keeps only those kinds. `next` is the seq to pass as `after` for more,
      * when the read stopped at `limit`. `slim` leaves out a tool call's
-     * arguments and result and a reply's words (what a turn's prompt reads).
+     * arguments and result and a reply's words (what a turn's prompt reads);
+     * `since` / `until` keep entries in that span of time.
      */
-    read(chat, { after = 0, before = null, kinds = null, limit = MAX_READ, slim = false } = {}) {
+    read(chat, { after = null, before = null, kinds = null, limit = MAX_READ, slim = false, since = null, until = null } = {}) {
       checkChat(chat);
       const size = Math.min(MAX_READ, Number.isSafeInteger(limit) && limit > 0 ? limit : MAX_READ);
       const wanted = Array.isArray(kinds) ? kinds.filter((kind) => LEDGER_KINDS.has(kind)) : null;
       const kindClause = wanted === null ? "" : wanted.length === 0 ? " AND 0" : ` AND kind IN (${wanted.map(() => "?").join(",")})`;
-      const binds = wanted ?? [];
-      const newest = Number.isSafeInteger(before) && before > 0;
+      // `since` / `until`: only entries at or after, and before, those times (a day in the viewer).
+      const from = Number.isSafeInteger(since) ? since : null;
+      const to = Number.isSafeInteger(until) ? until : null;
+      const timeClause = `${from === null ? "" : " AND at >= ?"}${to === null ? "" : " AND at < ?"}`;
+      const binds = [...(wanted ?? []), ...(from === null ? [] : [from]), ...(to === null ? [] : [to])];
+      const newest = Number.isSafeInteger(before);
       const found = newest
-        ? rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq < ?${kindClause} ORDER BY seq DESC LIMIT ?`, chat, before, ...binds, size + 1))
-        : rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq > ?${kindClause} ORDER BY seq LIMIT ?`, chat, Number.isSafeInteger(after) && after > 0 ? after : 0, ...binds, size + 1));
+        ? rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq < ?${kindClause}${timeClause} ORDER BY seq DESC LIMIT ?`, chat, before, ...binds, size + 1))
+        : rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq > ?${kindClause}${timeClause} ORDER BY seq LIMIT ?`, chat, Number.isSafeInteger(after) ? after : -Number.MAX_SAFE_INTEGER, ...binds, size + 1));
       const more = found.length > size;
       const entries = found.slice(0, size).map((row) => {
         const entry = { ...JSON.parse(row.entry), seq: Number(row.seq) };

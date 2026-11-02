@@ -288,3 +288,46 @@ test("the live socket: no token is refused; alice's goes to her chat's own Tex o
     world.restore();
   }
 });
+
+// The chat's history file (`src/http/texPage/ledger.js`; owner, 2026-11-02): the ledger raw with filters, and what Tex sees.
+test("alice reads her chat's history file raw, by kind and by day, and what Tex sees", async () => {
+  const world = await setUp();
+  try {
+    const { ledgerFor, eventEntry, toolEntry, wordsEntry } = await import("../src/agent/ledger.js");
+    const ledger = ledgerFor(world.env, { person: "ws_alice" });
+    const at = Date.UTC(2026, 9, 30, 16, 0, 0); // Oct 30, noon in New York
+    const asked = { id: `${at}-000001`, at, chat: "c", from: { kind: "person", name: "alice" }, kind: "text", text: "find me a dentist" };
+    const answered = { id: `${at + 9000}-000002`, at: at + 9000, chat: "c", from: { kind: "tex" }, kind: "text", text: "Dr Lee, Thursday 3pm.", turn: "turnAlice1", covers: [asked.id], delivered: true };
+    await ledger.append("texts", [
+      eventEntry(asked),
+      wordsEntry("thinking", "they want a dentist", { turn: "turnAlice1", at: at + 1000 }),
+      toolEntry({ name: "web_search", args: { query: "dentist" }, ok: true, ms: 40, result: "Dr Lee" }, { ownSlug: "alice", turn: "turnAlice1", at: at + 2000 }),
+      eventEntry(answered),
+      wordsEntry("reply", "Dr Lee, Thursday 3pm.", { turn: "turnAlice1", clean: true, at: at + 9500 }),
+    ]);
+    const raw = await ask(world, "/tex/page/ledger", { token: T.alice, body: { handle: "alice", chat: "me", view: "raw" } });
+    assert.equal(raw.status, 200, raw.text);
+    assert.equal(raw.body.manifest.schema, "tex-ledger");
+    assert.deepEqual(raw.body.entries.map((entry) => entry.kind), ["text", "thinking", "tool", "text", "reply"]);
+    assert.equal(raw.body.entries[2].result, "Dr Lee", "raw is everything kept");
+    const thinking = await ask(world, "/tex/page/ledger", { token: T.alice, body: { handle: "alice", chat: "me", view: "raw", kinds: ["thinking"] } });
+    assert.deepEqual(thinking.body.entries.map((entry) => entry.text), ["they want a dentist"]);
+    const otherDay = await ask(world, "/tex/page/ledger", { token: T.alice, body: { handle: "alice", chat: "me", view: "raw", day: "2026-10-31" } });
+    assert.deepEqual(otherDay.body.entries, []);
+    const thatDay = await ask(world, "/tex/page/ledger", { token: T.alice, body: { handle: "alice", chat: "me", view: "raw", day: "2026-10-30" } });
+    assert.equal(thatDay.body.entries.length, 5);
+    const sees = await ask(world, "/tex/page/ledger", { token: T.alice, body: { handle: "alice", chat: "me", view: "sees" } });
+    assert.equal(sees.status, 200, sees.text);
+    assert.match(sees.body.text, /@alice: find me a dentist/);
+    assert.match(sees.body.text, /You: Dr Lee, Thursday 3pm\.\n\s+\(used: web_search\)/);
+    assert.ok(!sees.body.text.includes("they want a dentist"), "Tex is not shown its earlier thinking");
+    assert.equal(sees.body.settings.thinking, false);
+    // Bob can't read it, and his own group's history is his group's alone.
+    const bob = await ask(world, "/tex/page/ledger", { token: T.bob, body: { handle: "bob", chat: GROUP, view: "raw" } });
+    assert.equal(bob.status, 404);
+    const bobs = await ask(world, "/tex/page/ledger", { token: T.bob, body: { handle: "bob", chat: BOBS_GROUP, view: "raw" } });
+    assert.deepEqual(bobs.body.entries, []);
+  } finally {
+    world.restore();
+  }
+});

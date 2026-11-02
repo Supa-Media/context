@@ -98,9 +98,14 @@ export async function routineRecipients(
 ): Promise<string[]> {
   if (args.send === "note") return [];
   if ((await getMembership(ctx, args.workspaceId, args.writerUserId)) === null) return [];
-  const link = await ctx.db
+  return await writerPhones(ctx.db, args.writerUserId);
+}
+
+/** The writer's linked phone, or none. Who they may text is the caller's to have asked (`homes.ts` for a chat's home). */
+export async function writerPhones(db: QueryCtx["db"], userId: Id<"users">): Promise<string[]> {
+  const link = await db
     .query("phoneLinks")
-    .withIndex("by_user", (q) => q.eq("userId", args.writerUserId))
+    .withIndex("by_user", (q) => q.eq("userId", userId))
     .first();
   return link === null ? [] : [link.phone];
 }

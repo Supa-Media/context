@@ -17,6 +17,7 @@ import { useCallback } from "react";
 import { toFileError } from "../browser";
 import { type ReadResult, archiveEntries, collectNotes, collectOldCopies, downloadNotice, pathsUnder } from "../download";
 import { collectMessages, messagesFolderFor } from "../messagesDownload";
+import { collectChatLedger } from "../ledgerDownload";
 import { buildZip, downloadName } from "../zip";
 import { saveFile } from "../saveFile";
 import { afterPaste, planPaste, put } from "../clipboard";
@@ -55,6 +56,7 @@ type RowCommandsDeps =
     | "readNotesAction"
     | "readOldCopiesAction"
     | "readMessagesLogAction"
+    | "readChatLedgerAction"
     | "restoreTrashEntry"
     | "trashEntry"
     | "workspaceId"
@@ -97,7 +99,7 @@ type RowCommandsDeps =
 export function useRowCommands(deps: RowCommandsDeps) {
   const {
     archiveEntry, autosave, clipboard, copyEntry, dispatch, editorRef, drawListingMove, drawMove,
-    duplicateEntry, exportAccessAction, followRename, listOldCopiesAction, readOldCopiesAction, readMessagesLogAction, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
+    duplicateEntry, exportAccessAction, followRename, listOldCopiesAction, readOldCopiesAction, readMessagesLogAction, readChatLedgerAction, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
     queueRemovalOf, readNote, readNotesAction, renamingRef, restoreTrashEntry, run, select, selectedPath,
     setClipboard, setNotice, setSelectedPath, trashEntry, viaQueue, workspaceId,
     writeNote, beginOnlineMove, beginOnlineCreate, drawLocally, pendingMoveTo, pendingCreateTo, workspaceGenerationRef,
@@ -365,12 +367,17 @@ export function useRowCommands(deps: RowCommandsDeps) {
                 messagesFolderFor(notes.entries.map((entry) => entry.path)),
               )
             : { entries: [], short: false };
-          const entries = [...archiveEntries(notes.entries, access), ...old.entries, ...texts.entries];
+          // And their chat with Tex, its one record (`ledgerDownload.ts`).
+          const chat = path === ""
+            ? await collectChatLedger((after) => readChatLedgerAction({ workspaceId, ...(after === undefined ? {} : { after }) }))
+            : { entries: [], short: false };
+          const entries = [...archiveEntries(notes.entries, access), ...old.entries, ...texts.entries, ...chat.entries];
           const missed = [...notes.missed, ...old.missed];
           const saved = saveFile(downloadName(path, ".zip"), buildZip(entries), "application/zip");
           const shortLines = [
             old.short ? "Your old copies of mail and calendar could not all be listed, so they are not in it." : "",
             texts.short ? "Your Messages backup could not be read to the end, so it is not in it." : "",
+            chat.short ? "Your chat with Tex could not be read to the end, so it is not in it." : "",
           ].filter(Boolean).join(" ");
           setNotice(
             !saved
@@ -384,7 +391,7 @@ export function useRowCommands(deps: RowCommandsDeps) {
         }
       })();
     },
-    [exportAccessAction, listOldCopiesAction, notePathsAction, readMessagesLogAction, readNote, readNotesAction, readOldCopiesAction, workspaceId],
+    [exportAccessAction, listOldCopiesAction, notePathsAction, readChatLedgerAction, readMessagesLogAction, readNote, readNotesAction, readOldCopiesAction, workspaceId],
   );
 
   const archive = useCallback(

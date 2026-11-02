@@ -1,0 +1,54 @@
+name: Workspace object marks
+
+# Which writes that may narrow still reach Convex without telling the workspace's object first, and how many marks
+# are open now (`apps/convex/functions/workspaceObjectMarks.ts` `report`). Read-only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to read."
+        type: choice
+        options:
+          - staging
+          - production
+        default: production
+      hours:
+        description: "How far back to look, in hours."
+        type: string
+        default: "24"
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Report
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          HOURS: ${{ inputs.hours }}
+        run: |
+          set -euo pipefail
+          case "$HOURS" in (*[!0-9]*|"") echo "hours must be a whole number"; exit 1;; esac
+          since=$(( $(date +%s) * 1000 - HOURS * 3600 * 1000 ))
+          answer=$(npx convex run functions/workspaceObjectMarks:report "{\"since\": $since}" 2>/dev/null)
+          echo "$answer" | jq .
+          echo "### Workspace object marks (last $HOURS h)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$answer" | jq . >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

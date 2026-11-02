@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { grantProblem, type GrantList, type GrantWrite } from "./grants";
@@ -23,7 +23,8 @@ export function useShareGrants(workspaceId: string | null, path: string): ShareG
     api.functions.nodesAccess.shareList,
     workspaceId === null ? "skip" : { workspaceId: workspaceId as Id<"workspaces">, path },
   );
-  const setGrantees = useMutation(api.functions.nodesAccess.setGrantees);
+  // An action, so the list is shortened in the workspace's object before the dialog is told it saved.
+  const setGrantees = useAction(api.functions.nodesAccessFirst.setGrantees);
   const [saving, setSaving] = useState(false);
   const save = useCallback(
     async (write: GrantWrite, expectedVersion: number): Promise<string | null> => {

@@ -26,6 +26,7 @@ import type * as functions_texGroupMigrationRows from "../functions/texGroupMigr
 import type * as functions_texFolderNames from "../functions/texFolderNames.js";
 import type * as functions_texFolderNamesRows from "../functions/texFolderNamesRows.js";
 import type * as functions_texHistoryShape from "../functions/texHistoryShape.js";
+import type * as functions_texLedgerExport from "../functions/texLedgerExport.js";
 import type * as functions_texGroupLogShape from "../functions/texGroupLogShape.js";
 import type * as functions_texReviewScoresRebuild from "../functions/texReviewScoresRebuild.js";
 import type * as functions_texTriageWatch from "../functions/texTriageWatch.js";
@@ -162,6 +163,8 @@ import type * as functions_nodeMovesAdmin from "../functions/nodeMovesAdmin.js";
 import type * as functions_nodeRowMoves from "../functions/nodeRowMoves.js";
 import type * as functions_nodesPrivacy from "../functions/nodesPrivacy.js";
 import type * as functions_nodesAccess from "../functions/nodesAccess.js";
+import type * as functions_nodesAccessFirst from "../functions/nodesAccessFirst.js";
+import type * as functions_workspaceObjectMarks from "../functions/workspaceObjectMarks.js";
 import type * as functions_nodesPurge from "../functions/nodesPurge.js";
 import type * as functions_pageCovers from "../functions/pageCovers.js";
 import type * as functions_owners from "../functions/owners.js";
@@ -276,6 +279,7 @@ declare const fullApi: ApiFromModules<{
   "functions/texFolderNamesRows": typeof functions_texFolderNamesRows;
   "functions/texGroupLogShape": typeof functions_texGroupLogShape;
   "functions/texHistoryShape": typeof functions_texHistoryShape;
+  "functions/texLedgerExport": typeof functions_texLedgerExport;
   "functions/texReviewScoresRebuild": typeof functions_texReviewScoresRebuild;
   "functions/texTriageWatch": typeof functions_texTriageWatch;
   "functions/accessObjects": typeof functions_accessObjects;
@@ -411,6 +415,8 @@ declare const fullApi: ApiFromModules<{
   "functions/nodeRowMoves": typeof functions_nodeRowMoves;
   "functions/nodesPrivacy": typeof functions_nodesPrivacy;
   "functions/nodesAccess": typeof functions_nodesAccess;
+  "functions/nodesAccessFirst": typeof functions_nodesAccessFirst;
+  "functions/workspaceObjectMarks": typeof functions_workspaceObjectMarks;
   "functions/nodesPurge": typeof functions_nodesPurge;
   "functions/pageCovers": typeof functions_pageCovers;
   "functions/owners": typeof functions_owners;
