@@ -134,3 +134,12 @@ test("without a mark a lookup answers at once, with no behind", { skip }, async 
   assert.equal(answer.behind, undefined);
   assert.equal(answer.rows[0].found, true);
 });
+
+test("a folder listing while a change is coming says behind once its wait runs out", { skip }, async () => {
+  const object = await seeded();
+  await object.call("ws.mark.open", { token: "mark-gggggggg" });
+  const answer = (await object.call("ws.rows.manifest", { folder: "plans", scope: "team", groups: [] })).body;
+  assert.equal(answer.behind, true);
+  await object.call("ws.mark.close", { tokens: ["mark-gggggggg"] });
+  assert.equal((await object.call("ws.rows.manifest", { folder: "plans", scope: "team", groups: [] })).body.behind, undefined);
+});
