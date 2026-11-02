@@ -23,6 +23,8 @@ import type * as functions_texGroupMigration from "../functions/texGroupMigratio
 import type * as functions_texGroupMigrationRows from "../functions/texGroupMigrationRows.js";
 import type * as functions_texReviewScoresRebuild from "../functions/texReviewScoresRebuild.js";
 import type * as functions_texTriageWatch from "../functions/texTriageWatch.js";
+import type * as functions_accessObjects from "../functions/accessObjects.js";
+import type * as functions_accessObjectsExpected from "../functions/accessObjectsExpected.js";
 import type * as functions_accessObjectsRows from "../functions/accessObjectsRows.js";
 import type * as functions_workspaceObjects from "../functions/workspaceObjects.js";
 import type * as functions_workspaceObjectsRows from "../functions/workspaceObjectsRows.js";
@@ -259,6 +261,8 @@ declare const fullApi: ApiFromModules<{
   "functions/texGroupMigrationRows": typeof functions_texGroupMigrationRows;
   "functions/texReviewScoresRebuild": typeof functions_texReviewScoresRebuild;
   "functions/texTriageWatch": typeof functions_texTriageWatch;
+  "functions/accessObjects": typeof functions_accessObjects;
+  "functions/accessObjectsExpected": typeof functions_accessObjectsExpected;
   "functions/accessObjectsRows": typeof functions_accessObjectsRows;
   "functions/workspaceObjects": typeof functions_workspaceObjects;
   "functions/workspaceObjectsRows": typeof functions_workspaceObjectsRows;
