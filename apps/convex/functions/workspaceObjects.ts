@@ -633,6 +633,9 @@ export const parity = internalAction({
         const client = consoleWorkspaceClient(ctx, workspaceId);
         if (bucket === null || client === null) {
           counts.unreachable += 1;
+          const what = await ctx.runQuery(internal.functions.workspaceObjectsRows.describeUnopened, { workspaceId });
+          const label = `open:${bucket === null ? "no_bucket" : "no_object"}#${what}`;
+          counts.why[label] = (counts.why[label] ?? 0) + 1;
           finishWorkspace();
           continue;
         }
