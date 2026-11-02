@@ -20,6 +20,7 @@ import { createDreamMethods } from "./dreams.js";
 import { createAttentionMethods } from "./attention.js";
 import { createMailHealthMethods } from "./mailHealth.js";
 import { createAccessProfileMethods } from "./accessProfiles.js";
+import { createAccessMirrorMethods } from "./accessMirror.js";
 import { createIdentityMethods } from "./identity.js";
 import { createTranscriptionMethods } from "./transcription.js";
 import { createTexCommandMethods } from "./texCommands.js";
@@ -59,6 +60,7 @@ export function createControlPlane(env, options = {}) {
     ...createAttentionMethods({ post }),
     ...createMailHealthMethods({ post }),
     ...createAccessProfileMethods({ post }),
+    ...createAccessMirrorMethods({ post }),
     ...createIdentityMethods({ post }),
     ...createTranscriptionMethods({ post }),
     ...createTexCommandMethods({ post }),

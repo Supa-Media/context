@@ -30,6 +30,7 @@ import { flushReach } from "./workspaceStore/serveMembers.js";
 import { treeSockets } from "./workspaceStore/treeSockets.js";
 import { accessSockets } from "./workspaceStore/accessSockets.js";
 import { watchMembers, watchPerson } from "./workspaceStore/accessWatch.js";
+import { createControlPlane } from "./controlPlane/index.js";
 
 const CALL = "x-tex-call";
 /** How long a person-object write that failed waits before it is sent again. */
@@ -90,8 +91,10 @@ export class WorkspaceStore {
     this.store.onTreeChange = (change) => tree.changed(change);
     this.tree = tree;
     this.access = accessSockets(this.state, sql);
-    watchMembers(this.store, this.access, this.env);
-    watchPerson(this.store, this.access);
+    // Convex written behind each take-away access write, before the object reports it done (`controlPlane/accessMirror.js`).
+    const mirror = async (workspaceId, change) => await createControlPlane(this.env).accessMirror(workspaceId, change);
+    watchMembers(this.store, this.access, this.env, { mirror });
+    watchPerson(this.store, this.access, { mirror });
     return this.store;
   }
 

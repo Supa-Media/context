@@ -29,6 +29,7 @@ import type * as functions_accessObjects from "../functions/accessObjects.js";
 import type * as functions_accessObjectsExpected from "../functions/accessObjectsExpected.js";
 import type * as functions_accessObjectsRows from "../functions/accessObjectsRows.js";
 import type * as functions_accessProfiles from "../functions/accessProfiles.js";
+import type * as functions_accessMirror from "../functions/accessMirror.js";
 import type * as functions_accessObjectPush from "../functions/accessObjectPush.js";
 import type * as functions_workspaceObjects from "../functions/workspaceObjects.js";
 import type * as functions_workspaceObjectsRows from "../functions/workspaceObjectsRows.js";
@@ -271,6 +272,7 @@ declare const fullApi: ApiFromModules<{
   "functions/accessObjectsExpected": typeof functions_accessObjectsExpected;
   "functions/accessObjectsRows": typeof functions_accessObjectsRows;
   "functions/accessProfiles": typeof functions_accessProfiles;
+  "functions/accessMirror": typeof functions_accessMirror;
   "functions/accessObjectPush": typeof functions_accessObjectPush;
   "functions/workspaceObjects": typeof functions_workspaceObjects;
   "functions/workspaceObjectsRows": typeof functions_workspaceObjectsRows;
