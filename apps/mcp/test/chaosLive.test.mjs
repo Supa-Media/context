@@ -108,3 +108,18 @@ test("meetings and generated notes are exempt from the long-note rule, and a rev
   for (const value of [null, undefined, false, 0, "", "  ", "[]"]) assert.equal(hasReview(value), false, JSON.stringify(value));
 });
 
+
+// 2026-11-02: an owner of the pin saw `tex` read "Only 1 thing in here" over a listing that showed nothing. The
+// sealed chat homes (`tex/groups`) open to no role, an owner's included, so the owners' count leaves them out too.
+// Sabotage-checked: scoring the owners' numbers over every key fails this test.
+test("an owner's count leaves out a sealed folder, as their listing does", async () => {
+  const { SEALED, canSee } = await import("../src/privacy/engine.js");
+  const rules = [{ prefix: "tex/groups", vis: SEALED }];
+  const keys = ["tex/voice.md", "tex/groups/orbit-lamp-river/jobs.md", "tex/groups/orbit-lamp-river/skills/x.md", "guides/a.md"];
+  const owner = (path) => canSee(path, "private", rules, null);
+  const folders = scoreKeys(keys, new Map(), () => false, owner);
+  assert.equal(folderNumbers(folders, "tex", false)?.items, 1, "tex holds voice.md alone for an owner");
+  assert.equal(folderNumbers(folders, "tex/groups", false), null, "the homes folder is not scored for an owner");
+  // Without the filter it counted the homes folder as a thing in tex.
+  assert.equal(folderNumbers(scoreKeys(keys, new Map(), () => false), "tex", false)?.items, 2);
+});
