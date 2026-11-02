@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { groupNameOf, parseSendblueGroup, sendGroupName } from "./sendblueGroups";
+import { parseWhapiWebhook, whapiGroupNames } from "./whapiInbound";
 import type { Fetch } from "./clients";
 
 const LINE = "+15555550199";
@@ -42,5 +43,21 @@ describe("a group chat's name", () => {
     ]);
     // A control plane that fails never fails the message.
     await expect(sendGroupName(async () => { throw new Error("down"); }, "https://control.example.invalid", "secret", { line: LINE, groupId: GROUP }, "x")).resolves.toBeUndefined();
+  });
+
+  it("reads a WhatsApp group's name from its messages' chat_name, beside them and never in them", () => {
+    const JID = "120363012345678901@g.us";
+    const delivery = {
+      messages: [
+        { id: "3EB0ABCD-EF121234", from_me: false, type: "text", chat_id: JID, from: "15550002222", chat_name: " Family\u202e\nchat ", text: { body: "hi" } },
+        { id: "3EB0ABCD-EF121235", from_me: false, type: "text", chat_id: "15550002222@s.whatsapp.net", from: "15550002222", chat_name: "Ada", text: { body: "hi" } },
+        { id: "3EB0ABCD-EF121236", from_me: false, type: "text", chat_id: "120363000000000002@g.us", from: "15550002222", text: { body: "hi" } },
+      ],
+    };
+    // Groups only, cleaned, and only where the message gave one.
+    expect([...whapiGroupNames(delivery)]).toEqual([[`whapi:${JID}`, "Family chat"]]);
+    expect(JSON.stringify(parseWhapiWebhook(delivery, "+15550001111"))).not.toContain("Family");
+    expect(whapiGroupNames(null).size).toBe(0);
+    expect(whapiGroupNames({ messages: "x" }).size).toBe(0);
   });
 });
