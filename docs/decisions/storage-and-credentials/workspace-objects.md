@@ -217,3 +217,20 @@ Note reads go back to five serial network calls, a turn's reads back through
 the six-connection queue, and no read-many. Tests: the workspace object's
 suite (`apps/mcp/test/workspaceStore*.test.mjs`), today's privacy suite run
 against the object unchanged, and the parity checker.
+
+## A store over an object-home workspace never writes the bucket alone (2026-11-02)
+
+The store factory routes note texts to the object only for a binding that names its workspace. The console's
+credential named none, so from the moment a workspace's home became `object` every note the app made, duplicated
+or saved went to the bucket alone. The gateway reads the object, never the bucket, so live editing could not open
+the note and the app showed it read-only.
+
+**Decision.** `consoleWorkspaceRouting` puts the workspace, its home and its backfill time on the credential, and the
+factory refuses (`StorageUnavailable`) a binding whose home is `dual` or `object` when it names no workspace or its
+object cannot be reached: refused, never built over the bucket. Notes already written to the bucket alone are put back
+by the repair (`workspace-objects-repair` workflow): a note text the object lacks is restored when a live tree row
+still reads its key, and left alone otherwise.
+
+**What a simplification would cost.** Letting the factory fall back to the bucket store again brings the silent
+split back. `apps/convex/__tests__/consoleObjectWrites.test.ts` creates and saves a note through the console in an
+object-home workspace and finds it in the object; `apps/mcp/test/storeFactory.test.mjs` holds the refusal.

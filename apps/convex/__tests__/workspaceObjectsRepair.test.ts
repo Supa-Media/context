@@ -10,7 +10,9 @@
  * object's state names as an older one (a lost copy is never restored); class
  * every missing key as an erase (a live document's lost state is deleted from
  * the backup instead of restored); delete from the bucket without the etag
- * read (a save meanwhile is removed); let a read-only run write.
+ * read (a save meanwhile is removed); let a read-only run write; class a
+ * missing note text as `bucketNewer` whatever the rows say (a removed note's
+ * text is brought back).
  */
 
 import { describe, expect, test } from "vitest";
@@ -140,6 +142,27 @@ describe("classing a key the bucket holds and the object lacks", () => {
     object.seed(state(LIVE), live("r2"));
     bucket.seed(head("h-live"), JSON.stringify({ documentId: LIVE }));
     expect(await settleKey(b, o, head("h-live"), new Facts(o), true)).toEqual({ verdict: "bucketNewer", done: "restored" });
+  });
+
+  test("a note text a live row still reads was written to the bucket alone: restored into the object", async () => {
+    const { bucket, object, b, o } = world();
+    bucket.seed(NOTE, "# daniel 2");
+    const asked: string[] = [];
+    const facts = new Facts(o, async (key) => {
+      asked.push(key);
+      return true;
+    });
+    expect(await settleKey(b, o, NOTE, facts, true)).toEqual({ verdict: "bucketNewer", done: "restored" });
+    expect(object.text(NOTE)).toBe("# daniel 2");
+    expect(asked).toEqual([NOTE]);
+  });
+
+  test("a note text no live row reads is left alone, never deleted", async () => {
+    const { bucket, object, b, o } = world();
+    bucket.seed(NOTE, "# removed");
+    expect(await settleKey(b, o, NOTE, new Facts(o, async () => false), true)).toEqual({ verdict: "unsure", done: null });
+    expect(object.writes).toEqual([]);
+    expect(bucket.writes).toEqual([]);
   });
 
   test("an operation of a live document, a note text, or an unreadable head is left alone", async () => {
