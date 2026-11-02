@@ -185,6 +185,12 @@ gets no write), `apps/mcp/test/agentGroupTurn.test.mjs` ("the chat remembers as
 one"), `apps/mcp/test/agentChatVoice.test.mjs` (one voice note per chat), and
 `apps/mcp/test/chatMemoryRecord.test.mjs`.
 
+A write in a home sets no row (2026-11-02). The seal is the home's access, and the control plane refuses any access
+change a chat's grant asks for beneath it, so `write_note` there skips the row tier it sets elsewhere and refuses
+`visibility: private` before writing (`apps/mcp/src/agent/chatHomeSeal.js`; the home's door marks its store). Before
+this, every new note in a home was refused after its text went in, and no chat's history page was reported written.
+Test: `apps/mcp/test/chatHomeWrite.test.mjs`.
+
 ## Still to build
 
 Routines, dreams and a heartbeat for a chat need their jobs moved too: a
