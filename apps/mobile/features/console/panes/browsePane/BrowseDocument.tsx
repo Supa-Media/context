@@ -50,6 +50,8 @@ import type { InboxActivity } from "../../home/inboxModel";
 
 import { useHomeView } from "../../home/homeView";
 import { ownPersonalContext } from "../../identity";
+import { isHistoryView } from "../../files/ledgerDownload";
+import { HistoryFileView } from "../../../tex/history/HistoryFileView";
 
 /** Filed today before `activity.md` has answered: nothing, one array so Inbox does not redraw. */
 const NO_ENTRIES: readonly InboxActivity[] = [];
@@ -396,6 +398,11 @@ export function BrowseDocument({
           if (slug !== undefined) mapRoute.openNoteIn(slug, path);
         }}
       />
+    ) : current && files.selectedPath && isHistoryView(files.selectedPath) ? (
+      // A chat's history file opens as the chat's history, never as its JSON (`tex/history/`).
+      <DocumentPage>
+        <HistoryFileView path={files.selectedPath} workspace={current} own={ownPersonalContext(data.contexts)} />
+      </DocumentPage>
     ) : unreadable !== null && unreadable === files.selectedPath ? (
       <UnreadableNote
         onRetry={() => files.select(unreadable)}

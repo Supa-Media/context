@@ -14,6 +14,8 @@ export interface ChatRef {
   name: string;
   /** How many people are in a group chat. */
   people?: number;
+  /** A group chat's home: its workspace as `@slug` and its folder (`tex/groups/<words>`). */
+  home?: { context: string; folder: string };
 }
 
 export type ActionKind = "advisor" | "job" | "mailcheck" | "tool";

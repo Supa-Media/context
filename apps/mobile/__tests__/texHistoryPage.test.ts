@@ -4,16 +4,16 @@
 
 /**
  * The chat's history file on the Tex page (decided by the owner, 2026-11-02:
- * one history file, shown raw with filters, and a view of exactly what Tex
- * sees): reached from Behind the scenes, filtered by kind and day through the
- * gateway, searched on the page, each entry opening to its raw JSON, and
- * "What Tex sees" with the settings that shaped it.
+ * one history file, one line a message, and a view of exactly what Tex
+ * sees): reached from Behind the scenes, filtered by day and by what is shown
+ * through the gateway, each line opening to its entry as kept, and "What Tex
+ * sees" with the settings that shaped it.
  *
  * ## Sabotage record
  *
  * Applied, run, named test seen failing, reverted (2026-11-02):
- *  1. The kind filter not sent to the gateway → "the kind filter and a whole
- *     day are asked of the gateway" fails.
+ *  1. The shown kinds not sent to the gateway → "the day and what is shown
+ *     are asked of the gateway" fails.
  *  2. A half-typed day sent as typed → same test fails.
  *  3. `gatewaySource.sees` posting `view: "raw"` → "the source posts the
  *     ledger route" fails.
@@ -86,45 +86,64 @@ async function type(id: string, value: string) {
   await tick();
 }
 
+const SHOWN_KINDS = ["text", "tool", "note", "advisor", "mail_check", "job"];
+
 describe("the chat's history file", () => {
-  test("is one tap from Behind the scenes, and shows every entry as kept, newest first", async () => {
+  test("is one tap from Behind the scenes, one line a message, the turn in the order it happened", async () => {
     await render(fixtureSource());
     await press("tex-behind-history");
     expect(byTestId("tex-history")).not.toBeNull();
-    expect(text()).toContain("tex-ledger v1 · 6 entries");
-    expect(text()).toContain("Person: what's on my calendar today?");
-    expect(text()).toContain("calendar_events · ok · 420 ms");
-    expect(text()).toContain("read_note · result withheld (another workspace)");
-    expect(text().indexOf("Tex: Standup at 10")).toBeLessThan(text().indexOf("Person: what's on my calendar today?"));
+    expect(byTestId("tex-history-day-2026-11-02")?.textContent).toContain("Today");
+    const line = (id: string) => byTestId(`tex-history-entry-${id}`)?.textContent ?? "";
+    expect(line("me-e1")).toBe("9:02 AMYouwhat's on my calendar today?");
+    expect(line("me-e3")).toBe("calendar_events");
+    expect(line("me-e4")).toBe("read_note · result withheld (another workspace)");
+    expect(line("me-e6")).toBe("9:03 AMTexStandup at 10 and the dentist at 3.");
+    // Tex's answer is said once: its text, not the gateway's copy of it as well.
+    expect(text().split("Standup at 10").length - 1).toBe(1);
+    // Thinking is off until asked for.
+    expect(text()).not.toContain("Look at today's calendar");
+    expect(text().indexOf("what's on my calendar today?")).toBeLessThan(text().indexOf("Standup at 10"));
     await press("tex-history-entry-me-e3");
     const raw = byTestId("tex-history-raw-me-e3")?.textContent ?? "";
     expect(JSON.parse(raw)).toMatchObject({ kind: "tool", name: "calendar_events", args: { day: "today" } });
   });
 
-  test("the kind filter and a whole day are asked of the gateway; search stays on the page", async () => {
+  test("the day and what is shown are asked of the gateway", async () => {
     const source = fixtureSource();
     const asked: LedgerQuery[] = [];
     await render({ ...source, ledger: (chat, q) => (asked.push(q), source.ledger(chat, q)) }, { chat: "me", view: "history" });
-    expect(asked).toEqual([{ before: LATEST }]);
-    await press("tex-history-kind");
-    await press("tex-history-kind-option-tool");
-    expect(asked.at(-1)).toEqual({ kinds: ["tool"], before: LATEST });
-    expect(text()).not.toContain("what's on my calendar today?");
+    expect(asked).toEqual([{ kinds: SHOWN_KINDS, day: "2026-11-02", before: LATEST }]);
+    await press("tex-history-show-thinking");
+    expect(asked.at(-1)!.kinds).toEqual(["text", "tool", "thinking", "said", "note", "advisor", "mail_check", "job"]);
+    expect(text()).toContain("Look at today's calendar");
+    await press("tex-history-show-thinking");
+    await press("tex-history-show-tools");
+    expect(asked.at(-1)!.kinds).toEqual(["text", "note", "advisor", "mail_check", "job"]);
+    expect(text()).not.toContain("calendar_events");
+    await press("tex-history-show-tools");
+    await press("tex-history-day-choice");
+    await press("tex-history-day-choice-option-yesterday");
+    expect(asked.at(-1)).toEqual({ kinds: SHOWN_KINDS, day: "2026-11-01", before: LATEST });
+    expect(text()).toContain("Your water bill is due Tuesday");
+    expect(text()).not.toContain("Standup at 10");
+    await press("tex-history-day-choice");
+    await press("tex-history-day-choice-option-all");
+    expect(asked.at(-1)).toEqual({ kinds: SHOWN_KINDS, before: LATEST });
+    // Every day, the newest first, each in the order it happened.
+    expect(byTestId("tex-history-day-2026-11-02")).not.toBeNull();
+    expect(text().indexOf("Standup at 10")).toBeLessThan(text().indexOf("Your water bill"));
+    await press("tex-history-day-choice");
+    await press("tex-history-day-choice-option-pick");
     const before = asked.length;
     await type("tex-history-day", "2026-11");
     expect(asked.length).toBe(before);
-    await type("tex-history-day", "2026-11-01");
-    expect(asked.at(-1)).toEqual({ kinds: ["tool"], day: "2026-11-01", before: LATEST });
+    await type("tex-history-day", "2026-10-30");
+    expect(asked.at(-1)).toEqual({ kinds: SHOWN_KINDS, day: "2026-10-30", before: LATEST });
     expect(byTestId("tex-history-empty")).not.toBeNull();
-    await type("tex-history-day", "");
-    const reads = asked.length;
-    await type("tex-history-search", "read_note");
-    expect(asked.length).toBe(reads);
-    expect(text()).toContain("read_note");
-    expect(text()).not.toContain("calendar_events");
   });
 
-  test("Show older reads on before the last page, and one still reading when the filter changes is dropped", async () => {
+  test("Show older reads on before the last page, and one still reading when a filter changes is dropped", async () => {
     const source = fixtureSource();
     const pending: (() => void)[] = [];
     let hold = true;
@@ -134,26 +153,25 @@ describe("the chat's history file", () => {
         const read = await source.ledger(chat, { ...q, before: LATEST });
         if (read.kind !== "ok") return read;
         const first = q.before === LATEST;
-        const page = first ? read.value.entries.slice(0, 3) : read.value.entries.slice(3);
+        const page = first ? read.value.entries.slice(0, 2) : read.value.entries.slice(2);
         if (!first && hold) {
           hold = false;
           await new Promise<void>((r) => pending.push(r));
         }
-        return { kind: "ok", value: { ...read.value, entries: page, ...(first && read.value.entries.length > 3 ? { older: 4 } : {}) } };
+        return { kind: "ok", value: { ...read.value, entries: page, ...(first && read.value.entries.length > 2 ? { older: 4 } : {}) } };
       },
     };
     await render(paged, { chat: "me", view: "history" });
     expect(text()).toContain("Standup at 10");
     expect(text()).not.toContain("what's on my calendar today?");
     await press("tex-history-more");
-    await press("tex-history-kind");
-    await press("tex-history-kind-option-thinking");
+    await press("tex-history-show-thinking");
     act(() => pending.forEach((r) => r()));
     await tick();
-    expect(text()).toContain("Look at today's calendar");
+    // The held page was read under the old filter: none of it is added to this one.
     expect(text()).not.toContain("what's on my calendar today?");
-    await press("tex-history-kind");
-    await press("tex-history-kind-option-all");
+    expect(text()).not.toContain("Look at today's calendar");
+    await press("tex-history-show-thinking");
     await press("tex-history-more");
     expect(text()).toContain("what's on my calendar today?");
     expect(byTestId("tex-history-more")).toBeNull();
@@ -169,10 +187,12 @@ describe("the chat's history file", () => {
     expect(byTestId("tex-sees-text")?.textContent).toContain("(used: calendar_events, read_note)");
   });
 
-  test("a group's history says whose it is, and a chat that is not yours shows none of it", async () => {
+  test("a group's history says whose it is and names who sent each text, and a chat that is not yours shows none of it", async () => {
     await render(fixtureSource(), { chat: "g-team", view: "history" });
-    expect(text()).toContain("Everything said and done in Team Night");
-    expect(text()).toContain("Ada: what's on my calendar today?");
+    expect(text()).toContain("History · Team Night");
+    expect(byTestId("tex-history-entry-g-team-e1")?.textContent).toBe("9:02 AMAdawhat's on my calendar today?");
+    expect(byTestId("tex-history-entry-g-team-e7")?.textContent).toBe("9:04 AMCy(reacted) 👍");
+    expect(byTestId("tex-history-entry-g-team-e8")?.textContent).toBe("9:05 AMBo↳ Ada: what's on my calendar today?I'll bring snacks to standup");
     const source = fixtureSource();
     expect((await source.ledger("g-someone-elses", {})).kind).toBe("notYours");
     expect((await source.sees("g-someone-elses")).kind).toBe("notYours");

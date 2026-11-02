@@ -1,0 +1,78 @@
+import { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+import type { Id } from "@context/convex/_generated/dataModel";
+import { useConsoleGrant } from "../../agent/useConsoleGrant";
+import { MCP_ENDPOINT } from "../../console/placeholderData";
+import { NowContext, T } from "../page/TexPageParts";
+import { gatewaySource } from "../page/texPageSource";
+import { groupChatAt, historyFileChat } from "./historyFile";
+import { TexHistoryLines } from "./TexHistoryLines";
+
+/**
+ * A history file opened in the app (`tex/history.ledger.json`, or a group
+ * home's): the chat's history as the lines the Tex page draws, never the file's
+ * JSON as text (owner, 2026-11-02: "just have one history file and then
+ * different views ... have that be a special object"). Read through the
+ * viewer's own Tex page routes with a console grant on their personal
+ * workspace, so a chat they are not one of the people of is refused by the
+ * gateway, as on the page.
+ */
+export function HistoryFileView({
+  path,
+  workspace,
+  own,
+}: {
+  path: string;
+  workspace: { id: string; slug: string };
+  /** The viewer's own personal workspace, whose Tex page this reads through. */
+  own: { id: string; slug: string } | null;
+}) {
+  const mint = useConsoleGrant();
+  const place = historyFileChat(path, workspace, own);
+  const source = useMemo(() => {
+    if (own === null) return null;
+    return gatewaySource({
+      endpoint: MCP_ENDPOINT,
+      handle: own.slug,
+      token: async (refresh) => (await mint({ workspaceId: own.id as Id<"workspaces"> }, refresh)).accessToken,
+    });
+  }, [mint, own]);
+  const folder = place.kind === "group" ? place.folder : null;
+  const [group, setGroup] = useState<{ key: string; name: string } | null | undefined>(undefined);
+
+  useEffect(() => {
+    let live = true;
+    setGroup(undefined);
+    if (folder === null || source === null) return;
+    void source.overview("me").then((r) => {
+      if (!live) return;
+      const found = r.kind === "ok" ? groupChatAt(r.value.chats, workspace.slug, folder) : null;
+      setGroup(found ? { key: found.key, name: found.name } : null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [folder, source, workspace.slug]);
+
+  const chat = place.kind === "me" ? "me" : place.kind === "group" ? (group?.key ?? null) : null;
+  const waiting = place.kind === "group" && group === undefined && source !== null;
+
+  return (
+    <NowContext.Provider value={Date.now}>
+      <View style={{ gap: 18 }} testID="history-file">
+        <T size={26} serif line={1.25}>
+          {place.kind === "group" && group ? `History · ${group.name}` : "History"}
+        </T>
+        {source === null || place.kind === "none" || (place.kind === "group" && group === null) ? (
+          <T size={14} tone="muted" testID="history-file-not-yours">
+            This chat's history opens for the people in it, from their own Tex.
+          </T>
+        ) : waiting || chat === null ? (
+          <ActivityIndicator size="small" />
+        ) : (
+          <TexHistoryLines source={source} chat={chat} group={place.kind === "group"} />
+        )}
+      </View>
+    </NowContext.Provider>
+  );
+}
