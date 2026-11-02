@@ -11,10 +11,16 @@
 import type { LedgerEntry, LedgerKind } from "../page/texPageTypes";
 
 /** What the view can show or hide, and the ledger kinds each one is. */
-export const SHOWS = ["texts", "tools", "thinking", "notes"] as const;
+export const SHOWS = ["texts", "tools", "thinking", "background"] as const;
 export type Show = (typeof SHOWS)[number];
 
-export const SHOW_LABEL: Record<Show, string> = { texts: "Texts", tools: "Tool calls", thinking: "Thinking", notes: "Notes" };
+/**
+ * "Background" was "Notes" until the owner asked "what is a note?"
+ * (2026-11-02): it is what happened outside a text, a routine's run, an
+ * answer given in another app, the advisor, the Mail checker and jobs, and
+ * each of its lines now says which.
+ */
+export const SHOW_LABEL: Record<Show, string> = { texts: "Texts", tools: "Tool calls", thinking: "Thinking", background: "Background" };
 
 /**
  * `reply` is left out of Texts: it is Tex's answer as it left the gateway, the
@@ -25,11 +31,11 @@ export const SHOW_KINDS: Record<Show, LedgerKind[]> = {
   texts: ["text"],
   tools: ["tool"],
   thinking: ["thinking", "said"],
-  notes: ["note", "advisor", "mail_check", "job"],
+  background: ["note", "advisor", "mail_check", "job"],
 };
 
 /** Thinking is off until asked for: it is the longest and the least often wanted. */
-export const DEFAULT_SHOWN: Record<Show, boolean> = { texts: true, tools: true, thinking: false, notes: true };
+export const DEFAULT_SHOWN: Record<Show, boolean> = { texts: true, tools: true, thinking: false, background: true };
 
 /** The ledger kinds to ask for; every kind the view shows when all four are on. */
 export function kindsFor(shown: Record<Show, boolean>): LedgerKind[] {
@@ -66,6 +72,10 @@ export interface HistoryLine {
   text: string;
   /** The message a text answers, in a few words, when it names one this view holds. */
   replyTo?: string;
+  /** The reactions on this text, under it as in the mock: `👍 Mom, Ada · ❤️ You`. */
+  reactions?: string;
+  /** A run of tool calls drawn as one line (`text` sums them up); these are the calls, opened on a tap. */
+  calls?: HistoryLine[];
   entry: LedgerEntry;
 }
 
@@ -124,6 +134,7 @@ function toolWords(e: LedgerEntry): string {
 
 function lineOf(e: LedgerEntry, group: boolean): HistoryLine {
   const base = { id: e.id, entry: e };
+  const quiet = (text: string): HistoryLine => ({ ...base, time: "", who: "", tone: "quiet", text });
   switch (e.kind) {
     case "text": {
       const who = whoOf(e, group);
@@ -133,16 +144,89 @@ function lineOf(e: LedgerEntry, group: boolean): HistoryLine {
     case "said":
       return { ...base, time: "", who: "", tone: "thinking", text: oneLine(e.text) };
     case "tool":
-      return { ...base, time: "", who: "", tone: "quiet", text: toolWords(e) };
+      return quiet(toolWords(e));
     case "advisor":
-      return { ...base, time: "", who: "", tone: "quiet", text: `asked the advisor: ${oneLine(e.question)}` };
+      return quiet(e.check ? `advisor · ${oneLine(e.question)} ${oneLine(e.answer)}` : `advisor · asked: ${oneLine(e.question)}`);
     case "mail_check":
-      return { ...base, time: "", who: "", tone: "quiet", text: `email to ${short(e.to, 60)} · ${str(e.verdict) || "checked"}` };
+      return quiet(`mail checker · email to ${short(e.to, 60)} · ${str(e.verdict) || "checked"}${oneLine(e.why) ? ` · ${short(e.why, 120)}` : ""}`);
     case "job":
-      return { ...base, time: "", who: "", tone: "quiet", text: `${oneLine(e.title) || str(e.job)} · ${str(e.state)}` };
+      return quiet(`job · ${oneLine(e.title) || str(e.job)} · ${str(e.state).replace(/_/g, " ")}`);
+    case "note":
+      if (typeof e.routine === "string") return quiet(`routine · ${short(e.routine.replace(/\.md$/, ""), 60)} · ${oneLine(e.text)}`);
+      if (typeof e.about === "string" && e.about) return quiet(`answered in another app · ${short(e.about, 80)} · ${oneLine(e.text)}`);
+      return quiet(oneLine(e.text));
     default:
-      return { ...base, time: "", who: "", tone: "quiet", text: oneLine(e.text) || e.kind };
+      return quiet(oneLine(e.text) || e.kind);
   }
+}
+
+/**
+ * A reaction, as the texting Worker keeps it: the tapback answered as an
+ * emoji alone (`👍`), or noted as `👍 (yes) on Tex's message "…"`, or taken
+ * back (`took back 👍 on …`). Null for a text that isn't one.
+ */
+function reactionOf(e: LedgerEntry): { emoji: string; on: string | null; removed: boolean } | null {
+  if (e.kind !== "text") return null;
+  const words = oneLine(e.text);
+  const noted = /^(took back )?(\S+)(?: \((?:yes|no)\))? on (?:Tex's message|the message|a message)(?: "(.*?)(?:…)?")?$/u.exec(words);
+  if (noted) return { emoji: noted[2]!, on: noted[3] ?? null, removed: noted[1] !== undefined };
+  // An answered tapback is kept as its emoji alone, marked as a reaction.
+  if (str(e.event) === "reaction" && words !== "" && !/[\p{L}\p{N}]/u.test(words) && [...words].length <= 4) return { emoji: words, on: null, removed: false };
+  return null;
+}
+
+/**
+ * Which text a reaction is on, among the texts before it (`older`, newest
+ * first): the one whose words it quotes, or, when it quotes none (an answered
+ * tapback), the newest text before it from someone else, which is the text it
+ * answered. Null when that text isn't in view.
+ */
+function reactedTo(e: LedgerEntry, on: string | null, older: readonly LedgerEntry[], group: boolean): LedgerEntry | null {
+  const who = whoOf(e, group);
+  for (const o of older) {
+    if (o.kind !== "text" || reactionOf(o) !== null) continue;
+    if (on !== null ? oneLine(o.text).startsWith(on) : whoOf(o, group) !== who) return o;
+  }
+  return null;
+}
+
+/** `👍 Mom, Ada · ❤️ You`: who reacted with what, in the order they did. */
+function reactionWords(byEmoji: Map<string, string[]>): string {
+  return [...byEmoji].filter(([, people]) => people.length > 0).map(([emoji, people]) => `${emoji} ${people.join(", ")}`).join(" · ");
+}
+
+/** A run of tool calls as one line: `12 tool calls · browse ×9, vault_list ×2, write_note · 3 failed`. */
+function callsLine(calls: HistoryLine[]): HistoryLine {
+  const counts = new Map<string, number>();
+  let failed = 0;
+  for (const c of calls) {
+    const name = str(c.entry.name) || "tool";
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+    if (c.entry.ok === false) failed += 1;
+  }
+  const names = [...counts].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name)).join(", ");
+  const first = calls[0]!;
+  return { id: `calls:${first.id}`, entry: first.entry, time: "", who: "", tone: "quiet", text: [`${calls.length} tool calls`, names, failed > 0 ? `${failed} failed` : ""].filter(Boolean).join(" · "), calls };
+}
+
+/** Two or more tool calls in a row in a turn are one line, opened on a tap (Dev, 2026-11-02: "the tool calls should be collapsed somehow"). */
+function collapseCalls(lines: HistoryLine[]): HistoryLine[] {
+  const out: HistoryLine[] = [];
+  let run: HistoryLine[] = [];
+  const close = () => {
+    if (run.length > 1) out.push(callsLine(run));
+    else out.push(...run);
+    run = [];
+  };
+  for (const line of lines) {
+    if (line.entry.kind === "tool") run.push(line);
+    else {
+      close();
+      out.push(line);
+    }
+  }
+  close();
+  return out;
 }
 
 /** `Today`, `Yesterday`, or `Saturday, Oct 31`. */
@@ -162,8 +246,25 @@ export function dayTitle(key: string, now: Date): string {
 export function historyDays(entries: readonly LedgerEntry[], now: Date, { group = false }: { group?: boolean } = {}): HistoryDay[] {
   const byEventId = new Map<string, LedgerEntry>();
   for (const e of entries) if (e.kind === "text" && typeof e.eid === "string") byEventId.set(e.eid, e);
+  // Reactions go under the text they are on, never on a line of their own, as in the mock; one whose text isn't in view stays a line.
+  const reactions = new Map<string, Map<string, string[]>>();
+  const folded = new Set<string>();
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const e = entries[i]!;
+    const r = reactionOf(e);
+    if (r === null) continue;
+    const target = reactedTo(e, r.on, entries.slice(i + 1), group);
+    if (target === null) continue;
+    folded.add(e.id);
+    const byEmoji = reactions.get(target.id) ?? new Map<string, string[]>();
+    reactions.set(target.id, byEmoji);
+    const who = whoOf(e, group);
+    if (r.removed) byEmoji.set(r.emoji, (byEmoji.get(r.emoji) ?? []).filter((p) => p !== who));
+    else if (!(byEmoji.get(r.emoji) ?? []).includes(who)) byEmoji.set(r.emoji, [...(byEmoji.get(r.emoji) ?? []), who]);
+  }
   const days: HistoryDay[] = [];
   for (const e of entries) {
+    if (folded.has(e.id)) continue;
     const key = dayKey(e.at);
     let day = days.at(-1);
     if (day?.key !== key) {
@@ -181,10 +282,15 @@ export function historyDays(entries: readonly LedgerEntry[], now: Date, { group 
     const line = lineOf(e, group);
     const answered = typeof e.replyTo === "string" ? byEventId.get(e.replyTo) : undefined;
     if (answered !== undefined) line.replyTo = `${whoOf(answered, group)}: ${short(textWords(answered), 60)}`;
+    const on = reactions.get(e.id);
+    if (on !== undefined && reactionWords(on) !== "") line.reactions = reactionWords(on);
     // Newest first in, oldest first within a turn.
     turn.lines.unshift(line);
   }
   // Each day reads top to bottom as it happened; the newest day comes first.
-  for (const day of days) day.turns.reverse();
+  for (const day of days) {
+    day.turns.reverse();
+    for (const turn of day.turns) turn.lines = collapseCalls(turn.lines);
+  }
   return days;
 }

@@ -13,7 +13,7 @@ import { LATEST, type LedgerEntry, type LedgerPage } from "../page/texPageTypes"
  * A chat's history, one line a message: time, who, words, left-aligned and
  * grouped by day and turn (decided by the owner, 2026-11-02, from the
  * artboard he approved: "go back to the ltr, 1 line slack style"). One row of
- * filters: which day, and Texts, Tool calls, Thinking and Notes, thinking off
+ * filters: which day, and Texts, Tool calls, Thinking and Background, thinking off
  * until asked for. A line opens to its entry exactly as kept. Read from the
  * gateway each time, a page at a time; nothing here keeps a copy.
  *
@@ -148,6 +148,7 @@ export function TexHistoryLines({ source, chat, group }: { source: TexPageSource
 
 function Line({ line, open, onPress }: { line: HistoryLine; open: boolean; onPress: () => void }) {
   const styles = useThemedStyles(makeStyles);
+  const [openCall, setOpenCall] = useState<string | null>(null);
   const quiet = line.tone === "quiet" || line.tone === "thinking";
   return (
     <View>
@@ -165,11 +166,22 @@ function Line({ line, open, onPress }: { line: HistoryLine; open: boolean; onPre
             </T>
           ) : null}
           <T size={quiet ? 13 : 15} line={1.5} tone={quiet ? "muted" : "text"} style={line.tone === "thinking" ? styles.thinking : null}>
-            {line.text}
+            {line.calls ? `${open ? "▾" : "▸"} ${line.text}` : line.text}
           </T>
+          {line.reactions ? (
+            <T size={13} tone="muted" testID={`tex-history-reactions-${line.id}`}>
+              {line.reactions}
+            </T>
+          ) : null}
         </View>
       </Pressable>
-      {open ? (
+      {open && line.calls ? (
+        <View testID={`tex-history-calls-${line.id}`}>
+          {line.calls.map((call) => (
+            <Line key={call.id} line={call} open={openCall === call.id} onPress={() => setOpenCall((was) => (was === call.id ? null : call.id))} />
+          ))}
+        </View>
+      ) : open ? (
         <ScrollView horizontal style={styles.raw} testID={`tex-history-raw-${line.id}`}>
           <T size={12} mono line={1.45} tone="text2">
             {JSON.stringify(line.entry, null, 2)}

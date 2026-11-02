@@ -9,6 +9,7 @@ import type { classifyCommsPath } from "../../communications/paths";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
 import { rememberScroll, usePageScroll } from "./pageScroll";
+import { isHistoryView } from "../../files/ledgerDownload";
 
 /** The phone slide's key for the map: no path can be it (`phoneBack.ts` reads it). */
 export const MAP_PAGE_KEY = "\u0000map";
@@ -88,11 +89,14 @@ export function DocumentSurface({
    *    anchored message on open, which is the whole reason it has one); the
    *    Inbox, a channel and a contact page do not;
    *  - otherwise a file — `ConflictResolver` and `NoteEditor` both own one, and
-   *    they are the only two things a `file` selection can draw.
+   *    they are the only two things a `file` selection can draw, except a
+   *    chat's history file, which opens as its history (`HistoryFileView`)
+   *    and has no scroller of its own: it reached past the fold unscrollable
+   *    until this (Dev, 2026-11-02: "the page doesnt scroll").
    */
   const documentOwnsScroller =
     selected !== null &&
-    (commsRoute === null ? selected.kind === "file" : commsRoute.kind === "channel-day");
+    (commsRoute === null ? selected.kind === "file" && !isHistoryView(selected.path) : commsRoute.kind === "channel-day");
 
   const pageKey = selected?.path ?? topPage;
   const restoredOffset = usePageScroll(pageKey);
