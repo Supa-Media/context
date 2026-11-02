@@ -27,14 +27,14 @@ export const homes = internalQuery({
   args: {},
   returns: v.object({
     chats: v.number(),
-    homes: v.array(v.object({ groupKey: v.string(), workspaceId: v.id("workspaces"), folder: v.string(), noteId: v.string() })),
+    homes: v.array(v.object({ groupKey: v.string(), workspaceId: v.id("workspaces"), folder: v.string(), noteId: v.string(), lastSeenAt: v.number() })),
   }),
   handler: async (ctx) => {
     const chats = await ctx.db.query("textGroups").collect();
     const homes = [];
     for (const chat of chats) {
       const home = await chatHomeOf(ctx, chat._id);
-      if (home !== null) homes.push({ groupKey: chat.groupKey, ...home });
+      if (home !== null) homes.push({ groupKey: chat.groupKey, ...home, lastSeenAt: chat.lastSeenAt });
     }
     return { chats: chats.length, homes };
   },
