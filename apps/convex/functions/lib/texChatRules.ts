@@ -82,7 +82,8 @@ export async function setPersonSettings(ctx: MutationCtx, userId: Id<"users">, a
   if ("refused" in next) return next;
   const text = next.text === null ? {} : { instructions: next.text.instructions, instructionsBefore: next.text.instructionsBefore };
   const updatedAt = Date.now();
-  if (row === null) await ctx.db.insert("texStylePreferences", { userId, ...text, ...(next.updates ? { updates: next.updates } : {}), updatedAt });
+  // A new row holds only what is set; a patch's undefined is what clears a field.
+  if (row === null) await ctx.db.insert("texStylePreferences", { userId, ...settingsOf(text), ...(next.updates ? { updates: next.updates } : {}), ...(text.instructionsBefore !== undefined ? { instructionsBefore: text.instructionsBefore } : {}), updatedAt });
   else await ctx.db.patch(row._id, { ...text, updates: next.updates, updatedAt });
   return settingsOf({ instructions: next.text === null ? row?.instructions : next.text.instructions, updates: next.updates });
 }

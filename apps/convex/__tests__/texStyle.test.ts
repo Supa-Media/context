@@ -95,6 +95,8 @@ describe("a person's own instructions", () => {
     expect(await asUser(t, ada).mutation(api.functions.texStyle.setMyTexStyle, { change: { pick: "candid" }, updates: "planOnly" })).toEqual({ instructions: `Answer in French.\n${line("candid")}`, updates: "planOnly" });
     expect(await asUser(t, ada).query(api.functions.texStyle.myTexStyle, {})).toMatchObject({ instructions: `Answer in French.\n${line("candid")}`, updates: "planOnly" });
     expect(await asUser(t, bo).query(api.functions.texStyle.myTexStyle, {})).not.toHaveProperty("instructions");
+    // A first change that sets nothing still makes a row of only what is set.
+    expect(await asUser(t, bo).mutation(api.functions.texStyle.setMyTexStyle, { change: { clear: true } })).toEqual({});
     expect(await asUser(t, ada).mutation(api.functions.texStyle.setMyTexStyle, { change: { pick: "loud" } })).toEqual({ refused: "bad_request" });
     await expect(t.mutation(api.functions.texStyle.setMyTexStyle, { change: { replace: "x" } })).rejects.toThrow();
   });
