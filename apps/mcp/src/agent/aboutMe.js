@@ -4,7 +4,7 @@
  * Decided by the owner, 2026-10-14: Tex "knows nothing about me when the text
  * arrives", and its memory belongs in a `tex/` folder at the top of the
  * workspace, "memory about me that it's always updating", rather than in an
- * opaque store. So a texted turn reads `tex/about-me.md` from the person's own
+ * opaque store. So a texted turn reads `tex/about.md` from the person's own
  * workspace through the same dispatcher and privacy engine as any read, puts
  * it in the system prompt, and is told to keep it current with `write_note`.
  *
@@ -15,7 +15,15 @@
 
 import { identityPrompt } from "./identity.js";
 
-export const ABOUT_ME_PATH = "tex/about-me.md";
+export const ABOUT_ME_PATH = "tex/about.md";
+
+/**
+ * Its name until 2026-11-01, when a person's and a group chat's Tex folders
+ * took the same names (`docs/decisions/texting-assistant/tex-folders.md`).
+ * Read only when the new name has nothing, until the rename has run
+ * everywhere (`apps/convex/functions/texFolderNames.ts`).
+ */
+export const OLD_ABOUT_ME_PATH = "tex/about-me.md";
 
 /**
  * The note's hard size, in lines (the owner, 2026-10-14: "it doesn't need to
@@ -30,7 +38,7 @@ export const MAX_ABOUT_ME_CHARS = 40_000;
 
 /** Why a write of `content` to `path` is refused, or null. */
 export function aboutMeTooLong(path, content) {
-  if (path !== ABOUT_ME_PATH || typeof content !== "string") return null;
+  if ((path !== ABOUT_ME_PATH && path !== OLD_ABOUT_ME_PATH) || typeof content !== "string") return null;
   const lines = content.replace(/\n$/, "").split("\n").length;
   if (lines <= MAX_ABOUT_ME_LINES && content.length <= MAX_ABOUT_ME_CHARS) return null;
   return (
@@ -58,7 +66,7 @@ function bodyOf(text) {
  * @param {(name: string, args: object) => Promise<object>} callTool the session's dispatcher
  */
 export async function readAboutMe(callTool) {
-  return await readTexNote(callTool, ABOUT_ME_PATH);
+  return (await readTexNote(callTool, ABOUT_ME_PATH)) || (await readTexNote(callTool, OLD_ABOUT_ME_PATH));
 }
 
 /** Any note in Tex's own `tex/` folder, read the same way (`jobs.js` reads `tex/jobs.md`). */

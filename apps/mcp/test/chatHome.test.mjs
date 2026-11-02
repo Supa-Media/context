@@ -147,10 +147,10 @@ test("a chat with a home keeps its voice and about-us there, and is told how to 
   const store = createMemoryStore();
   const bound = recorder();
   const home = recorder();
-  await home.dispatch("write_note", { path: `${HOME}/about-us.md`, content: "# About us\n\nThe Okafor cousins planning a reunion.\n" });
+  await home.dispatch("write_note", { path: `${HOME}/about.md`, content: "# About us\n\nThe Okafor cousins planning a reunion.\n" });
   const group = { ...GROUP, home: { folder: HOME, dispatch: home.dispatch } };
   await readGroupMemory(store, group, bound.dispatch);
-  assert.match(group.voicePath, new RegExp(`^${HOME}/voice-[0-9a-f]{12}\\.md$`));
+  assert.match(group.voicePath, new RegExp(`^${HOME}/voice\\.md$`));
   assert.match(group.aboutUs, /Okafor cousins/);
   const { groupPrompt } = await import("../src/agent/groupTurn.js");
   const prompt = groupPrompt(group, { slug: "studio" });

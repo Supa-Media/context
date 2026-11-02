@@ -40,7 +40,7 @@ const JOB_LINE = Object.freeze({
   clients: "one folder per client: who they are, what they need, what was promised.",
   teams: "one folder per team or function: what it owns and how it runs.",
   products: "one folder per product: what it is, who it is for, where it is going.",
-  tex: "Tex's own folder: what it knows about the person (about-me.md), its routines (routines/) and its daily notes. A path written as tex/... lands here.",
+  tex: "Tex's own folder: what it knows about the person (about.md), its routines (routines/) and its daily notes. A path written as tex/... lands here.",
   website: "the workspace's website; its pages publish from here, wherever it is nested, and a path written as website/... lands here.",
   meetings: "where meeting notes and transcripts are saved.",
   archive: "finished, cancelled or superseded work; archive moves notes here, and nothing is deleted.",

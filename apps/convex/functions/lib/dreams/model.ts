@@ -3,7 +3,7 @@
  * it (`docs/decisions/texting-assistant/dreams.md`).
  *
  * Decided by the owner (Dev2), 2026-10-15: a nightly job, for everyone who
- * texts Tex, that updates `tex/about-me.md` from the day's conversations and
+ * texts Tex, that updates `tex/about.md` from the day's conversations and
  * logs exactly what it changed in `tex/dreams/`. This file holds only when:
  * the dream itself runs on the gateway, as the person, through the same
  * dispatcher and privacy engine as any of their texts.

@@ -33,6 +33,7 @@ test/agentOtherRoutes.test.mjs
 test/agentInstructions.test.mjs
 test/agentJobPlanner.test.mjs
 test/agentJobs.test.mjs
+test/contextOpenOnce.test.mjs
 test/jobLogAppend.test.mjs
 test/agentLocalNow.test.mjs
 test/agentPromptCache.test.mjs
@@ -320,3 +321,4 @@ test/objectLookup.test.mjs
 test/agentHomeMove.test.mjs
 test/accessContract.test.mjs
 test/personObject.test.mjs
+test/texFolderNames.test.mjs
