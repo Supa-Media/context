@@ -145,6 +145,7 @@ jobs:
           - 'apps/mcp/src/lists.js'
           - 'apps/mcp/src/lists/**'
           - 'apps/mcp/src/live/**'
+          - 'apps/mcp/src/mcp/**'
           - 'apps/mcp/src/moves/**'
           - 'apps/mcp/src/notes/**'
           - 'apps/mcp/src/objectPlace.js'
@@ -753,6 +754,7 @@ jobs:
             apps/mcp/src/lists.js
             apps/mcp/src/lists/**
             apps/mcp/src/live/**
+            apps/mcp/src/mcp/**
             apps/mcp/src/moves/**
             apps/mcp/src/notes/**
             apps/mcp/src/objectPlace.js
