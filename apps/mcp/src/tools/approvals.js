@@ -82,6 +82,21 @@ async function readAll(store, prefix, ids = null) {
   return read.filter((entry) => entry !== null);
 }
 
+/** The client a group chat's Tex connects as (`agent/groupTurn.js`). */
+const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
+
+/*
+  The chat a texted ask was made in (Dev2, 2026-11-02): a group's key, or null
+  for the person's own texts. A yes answers only an ask made in the chat it is
+  said in. A record armed before asks carried their chat is the person's own
+  texts' when Tex asked it there, and no chat's at all when a group's Tex did,
+  so a yes reaches it nowhere: which group it was asked in is not known.
+*/
+function chatOfAsk(record) {
+  if (Object.hasOwn(record, "chat_key")) return record.chat_key;
+  return record.actor?.clientId === TEXTS_GROUP_CLIENT_ID ? undefined : null;
+}
+
 function expired(record, now) {
   return typeof record.expires_at !== "number" || record.expires_at <= now;
 }
@@ -89,9 +104,10 @@ function expired(record, now) {
 /**
  * The pending approvals raised for this person, newest first; expired ones
  * are dropped. `texting: true` narrows to the ones asked on the texting
- * thread, which are the only ones a texted yes may settle.
+ * thread, which are the only ones a texted yes may settle; with `chat` too
+ * (a group's key, or null for their own texts), to the ones asked there.
  */
-export async function listPending(store, { userId, texting = false, now = Date.now(), ids = null }) {
+export async function listPending(store, { userId, texting = false, chat, now = Date.now(), ids = null }) {
   const all = await readAll(store, PENDING_PREFIX, ids);
   await Promise.all(all.filter(({ record }) => expired(record, now)).map(({ key }) => deleteWithLegacyFallback(store, key).catch(() => {})));
   const live = [];
@@ -101,6 +117,7 @@ export async function listPending(store, { userId, texting = false, now = Date.n
     // A texted yes reaches only what the thread asked, lately, and has not
     // since moved on from (`disarmTexting`).
     if (texting && (record.texting !== true || (record.texting_until ?? record.expires_at) <= now)) continue;
+    if (texting && chat !== undefined && chatOfAsk(record) !== chat) continue;
     live.push({ key, etag, record });
   }
   return live.sort((a, b) => b.record.created_at - a.record.created_at);
@@ -183,12 +200,12 @@ export const ALREADY_ASKED =
  * from, is armed afresh, so the ask line the person reads and the record their
  * yes releases are the same record. Returns the record the ask is about.
  */
-export async function rearmForText(store, { key, record }, texting, now = Date.now()) {
-  if (!texting || (record.texting === true && (record.texting_until ?? record.expires_at) > now)) return record;
+export async function rearmForText(store, { key, record }, texting, now = Date.now(), chat = null) {
+  if (!texting || (record.texting === true && (record.texting_until ?? record.expires_at) > now && chatOfAsk(record) === chat)) return record;
   // A card's payment ask keeps its own ten minutes: a texted yes never reaches an older one (`vault/pay.js`).
   const short = record.kind === "vault_pay";
   // When it was armed: a text Tex sends by itself after this is what a bare yes answers (`agent/askOvertaken.js`).
-  const armed = { ...record, texting: true, texting_until: short ? record.expires_at : now + TEXTING_TTL_MS, armed_at: now };
+  const armed = { ...record, texting: true, texting_until: short ? record.expires_at : now + TEXTING_TTL_MS, armed_at: now, chat_key: chat };
   armed.expires_at = Math.max(record.expires_at ?? 0, armed.texting_until);
   await store.put(key, JSON.stringify(armed));
   return armed;
@@ -204,6 +221,20 @@ export async function rearmForText(store, { key, record }, texting, now = Date.n
  */
 export async function disarmTexting(store, { userId, now = Date.now() }) {
   return disarmRecords(store, await listPending(store, { userId, texting: true, now }));
+}
+
+/**
+ * Tex asked something in this group chat: a yes said there now answers that,
+ * whoever it was put to (Dev2, 2026-11-02), so every ask armed in the chat,
+ * anyone's, stops listening, except `keep`, the asks this reply arms.
+ */
+export async function disarmChat(store, { chat, keep = [], now = Date.now() }) {
+  const kept = new Set(keep);
+  const armed = (await readAll(store, PENDING_PREFIX)).filter(
+    ({ record }) =>
+      !expired(record, now) && record.texting === true && (record.texting_until ?? record.expires_at) > now && chatOfAsk(record) === chat && !kept.has(record.id),
+  );
+  return armed.length === 0 ? 0 : disarmRecords(store, armed);
 }
 
 /**
@@ -246,7 +277,7 @@ export function askedByText(record) {
  * sent leaves nothing a yes can reach even when withdrawing it fails. Throws
  * when one cannot be armed.
  */
-export async function armForText(store, { userId, ids, now = Date.now() }) {
+export async function armForText(store, { userId, ids, chat = null, now = Date.now() }) {
   const wanted = new Set(ids);
   const found = (await listPending(store, { userId, now })).filter(({ record }) => wanted.has(record.id));
   if (found.length !== wanted.size) throw new Error("an ask is no longer waiting");
@@ -262,7 +293,7 @@ export async function armForText(store, { userId, ids, now = Date.now() }) {
   */
   const stale = (await listPending(store, { userId, texting: true, now })).filter(({ record }) => !wanted.has(record.id));
   if (stale.length > 0 && (await disarmRecords(store, stale)) > 0) throw new Error("an earlier ask could not be cleared");
-  for (const entry of found) await rearmForText(store, entry, true, now);
+  for (const entry of found) await rearmForText(store, entry, true, now, chat);
 }
 
 /** Drop asks by id for this person: a turn that failed before it could tell them. */
