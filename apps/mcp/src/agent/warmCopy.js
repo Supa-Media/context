@@ -138,11 +138,14 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
   const cleanSeen = {};
   // A background job writes on its own (task notes, the jobs list, a skill): while one runs, or just after, those are read fresh.
   const jobBusy = (Array.isArray(body?.running) ? body.running : []).some((job) => job?.state === "running" || (Number.isFinite(job?.finishedAt) && now - job.finishedAt < WARM_NOTES_MS));
+  // A setup that could not be read is never kept: a turn without it runs on the built-in words, and a kept miss
+  // held every turn after on them for an hour (`docs/decisions/texting-assistant/setup-read.md`).
+  const keeps = (name, value) => name !== "setup" || typeof value === "string";
   const part = (name) => async (read) => {
     const warm = jobBusy && name === "skills" ? undefined : (await opened)?.[name];
-    if (warm !== undefined && warm.value !== undefined) return (next[name] = warm).value;
+    if (warm !== undefined && warm.value !== undefined && keeps(name, warm.value)) return (next[name] = warm).value;
     const value = await read();
-    if (eligible) next[name] = { at: now, value };
+    if (eligible && keeps(name, value)) next[name] = { at: now, value };
     return value;
   };
   const chat = (async () => (eligible ? (await opened)?.chat : undefined))();
@@ -187,7 +190,7 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
       const out = { ...next };
       // A part this turn never asked for (a yes the gateway settled reads none) is carried as it was, still fresh by its own time.
       const was = await opened;
-      for (const name of ["setup", "skills", "identity"]) if (out[name] === undefined && was?.[name] !== undefined && !(name !== "setup" && jobBusy)) out[name] = was[name];
+      for (const name of ["setup", "skills", "identity"]) if (out[name] === undefined && was?.[name] !== undefined && keeps(name, was[name]?.value) && !(name !== "setup" && jobBusy)) out[name] = was[name];
       if (wrote) delete out.skills;
       // A record only moves toward not clean (`loggedTurn.js` `recordTurn`): a retried turn id's earlier attempt may have recorded false, so its own clean exit is left for the next turn to read.
       const known = { ...(warm?.clean ?? {}), ...cleanSeen, ...(typeof turn === "string" && clean === false ? { [turn]: false } : {}) };
