@@ -121,10 +121,28 @@ away too, so at `object` they are queued like a deletion: the queue puts each
 leaving member's row without the group in the object, then deletes Convex's
 group rows (`functions/lib/accessHandOff/ungroup.ts`).
 
+## Readers who are not members (2026-11-02)
+
+A workspace object judges three kinds of reading. A member's is checked against
+the object's own members. A guest's (a pin reader, `READS_AS_GUEST`) is judged by
+the guest rules the object holds. A Tex guest chat's (`READS_AS_CHAT`) is judged by
+those same guest rules, rendered with the chat's own names exactly as the control
+plane renders them (`apps/mcp/src/workspaceStore/chatRules.js`, mirroring
+`functions/lib/nodes/chatFolders.ts`). A row the chat holds a token for reads as
+`team`, and every other row as `private`. A chat that sends no names sees nothing. Guest
+and chat readings never use the member rules, so no reader is widened. The gateway
+resolved who the reader is, just as it does for a member's `userId`. The object
+also records whether the workspace holds a data key (`encryption`: `none` |
+`keyed`; `keyed` sticks, and it is written before the first key is made), so a
+reader knows when it must ask the control plane for the key.
+
 ## What a simplification would cost
 
 - Keeping a second copy in Convex "for safety" is two answers to who may read,
   and the direction they disagree in is a removed person still reading.
+- Judging a guest or a chat by the member rules, or a chat without its names,
+  shows them rows only members may read; `apps/mcp/test/workspaceReaders.test.mjs`
+  pins each audience.
 - Trusting the token's id, or the person object's `reach`, without the
   workspace object's own membership check, makes a stale or forged locator a
   way in. `apps/mcp/test/accessContract.test.mjs` pins the token format and

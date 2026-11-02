@@ -148,6 +148,9 @@ async function pushRows(
   }
   await client.rules.put(rules.member, "member");
   await client.rules.put(rules.guest, "guest");
+  // Whether the workspace holds a data key, so a reader there knows when it needs one (`rows.js` `encryption`).
+  const keyRows = await ctx.runQuery(internal.functions.encryptionKeys.listDataKeyRows, { workspaceId });
+  await client.setEncryption(keyRows.length > 0 ? "keyed" : "none");
   const digest = await rowsDigest(rows);
   await ctx.runMutation(internal.functions.workspaceObjectsRows.recordCopy, {
     workspaceId,

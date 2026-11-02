@@ -69,6 +69,8 @@ import { action, internalAction, internalQuery } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import type { ActionCtx } from "../_generated/server";
+import { consoleWorkspaceClient } from "./lib/workspaceObjects/door";
 import { recordAudit } from "./lib/audit";
 import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
 import { consumeRateLimit } from "./lib/rateLimit";
@@ -210,7 +212,7 @@ export const insertDataKeyIfAbsent = internalMutation({
  * neither is tempted to skip the creation path the other needs.
  */
 async function listOrCreateDataKeyRows(
-  ctx: { runQuery: any; runMutation: any },
+  ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   create: boolean,
 ): Promise<SealedDataKey[]> {
@@ -221,6 +223,9 @@ async function listOrCreateDataKeyRows(
   if (rows.length > 0) return rows;
   if (!create) return [];
 
+  // The workspace's object learns it is keyed before the key exists, so it never says `none` while a key does
+  // (a reader told `none` goes without asking for the key). A failure here fails the creation: try again.
+  await consoleWorkspaceClient(ctx, workspaceId)?.setEncryption("keyed");
   const material = generateKeyMaterial();
   const encryptedDataKey = await encryptSecret(material, requireKeyset(), { workspaceId });
   // Racing callers converge here: the mutation returns whatever row exists

@@ -12,6 +12,7 @@ import { isWorkspaceObjectKey, MAX_READ_IDS } from "./api.js";
 import { ACCESS_HOMES, AccessRowRefused } from "./access.js";
 import { judgedReader } from "./members.js";
 import { AUDIENCES, WorkspaceRowRefused } from "./rows.js";
+import { chatRulesFrom, chatTokens } from "./chatRules.js";
 import { isPersonCall, servePersonCall } from "./personServe.js";
 import { isTokenIndexCall, serveTokenIndex } from "./tokenIndex.js";
 import { membersState, serveMembersCall } from "./serveMembers.js";
@@ -49,9 +50,9 @@ export function parsedRules(rules) {
  * refused note and a missing one answer alike, after the same storage read.
  * No rules held means nothing is shown: the object fails closed.
  */
-export async function readNotes({ rows, objects, members = null }, { ids, scope, groups, audience = "member", userId = null }) {
+export async function readNotes({ rows, objects, members = null }, { ids, scope, groups, audience = "member", userId = null, chatNames = null }) {
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_READ_IDS) throw new WorkspaceRowRefused(`a read names 1 to ${MAX_READ_IDS} notes`);
-  const judge = judgeFor(rows, { scope, groups, audience, userId }, members);
+  const judge = judgeFor(rows, { scope, groups, audience, userId, chatNames }, members);
   const notes = [];
   for (const id of ids) {
     const row = typeof id === "string" ? rows.byNoteId(id) : null;
@@ -77,21 +78,27 @@ export async function readNotes({ rows, objects, members = null }, { ids, scope,
   return { notes, accessVersion: judge.accessVersion };
 }
 
+/** Who may read here: the two audiences rules are held for, and a Tex guest chat, read by the guest rules. */
+const READERS = new Set([...AUDIENCES, "chat"]);
+
 /**
  * The check every answer about a note goes through: the audience's rules (fail closed when none are held) and
- * `canSee` over the row's path, with the grant's scope and row tokens.
+ * `canSee` over the row's path, with the grant's scope and row tokens. A chat reads by the guest rules as its own
+ * names render them (`chatRules.js`); a chat with no names given sees nothing.
  */
-function judgeFor(rows, { scope, groups, audience = "member", userId = null }, members = null) {
+function judgeFor(rows, { scope, groups, audience = "member", userId = null, chatNames = null }, members = null) {
   if (!SCOPES.has(scope)) throw new WorkspaceRowRefused("a read needs its scope");
-  if (!AUDIENCES.has(audience)) throw new WorkspaceRowRefused("not an audience");
+  if (!READERS.has(audience)) throw new WorkspaceRowRefused("not an audience");
   let reader = { scope, tokens: new Set(Array.isArray(groups) ? groups.filter((group) => typeof group === "string") : []) };
-  // Where this object decides access, who the reader is here comes from its own members (`members.js`
-  // `judgedReader`): a read that names nobody, or somebody who is not a member, sees nothing. Only a member's own
-  // reading is judged here, so a guest audience read in this mode is refused too.
-  if (members !== null && members.home() === ACCESS_HOMES.OBJECT) {
-    reader = audience === "member" && typeof userId === "string" ? judgedReader(members, { userId, scope, groups }) : null;
+  // Where this object decides access, a member's reading is judged by who is a member here (`members.js`
+  // `judgedReader`): a member read that names nobody, or somebody who is not a member, sees nothing. A guest's or a
+  // chat's reading is not a member's: it is judged by its own, narrower rules, for the reader the gateway resolved.
+  if (audience === "member" && members !== null && members.home() === ACCESS_HOMES.OBJECT) {
+    reader = typeof userId === "string" ? judgedReader(members, { userId, scope, groups }) : null;
   }
-  const held = rows.rules(audience);
+  const guestHeld = audience === "chat" ? rows.rules("guest") : null;
+  const tokens = audience === "chat" ? chatTokens(chatNames) : null;
+  const held = audience !== "chat" ? rows.rules(audience) : guestHeld === null || tokens === null ? null : chatRulesFrom(guestHeld, tokens);
   const parsed = held === null || reader === null ? null : parsedRules(held);
   return {
     accessVersion: held?.accessVersion ?? null,
@@ -204,6 +211,7 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json({
           home: rows.home(),
           backfilledAt: rows.backfilledAt(),
+          encryption: rows.encryption(),
           rows: rows.count(),
           accessVersion: rows.rules()?.accessVersion ?? null,
           ...(store.person ? { access: { home: store.person.home(), person: store.person.person() } } : {}),
@@ -211,6 +219,8 @@ export async function serveWorkspaceStore(store, request) {
         });
       case "ws.home":
         return Response.json({ home: rows.setHome(fields.home) });
+      case "ws.encryption":
+        return Response.json({ encryption: rows.setEncryption(fields.state) });
       case "ws.backfilled":
         return Response.json({ backfilledAt: rows.markBackfilled(fields.at) });
       default:

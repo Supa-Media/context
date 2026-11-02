@@ -15,22 +15,17 @@
  * without a clean parity check.
  */
 
-import { createRequire } from "node:module";
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../schema";
 import { modules } from "../test.setup";
 import { internal } from "../_generated/api";
-import { texObjects } from "../../mcp/src/texStore/objects.js";
-import { workspaceRows } from "../../mcp/src/workspaceStore/rows.js";
 import { serveWorkspaceStore } from "../../mcp/src/workspaceStore/serve.js";
-import { workspaceClient } from "../../mcp/src/workspaceStore/api.js";
+import { objectFor } from "./workspaceObject.helpers";
 import { copyKey, copyPage, historyPart, objectBytes, objectBytesPage, parityPage, type BodyStore } from "../functions/lib/workspaceObjects/bodies";
 import { convexVisible, noteRows, objectRowOf, rowsDigest, samplePrincipals, type ObjectRow } from "../functions/lib/workspaceObjects/rows";
 import { addRevisionCounts, emptyRevisionCounts, revisionsPage } from "../functions/lib/workspaceObjects/revisions";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-
-const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 
 const A = "notes/0199a000-0000-7000-8000-00000000000a.md";
 const B = "notes/0199a000-0000-7000-8000-00000000000b.md";
@@ -38,30 +33,6 @@ const C = "notes/0199a000-0000-7000-8000-00000000000c.md";
 const HISTORY = ".context/collaboration/0199a000-0000-7000-8000-00000000000a/updates/0001.bin";
 const FILE = "files/0199a000-0000-7000-8000-00000000000d.png";
 const MARKDOWN = "text/markdown; charset=utf-8";
-
-function durableSql() {
-  const db = new DatabaseSync(":memory:");
-  return {
-    exec(query: string, ...binds: unknown[]) {
-      const statement = db.prepare(query);
-      if (/^\s*SELECT/i.test(query)) {
-        const all = statement.all(...(binds as never[]));
-        return { toArray: () => all };
-      }
-      statement.run(...(binds as never[]));
-      return { toArray: () => [] };
-    },
-  };
-}
-
-/** A real workspace object for `workspaceId`, and its client. */
-function objectFor(workspaceId = "ws1") {
-  const sql = durableSql();
-  const store = { rows: workspaceRows(sql), objects: texObjects(sql) };
-  const stub = { fetch: (request: Request) => serveWorkspaceStore(store, request) };
-  const client = workspaceClient({ WORKSPACE_STORE: { idFromName: (name: string) => name, get: () => stub } }, workspaceId)!;
-  return { store, client, bodies: client.bodies as unknown as BodyStore };
-}
 
 async function text(store: BodyStore, key: string): Promise<string | null> {
   const object = await store.get(key);

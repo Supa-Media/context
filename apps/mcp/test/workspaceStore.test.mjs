@@ -153,8 +153,20 @@ test("home starts at the bucket and moves only to a known home; backfill is stam
   assert.equal((await ws.state()).home, HOMES.BUCKET);
   await ws.setHome(HOMES.OBJECT);
   await ws.markBackfilled(123);
-  assert.deepEqual(await ws.state(), { home: "object", backfilledAt: 123, rows: 4, accessVersion: 1, members: { home: "convex", members: 0, invites: 0, reachPending: 0 } });
+  assert.deepEqual(await ws.state(), { home: "object", backfilledAt: 123, encryption: null, rows: 4, accessVersion: 1, members: { home: "convex", members: 0, invites: 0, reachPending: 0 } });
   await assert.rejects(() => ws.setHome("elsewhere"));
+});
+
+test("encryption starts unknown; keyed sticks, so a later none answers keyed and never undoes it", { skip }, async () => {
+  const { ws } = await seeded();
+  assert.equal((await ws.state()).encryption, null);
+  assert.equal((await ws.setEncryption("none")).encryption, "none");
+  assert.equal((await ws.state()).encryption, "none");
+  assert.equal((await ws.setEncryption("keyed")).encryption, "keyed");
+  assert.equal((await ws.setEncryption("none")).encryption, "keyed");
+  assert.equal((await ws.state()).encryption, "keyed");
+  await assert.rejects(() => ws.setEncryption("maybe"));
+  assert.equal((await ws.state()).encryption, "keyed");
 });
 
 test("a read is bounded, and needs its scope", { skip }, async () => {
