@@ -347,3 +347,4 @@ test/texPage.test.mjs
 test/texPageLive.test.mjs
 test/texPageNotes.test.mjs
 test/texPageRoutes.test.mjs
+test/texPageViews.test.mjs
