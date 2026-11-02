@@ -283,8 +283,9 @@ statement of what is blocking, not a request for permission. Longer form:
 [repository-and-review](./docs/decisions/repository-and-review.md).
 
 **Merging deploys staging and production side by side.** Every merge to
-`main` runs `Deploy Staging`, and its first job starts `Deploy to Production`
-at the same time (decided by the owner, 2026-10-23). Check that production
+`main` runs `Deploy Staging` and, from `deploy-production-start.yml`, starts
+`Deploy to Production` at the same time, outside staging's queue (decided by
+the owner, 2026-10-23). Check that production
 finished; do not dispatch it a second time. The repository variable
 `AUTO_DEPLOY_PRODUCTION` puts staging back in front: `after-staging` waits
 for green staging and main CI, `off` makes production manual.
