@@ -18,6 +18,8 @@
 import { storeLedger } from "./ledger.js";
 
 const MAX_LINE = 200;
+/** The advisor's thinking kept on its entry, at most (`ledger.js` `MAX_WORDS_CHARS`). */
+const MAX_THINKING = 32_000;
 const newId = () => crypto.randomUUID().replace(/-/g, "");
 const squash = (value) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "");
 const cut = (value, max) => {
@@ -33,15 +35,15 @@ export function chatLedger(store, session) {
 }
 
 /** An `advisor` entry: what the everyday model asked with, the answer, how much of the turn it read, how long. */
-export function advisorEntry({ question, answer, steps = 0, ms = 0 }, { turn = null, job = null, check = false, at = Date.now() } = {}) {
-  return { v: 1, id: newId(), at, kind: "advisor", ...turnOf(turn), ...(job ? { jobTitle: job } : {}), ...(check ? { check: true } : {}), question: String(question ?? ""), answer: String(answer ?? ""), steps, ms: Math.max(0, Math.round(ms)) };
+export function advisorEntry({ question, answer, thinking = "", steps = 0, ms = 0 }, { turn = null, job = null, check = false, at = Date.now() } = {}) {
+  return { v: 1, id: newId(), at, kind: "advisor", ...turnOf(turn), ...(job ? { jobTitle: job } : {}), ...(check ? { check: true } : {}), question: String(question ?? ""), answer: String(answer ?? ""), ...(typeof thinking === "string" && thinking.trim() ? { thinking: thinking.slice(0, MAX_THINKING) } : {}), steps, ms: Math.max(0, Math.round(ms)) };
 }
 
 /** The id a held email's check is kept under, so its settling names it (`settledMail`). */
 export const heldCheckId = (askId) => `mc${String(askId).replace(/[^A-Za-z0-9]/g, "").slice(0, 60)}`;
 
 /** A `mail_check` entry. `verdict`: sent, waiting or stopped; `ref`: the check a settling answers. */
-export function mailEntry(email, { verdict, why = "", from = "your texts", id = newId(), ref = null, ask = null, turn = null, at = Date.now() }) {
+export function mailEntry(email, { verdict, why = "", answer = "", from = "your texts", id = newId(), ref = null, ask = null, turn = null, at = Date.now() }) {
   return {
     v: 1,
     id,
@@ -52,6 +54,7 @@ export function mailEntry(email, { verdict, why = "", from = "your texts", id = 
     subject: cut(email?.subject, MAX_LINE),
     verdict,
     why: cut(why, MAX_LINE),
+    ...(typeof answer === "string" && answer.trim() ? { answer: answer.trim().slice(0, 2_000) } : {}),
     from,
     ...(ask ? { ask } : {}),
     ...(ref ? { ref } : {}),
@@ -59,7 +62,12 @@ export function mailEntry(email, { verdict, why = "", from = "your texts", id = 
 }
 
 /** What the Mail checker's verdict reads as: stopped on its "no", waiting while held for their yes, sent on their yes to an offer. */
-export function mailVerdict(checked, { held = false, sent = false } = {}) {
+export function mailVerdict(checked, options = {}) {
+  const said = typeof checked?.answer === "string" && checked.answer ? { answer: checked.answer } : {};
+  return { ...verdictOf(checked, options), ...said };
+}
+
+function verdictOf(checked, { held = false, sent = false }) {
   if (sent) return { verdict: "sent", why: "They agreed to it in the chat" };
   if (checked?.verdict === "no") return { verdict: "stopped", why: checked.reason || "It went against what they said" };
   if (held) return { verdict: "waiting", why: checked?.reason || "Waiting for their yes" };
@@ -72,12 +80,12 @@ export function jobEntry({ id, title }, state, { turn = null, advice = null, at 
 }
 
 /** An email the Mail checker read, written to the ledger; a session with no ledger keeps nothing. */
-export function recordMail(session, email, { verdict, why, ask = null }) {
+export function recordMail(session, email, { verdict, why, answer = "", ask = null }) {
   const ledger = session?.ledger;
   if (!ledger) return;
   const work = session.ledgerWork ?? {};
   try {
-    ledger.write(mailEntry(email, { verdict, why, from: work.from, turn: work.turn, ...(ask ? { id: heldCheckId(ask), ask } : {}) }));
+    ledger.write(mailEntry(email, { verdict, why, answer, from: work.from, turn: work.turn, ...(ask ? { id: heldCheckId(ask), ask } : {}) }));
   } catch {
     // The ledger's line costs the ledger, never the email.
   }
@@ -113,11 +121,12 @@ const VERDICT_WORDS = { done: "Done.", keep_going: "Not yet: keep going.", waiti
  */
 export async function jobChecked(session, { job, steps = 0, turn = null }, run) {
   const asked = Date.now();
-  const fields = await run();
+  // The advisor's thinking goes to the chat's history only, never to the Worker with the answer.
+  const { thinking = "", ...fields } = (await run()) ?? {};
   const ledger = session?.ledger;
   if (ledger && job && typeof fields?.verdict === "string") {
     ledger.write([
-      advisorEntry({ question: `Is the job "${cut(job.title, 120)}" done?`, answer: [VERDICT_WORDS[fields.verdict] ?? fields.verdict, fields.advice].filter(Boolean).join(" "), steps, ms: Date.now() - asked }, { turn, job: job.title, check: true }),
+      advisorEntry({ question: `Is the job "${cut(job.title, 120)}" done?`, answer: [VERDICT_WORDS[fields.verdict] ?? fields.verdict, fields.advice].filter(Boolean).join(" "), thinking, steps, ms: Date.now() - asked }, { turn, job: job.title, check: true }),
       jobEntry(job, fields.verdict, { turn, advice: fields.advice }),
     ]);
     await ledger.flush(); // a job's part answers its own Worker, not a person: written before it does

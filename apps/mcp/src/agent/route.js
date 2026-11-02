@@ -11,7 +11,7 @@ import { AgentRefusal, agentTools, MAX_QUESTION_LENGTH, openProvider, runTurn } 
 import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
-import { keepTextedPictures } from "./textedPictures.js"; import { ledgerObserver, wordsEntry } from "./ledger.js"; import { exchangeEntries } from "./ledgerConversation.js";
+import { keepTextedPictures } from "./textedPictures.js"; import { jobTagged, ledgerObserver, wordsEntry } from "./ledger.js"; import { exchangeEntries } from "./ledgerConversation.js";
 import { groupTimingLine, turnKind, turnReport, waitBefore } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
@@ -150,7 +150,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const job = chatTurn ? jobOf(body.job) : null, report = jobReportOf(body, { chatTurn, job }); // and a job reporting to the chat's own turn, its coordinator (`jobReport.js`)
 
   store.actor = actorFor(session); tex.kind = turnKind({ runner, job, group, texting: session.actorClientId === TEXTS_CLIENT_ID }); // which steps are off (`texEntryPoint.js`)
-  store.contexts = contextsFor(session); store.ledger = chatTurn || runner ? chatLedger(store, session) : null; // a texted, group or routine turn's chat ledger, which the email gate and a settled ask write to (`workEntries.js`)
+  store.contexts = contextsFor(session); store.ledger = chatTurn || runner ? chatLedger(store, session) : null; if (job !== null && store.ledger) store.ledger = session.ledger = jobTagged(store.ledger, job); // a job's turn marks all it writes as the job's (`ledger.js` `jobTagged`) // a texted, group or routine turn's chat ledger, which the email gate and a settled ask write to (`workEntries.js`)
   const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && !runner, logEligible: group !== null && job === null && !runner, now: received }); // what the Worker kept of the last turn's reads, never the history or About me (`warmCopy.js`)
   const setupRead = readProductionSetup(store, session, { texting: session.actorClientId === TEXTS_CLIENT_ID || runner || group !== null, warm: hot.setup }); // read beside what comes before it, not after
 

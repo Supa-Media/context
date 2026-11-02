@@ -121,7 +121,7 @@ describe("the history's lines", () => {
 
   test("days and kinds as the gateway is asked for them", () => {
     expect(kindsFor(DEFAULT_SHOWN)).toEqual(["text", "tool", "note", "advisor", "mail_check", "job"]);
-    expect(kindsFor({ texts: false, tools: false, thinking: true, background: false })).toEqual(["thinking", "said"]);
+    expect(kindsFor({ texts: false, tools: false, thinking: true, background: false, jobs: false })).toEqual(["thinking", "said"]);
     expect(dayAsked("today", "", NOW)).toBe("2026-11-02");
     expect(dayAsked("yesterday", "", new Date(2026, 10, 1, 9))).toBe("2026-10-31");
     expect(dayAsked("all", "", NOW)).toBeUndefined();

@@ -11,7 +11,7 @@
 import type { LedgerEntry, LedgerKind } from "../page/texPageTypes";
 
 /** What the view can show or hide, and the ledger kinds each one is. */
-export const SHOWS = ["texts", "tools", "thinking", "background"] as const;
+export const SHOWS = ["texts", "tools", "thinking", "background", "jobs"] as const;
 export type Show = (typeof SHOWS)[number];
 
 /**
@@ -20,7 +20,7 @@ export type Show = (typeof SHOWS)[number];
  * answer given in another app, the advisor, the Mail checker and jobs, and
  * each of its lines now says which.
  */
-export const SHOW_LABEL: Record<Show, string> = { texts: "Texts", tools: "Tool calls", thinking: "Thinking", background: "Background" };
+export const SHOW_LABEL: Record<Show, string> = { texts: "Texts", tools: "Tool calls", thinking: "Thinking", background: "Background", jobs: "Jobs" };
 
 /**
  * `reply` is left out of Texts: it is Tex's answer as it left the gateway, the
@@ -32,10 +32,13 @@ export const SHOW_KINDS: Record<Show, LedgerKind[]> = {
   tools: ["tool"],
   thinking: ["thinking", "said"],
   background: ["note", "advisor", "mail_check", "job"],
+  // Not a kind: what a job's turns wrote, of any kind, each marked with the job (asked as `jobs: false` when off).
+  jobs: [],
 };
 
 /** Thinking is off until asked for: it is the longest and the least often wanted. */
-export const DEFAULT_SHOWN: Record<Show, boolean> = { texts: true, tools: true, thinking: false, background: true };
+/** Jobs are off too: a job's work is long, and its own page shows it (decided by the owner, 2026-11-02: "In the chat's history, tagged"). */
+export const DEFAULT_SHOWN: Record<Show, boolean> = { texts: true, tools: true, thinking: false, background: true, jobs: false };
 
 /** The ledger kinds to ask for; every kind the view shows when all four are on. */
 export function kindsFor(shown: Record<Show, boolean>): LedgerKind[] {
@@ -74,6 +77,8 @@ export interface HistoryLine {
   replyTo?: string;
   /** The reactions on this text, under it as in the mock: `👍 Mom, Ada · ❤️ You`. */
   reactions?: string;
+  /** The job whose work this is, by its title, when a job's turn wrote it. */
+  job?: string;
   /** A run of tool calls drawn as one line (`text` sums them up); these are the calls, opened on a tap. */
   calls?: HistoryLine[];
   entry: LedgerEntry;
@@ -133,6 +138,12 @@ function toolWords(e: LedgerEntry): string {
 }
 
 function lineOf(e: LedgerEntry, group: boolean): HistoryLine {
+  const job = oneLine(e.jobTitle) || (typeof e.jobId === "string" ? "a job" : "");
+  const line = lineOfKind(e, group);
+  return job && e.kind !== "job" && !(e.kind === "advisor" && e.check) ? { ...line, job } : line;
+}
+
+function lineOfKind(e: LedgerEntry, group: boolean): HistoryLine {
   const base = { id: e.id, entry: e };
   const quiet = (text: string): HistoryLine => ({ ...base, time: "", who: "", tone: "quiet", text });
   switch (e.kind) {
@@ -144,6 +155,8 @@ function lineOf(e: LedgerEntry, group: boolean): HistoryLine {
     case "said":
       return { ...base, time: "", who: "", tone: "thinking", text: oneLine(e.text) };
     case "tool":
+      // The advisor asked mid-turn: its answer is what Tex was told.
+      if (e.name === "ask_advisor" && typeof e.result === "string") return quiet(`advisor · ${short(e.result, 240)}`);
       return quiet(toolWords(e));
     case "advisor":
       return quiet(e.check ? `advisor · ${oneLine(e.question)} ${oneLine(e.answer)}` : `advisor · asked: ${oneLine(e.question)}`);
@@ -206,7 +219,7 @@ function callsLine(calls: HistoryLine[]): HistoryLine {
   }
   const names = [...counts].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name)).join(", ");
   const first = calls[0]!;
-  return { id: `calls:${first.id}`, entry: first.entry, time: "", who: "", tone: "quiet", text: [`${calls.length} tool calls`, names, failed > 0 ? `${failed} failed` : ""].filter(Boolean).join(" · "), calls };
+  return { id: `calls:${first.id}`, entry: first.entry, ...(first.job ? { job: first.job } : {}), time: "", who: "", tone: "quiet", text: [`${calls.length} tool calls`, names, failed > 0 ? `${failed} failed` : ""].filter(Boolean).join(" · "), calls };
 }
 
 /** Two or more tool calls in a row in a turn are one line, opened on a tap (Dev, 2026-11-02: "the tool calls should be collapsed somehow"). */
@@ -219,7 +232,11 @@ function collapseCalls(lines: HistoryLine[]): HistoryLine[] {
     run = [];
   };
   for (const line of lines) {
-    if (line.entry.kind === "tool") run.push(line);
+    if (line.entry.kind === "tool" && line.entry.name !== "ask_advisor" && (run.length === 0 || run[0]!.job === line.job)) run.push(line);
+    else if (line.entry.kind === "tool" && line.entry.name !== "ask_advisor") {
+      close();
+      run.push(line);
+    }
     else {
       close();
       out.push(line);
@@ -243,7 +260,7 @@ export function dayTitle(key: string, now: Date): string {
  * turn is a turn of its own, but a person's text joins the turn just after it. `group` names people by name rather
  * than "You".
  */
-export function historyDays(entries: readonly LedgerEntry[], now: Date, { group = false }: { group?: boolean } = {}): HistoryDay[] {
+export function historyDays(entries: readonly LedgerEntry[], now: Date, { group = false, thinking = false }: { group?: boolean; thinking?: boolean } = {}): HistoryDay[] {
   const byEventId = new Map<string, LedgerEntry>();
   for (const e of entries) if (e.kind === "text" && typeof e.eid === "string") byEventId.set(e.eid, e);
   // Reactions go under the text they are on, never on a line of their own, as in the mock; one whose text isn't in view stays a line.
@@ -284,7 +301,10 @@ export function historyDays(entries: readonly LedgerEntry[], now: Date, { group 
     if (answered !== undefined) line.replyTo = `${whoOf(answered, group)}: ${short(textWords(answered), 60)}`;
     const on = reactions.get(e.id);
     if (on !== undefined && reactionWords(on) !== "") line.reactions = reactionWords(on);
-    // Newest first in, oldest first within a turn.
+    // The advisor's own thinking, kept beside its answer, shown under it with Thinking on.
+    const thought = oneLine(e.thinking);
+    // Newest first in, oldest first within a turn: the thinking goes in first, so it reads after the answer.
+    if (thinking && thought && (e.kind === "advisor" || (e.kind === "tool" && e.name === "ask_advisor"))) turn.lines.unshift({ id: `${e.id}:thinking`, entry: e, time: "", who: "", tone: "thinking", text: `advisor thinking · ${thought}`, ...(line.job ? { job: line.job } : {}) });
     turn.lines.unshift(line);
   }
   // Each day reads top to bottom as it happened; the newest day comes first.
