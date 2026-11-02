@@ -52,7 +52,8 @@ jobs:
           HOME_NOW: ${{ inputs.home }}
         run: |
           set -euo pipefail
-          ids=$(npx convex run functions/workspaceObjectsRows:atHome "$(jq -cn --arg home "${HOME_NOW:-dual}" '{home: $home}')" 2>/dev/null | jq -c '.')
+          args=$(jq -cn --arg home "${HOME_NOW:-dual}" '{home: $home}')
+          ids=$(npx convex run functions/workspaceObjectsRows:atHome "$args" 2>/dev/null | jq -c '.')
           echo "workspaces: $(echo "$ids" | jq 'length')"
           echo "ids=$ids" >> "$GITHUB_OUTPUT"
 
