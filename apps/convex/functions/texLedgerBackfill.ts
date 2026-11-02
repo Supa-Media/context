@@ -64,11 +64,16 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise
  * (`finished`), already was (`done`), there is no ledger (`none`), a dry run
  * (`would`), or `PARTS_PER_CHAT` parts went in and more are left (`copied`).
  */
-export async function copyChatIn(store: unknown, { dryRun }: { dryRun: boolean }): Promise<{ state: string; entries: number }> {
+export async function copyChatIn(
+  store: unknown,
+  { dryRun, group = null, logChat = null }: { dryRun: boolean; group?: string | null; logChat?: string | null },
+): Promise<{ state: string; entries: number }> {
   let state = "copied";
   let entries = 0;
   for (let part = 0; part < PARTS_PER_CHAT && state === "copied"; part += 1) {
-    const ran = await backfillLedger(store, { dryRun });
+    // `backfillLedger` is plain JS whose `group` defaults to null, so its inferred type admits no key: widened here.
+    const options = (group === null ? { dryRun } : { dryRun, group, logChat }) as { dryRun: boolean };
+    const ran = await backfillLedger(store, options);
     state = ran.state;
     entries += ran.entries;
   }
