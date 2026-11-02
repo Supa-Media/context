@@ -56,7 +56,7 @@ export type JobOrigin =
 export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true; advice?: string; resumes?: number; idle?: true };
 
 /** The chat's record of a job: no ask, only where its answer goes. */
-export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; sent?: number; stopped?: true; finalPass?: string };
+export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; stopped?: true; finalPass?: string };
 
 /** What a job's object tells the chat's inbox. `first`: the job's count of texts before these, so a retry repeats none. */
 /** `vaultWatch`: the phone a job's turn texted a link to save a login to, so its inbox watches for the save (`vaultWatch.ts`). */
@@ -355,12 +355,6 @@ export async function noteJobUpdate(storage: InboxStorage, update: JobUpdate, no
 function resultOf(update: JobUpdate): { result?: string } {
   const result = (update.texts ?? []).join("\n\n").trim().slice(0, MAX_RESULT);
   return result ? { result } : {};
-}
-
-/** After a part of a job's texts went, so a retried update repeats none of them. */
-export async function noteJobSent(storage: InboxStorage, id: string, sent: number): Promise<void> {
-  const entry = await storage.get<JobEntry>(entryKey(id));
-  if (entry !== undefined) await storage.put(entryKey(id), { ...entry, sent });
 }
 
 /** `POST /job-update`'s body, read strictly. */

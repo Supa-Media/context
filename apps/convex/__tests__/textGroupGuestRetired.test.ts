@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { Id } from "../_generated/dataModel";
 import { asUser, createUser, createWorkspace, gatewayPost } from "./fixtures.helpers";
 import { migrate, pinnedWorld, type PinnedWorld } from "./pinnedReaders.helpers";
 import { api } from "../_generated/api";
@@ -52,8 +51,8 @@ describe("guest mode is retired", () => {
   test("a guest grant minted before the retirement reads nothing", async () => {
     const w = await pinnedWorld();
     await migrate(w);
-    const ada = await texter(w.t, "ada", ADA);
-    const bo = await texter(w.t, "bo", BO);
+    await texter(w.t, "ada", ADA);
+    await texter(w.t, "bo", BO);
     // A chat with a home, answered as E1 answers it.
     const answer = await agentPost(w.t, "/agent-texts/group", { line: LINE, groupId: GROUP, sender: ADA, participants: [ADA, BO, LINE], mint: true });
     expect(answer.body).toMatchObject({ status: "ready", minted: true });

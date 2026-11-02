@@ -56,7 +56,7 @@ function deps(reads: (string[] | null)[], control: Record<string, unknown>[]): G
 }
 
 describe("a WhatsApp group whose members can't be read", () => {
-  it("is retried, never bound on the sender alone, and decided on everyone once the list reads", async () => {
+  it("is retried until the member list reads, then decided on everyone in it", async () => {
     const storage = new MemoryStorage();
     const control: Record<string, unknown>[] = [];
     await acceptGroup(storage, message("Tex use @crystal-care"), 0);

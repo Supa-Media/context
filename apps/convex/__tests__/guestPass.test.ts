@@ -28,7 +28,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { META_PIXEL } from "../functions/lib/metaConversion";
-import { api, internal } from "../_generated/api";
+import { api } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { setAccessRow } from "../functions/lib/nodes/setAccess";

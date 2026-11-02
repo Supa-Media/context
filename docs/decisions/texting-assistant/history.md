@@ -87,8 +87,8 @@ that answers a reply to a text it cannot see. Tests
 (`agentEgressTexting.test.mjs`): "the next turn sees the texted YES and what
 it released", "a reply to a routine's text reaches a turn that has that
 text", "a text after the ready text reaches a turn that knows Tex asked them
-to connect Google"; `told.test.ts`, `reply.test.ts`, `ready.test.ts` for the
-Worker's half.
+to connect Google"; `reply.test.ts`, `ready.test.ts` for the Worker's half
+(`told.test.ts` was deleted in #2266).
 
 ### Tex answers inside the iMessage thread it was asked in
 

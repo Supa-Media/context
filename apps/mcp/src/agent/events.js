@@ -15,9 +15,9 @@
  * another's.
  *
  * A key sorts newest first (`9999999999999 - at`), so one listing with a
- * limit returns the newest exchanges, whatever the store's age. The old file
- * is imported once, as the oldest entry (`LEGACY_KEY`), and is otherwise left
- * as it was: the first write of the log copies it, and nothing writes it again.
+ * limit returns the newest exchanges, whatever the store's age. A log that
+ * imported the old file holds it as one entry marked `legacy`, which a read
+ * still turns into its turns; nothing imports it any more.
  *
  * What an exchange keeps is what `texts.json` kept (the person's words, the
  * answer, the tools' names and the web addresses it read (`sources.js`),
@@ -29,7 +29,6 @@
 
 export const EVENTS_PREFIX = ".context/agent/events/";
 const NEWEST = 9_999_999_999_999;
-export const LEGACY_KEY = `${EVENTS_PREFIX}${NEWEST}-legacy.json`;
 /**
  * The most entries one read lists. The kept history is bounded by characters
  * (`conversation.js`), so entries are read newest first, a batch at a time,
@@ -54,11 +53,6 @@ function randomTag() {
 export function eventKey(at, tag = randomTag()) {
   const sort = String(NEWEST - Math.max(0, Math.min(NEWEST, Math.floor(at)))).padStart(13, "0");
   return `${EVENTS_PREFIX}${sort}-${tag}.json`;
-}
-
-/** When the exchange with this id happened (ms): its key sorts by it. */
-export function atOfId(id) {
-  return NEWEST - Number(String(id).slice(0, 13));
 }
 
 export function idOfKey(key) {
