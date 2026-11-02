@@ -24,10 +24,16 @@ Each tagged message is resolved again by the control plane
 - Everyone in the chat except the line the message came in on must be a phone
   linked to an account, with texting not paused. The list is the webhook's
   and Sendblue's members read together, so more people can only narrow it.
-  A turn whose members can't be read is retried, never decided on the
+  A question whose members can't be read is retried, never decided on the
   webhook's names alone (2026-11-02): a Sendblue webhook may name someone by
   an email handle that the read before the answer lists as a phone, which
-  held the answer for a newcomer nobody was. Before the answer and before
+  held the answer for a newcomer nobody was, and the control plane mints the
+  turn's grant and spends the one-shot introduction on the people it is
+  given. A command on Sendblue is still answered from the webhook's names,
+  so "Tex, stop" works with the groups API down; "what can you see" waits
+  for the list, since it names the workspaces those people share. On
+  WhatsApp, whose webhook names only the sender, every turn waits for the
+  list, as before. Before the answer and before
   each progress line, a failed read is tried once more at once; a list unread
   twice still holds the answer, since a list nobody can read is not one with
   nobody new in it (`groupModelTurn.ts`; tests in `groupMembersRead.test.ts`).

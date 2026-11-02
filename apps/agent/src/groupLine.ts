@@ -47,6 +47,12 @@ export interface GroupLine {
   readMembers(place: GroupPlace): Promise<string[] | null>;
   /** The words of a message Tex sent in this group; null for anyone else's, another chat's, or a failure. */
   readOwnMessage(place: GroupPlace, messageId: string): Promise<string | null>;
+  /**
+   * True when the app's webhook names only the sender, never the chat's other people (WhatsApp), so a turn
+   * can't stand on the webhook's list when `readMembers` fails: it is retried rather than decided as if
+   * the sender were alone (the Crystal Care chat, 2026-10-29: bound on one person, then refused the family).
+   */
+  readonly senderOnlyWebhook?: true;
 }
 
 export type GroupLineDeps = {
@@ -103,6 +109,7 @@ function whapiGroupLine(deps: GroupLineDeps): GroupLine {
     return found;
   };
   return {
+    senderOnlyWebhook: true,
     sendText: async (place, text, replyTo) => {
       // A note's link carries its own preview, as in a 1:1 chat (`noteCards.ts`); one Whapi refuses goes plain.
       const preview = await whapiNotePreview(text, deps.noteCardPicture, deps.hostPicture);
