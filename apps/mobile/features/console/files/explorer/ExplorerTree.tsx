@@ -10,6 +10,7 @@ import { FileTree } from "../FileTree";
 import { NO_PICK } from "../selection";
 import { makeStyles } from "./styles";
 import type { ExplorerState } from "./useExplorer";
+import { useChatHomeTitles, withChatHomeTitles } from "../chatHomeTitles";
 
 /**
  * The scrolling body of the column: the tree, or the flat ranked list a
@@ -55,6 +56,7 @@ export function ExplorerTree({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  const titles = useChatHomeTitles();
   return (
     <ScrollView
       style={styles.scroll}
@@ -99,7 +101,7 @@ export function ExplorerTree({
         )
       ) : (
         <FileTree
-          rows={relabelled(rows, files.titleEdit)}
+          rows={withChatHomeTitles(relabelled(rows, files.titleEdit), titles)}
           onSelect={select}
           onToggle={(path) => {
             setPicked(NO_PICK);

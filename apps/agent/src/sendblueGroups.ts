@@ -9,11 +9,12 @@
  *
  * Nothing here decides who may read what: the participant list goes to the
  * control plane (`/agent-texts/group`), which resolves the chat to one shared
- * workspace or to none. A group's display name is never read: anyone in the
- * chat can set it.
+ * workspace or to none. A group's display name is read only to show its home's
+ * name in the app (`groupNameOf`), never into a message or a turn: anyone in
+ * the chat can set it.
  */
 
-import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
+import { MAX_REPLY_TEXT, post, ServiceError, type Fetch } from "./clients";
 import { MAX_INBOUND_TEXT } from "./inbound";
 import { readRemovedTapback, readTapback, type Reaction } from "./reactions";
 import { call, E164, getJson, handleOf, isLinkPreview, isRecord, line, sendCall, TAPBACK, type SendblueKeys } from "./sendblue";
@@ -211,4 +212,38 @@ export async function readOwnGroupMessage(fetcher: Fetch, keys: SendblueKeys, ha
   if (parent.from_number !== chat.line && parent.sendblue_number !== chat.line) return null;
   const content = typeof parent.content === "string" ? parent.content.trim() : "";
   return content === "" ? null : content.slice(0, 500);
+}
+
+/** The longest chat name kept; iMessage's own cap is shorter. */
+export const MAX_GROUP_NAME = 120;
+
+/**
+ * The chat's name as the webhook gives it (`group_display_name`), cleaned to one plain line: "" for a chat with no
+ * name, null when the webhook says nothing about it.
+ * Anyone in the chat can set it, so it is shown in the app as the chat's folder name and nowhere else: it never
+ * goes into the group's queue, its log or a turn (decided by the owner, 2026-11-02;
+ * `docs/decisions/texting-assistant/chat-homes.md`).
+ */
+export function groupNameOf(payload: unknown): string | null {
+  if (!isRecord(payload) || typeof payload.group_display_name !== "string") return null;
+  // Control and bidi-override characters out, whitespace to single spaces.
+  const plain = payload.group_display_name
+    .replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩﻿]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return [...plain].slice(0, MAX_GROUP_NAME).join("");
+}
+
+/**
+ * Tells the control plane the chat's name now (`POST /agent-texts/group/name`), beside the message and never in it,
+ * so a rename shows on the chat's next message. An empty name clears it; null sends nothing. Never throws: a name
+ * that does not land is sent again with the next message.
+ */
+export async function sendGroupName(fetcher: Fetch, origin: string, secret: string, message: { line: string; groupId: string }, name: string | null): Promise<void> {
+  if (name === null) return;
+  try {
+    await post(fetcher, "control_plane", `${origin}/agent-texts/group/name`, secret, { line: message.line, groupId: message.groupId, name }, 2_000);
+  } catch {
+    // Counted by the next message's try.
+  }
 }

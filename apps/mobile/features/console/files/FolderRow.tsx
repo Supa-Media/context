@@ -24,6 +24,7 @@ import { isGroupVisibility, isListToken } from "./types";
 import { RowOpeningBar, useStillOpening } from "./RowOpening";
 import { isItem, RowExtraLead, RowExtraTrail, useRowExtra, useRowTrailShows } from "./folderPage/rowExtras";
 import type { FileEntry } from "./types";
+import { useChatHomeTitles } from "./chatHomeTitles";
 
 /** How far each level of a folder opened in place sits in from its folder (`NestedRows.tsx`). */
 export const NEST_INDENT = 18;
@@ -96,7 +97,7 @@ export function FolderRow({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const label = displayName(row.name);
+  const label = useChatHomeTitles().get(row.path)?.title ?? displayName(row.name);
   const home = card && phone !== undefined ? phone : null;
   // In the List view: the status dot, the count and the faces (`folderPage/rowExtras.tsx`). `undefined` in Notes.
   const extra = useRowExtra(row.path);

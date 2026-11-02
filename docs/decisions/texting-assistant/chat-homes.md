@@ -191,6 +191,25 @@ change a chat's grant asks for beneath it, so `write_note` there skips the row t
 this, every new note in a home was refused after its text went in, and no chat's history page was reported written.
 Test: `apps/mcp/test/chatHomeWrite.test.mjs`.
 
+## A home is shown by its chat's name (2026-11-02)
+
+The owner, 2026-11-02: "instead of showing the ID, why don't we just show the actual group chat name? ... or the
+group chat name might just be a list of people and then, you know, ellipses when it gets too long", approved on the
+"Group chat names" artboard. The home's folder keeps its three words: they are its path, its id and what every AI
+client and link names. The app draws the home by the chat's iMessage name (`textGroups.chatName`), or, with none, by
+its people (`@bo, @cy +2`, people without an account counted), cut off with an ellipsis where the row is narrow
+(`apps/mobile/features/console/files/chatHomeTitles.tsx`; the tree, the folder page and the breadcrumb).
+
+The texting Worker reads `group_display_name` from each group message and sends it to the control plane beside the
+message (`sendblueGroups.ts` `groupNameOf`, `POST /agent-texts/group/name`), so a rename shows after the chat's next
+message: Sendblue has no rename event. This reverses "a group's display name is never read" only for showing it.
+Anyone in the chat can set it, so it never goes into the group's queue, its log, a turn or a model, and it decides
+nothing: not a path, not who sees what. Only the people named on a home are told its name, and only in the pinned
+workspace (`textGroupNames.homeTitles`).
+
+Tests: `apps/agent/src/groupInbox.test.ts` (the name never in the message; cleaned; sent alone),
+`apps/convex/__tests__/textGroupHome.test.ts` ("a chat's name on its home"), `apps/mobile/__tests__/chatHomeTitles.test.ts`.
+
 ## Still to build
 
 Routines, dreams and a heartbeat for a chat need their jobs moved too: a

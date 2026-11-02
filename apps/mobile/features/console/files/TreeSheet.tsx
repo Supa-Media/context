@@ -9,6 +9,7 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../../des
 import type { FileBrowser } from "./browser";
 import { relabelled } from "./linkedTitle";
 import { buildTreeRows, type TreeRow } from "./tree";
+import { useChatHomeTitles, withChatHomeTitles } from "./chatHomeTitles";
 
 /**
  * The whole tree, on a phone: what the bar's folder key opens.
@@ -71,13 +72,17 @@ export function TreeSheet({
     for (const folder of foldersToReveal(files.selectedPath, files.expanded)) files.toggleFolder(folder);
   }, [files]);
 
+  const titles = useChatHomeTitles();
   const rows = useMemo(
     () =>
-      relabelled(
-        buildTreeRows({ listings: files.listings, expanded: files.expanded, selectedPath: files.selectedPath }),
-        files.titleEdit,
+      withChatHomeTitles(
+        relabelled(
+          buildTreeRows({ listings: files.listings, expanded: files.expanded, selectedPath: files.selectedPath }),
+          files.titleEdit,
+        ),
+        titles,
       ),
-    [files.listings, files.expanded, files.selectedPath, files.titleEdit],
+    [files.listings, files.expanded, files.selectedPath, files.titleEdit, titles],
   );
 
   return (
