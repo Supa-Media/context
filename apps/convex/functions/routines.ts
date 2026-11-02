@@ -6,7 +6,8 @@
  */
 
 import { v } from "convex/values";
-import { action, internalAction, internalMutation, mutation, query } from "../_generated/server";
+import { action, internalAction, internalQuery, query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import {
   myTimeZoneHandler,
   routineForNoteHandler,
@@ -23,6 +24,7 @@ import {
   takeRoutineWritersHandler,
 } from "./lib/routines/sync";
 import { claimDueRoutinesHandler, recordRoutineResultHandler } from "./lib/routines/runs";
+import { homeRoutineFiles as homeRoutineFilesOf } from "./lib/routines/homes";
 
 const cadenceValidator = v.object({
   unit: v.union(
@@ -90,6 +92,13 @@ export const commitRoutines = internalMutation({
   handler: commitRoutinesHandler,
 });
 
+/** The pinned workspace's home routines, from the tree's rows, with the chat each answers into (`lib/routines/homes.ts`). */
+export const homeRoutineFiles = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ files: v.array(v.object({ path: v.string(), chat: v.string() })), complete: v.boolean() }),
+  handler: async (ctx, { workspaceId }) => await homeRoutineFilesOf(ctx, workspaceId),
+});
+
 export const reconcileRoutines = internalAction({
   args: { workspaceId: v.id("workspaces") },
   returns: v.null(),
@@ -109,6 +118,7 @@ export const claimDueRoutines = internalMutation({
   args: {
     runIds: v.array(v.string()),
     tokens: v.array(v.object({ hashedAccessToken: v.string(), hashedRefreshToken: v.string() })),
+    scope: v.optional(v.object({ workspaceId: v.string(), path: v.string() })),
   },
   returns: v.array(
     v.object({
@@ -120,6 +130,7 @@ export const claimDueRoutines = internalMutation({
       phones: v.array(v.string()),
       chat: v.optional(v.string()),
       since: v.optional(v.number()),
+      nextRunAt: v.optional(v.union(v.number(), v.null())),
     }),
   ),
   handler: claimDueRoutinesHandler,

@@ -26,6 +26,7 @@
  * the product and the notes, Tex the assistant people text.
  */
 
+import { isControlWord } from "./controlWords";
 import {
   askAgent,
   askLine,
@@ -40,14 +41,15 @@ import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
 import type { Steer } from "./steer";
-import { textsFromAnswer, textsWithExact } from "./format";
+import { textsWithExact } from "./format";
 import { saveTextsStyle, textSettings, type MenuState, type SettingStep, type TexStyle } from "./texStyle";
 import { saveReviewSharing, sharingReply, sharingWords } from "./reviewSharing";
 import type { OutgoingPicture } from "./outgoing";
 import type { Choice } from "./pickCard";
-import type { DataCardKind } from "./dataCards";
+import type { Offer } from "./dataCards";
 import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
+import type { WarmDeps } from "./warm";
 
 /**
  * One text to answer. `channel` is set only by the staging simulator, whose
@@ -55,11 +57,13 @@ import type { Inbound } from "./inbound";
  * delivery never carries it.
  */
 /** `setting`: a "Tex, settings" text or a reply to its menu, answered by code and never put to decide (`texStyle.ts`). */
-/** `askYes`: a like or love held as the yes to an ask (`thumbs.ts`), set only by `react`; answered by code, never put to decide. */
+/** `askYes`: a like, love or dislike held as the answer to an ask (`thumbs.ts`), set only by `react`; answered by code, never put to decide. */
 export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator"; setting?: true; askYes?: true };
 
 export type ReplyDeps = {
   fetch: Fetch;
+  /** The gateway's sealed warm copy, kept in this sender's object (`warm.ts`). */
+  warm?: WarmDeps;
   controlPlaneOrigin: string;
   workerSecret: string;
   gatewayOrigin: string;
@@ -88,7 +92,7 @@ export type ReplyDeps = {
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
   onPictures?: (pictures: OutgoingPicture[], choices: Choice[]) => void;
   /** Handed the data cards an answer offers (`dataCards.ts`); absent, none go. */
-  onOffers?: (offers: DataCardKind[]) => void;
+  onOffers?: (offers: Offer[]) => void;
   /**
    * Not the last try (`inbox.ts`): a text that could not be started (the
    * control plane unreachable, or the gateway answering 503 before the turn
@@ -104,6 +108,8 @@ export type ReplyDeps = {
   steer?: Steer;
   /** The chat's event ids this turn answers (`events.ts`), sent to `/agent` as `covers` with the chat's key. */
   covers?: string[];
+  /** When the first text this turn answers came in, sent to `/agent` so the turn log shows how long it waited. */
+  arrivedAt?: number;
   /** Handed the approval records the turn armed and the ask line shown for them, so each is logged as an ask (`events.ts`). */
   onAsks?: (askIds: string[], askText: string) => void;
   /**
@@ -111,9 +117,10 @@ export type ReplyDeps = {
    * started (`jobs.ts`). Absent, the turn is offered none.
    */
   running?: RunningJob[];
-  onJobs?: (jobs: StartedJob[]) => Promise<void>;
+  /** Resolves to a line for the answer when a job Tex said it started never did (`notStartedText`). */
+  onJobs?: (jobs: StartedJob[]) => Promise<string | undefined | void>;
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
-  onSteers?: (asks: JobSteerAsk[]) => Promise<void>;
+  onSteers?: (asks: JobSteerAsk[]) => Promise<string | undefined | void>;
   /**
    * "Tex, settings" (`texStyle.ts`): where the open menu is kept, and handed
    * the person's style each session so the quick tapback can follow it.
@@ -158,6 +165,7 @@ export const COPY = {
     "I can't answer right now. Please text me again in a little while.",
   dailyLimit:
     "That's all the questions I can answer for you today. Text me again tomorrow.",
+  jobReportRefused: "One of the things I was working on for you has news, but I can't put it into words right now. Text me and I'll catch you up.",
   unavailable: "Something went wrong on my side. Please try again in a minute.",
   /** A linked phone's SMS: never answered from the notes, since its sender can be faked. */
   sms: "Hi, it's Tex. That text came through as SMS, and I only open your notes over iMessage, since anyone can send an SMS that looks like it's from your number. Send it again here and I'll answer.",
@@ -268,27 +276,35 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId), holdsLog: message.chatId ? await deps.warm?.holds(message.chatId) : undefined },
     );
+    if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
     if (answer.kind === "cancelled") return [];
     if (answer.kind === "answer") {
       deps.onAnswered?.();
+      // Kept when it started a job too: a job reports through the chat's own turn (never writes the chat itself), and the gateway reads notes and skills fresh while one runs (`warmCopy.js` `jobBusy`).
+      await deps.warm?.keep(answer.warm);
+      if (answer.log && message.chatId) await deps.warm?.keepLog(message.chatId, answer.log); // the chat's log, held here from now on (`events.ts` `keepLog`)
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();
-      if (answer.jobs) await deps.onJobs?.(answer.jobs);
-      if (answer.steers) await deps.onSteers?.(answer.steers);
+      const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs) : undefined;
+      const notResumed = answer.steers ? await deps.onSteers?.(answer.steers) : undefined;
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
       if (answer.offers) deps.onOffers?.(answer.offers);
-      if (!answer.text) return [];
+      const after = [notStarted, notResumed].filter((line): line is string => typeof line === "string" && line !== "");
+      // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`): the gateway's flag, never a word; a bare control word is never a text either.
+      if (!answer.text || answer.quiet || isControlWord(answer.text)) return after;
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only
       // what they read (`apps/mcp/src/tools/emailGate.js`).
-      return textsWithExact(answer.text, answer.verbatim, session.texStyle?.bubbles === "one");
+      return [...textsWithExact(answer.text, answer.verbatim, session.texStyle?.bubbles === "one"), ...after];
     }
     if (answer.kind === "not_started" && deps.retry) throw new TryLater();
+    // A job's report the chat's turn was refused for is never lost in silence: the result waits in the job list for their next text.
+    if (message.event === "job_report" && (answer.kind === "no_model" || answer.kind === "daily_limit")) return [COPY.jobReportRefused];
     // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.
     if (message.event !== undefined) return [];
     if (answer.kind === "no_model") return COPY.noModel;

@@ -21,7 +21,8 @@ export {
 } from "./excalidraw.js";
 
 export { SCENE_PADDING, buildScene } from "./scene.js";
-export { canSerializeDrawing, serializeDrawing } from "./serialize.js";
+export { canSerializeDrawing, readDrawingScene, serializeDrawing } from "./serialize.js";
+export { mergeDrawings, mergeElements } from "./merge.js";
 export {
   changedElements,
   decodeElements,

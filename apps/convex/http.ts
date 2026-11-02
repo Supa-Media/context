@@ -351,7 +351,6 @@ export const gatewayPageCover = gatewayRoute(gatewayPageCoverHandler, MAX_COVER_
 export const gatewayTreeTouch = gatewayRoute(signals.gatewayTreeTouchHandler);
 export const gatewayTreeManifest = gatewayRoute(gatewayTreeManifestHandler);
 export const gatewayTreeFacts = gatewayRoute(gatewayTreeFactsHandler);
-
 /* -------------------------------------------------------------------------- */
 /* 2b-noteids. POST /gateway/note-ids/lookup and /wrote — the id copy         */
 /* -------------------------------------------------------------------------- */
@@ -395,11 +394,9 @@ export const gatewayJobsOpen = gatewayRoute(jobs.gatewayJobsOpenHandler);
 
 export const gatewayJobsReport = gatewayRoute(jobs.gatewayJobsReportHandler);
 
-/* -------------------------------------------------------------------------- */
-/* 2f. POST /gateway/mover/open — spend one page of a whole-bucket move       */
-/* -------------------------------------------------------------------------- */
-
+/* 2f. POST /gateway/mover/open, /gateway/tex-store/open — the control plane's tickets */
 export const gatewayMoverOpen = gatewayRoute(jobs.gatewayMoverOpenHandler);
+export const gatewayTexStoreOpen = gatewayRoute(jobs.gatewayTexStoreOpenHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 3. POST /gateway/clients/register — RFC 7591 dynamic client registration  */
@@ -811,6 +808,7 @@ http.route({ path: "/gateway/moves/batch", method: "POST", handler: gatewayRoute
 http.route({ path: "/gateway/moves/across", method: "POST", handler: gatewayRoute(gatewayMoveAcrossHandler) });
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/tree/touch", method: "POST", handler: gatewayTreeTouch });
+http.route({ path: "/gateway/objects/behind", method: "POST", handler: gatewayRoute(signals.gatewayObjectBehindHandler) });
 http.route({ path: "/gateway/tree/manifest", method: "POST", handler: gatewayTreeManifest });
 http.route({ path: "/gateway/tree/facts", method: "POST", handler: gatewayTreeFacts });
 http.route({ path: "/gateway/page-cover", method: "POST", handler: gatewayPageCover });
@@ -826,6 +824,7 @@ http.route({ path: "/gateway/jobs/create", method: "POST", handler: gatewayJobsC
 http.route({ path: "/gateway/jobs/open", method: "POST", handler: gatewayJobsOpen });
 http.route({ path: "/gateway/jobs/report", method: "POST", handler: gatewayJobsReport });
 http.route({ path: "/gateway/mover/open", method: "POST", handler: gatewayMoverOpen });
+http.route({ path: "/gateway/tex-store/open", method: "POST", handler: gatewayTexStoreOpen });
 http.route({ path: "/gateway/clients/register", method: "POST", handler: gatewayClientsRegister });
 http.route({ path: "/gateway/clients/get", method: "POST", handler: gatewayClientsGet });
 http.route({ path: "/gateway/authorize/start", method: "POST", handler: gatewayAuthorizeStart });
@@ -923,8 +922,7 @@ export const gatewayLinksRevoke = gatewayRoute(links.gatewayLinksRevokeHandler);
 
 http.route({ path: "/gateway/links/revoke", method: "POST", handler: gatewayLinksRevoke });
 
-/* Setting a workspace up through an agent: create, lay out, connect Google. */
-export const gatewayWorkspacesCreate = gatewayRoute(workspaceRoutes.gatewayWorkspacesCreateHandler);
+export const gatewayWorkspacesCreate = gatewayRoute(workspaceRoutes.gatewayWorkspacesCreateHandler); // setting a workspace up through an agent: create, lay out, connect Google
 export const gatewayWorkspacesLayout = gatewayRoute(workspaceRoutes.gatewayWorkspacesLayoutHandler);
 export const gatewayWorkspacesConnectGoogle = gatewayRoute(workspaceRoutes.gatewayWorkspacesConnectGoogleHandler);
 export const gatewayWorkspacesInvite = gatewayRoute(workspaceRoutes.gatewayWorkspacesInviteHandler);
@@ -932,9 +930,12 @@ http.route({ path: "/gateway/workspaces/create", method: "POST", handler: gatewa
 http.route({ path: "/gateway/workspaces/layout", method: "POST", handler: gatewayWorkspacesLayout });
 http.route({ path: "/gateway/workspaces/connect-google", method: "POST", handler: gatewayWorkspacesConnectGoogle });
 http.route({ path: "/gateway/workspaces/invite", method: "POST", handler: gatewayWorkspacesInvite });
+http.route({ path: "/gateway/access/profiles", method: "POST", handler: gatewayRoute(workspaceRoutes.gatewayAccessProfilesHandler) }); // names for a workspace object's members (`functions/accessProfiles.ts`)
+http.route({ path: "/gateway/access/mirror", method: "POST", handler: gatewayRoute(workspaceRoutes.gatewayAccessMirrorHandler) }); // Convex written behind an object's access write (`functions/accessMirror.ts`)
 /* Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`). */
 export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler);
 http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });
+for (const [path, handler] of texStyleRoutes.TEX_ROUTES) http.route({ path, method: "POST", handler: gatewayRoute(handler) }); // the agent's chat commands on its own grant, and the Tex page's two calls on the console's (`texCommands.ts`, `texPage.ts`)
 /* Who is texting Tex, for the turns Tex answers for one person (`lib/texIdentity/identity.ts`). */
 export const gatewayAgentIdentity = gatewayRoute(texIdentity.gatewayAgentIdentityHandler);
 http.route({ path: "/gateway/agent/identity", method: "POST", handler: gatewayAgentIdentity });
@@ -965,9 +966,9 @@ http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnl
 /* A tagged message or a command in a group chat Tex is in (`functions/textGroups.ts`). */
 export const agentTextsGroup = agentWorkerRoute(agentTextGroups.agentTextsGroupHandler);
 http.route({ path: "/agent-texts/group", method: "POST", handler: agentTextsGroup });
-http.route({ path: "/agent-texts/group/people", method: "POST", handler: agentWorkerRoute(agentTextGroups.agentTextsGroupPeopleHandler) });
 /* Whether Tex answers, reacts or stays silent, and a group's chosen style (`docs/design/tex-event-log/CONTRACT.md`). */
 http.route({ path: "/agent-texts/decide", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsDecideHandler) });
+http.route({ path: "/agent-texts/recheck", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsRecheckHandler) }); // `textRecheck.ts`
 http.route({ path: "/agent-texts/group/engagement", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsGroupEngagementHandler) });
 http.route({ path: "/agent-texts/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsStyleHandler) });
 http.route({ path: "/agent-texts/group/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsGroupStyleHandler) });

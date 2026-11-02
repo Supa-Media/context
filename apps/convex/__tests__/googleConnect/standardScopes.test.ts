@@ -3,13 +3,14 @@
  * from (`functions/lib/googleConnect/aiScopes.ts`; agent scopes and AI's
  * write capabilities are covered in clientRoles.test.ts).
  *
- * Before the switch everything is as today. Once `GOOGLE_AGENT_CLIENT_ACTIVE`
- * is on, the standard consent is identity plus the Meetings view's calendar
- * read, and a connect binds Gmail and Chat by the person's choice rather than
- * by reads the standard grant no longer carries.
+ * Every new standard consent is identity plus the Meetings view's owned
+ * calendar read (2026-10-30), whatever the switch says. Once a row runs
+ * switched (`GOOGLE_AGENT_CLIENT_ACTIVE`, the canary, or a row made under the
+ * minimum consent), a connect binds Gmail and Chat by the person's choice
+ * rather than by reads the standard grant no longer carries.
  *
- * Sabotage (temporary local edits, reverted): `standardScopesFor` ignoring the
- * switch fails "after the switch the standard consent is identity ...";
+ * Sabotage (temporary local edits, reverted): `standardScopesFor` asking the
+ * broad pair fails "identity, plus the owned calendar read ...";
  * `standardGrantCovers` ignoring the switch fails "after the switch a Gmail
  * connect binds ..."; `standardGrantCovers` dropping the Calendar exception
  * fails "after the switch Calendar still needs ..."; the read routes using
@@ -26,8 +27,8 @@ import {
   CALENDAR_WRITE_SCOPE,
   CHAT_READ_SCOPES,
   GMAIL_SCOPES,
+  CALENDAR_OWNED_READ_SCOPE,
   IDENTITY_SCOPES,
-  scopesForConnect,
 } from "../../functions/lib/googleOAuth";
 import { canReadProduct, standardGrantCovers, standardScopesFor } from "../../functions/lib/googleConnect/aiScopes";
 import { seedGoogleConnection } from "../fixtures.helpers";
@@ -51,18 +52,17 @@ function configure(env: Record<string, string>) {
 }
 
 describe("what the standard consent asks for", () => {
-  test("before the switch it is today's list, writes included, so current flows keep working", () => {
-    for (const products of [["gmail"], ["calendar"], ["chat"], ["gmail", "calendar", "chat"]] as const) {
-      expect(standardScopesFor(products, OFF)).toEqual(scopesForConnect(products));
-      expect(standardScopesFor(products, ROLLOUT)).toEqual(scopesForConnect(products));
+  // Every new request, whatever the deployment's settings (2026-10-30): the
+  // global switch only decides how rows made before are read.
+  test("identity, plus the owned calendar read only when Calendar is connected, and never the broad pair", () => {
+    for (const env of [OFF, ROLLOUT, SWITCHED]) {
+      configure(env);
+      expect(standardScopesFor(["gmail", "calendar", "chat"])).toEqual([...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE]);
+      expect(standardScopesFor(["calendar"])).toEqual([...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE]);
+      expect(standardScopesFor(["gmail"])).toEqual([...IDENTITY_SCOPES]);
+      expect(standardScopesFor(["chat"])).toEqual([...IDENTITY_SCOPES]);
+      expect(standardScopesFor(["gmail", "calendar", "chat"])).not.toContain(CALENDAR_READ);
     }
-  });
-
-  test("after the switch the standard consent is identity, plus the calendar read only when Calendar is connected", () => {
-    expect(standardScopesFor(["gmail", "calendar", "chat"], SWITCHED)).toEqual([...IDENTITY_SCOPES, CALENDAR_READ]);
-    expect(standardScopesFor(["calendar"], SWITCHED)).toEqual([...IDENTITY_SCOPES, CALENDAR_READ]);
-    expect(standardScopesFor(["gmail"], SWITCHED)).toEqual([...IDENTITY_SCOPES]);
-    expect(standardScopesFor(["chat"], SWITCHED)).toEqual([...IDENTITY_SCOPES]);
   });
 });
 
@@ -106,10 +106,13 @@ async function bindGmail(scopes: string[]) {
 }
 
 describe("binding a connect", () => {
-  test("before the switch a Gmail grant without Gmail's read is refused as incomplete, as today", async () => {
+  // A first connect binds a row under the minimum consent, which runs
+  // switched whatever the deployment says (`googleConnect/consentPlan.test.ts`).
+  test("before the switch too, a first Gmail connect binds on identity alone, as a row made under the minimum consent", async () => {
     configure(ROLLOUT);
     const row = await bindGmail([...IDENTITY_SCOPES]);
-    expect(row).toMatchObject({ products: ["gmail"], health: "reconnect_required", errorCode: "SCOPES_INCOMPLETE" });
+    expect(row).toMatchObject({ products: ["gmail"], consentPlan: "split" });
+    expect(row!.health).not.toBe("reconnect_required");
   });
 
   test("after the switch a Gmail connect binds from the person's choice, though the standard grant holds identity only", async () => {

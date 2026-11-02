@@ -60,13 +60,33 @@ function routineRootOf(path) {
  * anything under one (scheduled or not), or a folder a root sits in (`tex`,
  * whose move or deletion takes `tex/routines/` with it). What a write is
  * reported for, and what makes the control plane re-read the roots. A note
- * beside the root, like `tex/about-me.md`, is not one.
+ * beside the root, like `tex/about.md`, is not one.
  */
 function isRoutinePath(path) {
   if (typeof path !== "string") return false;
   const normalized = path.replace(/^\/+|\/+$/g, "").toLowerCase();
   if (normalized === "") return false;
   return ROUTINE_ROOTS.some((root) => normalized.startsWith(root) || root.startsWith(`${normalized}/`));
+}
+
+/**
+ * A group chat's routines live in its home, `tex/groups/<words>/routines/`, as a person's live in `tex/routines/`
+ * (the owner, 2026-11-02; `docs/decisions/texting-assistant/chat-routines.md`). `{ words, routinePath }` for a path
+ * at or under a home's routines folder, `routinePath` the same path under `tex/routines/` so every rule a routine's
+ * path carries reads it as one; null for anything else.
+ */
+const HOME_ROUTINES = /^tex\/groups\/([a-z][a-z0-9-]{0,62})\/routines(?:\/(.*))?$/;
+
+function homeRoutineOf(path) {
+  if (typeof path !== "string") return null;
+  const match = HOME_ROUTINES.exec(path.replace(/^\/+|\/+$/g, "").toLowerCase());
+  if (!match) return null;
+  return { words: match[1], routinePath: match[2] === undefined ? TEX_ROUTINES_FOLDER.slice(0, -1) : `${TEX_ROUTINES_FOLDER}${match[2]}` };
+}
+
+/** Whether a change at `path` can change a chat's routines: its home's routines folder or anything under it. */
+function isHomeRoutinePath(path) {
+  return homeRoutineOf(path) !== null;
 }
 
 /** When a daily-or-slower routine runs if its file names no time. */
@@ -615,6 +635,8 @@ module.exports = {
   routineFromPath,
   routineRootOf,
   isRoutinePath,
+  homeRoutineOf,
+  isHomeRoutinePath,
   frontMatter,
   parseTime,
   parseWeekdays,

@@ -111,6 +111,8 @@ export function translateSearch(call, app = {}) {
 
 /** Keyword ids: exact, case-sensitive, after trimming. */
 const KEYWORDS = {
+  // Several notes in one call (`read_notes`): args { paths }.
+  "notes:": { name: "read_notes", action: "notes", copy: ["paths"] },
   "meetings:": { name: "list_meetings", action: "meetings", copy: ["limit"] },
   "calendar:": { name: "read_calendar", action: "calendar", copy: ["date", "days", "account"] },
   "messages:": { name: "list_channel_days", action: "messages", copy: ["channel", "account", "limit"] },

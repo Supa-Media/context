@@ -1,0 +1,60 @@
+# Delete one archived test account, and every workspace it alone owns, by its handle
+# (owner, 2026-11-02; `apps/convex/functions/staffDeletion.ts`).
+#
+# Manual only. Run it with `dry_run` first: that reports the checks and changes
+# nothing. It refuses, by fixed reason, an account staff has not archived, the
+# production CUJ account, the reviewer, staff, and any account whose workspace a
+# live person still belongs to. The answer is booleans and counts, never an id,
+# an address or a bucket name: this repository is public, and so is this log.
+name: Staff delete account
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to delete in."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      handle:
+        description: "The account's handle (its personal workspace's name)."
+        type: string
+        required: true
+      dry_run:
+        description: "Check only; delete nothing."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Delete account
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          HANDLE: ${{ inputs.handle }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=$(jq -cn --arg handle "$HANDLE" --argjson dry "$DRY_RUN" '{handle: $handle, dryRun: $dry}')
+          answer=$(npx convex run functions/staffDeletion:deleteArchivedAccount "$args" 2>/dev/null)
+          echo "$answer" | jq -c .
+          if [ "$(echo "$answer" | jq '.blockers | length')" != "0" ]; then echo "refused: $(echo "$answer" | jq -c .blockers)"; exit 1; fi

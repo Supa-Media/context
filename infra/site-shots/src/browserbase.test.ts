@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { SESSION_LIFETIME_S, createSession, forgetRefusedTiers, sessionRequests } from "./browserbase";
 import { browseOnBrowserbase } from "./browserbaseRoute";
 import { READ_WORLD, STORAGE_WORLD } from "./jar";
+import { PASSKEYS_OFF_SOURCE } from "./passkeys";
 
 const ISOLATED = 7;
 const SHOP_DB = { name: "firebaseLocalStorageDb", version: 1, stores: [{ name: "firebaseLocalStorage", keyPath: "fbase_key", autoIncrement: false, indexes: [], records: [{ value: { fbase_key: "k", value: { uid: "u1" } } }] }] };
@@ -12,7 +13,7 @@ const OTHER = "b".repeat(64);
 const PROFILE = "0b6c0e3e-7a43-4b1e-9d0a-2f5a1c9e8d71";
 
 /** A CDP socket that answers just enough for one reading of one page. */
-const socketOptions = { failSetCookies: false, uploadedSize: 9 };
+const socketOptions = { failSetCookies: false, uploadedSize: 9, google: [] as unknown[] };
 
 function fakeSocket(log: string[]) {
   const listeners: Record<string, Array<(e: { data: string }) => void>> = {};
@@ -46,7 +47,12 @@ function fakeSocket(log: string[]) {
         const expr: string = params.expression;
         // The page's own world answers a jar read with another site's data, as a page that replaced Promise could.
         const apart = params.contextId === ISOLATED;
-        if (expr.includes("localStorage.key(i)")) result = { result: { value: apart ? { origin: "https://shop.example.com", items: { token: "jwt-abc" } } : { origin: "https://bank.example", items: { forged: "1" } } } };
+        // Google's sign-in (./googleChallenge.ts): where it is, and a press that moves it on.
+        if (expr.includes("data-challengetype") && expr.includes("new RegExp(")) {
+          result = { result: { value: socketOptions.google.length > 1 ? { x: 1, y: 1 } : null } };
+          if (socketOptions.google.length > 1) socketOptions.google.shift();
+        } else if (expr.includes("data-challengetype")) result = { result: { value: socketOptions.google[0] ?? null } };
+        else if (expr.includes("localStorage.key(i)")) result = { result: { value: apart ? { origin: "https://shop.example.com", items: { token: "jwt-abc" } } : { origin: "https://bank.example", items: { forged: "1" } } } };
         else if (expr.includes("indexedDB.databases")) result = { result: { value: apart ? { origin: "https://shop.example.com", dbs: [SHOP_DB] } : { origin: "https://bank.example", dbs: [] } } };
         else if (expr.includes("location.hostname")) result = { result: { value: { href: "https://shop.example.com/", host: "shop.example.com", origin: "https://shop.example.com" } } };
         else if (expr.includes("data-tex-ref") && expr.includes("elements")) {
@@ -136,6 +142,21 @@ describe("browseOnBrowserbase", () => {
     expect(api.cdp[0]).toBe("connect https://connect.example/new-1");
   });
 
+  it("presses past Google's passkey step to the password way, and reads the page it lands on", async () => {
+    socketOptions.google = [{ step: "passkey", ways: [] }, { step: "options", ways: ["code", "password"] }, { step: "password", ways: [] }];
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }] });
+    socketOptions.google = [];
+    expect(result.status).toBe(200);
+    expect(result.api.cdp.filter((m) => m === "Input.dispatchMouseEvent")).toHaveLength(6);
+  });
+
+  it("presses nothing on Google's sign-in while the person is being handed the browser", async () => {
+    socketOptions.google = [{ step: "passkey", ways: [] }, { step: "options", ways: ["password"] }];
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], handoff: true });
+    socketOptions.google = [];
+    expect(result.api.cdp.filter((m) => m === "Input.dispatchMouseEvent")).toHaveLength(0);
+  });
+
   it("names no captcha when the page shows none", async () => {
     const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }] });
     expect(result.body.captcha).toBeUndefined();
@@ -217,7 +238,11 @@ describe("sign-ins kept between browsers", () => {
     const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], keep: true, jar });
     const set = result.api.cdp.find((line) => line.startsWith("Storage.setCookies "));
     expect(JSON.parse(set!.slice("Storage.setCookies ".length))).toEqual({ cookies: jar.cookies });
-    const script = result.api.cdp.find((line) => line.startsWith("Page.addScriptToEvaluateOnNewDocument "));
+    const scripts = result.api.cdp.filter((line) => line.startsWith("Page.addScriptToEvaluateOnNewDocument "));
+    const parsed = scripts.map((line) => JSON.parse(line.slice("Page.addScriptToEvaluateOnNewDocument ".length)));
+    // Passkeys off first, in the page's own world, where its scripts ask (./passkeys.ts).
+    expect(parsed[0]).toEqual({ source: PASSKEYS_OFF_SOURCE, runImmediately: true });
+    const script = scripts.find((line) => !line.includes(JSON.stringify(PASSKEYS_OFF_SOURCE)));
     // In a world of its own: no site's scripts read what it carries.
     expect(JSON.parse(script!.slice("Page.addScriptToEvaluateOnNewDocument ".length)).worldName).toBe(STORAGE_WORLD);
     expect(result.body.jar).toEqual({

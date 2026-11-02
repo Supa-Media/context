@@ -42,7 +42,8 @@ import {
   type WhapiKeys,
 } from "./whapi";
 
-export type Picture = { name: string; mediaType: string; data: string };
+/** A picture to send; `title` marks a card Tex drew, kept longer where it is hosted (`media.ts` `CARD_FOR_MS`). */
+export type Picture = { name: string; mediaType: string; data: string; title?: string };
 
 export interface Line {
   /**
@@ -81,6 +82,8 @@ export type LineDeps = {
   appCard?: AppCardConfig | null;
   /** Draws a note link's picture (`noteCards.ts`), sent before the link where there is no App Card. */
   noteCardPicture?: NoteCardDrawer;
+  /** A new link to this chat's live view of its jobs (`jobs.ts` `mintThreadsLink`); absent, the view is never offered. */
+  threadsLink?: () => Promise<string>;
 };
 
 export function lineFor(deps: LineDeps, chatId: string): Line {

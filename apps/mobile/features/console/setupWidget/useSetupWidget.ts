@@ -51,7 +51,7 @@ export function useSetupWidget(
 ) {
   const grants = useQuery(
     api.functions.grants.listGrants,
-    enabled && workspaceId !== null ? { workspaceId: workspaceId as Id<"workspaces"> } : "skip",
+    enabled && workspaceId !== null ? { workspaceId: workspaceId as Id<"workspaces">, activeOnly: true } : "skip",
   ) as GrantFacts[] | undefined;
 
   const retireOnAccount = useMutation(api.functions.workspaces.retireSetupWidget);

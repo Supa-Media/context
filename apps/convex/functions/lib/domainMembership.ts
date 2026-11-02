@@ -4,6 +4,7 @@ import { recordAudit } from "./audit";
 import { domainOf } from "./emailDomains";
 import { deleteMemberPlaces } from "./places";
 import { confirmedEmailsOf } from "./signInEmails";
+import { takeAwayFirst } from "./accessHandOff/takeAway";
 
 /**
  * Membership through an email domain (`functions/workspaceDomains.ts`): which
@@ -24,22 +25,25 @@ export async function myDomains(ctx: QueryCtx, userId: Id<"users">): Promise<Map
  * After an address goes from an account: leave every workspace joined through
  * a domain this person no longer signs in with. Called by `removeEmail`.
  */
-export async function leaveDroppedDomains(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
+export async function leaveDroppedDomains(ctx: MutationCtx, userId: Id<"users">, only: Id<"workspaces">[] | null = null): Promise<void> {
   const still = await myDomains(ctx, userId);
   const memberships = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .take(500);
-  for (const membership of memberships) {
-    if (membership.viaDomain === undefined || still.has(membership.viaDomain)) continue;
-    if (membership.role === "owner") continue;
+  const leaving = memberships.filter((membership) => membership.viaDomain !== undefined && !still.has(membership.viaDomain) && membership.role !== "owner");
+  // A workspace whose members are decided in its object is left there first (`accessHandOff/takeAway.ts`); the
+  // queue runs this again, for those workspaces, once the objects took it.
+  if (only === null && (await takeAwayFirst(ctx, { kind: "leave", userId, workspaceIds: leaving.map((membership) => membership.workspaceId) }))) return;
+  for (const membership of leaving) {
+    if (only !== null && !only.includes(membership.workspaceId)) continue;
     await ctx.db.delete(membership._id);
     await deleteMemberPlaces(ctx, membership.workspaceId, userId);
     await recordAudit(ctx, {
       workspaceId: membership.workspaceId,
       actorUserId: userId,
       action: "member.left",
-      details: { viaDomain: membership.viaDomain, reason: "email_removed" },
+      details: { viaDomain: membership.viaDomain ?? null, reason: "email_removed" },
     });
   }
 }

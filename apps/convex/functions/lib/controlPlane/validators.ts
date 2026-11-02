@@ -33,6 +33,11 @@ export const openStorageBindingArgs = {
    * target, so a stale call cannot complete the wrong one.
    */
   completeEncryptionRotation: v.optional(v.string()),
+  /**
+   * Tex reading its own setup in the pinned workspace (`lib/texSetupRead.ts`): only for a Tex client's token and the
+   * pin, and the rules come back narrowed to the setup's folders. Anything else asked this way is no binding.
+   */
+  setupRead: v.optional(v.boolean()),
 };
 
 /**
@@ -66,6 +71,8 @@ export const openStorageBindingReturns = v.union(
     audience: v.optional(v.literal("guest")),
     /** A Tex guest chat's names: its rules are the guest rules read for it (`lib/nodes/chatFolders.ts`). */
     chatNames: v.optional(v.array(v.string())),
+    /** Tex's setup read: the rules are a member's, narrowed to the setup's folders (`lib/texSetupRead.ts`). */
+    setupRead: v.optional(v.literal(true)),
   }),
 );
 

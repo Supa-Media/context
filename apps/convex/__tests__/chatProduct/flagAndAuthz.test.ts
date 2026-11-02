@@ -232,7 +232,10 @@ describe("startChatConnect requests the union of an existing connection's produc
    * Sabotage: change `[...existingProducts, "chat"]` to `["chat"]` and the
    * requested scope list stops containing `GMAIL_SCOPE`.
    */
-  test("naming a connectionId with an existing gmail product asks for gmail's scopes too", async () => {
+  // The union is of products, recorded on the attempt; the request itself is
+  // the minimum (2026-10-30), and what the account already granted comes
+  // back through `include_granted_scopes`.
+  test("naming a connectionId with an existing gmail product carries gmail on the attempt, and asks for nothing of it", async () => {
     enableMailConnect();
     vi.stubEnv("APP_ORIGIN", APP);
     const { t, owner, workspaceId } = await personalScenario();
@@ -251,9 +254,11 @@ describe("startChatConnect requests the union of an existing connection's produc
     });
 
     const scope = new URL(authorizeUrl).searchParams.get("scope") ?? "";
-    expect(scope).toContain(GMAIL_SCOPE);
-    expect(scope).toContain(CHAT_MESSAGES_SCOPE);
-    expect(scope).toContain(CHAT_SPACES_SCOPE);
+    expect(scope).not.toContain(GMAIL_SCOPE);
+    expect(scope).not.toContain(CHAT_MESSAGES_SCOPE);
+    expect(new URL(authorizeUrl).searchParams.get("include_granted_scopes")).toBe("true");
+    const attempts = await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect());
+    expect([...(attempts.at(-1)?.products ?? [])].sort()).toEqual(["chat", "gmail"]);
   });
 
   test("a connectionId belonging to another workspace contributes nothing — no cross-tenant existence signal", async () => {

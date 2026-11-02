@@ -1,5 +1,7 @@
 # Notes stored by id
 
+> **Being replaced (decided by the owner, 2026-11-01):** a workspace's bodies, rows and access rules move into its workspace object, one workspace at a time; this file describes the bucket and control-plane home a workspace keeps until its reads are switched. See [workspace-objects](./workspace-objects.md).
+
 ## Names, folders and privacy live on tree rows; the bucket holds bodies by id
 
 *Decided by the owner, 2026-10-15* ("I want like a clean migration. I don't
@@ -301,6 +303,17 @@ note's version (`handOut: false`), so a rename loads the note's history twice
 (read, then write) rather than four times. Rethrowing in `followHeading`, or
 loading the history before `replaceText` in `writeFile`, fails
 `__tests__/files/renameLanded.test.ts`.
+
+A note nobody has opened has no collaboration document, so its heading follows
+as a plain conditional write of its Markdown (`readFile` and `writeFile` with
+`startsNoDocument`): no editor or device holds a copy to merge with, and its
+first open starts the document from that Markdown. Starting one only to change
+a heading was most of a never-opened note's rename (2.6 s to 0.6 s with 80 ms
+per bucket request, 2026-10-29). If somebody opens the note in the instant
+between the check and the write, the document's next load puts its own text
+back, so the heading simply did not follow; nothing typed is lost. Reading
+through the document in `followHeading` fails the never-opened case of
+`renameLanded.test.ts`.
 
 ## A move into another workspace, when either end is keyed
 

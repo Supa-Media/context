@@ -7,7 +7,8 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { JEV_FEATURES, type JevFeatureName } from "./lib/jev/features";
 import { addModelUsage, addUsage, gate as gateFor } from "./lib/jev/meter";
 

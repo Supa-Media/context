@@ -5,8 +5,28 @@
  */
 import { CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS, CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
 import { TREE_RESPONSE_BYTE_CAP } from "./tree.js";
+import { sha256Hex } from "./client.js";
+import { parseToken } from "../workspaceStore/access.js";
+import { workspaceClient } from "../workspaceStore/api.js";
+import { timedAccessStep } from "../workspaceStore/personClient.js";
 
-export function createSessionMethods({ post, required }) {
+/**
+ * A token that names its person object (`workspaceStore/access.js`) is answered there, with its hash and nothing else,
+ * and never by the control plane: the object is the one copy of that connection. No answer (no object binding, a
+ * hash the object does not hold) is the same `null` every other miss is. An object that cannot be reached is a
+ * `ControlPlaneError`, which `session.js` turns into the same refusal.
+ */
+async function sessionFromObject(env, sessionObjects, parsed, accessToken) {
+  const client = (sessionObjects ?? workspaceClient)(env, parsed.personalWorkspaceId);
+  if (client === null) return null;
+  try {
+    return await timedAccessStep(env, "person.session", parsed.personalWorkspaceId, async () => await client.access.session(await sha256Hex(accessToken)));
+  } catch {
+    throw new ControlPlaneError("person object unreachable");
+  }
+}
+
+export function createSessionMethods({ post, required, env = null, sessionObjects = null }) {
   return {
     /**
      * @param {string} accessToken the bearer token exactly as presented
@@ -15,6 +35,10 @@ export function createSessionMethods({ post, required }) {
      * @returns {Promise<object|null>} the session, or null for no live grant.
      */
     async resolveSession(accessToken, transport = null) {
+      const parsed = parseToken(accessToken);
+      // A refresh token is never an access token, whichever door it came through.
+      if (parsed?.kind === "refresh") return null;
+      if (parsed?.format === "object") return await sessionFromObject(env, sessionObjects, parsed, accessToken);
       const pathRoute = transport?.kind === "path" ? { transport: "path", route: transport.route } : {};
       return required(await post("/gateway/session", { accessToken, ...pathRoute }), "session");
     },
@@ -74,12 +98,15 @@ export function createSessionMethods({ post, required }) {
      * about one is not.
      *
      * @param {{start?: true, complete?: string}} [rotationRequest]
+     * @param {{setupRead?: boolean}} [options] Tex reading its setup in the pin (`session.js` `sessionForSetup`)
      * @returns {Promise<{binding: object|null, searchIndex: object|null, encryptionKey: object|null, rotation: object|null}>}
      */
-    async getStorageBinding(accessToken, expectedWorkspaceId, rotationRequest) {
+    async getStorageBinding(accessToken, expectedWorkspaceId, rotationRequest, { setupRead = false } = {}) {
       const parsed = await post("/gateway/binding", {
         accessToken,
         expectedWorkspaceId,
+        // Tex reading its setup in the pin (`session.js` `sessionForSetup`): the control plane narrows the rules.
+        ...(setupRead === true ? { setupRead: true } : {}),
         ...(rotationRequest?.start === true ? { startEncryptionRotation: true } : {}),
         ...(typeof rotationRequest?.complete === "string"
           ? { completeEncryptionRotation: rotationRequest.complete }
@@ -96,29 +123,7 @@ export function createSessionMethods({ post, required }) {
       // out of the binding instead of off the response is the bug that left
       // fast search dead in production for a year, so all four are read here,
       // beside each other, where the shape is visible.
-      return {
-        binding: required(parsed, "binding"),
-        searchIndex: parsed.searchIndex ?? null,
-        // Search by meaning's index, `searchIndex`'s terms: absent until it takes writes.
-        meaningIndex: parsed.meaningIndex ?? null,
-        encryptionKey: parsed.encryptionKey ?? null,
-        rotation: parsed.rotation ?? null,
-        // The free managed tier's note cap, a fifth sibling and absent for
-        // every context without one. Only a positive integer means a cap.
-        noteCap: Number.isInteger(parsed.noteCap) && parsed.noteCap > 0 ? parsed.noteCap : null,
-        // Managed-storage encryption, a sixth sibling: `{mode}` for a managed
-        // bucket being encrypted or already encrypted, absent otherwise.
-        managedEncryption: parsed.managedEncryption ?? null,
-        // An eighth sibling: the access rules the rows render for this reader (`store/privacyAuthority.js`).
-        privacy: parsed.privacy ?? null,
-        // `"keys"`: notes live only at their id keys (`store/idLayout.js`). Every
-        // workspace is keyed; anything else is a control plane that cannot say
-        // where notes are, and the session store refuses it.
-        idLayout: parsed.idLayout === "keys" ? "keys" : null,
-        // The staff console's feature switches (`functions/featureSwitches.ts`):
-        // only a literal `true` turns one on, so a missing or odd value is off.
-        features: { vaultKeyUse: parsed.features?.vaultKeyUse === true },
-      };
+      return bindingAnswerOf(parsed, required);
     },
 
     /**
@@ -179,9 +184,10 @@ export function createSessionMethods({ post, required }) {
      *
      * @returns {Promise<{allowed: true, remaining: number}|{allowed: false, reason: string}|null>}
      */
-    async startBuiltinTurn(accessToken, expectedWorkspaceId, { tryIt = false } = {}) {
+    async startBuiltinTurn(accessToken, expectedWorkspaceId, { tryIt = false, background = false } = {}) {
       // `tryIt` only from the AI tab's Try it route (`agent/tryIt.js`): the control plane checks the person may.
-      const parsed = await post("/gateway/builtin-model", { accessToken, expectedWorkspaceId, ...(tryIt ? { tryIt: true } : {}) });
+      // `background`: a job's part or its report (`agent/route.js`), never counted against the daily cap.
+      const parsed = await post("/gateway/builtin-model", { accessToken, expectedWorkspaceId, ...(tryIt ? { tryIt: true } : {}), ...(background ? { background: true } : {}) });
       return required(parsed, "verdict");
     },
 
@@ -233,10 +239,11 @@ export function createSessionMethods({ post, required }) {
     async recordBuiltinUsage(
       accessToken,
       expectedWorkspaceId,
-      { input, output, cacheRead = 0, cacheWrite = 0, model, decision = 0, failed, ms, tryIt = false },
+      { input, output, cacheRead = 0, cacheWrite = 0, model, decision = 0, failed, ms, tryIt = false, background = false },
     ) {
       await post("/gateway/builtin-model/usage", {
         ...(tryIt ? { tryIt: true } : {}),
+        ...(background ? { background: true } : {}),
         accessToken,
         expectedWorkspaceId,
         inputTokens: input,
@@ -249,5 +256,35 @@ export function createSessionMethods({ post, required }) {
         ms,
       });
     },
+  };
+}
+
+/**
+ * `/gateway/binding`'s answer as the session store reads it, from the parsed body. Also how a binding kept in the
+ * workspace's object is read (`store/objectBinding.js`), so both arrive in one shape.
+ */
+export function bindingAnswerOf(parsed, required) {
+  return {
+    binding: required(parsed, "binding"),
+    searchIndex: parsed.searchIndex ?? null,
+    // Search by meaning's index, `searchIndex`'s terms: absent until it takes writes.
+    meaningIndex: parsed.meaningIndex ?? null,
+    encryptionKey: parsed.encryptionKey ?? null,
+    rotation: parsed.rotation ?? null,
+    // The free managed tier's note cap, a fifth sibling and absent for
+    // every context without one. Only a positive integer means a cap.
+    noteCap: Number.isInteger(parsed.noteCap) && parsed.noteCap > 0 ? parsed.noteCap : null,
+    // Managed-storage encryption, a sixth sibling: `{mode}` for a managed
+    // bucket being encrypted or already encrypted, absent otherwise.
+    managedEncryption: parsed.managedEncryption ?? null,
+    // An eighth sibling: the access rules the rows render for this reader (`store/privacyAuthority.js`).
+    privacy: parsed.privacy ?? null,
+    // `"keys"`: notes live only at their id keys (`store/idLayout.js`). Every
+    // workspace is keyed; anything else is a control plane that cannot say
+    // where notes are, and the session store refuses it.
+    idLayout: parsed.idLayout === "keys" ? "keys" : null,
+    // The staff console's feature switches (`functions/featureSwitches.ts`):
+    // only a literal `true` turns one on, so a missing or odd value is off.
+    features: { vaultKeyUse: parsed.features?.vaultKeyUse === true },
   };
 }

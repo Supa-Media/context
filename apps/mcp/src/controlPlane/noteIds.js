@@ -60,12 +60,13 @@ export function createNoteIdMethods({ post, required }) {
     /**
      * What the tree says about each path (`/gateway/note-ids/lookup`): `keyed`
      * for the workspace, and `notes`, one entry per path with a row. Paths with
-     * no row are absent.
+     * no row are absent from `notes`; `texHomes` names those whose new note is
+     * kept in Tex's Durable Object, and its owner.
      *
      * @param {string} accessToken
      * @param {string} workspaceId
      * @param {string[]} paths
-     * @returns {Promise<{keyed: boolean, notes: Record<string, object>}>}
+     * @returns {Promise<{keyed: boolean, notes: Record<string, object>, texHomes: Record<string, string>}>}
      */
     async noteIdLookup(accessToken, workspaceId, paths) {
       if (!Array.isArray(paths) || paths.length === 0 || paths.length > NOTE_ID_LOOKUP_MAX) {
@@ -85,7 +86,13 @@ export function createNoteIdMethods({ post, required }) {
         const entry = narrowNote(parsed.notes[path]);
         if (entry !== null) notes[path] = entry;
       }
-      return { keyed: parsed.keyed === true, notes };
+      // Paths whose new note is kept in Tex's Durable Object, and whose (`store/texRouting.js` checks the owner again).
+      const texHomes = {};
+      const homes = parsed.texHomes && typeof parsed.texHomes === "object" && !Array.isArray(parsed.texHomes) ? parsed.texHomes : {};
+      for (const path of Object.keys(homes)) {
+        if (typeof homes[path] === "string" && /^(?:person|chat):[A-Za-z0-9_-]{1,64}$/.test(homes[path])) texHomes[path] = homes[path];
+      }
+      return { keyed: parsed.keyed === true, notes, texHomes };
     },
 
     /**

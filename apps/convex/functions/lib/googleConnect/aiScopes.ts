@@ -12,31 +12,47 @@
 
 import {
   CALENDAR_OWNED_READ_SCOPE,
-  CALENDAR_SCOPES,
+  CALENDAR_OWNED_SCOPE,
   canReadCalendar,
   canWriteCalendar,
+  CHAT_READ_SCOPE,
+  CHAT_SEND_SCOPE,
+  CHAT_SPACES_CREATE_SCOPE,
+  CHAT_SPACES_READ_SCOPE,
+  GMAIL_COMPOSE_SCOPE,
+  GMAIL_SCOPES,
   grantedScopesFor,
   IDENTITY_SCOPES,
-  narrowCalendarScopes,
-  scopesForConnect,
   type GoogleProduct,
 } from "../googleOAuth";
-import { agentClientActive, googleEnvFor, grantFor } from "./clients";
+import { agentClientActive, googleEnvFor, googleEnvForRow, grantFor } from "./clients";
 
 /** Re-exported so a connect flow imports its scopes and their environment from one place. */
-export { googleEnvFor };
+export { googleEnvFor, googleEnvForRow };
 
 type Env = Record<string, string | undefined>;
 
 /**
- * The agent client's consent: every read and write scope AI uses for the
- * products, without Calendar's read scope, which its write scope already
- * covers (either pair; `narrowCalendarScopes`).
+ * What the agent client is asked for, feature by feature (2026-10-30, after
+ * Google asked for exact scope matching and least privilege per feature):
+ * Gmail's read and drafts, the owned calendar's events (its write scope
+ * reads too, so no read scope beside it), and Chat's read and send.
+ * `chat.spaces.create` is in Chat's because sending to somebody the person
+ * has never messaged starts the direct message (`spaces.setup`, which Google
+ * accepts under that scope or `chat.spaces` alone). A product the person did
+ * not connect contributes nothing: Gmail no longer carries Chat's scopes.
  */
-export function agentScopesFor(products: readonly GoogleProduct[], env: Env = process.env): string[] {
-  const scopes = scopesForConnect(products, env);
-  const reads: readonly string[] = [...CALENDAR_SCOPES, CALENDAR_OWNED_READ_SCOPE];
-  return canWriteCalendar(scopes) ? scopes.filter((scope) => !reads.includes(scope)) : scopes;
+export const AGENT_PRODUCT_SCOPES: Readonly<Record<GoogleProduct, readonly string[]>> = {
+  gmail: [GMAIL_SCOPES[0], GMAIL_COMPOSE_SCOPE],
+  calendar: [CALENDAR_OWNED_SCOPE],
+  chat: [CHAT_READ_SCOPE, CHAT_SPACES_READ_SCOPE, CHAT_SEND_SCOPE, CHAT_SPACES_CREATE_SCOPE],
+};
+
+/** The agent client's consent for these products: identity and each product's own scopes, nothing else. */
+export function agentScopesFor(products: readonly GoogleProduct[]): string[] {
+  const scopes = new Set<string>(IDENTITY_SCOPES);
+  for (const product of products) for (const scope of AGENT_PRODUCT_SCOPES[product]) scopes.add(scope);
+  return [...scopes];
 }
 
 /** The read scopes an agent grant must hold for Gmail and Chat to count as allowed. */
@@ -59,6 +75,8 @@ export function agentGrantCovers(products: readonly GoogleProduct[], scopes: rea
 interface ScopedConnection {
   /** Required, so a row passed without it cannot quietly read the global settings in place of its workspace's (the canary). */
   workspaceId: string;
+  /** `split` for a row made under the minimum consent: AI reads through the agent grant only (`googleEnvForRow`). */
+  consentPlan?: "split";
   scopes: string[];
   agentGrant?: { scopes: string[] };
 }
@@ -71,26 +89,26 @@ interface ScopedConnection {
  * gives the standard client a new grant AI never reads, so telling the person
  * to reconnect would send them round in a loop.
  */
-export function aiAccessNeeded(row: ScopedConnection & { products: readonly GoogleProduct[] }, env: Env = googleEnvFor(row.workspaceId)): boolean {
+export function aiAccessNeeded(row: ScopedConnection & { products: readonly GoogleProduct[] }, env: Env = googleEnvForRow(row)): boolean {
   if (grantFor("agent", row.agentGrant !== undefined, env) !== "agent") return false;
   return row.agentGrant === undefined || !agentGrantCovers(row.products, row.agentGrant.scopes);
 }
 
 /** The scopes AI may act on for this connection: those of the grant AI mints from. */
-export function aiScopesOf(row: ScopedConnection, env: Env = googleEnvFor(row.workspaceId)): string[] {
+export function aiScopesOf(row: ScopedConnection, env: Env = googleEnvForRow(row)): string[] {
   return grantFor("agent", row.agentGrant !== undefined, env) === "agent" ? (row.agentGrant?.scopes ?? []) : row.scopes;
 }
 
 /**
- * The standard client's consent. Until the switch, today's list: AI still
- * reads every account that has not allowed AI access through it. Once
- * switched, the person's own use is the Meetings view's calendar read and
- * nothing else, so identity, plus `calendar.events.readonly` when Calendar
- * is connected: no Gmail, no Chat, no write.
+ * The standard client's consent, for every new request (2026-10-30): the
+ * person's own use is the Meetings view's calendar read and nothing else, so
+ * identity, plus `calendar.events.owned.readonly` when Calendar is
+ * connected: no Gmail, no Chat, no write, and never the broad calendar pair.
+ * A grant made before keeps every scope it holds (`include_granted_scopes`),
+ * and its row keeps reading through it (`consentPlan.ts`).
  */
-export function standardScopesFor(products: readonly GoogleProduct[], env: Env = process.env): string[] {
-  if (!agentClientActive(env)) return scopesForConnect(products, env);
-  return products.includes("calendar") ? narrowCalendarScopes([...IDENTITY_SCOPES, ...CALENDAR_SCOPES], env) : [...IDENTITY_SCOPES];
+export function standardScopesFor(products: readonly GoogleProduct[]): string[] {
+  return products.includes("calendar") ? [...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE] : [...IDENTITY_SCOPES];
 }
 
 /**

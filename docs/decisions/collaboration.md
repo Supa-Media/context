@@ -47,6 +47,19 @@ privacy rules and the active document generation decide delivery. Permission
 failures close ineligible recipients before content is sent. Old clients
 without a pinned document identity receive only content-free commit notices.
 
+One check covers a sender's frames for ten seconds (`LIVE_RECHECK_MS`) while
+the bearer and the people in the note stay the same; a sender alone is
+re-checked every thirty (`ALONE_RECHECK_MS`). Checking every keystroke cost a
+control-plane session, a grant lookup and the privacy state per key, a large
+share of the Convex reads billed for October 2026. The owner chose ten seconds
+(2026-10-30): someone whose access is taken away may go on receiving another
+person's keystrokes in a note they already had open for at most that long. A
+new bearer, anyone joining or leaving, or a new grant on either side asks
+again at once; only a yes for everyone is reused, so a refusal is asked about
+afresh; and each frame still checks every recipient's seat, grant and deadline
+before anything is sent. Reverting this means checking per frame again;
+`test/presence/relayV2SpeculativeUpdates.test.mjs` pins the window.
+
 Network and authorization latency still apply. This path removes bucket writes
 and a second document fetch from normal live typing; it does not promise a
 fixed production delay. Lost relay messages are repaired from the durable

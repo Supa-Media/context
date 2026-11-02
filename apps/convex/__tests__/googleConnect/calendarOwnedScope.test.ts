@@ -1,15 +1,15 @@
 /**
  * Calendar's narrower pair, `calendar.events.owned` and its read-only twin
- * (`narrowCalendarScopes` in `functions/lib/googleOAuth.ts`; CASA least
+ * (`AGENT_PRODUCT_SCOPES` / `standardScopesFor` in `lib/googleConnect/aiScopes.ts`; CASA least
  * scope, 2026-10-28).
  *
  * Every Calendar call Context makes is on the person's own `primary`
- * calendar, so the owned pair is enough. A connect asks for it only once
- * `GOOGLE_CALENDAR_SCOPE=owned`; whatever the setting, a grant of either pair
- * reads and writes, so no connection made before has to reconnect.
+ * calendar, so the owned pair is enough. Every new request asks for it
+ * (2026-10-30); a grant of either pair reads and writes, so no connection
+ * made before has to reconnect.
  *
- * Sabotage (temporary local edits, reverted): `narrowCalendarScopes` ignoring
- * the setting fails "with the setting, a connect asks ..."; `canWriteCalendar`
+ * Sabotage (temporary local edits, reverted): `AGENT_PRODUCT_SCOPES` asking
+ * the broad write fails "every new request asks for the owned pair ..."; `canWriteCalendar`
  * dropping the owned scope fails "an owned grant books the event ..." and
  * "the owned write counts as AI access ..."; `canWriteCalendar` dropping the
  * broad scope fails "grants of the broader pair keep ..."; `grantedScopesFor`
@@ -35,7 +35,6 @@ import {
   canReadCalendar,
   canWriteCalendar,
   grantedScopesFor,
-  scopesForConnect,
 } from "../../functions/lib/googleOAuth";
 import { agentGrantCovers, agentScopesFor, canReadProduct, standardGrantCovers, standardScopesFor } from "../../functions/lib/googleConnect/aiScopes";
 import { readOnlyServices } from "../../functions/lib/googleWriteAccess";
@@ -57,20 +56,18 @@ afterEach(() => {
 });
 
 describe("what a connect asks Google for", () => {
-  test("without the setting, today's broader pair, unchanged", () => {
-    expect(scopesForConnect(["calendar"], BROAD)).toEqual([...IDENTITY_SCOPES, CALENDAR_READ, CALENDAR_WRITE_SCOPE]);
-    expect(agentScopesFor(["calendar"], BROAD)).toEqual([...IDENTITY_SCOPES, CALENDAR_WRITE_SCOPE]);
-  });
-
-  test("with the setting, a connect asks for the owned pair and never the broader one", () => {
-    const asked = scopesForConnect(["gmail", "calendar", "chat"], OWNED);
-    expect(asked).toContain(CALENDAR_OWNED_READ_SCOPE);
-    expect(asked).toContain(CALENDAR_OWNED_SCOPE);
-    expect(asked).not.toContain(CALENDAR_READ);
-    expect(asked).not.toContain(CALENDAR_WRITE_SCOPE);
-    expect(agentScopesFor(["calendar"], OWNED)).toEqual([...IDENTITY_SCOPES, CALENDAR_OWNED_SCOPE]);
-    expect(standardScopesFor(["calendar"], SWITCHED_OWNED)).toEqual([...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE]);
-    expect(standardScopesFor(["calendar"], OWNED)).toEqual([...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE, CALENDAR_OWNED_SCOPE]);
+  test("every new request asks for the owned pair and never the broader one, whatever the setting", () => {
+    for (const env of [BROAD, OWNED, SWITCHED_OWNED]) {
+      for (const [key, value] of Object.entries(env as Record<string, string>)) vi.stubEnv(key, value);
+      const asked = [...agentScopesFor(["gmail", "calendar", "chat"]), ...standardScopesFor(["gmail", "calendar", "chat"])];
+      expect(asked).toContain(CALENDAR_OWNED_READ_SCOPE);
+      expect(asked).toContain(CALENDAR_OWNED_SCOPE);
+      expect(asked).not.toContain(CALENDAR_READ);
+      expect(asked).not.toContain(CALENDAR_WRITE_SCOPE);
+      expect(agentScopesFor(["calendar"])).toEqual([...IDENTITY_SCOPES, CALENDAR_OWNED_SCOPE]);
+      expect(standardScopesFor(["calendar"])).toEqual([...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE]);
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -104,7 +101,10 @@ describe("what a grant lets Context do", () => {
 
 /**
  * Alice connects Calendar with a standard grant holding `scopes` (the console's
- * own bind, before the switch), then AI reads her calendar through it.
+ * own bind), then AI reads her calendar through it, as it does for a row made
+ * before the minimum consent: a new bind is `split`, and AI waits for its
+ * agent grant (`googleConnect/consentPlan.test.ts`), so the row is marked as
+ * one made before to read through the standard grant at all.
  */
 async function bindAndRead(scopes: string[]) {
   vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id.apps.googleusercontent.com");
@@ -122,6 +122,8 @@ async function bindAndRead(scopes: string[]) {
     accessTokenExpiresAt: Date.now() + 3_600_000,
   });
   const row = await t.run((ctx) => ctx.db.get(connectionId));
+  expect(row?.consentPlan).toBe("split");
+  await t.run((ctx) => ctx.db.patch(connectionId, { consentPlan: undefined }));
   // Reading the person's calendar takes a grant that reaches private notes, as in personCalendar.test.ts.
   await t.run((ctx) => ctx.db.patch(grantA, { scopes: ["context:read", "context:write", "context:private"] }));
   const read = await t.mutation(internal.functions.personCalendar.claimPersonCalendarRead, {

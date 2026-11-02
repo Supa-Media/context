@@ -25,6 +25,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
 import { effectiveVisibility } from "../src/privacy/engine.js";import { rowsFor } from "./accessRows.mjs";import { fullToolList } from "./fullToolList.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 
 const OWNER_TOKEN = `cat_links_owner_${"0".repeat(16)}`;
@@ -237,7 +238,7 @@ export async function runLinkToolChecks(check) {
     });
 
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "LINKS_BUCKET,OTHER_BUCKET",
       LINKS_BUCKET: bucket,

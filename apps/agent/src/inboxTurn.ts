@@ -43,6 +43,8 @@ export type Pending = {
   attempts: number;
   tries?: number;
   sent?: number;
+  /** When this Worker took the text in, so the gateway can log how long it waited (`reply.ts` `arrivedAt`). */
+  at?: number;
   ev?: string;
   force?: true;
   /** On a reply kept for a retry: the events it answers, and its turn, for the log. */
@@ -83,9 +85,16 @@ export function decidedByCode(message: Message): boolean {
   );
 }
 
-/** A tapback, "ok", "thanks": the only texts a person's own chat may leave unanswered. */
+/**
+ * A tapback, "ok", "thanks": the only texts a person's own chat may leave
+ * unanswered. A 👍 or 👎 on a text that asked something (`reactions.ts`
+ * `answers`, which is what gives it its quoted words) is not one: Tex invites
+ * that tapback as the yes or no to its question (a new tester, 2026-10-30), so
+ * leaving it silent would be ignoring the answer.
+ */
 export function pureAck(message: Message): boolean {
-  return message.tapback !== undefined || ((message.attachments?.length ?? 0) === 0 && PURE_ACK.test(message.text));
+  if (message.tapback !== undefined) return !((message.tapback === "Liked" || message.tapback === "Disliked") && Boolean(message.quoted));
+  return (message.attachments?.length ?? 0) === 0 && PURE_ACK.test(message.text);
 }
 
 async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: Message, candidates: string[], running: boolean): Promise<Decision> {
@@ -159,6 +168,9 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
   const ids = burst.flatMap(([, item]) => (item.ev ? [item.ev] : []));
   // The simulator is answered directly, as before decide.
   if (ids.length === 0 || first[1].message.channel === "simulator") return { answer: fallbackTurn(burst), drop: [] };
+  // Tex's front door (Seyi, 2026-10-31): one text goes straight to Tex. Decide is asked only when there is a choice: several texts waiting,
+  // a bare "thanks" a tapback may answer, or an ask of Tex's this text may leave behind (`markStale`), so "never mind that email" still disarms it.
+  if (burst.length === 1 && !pureAck(burst[0][1].message) && (await waitingAsks(storage, deps.now(), await sha256Hex(first[1].message.from))).length === 0) return { answer: burst, drop: [] };
   const decision = await ask(storage, deps, burst.at(-1)![1].message, ids, false);
   if (!decision.ok) return { answer: fallbackTurn(burst), drop: [] };
   // Code's rule over the model's: only a pure acknowledgement may go unanswered here.

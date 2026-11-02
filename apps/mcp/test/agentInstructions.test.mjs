@@ -23,6 +23,7 @@ import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 /** The retired app assistant's note, left in the bucket to prove nothing reads it. */
 const RETIRED_APP_PATH = "ai/production/app-assistant.md";
@@ -64,7 +65,7 @@ function binding(bucket, key) {
   };
 }
 
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 const systems = [];
 let pinnedBucket;
 let restore = [];
@@ -238,7 +239,10 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 17,000 when asked-for options keep their number, fit their use and carry only their own price (RESEARCH_LINE, 2026-10-28; 17,2xx then).
   // and from 17,500 when they were told to look before asking, and what "fix yourself" asks (lookFirst.js, LOOK_FIRST_LINE, 2026-10-28; 17,7xx then).
   // and from 18,000 when they were told to offer a card on their own week or inbox (outgoingPictures.js, DATA_CARDS_LINE, 2026-10-29; 18,2xx then).
-  assert.ok(system.length < 18_500, `system was ${system.length} characters`);
+  // and from 18,500 when a drawn card was said to arrive as a Context card, and a time to meet names open slots (PICTURES_LINE, SYNCED_PLACES_LINE, 2026-10-29; 18,6xx then).
+  // and from 19,000 when a yes-or-no question was told to invite a 👍 or 👎, never "say yes" (chatVoice.js, YES_NO_LINE, 2026-10-30; 19,0xx then).
+  // and from 19,500 when a page was said to hold only what was read in it, and a cut page to be read on (readClaims.js, READ_CLAIMS_LINE, 2026-10-30; 19,7xx then).
+  assert.ok(system.length < 20_000, `system was ${system.length} characters`);
 });
 
 test("every new note a texted turn makes is a designed page (owner, 2026-10-27)", async () => {

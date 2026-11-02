@@ -68,7 +68,7 @@ jobs:
             else
               args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" '{dryRun: $dry, cursor: $cursor}')
             fi
-            answer=$(npx convex run functions/folderNumbersNudge:nudge "$args")
+            answer=$(npx convex run functions/folderNumbersNudge:nudge "$args" 2>/dev/null)
             echo "page $page: $(echo "$answer" | jq -c '.moves')"
             if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
             cursor=$(echo "$answer" | jq -r '.cursor')
@@ -86,7 +86,7 @@ jobs:
           while :; do
             page=$((page + 1))
             if [ -z "$cursor" ]; then args='{}'; else args=$(jq -cn --arg cursor "$cursor" '{cursor: $cursor}'); fi
-            answer=$(npx convex run functions/folderNumbersDiagnose:page "$args")
+            answer=$(npx convex run functions/folderNumbersDiagnose:page "$args" 2>/dev/null)
             echo "page $page:"
             echo "$answer" | jq -c '.workspaces[]'
             if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
@@ -110,7 +110,7 @@ jobs:
             else
               args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" '{dryRun: $dry, cursor: $cursor}')
             fi
-            answer=$(npx convex run functions/folderNumbers:run "$args")
+            answer=$(npx convex run functions/folderNumbers:run "$args" 2>/dev/null)
             echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
             if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
             cursor=$(echo "$answer" | jq -r '.cursor')

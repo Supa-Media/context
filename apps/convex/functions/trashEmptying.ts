@@ -4,6 +4,7 @@
  * by `trash.emptyDue` for a keyed workspace owed an erasure.
  */
 
+import { consoleWorkspaceRouting } from "./lib/rowWatch/consoleRouting";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
@@ -12,6 +13,7 @@ import type { FileStore } from "./lib/fileOps/store";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import type { GatewayCredential } from "./lib/storage/shapes";
 import { eraseWorkspaceTrash } from "./lib/trash/erase";
+import { consoleTexRouting } from "./lib/texStore";
 
 export const eraseWorkspace = internalAction({
   args: { workspaceId: v.id("workspaces") },
@@ -22,6 +24,7 @@ export const eraseWorkspace = internalAction({
       if (credential === null) return null;
       // Sealed history is read in its own mode; a mode whose key cannot be opened fails here, and the erasure waits.
       const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
-      return storeForBinding(credential, undefined, { managedEncryption }) as unknown as FileStore;
+      const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+      return storeForBinding(routing.credential(credential), undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId), ...routing.options }) as unknown as FileStore;
     }),
 });

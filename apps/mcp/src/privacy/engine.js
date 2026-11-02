@@ -244,8 +244,33 @@ function foldPath(key) {
  */
 const ID_KEY = /^(?:notes|files)\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[^/]*)?$/;
 
+/**
+ * The same id key kept in Tex's Durable Object instead of the bucket
+ * (`texStore/keys.js`): `tex/<owner>/notes/<noteId>.md`, the owner
+ * `person:<workspaceId>` or `chat:<chatId>`. A row whose key has this form
+ * keeps its note's text there (decided by the owner, 2026-10-31).
+ */
+const TEX_KEY = /^tex\/(?:person|chat):[A-Za-z0-9_-]{1,64}\/(?:notes|files)\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[^/]*)?$/;
+
+export function isTexKey(key) {
+  return typeof key === "string" && TEX_KEY.test(key);
+}
+
+/**
+ * A group chat's own state in its Durable Object, not a note:
+ * tex/chat:<chatKey>/state/<64 hex>.json (its memory record, a rebuildable
+ * cache of the visible memory note; `agent/chatMemoryRecord.js`). Only a chat
+ * owns one, never a person; no row ever names it, so it is plumbing, and never
+ * an id key.
+ */
+const TEX_STATE_KEY = /^tex\/chat:[A-Za-z0-9_-]{1,64}\/state\/[0-9a-f]{64}\.json$/;
+
+export function isTexStateKey(key) {
+  return typeof key === "string" && TEX_STATE_KEY.test(key);
+}
+
 export function isIdKey(key) {
-  return typeof key === "string" && ID_KEY.test(key);
+  return typeof key === "string" && (ID_KEY.test(key) || TEX_KEY.test(key));
 }
 
 export function isPlumbing(key) {
@@ -254,6 +279,7 @@ export function isPlumbing(key) {
     folded === PRIVACY_KEY ||
     folded === LEGACY_SCOPES_KEY ||
     isIdKey(key) ||
+    isTexStateKey(key) ||
     key.split("/").some((s) => s.startsWith("."))
   );
 }
@@ -415,6 +441,27 @@ export function readsAsChat(names) {
 }
 
 /**
+ * The rule that seals a folder: what is under it is seen only through a row token a person was named on, never by
+ * a role, an owner's included. Mirrors `SEALED` in `apps/convex/functions/lib/privacy.ts`, where the reasoning is.
+ */
+export const SEALED = "@#sealed-chats";
+
+/** A row's token (`rowAccess.js` `ROW_TOKEN_PATTERN`): the only visibility that opens anything under a sealed rule. */
+const SEALED_TOKEN = /^@#[a-z0-9-]{8,64}$/;
+
+/** Whether `key` is under a sealed rule, compared folded. A sealed rule outranks scope in `canSee`. */
+export function sealedCovers(key, rules) {
+  let folded = null;
+  for (const rule of rules ?? []) {
+    if (rule.vis !== SEALED) continue;
+    folded ??= foldPath(key);
+    const prefix = foldPath(rule.prefix);
+    if (folded === prefix || folded.startsWith(`${prefix}/`)) return true;
+  }
+  return false;
+}
+
+/**
  * May this caller see this key at all?
  *
  * ## A group is reached by the grant, never by the role
@@ -432,8 +479,13 @@ export function readsAsChat(names) {
 export function canSee(key, scope, rules, overrides, grantedGroups) {
   if (foldPath(key) === PRIVACY_KEY) return scope === "private";
   if (isPlumbing(key)) return false; // plumbing is not part of the note surface for any tool
-  if (scope === "private") return true;
+  const sealed = sealedCovers(key, rules);
+  if (scope === "private" && !sealed) return true;
   const visibility = effectiveVisibility(key, rules, overrides);
+  // A sealed folder opens to the row tokens its people hold, and to nothing a role gives (`sealedCovers`).
+  if (sealed) {
+    return visibility !== SEALED && SEALED_TOKEN.test(visibility) && grantedGroups !== undefined && grantedGroups !== null && grantedGroups.has(visibility);
+  }
   if (visibility === "team") return !readsAsGuest(grantedGroups);
   if (visibility === "private") return false;
   return grantedGroups !== undefined && grantedGroups.has(visibility);

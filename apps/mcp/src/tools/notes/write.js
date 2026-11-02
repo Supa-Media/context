@@ -40,6 +40,7 @@ import { isPersonalCommunicationsPath, normalizePath } from "../../notes/paths.j
 import { parseFormBlocks } from "../../forms.js";
 import { isPagePath, pageProblems, pageSkillMissing } from "../../pages.js";
 import { persistExactVisibility, UNWRITABLE_PATH_REFUSAL, writesOneRule } from "../../privacy/state.js";
+import { HOME_PRIVATE_REFUSAL, inChatHome } from "../../agent/chatHomeSeal.js";
 import { projectWrittenNoteAfterResponse } from "../../search/writeProjection.js";
 import { recordChange } from "../../activity/record.js";
 import { shareWrittenNote } from "../links.js";
@@ -49,6 +50,7 @@ import { prepareNoteImages, storeNoteImages } from "../../notes/uploadedImages.j
 import { statusAdvice } from "./statusList.js";
 import { frontMatterChanged } from "../../activity/changes.js";
 import { aboutMeTooLong } from "../../agent/aboutMe.js";
+import { isAboutNotePath, stampAboutLines } from "../../agent/aboutLines.js";
 
 /** The `share` values that mint a link; anything else publishes nothing. */
 const SHARE_REQUESTS = new Set(["members", "anyone", "collect"]);
@@ -150,6 +152,10 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   if (requestedVisibility && !["private", "team"].includes(requestedVisibility)) {
     return toolError("visibility must be private or team");
   }
+  // Beneath a chat's home the seal is the access (`agent/chatHomeSeal.js`): no row there is set, so a narrower one is
+  // refused before anything is written rather than after.
+  const sealedHome = inChatHome(store, path);
+  if (sealedHome && requestedVisibility === "private") return toolError(HOME_PRIVATE_REFUSAL);
 
   /*
    * ONE REFUSAL ABOUT THIS DESTINATION, AT ONE COST.
@@ -306,6 +312,12 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
       restoredOpening = true;
     }
   }
+  // An about line says who it came from and the day it was written, dated here, never by a model (`agent/aboutLines.js`).
+  if (isAboutNotePath(path) && !(storedBody !== null && isEncryptedNote(storedBody))) {
+    content = stampAboutLines(content, storedBody, Date.now());
+    const stampedTooLong = aboutMeTooLong(path, content);
+    if (stampedTooLong) return toolError(stampedTooLong);
+  }
   // A link anyone can open is never minted over an encrypted note
   // (`docs/decisions/encryption.md`, "Sharing"). Refused here, before the
   // implied publish above widens the note for a link that would then be
@@ -345,7 +357,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
       // one kept the merge's own rules, not the person's edit: on 2026-10-28
       // an agent's rewrite from before the owner's save took the owner's words
       // out of the lines both had touched, and said it had succeeded.
-      if (desiredVisibility === "private") {
+      if (desiredVisibility === "private" && !sealedHome) {
         await persistExactVisibility(store, path, "private", rules);
       }
       // The replacement loads the document itself and holds the etag to its generation; reading it here
@@ -429,7 +441,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   const action = options.record?.action ?? (existing ? "update_note" : "create_note");
   // Tighten the ACL before content becomes visible. For team publishing, keep
   // the private ACL in place until the content write has completed.
-  if (desiredVisibility === "private" && !collaborationResult) {
+  if (desiredVisibility === "private" && !collaborationResult && !sealedHome) {
     await persistExactVisibility(store, path, "private", rules);
   }
   const put = collaborationResult
@@ -440,7 +452,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
           : { absent: true },
       });
   if (!put) {
-    if (!existing && desiredVisibility === "private") {
+    if (!existing && desiredVisibility === "private" && !sealedHome) {
       // Remove only an ACL whose path is still absent. If another writer won
       // the create race, leaving the narrowing in place is the safe answer;
       // clearing it would publish their note after this write already lost.
@@ -452,7 +464,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
         : "conflict: note was created while this write was in progress; re-read and try again",
     );
   }
-  if (desiredVisibility === "team") {
+  if (desiredVisibility === "team" && !sealedHome) {
     await persistExactVisibility(store, path, "team", rules);
   }
   await recordChange(store, action, scope, [path], {

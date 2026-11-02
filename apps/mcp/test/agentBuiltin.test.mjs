@@ -1,7 +1,7 @@
 /**
  * THE BUILT-IN MODEL, END TO END THROUGH `/agent`.
  *
- * Free, 100 a day (decided by the owner, 2026-10-17; was "Premium, capped"): `/agent` asks the
+ * Free, 500 a day (decided by the owner, 2026-10-17, raised 2026-10-31; was "Premium, capped"): `/agent` asks the
  * control plane whether this turn may spend ours, runs it on the Workers AI
  * binding or our AI gateway, and reports token counts back. It is the only
  * model a turn runs on since people's own keys were deleted (the owner,
@@ -24,6 +24,7 @@ import {
   GATEWAY_SECRET,
 } from "./controlPlaneStub.mjs";
 import { DEFAULT_BUILTIN_MODEL, requestBuiltin } from "../src/agent/builtin.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-builtin.test";
 const TOKEN = `cat_builtin_texter_${"0".repeat(21)}`;
@@ -147,7 +148,7 @@ export async function runAgentBuiltinChecks(check) {
     s3.bucketFor("tenant-texter").set("1-projects/launch.md", { body: "# Launch\n\nFriday.\n", etag: "g1" });
 
     const ai = fakeAi();
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, AI: ai };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, AI: ai };
 
     /* ---------------- refused before anything is spent ---------------- */
 
@@ -228,6 +229,16 @@ export async function runAgentBuiltinChecks(check) {
         report?.cacheReadTokens === 0 &&
         report?.cacheWriteTokens === 0,
     );
+    check("a turn the texting Worker did not time logs no wait", logged !== undefined && !("waitMs" in logged));
+
+    // The texting Worker says when the text came in; the row says how long it waited for the turn (the owner, 2026-10-30).
+    ai.install([chat("Friday.", [], { prompt_tokens: 100, completion_tokens: 5 })]);
+    const waited = await ask(env, TOKEN, { question: "When is the launch?", arrivedAt: Date.now() - 240_000 });
+    const waitedLog = controlPlane.turnReports.at(-1);
+    check(
+      "a text that waited four minutes before its turn is logged with that wait, apart from the turn's own time",
+      waited.status === 200 && waitedLog?.waitMs >= 240_000 && waitedLog.waitMs < 260_000 && waitedLog.ms < 60_000,
+    );
 
     ai.install([{ throws: true }]);
     const broken = await ask(env, TOKEN, { question: "When is the launch?" });
@@ -267,7 +278,7 @@ export async function runAgentBuiltinChecks(check) {
     const gatewayUrl = "https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/context-gw/anthropic/v1/messages";
     const gatewayAi = fakeAi();
     const gatewayEnv = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       AI: gatewayAi,
       AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",

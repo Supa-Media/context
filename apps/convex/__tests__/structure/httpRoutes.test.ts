@@ -154,6 +154,7 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/jobs/open": "gatewayJobsOpen",
     "/gateway/jobs/report": "gatewayJobsReport",
     "/gateway/mover/open": "gatewayMoverOpen",
+    "/gateway/tex-store/open": "gatewayTexStoreOpen",
     "/gateway/usage": "gatewayUsage",
     "/gateway/search-timing": "gatewaySearchTiming",
     "/gateway/feedback": "gatewayFeedback",

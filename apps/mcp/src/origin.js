@@ -92,6 +92,11 @@ export function isTransportPath(path) {
     path === "/inbox" ||
     path === "/agent" ||
     path === "/presence" ||
+    // The live file tree's socket names every folder a member can see, and a
+    // WebSocket handshake is not subject to CORS, as `/presence` above.
+    path === "/presence/tree" ||
+    // The access socket names members, invitations and connected apps, and writes them: likewise.
+    path === "/presence/access" ||
     path === "/collaboration" ||
     // Authenticated and read by the console from a browser. It changes
     // nothing, but it names notes, so a page on another origin must not be
@@ -100,7 +105,10 @@ export function isTransportPath(path) {
     // Authenticated, reached by the console from a browser, and a POST to it
     // releases a write the egress gate held: a page on another origin that
     // could post here would be approving on the person's behalf.
-    path === "/approvals"
+    path === "/approvals" ||
+    // The Tex page (`http/texPage/`): what Tex thought and emailed, its jobs to steer, and a socket that hears them.
+    path === "/tex/page" ||
+    path.startsWith("/tex/page/")
   );
 }
 

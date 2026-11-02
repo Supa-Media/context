@@ -43,6 +43,7 @@ const sent = (asked) => [asked.body?.answer ?? "", ...(asked.body?.verbatim ?? [
 
 test("the same change after a pushback is not shown again, and the corrected one is", async () => {
   const world = await createEgressWorld();
+  world.env.TEX_FRONT_DOOR = "off"; // The old turn: the reply checks run only with the front door off (`frontDoor.js`).
   const { model, env, pending, bucket, controlPlane } = world;
   try {
     controlPlane.flags.calendarAddress = "seyi@gmail.example";

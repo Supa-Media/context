@@ -1,5 +1,7 @@
 # Storage and credentials: moving between buckets the owner holds
 
+> **Retired for new connections (decided by the owner, 2026-11-01):** bring-your-own bucket is no longer offered; a workspace on one gets its full export before it moves to its workspace object. See [workspace-objects](./workspace-objects.md).
+
 ## A move between the owner's own buckets is a third direction, and never touches the old one
 
 **Decided 2026-10-01** by the owner (Settings move, design in

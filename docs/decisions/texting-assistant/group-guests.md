@@ -1,5 +1,20 @@
 # A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)
 
+> **Superseded 2026-10-31.** Guest mode is retired. A chat with people who
+> aren't all here is answered from its home in `@context-lc`
+> ([chat-homes](./chat-homes.md)), reached by a home-only grant held by the
+> chat's sponsor, and it gets no group or folder in the workspace it was bound
+> to. Nobody is added to a group or named on a folder for being in the chat,
+> the group-people route is gone. The owner kept the guest phone pass: a code
+> for a number in a home-only chat makes a light account, named on the chat's
+> home to edit and nowhere else in the pin. Each legacy guest chat's folder,
+> the members' notes included, moves into its home by the ordinary
+> cross-context move, marked as the chat's own (`chatHome` on the
+> `contextMoves` row, re-derived from the chat's row on every pass, set by no
+> public mutation), run once from the `Tex guest chats retire` workflow
+> (`functions/texGuestRetire.ts`). What follows is the record of the
+> 2026-10-25 decision and why it was made. It no longer describes running code.
+
 Tex in a group answered only when every person in the chat was linked to an
 account and all of them shared one workspace ([groups](./groups.md)). One
 friend without an account, and Tex said "Text me on your own instead" and did
@@ -62,9 +77,9 @@ blocker. They proposed guest mode, and chose every default below on
   workspace member in the chat, on that person's own yes (`as`): a guest's
   yes never releases anything, and a guest's tag never holds anything for
   someone else.
-- **New joiners see the group's notes, never the chat before they joined.**
-  The chat's memory is filed by its exact set of people, as before, and an
-  answer is held when someone joins mid-turn.
+- **New joiners see the group's notes, and the chat before they joined.**
+  The chat's memory is one per chat, shared with whoever joins (the owner,
+  2026-10-31), and an answer is held when someone joins mid-turn.
 - **Usage counts against whoever turned guest mode on**, whoever tags Tex.
   Guests have no account to count against. The audit names the person whose
   grant acted, and says when a guest asked.

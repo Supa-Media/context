@@ -37,11 +37,12 @@ import { heartbeatPath } from "../src/agent/heartbeat.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-readcost.test";
 const TOKEN_BEAT = `cat_readcost_beat_${"0".repeat(22)}`;
 const TOKEN_APP = `cat_readcost_app_${"0".repeat(23)}`;
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 const HEADS = ".context/collaboration/v1/heads/";
 const MAILS = 6;
 const mailPath = (i) => `0-inbox/email/mail-${i}.md`;

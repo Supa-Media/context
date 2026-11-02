@@ -93,11 +93,8 @@
 import { v } from "convex/values";
 import { MAGIC_LINK_PROVIDER_ID } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
-import {
-  internalAction,
-  internalMutation,
-  type MutationCtx,
-} from "../_generated/server";
+import { internalAction, type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { Doc, Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { handleForUser, resolveAddressedUser } from "./lib/identities";

@@ -34,9 +34,11 @@ export type Tapback = "Loved" | "Liked" | "Disliked" | "Laughed at" | "Emphasize
 /**
  * `onOther`: the message this was on was read and is not a text of Tex's in
  * this chat, so empty `words` mean "on somebody else's message", not "we
- * could not tell" (`thumbs.ts` `onTheAsk`).
+ * could not tell" (`thumbs.ts` `onTheAsk`). `onTex`: it was read and is one of
+ * Tex's own texts (WhatsApp names the message). `emoji`: the emoji itself, for
+ * a reaction that is no named tapback ("Reacted 🎉 to …", any WhatsApp emoji).
  */
-export type Reaction = { how: Tapback; words: string; removed?: true; onOther?: true };
+export type Reaction = { how: Tapback; words: string; removed?: true; onOther?: true; onTex?: true; emoji?: string };
 type Kept = Reaction & { at: number };
 
 const NAMES: [RegExp, Tapback][] = [
@@ -67,7 +69,9 @@ export function readTapback(text: string): Reaction | null {
   if (match === null || /^Removed /u.test(match[1])) return null;
   const how = NAMES.find(([pattern]) => pattern.test(match[1]))?.[1];
   const words = match[2].trim().slice(0, MAX_WORDS);
-  return how === undefined || words === "" ? null : { how, words };
+  if (how === undefined || words === "") return null;
+  const emoji = how === "Reacted" ? /^Reacted (.{1,16}) to$/u.exec(match[1])?.[1] : undefined;
+  return { how, words, ...(emoji ? { emoji } : {}) };
 }
 
 /** A taken-back like or heart, and the words it was on; null for anything else. */
@@ -92,6 +96,25 @@ const ASKS =
 export function answers({ how, words }: Reaction): boolean {
   if (how === "Questioned") return true;
   return (how === "Liked" || how === "Loved" || how === "Emphasized" || how === "Disliked") && ASKS.test(words);
+}
+
+/** The emoji a reaction shows: its own for a custom one, else the tapback's. */
+export function reactionEmoji(reaction: Reaction): string {
+  return reaction.emoji ?? EMOJI[reaction.how];
+}
+
+/**
+ * A reaction as a line of the chat a model reads (Dev2, 2026-11-01: every
+ * tapback and emoji is input): the emoji, its yes or no when it is one, and
+ * the message it was on, Tex's or not. Like, love and emphasis read as yes,
+ * dislike as no; any other emoji is just itself.
+ */
+export function reactionLine(reaction: Reaction, onTex: boolean): string {
+  const answer = reaction.removed ? "" : reaction.how === "Disliked" ? " (no)" : reaction.how === "Liked" || reaction.how === "Loved" || reaction.how === "Emphasized" ? " (yes)" : "";
+  const words = reaction.words.replace(/\s+/g, " ").trim();
+  const quote = words === "" ? "" : ` "${[...words].slice(0, 120).join("")}${[...words].length > 120 ? "…" : ""}"`;
+  const target = onTex ? `Tex's message${quote}` : words === "" ? "a message" : `the message${quote}`;
+  return `${reaction.removed ? "took back " : ""}${reactionEmoji(reaction)}${answer} on ${target}`;
 }
 
 /** The text an answered tapback is queued as. */

@@ -40,6 +40,13 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-01",
+    newTool: true,
+    text:
+      'read_notes reads up to 25 notes in one call (`paths`), each answered exactly as read_note answers it, or "not found". ' +
+      'With fetch, id "notes:" and args `{ paths }`. Use it instead of several read_note calls when you already know which notes you need.',
+  },
+  {
     date: "2026-10-29",
     text:
       'fetch id "chat:" lists the person\'s Google Chat spaces with their spaces/… ids; "chat:<spaces/…>" reads that one conversation live, ' +
@@ -232,7 +239,7 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-17",
     text:
-      "write action report_problem takes `share_texts: true` by text with Tex only: the person is shown the exact report and must reply YES, " +
+      "write action report_problem takes `share_texts: true` by text with Tex only: the person is shown the exact report and must give it a 👍 or say yes, " +
       "and only then do your last few texts with them go to the Context team with it. Every report by text waits for that YES.",
   },
   {
@@ -254,7 +261,7 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-17",
     text:
-      "manage action dream_now (no args) starts Tex's dream for the person now instead of at 3 am: it rewrites tex/about-me.md " +
+      "manage action dream_now (no args) starts Tex's dream for the person now instead of at 3 am: it rewrites tex/about.md " +
       "within a few minutes and texts nobody. For onboarding, after you have read their recent email; read the note in a later turn " +
       "and confirm it with them. Owner of their own personal workspace only, where their plan includes dreams, never while one runs, at most once every six hours; " +
       "the answer says which, in words you can pass on.",
@@ -364,7 +371,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "354a901b";
+export const TOOL_SHAPE = "dfb18474";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

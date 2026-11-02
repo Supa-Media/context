@@ -24,19 +24,19 @@ function when(epochMs) {
 const ANSWERS = {
   started: () =>
     toolText(
-      "Started: Tex's dream will run within a minute or two and takes a few minutes. It rewrites tex/about-me.md and logs " +
-        "what changed in tex/dreams/. Nothing is texted when it finishes: read tex/about-me.md in a later turn and confirm it with them.",
+      "Started: Tex's dream will run within a minute or two and takes a few minutes. It rewrites tex/about.md and logs " +
+        "what changed in tex/dreams/. Nothing is texted when it finishes: read tex/about.md in a later turn and confirm it with them.",
     ),
   running: () =>
-    toolText("Already under way: a dream is running or about to start. Its result will be in tex/about-me.md in a few minutes."),
+    toolText("Already under way: a dream is running or about to start. Its result will be in tex/about.md in a few minutes."),
   recent: (dream) =>
     toolError(
       "Not started: a dream was already asked for recently" +
         (Number.isFinite(dream.retryAt) ? `; another can be asked for after ${when(dream.retryAt)}.` : ".") +
-        " tex/about-me.md has what the last one wrote.",
+        " tex/about.md has what the last one wrote.",
     ),
   not_included: () =>
-    toolError("Not started: their plan doesn't include dreams. Without it, Tex keeps tex/about-me.md up to date as it texts with them."),
+    toolError("Not started: their plan doesn't include dreams. Without it, Tex keeps tex/about.md up to date as it texts with them."),
   daily_limit: () => toolError("Not started: today's use of Tex is used up. Tonight's dream will still run if one is due."),
   unavailable: () => toolError("Not started: Tex's dreams are switched off on this deployment just now."),
   not_texting: () =>

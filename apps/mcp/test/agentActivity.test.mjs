@@ -65,6 +65,7 @@ import {
   createLiveNamespace,
   fakeRuntime,
 } from "./agentActivityFixtures.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const OWNER_TOKEN = `cat_agentact_owner_${"0".repeat(14)}`;
 const TEAM_TOKEN = `cat_agentact_team_${"0".repeat(15)}`;
@@ -350,7 +351,7 @@ export async function runAgentActivityChecks(check) {
 
     const rooms = createLiveNamespace();
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "ACT_BUCKET,OTHER_BUCKET",
       ACT_BUCKET: bucket,

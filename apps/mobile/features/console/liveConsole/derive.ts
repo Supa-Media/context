@@ -52,7 +52,8 @@ export function perWorkspaceQueries(
   for (const workspace of joined) {
     spec[`grants:${workspace.workspaceId}`] = {
       query: api.functions.grants.listGrants,
-      args: { workspaceId: workspace.workspaceId },
+      // Live connections only: every row the console draws is an active one.
+      args: { workspaceId: workspace.workspaceId, activeOnly: true },
     };
     spec[`storage:${workspace.workspaceId}`] = {
       query: api.functions.storage.getStorageBinding,

@@ -131,7 +131,8 @@ test("every turn is told which model answers it, and the ground rules, even with
     notes: { prompt: "You are Context." },
   });
   const system = ai.calls[0].input.messages.find((message) => message.role === "system").content;
-  assert.match(system, new RegExp(`AI model ${MODEL.replace(/[/.]/g, "\\$&")}`));
+  // The model line is said in the person's turn, after the system prompt (`turn.js`): the request is read for it.
+  assert.match(JSON.stringify(ai.calls[0].input.messages), new RegExp(`AI model ${MODEL.replace(/[/.]/g, "\\$&")}`));
   assert.match(system, /Never fill a gap with a guess/);
   assert.match(system, /To list the workspaces they can reach, call orient\./);
 
@@ -173,9 +174,10 @@ test("a turn with earlier turns is told their lookups happened", async () => {
   ];
   const ai = scripted([chat("Anytime.")]);
   await turn(ai, { question: "thanks!", history, notes: { prompt: "You are Context." } });
-  const system = ai.calls[0].input.messages.find((message) => message.role === "system").content;
-  assert.match(system, /you did use them/, "the words-only history is explained");
-  assert.match(system, /Never take back or doubt an earlier answer/);
+  // The earlier-turns note is said in the person's turn, after the system prompt (`turn.js`): the request is read for it.
+  const sent = JSON.stringify(ai.calls[0].input.messages);
+  assert.match(sent, /you did use them/, "the words-only history is explained");
+  assert.match(sent, /Never take back or doubt an earlier answer/);
 
   const first = scripted([chat("Tuesday.")]);
   await turn(first, { notes: { prompt: "You are Context." } });

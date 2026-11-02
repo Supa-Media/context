@@ -103,3 +103,42 @@ test("every group turn reads the chat's voice note, beside its memory note", asy
   assert.equal(group.voice, "- dry humor\n- lowercase");
 });
 
+test("the voice note is one per chat: somebody added to the chat reads the same one (the owner, 2026-10-31)", async () => {
+  const voicePath = async (members) => {
+    const group = { ...GROUP, members };
+    await readGroupMemory({ get: async () => null }, group, async () => ({ isError: true, content: [{ text: "not found" }] }));
+    return group.voicePath;
+  };
+  assert.equal(await voicePath("b".repeat(64)), await voicePath("c".repeat(64)));
+});
+
+
+test("a group turn reads its notes side by side, not one after another (2026-10-31: 3 to 5 s of each reply)", async () => {
+  let open = 0;
+  let most = 0;
+  const dispatch = async () => {
+    open += 1;
+    most = Math.max(most, open);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    open -= 1;
+    return { isError: true, content: [{ type: "text", text: "not found" }] };
+  };
+  await readGroupMemory({ get: async () => null }, { ...GROUP }, dispatch);
+  assert.ok(most >= 3, `the memory note, the voice note and the playbook are read at once (at most ${most} open)`);
+});
+
+test("a group turn reads its memory note and voice note once each, not again after their moves (2026-10-31)", async () => {
+  const reads = new Map();
+  const dispatch = async (name, args) => {
+    if (name !== "read_note") return { isError: true, content: [{ type: "text", text: "refused" }] };
+    reads.set(args.path, (reads.get(args.path) ?? 0) + 1);
+    if (/\/voice-[0-9a-f]{12}\.md$/.test(args.path)) return { content: [{ type: "text", text: "etag: v1\n\n- dry humor" }] };
+    if (/\/[0-9a-f]{12}\.md$/.test(args.path) || /tex\/groups\/[^/]+\.md$/.test(args.path)) return { content: [{ type: "text", text: "etag: m1\n\n# Chat\n" }] };
+    return { isError: true, content: [{ type: "text", text: "not found" }] };
+  };
+  const group = { ...GROUP };
+  await readGroupMemory({ get: async () => null }, group, dispatch);
+  assert.equal(group.voice, "- dry humor");
+  const twice = [...reads].filter(([, count]) => count > 1).map(([path]) => path);
+  assert.deepEqual(twice, [], "no note is read twice");
+});

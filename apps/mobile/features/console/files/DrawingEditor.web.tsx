@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
+import { space } from "../../design/tokens";
 import { useThemedStyles, useTheme, type Colors } from "../../design/theme";
-import { parseDrawing, serializeDrawing } from "@context/drawings";
+import { parseDrawing, readDrawingScene, serializeDrawing } from "@context/drawings";
 import { DrawingView } from "./DrawingView";
 import { keepDrawingEditorOffline } from "./drawingOffline";
 import {
@@ -62,10 +62,19 @@ export function DrawingEditor({
   canEdit,
   onChange,
   collaboration,
+  fill = false,
 }: {
   path: string;
   source: string;
   canEdit: boolean;
+  /**
+   * The canvas takes the whole note area, edge to edge and down to the
+   * bottom, rather than a framed box in the column (owner, 2026-10-30: "I
+   * want excalidraw pages to be the entire page"). A pointer layout; a phone's
+   * note rides a scroller where a flex child has nothing to fill, so there the
+   * canvas is as tall as the window less the title above it.
+   */
+  fill?: boolean;
   /** Called with the complete new file body. The caller owns the write. */
   onChange: (next: string) => void;
   /**
@@ -80,6 +89,7 @@ export function DrawingEditor({
 }) {
   const styles = useThemedStyles(makeStyles);
   const { scheme } = useTheme();
+  const { height: windowHeight } = useWindowDimensions();
   const frame = useRef<HTMLIFrameElement | null>(null);
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
@@ -99,6 +109,8 @@ export function DrawingEditor({
     constantly. Every splice is against the newest bytes either way.
   */
   const latest = useRef(source);
+  /** The last body this canvas produced, to tell its own echo from a merge. */
+  const emitted = useRef(source);
   useEffect(() => {
     latest.current = source;
   }, [source]);
@@ -188,6 +200,31 @@ export function DrawingEditor({
   }, [collaboration, post]);
 
   /*
+    **A body this canvas did not produce goes onto the canvas.**
+
+    When a save is refused because somebody else saved first, the console
+    merges the two scenes and the draft becomes that merge (`useSaving`).
+    The page holds the scene it was loaded with and ignores a second load,
+    so the merge is handed over the way a peer's elements are — reconciled
+    in by version — with deleted elements included, so a deletion lands too.
+    Without this the next stroke here would splice this canvas's scene, which
+    may lack the other person's shapes, straight back over the merge.
+  */
+  const emittedFor = useRef(path);
+  useEffect(() => {
+    if (source === emitted.current) return;
+    emitted.current = source;
+    // Another drawing opened in this same editor is a load, not a merge.
+    if (emittedFor.current !== path) {
+      emittedFor.current = path;
+      return;
+    }
+    const scene = readDrawingScene(source);
+    const elements = Array.isArray(scene?.elements) ? scene.elements : [];
+    if (elements.length > 0) post({ type: "remote", elements });
+  }, [source, path, post]);
+
+  /*
     The room asked for a compaction, which for a canvas means the whole scene —
     and the console does not have it as elements, only as file bytes. So the
     scene is read back out of the newest bytes the caller holds, which is what
@@ -250,7 +287,10 @@ export function DrawingEditor({
           const next = serializeDrawing(latest.current, message.elements as never[]);
           // A null here means the file stopped being splicable under us. Dropping
           // the change is the safe half of that choice.
-          if (next !== null && next !== latest.current) onChange(next);
+          if (next !== null && next !== latest.current) {
+            emitted.current = next;
+            onChange(next);
+          }
           break;
         }
         case "share":
@@ -285,7 +325,8 @@ export function DrawingEditor({
 
   if (!show) {
     return (
-      <View style={styles.frame}>
+      // Filling the region, the pane's margin is gone, so the view pays its own.
+      <View style={[styles.frame, fill && styles.frameFill]}>
         <DrawingView path={path} source={source} />
         <Text variant="rowSub">{reasonFor({ drawing, failed })}</Text>
       </View>
@@ -293,7 +334,10 @@ export function DrawingEditor({
   }
 
   return (
-    <View style={styles.canvas} testID="drawing-editor">
+    <View
+      style={fill ? styles.canvasFill : [styles.canvas, { height: Math.max(320, windowHeight - PHONE_TITLE_BAND) }]}
+      testID="drawing-editor"
+    >
       {/*
         `iframe` directly rather than through a React Native primitive: this
         file is the web half by construction, and there is no RN element that
@@ -328,20 +372,24 @@ function reasonFor({
   return "This file cannot be edited here without risking its contents. Open it in Excalidraw or Obsidian.";
 }
 
+/** A phone's top bar and the note's inline title, above the canvas. */
+const PHONE_TITLE_BAND = 220;
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     frame: { gap: space.x2 },
+    frameFill: { padding: space.x4 },
     /*
       A real height, because the page inside measures its canvas from this box
       and a zero-height parent renders a zero-pixel canvas that looks like a
       failure to load.
     */
     canvas: {
-      height: 560,
       minHeight: 320,
-      borderRadius: radii.md,
-      borderWidth: StyleSheet.hairlineWidth,
+      borderTopWidth: StyleSheet.hairlineWidth,
       borderColor: colors.line,
       overflow: "hidden",
     },
+    // The region's own height, with no frame: Excalidraw draws its own chrome.
+    canvasFill: { flex: 1, minHeight: 320, overflow: "hidden" },
   });

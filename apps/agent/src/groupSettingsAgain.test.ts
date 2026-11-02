@@ -12,7 +12,10 @@
  * Sabotage record (applied, run, observed failing, reverted):
  *  1. `askedJustNow` asked for code's messages again (`!byCode &&` dropped)
  *     → "asked for again…" and "a menu pick…" fail.
- *  2. `namesCommand` left out of `addressed` → "said without a comma…" fails.
+ *
+ * The second cause was fixed on main on 2026-11-01 (`addressesTex` reads a
+ * command after the name as addressed); the no-comma cases stay here to keep
+ * both halves of the report covered.
  */
 
 import { describe, expect, it } from "vitest";

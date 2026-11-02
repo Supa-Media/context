@@ -8,8 +8,8 @@
  * - Untagged: the chat's style says whether decide reads it (`styleReaches`).
  * - Decide down: an untagged question that reached decide is answered
  *   (`decideDownAnswer`), so a follow-up is never dropped silently.
- * - Decide's `wait` is believed only on a real burst, at most `MAX_WAITS` in
- *   a row (`honoursWait`).
+ * - Decide's `wait` is believed only on a real burst (`burstStillTyped`); how
+ *   often and how long is the chat's state's to cap (`chatState.ts`).
  *
  * The privacy rails (canSee, the asker's yes, newcomers, guests never
  * approving) are not here: they stay where the turn runs.
@@ -17,10 +17,6 @@
 
 import type { GroupStyle } from "./decide";
 
-/** How long a waiting burst is decided again after the wait began, or after its sender's newest message (Dev2, 2026-10-28: 20s felt slow). */
-export const WAIT_MS = 8_000;
-/** Waits in a row before Tex answers anyway: one (Dev2, 2026-10-28). */
-export const MAX_WAITS = 1;
 /** Another message from the same sender this close before the newest makes it a burst. */
 export const BURST_WINDOW_MS = 20_000;
 
@@ -53,11 +49,6 @@ export function burstStillTyped(waiting: readonly Waiting[]): boolean {
   const at = newest.at ?? 0;
   const others = waiting.slice(0, -1).filter((item) => item.message.from === newest.message.from && at - (item.at ?? 0) <= BURST_WINDOW_MS);
   return others.length > 0 || looksUnfinished(newest.message.text);
-}
-
-/** Whether decide's `wait` holds: a real burst that has waited fewer than `MAX_WAITS` times. Otherwise it is an answer. */
-export function honoursWait(untagged: readonly Waiting[], waited: number): boolean {
-  return waited < MAX_WAITS && burstStillTyped(untagged);
 }
 
 /** Decide down, nothing addressed: the newest untagged question (ends with "?") is answered; -1 when there is none. */

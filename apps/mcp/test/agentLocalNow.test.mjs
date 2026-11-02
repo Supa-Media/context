@@ -59,6 +59,10 @@ test("a turn is told the time where they are", async () => {
     texting: true,
     localNow: { now: NOW, timeZone: "America/New_York" },
   });
+  // The time is said in the person's turn, after the cached prefix (`turn.js`), never in the system prompt.
   const system = calls[0].messages.find((m) => m.role === "system")?.content ?? "";
-  assert.match(system, /It is now Tuesday, October 13, 2026, 11:35 pm/);
+  assert.doesNotMatch(system, /It is now /);
+  const asked = calls[0].messages.at(-1)?.content ?? "";
+  assert.match(asked, /It is now Tuesday, October 13, 2026, 11:35 pm/);
+  assert.match(asked, /remind me to sleep in 2 minutes$/);
 });

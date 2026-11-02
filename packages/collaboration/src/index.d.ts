@@ -97,6 +97,8 @@ export function isCurrentEtag(document: DocumentResult, etag: string | undefined
 export function readDocument(store: ContextStore, path: string): Promise<DocumentResult>;
 /** The document when the path already has collaboration state; `null`, creating nothing, when it has none. */
 export function readDocumentIfStarted(store: ContextStore, path: string): Promise<DocumentResult | null>;
+/** Whether `path` has a collaboration document (a head, live or deleted). */
+export function documentStarted(store: ContextStore, path: string): Promise<boolean>;
 export function commitUpdate(store: ContextStore, path: string, input: CommitUpdateInput): Promise<DocumentResult>;
 export function replaceText(store: ContextStore, path: string, input: ReplaceTextInput): Promise<DocumentResult>;
 export function sealDocument(store: ContextStore, path: string, input: SealDocumentInput): Promise<SealDocumentResult>;

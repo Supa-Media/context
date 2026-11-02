@@ -23,7 +23,6 @@ import {
   guestStartError,
   guestVerifyError,
   readGuestPass,
-  saveGuestPass,
   type GuestStartStatus,
   type GuestVerifyStatus,
 } from "./guestPass";
@@ -132,11 +131,14 @@ export function GuestNoteScreen({ address }: { address: NoteAddress }) {
       return;
     }
     try {
-      const result = (await verify({ phone: step.phone, code: value })) as { status: GuestVerifyStatus; pass?: string };
-      if (result.status === "ok" && result.pass !== undefined) {
-        saveGuestPass(result.pass);
-        setStep({ kind: "opening" });
-        await open(result.pass);
+      const result = (await verify({ phone: step.phone, code: value })) as { status: GuestVerifyStatus; code?: string };
+      if (result.status === "ok" && result.code !== undefined) {
+        // The number's account was made for it (`guestPass.ts`): it signs in as a number an account holds does.
+        const signedIn = await signInWithCode(PHONE_VERIFY_PROVIDER, { phone: step.phone, code: result.code });
+        if (!signedIn.signingIn) {
+          setError(guestVerifyError("wrong"));
+          setCode("");
+        }
       } else {
         setError(guestVerifyError(result.status));
         setCode("");

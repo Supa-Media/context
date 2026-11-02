@@ -200,8 +200,16 @@ export async function deletePersonalRows(
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
   for (const grant of grants) {
+    for (const earlier of await ctx.db.query("textsEarlierTokens").withIndex("by_grant", (q) => q.eq("grantId", grant._id)).collect()) await ctx.db.delete(earlier._id);
     await ctx.db.delete(grant._id);
   }
+
+  // Whether they ever used an AI client: one row, the invite card's answer.
+  const agentUse = await ctx.db
+    .query("agentUse")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of agentUse) await ctx.db.delete(row._id);
 
   // Parked authorization requests the person approved. `userId` here is a
   // field, not an index — the table is keyed by request id and code — but

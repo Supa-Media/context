@@ -63,6 +63,7 @@ import { HOLD_MS, IDLE_MS, touchIdle } from "./idle";
 import { captureJar, parseJar, restoreCookies, restoreStorage, type Jar } from "./jar";
 import { reportFailedRun, type FailedRun } from "./sessionLogs";
 import { invisibleCaptcha, settleCaptcha } from "./captcha";
+import { pastGooglePasskey } from "./googleChallenge";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -188,6 +189,12 @@ export async function browseOnBrowserbase(
     if (captcha === "solved") result = { ...result, page: (await runSteps(page, [{ do: "read" }])).page };
     // A captcha that shows nothing can still turn a Register press away: the gateway is told it is there.
     const hidden = handingOver || captcha !== null ? false : await invisibleCaptcha(attached.evaluate);
+    // Google's passkey step: "Try another way", then the password way (./googleChallenge.ts).
+    const google = handingOver ? null : await pastGooglePasskey(attached);
+    if (google !== null && google.pressed.length > 0) {
+      const again = parsed.steps.at(-1)?.do === "look" ? "look" : "read";
+      result = { ...result, page: (await runSteps(page, [{ do: again }])).page };
+    }
     const jar = keep && restored ? await captureJar(cdp, attached).catch(() => null) : null;
     const ok = result.ran.every((r) => r.ok);
     // Step kinds and timing only, as for Cloudflare's browser.

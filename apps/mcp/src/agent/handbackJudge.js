@@ -35,7 +35,7 @@ const MAX_STEPS = 40;
 export const WHAT_TEX_CAN_DO = [
   "search and read every mailbox the person connected (by sender, words, amounts, dates), and forward an email with its attachments",
   "draft and send email (a send waits for the person's yes)",
-  "read and write their notes, including tex/about-me.md where it remembers facts about them",
+  "read and write their notes, including tex/about.md where it remembers facts about them",
   "read this chat's earlier texts, what its own earlier answers did and which of them failed, its own logs (a routine's log) and when a note was last edited",
   "read and change their calendar (a change waits for their yes)",
   "search the web and open any page",

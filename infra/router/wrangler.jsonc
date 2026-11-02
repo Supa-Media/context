@@ -75,6 +75,10 @@
     // variable, and the rest of the site is unaffected.
   },
 
+  // The texting Worker, read for a chat's live view of its jobs
+  // (`src/messagesThreads.ts`). A self-hosted deploy without it drops this
+  // line, and the view then says it has ended.
+  "services": [{ "binding": "TEXTS", "service": "context-agent" }],
   "observability": {
     "enabled": true
   },
@@ -92,7 +96,10 @@
       // Staging only: /texts-simulator goes to the texting assistant's
       // simulator (apps/agent/src/simulator.ts). Production has no binding,
       // so the path is an ordinary app 404 there.
-      "services": [{ "binding": "TEXTS_SIMULATOR", "service": "context-agent-staging" }],
+      "services": [
+        { "binding": "TEXTS_SIMULATOR", "service": "context-agent-staging" },
+        { "binding": "TEXTS", "service": "context-agent-staging" }
+      ],
       // Environments do not inherit Static Assets configuration, so keep the
       // staging binding explicit and identical to production.
       // `run_worker_first` preserves auth, previews, customer domains and the

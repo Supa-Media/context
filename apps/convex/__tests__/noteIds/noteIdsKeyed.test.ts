@@ -94,6 +94,8 @@ describe("notesFor: what the tree says about each path", () => {
     expect(answer).toEqual({
       keyed: true,
       notes: [{ path: PLAIN, state: "keyed", noteId: A, key: `notes/${A}.md`, etag: "k1", size: 9 }],
+      // A path with a note never names where a new one would be kept.
+      texHomes: [],
     });
   });
 

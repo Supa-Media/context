@@ -57,7 +57,7 @@ import { conversationFor, readVerdict } from "../src/agent/mailChecker.js";
 import { checkerHistory, groupMemoryPath, keepGroupExchange } from "../src/agent/groupTurn.js";
 import { emailCopy, readEmail } from "../src/tools/email.js";
 import { TEXTED_ASK_CAP, textedAsk } from "../src/agent/textedApprovals.js";
-import { createPending, disarmRecords, listPending } from "../src/tools/approvals.js";
+import { EVERY_CHAT, createPending, disarmRecords, listPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const EMAIL = { to: ["jo@example.com"], subject: "Re: Thursday", body: "Hi Jo,\n\nThursday at 3 works for me.\n\nSeyi" };
@@ -439,6 +439,8 @@ export async function runEmailGateChecks(check) {
       attachments: [{ filename: "Receipt-2508-0278-2435.pdf", contentType: "application/pdf" }],
     };
     const RETRY = { ...FORWARD, body: "Forwarding the Anthropic receipt #2508-0278-2435 for the $212.00 Max plan, paid today." };
+    // Tex's own preview raised as the hold is the old turn's offer notice: front door off (`frontDoor.js`).
+    env.TEX_FRONT_DOOR = "off";
     model.install([
       {
         text:
@@ -493,6 +495,7 @@ export async function runEmailGateChecks(check) {
         sends().at(-1)?.email?.subject === "Re: Saturday" &&
         /^Done, I sent an email/.test(sentYes.body?.answer ?? ""),
     );
+    delete env.TEX_FRONT_DOOR;
 
   } finally {
     world.restore();
@@ -561,7 +564,7 @@ export async function runEmailGateChecks(check) {
   const lazy = createMemoryStore();
   const raise = (summary, detail) =>
     createPending(lazy, { name: detail ? "send_email" : "set_visibility", args: { summary }, actor, widening: { summary }, detail, texting: true, armed: false });
-  const armedFor = async (store) => (await listPending(store, { userId: "u1", texting: true })).length;
+  const armedFor = async (store) => (await listPending(store, { userId: "u1", texting: true, chat: EVERY_CHAT })).length;
   const one = [await raise("email jo", "To: jo@example.com\n\nshort")];
   const unarmedBefore = await armedFor(lazy);
   await textedAsk(lazy, { actorUserId: "u1" }, one);
@@ -585,8 +588,8 @@ export async function runEmailGateChecks(check) {
 
   const stuckStore = createMemoryStore();
   await createPending(stuckStore, { name: "send_email", args: { summary: "s" }, actor, widening: { summary: "s" }, detail: "To: jo@example.com", texting: true });
-  const stuck = await disarmRecords(failing(stuckStore, new Set(["put", "delete"])), await listPending(stuckStore, { userId: "u1", texting: true }));
-  const cleared = await disarmRecords(stuckStore, await listPending(stuckStore, { userId: "u1", texting: true }));
+  const stuck = await disarmRecords(failing(stuckStore, new Set(["put", "delete"])), await listPending(stuckStore, { userId: "u1", texting: true, chat: EVERY_CHAT }));
+  const cleared = await disarmRecords(stuckStore, await listPending(stuckStore, { userId: "u1", texting: true, chat: EVERY_CHAT }));
   check("an email that cannot be disarmed or dropped is reported, so the person is told", stuck === 1 && cleared === 0 && (await armedFor(stuckStore)) === 0);
 
   check(

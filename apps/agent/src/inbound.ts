@@ -14,6 +14,7 @@
  */
 
 import type { Reaction, Tapback } from "./reactions";
+import type { JobReport } from "./jobs";
 
 /** Longest text forwarded to the agent. The gateway caps a question at 8000. */
 export const MAX_INBOUND_TEXT = 4000;
@@ -64,7 +65,9 @@ export type Inbound =
        * saved (`vaultWatch.ts`). It has no words, and the gateway asks its
        * own fixed question for it. Never set from a webhook.
        */
-      event?: "vault_saved";
+      event?: "vault_saved" | "job_report";
+      /** On `event: "job_report"`: what a background job would have said, handed to this chat's own turn (`jobTexts.ts`). Never from a webhook. */
+      jobReport?: JobReport;
       /**
        * Set on arrival (`inbox.ts`, `accept`): a plain text after the chat was
        * quiet a while, so it starts a topic and its answer opens a thread under it.

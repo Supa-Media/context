@@ -182,6 +182,7 @@ function report() {
     },
     performance: {
       time: { totalMs: 140_000, modelMs: 90_000, toolMs: 30_000, p50: 4_200, p95: 75_000 },
+      wait: { turns: 6, p50: 12_000, p95: 238_000, max: 241_000 },
       models: [{ model: "fake-provider/think-model", rounds: 20, failed: 2, retried: 1, cut: 0, fallbacks: 1, p50: 3_000, p95: 9_000 }],
       router: { picks: 10, think: 3, confidence: 0.8 },
       daily: [

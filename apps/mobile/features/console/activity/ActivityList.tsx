@@ -75,7 +75,8 @@ export function ActivityList({
   empty: string;
 }) {
   const styles = useThemedStyles(sheet);
-  const drawn = rows(entries, seenAt, now);
+  // The newest fifty, as the list always drew: the hook now reads the whole file for Notes' dates.
+  const drawn = rows(entries.slice(0, LIST_LINES), seenAt, now);
 
   if (!entries.length) {
     return (
@@ -191,3 +192,6 @@ const sheet = (colors: Colors) =>
     empty: { padding: space.x4 },
     emptyText: { color: colors.chromeMuted },
   });
+
+/** How many of the newest lines the list draws. */
+const LIST_LINES = 50;

@@ -17,6 +17,7 @@
  * nothing reads a probe object through the gateway.
  */
 
+import { consoleWorkspaceRouting } from "../rowWatch/consoleRouting";
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
@@ -59,10 +60,12 @@ export async function scaffoldStep(
     sealing = await managedEncryptionOption(ctx, options.workspaceId);
     // The layout is written through the id switch, as every other console write is (`lib/noteIds/consoleLayer.ts`).
     const idLayout = await consoleIdLayoutHooks(ctx, options.workspaceId);
-    store = storeForBinding(options.credential, undefined, {
+    const routing = await consoleWorkspaceRouting(ctx, options.workspaceId);
+    store = storeForBinding(routing.credential(options.credential), undefined, {
       probeCapabilities: true,
       managedEncryption: sealing,
       idLayout,
+      ...routing.options,
     }) as unknown as ScaffoldStore;
   } catch (error) {
     // A key that will not open is a refusal, never a plain write: the bucket

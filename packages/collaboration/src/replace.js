@@ -127,7 +127,8 @@ export async function replaceText(store, path, input) {
       if (tokenMatch[1] !== loaded.state.documentId) throw fail("GENERATION_MISMATCH", "the requested base belongs to another generation");
       const suffix = tokenMatch[2];
       if (!/^[A-Za-z0-9-]+$/.test(suffix)) throw fail("BASE_MISSING", "the requested Markdown base is invalid");
-      baseRevision = await readRevision(store, loaded.state.documentId, suffix);
+      // The base is usually the revision just loaded (nobody wrote since the caller read): no second read.
+      baseRevision = suffix === loaded.state.revision ? loaded.revision : await readRevision(store, loaded.state.documentId, suffix);
     } else if (input.expectedEtag === loaded.state.legacyRawEtag) {
       baseRevision = await readRevision(store, loaded.state.documentId, loaded.state.legacyRevision);
     } else {

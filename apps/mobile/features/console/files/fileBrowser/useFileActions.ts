@@ -62,6 +62,8 @@ export function useFileActions(deps: FileActionsDeps) {
   const listOldCopiesAction = useAction(api.functions.oldCopies.listForExport);
   const readOldCopiesAction = useAction(api.functions.oldCopies.readForExport);
   const readMessagesLogAction = useAction(api.functions.messagesExport.readLogForExport);
+  const readChatLedgerAction = useAction(api.functions.texLedgerExport.readChatLedgerForExport);
+  const listChatLedgersAction = useAction(api.functions.texLedgerExport.listChatLedgersForExport);
   const writeNote = useAction(api.functions.files.writeNote);
   const submitFormAction = useAction(api.functions.forms.submitForm);
   const storeNoteImageAction = useAction(api.functions.files.storeNoteImage);
@@ -140,7 +142,7 @@ export function useFileActions(deps: FileActionsDeps) {
   return {
     workspaceId, workspaceGenerationRef, slug, listFiles, readNote, readNotesAction, searchContext, reportSearchScreen, notePathsAction,
     writeNote, submitFormAction, storeNoteImageAction, readNoteImageAction, readRemoteImageAction, readEmojiAction, imageCache, exportAccessAction,
-    listOldCopiesAction, readOldCopiesAction, readMessagesLogAction,
+    listOldCopiesAction, readOldCopiesAction, readMessagesLogAction, readChatLedgerAction, listChatLedgersAction,
     voteFormAction, updateSubmissionAction, retractSubmissionAction, createDirectory, undoNewFolder, moveEntry,
     startContextMoveAction, resumeContextMoveAction, dismissContextMoveMutation,
     copyEntry, duplicateEntry, archiveEntry, trashEntry, restoreTrashEntry, setNoteVisibility,

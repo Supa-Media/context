@@ -44,6 +44,7 @@ export function AgentSetupOverlay({
 }) {
   const grants = useQuery(api.functions.grants.listGrants, {
     workspaceId: workspaceId as Id<"workspaces">,
+    activeOnly: true,
   }) as GrantFacts[] | undefined;
   const [progress, update] = useSetupProgress(workspaceId, agent);
   const other: SetupAgent = agent === "claude" ? "chatgpt" : "claude";

@@ -110,7 +110,7 @@ export async function gatewayChatSpaceReadHandler(ctx: ActionCtx, body: Entry): 
       const found = await chatGet(minted.accessToken, `spaces:findDirectMessage?name=${encodeURIComponent(`users/${wanted.to}`)}`);
       if (!found.ok || typeof found.body?.name !== "string" || !SPACE_NAME.test(found.body.name)) {
         const why = chatFailure(found.status, found.body);
-        log({ outcome: "refused", reason: "no_direct_message", status: found.status });
+        log({ outcome: "refused", reason: "not_found_by_address", status: found.status });
         return json({ ok: false, refused: found.status === 404 && why === "unavailable" ? "person_not_found" : why });
       }
       space = found.body.name;

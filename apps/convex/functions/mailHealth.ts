@@ -7,7 +7,8 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { mailHealthHandler, raiseMailNoticesHandler } from "./lib/mailHealth/read";
 
 const mailboxState = v.union(

@@ -33,7 +33,7 @@ import { test } from "node:test";
 import { PAGE_GUIDE, pageProblems, pageSkillMissing } from "../src/pages.js";
 import { PAGE_SKILL, PAGE_SKILL_STAMP } from "../src/pageSkill.js";
 import { toolWriteNote } from "../src/tools/notes/write.js";
-import { jobPrompt } from "../src/agent/background.js";
+import { jobPrompt, jobReportPrompt } from "../src/agent/background.js";
 import { outgoingPictures } from "../src/agent/outgoingPictures.js";
 import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
 import { createTreeMethods, MAX_COVER_CHARS } from "../src/controlPlane/tree.js";
@@ -116,12 +116,13 @@ test("the format guide lists every block kind the checks know", () => {
   assert.match(PAGE_GUIDE, /```` ```box height=320 ````/);
 });
 
-test("a background job delivers a page and texts its cover with the link", () => {
+test("a background job delivers a page, and the chat's own turn texts its cover with the link", () => {
   const prompt = jobPrompt({ title: "Caterers", brief: "find three", doneWhen: "", attempt: 1, followUps: [], draft: "", unfinished: false });
   assert.match(prompt, /<name>\.page\.md/);
   assert.match(prompt, /Read the page design skill first \(orient about: "pages"\)/);
-  assert.match(prompt, /draw_visual template page/);
-  assert.match(prompt, /page's link/);
+  assert.match(prompt, /page's or note's link/);
+  // The job reports to the chat's own turn (`jobReport.js`), which draws the cover as it texts the link.
+  assert.match(jobReportPrompt({ title: "Caterers", state: "done", texts: ["Wrote it."] }), /draw_visual template page/);
 });
 
 function siteShots() {

@@ -92,6 +92,14 @@ export const googleTables = {
      * Tex, AI clients and sync for AI read through this one once the agent
      * client is switched on, and never fall back to the standard grant.
      */
+    /**
+     * `split`: the row was made under the minimum consent (2026-10-30;
+     * `lib/googleConnect/consentPlan.ts`), so it runs switched on whatever the
+     * deployment's settings say: the standard grant is the person's own use
+     * only, and AI reads through `agentGrant` or not at all. Absent is a row
+     * made before, which keeps the route it had.
+     */
+    consentPlan: v.optional(v.literal("split")),
     agentGrant: v.optional(
       v.object({
         encryptedRefreshToken: v.string(),

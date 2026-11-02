@@ -77,6 +77,8 @@
  * set. Nothing here sees a model or a note.
  */
 
+import { crc32, deflateSync } from "node:zlib";
+
 import { normalize, parseFront } from "./frontMatter.mjs";
 
 export const LIVE_VIEW_ORIGIN = "https://live.bench.invalid";
@@ -195,6 +197,36 @@ export function parseSite(raw, label = "site") {
  * outlives a question (as Browserbase's does), who is signed in where, the
  * flags set, and what happened. `binding` is what `env.SITE_SHOTS` is set to.
  */
+/** The largest side a stand-in card is drawn at; the product draws up to 2000 by 2400. */
+const MAX_BLANK_SIDE = 2400;
+
+/**
+ * A white PNG of `width` by `height` (each kept between 1 and `MAX_BLANK_SIDE`),
+ * as base64: a real picture a model can open, standing in for a drawn card.
+ */
+export function blankPng(width, height) {
+  const side = (n) => Math.max(1, Math.min(MAX_BLANK_SIDE, Math.round(Number(n)) || 1));
+  const [w, h] = [side(width), side(height)];
+  const chunk = (type, data) => {
+    const head = Buffer.alloc(8);
+    head.writeUInt32BE(data.length, 0);
+    head.write(type, 4, "ascii");
+    const tail = Buffer.alloc(4);
+    tail.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0);
+    return Buffer.concat([head, data, tail]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(w, 0);
+  header.writeUInt32BE(h, 4);
+  header[8] = 8; // bits per sample
+  header[9] = 0; // greyscale
+  // Each row: filter byte 0, then one white byte per pixel.
+  const row = Buffer.alloc(w + 1, 0xff);
+  row[0] = 0;
+  const pixels = deflateSync(Buffer.concat(Array.from({ length: h }, () => row)));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", header), chunk("IDAT", pixels), chunk("IEND", Buffer.alloc(0))]).toString("base64");
+}
+
 export function createWeb(sites) {
   const byHost = new Map(sites.map((site) => [site.host, site]));
   const signedIn = new Set();
@@ -455,7 +487,6 @@ export function createWeb(sites) {
     return { status: 200, body: { page: { url: shown.url, title: shown.title, text: shown.text, links: shown.elements.filter((e) => e.href).map((e) => ({ text: e.label, href: e.href })) } } };
   }
 
-  const BLANK_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=";
   const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
   return {
@@ -472,7 +503,13 @@ export function createWeb(sites) {
         if (path === "/browse/hold") return json(200, { held: true });
         // A card drawn (`draw_visual`): the bench has no browser to photograph it, so a blank picture
         // stands in. Without it every card failed to draw and the bench scored "the card won't draw".
-        if (path === "/render") return json(200, { png: BLANK_PNG, width: body.width ?? 600, height: body.height ?? 800, blocked: [] });
+        // It is a white picture of the size asked for: Anthropic refused the 1x1 one this used to be
+        // ("Could not process image", 2026-10-30), and every turn that drew a card fell back to GLM.
+        if (path === "/render") {
+          const width = body.width ?? 600;
+          const height = body.height ?? 800;
+          return json(200, { png: blankPng(width, height), width, height, blocked: [] });
+        }
         return json(404, { error: "not found" });
       },
     },

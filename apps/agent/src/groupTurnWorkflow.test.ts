@@ -209,6 +209,26 @@ for (const { name, groupId } of LINES) {
       expect([...(await storage.list({ prefix: "gpart:" })).keys()]).toEqual([]);
     });
 
+    it("a retry never sends a progress line again, and the answer still goes once", async () => {
+      const { storage, w, deps, run } = handedWorld(groupId);
+      let tries = 0;
+      deps.fetch = (async (url: string, init?: RequestInit) => {
+        if (new URL(url).pathname !== "/agent") return await w.deps.fetch(url, init);
+        tries += 1;
+        // The first attempt says two lines and dies; the retry says them again, and one more, and answers.
+        const said = tries === 1 ? ["Checking the calendar.", "Found two open slots."] : ["Checking the calendar.", "Found two open slots.", "Holding Friday at 6."];
+        const last = tries === 1 ? { status: 502, body: { error: "upstream" } } : { status: 200, body: { answer: "Friday at 6 works, want it?" } };
+        const lines = [...said.map((progress) => ({ progress })), last];
+        return new Response(lines.map((line) => JSON.stringify(line)).join("\n") + "\n", { headers: { "content-type": "application/x-ndjson" } });
+      }) as unknown as Fetch;
+      await acceptGroup(storage, w.message("Tex when can we meet"), 0);
+      await drainGroup(storage, deps);
+      expect((await run()).outcome).toBe("done");
+      expect(tries).toBe(2);
+      expect(w.texts).toEqual(["Checking the calendar.", "Found two open slots.", "Holding Friday at 6.", "Friday at 6 works, want it?"]);
+      expect([...(await storage.list({ prefix: "gpart:" })).keys()]).toEqual([]);
+    });
+
     it("a workflow that will not start is tried again, then the chat is told once that Tex is stuck, logged as an error", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId);

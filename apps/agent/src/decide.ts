@@ -29,8 +29,10 @@ export type Decision =
       confidence: number;
       /** How long decide took, for the logs. */
       ms?: number;
-      /** With `react`: decide's emoji, sent only if it is one of `REACT_EMOJI` (`reactionFor`). */
+      /** Decide's reaction, with any act (reacting is its own decision, Dev2 2026-11-01); sent only if one of `REACT_EMOJI` (`reactionFor`). */
       emoji?: string;
+      /** With `wait`: the seconds decide chose; the chat's state caps the burst (`chatState.ts`). */
+      waitSeconds?: number;
     }
   /** `cause`: why it was unavailable, a code for the logs (timeout, unreachable, http_<status>, bad_answer, or Convex's reason). */
   | { ok: false; reason: "capped" | "off" | "unavailable"; cause?: string; ms?: number };
@@ -47,6 +49,8 @@ export type DecideAsk = {
   running: boolean;
   waitingAsks: string[];
   newest: string;
+  /** The newest message looks addressed (its name opens or closes it, an @-tag, a reply to Tex): its turn already runs, and decide may still hold its answer (`decideBeside`). */
+  addressed?: true;
 };
 
 export type ControlDeps = { fetch: Fetch; controlPlaneOrigin: string; workerSecret: string };
@@ -55,17 +59,21 @@ const unavailable = (cause: string, ms: number) => ({ ok: false, reason: "unavai
 export const MAX_CANDIDATES = 32;
 export const MAX_WAITING_ASKS = 8;
 export const MAX_TRANSCRIPT = 24_000;
+/** The unsent reply a recheck reads (Convex `MAX_DRAFT`). */
+export const MAX_DRAFT = 4_000;
 /** Decide on a text that came in while a turn runs is on the webhook's path: it waits no longer than a steer does. */
 export const RUNNING_DECIDE_MS = 5_000;
 /** Decide on what is waiting, with the person watching the typing bubble: slower than this, the fallback answers. */
 export const IDLE_DECIDE_MS = 4_000;
 /**
- * Decide on a group's waiting messages: nobody watches a typing bubble for an
- * untagged text, so it waits longer than a 1:1 does. Raised from 4s on
- * 2026-10-27, when every group decide hit the 4s limit; the `ms` logged on
- * each `group_decide` sets the final number.
+ * Decide on a group's waiting messages. Slower than this and the burst is
+ * answered without it (Dev2, 2026-11-01: a model that is slow to decide
+ * when to speak should not hold the chat; `chatState.ts`). 15 s since
+ * 2026-10-27 while decide never answered; production then logged 0.7 to 2.6 s
+ * per decide (2026-10-28 to 31), so 3 s, not the 1 s first asked for, which would
+ * have sent three of the nine logged decides to the fallback.
  */
-export const GROUP_DECIDE_MS = 15_000;
+export const GROUP_DECIDE_MS = 3_000;
 /** A caller that names no limit. */
 const DEFAULT_DECIDE_MS = IDLE_DECIDE_MS;
 
@@ -106,8 +114,27 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
     confidence: typeof json.confidence === "number" && Number.isFinite(json.confidence) ? Math.min(1, Math.max(0, json.confidence)) : 0,
     ms,
     // Checked against the allowlist where it is sent (`reactionFor`); here only its type.
-    ...(json.act === "react" && typeof json.emoji === "string" ? { emoji: json.emoji.slice(0, 16) } : {}),
+    ...(typeof json.emoji === "string" ? { emoji: json.emoji.slice(0, 16) } : {}),
+    ...(json.act === "wait" && typeof json.waitSeconds === "number" && Number.isFinite(json.waitSeconds) ? { waitSeconds: Math.min(8, Math.max(1, Math.round(json.waitSeconds))) } : {}),
   };
+}
+
+/** Whether a group answer still answers its asker (`groupRecheck.ts`): `fits` false holds it; anything unclear sends it, as before. */
+export type Recheck = { ok: true; fits: boolean } | { ok: false; cause: string };
+
+/** `POST /agent-texts/recheck` (CONTRACT.md section 3b): decide's body for a group, plus the unsent reply and the message it answers. */
+export async function recheck(deps: ControlDeps, ask: Omit<DecideAsk, "running" | "waitingAsks">, draft: string, draftFor: string, timeoutMs = RUNNING_DECIDE_MS): Promise<Recheck> {
+  const body = { ...ask, candidates: ask.candidates.slice(-MAX_CANDIDATES), transcript: ask.transcript.slice(-MAX_TRANSCRIPT), draft: draft.slice(0, MAX_DRAFT), draftFor };
+  let reply: { status: number; json: unknown };
+  try {
+    reply = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/recheck`, deps.workerSecret, body, timeoutMs);
+  } catch {
+    return { ok: false, cause: "unreachable" };
+  }
+  if (reply.status !== 200) return { ok: false, cause: `http_${reply.status}` };
+  const json = record(reply.json);
+  if (json.ok !== true || typeof json.fits !== "boolean") return { ok: false, cause: typeof json.cause === "string" ? json.cause.replace(/[^\w-]/g, "").slice(0, 40) || "unknown" : "bad_answer" };
+  return { ok: true, fits: json.fits };
 }
 
 /**

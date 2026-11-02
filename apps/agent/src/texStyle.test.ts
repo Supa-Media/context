@@ -49,7 +49,7 @@ describe("the words", () => {
     expect(menu).toContain("1 When I speak up (Helpful)\n2 Tone (Default)");
     expect(menu).toContain("8 Humor (60%)");
     expect(settingsMenu({})).not.toContain("When I speak up");
-    expect(styleSet({ humor: 60 }, "jhon")).toBe("Humor set to 60% (set by jhon).");
+    expect(styleSet({ humor: 60 }, "dev2")).toBe("Humor set to 60% (set by dev2).");
     expect(styleSet({ bubbles: "one" })).toBe("Bubbles set to One per answer.");
   });
 

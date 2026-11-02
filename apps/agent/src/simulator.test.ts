@@ -14,7 +14,7 @@ const LINK = "https://app.example/texts/abc123";
 function setup(simulator: string | undefined) {
   const objects = new Map<string, MemoryStorage>();
   const namespace = {
-    idFromName: (name: string) => ({ name }),
+    idFromName: (name: string) => ({ name: name.replace(/^enam:/, "") }), // inboxes live under `enam:<name>` (`inboxByName`); kept here by name
     get: (id: { name: string }) => ({
       fetch: async (input: string, init: RequestInit) => {
         const storage = objects.get(id.name) ?? new MemoryStorage();

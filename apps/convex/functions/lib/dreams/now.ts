@@ -4,7 +4,7 @@
  *
  * Decided by the owner (Dev2), 2026-10-17: in Tex's onboarding, once Tex has
  * read a new person's recent email it runs their first dream straight away
- * and writes a first `tex/about-me.md`, then confirms it with them, instead of
+ * and writes a first `tex/about.md`, then confirms it with them, instead of
  * waiting for 3 am.
  *
  * Asking does not run anything here. It makes the person's dream row due now,

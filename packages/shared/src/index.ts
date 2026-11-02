@@ -43,6 +43,7 @@ export {
  * it does not count as "this person has a context of their own".
  */
 export {
+  CHAT_HOMES_FOLDER,
   PINNED_CONTEXT_ROLE,
   PINNED_CONTEXT_SLUG,
   isPinnedContextSlug,

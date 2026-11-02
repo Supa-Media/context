@@ -36,7 +36,8 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { action, internalAction, internalMutation } from "../_generated/server";
+import { action, internalAction } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import { decryptSecret, encryptSecret, hashToken, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
@@ -49,7 +50,7 @@ import {
   revokeGoogleToken,
 } from "./lib/googleOAuth";
 import { agentScopesFor } from "./lib/googleConnect/aiScopes";
-import { googleClientFor, googleEnvFor } from "./lib/googleConnect/clients";
+import { googleClientFor } from "./lib/googleConnect/clients";
 import { ATTEMPT_TTL_MS, requireActor, STATE_BYTES } from "./lib/googleConnect/config";
 
 
@@ -124,7 +125,7 @@ export const startGoogleAgentConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: agentScopesFor(target.products, googleEnvFor(args.workspaceId)),
+        scopes: agentScopesFor(target.products),
         loginHint: target.address,
       }),
     };

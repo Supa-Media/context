@@ -48,6 +48,7 @@ import { beginChunkedMove, overlapsRowMove } from "./rowMoveChunks";
 import { type ArchiveRefusal, archiveMoveRefusal } from "./archiveTwins";
 import { nodeAt, nodePaths, pathsBuilt } from "./paths";
 import { applyBuiltMove } from "./builtMove";
+import { chatHomesMoveRefused, sealsChatHomes } from "./sealedChats";
 
 /**
  * Live rows one row move renames in one transaction, the name itself included.
@@ -197,6 +198,8 @@ export async function applyRowMove(
   const before = await mirrorRules(mirror);
   if (invalidMove(from, to)) return refuse("invalid");
   if (trash && !underHiddenRoot(from) && !underHiddenRoot(to)) return refuse("invalid");
+  // Group Tex's chat homes keep their place, and nothing crosses their seal (`sealedChats.ts`).
+  if (chatHomesMoveRefused(from, to, trash) && (await sealsChatHomes(ctx, ws))) return refuse("invalid");
 
   // Built paths (`paths.ts`): the moved row alone changes, and what is beneath follows it, however much there is.
   if (await pathsBuilt(ctx.db, ws)) {

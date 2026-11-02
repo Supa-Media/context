@@ -67,6 +67,7 @@ import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { renderContactNote } from "../../../packages/communications/src/contacts.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const OWNER_TOKEN = `cat_contacts_owner_${"0".repeat(18)}`;
 const TEAM_TOKEN = `cat_contacts_member_${"0".repeat(17)}`;
@@ -216,7 +217,7 @@ export async function runContactsChecks(check) {
     });
 
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "CONTACTS_BUCKET",
       CONTACTS_BUCKET: bucket,

@@ -14,12 +14,17 @@
  *     back to be a page" fails.
  *   The page check dropped from `claimCheck.js` → "the turn's watcher sends
  *     the plain plan back once" fails.
+ *   `noteWrite` counting a write with no hint and no etag as new again →
+ *     "a plan saved as a plain note goes back to be a page" fails (the
+ *     overwrite of joshua-1.md reads as new).
+ *   `besidePlainNotes` returning false always → "a new note among their
+ *     plain notes keeps their form" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { noteWrite, pageNotice, wantsAPage } from "../src/agent/pageNotice.js";
+import { amongPlainNotes, noteWrite, pageNotice, wantsAPage } from "../src/agent/pageNotice.js";
 import { claimCheck } from "../src/agent/claimCheck.js";
 import { PAGE_SKILL_STAMP } from "../src/pageSkill.js";
 import { withActivityHint } from "../src/live/activityHint.js";
@@ -42,14 +47,18 @@ const PLAN = [
 ].join("\n");
 const QUESTION = "can you make a detailed plan for putting on a 100 person concert in nyc";
 
+/** A write's result that says it created the note, as `write_note`'s own does. */
+const CREATED = () => withActivityHint({ content: [{ type: "text", text: "written" }] }, { created: true });
+const made = (path, content = PLAN) => noteWrite("write_note", { path, content }, CREATED());
+
 test("a plan saved as a plain note goes back to be a page", () => {
-  const plain = noteWrite("write_note", { path: "projects/100-person-concert/plan.md", content: PLAN });
+  const plain = made("projects/100-person-concert/plan.md");
   assert.equal(wantsAPage([plain], QUESTION), "projects/100-person-concert/plan.md");
   // Written as a page, it stays.
-  assert.equal(wantsAPage([plain, noteWrite("write_note", { path: "projects/100-person-concert/plan.page.md", content: PLAN })], QUESTION), null);
+  assert.equal(wantsAPage([plain, made("projects/100-person-concert/plan.page.md")], QUESTION), null);
   // Records and Tex's own notes stay plain: a to-do list, memory, the inbox, a routine.
   for (const path of ["todo.md", "tex/about-me.md", "inbox/notes/plan.md", "tex/routines/daily/plan.md"]) {
-    assert.equal(wantsAPage([noteWrite("write_note", { path, content: PLAN })], QUESTION), null, path);
+    assert.equal(wantsAPage([made(path)], QUESTION), null, path);
   }
   // An update of a note they have (an etag passed) keeps its form.
   assert.equal(wantsAPage([noteWrite("write_note", { path: "projects/x/plan.md", content: PLAN, expected_etag: "e1" })], QUESTION), null);
@@ -57,7 +66,9 @@ test("a plan saved as a plain note goes back to be a page", () => {
   const overwrote = withActivityHint({ content: [{ type: "text", text: "written" }] }, { created: false });
   assert.equal(wantsAPage([noteWrite("write_note", { path: "projects/x/plan.md", content: PLAN }, overwrote)], QUESTION), null);
   // Every new note is a page by default (owner, 21:08), a short one too, unless they ask for a plain note.
-  assert.equal(wantsAPage([noteWrite("write_note", { path: "areas/codes/door.md", content: "# Door code\n\n4412" })], "save the door code"), "areas/codes/door.md");
+  assert.equal(wantsAPage([made("areas/codes/door.md", "# Door code\n\n4412")], "save the door code"), "areas/codes/door.md");
+  // A write whose result says nothing of creating is a change, never new: it may have overwritten their note (2026-10-30).
+  assert.equal(wantsAPage([noteWrite("write_note", { path: "areas/bible/joshua/joshua-1.md", content: PLAN })], "add an overview to joshua 1"), null);
   for (const asked of ["save this as a plain note please", "make it a regular note", "just a markdown file, not a page"]) {
     assert.equal(wantsAPage([plain], asked), null, asked);
   }
@@ -70,12 +81,15 @@ test("the notice carries the skill and its stamp, and names the page to write", 
   const said = pageNotice("projects/100-person-concert/plan.md");
   assert.match(said, /projects\/100-person-concert\/plan\.page\.md/);
   assert.match(said, /archive_note/);
+  assert.match(said, /the plain copy you made this turn/);
   assert.ok(said.includes(PAGE_SKILL_STAMP));
 });
 
 test("the turn's watcher sends the plain plan back once", async () => {
   const claims = claimCheck({ question: QUESTION });
-  const call = claims.wrap(async () => ({ content: [{ type: "text", text: "Written." }] }));
+  const call = claims.wrap(async (name) =>
+    name === "list_notes" ? { content: [{ type: "text", text: "projects/100-person-concert/plan.md (300 bytes)" }] } : withActivityHint({ content: [{ type: "text", text: "Written." }] }, { created: true }),
+  );
   await call("write_note", { path: "projects/100-person-concert/plan.md", content: PLAN });
   const answer = "I made it a 12-week plan. Book the venue first. The full checklist is in your notes.";
   const first = await claims.check(answer);
@@ -86,8 +100,24 @@ test("the turn's watcher sends the plain plan back once", async () => {
 test("what Tex makes for a guest chat in tex/chats/ goes back to be a page; the chat's memory note stays plain", () => {
   // 2026-10-28: a WhatsApp guest chat's research was saved plain twice and never sent back, its folder being under tex/.
   const research = "tex/chats/pearl-ivory-arrow/sunday-services-research.md";
-  assert.equal(wantsAPage([noteWrite("write_note", { path: research, content: PLAN })], "put all this research into a page"), research);
+  assert.equal(wantsAPage([made(research)], "put all this research into a page"), research);
   for (const path of ["tex/chats/pearl-ivory-arrow/chat-d63b31518206.md", "tex/chats/notes.md", "tex/groups/chat-d63b31518206.md"]) {
-    assert.equal(wantsAPage([noteWrite("write_note", { path, content: PLAN })], QUESTION), null, path);
+    assert.equal(wantsAPage([made(path)], QUESTION), null, path);
   }
+});
+
+test("a new note among their plain notes keeps their form and is not sent back (owner, 2026-10-30)", async () => {
+  // Joshua 1 written beside their plain Deuteronomy and Joshua chapter notes came back an "ugly page".
+  const listing = ["areas/bible/joshua/Joshua 1.md (900 bytes)", "areas/bible/joshua/Joshua 2.md (800 bytes)", "areas/bible/joshua/sub/x.md (5 bytes)"].join("\n");
+  assert.equal(amongPlainNotes(listing, "areas/bible/joshua/Joshua 1.md"), true);
+  // Only itself, a front page, a page, or notes in a subfolder: nothing to follow.
+  const alone = ["areas/bible/joshua/Joshua 1.md (900 bytes)", "areas/bible/joshua/about.md (90 bytes)", "areas/bible/joshua/plan.page.md (90 bytes)", "areas/bible/joshua/sub/x.md (5 bytes)"].join("\n");
+  assert.equal(amongPlainNotes(alone, "areas/bible/joshua/Joshua 1.md"), false);
+
+  const claims = claimCheck({ question: "write up joshua 1 like my other chapters" });
+  const call = claims.wrap(async (name) =>
+    name === "list_notes" ? { content: [{ type: "text", text: listing }] } : withActivityHint({ content: [{ type: "text", text: "Written." }] }, { created: true }),
+  );
+  await call("write_note", { path: "areas/bible/joshua/Joshua 1.md", content: PLAN });
+  assert.doesNotMatch(String(await claims.check("Joshua 1 is in your Bible notes.")), /designed page/);
 });

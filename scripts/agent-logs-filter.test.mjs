@@ -63,6 +63,17 @@ test("a duration, a count and a status still read as numbers, and only under the
   }
 });
 
+test("a group reply's timings read as numbers, and a job tag, a site and an error class pass as codes (2026-11-01)", () => {
+  for (const show of inlineShows()) {
+    for (const key of ["queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs"]) assert.equal(show(key, 3390), "3390");
+    assert.equal(show("job", "j1a2b3c4d"), "j1a2b3c4d");
+    assert.equal(show("where", "alarm_group"), "alarm_group");
+    assert.equal(show("name", "TypeError"), "TypeError");
+    assert.equal(show("name", "+1 555 123 4567"), "other");
+  }
+  for (const key of ["queueMs", "totalMs", "where", "name", "job"]) assert.match(WORKFLOW, new RegExp(`"${key}"`));
+});
+
 test("an exception publishes its class, never its message", () => {
   assert.equal(exceptionClass("TypeError: failed to fetch https://x/?token=sk_live_9f2c1"), "TypeError");
   assert.equal(exceptionClass("+1 555 123 4567 did not answer"), "unknown");
@@ -76,4 +87,24 @@ test("an exception publishes its class, never its message", () => {
 
 test("neither step strips characters out of a value instead of refusing it", () => {
   assert.doesNotMatch(WORKFLOW, /replace\(\/\[\^\\w ?\.:-\]\/g/, "a stripping filter publishes a readable phone number");
+});
+
+test("a state change's codes and a turn's rounds, tokens and timings pass, and a code-like number does not (2026-11-01)", () => {
+  for (const show of inlineShows()) {
+    for (const key of ["round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs"]) {
+      assert.equal(show(key, 4096), "4096");
+      assert.equal(show(key, "+1 555 123 4567"), "other");
+    }
+    assert.equal(show("from", "gathering"), "gathering");
+    assert.equal(show("to", "idle"), "idle");
+    assert.equal(show("cause", "redraft:restart"), "redraft:restart");
+    // A sign-in code under a key that carries codes is not a number.
+    assert.equal(show("cause", 123456), "other");
+  }
+  for (const key of ["from", "to", "cause", "round", "input", "sendMs"]) assert.match(WORKFLOW, new RegExp(`"${key}"`));
+  assert.doesNotMatch(WORKFLOW, /"model"/, "a model name is not a code the filter keeps");
+});
+
+test("the gateway is read with tail only, and says so instead of reading another Worker", () => {
+  assert.match(WORKFLOW, /if \[ "\$SERVICE" = "context-mcp" \]; then echo "context-mcp keeps no Observability logs: run it again with tail on" >&2; exit 1; fi/);
 });

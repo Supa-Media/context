@@ -15,6 +15,11 @@ import { percentile } from "./agentReport";
 export const texPerformanceValidator = v.object({
   /** Whole turns, model rounds and tool calls, in milliseconds. */
   time: v.object({ totalMs: v.number(), modelMs: v.number(), toolMs: v.number(), p50: v.number(), p95: v.number() }),
+  /**
+   * How long texts waited before their turn started (`waitMs`): the group
+   * pause, the decision, the queue, a retry. Over the turns that carry it.
+   */
+  wait: v.object({ turns: v.number(), p50: v.number(), p95: v.number(), max: v.number() }),
   models: v.array(
     v.object({
       model: v.string(),
@@ -79,8 +84,10 @@ export function texPerformance(turns: readonly Doc<"agentTurns">[], days: number
       }
     }
   }
+  const waits = turns.flatMap((turn) => (turn.waitMs === undefined ? [] : [turn.waitMs]));
   return {
     time: { ...time, ...spread(turns.map((turn) => turn.ms)) },
+    wait: { turns: waits.length, ...spread(waits), max: waits.reduce((most, ms) => Math.max(most, ms), 0) },
     models: [...models.entries()]
       .map(([model, m]) => ({ model, rounds: m.ms.length, failed: m.failed, retried: m.retried, cut: m.cut, fallbacks: m.fallbacks, ...spread(m.ms) }))
       .sort((a, b) => b.rounds - a.rounds),

@@ -14,7 +14,8 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { forwardPath } from "../../mcp/src/forwarding.js";
 import { ledgerOf, ledgerRows, recordForwardingMoves } from "./lib/smallData/forwarding";
 import { dropIconRows, iconRows, iconsOf, remapIconRows, setIconRow } from "./lib/smallData/icons";

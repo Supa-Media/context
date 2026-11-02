@@ -7,7 +7,8 @@
 
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type DatabaseReader } from "../_generated/server";
+import { internalQuery, type DatabaseReader } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { routinePathsOf, scheduleReconcile } from "./lib/routines/sync";
 import { treeServesNow } from "./lib/nodes/listing";
 import { readerMirror } from "./lib/nodes/readerRules";
@@ -512,6 +513,8 @@ export const publishedRows = internalQuery({
     v.array(
       v.object({
         path: v.string(),
+        /** Where the note is in the tree now: `path` itself, or under the site's folder for a `website/` path. */
+        at: v.string(),
         etag: v.union(v.string(), v.null()),
         uploaded: v.union(v.number(), v.null()),
         current: v.boolean(),
@@ -535,6 +538,7 @@ export const publishedRows = internalQuery({
       if (row === null) continue;
       found.push({
         path,
+        at: real(path),
         etag: row.etag ?? null,
         uploaded: row.uploaded ?? null,
         current: factsCurrent(row) && !propsPredate(row),

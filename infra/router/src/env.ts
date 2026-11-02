@@ -8,4 +8,5 @@ export interface Env {
   CONVEX_ORIGIN?: string;
   HOME_SITE_HANDLE?: string; // whose website/ is the homepage (`homeSite.ts`)
   TEXTS_SIMULATOR?: Fetcher; // staging only (`textsSimulator.ts`)
+  TEXTS?: Fetcher; // the texting Worker, for a chat's live view of its jobs (`messagesThreads.ts`)
 }

@@ -11,7 +11,8 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, type MutationCtx } from "../_generated/server";
+import { type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { personalOwnerReadClearance } from "./lib/controlPlane/personalOwner";
 import { chatMailClearance, chatsWatching } from "./lib/textGroupMail";
 import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";

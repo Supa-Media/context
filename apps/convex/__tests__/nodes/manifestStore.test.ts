@@ -63,9 +63,12 @@ async function rowsOf(store: Store): Promise<NodeRow[]> {
 }
 
 /** `listLive` over rows in memory: live rows in key order after `after`, `size` at most per page. */
-function pages(rows: readonly NodeRow[], size: number): NodePage {
-  return async (after, limit) => {
-    const rest = rows.filter((row) => after === undefined || compareKeys(row.path, after) > 0);
+function pages(rows: readonly NodeRow[], size: number, roots: (string | undefined)[] = []): NodePage {
+  return async (after, limit, root) => {
+    roots.push(root);
+    const rest = rows.filter(
+      (row) => (after === undefined || compareKeys(row.path, after) > 0) && (root === undefined || row.path.startsWith(`${root}/`)),
+    );
     const page = rest.slice(0, Math.min(limit, size));
     return { rows: page, cursor: page.length === Math.min(limit, size) ? page[page.length - 1]!.path : null };
   };
@@ -116,6 +119,19 @@ describe("a walk the Convex tree answers", () => {
     }
     const projects = await walk(served, OWNER, "1-projects");
     expect([...projects.entries.keys()]).not.toContain("1-projectsX/sibling.md");
+  });
+
+  test("a folder's walk asks for that folder's rows alone, never the rest of the tree", async () => {
+    // Without `root` a folder walk read on to the page cap past its last row (Convex invoice, owner 2026-10-30).
+    const bucket = await workspace();
+    const roots: (string | undefined)[] = [];
+    const served = nodesPagedStore(bucket, pages(await rowsOf(bucket), 3, roots), await privacyMirrorOf(bucket));
+    const fromTree = await walk(served, OWNER, "1-projects");
+    expect(fromTree).toEqual(await walk(bucket, OWNER, "1-projects"));
+    expect(new Set(roots)).toEqual(new Set(["1-projects"]));
+    roots.length = 0;
+    await walk(served, OWNER);
+    expect(new Set(roots)).toEqual(new Set([undefined]));
   });
 
   test("the rules come from the tree, never the bucket's file", async () => {

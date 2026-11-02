@@ -21,6 +21,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./
 import { createBucket } from "./orientation/fixtures.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { ORIENT_RECENT_LIMIT } from "../src/orient/render.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const HOME_TOKEN = `cat_orient_v2_home_${"0".repeat(18)}`;
 const MEMBER_TOKEN = `cat_orient_v2_member_${"0".repeat(15)}`;
@@ -68,7 +69,7 @@ const bindingFor = (bindingName) => ({
 });
 
 const env = {
-  CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+  CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
   GATEWAY_SECRET,
   NATIVE_BINDINGS: "V2_HOME_BUCKET,V2_STUDIO_BUCKET,V2_PARTNERS_BUCKET",
   V2_HOME_BUCKET: home,

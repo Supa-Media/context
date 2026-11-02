@@ -48,10 +48,33 @@ export function cutoverCanary(workspaceId: string | undefined, env: Env = proces
   return named.length <= CUTOVER_CANARY_LIMIT && named.includes(workspaceId);
 }
 
+/** Both cutover settings on: the minimum consent, as a canary workspace and a `split` row run. */
+const SWITCHED: Env = { [AGENT_CLIENT_ACTIVE_ENV_VAR]: "true", GOOGLE_CALENDAR_SCOPE: "owned" };
+
 /** The environment a workspace's Google calls read: the canary's settings on top for a canary workspace, unchanged for every other. */
 export function googleEnvFor(workspaceId: string | undefined, env: Env = process.env): Env {
   if (!cutoverCanary(workspaceId, env)) return env;
-  return { ...env, [AGENT_CLIENT_ACTIVE_ENV_VAR]: "true", GOOGLE_CALENDAR_SCOPE: "owned" };
+  return { ...env, ...SWITCHED };
+}
+
+/**
+ * The environment every NEW consent is chosen under (2026-10-30): switched
+ * on, whatever the deployment says. A new request never asks for the broad
+ * calendar pair, nor for AI's scopes on the standard client.
+ */
+export function newConsentEnv(env: Env = process.env): Env {
+  return { ...env, ...SWITCHED };
+}
+
+/**
+ * The environment one connection's Google calls read: its workspace's
+ * (`googleEnvFor`), switched on for a row made under the minimum consent
+ * (`consentPlan: "split"`). A row made before keeps the global values, so
+ * nothing about an existing grant's route changes.
+ */
+export function googleEnvForRow(row: { workspaceId: string; consentPlan?: "split" }, env: Env = process.env): Env {
+  const workspace = googleEnvFor(row.workspaceId, env);
+  return row.consentPlan === "split" ? { ...workspace, ...SWITCHED } : workspace;
 }
 
 /** Whether the agent client is configured, so a person can give it consent, switched on or not. */

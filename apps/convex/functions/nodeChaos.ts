@@ -8,7 +8,8 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { CHAOS_DAYS, chaosExtraOf, dayOf, factStateRow } from "./lib/nodes/facts";
 import { located, nodePaths } from "./lib/nodes/paths";
 

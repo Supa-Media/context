@@ -15,7 +15,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalAction, internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
+import { internalAction, internalQuery, type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { expandFolder } from "./lib/nodes/folderLinks";
 
 /** Files one entry carries: a page of a move, well inside one rewrite's reach. */

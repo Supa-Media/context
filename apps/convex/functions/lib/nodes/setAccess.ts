@@ -36,6 +36,7 @@ import { treeAudiences } from "../treeAudiences";
 import { stampTreeAudiences } from "../../treeSignals";
 import { rulesForReaders } from "./readerRules";
 import { nodeAt } from "./paths";
+import { sealedChange } from "./sealedChats";
 
 export type Role = "view" | "edit";
 export type Base = "private" | "team" | "inherit";
@@ -235,6 +236,8 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
   // Refused before anything is read or written: a list over the cap is never partly applied.
   const listed = args.grantees === undefined || args.grantees === "inherit" ? 0 : args.grantees.length;
   if (listed > MAX_GRANTEES) return { ok: false, code: "INVALID" };
+  // Group Tex's chat homes are set by Tex alone, an owner's hand included (`sealedChats.ts`).
+  if (await sealedChange(ctx, workspaceId, [path], actor.clientId)) return { ok: false, code: "FORBIDDEN" };
 
   const row = await nodeAt(ctx.db, workspaceId, path);
 

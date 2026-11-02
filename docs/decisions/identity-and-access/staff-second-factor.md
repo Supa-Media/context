@@ -17,9 +17,17 @@ enrollment and code checks (`functions/staffSecondFactor.ts`) stop at the
 first factor (`requireStaffIdentity`), because they are the way in.
 
 **Per session.** A code opens the staff pages for the session that typed it,
-for twelve hours. It is a row keyed by the live `authSessions` id, so signing
+for thirty days. It is a row keyed by the live `authSessions` id, so signing
 out, or the session expiring, ends it; another device signed in with the same
 email code gets nothing from it.
+
+The window was twelve hours until 2026-11-02, when the owner chose thirty days:
+twelve hours meant a code nearly every time staff pages were opened, on every
+app and browser separately. Thirty days matches the common "don't ask again on
+this device" window. What it costs: a device stolen while still signed in keeps
+staff access for up to thirty days unless it is signed out, which "Sign out
+every other device" does at once. What it does not cost: a stolen email code
+still opens nothing, because a new session always owes a code.
 
 **No stored key.** The authenticator key is derived from the deployment's
 storage key, the account and a per-enrollment nonce (an HMAC, as
@@ -50,7 +58,7 @@ current key stays in force until the replacement is confirmed by a code from
 it, typed in the session that started it, so a swap never leaves a gap.
 
 A swap does not end other sessions' standing: a session that already typed a
-code keeps staff access until its twelve hours run out. That is deliberate,
+code keeps staff access until its thirty days run out. That is deliberate,
 not an oversight: those sessions proved the old key, which was valid when
 they did. Somebody who swaps because a device was lost ends it with "Sign
 out every other device" (Settings, one emailed code), which deletes the

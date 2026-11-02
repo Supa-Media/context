@@ -132,8 +132,9 @@ async function recreateGeneration(store, path, note, tombstone, noteId = null) {
   return initialize(store, path, note, { ...candidate, etag: written.etag }, noteId);
 }
 
-async function load(store, path) {
-  const head = await readHead(store, path);
+async function load(store, path, headRead = null) {
+  // A caller that has just read the head to learn whether there is one (`readDocumentIfStarted`) hands it in.
+  const head = headRead ?? (await readHead(store, path));
   /*
     The reads the ordinary load makes next, asked together rather than one bucket round trip after another:
     the row's note id, the Markdown, and an active head's state. Each is only a read, and each is used below
@@ -319,8 +320,8 @@ export async function finalizePending(store, path, loaded) {
   throw fail("MATERIALIZATION_PENDING", "accepted collaboration state is durable and still awaiting Markdown materialization");
 }
 
-export async function ready(store, path) {
-  let current = await load(store, path);
+export async function ready(store, path, headRead = null) {
+  let current = await load(store, path, headRead);
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     if (current.state.structural) {
       await recoverStructural(store, current.state.structural.operationId);

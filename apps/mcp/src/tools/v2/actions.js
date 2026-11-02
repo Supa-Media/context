@@ -103,7 +103,7 @@ export const ACTIONS = {
     },
     connect_google: { tool: "connect_google", summary: "Get the link where the person connects Gmail or Calendar.", take: plain },
     connect: { tool: "connect_app", summary: "Get the link where the person connects an app fetch apps: lists, through its own approval screen.", take: plain },
-    dream_now: { tool: "dream_now", summary: "Start Tex's dream now: it rewrites tex/about-me.md (owner only).", take: plain },
+    dream_now: { tool: "dream_now", summary: "Start Tex's dream now: it rewrites tex/about.md (owner only).", take: plain },
   },
   send: {
     api: {

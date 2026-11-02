@@ -15,15 +15,17 @@ import type { AppCard } from "./appCards";
 import type { ImagesLike } from "./attachments";
 import { LINQ_API, MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 
-export type OutgoingPicture = { name: string; mediaType: string; data: string } | { url: string };
+/** `title`: a card Tex drew names what it shows, so a chat with Context cards gets it as one (`sendParts.ts`). */
+export type OutgoingPicture = { name: string; mediaType: string; data: string; title?: string } | { url: string };
 
 /** A picture ready to send: an attachment uploaded to Linq, or an address the line fetches. */
 export type Media = { attachment_id: string } | { url: string };
 
 /** What the inbox sends after the words: a text, a media part ready for the line, or a Context card (`pickCard.ts`). */
-export type SendPart = string | { media: Media } | { card: AppCard };
+export type SendPart = string | { media: Media; title?: string } | { card: AppCard; fallback?: Media };
 
 export const MAX_OUTGOING_PICTURES = 8;
+const MAX_TITLE = 100;
 const SENDABLE = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]);
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
@@ -37,10 +39,7 @@ const SHRUNK_EDGE = 2048;
  * past 2 MB for a photo. Small pictures, GIFs (which may move) and anything
  * Images refuses go unchanged; without the binding nothing is shrunk.
  */
-export async function shrinkPicture(
-  images: ImagesLike | undefined,
-  picture: { name: string; mediaType: string; data: string },
-): Promise<{ name: string; mediaType: string; data: string }> {
+export async function shrinkPicture<P extends { name: string; mediaType: string; data: string }>(images: ImagesLike | undefined, picture: P): Promise<P> {
   if (!images || picture.mediaType === "image/gif" || picture.data.length * 0.75 <= SHRINK_OVER_BYTES) return picture;
   try {
     const result = await images
@@ -52,7 +51,8 @@ export async function shrinkPicture(
     let binary = "";
     for (let i = 0; i < out.length; i += 0x8000) binary += String.fromCharCode(...out.subarray(i, i + 0x8000));
     const dot = picture.name.lastIndexOf(".");
-    return { name: `${dot > 0 ? picture.name.slice(0, dot) : picture.name}.jpg`, mediaType: "image/jpeg", data: btoa(binary) };
+    // Anything else it carries, a drawn card's title, stays (`media.ts` `CARD_FOR_MS`).
+    return { ...picture, name: `${dot > 0 ? picture.name.slice(0, dot) : picture.name}.jpg`, mediaType: "image/jpeg", data: btoa(binary) };
   } catch {
     return picture;
   }
@@ -83,7 +83,8 @@ export function readPictures(raw: unknown): OutgoingPicture[] {
       SENDABLE.has(value.mediaType)
     ) {
       const name = typeof value.name === "string" && /^[\w.-]{1,80}$/.test(value.name) ? value.name : "picture";
-      out.push({ name, mediaType: value.mediaType, data: value.data });
+      const title = typeof value.title === "string" ? value.title.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE) : "";
+      out.push({ name, mediaType: value.mediaType, data: value.data, ...(title ? { title } : {}) });
     }
   }
   return out;
@@ -142,7 +143,7 @@ export async function uploadLinqPicture(
 export async function partsFor(
   texts: string[],
   pictures: OutgoingPicture[],
-  upload: (picture: { name: string; mediaType: string; data: string }) => Promise<Media>,
+  upload: (picture: { name: string; mediaType: string; data: string; title?: string }) => Promise<Media>,
 ): Promise<SendPart[]> {
   const parts: SendPart[] = [...texts];
   let failed = false;
@@ -152,7 +153,7 @@ export async function partsFor(
       continue;
     }
     try {
-      parts.push({ media: await upload(picture) });
+      parts.push({ media: await upload(picture), ...(picture.title ? { title: picture.title } : {}) });
     } catch {
       failed = true;
     }

@@ -175,6 +175,9 @@ export function builtInLine(job: RowRole, name: string): string | null {
   return about === undefined ? `Built-in ${label}.` : `Built-in ${label}. ${about}`;
 }
 
+/** The line under the title of Tex's folder: where its notes are kept, and that export still takes them. */
+export const TEX_HOME_LINE = "Kept with Tex, not in your bucket. Still exported with everything else.";
+
 /* -------------------------------------------------------------------------- */
 /*                                 sibling order                               */
 /* -------------------------------------------------------------------------- */

@@ -99,6 +99,42 @@ describe("sending an invite", () => {
     expect((await as(t, fresh).query(api.functions.referrals.mine, {}))?.locked).toBe("setup");
   });
 
+  test("the first stamp of an AI client's grant unlocks invites, and is remembered once", async () => {
+    const t = setupTest();
+    const fresh = await seedUser(t, "stamp@acme.test");
+    const grantId = await t.run(async (ctx) => {
+      const workspaceId = await ctx.db.insert("workspaces", {
+        slug: "stamp",
+        displayName: "Mine",
+        createdBy: fresh,
+        kind: "personal",
+        structureTemplate: "para",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      } as never);
+      await ctx.db.insert("workspaceMembers", { workspaceId, userId: fresh, role: "owner", joinedAt: Date.now() } as never);
+      const console = await ctx.db.insert("oauthGrants", {
+        workspaceId, userId: fresh, clientId: "context_console", scopes: [], hashedRefreshToken: "h-console",
+        status: "active", createdAt: Date.now(),
+      });
+      const claude = await ctx.db.insert("oauthGrants", {
+        workspaceId, userId: fresh, clientId: "claude", scopes: [], hashedRefreshToken: "h-claude",
+        status: "active", createdAt: Date.now(),
+      });
+      return { console, claude };
+    });
+    // The console's own grant is the person's hand, not an AI client.
+    await t.mutation(internal.functions.grants.touchGrant, { grantId: grantId.console });
+    expect((await as(t, fresh).query(api.functions.referrals.mine, {}))?.locked).toBe("setup");
+    await t.mutation(internal.functions.grants.touchGrant, { grantId: grantId.claude });
+    expect((await as(t, fresh).query(api.functions.referrals.mine, {}))?.locked).toBeNull();
+    const rows = await t.run(async (ctx) => ctx.db.query("agentUse").collect());
+    expect(rows.map((row) => row.userId)).toEqual([fresh]);
+    // The row alone answers it: the grant gone, invites stay unlocked.
+    await t.run(async (ctx) => ctx.db.delete(grantId.claude));
+    expect((await as(t, fresh).query(api.functions.referrals.mine, {}))?.locked).toBeNull();
+  });
+
   test("an invite lets one address in, and uses one of three", async () => {
     const t = setupTest();
     const maya = await setUpUser(t, "maya@acme.test");

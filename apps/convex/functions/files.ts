@@ -67,15 +67,10 @@
  * the build report.
  */
 
+import { settledAfter } from "./workspaceObjectPush";
 import { v } from "convex/values";
-import {
-  action,
-  internalAction,
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "../_generated/server";
+import { action, internalAction, internalQuery, query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import type { Doc } from "../_generated/dataModel";
 import {
   DELETE_CONFIRMATION,
@@ -635,21 +630,21 @@ export const moveEntry = action({
     followHeading: v.optional(v.boolean()),
   },
   returns: movedValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await moveEntryHandler(ctx, args),
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await settledAfter(ctx, args.workspaceId, await moveEntryHandler(ctx, args)),
 });
 
 /** Paste a copy at an explicit destination. Requires `editor`. */
 export const copyEntry = action({
   args: { workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
   returns: movedValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await copyEntryHandler(ctx, args),
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await settledAfter(ctx, args.workspaceId, await copyEntryHandler(ctx, args)),
 });
 
 /** Copy beside itself under a free "… copy" name. Requires `editor`. */
 export const duplicateEntry = action({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: movedValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await duplicateEntryHandler(ctx, args),
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await settledAfter(ctx, args.workspaceId, await duplicateEntryHandler(ctx, args)),
 });
 
 /** See `archiveEntryHandler` in `lib/filesFns/entries.ts`. */
@@ -661,7 +656,7 @@ export const archiveEntry = action({
     expectedEtag: v.optional(v.string()),
   },
   returns: movedValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await archiveEntryHandler(ctx, args),
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await settledAfter(ctx, args.workspaceId, await archiveEntryHandler(ctx, args)),
 });
 
 /** Move an entry into hidden, recoverable trash. Requires `editor`. */
@@ -673,14 +668,14 @@ export const trashEntry = action({
     expectedEtag: v.optional(v.string()),
   },
   returns: movedValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await trashEntryHandler(ctx, args),
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await settledAfter(ctx, args.workspaceId, await trashEntryHandler(ctx, args)),
 });
 
 /** Restore the exact entry returned by `trashEntry`. Requires `editor`. */
 export const restoreTrashEntry = action({
   args: { workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
   returns: movedValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await restoreTrashEntryHandler(ctx, args),
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await settledAfter(ctx, args.workspaceId, await restoreTrashEntryHandler(ctx, args)),
 });
 
 /** See `deleteEntryHandler` in `lib/filesFns/entries.ts`. */
@@ -691,7 +686,7 @@ export const deleteEntry = action({
     confirmation: v.string(),
   },
   returns: deletedValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "deleted" }>> => await deleteEntryHandler(ctx, args),
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "deleted" }>> => await settledAfter(ctx, args.workspaceId, await deleteEntryHandler(ctx, args)),
 });
 
 /** See `setNoteVisibilityHandler` in `lib/filesFns/visibility.ts`. */
@@ -703,7 +698,7 @@ export const setNoteVisibility = action({
     ...builtInGrantArgs,
   },
   returns: visibilityResultValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "visibility" }>> => await setNoteVisibilityHandler(ctx, args),
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "visibility" }>> => await settledAfter(ctx, args.workspaceId, await setNoteVisibilityHandler(ctx, args)),
 });
 
 /** See `setNoteGroupHandler` in `lib/filesFns/visibility.ts`. */
@@ -715,7 +710,7 @@ export const setNoteGroup = action({
     group: v.string(),
   },
   returns: visibilityResultValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "visibility" }>> => await setNoteGroupHandler(ctx, args),
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "visibility" }>> => await settledAfter(ctx, args.workspaceId, await setNoteGroupHandler(ctx, args)),
 });
 
 /** See `namedAudienceHandler` in `lib/filesFns/namedAudience.ts`. */

@@ -21,6 +21,7 @@
  * drain took every one-to-one 👍 as a group's and dropped it (2026-10-22).
  */
 
+import { keptEvents } from "./events";
 import type { InboxStorage } from "./inbox";
 import type { Reaction } from "./reactions";
 
@@ -47,9 +48,20 @@ export function holdsAsYes(reaction: Reaction): boolean {
   return !reaction.removed && (reaction.how === "Liked" || reaction.how === "Loved") && ASK.test(reaction.words);
 }
 
-/** Whether a taken-back tapback could be one being held. */
-export function takesBackYes(reaction: Reaction): boolean {
-  return reaction.removed === true && ASK.test(reaction.words);
+/**
+ * Whether a tapback is a no to hold: a dislike on an ask. A 👎 is the no to
+ * an ask as a 👍 is its yes (a new tester, 2026-10-30: Tex said "say yes"
+ * where a 👍 or 👎 would do). Before, a 👎 reached the model as a bare emoji
+ * and the ask stayed armed, so a later "yes" could still send it. The gateway
+ * checks the words as it does a 👍's (`thumbsDownIsNo`).
+ */
+export function holdsAsNo(reaction: Reaction): boolean {
+  return !reaction.removed && reaction.how === "Disliked" && ASK.test(reaction.words);
+}
+
+/** Whether a tapback goes as the answer to an ask: a 👍, ❤️ or 👎 on one. */
+export function holdsAsAnswer(reaction: Reaction): boolean {
+  return holdsAsYes(reaction) || holdsAsNo(reaction);
 }
 
 type Held<T> = { item: T; words: string; at: number };
@@ -119,13 +131,13 @@ function quotesText(text: string, quoted: string): boolean {
 }
 
 /**
- * A like or love on a text of the last reply that carried an ask, the ask
- * itself included, as a like on that ask in the words it was sent in;
+ * A like, love or dislike on a text of the last reply that carried an ask,
+ * the ask itself included, as a like on that ask in the words it was sent in;
  * anything else as it was. The gateway compares the words exactly, so the
  * copy kept here is what it gets, never the quote as the line returned it.
  */
 export async function onTheAsk(storage: InboxStorage, reaction: Reaction, now: number): Promise<Reaction> {
-  if (reaction.removed || (reaction.how !== "Liked" && reaction.how !== "Loved")) return reaction;
+  if (reaction.removed || (reaction.how !== "Liked" && reaction.how !== "Loved" && reaction.how !== "Disliked")) return reaction;
   const kept = await storage.get<AskReply>(ASK_REPLY_KEY);
   if (kept === undefined || now - kept.at > ASK_REPLY_FOR_MS) return reaction;
   // On a message whose words could not be given (`sendblueTapbacks.ts`): the ask is the one waiting; the gateway still checks it is armed.
@@ -171,4 +183,12 @@ function sameWords(a: string, b: string): boolean {
   const [x, y] = [folded(a), folded(b)];
   if (x === "" || y === "") return false;
   return x === y || x.startsWith(y) || y.startsWith(x);
+}
+
+/** Whether a reaction was on one of Tex's own texts in this chat (a turn's or a fixed line): named so by WhatsApp, or its quoted words are Tex's. */
+export async function onTexText(storage: InboxStorage, chat: string, reaction: Reaction): Promise<boolean> {
+  if (reaction.onOther) return false;
+  if (reaction.onTex) return true;
+  if (reaction.words === "") return false;
+  return (await keptEvents(storage, chat)).some((event) => event.from.kind !== "person" && event.text !== undefined && sameWords(event.text, reaction.words));
 }

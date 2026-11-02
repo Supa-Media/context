@@ -7,6 +7,7 @@ import {
 } from "./policy.js";
 import { base64Url, jsonResponse, oauthError, randomToken } from "./responses.js";
 import { resourceMatches } from "./discovery.js";
+import { exchangeAtObject, exchangeHeldByObject, refreshAtObject, refreshHeldBy } from "./objectGrants.js";
 
 /* --------------------------------- token ---------------------------------- */
 
@@ -99,7 +100,7 @@ export async function authenticateClient(client, params, request) {
   return diff === 0;
 }
 
-export async function handleToken(request, env, controlPlane, { origin, slug }) {
+export async function handleToken(request, env, controlPlane, { origin, slug, objects } = {}) {
   const params = await readForm(request);
   if (!params) {
     return oauthError(
@@ -125,15 +126,15 @@ export async function handleToken(request, env, controlPlane, { origin, slug }) 
 
   const grantType = params.get("grant_type");
   if (grantType === "authorization_code") {
-    return exchangeCode(params, client, controlPlane);
+    return exchangeCode(params, client, controlPlane, env, objects);
   }
   if (grantType === "refresh_token") {
-    return refresh(params, client, controlPlane);
+    return refresh(params, client, controlPlane, env, objects);
   }
   return oauthError("unsupported_grant_type", "Unsupported grant_type.");
 }
 
-async function exchangeCode(params, client, controlPlane) {
+async function exchangeCode(params, client, controlPlane, env, objects) {
   const code = params.get("code");
   const redirectUri = params.get("redirect_uri");
   const codeVerifier = params.get("code_verifier");
@@ -177,9 +178,16 @@ async function exchangeCode(params, client, controlPlane) {
     .filter((entry) => SUPPORTED_SCOPES.includes(entry));
   if (!scopes.length) return oauthError("invalid_scope", "No usable scope was granted.");
 
+  const expiresAt = Date.now() + ACCESS_TOKEN_TTL_SECONDS * 1000;
+  // A switched person's connection is made in their object (`objectGrants.js`).
+  if (exchangeHeldByObject(authorization)) {
+    const made = await exchangeAtObject({ env, controlPlane, authorization, clientId: client.clientId, scopes, expiresAt, ...(objects ? { objects } : {}) });
+    if (made === null) return oauthError("server_error", "The connection could not be made. Try again.", 500);
+    return tokenResponse(made.accessToken, made.refreshToken, made.scopes);
+  }
+
   const accessToken = `cat_${randomToken(32)}`;
   const refreshToken = `crt_${randomToken(32)}`;
-  const expiresAt = Date.now() + ACCESS_TOKEN_TTL_SECONDS * 1000;
 
   await controlPlane.createGrant({
     workspaceId: authorization.workspaceId,
@@ -194,18 +202,36 @@ async function exchangeCode(params, client, controlPlane) {
   return tokenResponse(accessToken, refreshToken, scopes);
 }
 
-async function refresh(params, client, controlPlane) {
+async function refresh(params, client, controlPlane, env, objects) {
   const presented = params.get("refresh_token");
   if (!presented) return oauthError("invalid_request", "refresh_token is required.");
 
-  const accessToken = `cat_${randomToken(32)}`;
-  const refreshToken = `crt_${randomToken(32)}`;
   const expiresAt = Date.now() + ACCESS_TOKEN_TTL_SECONDS * 1000;
 
   const requestedScope = params.get("scope");
   const narrowed = requestedScope
     ? requestedScope.split(/\s+/).filter((entry) => SUPPORTED_SCOPES.includes(entry))
     : null;
+
+  // A switched person's connection is rotated in their object (`objectGrants.js`).
+  const heldBy = await refreshHeldBy(env, presented, objects ? { objects } : {});
+  if (heldBy !== null) {
+    const rotated = await refreshAtObject({
+      env,
+      controlPlane,
+      personalWorkspaceId: heldBy,
+      presented,
+      clientId: client.clientId,
+      scopes: narrowed && narrowed.length ? narrowed : null,
+      expiresAt,
+      ...(objects ? { objects } : {}),
+    });
+    if (!rotated) return oauthError("invalid_grant", "The refresh token is invalid or revoked.");
+    return tokenResponse(rotated.accessToken, rotated.refreshToken, rotated.scopes);
+  }
+
+  const accessToken = `cat_${randomToken(32)}`;
+  const refreshToken = `crt_${randomToken(32)}`;
 
   // Rotation is mandatory for public clients under OAuth 2.1 §4.3.1, so the old
   // refresh token dies in the same transaction that mints the new one. The

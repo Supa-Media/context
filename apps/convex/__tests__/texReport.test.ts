@@ -151,6 +151,7 @@ describe("model performance", () => {
         outcome: "answered",
         at: now - 60_000,
         ms: 9_000,
+        waitMs: 238_000,
         modelMs: 6_000,
         toolMs: 3_000,
         rounds: 3,
@@ -167,6 +168,8 @@ describe("model performance", () => {
     );
     const { performance } = await asUser(t, staff).query(api.functions.admin.texReport, { days: 7 });
     expect(performance.time).toMatchObject({ totalMs: 9_000, modelMs: 6_000, toolMs: 3_000, p50: 9_000 });
+    // The wait before the turn is its own figure, over the turns that carry one.
+    expect(performance.wait).toEqual({ turns: 1, p50: 238_000, p95: 238_000, max: 238_000 });
     expect(performance.models).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ model: THINK, rounds: 1, failed: 1, retried: 1, cut: 0, fallbacks: 0 }),

@@ -167,6 +167,24 @@ export declare function serializeDrawing(
   options?: { appState?: Record<string, unknown> | null; files?: Record<string, unknown> | null }
 ): string | null;
 
+/** The scene object in a drawing file, deleted elements included, or null. */
+export declare function readDrawingScene(text: unknown): Record<string, unknown> | null;
+
+/**
+ * One list from two saves of a drawing: per id the higher `version` wins, then
+ * the lower `versionNonce` — Excalidraw's own reconcile rule.
+ */
+export declare function mergeElements(
+  mine: readonly DrawingElement[],
+  theirs: readonly DrawingElement[]
+): DrawingElement[];
+
+/**
+ * Both people's drawing, spliced into `theirs` (the bucket's version), or null
+ * when either side is not a drawing this can splice.
+ */
+export declare function mergeDrawings(mine: unknown, theirs: unknown): string | null;
+
 /** Whether `serializeDrawing` would produce a file for this original. */
 /**
  * An empty drawing, as a complete `.excalidraw.md` file body.

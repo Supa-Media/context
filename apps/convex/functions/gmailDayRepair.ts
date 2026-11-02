@@ -21,7 +21,7 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { DAILY_LIMIT_REASONS, SYNC_FAILURE_BACKOFF_MS } from "./lib/googleSchedule";
 import { REPAIR_MAX_DAYS, repairDaysSince } from "./lib/googleSync/repairDays";
 

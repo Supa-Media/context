@@ -25,6 +25,7 @@
 
 import type { GenericDatabaseReader } from "convex/server";
 import type { DataModel, Doc, Id } from "../../_generated/dataModel";
+import { hasUsedAgent } from "./agentUse";
 
 type Db = GenericDatabaseReader<DataModel>;
 
@@ -126,15 +127,6 @@ export async function invitesOff(db: Db): Promise<boolean> {
 }
 
 /** Has one of this person's own AI clients ever called? */
-async function hasUsedClient(db: Db, userId: Id<"users">): Promise<boolean> {
-  const grants = await db
-    .query("oauthGrants")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .take(100);
-  return grants.some(
-    (grant) => grant.clientId !== CONSOLE_CLIENT_ID && typeof grant.lastUsedAt === "number" && grant.lastUsedAt > 0,
-  );
-}
 
 export type LockedReason = "setup" | "new";
 
@@ -184,7 +176,7 @@ export async function allowanceFor(db: Db, userId: Id<"users">, now: number): Pr
   let locked: LockedReason | null = null;
   let unlocksAt: number | null = null;
   if (extra === 0 && user !== null) {
-    if (!(await hasUsedClient(db, userId))) {
+    if (!(await hasUsedAgent(db, userId))) {
       locked = "setup";
     } else if ((await creditedInvite(db, user, now)) !== null) {
       const at = user._creationTime + FRIEND_WAIT_MS;

@@ -16,7 +16,7 @@
  *      and its body is extra instructions ("only text me about deadlines").
  *   2. The gateway, not the model, lists the notes changed since the last
  *      look. Nothing changed is `nothing_new` and costs no model turn. Tex's
- *      own job output (`tex/heartbeat/`, `tex/dreams/`, `tex/housekeeping/`, `tex/skills/`, `tex/about-me.md`)
+ *      own job output (`tex/heartbeat/`, `tex/dreams/`, `tex/housekeeping/`, `tex/skills/`, `tex/about.md`)
  *      never counts as a change, or each look would wake the next.
  *   3. A model may read their notes, in their own workspace only, and nothing
  *      else: no write, no move, no visibility, no web, no other workspace. It
@@ -41,7 +41,7 @@ import { ATTENTION_FOLDER, ATTENTION_SETTINGS_PATH, HEARTBEAT_FOLDER, HEARTBEAT_
 import { deliverAttention } from "./attention.js";
 import { TRANSCRIPTS_FOLDER, eventLines } from "./transcript.js";
 import { DREAMS_FOLDER } from "./dream.js";
-import { ABOUT_ME_PATH } from "./aboutMe.js";
+import { ABOUT_ME_PATH, OLD_ABOUT_ME_PATH } from "./aboutMe.js";
 import { readTexNotes } from "./jobs.js";
 import { LEARNED_SKILLS_FOLDER } from "./learnedSkills.js";
 import { openProvider, runTurn } from "./turn.js";
@@ -90,13 +90,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * new emails it was shown, and reading their calendar for other days. `read_email` is an `UNTRUSTED_READS` tool and the
  * mail list is a stranger's words, so a look that saw any mail saves its
  * exchange tainted (below), and the memory nudge never distils a stranger's
- * words into `tex/about-me.md` (`memoryNudge.js`). Asserted by a test.
+ * words into `tex/about.md` (`memoryNudge.js`). Asserted by a test.
  */
 const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes", "read_email", "read_calendar"]);
 
 /** Tex's own job output, which never counts as something that changed. */
 const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/", "tex/handbacks/", `${ATTENTION_FOLDER}/`, `${LEARNED_SKILLS_FOLDER}/`];
-const OWN_NOTES = new Set([ABOUT_ME_PATH, HEARTBEAT_SETTINGS_PATH, ATTENTION_SETTINGS_PATH]);
+const OWN_NOTES = new Set([ABOUT_ME_PATH, OLD_ABOUT_ME_PATH, HEARTBEAT_SETTINGS_PATH, ATTENTION_SETTINGS_PATH]);
 
 export { HEARTBEAT_READS };
 
@@ -552,6 +552,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
 
   const shownRecent = recentTexts(conversation);
   let turn = null;
+  let failure = "other";
   try {
     turn = await runTurn({
       question: heartbeatQuestion({
@@ -587,6 +588,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       maxRounds: HEARTBEAT_ROUNDS,
     });
   } catch (error) {
+    failure = error instanceof ProviderError ? providerFailure(error) : failure;
     await meter(null, true, error instanceof ProviderError ? error.model : model);
     console.log(
       JSON.stringify({
@@ -638,7 +640,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
     try {
       // Tainted when it was shown mail, an invite, Slack or Chat, or opened one: a stranger's words (`HEARTBEAT_READS`).
-      await appendConversation(store, "texts", conversation, CHECK_IN_QUESTION, text, {
+      await appendConversation(store, "texts", CHECK_IN_QUESTION, text, {
         tainted: mail.length > 0 || calendar !== null || slack.length > 0 || chat.length > 0 || session.egress.ledger.untrusted === true,
         tools: (turn?.steps ?? []).filter((step) => step.ok).map((step) => step.tool),
         sources: (turn?.steps ?? []).flatMap((step) => step.sources ?? []), // the notes and emails it read, by name only
@@ -666,7 +668,17 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       ms: now - started,
     }),
   );
-  if (outcome === "failed") return json({ error: "model_unavailable", outcome }, 502);
+  // Which failure, as a code the Worker logs (`heartbeats.ts` failedBecause): out of rounds is not the model failing.
+  if (outcome === "failed") return json({ error: "model_unavailable", reason: turn?.exhausted ? "rounds_exhausted" : failure, outcome }, 502);
   if (!text) return json({ outcome });
-  return json(marked.continues !== null ? { outcome, answer: text, continues: marked.continues } : { outcome, answer: text });
+  return json({ outcome, answer: text, ...(marked.continues !== null ? { continues: marked.continues } : {}) });
+}
+
+/**
+ * A model failure as a fixed code, never the provider's words (2026-11-01: a check-in failed as
+ * "model_unavailable" after 43 s and nothing said whether it timed out, was rate limited or ran out of rounds).
+ */
+export function providerFailure(error) {
+  if (error.status === 429 || error.status === 503 || error.status === 529) return `status_${error.status}`;
+  return /timed? ?out|timeout|abort/i.test(String(error.reason)) ? "timeout" : "other";
 }

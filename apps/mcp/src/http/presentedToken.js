@@ -25,13 +25,22 @@ import { bearerToken, resolveSession } from "../session.js";
  * `context.presence` alone (`withPresenceProtocol`), so the token is never
  * echoed. Access tokens are base64url, which is a valid subprotocol token.
  */
+import { TREE_PROTOCOL, TREE_SOCKET_PATH } from "../../../../packages/shared/src/treeFrames.cjs";
+import { ACCESS_PROTOCOL, ACCESS_SOCKET_PATH } from "../../../../packages/shared/src/accessFrames.cjs";
+
 export const PRESENCE_PROTOCOL = "context.presence";
+/** The Tex page's socket (`http/texPage/live.js`), which offers its token the same way. */
+export const TEX_PAGE_SOCKET_PATH = "/tex/page/live";
+export const TEX_PAGE_PROTOCOL = "context.tex-page";
 const TOKEN_PROTOCOL_PREFIX = "context.token.";
 
-/** The token a socket offered as a subprotocol, or null. */
-export function subprotocolToken(request) {
+/** The live file tree's socket (`live/treeRoute.js`), which offers its token the same way. */
+export { TREE_PROTOCOL as TREE_SOCKET_PROTOCOL };
+
+/** The token a socket offered as a subprotocol beside `protocol`, or null. */
+export function subprotocolToken(request, protocol = PRESENCE_PROTOCOL) {
   const offered = (request.headers.get("Sec-WebSocket-Protocol") || "").split(",").map((entry) => entry.trim());
-  if (!offered.includes(PRESENCE_PROTOCOL)) return null;
+  if (!offered.includes(protocol)) return null;
   const entry = offered.find((value) => value.startsWith(TOKEN_PROTOCOL_PREFIX));
   const token = entry === undefined ? "" : entry.slice(TOKEN_PROTOCOL_PREFIX.length);
   return token || null;
@@ -79,9 +88,18 @@ export function pathTokenRoute(path) {
  */
 export function presentedToken(request, pathToken, path) {
   if (pathToken) return { token: pathToken, transport: { kind: "path", route: pathTokenRoute(path) } };
-  // Only the presence socket reads a subprotocol token: everywhere else the
+  // Only the presence, tree and access sockets read a subprotocol token: everywhere else the
   // header is the way, and a header that names a socket protocol is no token.
-  const offered = path === "/presence" ? subprotocolToken(request) : null;
+  const offered =
+    path === "/presence"
+      ? subprotocolToken(request)
+      : path === TREE_SOCKET_PATH
+        ? subprotocolToken(request, TREE_PROTOCOL)
+        : path === ACCESS_SOCKET_PATH
+          ? subprotocolToken(request, ACCESS_PROTOCOL)
+          : path === TEX_PAGE_SOCKET_PATH
+            ? subprotocolToken(request, TEX_PAGE_PROTOCOL)
+            : null;
   if (offered) return { token: offered, transport: { kind: "subprotocol" } };
   const header = bearerToken(request);
   return { token: header, transport: header ? { kind: "header" } : null };

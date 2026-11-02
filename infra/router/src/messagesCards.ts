@@ -12,6 +12,7 @@
  * - `/messages/pick?p=&o=&o=&c=`: a pick card's options (apps/agent/src/pickCard.ts).
  * - `/messages/ask?k=&c=`: Yes or Not now under an ask (apps/agent/src/cardChats.ts).
  * - `/messages/hello`: a hello card, already sent.
+ * - `/messages/card?t=`: a card Tex drew, its picture already in the bubble (apps/agent/src/sendParts.ts).
  * - `/messages/drawer`: the extension opened from the drawer, with no card.
  * - `/messages/inbox` and `/messages/times`: the person's own inbox to hand
  *   to Tex, and their week to pick free times from (`messagesData.ts`).
@@ -26,6 +27,7 @@
 
 import { DATA_SCRIPT, DATA_SCRIPT_HASH, inboxPage, timesPage } from "./messagesData";
 import { escaped, type Page } from "./messagesPage";
+import { PICTURE_KEY, PICTURE_PATH } from "./messagesPicture";
 
 export const MESSAGES_PREFIX = "/messages/";
 
@@ -66,7 +68,7 @@ export const BRIDGE_SCRIPT = `(function () {
 export const BRIDGE_SCRIPT_HASH = "sha256-QuW0ZHNrFNWVWbHCP50Ugg8tugL73qVyqnZ6JvZA0cU=";
 
 const policy = (hash: string) =>
-  "default-src 'none'; style-src 'unsafe-inline'; " +
+  "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; " +
   `script-src '${hash}'; ` +
   "base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
@@ -130,6 +132,19 @@ function helloPage(): Page {
   return { title: "Context cards on", body: "<h1>Cards are on</h1><p>Tex knows this phone has Context, so it sends cards you can tap.</p>" };
 }
 
+/** A drawn card opened: its picture is the bubble itself, so this only says how to change it. */
+/** A card Tex drew, opened: its title and, where the card names it, the drawing itself (`messagesPicture.ts`). */
+function cardPage(query: URLSearchParams): Page {
+  const title = (query.get("t") ?? "").replace(/\s+/g, " ").trim().slice(0, 100) || "From Tex";
+  const kept = query.get("p") ?? "";
+  const picture = PICTURE_KEY.test(kept) ? `<img class="drawn" src="${PICTURE_PATH}?p=${kept}" alt="${escaped(title)}">` : "";
+  return {
+    title,
+    body: `<h1>${escaped(title)}</h1>${picture}<p>Want it changed? Reply to Tex in the chat and say how.</p>`,
+    size: picture ? "expanded" : "compact",
+  };
+}
+
 function noCard(): Page {
   return { title: "Context", body: "<h1>This card can't be answered here</h1><p>Reply to Tex in the chat instead.</p>" };
 }
@@ -146,7 +161,8 @@ button.on{border:2px solid var(--accent);background:var(--soft)}#list{display:fl
 .mail b{font-weight:600}.mail .line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.day{margin-top:6px;font-weight:600}
 .slots{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.slots button{min-height:40px;padding:0;justify-content:center;font-size:14px}
 .bar{display:flex;gap:6px}.bar button{flex:1;justify-content:center}#send{position:sticky;bottom:8px;width:100%;justify-content:center;font-weight:600}
-.detail{font-size:13px;color:var(--muted)}#status{color:#c4314b;font-size:14px}`;
+.detail{font-size:13px;color:var(--muted)}#status{color:#c4314b;font-size:14px}
+img.drawn{width:100%;height:auto;border-radius:12px;border:1px solid var(--line)}`;
 
 function render(page: Page): string {
   return (
@@ -162,7 +178,7 @@ export function messagesCardResponse(request: Request, url: URL): Response | nul
   if (!url.pathname.startsWith(MESSAGES_PREFIX)) return null;
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const kind = url.pathname.slice(MESSAGES_PREFIX.length);
-  const pages: Record<string, (query: URLSearchParams) => Page> = { pick: pickPage, ask: askPage, drawer: drawerPage, hello: helloPage, inbox: inboxPage, times: timesPage };
+  const pages: Record<string, (query: URLSearchParams) => Page> = { pick: pickPage, ask: askPage, card: cardPage, drawer: drawerPage, hello: helloPage, inbox: inboxPage, times: timesPage };
   const page = Object.hasOwn(pages, kind) ? pages[kind]!(url.searchParams) : null;
   if (page === null) return new Response("Not found", { status: 404 });
   return new Response(request.method === "HEAD" ? null : render(page), {

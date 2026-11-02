@@ -17,7 +17,7 @@
 
 import { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { useQuery } from "convex/react";
+import { useReportOnce } from "./useReportOnce";
 import { api } from "@context/convex/_generated/api";
 import {
   Button,
@@ -70,8 +70,8 @@ export function GrowthSection({
   onCredentials: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const census = useQuery(api.functions.admin.censusReport, { days });
-  const usage = useQuery(api.functions.admin.usageReport, { days });
+  const census = useReportOnce(api.functions.admin.censusReport, { days });
+  const usage = useReportOnce(api.functions.admin.usageReport, { days });
   const [audience, setAudience] = useState<Audience>("everyone");
   const funnel = useMemo(() => {
     if (census === undefined) return [];

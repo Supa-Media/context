@@ -1,3 +1,4 @@
+import type { DotTone } from "../../design/components/Dot";
 import type { GoogleConnection } from "./GoogleConnectionsCard";
 
 /** One of the three things a Google account carries into a context. */
@@ -35,6 +36,16 @@ export function needsReconnect(connection: GoogleConnection): boolean {
 }
 
 /**
+ * Whether the owner disconnected this account. Its row stays, so the notes
+ * copied from it before can still be found and deleted, but Google ended
+ * Context's access: nothing on the row may say Connected (a disconnected
+ * testuser row stayed green on 2026-10-30 while Tex said no Gmail was there).
+ */
+export function isDisconnected(connection: GoogleConnection): boolean {
+  return connection.syncStatus === "disconnected";
+}
+
+/**
  * The account's one sentence.
  *
  * Mail, calendar and chat are read from Google when asked and never copied
@@ -42,7 +53,8 @@ export function needsReconnect(connection: GoogleConnection): boolean {
  * says "Connected" where it said "Up to date · 3:57 PM", and only a grant
  * Google refuses is news (a Reconnect sits beside it).
  */
-export function accountStatus(connection: GoogleConnection): { tone: "ok" | "warn" | "crit"; text: string } {
+export function accountStatus(connection: GoogleConnection): { tone: "ok" | "warn" | "crit" | "off"; text: string } {
+  if (isDisconnected(connection)) return { tone: "off", text: "Disconnected. Context and your AI no longer read this account." };
   if (needsReconnect(connection)) return { tone: "crit", text: "Google wants you to sign in again." };
   const readOnly = readOnlyOf(connection);
   if (readOnly.length > 0) {
@@ -59,4 +71,11 @@ export function accountStatus(connection: GoogleConnection): { tone: "ok" | "war
  */
 export function readOnlyOf(connection: GoogleConnection): GoogleService[] {
   return SERVICES.filter((service) => connection.syncServices[service] && (connection.readOnly ?? []).includes(service));
+}
+
+/** A service's own health, for its dot: only a grant Google refuses is news; a disconnected account's are off. */
+export function serviceTone(connection: GoogleConnection, service: GoogleService): DotTone {
+  if (isDisconnected(connection)) return "neutral";
+  if (needsReconnect(connection)) return "crit";
+  return readOnlyOf(connection).includes(service) ? "warn" : "ok";
 }

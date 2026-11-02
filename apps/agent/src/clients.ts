@@ -19,10 +19,16 @@
 import type { GatewayAttachment } from "./attachments";
 import { readTexStyle, type TexStyle } from "./texStyle";
 import type { Reaction, Tapback } from "./reactions";
+import type { JobReport } from "./jobs";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 import { readChoices, type Choice } from "./pickCard";
-import { readOffers, type DataCardKind } from "./dataCards";
-import { readStartedJobs, readSteers, type JobAsk, type JobSteerAsk, type RunningJob, type StartedJob } from "./jobs";
+import { readOffers, type Offer } from "./dataCards";
+import { readStartedJobs, readSteers, type JobAsk, type StepHow, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
+import type { TexEvent } from "./events";
+import { readLog } from "./logHold";
+
+/** The gateway seals a warm copy only this large (`apps/mcp/src/agent/warmCopy.js` `WARM_MAX_CHARS`). */
+export const MAX_WARM_CHARS = 1_500_000;
 
 export type Fetch = typeof fetch;
 
@@ -229,7 +235,8 @@ export type AgentAnswer =
   /** `vaultWatch`: the turn texted a link to save a login, so the inbox watches for the save (`vaultWatch.ts`). */
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: DataCardKind[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string; askIds?: string[] }
+  /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; log?: TexEvent[] }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -283,10 +290,15 @@ export async function askAgent(
     job,
     onStep,
     event,
+    jobReport,
     covers,
     chat,
     told = [],
     texStyle,
+    arrivedAt,
+    warm, beside,
+    recent,
+    holdsLog,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -296,9 +308,11 @@ export async function askAgent(
     /** The background job this turn runs. */
     job?: JobAsk;
     /** Handed each step a background job's turn takes, as it takes it (`jobRun.ts`). */
-    onStep?: (text: string) => Promise<void>;
+    onStep?: (text: string, how?: StepHow) => Promise<void>;
     /** A turn with no text of theirs: a login Tex asked for was saved (`vaultWatch.ts`). */
-    event?: "vault_saved";
+    event?: "vault_saved" | "job_report";
+    /** A background job's report to this chat's own turn, which decides what they get (`jobTexts.ts`). */
+    jobReport?: JobReport;
     /** The chat's event ids this turn answers (`events.ts`), and the chat key those events carry. */
     covers?: string[];
     chat?: string;
@@ -306,6 +320,12 @@ export async function askAgent(
     told?: readonly string[];
     /** How this chat asked Tex to talk (`texStyle.ts`), said to the model by the gateway. */
     texStyle?: TexStyle;
+    /** When the first text this turn answers came in (`apps/mcp/src/agent/turnLog.js` `waitBefore`). */
+    arrivedAt?: number;
+    /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
+    warm?: string; beside?: readonly string[]; // and what was written to the history beside it (`warm.ts` `keepBeside`)
+    recent?: readonly TexEvent[];
+    holdsLog?: boolean; // `recent` is the chat's whole log (`events.ts` `holdsLog`): the gateway reads none from storage
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -323,9 +343,14 @@ export async function askAgent(
     ...(running ? { running } : {}),
     ...(job ? { job } : {}),
     ...(event ? { event } : {}),
+    ...(jobReport ? { jobReport } : {}),
     ...(covers && covers.length > 0 && chat ? { covers, chat } : {}),
     ...(told.length > 0 ? { told } : {}),
     ...(texStyle ? { texStyle } : {}),
+    ...(arrivedAt !== undefined ? { arrivedAt } : {}),
+    ...(warm ? { warm, ...(beside && beside.length > 0 ? { beside } : {}) } : {}),
+    ...(recent && recent.length > 0 ? { recent } : {}),
+    ...(holdsLog === true ? { holdsLog: true } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };
@@ -356,7 +381,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
   const body = record(json);
   if (status === 200 && body.cancelled === true) return { kind: "cancelled" };
   const pictures = readPictures(body.pictures);
-  if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0)) {
+  if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0 || body.quiet === true)) { // `quiet`: a turn with nothing to text, as a flag (`apps/mcp/src/agent/jobReport.js`)
     const verbatim = readVerbatim(body.verbatim, body.answer);
     const steered = Array.isArray(body.steered) ? body.steered.filter((id): id is string => typeof id === "string").slice(0, 5) : [];
     const jobs = readStartedJobs(body.jobs);
@@ -370,15 +395,17 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       pictures,
       ...(readChoices(body.choices).length > 0 ? { choices: readChoices(body.choices) } : {}),
       ...(readOffers(body.offers).length > 0 ? { offers: readOffers(body.offers) } : {}),
-      ...(verbatim.length > 0 ? { verbatim } : {}),
+      ...(verbatim.length > 0 ? { verbatim } : {}), ...(body.quiet === true ? { quiet: true as const } : {}),
       ...(steered.length > 0 ? { steered } : {}),
       ...(jobs.length > 0 ? { jobs } : {}),
       ...(steers.length > 0 ? { steers } : {}),
       ...(body.exhausted === true ? { exhausted: true as const } : {}),
-      ...(body.unfinished === true ? { unfinished: true as const } : {}),
+      ...(body.unfinished === true ? { unfinished: true as const } : {}), ...(body.untrusted === true ? { untrusted: true as const } : {}), ...(body.idle === true ? { idle: true as const } : {}), ...(typeof body.verdict === "string" && ["done", "keep_going", "waiting", "stuck"].includes(body.verdict) ? { verdict: body.verdict as JobVerdict, ...(typeof body.advice === "string" && body.advice.trim() ? { advice: body.advice.trim().slice(0, 600) } : {}) } : {}), // the advisor's check on a job's part (`apps/mcp/src/agent/jobCheck.js`); `untrusted`: it read from outside (`route.js`)
       ...(body.vaultWatch === true ? { vaultWatch: true as const } : {}),
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
+      ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),
+      ...(readLog(body.log).length > 0 ? { log: readLog(body.log) } : {}), // the chat's log the gateway read, held here from now on (`events.ts` `keepLog`)
     };
   }
   if (status === 409) return { kind: "no_model" };
@@ -408,7 +435,7 @@ export async function askAgentStream(
   accessToken: string,
   ask: { question: string } & Record<string, unknown>,
   onProgress: (text: string) => Promise<void>,
-  onStep?: (text: string) => Promise<void>,
+  onStep?: (text: string, how?: StepHow) => Promise<void>,
 ): Promise<AgentAnswer> {
   const abort = new AbortController();
   let timedOut = false;
@@ -469,7 +496,9 @@ export async function askAgentStream(
           continue;
         }
         if (typeof parsed.step === "string" && parsed.step.trim()) {
-          await onStep?.(parsed.step.trim().slice(0, 140));
+          // Whether it failed, and the tool's short reason, for the jobs page (`apps/mcp/src/agent/background.js` `stepWhy`).
+          const why = typeof parsed.why === "string" ? parsed.why.replace(/\s+/g, " ").trim().slice(0, 160) : "";
+          await onStep?.(parsed.step.trim().slice(0, 140), parsed.failed === true ? { failed: true, ...(why ? { why } : {}) } : undefined);
           touch();
           continue;
         }
@@ -559,6 +588,8 @@ export type DueRoutine = {
   chat?: string;
   /** A chat routine's last run, in ms: what "new" means to it (`wake: new mail`). */
   since?: number;
+  /** When this routine runs next after this run (`null` when paused). */
+  nextRunAt?: number | null;
 };
 
 /** Most runs one tick takes on; the rest are still due on the next. */
@@ -568,9 +599,9 @@ const E164 = /^\+[1-9]\d{6,14}$/;
 const isSend = (value: unknown): value is RoutineSend => value === "text" || value === "note" || value === "both";
 const nonEmpty = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
-/** The runs that are due now. A malformed one is dropped, never guessed at. */
-export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: string): Promise<DueRoutine[]> {
-  const { status, json } = await post(fetcher, "control_plane", `${origin}/agent-texts/routines/due`, secret, {});
+/** The runs due now (the cron's), or with `scope` the one routine an alarm asks for. A malformed run is dropped, never guessed at. */
+export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: string, scope?: { workspaceId: string; path: string }): Promise<DueRoutine[]> {
+  const { status, json } = await post(fetcher, "control_plane", `${origin}/agent-texts/routines/due`, secret, scope ? { scope } : {});
   if (status !== 200) throw new ServiceError("control_plane", status);
   const runs = record(json).runs;
   if (!Array.isArray(runs)) throw new ServiceError("control_plane", status);
@@ -593,6 +624,7 @@ export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: s
       phones,
       ...(chat === undefined ? {} : { chat }),
       ...(chat !== undefined && Number.isSafeInteger(run.since) && (run.since as number) > 0 ? { since: run.since as number } : {}),
+      ...(typeof run.nextRunAt === "number" || run.nextRunAt === null ? { nextRunAt: run.nextRunAt as number | null } : {}),
     });
   }
   return due;
@@ -619,6 +651,8 @@ export type RoutineAnswer = {
   answer: string;
   /** The routine's `send:` as the gateway read it just now, when it said. */
   send: RoutineSend | null;
+  /** What the gateway wrote to their texts for it, sealed for the next text (`warm.ts` `keepBeside`). */
+  beside?: string;
 };
 
 const GATEWAY_OUTCOMES = new Set(["answered", "skipped", "finished", "failed", "paused"]);
@@ -637,14 +671,7 @@ export async function runRoutine(
   const failed: RoutineAnswer = { outcome: "failed", answer: "", send: null };
   let result: { status: number; json: unknown };
   try {
-    result = await post(
-      fetcher,
-      "gateway",
-      `${gatewayOrigin}/agent`,
-      accessToken,
-      { routine: { path: routine.path, timeZone: routine.timeZone } },
-      AGENT_TIMEOUT_MS,
-    );
+    result = await post(fetcher, "gateway", `${gatewayOrigin}/agent`, accessToken, { routine: { path: routine.path, timeZone: routine.timeZone } }, AGENT_TIMEOUT_MS);
   } catch {
     return failed;
   }
@@ -656,7 +683,7 @@ export async function runRoutine(
     return {
       outcome,
       answer: speaks && typeof body.answer === "string" ? body.answer.trim() : "",
-      send: isSend(body.send) ? body.send : null,
+      send: isSend(body.send) ? body.send : null, ...(typeof body.beside === "string" ? { beside: body.beside } : {}), // what it wrote to their texts, sealed (`warm.ts` `keepBeside`)
     };
   }
   if (result.status === 404) return { ...failed, outcome: "routine_gone" };

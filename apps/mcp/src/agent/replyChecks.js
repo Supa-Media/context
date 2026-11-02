@@ -146,13 +146,14 @@ export const TRY_CLAIM_NOTICE =
   "Call calendar_event now with the change they asked for, then answer with what it really said: done, or Google's reason in plain words. " +
   "Never say you tried something you didn't call, and never promise to keep trying later.";
 
+import { RESULT_NOTICE, WORDY_NOTICE, restatesTheResult, tooWordy } from "./wordy.js";
 import { CHECK_IN_ANSWER_NOTICE, IMPOSSIBLE_NIGHT_NOTICE, THEIR_FIGURE_NOTICE, disownsTheirFigure, dropsCheckInAnswer, impossibleNight } from "./timeLog.js";
 
 /**
- * The check for one turn: `{ question, waiting, pictures, history }` from the turn, `steps` as
+ * The check for one turn: `{ question, waiting, pictures, history, detailed }` from the turn, `steps` as
  * `claimCheck.js` records them. Answers a notice, each kind once, or null.
  */
-export function replyChecks({ question, waiting = false, pictures = false, history = [] }) {
+export function replyChecks({ question, waiting = false, pictures = false, history = [], detailed = false }) {
   const given = new Set();
   const checks = [
     ["empty", (answer) => isEmptyAnswer(answer), EMPTY_NOTICE],
@@ -167,6 +168,9 @@ export function replyChecks({ question, waiting = false, pictures = false, histo
     ["check-in", (answer, steps) => dropsCheckInAnswer(answer, { question, history, steps }), CHECK_IN_ANSWER_NOTICE],
     ["prompt", (answer) => repeatsUnarrivedPrompt(question, answer), NO_PROMPT_NOTICE],
     ["goal", (answer) => dropsTheGoal(question, answer), GOAL_NOTICE],
+    // Last, so a fix above is made before the answer is cut (`wordy.js`).
+    ["result", (answer, steps) => restatesTheResult(answer, { question, steps, detailed }), RESULT_NOTICE],
+    ["wordy", (answer, steps) => tooWordy(answer, { question, steps, detailed }), WORDY_NOTICE],
   ];
   return (answer, steps = []) => {
     for (const [kind, fails, notice] of checks) {

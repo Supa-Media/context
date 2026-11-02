@@ -28,7 +28,8 @@
  *     "presence's tapback, once dropped…" fails.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDLE_DECIDE_MS } from "./decide";
 import { ACKNOWLEDGE_AFTER_MS, startPresence } from "./presence";
 import type { Line } from "./line";
@@ -125,17 +126,51 @@ const all = (body: Decided) => ({ ok: true, act: "answer", covers: body.candidat
 const act = (what: "silent" | "react") => () => ({ ok: true, act: what, covers: [], stale: [], movedOn: false, confidence: 0.9 });
 
 
-/**
- * Advance fake time until `work` settles. One big advance raced on slow CI runners (2026-10-28,
- * production deploy): a timer scheduled after the advance finished never fired, and the test hung.
- */
-async function drainedUnderFakeTimers(work: Promise<unknown>): Promise<void> {
-  let done = false;
-  const settled = work.finally(() => {
-    done = true;
+/** Stepping fake time takes real time too: a loaded runner went past the default 5 s (2026-11-02). */
+const FAKE_TIME_TEST_MS = 20_000;
+/** Captured before any test fakes timers: the real clock, to yield to real work and to bound the wait. */
+const realSetTimeout = globalThis.setTimeout;
+const realNow = performance.now.bind(performance);
+
+// A turn hashes as it goes (`crypto.subtle.digest`), and that resolves on real time, off the thread. While a
+// hash was out, the steps below ran fake time on without the turn, so a loaded runner used up all 120 before
+// the turn set its 12 s agent timer, and nothing fired it (CI, 2026-11-02). The same hash, done in step with
+// fake time, keeps every run on one schedule.
+beforeEach(() => {
+  vi.spyOn(crypto.subtle, "digest").mockImplementation(async (algorithm, data) => {
+    if (algorithm !== "SHA-256") throw new Error(`unexpected digest ${String(algorithm)}`);
+    const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    return Uint8Array.from(createHash("sha256").update(bytes).digest()).buffer;
   });
-  for (let step = 0; step < 600 && !done; step++) await vi.advanceTimersByTimeAsync(100);
+});
+afterEach(() => vi.restoreAllMocks());
+
+/**
+ * Advance fake time until `work` settles.
+ *
+ * Some of what a turn awaits runs on the real clock, not the fake one: Web Crypto's digest
+ * (`sha256Hex`, stubbed below to hash in step) and `AbortSignal.timeout`. A fixed number of steps (120 x 500 ms, before
+ * 2026-11-02) could all run while a digest was still pending on a loaded runner; the turn then
+ * scheduled its next fake timer (decide's, the agent's) after stepping had stopped, nothing ever
+ * advanced it, and the test hung until its timeout (production deploy, 2026-11-02). So step until
+ * the work settles, yield one real macrotask per step so real work can land between steps, and
+ * bound the wait by real time with a failure that names the hang.
+ */
+async function drainedUnderFakeTimers(work: Promise<unknown>, realLimitMs = FAKE_TIME_TEST_MS - 2_000): Promise<void> {
+  let done = false;
+  let failure: unknown;
+  const settled = work.then(
+    () => void (done = true),
+    (error) => void ((failure = error), (done = true)),
+  );
+  const started = realNow();
+  while (!done) {
+    if (realNow() - started > realLimitMs) throw new Error(`work did not settle within ${realLimitMs} ms of real time under fake timers`);
+    await vi.advanceTimersByTimeAsync(500);
+    await new Promise((resolve) => realSetTimeout(resolve, 0));
+  }
   await settled;
+  if (failure !== undefined) throw failure;
 }
 
 describe("decide in a person's own chat", () => {
@@ -155,6 +190,17 @@ describe("decide in a person's own chat", () => {
       expect(w.asks).toEqual([{ question: "Tex check this link out\nhttps://reasonmachines.example/page", covers: w.decided[0].candidates, chat: line.chatId }]);
       // One answer (its link goes as a text of its own, as every link does).
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toHaveLength(1);
+    });
+
+    it(`one text with nothing waiting goes straight to Tex: decide is never asked (${line.name})`, async () => {
+      // Tex's front door (Seyi, 2026-10-31). Sabotage: drop the early return in `chooseTurn` and decided has one entry.
+      const storage = new MemoryStorage();
+      const w = world(act("react"));
+      await accept(storage, msg(line.chatId, "e1", "hi Tex"), 1_000);
+      expect(storage.alarms.at(-1)).toBe(1_000);
+      await drain(storage, w.deps);
+      expect(w.decided).toEqual([]);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["hi Tex"]);
     });
 
     it(`react sends a tapback picked from the words, and no answer (${line.name})`, async () => {
@@ -227,7 +273,7 @@ describe("decide in a person's own chat", () => {
       } finally {
         vi.useRealTimers();
       }
-    });
+    }, FAKE_TIME_TEST_MS);
   }
 
   it("only 'ok', decide silent: read, never the bubble, no reply", async () => {
@@ -261,7 +307,7 @@ describe("decide in a person's own chat", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+  }, FAKE_TIME_TEST_MS);
 
   it("decide slower than the tapback timer: the one tapback still lands on the text being answered, never the first waiting", async () => {
     // CI 2026-10-28: on a slow runner the 10s timer fired before decide aimed it, and tapped "thanks" (m_e1).
@@ -277,7 +323,30 @@ describe("decide in a person's own chat", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+  }, FAKE_TIME_TEST_MS);
+
+  it("decide slower than the tapback timer, with real-clock work slow too (a loaded runner): the turn still finishes and taps the text answered", async () => {
+    // Production deploy 2026-11-02: Web Crypto's digest runs on the real clock; slow, it outlasted a fixed number of fake steps and the test hung.
+    vi.useFakeTimers();
+    // The file's in-step hash (beforeEach), slowed on the real clock: real work the fake steps do not wait for.
+    const inStep = vi.mocked(crypto.subtle.digest).getMockImplementation()!;
+    const slow = vi.mocked(crypto.subtle.digest).mockImplementation(async (algorithm, data) => {
+      await new Promise((resolve) => realSetTimeout(resolve, 150));
+      return inStep(algorithm, data);
+    });
+    try {
+      const storage = new MemoryStorage();
+      const w = world(act("react"), { decideTakes: ACKNOWLEDGE_AFTER_MS + 2_000, agentTakes: 1_000 });
+      await accept(storage, msg(LINES[0].chatId, "e1", "thanks"), 1_000);
+      await accept(storage, msg(LINES[0].chatId, "e2", "what's on today", { quoted: "x" }), 1_000);
+      await drainedUnderFakeTimers(drain(storage, w.deps));
+      expect(slow).toHaveBeenCalled();
+      expect(w.asks.map((ask) => ask.question)).toEqual(["what's on today"]);
+      expect(w.reactedOn).toEqual(["m_e2"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, FAKE_TIME_TEST_MS);
 
   it("presence's tapback, once dropped (decide's react went), never goes; aimed, it goes on the aimed text", async () => {
     vi.useFakeTimers();

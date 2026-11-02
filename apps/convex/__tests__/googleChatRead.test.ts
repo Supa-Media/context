@@ -31,7 +31,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { createWorkspace, gatewayPost, seedGoogleConnection, seedStorageBinding } from "./fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
-import { CHAT_READ_SCOPE, CHAT_SEND_SCOPES, scopesForConnect, WRITE_SCOPES } from "../functions/lib/googleOAuth";
+import { CHAT_READ_SCOPE, CHAT_SEND_SCOPES } from "../functions/lib/googleOAuth";
+import { agentScopesFor } from "../functions/lib/googleConnect/aiScopes";
 import { CHAT_READ_HOURLY_LIMIT } from "../functions/googleChatSend";
 import { learnSelf, writtenToThem } from "../functions/lib/gatewayRoutes/googleChatRead";
 import { chatCallAllowed } from "./googleChatDiscovery.helpers";
@@ -154,9 +155,9 @@ describe("reading the Google Chat written to the person, for check-ins", () => {
     });
   });
 
-  test("every Chat call it makes is one Google accepts with the scopes the connect asks for", async () => {
+  test("every Chat call it makes is one Google accepts with the scopes AI is asked for", async () => {
     await at(async () => {
-      const granted = scopesForConnect(["gmail"], {});
+      const granted = agentScopesFor(["chat"]);
       const calls = chatApi(granted);
       const { t, aliceWs } = await connected();
       await recent(t, ACCESS_A, aliceWs);
@@ -249,7 +250,8 @@ describe("reading the Google Chat written to the person, for check-ins", () => {
     expect(await recent(t, ACCESS_A, aliceWs)).toEqual({ ok: false, refused: "hourly_limit" });
   });
 
-  test("reading is asked of testers with the Gmail connect, never of anyone else", () => {
-    expect(WRITE_SCOPES.gmail).toContain(CHAT_READ_SCOPE);
+  test("AI is asked for Chat's read with Chat, and never with Gmail alone", () => {
+    expect(agentScopesFor(["chat"])).toContain(CHAT_READ_SCOPE);
+    expect(agentScopesFor(["gmail"]).some((scope) => scope.includes("/chat."))).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Fetch } from "./clients";
 import { accept, CARD_KEY, cardOfferedKey, cardSentKey, CHAT_KEY, drain, NEW_LINE_TEXT, type InboxDeps } from "./inbox";
+import { afterRepliesSettled } from "./afterReply";
 import { CARD_VERSION } from "./card";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
@@ -311,6 +312,7 @@ describe("sendblue sending", () => {
     const calls: Call[] = [];
     const hosted: string[] = [];
     await drain(storage, deps(fakeSendblue(calls), hosted));
+    await afterRepliesSettled(storage);
     expect(calls.map((c) => c.path)).toEqual([
       "/api/mark-read",
       "/api/send-typing-indicator",
@@ -343,12 +345,15 @@ describe("sendblue sending", () => {
     const at = (now: number): InboxDeps => ({ ...deps(refusing, []), now: () => now });
     await accept(storage, message("sendblue:mh_c1"), 1_000);
     await drain(storage, at(1_000));
+    await afterRepliesSettled(storage);
     expect(cards()).toBe(1);
     await accept(storage, message("sendblue:mh_c2"), 1_000 + day + 1);
     await drain(storage, at(1_000 + day + 1));
+    await afterRepliesSettled(storage);
     expect(cards()).toBe(2);
     await accept(storage, message("sendblue:mh_c3"), 1_000 + 3 * day);
     await drain(storage, at(1_000 + 3 * day));
+    await afterRepliesSettled(storage);
     expect(cards()).toBe(2);
   });
 
@@ -369,16 +374,19 @@ describe("sendblue sending", () => {
     const count = (path: string) => calls.filter((c) => c.path === path).length;
     await accept(storage, message("sendblue:mh_p1"), 1_000);
     await drain(storage, at(1_000));
+    await afterRepliesSettled(storage);
     expect(count("/api/v2/contact-sharing/profile")).toBe(1);
     expect(count("/api/v2/contact-sharing/share")).toBe(0);
     published = true;
     await accept(storage, message("sendblue:mh_p2"), 1_000 + day + 1);
     await drain(storage, at(1_000 + day + 1));
+    await afterRepliesSettled(storage);
     expect(count("/api/v2/contact-sharing/share")).toBe(1);
     expect(calls.filter((c) => String(c.body.media_url ?? "").endsWith(".vcf"))).toHaveLength(1);
     // Both done: nothing more, ever, in this chat.
     await accept(storage, message("sendblue:mh_p3"), 1_000 + 3 * day);
     await drain(storage, at(1_000 + 3 * day));
+    await afterRepliesSettled(storage);
     expect(count("/api/v2/contact-sharing/state")).toBe(2);
   });
 
@@ -395,17 +403,20 @@ describe("sendblue sending", () => {
     const count = (path: string) => calls.filter((c) => c.path === path).length;
     await accept(storage, message("sendblue:mh_v1"), 1_000);
     await drain(storage, at(1_000));
+    await afterRepliesSettled(storage);
     expect(cards()).toBe(0);
     expect(count("/api/v2/contact-sharing/profile")).toBe(1);
     expect(count("/api/v2/contact-sharing/share")).toBe(0);
     // The same day: nothing more.
     await accept(storage, message("sendblue:mh_v2"), 2_000);
     await drain(storage, at(2_000));
+    await afterRepliesSettled(storage);
     expect(cards()).toBe(0);
     expect(count("/api/v2/contact-sharing/profile")).toBe(1);
     // The next day: the new photo is shared, without setting it again or resending the card.
     await accept(storage, message("sendblue:mh_v3"), 1_000 + day + 1);
     await drain(storage, at(1_000 + day + 1));
+    await afterRepliesSettled(storage);
     expect(count("/api/v2/contact-sharing/share")).toBe(1);
     expect(count("/api/v2/contact-sharing/profile")).toBe(1);
     expect(cards()).toBe(0);
@@ -416,6 +427,7 @@ describe("sendblue sending", () => {
     await accept(storage, message("sendblue:mh_f1"), 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fakeSendblue(calls), []));
+    await afterRepliesSettled(storage);
     expect(calls.filter((c) => c.path === "/api/v2/contact-sharing/profile")).toHaveLength(0);
     expect(calls.filter((c) => c.path === "/api/v2/contact-sharing/share")).toHaveLength(1);
   });
@@ -427,6 +439,7 @@ describe("sendblue sending", () => {
     let hostedN = 0;
     const d = deps(fakeSendblue(calls, () => 200, 3), []);
     await drain(storage, { ...d, hostPicture: async (p) => (p.mediaType === "text/vcard" ? "https://agent.example/media/abc/card.vcf" : `https://agent.example/media/abc/${++hostedN}.png`) });
+    await afterRepliesSettled(storage);
     const carousel = calls.filter((c) => c.path === "/api/send-carousel");
     expect(carousel).toHaveLength(1);
     expect(carousel[0].body).toEqual({
@@ -447,6 +460,7 @@ describe("sendblue sending", () => {
     // A V1 line: Sendblue refuses the carousel with a 400, threaded or not.
     const d = deps(fakeSendblue(calls, (path) => (path === "/api/send-carousel" ? 400 : 200), 3), []);
     await drain(storage, { ...d, hostPicture: async (p) => (p.mediaType === "text/vcard" ? "https://agent.example/media/abc/card.vcf" : `https://agent.example/media/abc/${++hostedN}.png`) });
+    await afterRepliesSettled(storage);
     const one = calls.filter((c) => c.path === "/api/send-message" && String(c.body.media_url ?? "").endsWith("png"));
     expect(one.map((c) => c.body.media_url)).toEqual(["https://agent.example/media/abc/1.png", "https://agent.example/media/abc/2.png", "https://agent.example/media/abc/3.png"]);
     // Asked once (threaded, then plain), never again for the rest of the answer.
@@ -459,6 +473,7 @@ describe("sendblue sending", () => {
     await accept(storage, message("sendblue:mh_c3"), 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fakeSendblue(calls), []));
+    await afterRepliesSettled(storage);
     expect(calls.some((c) => c.path === "/api/send-carousel")).toBe(false);
   });
 
@@ -468,6 +483,7 @@ describe("sendblue sending", () => {
     await accept(storage, message("sendblue:mh_n1"), 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fakeSendblue(calls), []));
+    await afterRepliesSettled(storage);
     expect(calls.filter((c) => String(c.body.media_url ?? "").endsWith(".vcf"))).toHaveLength(1);
     expect(calls.filter((c) => c.path === "/api/v2/contact-sharing/share")).toHaveLength(1);
   });
@@ -480,6 +496,7 @@ describe("sendblue sending", () => {
     await accept(storage, { ...message("sendblue:mh_m2"), quoted: "x" }, 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fakeSendblue(calls), []));
+    await afterRepliesSettled(storage);
     const texts = calls.filter((c) => c.path === "/api/send-message" && c.body.content).map((c) => c.body.content);
     expect(texts).toEqual([NEW_LINE_TEXT, "answer to q", "answer to q [quoting x]"]);
   });
@@ -508,6 +525,7 @@ describe("sendblue sending", () => {
     await accept(storage, message("sendblue:mh_f1"), 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fakeSendblue(calls), []));
+    await afterRepliesSettled(storage);
     expect(calls.some((c) => c.body.content === NEW_LINE_TEXT)).toBe(false);
   });
 
@@ -518,6 +536,7 @@ describe("sendblue sending", () => {
     await accept(storage, { ...message("sendblue:mh_q"), text: "yes", quoted: "Want me to book it?" }, 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fakeSendblue(calls), []));
+    await afterRepliesSettled(storage);
     expect(calls.find((c) => c.path === "/api/send-message")?.body.content).toBe(
       "answer to yes [quoting Want me to book it?]",
     );
@@ -531,7 +550,9 @@ describe("sendblue sending", () => {
     let pictureTries = 0;
     const flaky = fakeSendblue(calls, (path) => (path === "/api/send-message" && calls.at(-1)?.body.media_url && ++pictureTries === 1 ? 503 : 200));
     await drain(storage, deps(flaky, []));
+    await afterRepliesSettled(storage);
     await drain(storage, deps(flaky, []));
+    await afterRepliesSettled(storage);
     const sends = calls.filter((c) => c.path === "/api/send-message");
     expect(sends.map((c) => c.body.content ?? c.body.media_url)).toEqual([
       "answer to q",

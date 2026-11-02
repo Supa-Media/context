@@ -15,6 +15,7 @@
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const CAPPED_TOKEN = `cat_notecap_full_${"0".repeat(16)}`;
 const FREE_TOKEN = `cat_notecap_open_${"0".repeat(16)}`;
@@ -135,7 +136,7 @@ export async function runNoteCapGatewayChecks(check) {
       bucket.seed(".context/collaboration/plumbing.md", "not a note");
     }
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "CAPPED_BUCKET,OPEN_BUCKET",
       CAPPED_BUCKET: capped,

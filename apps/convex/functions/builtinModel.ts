@@ -30,14 +30,23 @@
  * grant of anybody else is refused exactly as before. It is metered on the
  * same feature, cap and kill switch, against the grant's own workspace.
  *
+ * A background job's turns are not counted against the cap (decided by the
+ * owner, 2026-10-31, after three restarted jobs used up a day's 100 in five
+ * minutes): its parts, the advisor's check on each (inside the part's own
+ * turn) and its reports to the chat's turn. The gateway says which turns
+ * those are, as it says Try it; only a chat's grant (texting or group) is
+ * believed, and they are held to `BACKGROUND_TURNS_PER_DAY` instead.
+ *
  * Nothing about the conversation reaches this file. The gateway reports token
  * counts after a turn, never text.
  */
 
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, type MutationCtx } from "../_generated/server";
+import { type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { countTurn, recordTurn, resolveTurn } from "./lib/jev/turns";
+import { recordGroupUsage, usageWho, type UsageWho } from "./lib/textGroupUsage";
 import { GLM_MODEL } from "./lib/jev/models";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { TEXTS_GROUP_CLIENT_ID } from "./textGroups";
@@ -73,29 +82,30 @@ const refusalValidator = v.union(
  * The workspace a texting or routine grant's turn is charged to: the grant's own default,
  * which the gateway's `/agent` route also answers in. Null for an unknown or
  * dead token, a grant for any other client, or an expected workspace the grant
- * cannot reach.
+ * cannot reach. A group chat's turn also names the chat and the person it is recorded against.
  */
 async function chargedWorkspace(
   ctx: MutationCtx,
   hashedAccessToken: string,
   expectedWorkspaceId: string | null,
   tryIt = false,
-): Promise<{ workspaceId: Id<"workspaces"> } | { refused: "not_texts" } | null> {
+): Promise<{ workspaceId: Id<"workspaces">; chat: boolean; group?: { groupId: Id<"textGroups">; who: UsageWho } } | { refused: "not_texts" } | null> {
   const turn = await resolveTurn(ctx, hashedAccessToken, expectedWorkspaceId);
   if (turn === null) return null;
-  if (BUILTIN_CLIENTS.has(turn.clientId)) return { workspaceId: turn.workspaceId };
-  // A group chat's turn answers in the chat's workspace and is charged to the
-  // person who tagged Tex: their personal workspace's plan, cap and meter.
+  if (BUILTIN_CLIENTS.has(turn.clientId)) return { workspaceId: turn.workspaceId, chat: turn.clientId === TEXTS_CLIENT_ID };
+  // A group chat's turn is charged to the chat's sponsor, who brought Tex in: their personal workspace's plan, cap and
+  // meter (`mintGroupGrant`). Its cost is also recorded against the person who tagged Tex (`recordBuiltinUsage`).
   if (turn.clientId === TEXTS_GROUP_CLIENT_ID) {
     const grant = await ctx.db
       .query("oauthGrants")
       .withIndex("by_access_token", (q) => q.eq("hashedAccessToken", hashedAccessToken))
       .unique();
     const charged = grant?.texGroup?.meterWorkspaceId;
-    return charged === undefined ? null : { workspaceId: charged };
+    if (grant === null || grant.texGroup === undefined || charged === undefined) return null;
+    return { workspaceId: charged, chat: true, group: { groupId: grant.texGroup.groupId, who: usageWho(grant) } };
   }
   if (tryIt && turn.clientId === CONSOLE_CLIENT_ID && (await editsAiNotes(ctx, hashedAccessToken))) {
-    return { workspaceId: turn.workspaceId };
+    return { workspaceId: turn.workspaceId, chat: false };
   }
   return { refused: "not_texts" };
 }
@@ -117,6 +127,8 @@ export const startBuiltinTurn = internalMutation({
     expectedWorkspaceId: v.union(v.string(), v.null()),
     /** Set by the gateway's Try it route only; see the file's head. */
     tryIt: v.optional(v.boolean()),
+    /** A background job's part or its report to the chat, said by the gateway; honoured for a chat's grant only. See the file's head. */
+    background: v.optional(v.boolean()),
   },
   returns: v.union(
     v.null(),
@@ -127,7 +139,7 @@ export const startBuiltinTurn = internalMutation({
     const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId, args.tryIt === true);
     if (charged === null) return null;
     if ("refused" in charged) return { allowed: false as const, reason: charged.refused };
-    return await countTurn(ctx, BUILTIN_FEATURE, charged.workspaceId, Date.now());
+    return await countTurn(ctx, BUILTIN_FEATURE, charged.workspaceId, Date.now(), { background: args.background === true && charged.chat });
   },
 });
 
@@ -155,12 +167,16 @@ export const recordBuiltinUsage = internalMutation({
     failed: v.boolean(),
     ms: v.number(),
     tryIt: v.optional(v.boolean()),
+    /** The turn was counted as a background job's (`startBuiltinTurn`): a failure moves nothing on the cap. */
+    background: v.optional(v.boolean()),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId, args.tryIt === true);
     if (charged === null || "refused" in charged) return false;
-    await recordTurn(ctx, BUILTIN_FEATURE, charged.workspaceId, args, GLM_MODEL, Date.now());
+    const now = Date.now();
+    const costMicroUsd = await recordTurn(ctx, BUILTIN_FEATURE, charged.workspaceId, { ...args, background: args.background === true && charged.chat }, GLM_MODEL, now);
+    if (charged.group !== undefined) await recordGroupUsage(ctx, charged.group.groupId, charged.group.who, costMicroUsd, now);
     return true;
   },
 });

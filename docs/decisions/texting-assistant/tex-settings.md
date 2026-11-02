@@ -22,7 +22,7 @@ Absent means default, and only changed settings are stored.
 
 - A person's own (`texStylePreferences`) hold in their 1:1 chat.
 - A group has its own (`textGroups.texStyle`), changed by any member, and Tex
-  says who changed what ("Humor set to 60% (set by jhon).").
+  says who changed what ("Humor set to 60% (set by dev2).").
 - A group never uses anyone's personal settings. A shared chat should not
   take one member's taste, and it should not reveal it either.
 

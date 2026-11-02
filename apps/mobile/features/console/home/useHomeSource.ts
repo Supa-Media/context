@@ -16,6 +16,11 @@ export interface HomeSource {
   shared: ReadonlySet<string>;
   /** Each listed folder's job and saved order, for the order Home draws them in. */
   folderFacts?: ReadonlyMap<string, FolderFacts>;
+  /**
+   * The top-level folders the root's listing names, when it is whole: the
+   * rows the sidebar draws. Home draws no other folder at the top.
+   */
+  topFolders?: ReadonlySet<string>;
 }
 
 const EMPTY: HomeSource = { notes: [], folders: [], shared: new Set() };
@@ -149,6 +154,26 @@ export function useHomeSource(
     return facts;
   }, [listings]);
 
+  /*
+    Which folders are at the top is the tree's answer, as for the sidebar
+    ("when connected to the internet we should always be using server",
+    owner 2026-10-08). The device's copy only fills in what the root's
+    listing cannot say: a copy that still holds a folder since moved (a
+    Website nested under Areas, Dev2 2026-10-30) drew it at the top of Home
+    though the sidebar had none.
+  */
+  const root = listings[""];
+  const topFolders = useMemo(
+    () =>
+      root === undefined || root.truncated
+        ? undefined
+        : new Set(root.entries.filter((entry) => entry.kind === "folder").map((entry) => entry.path)),
+    [root],
+  );
+
   const source = mirrored ?? listed;
-  return useMemo(() => ({ ...source, folderFacts }), [source, folderFacts]);
+  return useMemo(
+    () => ({ ...source, folderFacts, ...(topFolders === undefined ? {} : { topFolders }) }),
+    [source, folderFacts, topFolders],
+  );
 }

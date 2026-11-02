@@ -1,7 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
-import { api } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 import { hashToken } from "../../functions/lib/crypto";
+import { TOUCH_GRANT_EVERY_MS } from "../../functions/lib/controlPlane/session";
 import {
   TEST_GATEWAY_SECRET,
   addMember,
@@ -635,6 +636,59 @@ describe("/gateway/session", () => {
     );
     expect(live).not.toBe(fingerprints[0]);
     expect(live).toContain(grantA);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 3. The read that decides whether lastUsedAt is stamped                     */
+/* -------------------------------------------------------------------------- */
+
+describe("resolveGatewaySession (the read behind lastUsedAt)", () => {
+  const resolve = (t: Awaited<ReturnType<typeof twoConnectedTenants>>["t"], hashedAccessToken: string) =>
+    t.query(internal.functions.controlPlane.resolveGatewaySession, { hashedAccessToken });
+
+  test("an unknown token resolves to no session and asks for no touch", async () => {
+    const { t } = await twoConnectedTenants();
+    expect(await resolve(t, await hashToken("not-a-token"))).toEqual({
+      session: null,
+      touchDue: false,
+    });
+  });
+
+  test("a live grant never stamped is due, and the session names that grant", async () => {
+    const { t, grantA } = await twoConnectedTenants();
+    const result = await resolve(t, await hashToken(ACCESS_A));
+    expect(result.touchDue).toBe(true);
+    expect(result.session?.grantId).toBe(grantA);
+  });
+
+  test("a grant stamped just now is not due again", async () => {
+    const { t, grantA } = await twoConnectedTenants();
+    await t.run((ctx) => ctx.db.patch(grantA, { lastUsedAt: Date.now() }));
+    const result = await resolve(t, await hashToken(ACCESS_A));
+    expect(result.session?.grantId).toBe(grantA);
+    expect(result.touchDue).toBe(false);
+  });
+
+  test("a grant last stamped just over the interval ago is due", async () => {
+    const { t, grantA } = await twoConnectedTenants();
+    await t.run((ctx) =>
+      ctx.db.patch(grantA, { lastUsedAt: Date.now() - TOUCH_GRANT_EVERY_MS - 1 }),
+    );
+    const result = await resolve(t, await hashToken(ACCESS_A));
+    expect(result.touchDue).toBe(true);
+  });
+
+  test("the route stamps on first use and leaves a fresh stamp alone", async () => {
+    const { t, grantA } = await twoConnectedTenants();
+    expect((await t.run((ctx) => ctx.db.get(grantA)))?.lastUsedAt).toBeUndefined();
+
+    await gatewayPost(t, "/gateway/session", { accessToken: ACCESS_A });
+    const first = (await t.run((ctx) => ctx.db.get(grantA)))?.lastUsedAt;
+    expect(first).toBeGreaterThan(0);
+
+    await gatewayPost(t, "/gateway/session", { accessToken: ACCESS_A });
+    expect((await t.run((ctx) => ctx.db.get(grantA)))?.lastUsedAt).toBe(first);
   });
 });
 

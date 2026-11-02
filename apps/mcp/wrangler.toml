@@ -126,6 +126,61 @@ class_name = "PresenceRoom"
 tag = "v1-presence"
 new_sqlite_classes = ["PresenceRoom"]
 
+# Tex's notes: one SQLite-backed object per person and per group chat
+# (src/texStore.js). A note marked on its tree row as living here keeps its
+# text here instead of in the workspace's bucket. Self-hosting on the free
+# tier: leave the binding out, and nothing is ever marked as living here.
+[[durable_objects.bindings]]
+name = "TEX_STORE"
+class_name = "TexStore"
+
+[[migrations]]
+tag = "v2-tex-store"
+new_sqlite_classes = ["TexStore"]
+
+# Each workspace's notes, tree rows and access rules: one SQLite-backed object
+# per workspace (src/workspaceStore.js). Bodies are read from here once the
+# workspace's home is switched to "object"; until then nothing reads it.
+[[durable_objects.bindings]]
+name = "WORKSPACE_STORE"
+class_name = "WorkspaceStore"
+
+[[migrations]]
+tag = "v3-workspace-store"
+new_sqlite_classes = ["WorkspaceStore"]
+
+# Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
+# and an outcome per turn, never words, a person or a workspace. Read with the
+# account's Analytics Engine SQL API (`SELECT ... FROM tex_timing`). The code
+# shipped in #2496 but the binding never did, so nothing was written. Leave it
+# out when self-hosting: without it nothing is written.
+[[analytics_engine_datasets]]
+binding = "TEX_TIMING"
+dataset = "tex_timing"
+
+# One point per model call of a turn (`turnStages.js` `callPoints`): its
+# milliseconds and token counts, cache reads and writes included. Optional too.
+[[analytics_engine_datasets]]
+binding = "TEX_CALLS"
+dataset = "tex_model_calls"
+
+# One point per named step of a Tex turn (`src/agent/texEntryPoint.js`): the
+# step, its state, its milliseconds and when it started, indexed by workspace
+# so one person's turns and everyone's both add up. Names and times only,
+# never a word anyone wrote. Optional: without it nothing is written.
+[[analytics_engine_datasets]]
+binding = "TEX_ENTRY"
+dataset = "tex_entry"
+
+# One point per named step of an MCP request (`src/mcp/mcpEntryPoint.js`):
+# the call (`tools/call:orient`, `initialize`, ...), the step or the
+# control-plane route or store operation it timed, its state, its
+# milliseconds and when it started, indexed by workspace. Names, routes and
+# times only, never a path or a word. Optional: without it nothing is written.
+[[analytics_engine_datasets]]
+binding = "MCP_ENTRY"
+dataset = "mcp_entry"
+
 # `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
 # which photographs a published website page with Browser Rendering. Reached
 # only through this binding, so it has no address and holds no secret. It must
@@ -135,6 +190,17 @@ new_sqlite_classes = ["PresenceRoom"]
 [[services]]
 binding = "SITE_SHOTS"
 service = "context-site-shots"
+
+# The texting Worker's named entrypoint `TexRoutines` (apps/agent). A Tex
+# store's alarm calls `routineDue` on it to run a routine on time
+# (`src/texStore/dispatch.js`). A named entrypoint is reachable only through
+# this binding, never over HTTP, so there is no secret to set.
+# Self-hosting without the texting Worker: delete this block; routines then
+# run on the minute's cron, as they always have.
+[[services]]
+binding = "TEXTING"
+service = "context-agent"
+entrypoint = "TexRoutines"
 
 # Self-host only. Comma-separated allowlist of Worker binding names that a
 # control-plane storage binding is permitted to name.
@@ -194,6 +260,13 @@ service = "context-site-shots"
 [ai]
 binding = "AI"
 
+# Pictures are kept compressed (`packages/shared/src/pictureCompression.cjs`,
+# `docs/decisions/storage-and-credentials/files-bucket.md`): Cloudflare's Images
+# binding re-encodes each one to WebP before it is stored. Self-hosting without
+# it: delete this block, and pictures are stored as they came.
+[images]
+binding = "IMAGES"
+
 # Staging shares code with production, but owns its presence objects.
 [env.staging]
 name = "context-mcp-staging"
@@ -212,9 +285,41 @@ SEARCH_SUBREQUEST_BUDGET = "600"
 name = "PRESENCE_ROOM"
 class_name = "PresenceRoom"
 
+[[env.staging.durable_objects.bindings]]
+name = "TEX_STORE"
+class_name = "TexStore"
+
+[[env.staging.durable_objects.bindings]]
+name = "WORKSPACE_STORE"
+class_name = "WorkspaceStore"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "TEX_TIMING"
+dataset = "tex_timing_staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "TEX_CALLS"
+dataset = "tex_model_calls_staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "TEX_ENTRY"
+dataset = "tex_entry_staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "MCP_ENTRY"
+dataset = "mcp_entry_staging"
+
 [[env.staging.services]]
 binding = "SITE_SHOTS"
 service = "context-site-shots-staging"
 
+[[env.staging.services]]
+binding = "TEXTING"
+service = "context-agent-staging"
+entrypoint = "TexRoutines"
+
 [env.staging.ai]
 binding = "AI"
+
+[env.staging.images]
+binding = "IMAGES"

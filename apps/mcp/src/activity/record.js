@@ -16,7 +16,7 @@
  */
 import { ACTIVITY_PATH, mayBeReportable as mayBeActivity, nextFile as nextActivityFile } from "../../../../packages/shared/src/activity.cjs";
 import { AUDIT_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
-import { isRoutinePath } from "../../../../packages/shared/src/routines.cjs";
+import { isHomeRoutinePath, isRoutinePath } from "../../../../packages/shared/src/routines.cjs";
 import { effectiveVisibility, GROUP_SCOPE_PATTERN, isPlumbing, PRIVACY_KEY } from "../privacy/engine.js";
 import { generatedCollaborationBase, writeGeneratedNote } from "../notes/sealing.js";
 import { loadPrivacyState, persistExactVisibility } from "../privacy/state.js";
@@ -345,13 +345,18 @@ export function announceRoutineChange(store, paths) {
   if (typeof store.reportRoutineChange !== "function" || !Array.isArray(paths)) return;
   const touched = paths
     .map((path) => String(path).replace(/^\/+|\/+$/g, ""))
-    .filter((path) => isRoutinePath(path))
+    // A chat's routines in its home too (`tex/groups/<words>/routines/`): the control plane holds a writer to the chat's people.
+    .filter((path) => isRoutinePath(path) || isHomeRoutinePath(path))
     .slice(0, MAX_ROUTINE_PATHS);
   if (touched.length === 0) return;
   const work = Promise.resolve(store.reportRoutineChange(touched, store.actor?.userId ?? null)).catch(() => {});
+  // A Tex routine's alarm follows its file (`texStore/routineAlarm.js`); it never fails the write, and the cron catches a miss.
+  const alarms =
+    typeof store.syncRoutineAlarms === "function" ? Promise.resolve(store.syncRoutineAlarms(touched)).catch(() => {}) : null;
   if (typeof store.defer !== "function") return;
   try {
     store.defer(work);
+    if (alarms !== null) store.defer(alarms);
   } catch {
     // A host whose `waitUntil` refuses the work simply does not report.
   }

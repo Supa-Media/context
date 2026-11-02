@@ -15,7 +15,10 @@
  * tests on the folder-list and nested-list shapes fail here. Drop the
  * `accounts` case from the JS `accessNamesFor` and "the pinned workspace ...:
  * pin reader" fails; let the JS `canSee` answer `team` for the guest mark and
- * "the guest mark shuts team in both engines" fails.
+ * "the guest mark shuts team in both engines" fails. Drop the sealed row from
+ * the JS `renderAccess` and "the pinned workspace's sealed chat homes: owner"
+ * fails, because an owner's `private` scope opens every path under a folder
+ * with no rule.
  */
 
 import { describe, expect, test } from "vitest";
@@ -48,6 +51,7 @@ const FOLDER_DEEP = ID(10);
 const NOTE_DEEP = ID(11);
 const FOLDER_GUIDES = ID(12);
 const NOTE_MEMBERS = ID(13);
+const HOME_FOLDER = ID(14);
 
 const user = (id: string, role: "view" | "edit" = "view") => ({ kind: "user" as const, id, role });
 const email = (id: string, role: "view" | "edit" = "view") => ({ kind: "email" as const, id, role });
@@ -121,6 +125,12 @@ const ROW_SETS: Record<string, AccessRow[]> = {
     { path: "2-areas/hr", noteId: FOLDER_HR, kind: "folder", base: "private", grantees: [] },
     { path: "2-areas/hr/bug.md", noteId: NOTE_DEAL, kind: "file", base: "private", grantees: [{ kind: "members", id: "members", role: "view" }] },
   ],
+  // The pinned workspace's chat homes (`lib/nodes/sealedChats.ts` `withSealedChats`): the homes folder is
+  // rendered sealed for every audience, and a home beneath it names the people in that chat.
+  "the pinned workspace's sealed chat homes": [
+    { path: "tex/groups", noteId: "sealed-chats", kind: "folder", grantees: [], sealed: true },
+    { path: "tex/groups/quiet-blue-fox", noteId: HOME_FOLDER, kind: "folder", grantees: [user("user-ana", "edit")] },
+  ],
   "the pinned workspace: a folder open to every account, and a team note inside it that is not": [
     { path: "guides", noteId: FOLDER_GUIDES, kind: "folder", base: "team", grantees: [{ kind: "accounts", id: "accounts", role: "view" }] },
     { path: "guides/members.md", noteId: NOTE_MEMBERS, kind: "file", base: "team", grantees: [] },
@@ -175,6 +185,9 @@ const PROBES = [
   "2-areas/other/x.md",
   "guides/start.md",
   "guides/members.md",
+  "tex/groups",
+  "tex/groups/quiet-blue-fox/chat-0123456789ab.md",
+  "tex/groups/loud-green-hare/chat-ba9876543210.md",
 ];
 
 describe("the gateway's row renderer agrees with the control plane's", () => {

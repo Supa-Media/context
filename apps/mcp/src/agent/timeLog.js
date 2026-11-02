@@ -186,20 +186,37 @@ const SCHEDULED_TEXT = /^\(Not a text from them\. (?:Your routine \S+ ran on its
 const CHECK_IN_REACH = 3;
 
 /**
- * Whether one of the last few texts Tex sent them came from a routine or a
- * check-in. Not only the last: on 2026-10-28 the plan came two texts after
- * the routine's question, once Tex had answered their first reply to it.
+ * The text a routine or a check-in sent them, when it is one of the last few
+ * Tex sent; null when none is. Not only the last: on 2026-10-28 the plan came
+ * two texts after the routine's question, once Tex had answered their first
+ * reply to it.
  */
-export function answersACheckIn(history) {
+export function checkInText(history) {
   const turns = Array.isArray(history) ? history : [];
   let seen = 0;
   for (let i = turns.length - 1; i > 0 && seen < CHECK_IN_REACH; i -= 1) {
     if (turns[i]?.role !== "assistant") continue;
     seen += 1;
-    if (turns[i - 1]?.role === "user" && SCHEDULED_TEXT.test(String(turns[i - 1].text ?? ""))) return true;
+    if (turns[i - 1]?.role === "user" && SCHEDULED_TEXT.test(String(turns[i - 1].text ?? ""))) return String(turns[i].text ?? "");
   }
-  return false;
+  return null;
 }
+
+/** Whether one of the last few texts Tex sent them came from a routine or a check-in. */
+export function answersACheckIn(history) {
+  return checkInText(history) !== null;
+}
+
+/**
+ * A check-in that asks what a stretch of time went to: "What did 9 to 12 go
+ * to?", "Since 6, what did the last 3 hours go to?". The block's time is in
+ * the question, so a one-word answer ("work") is a whole answer
+ * (2026-10-29 and 2026-10-30: "work" got "Will do." and nothing logged).
+ */
+const ASKS_ABOUT_TIME =
+  /\bwhat\s+(?:did|have|has|were|was)\b[^?]{0,80}\?|\b(?:what(?:'s| is| are)|how)\b[^?]{0,40}\b(?:going|doing|working on|been up to)\b[^?]{0,40}\?|\b\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?\s*)?(?:to|-|–)\s*\d{1,2}\b[^?]{0,60}\?|\bsince\s+\d{1,2}\b[^?]{0,80}\?/i;
+/** A reply that answers nothing: "ok", "thanks", "lol", "yes". */
+const NOT_AN_ANSWER = /^(?:ok(?:ay)?|k|thanks|thank you|ty|lol|haha|yes|yep|yeah|no|nope|sure|cool|\u{1F44D})[\s.!]*$/iu;
 
 /** A plan or a stretch of their day: "till 10", "at 11:30", "after 10", "9pm", "don't bother me". */
 const PLAN =
@@ -210,19 +227,23 @@ const BARE_ACK = /^(?:will do|got it|ok(?:ay)?|sounds good|noted|sure|on it|perf
 const KEEPS = new Set(["write", "write_note", "edit_note", "append_note", "update_note", "remember", "calendar_event"]);
 
 /**
- * Whether their text answers a routine's or a check-in's text with a plan,
- * and the answer only acknowledges it with nothing saved this turn.
+ * Whether their text answers a routine's or a check-in's text with a plan, or
+ * answers its question about a stretch of time at all, and the answer only
+ * acknowledges it with nothing saved this turn.
  */
 export function dropsCheckInAnswer(answer, { question = "", history = [], steps = [] } = {}) {
-  const asked = String(question ?? "");
-  if (!answersACheckIn(history) || !PLAN.test(asked) || /\?\s*$/.test(asked.trim())) return false;
+  const asked = String(question ?? "").trim();
+  const checkIn = checkInText(history);
+  if (checkIn === null || asked === "" || /\?\s*$/.test(asked)) return false;
+  if (!PLAN.test(asked) && !(ASKS_ABOUT_TIME.test(checkIn) && !NOT_AN_ANSWER.test(asked))) return false;
   if (!BARE_ACK.test(String(answer ?? "").trim())) return false;
   return !steps.some((step) => step?.ok !== false && KEEPS.has(step?.name));
 }
 
 export const CHECK_IN_ANSWER_NOTICE =
-  "Before this goes: they answered your scheduled check-in with what they're doing or plan to do, and nothing in this turn saved it, so the next check-in won't know. " +
+  "Before this goes: they answered your scheduled check-in with what they did or plan to do, and nothing in this turn saved it, so the next check-in won't know. " +
   "Save it where that routine or check-in keeps its log (read the routine's note if you don't know where): each block with the times they gave, " +
+  'or, when they gave none, the times your check-in asked about ("What did 9 to 12 go to?" answered "work" is 9 to 12: work), ' +
   'and a "don\'t bother me until 5" as a line the next check-in reads, so it stays quiet till then. ' +
   'Then say in one line what you logged ("Logged: writing till 10, the videos till 11:30, then sleep."). ' +
   "If their text isn't an answer to the check-in, send your answer again as it was.";

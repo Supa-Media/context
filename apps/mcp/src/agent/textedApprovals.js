@@ -15,7 +15,7 @@ import { folded } from "./folded.js";
 import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho, withoutWaitTalk } from "./heldEcho.js";
 import { VAULT_PAY } from "../vault/pay.js";
-import { armForText, disarmRecords, disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
+import { EVERY_CHAT, armForText, disarmChat, disarmRecords, disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /*
   What a texted yes to a new workspace leads to (the owner, 2026-10-20). No
@@ -43,7 +43,7 @@ export const SAY_YES = "Give it a 👍";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
 const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|k|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y|sounds good|looks good|perfect|lgtm|\u{1F44C})\s*[.!]*\s*$/iu;
-const NO = /^\s*(?:no|nope|no thanks|don'?t|cancel|stop|deny|denied|never ?mind|forget it|drop it|n)\s*[.!]*\s*$/i;
+const NO = /^\s*(?:no|nope|no thanks|don'?t|cancel|stop|deny|denied|never ?mind|forget it|drop it|n|\u{1F44E}[\u{1F3FB}-\u{1F3FF}]?)\s*[.!]*\s*$/iu;
 
 /*
   A yes said the way people say it (Dev, 2026-10-19: "yes, send it, yes, file
@@ -153,17 +153,32 @@ const MIN_QUOTED = 24;
  * it was on are the ask the person was shown for exactly what is armed now
  * (Dev2, 2026-10-21). A like on an older ask, or on any other text, is not.
  */
-export async function thumbsUpIsYes(store, session, quoted, { who = null } = {}) {
+export async function thumbsUpIsYes(store, session, quoted, { who = null, chat = null } = {}) {
   if (quoted?.tapback !== "Liked" && quoted?.tapback !== "Loved") return false;
-  const words = folded(quoted.words);
+  return await onArmedAsk(store, session, quoted.words, { who, chat, event: "thumbs_up" });
+}
+
+/**
+ * Whether a 👎 tapback is a no to what is waiting, on the same terms as a 👍's
+ * yes (a new tester, 2026-10-30: a 👍 or 👎 should answer a yes-or-no). Left
+ * to the model, a 👎 dropped nothing, and a later "yes" still sent the email.
+ */
+export async function thumbsDownIsNo(store, session, quoted, { who = null, chat = null } = {}) {
+  if (quoted?.tapback !== "Disliked") return false;
+  return await onArmedAsk(store, session, quoted.words, { who, chat, event: "thumbs_down" });
+}
+
+/** Whether these quoted words are the ask shown for exactly what is armed now. */
+async function onArmedAsk(store, session, quotedWords, { who, chat, event }) {
+  const words = folded(quotedWords);
   if (words.length < MIN_QUOTED) return false;
-  const armed = (await listPending(store, { userId: session.actorUserId, texting: true })).map(({ record }) => record);
+  const armed = (await listPending(store, { userId: session.actorUserId, texting: true, chat })).map(({ record }) => record);
   const matched = armed.length > 0 && [armed, [...armed].reverse()].some((order) => {
     const shown = folded(askLine(order, { who }));
     return shown === words || shown.startsWith(words);
   });
-  // Without its words: enough to tell a 👍 on nothing armed from one on other words (2026-10-22).
-  console.log(JSON.stringify({ event: "thumbs_up", armed: armed.length, matched, length: words.length }));
+  // Without its words: enough to tell a tapback on nothing armed from one on other words (2026-10-22).
+  console.log(JSON.stringify({ event, armed: armed.length, matched, length: words.length }));
   return matched;
 }
 
@@ -187,11 +202,24 @@ export const TEXTED_ASK_CAP = 2_900;
  * switch still makes (`../tools/session.js`), and a claimed handle is never
  * given back.
  */
-export async function textedAsk(store, session, asked, told = "", { who = null, stale = null } = {}) {
+export async function textedAsk(store, session, asked, told = "", { who = null, stale = null, chat = null } = {}) {
+  /*
+    In a group, Tex's question may be put to anyone in it, in anyone's turn, a
+    chat routine's or a check-in's too, so it stops every ask armed in the chat
+    from listening, not only the asker's: a bare yes there now answers it
+    (Dev2, 2026-11-02). Which member a question is put to is not told apart,
+    which is the safe direction; the asks this reply arms are kept.
+  */
+  if (chat !== null && /\?/.test(told)) await disarmChat(store, { chat, keep: asked.map((record) => record.id) }).catch(() => {});
   if (asked.length === 0) {
     // Asks their text corrected, with nothing new drawn, are dropped (`claimCheck.js` rule 6): `stale` names them.
     if (Array.isArray(stale) && stale.length > 0) return { ask: await dropStale(store, session, stale), verbatim: [] };
     // Tex asked something else, so a bare yes now answers that, never an older ask (`textedSettle.js`).
+    // Awaited, never handed to the host's deferral: `askOvertaken` counts only Tex's texts sent by
+    // themselves, so for a reply that asks something this disarm is the whole protection, and a
+    // deferral is "an optimisation it may not get, never where the work happens" (`http/route.js`).
+    // Unconditional: a reading taken before the model (`frontDoor.js`) is older than anything a job, a routine or the
+    // heartbeat armed while the model ran, and this is the only check between such an ask and a bare yes.
     if (/\?/.test(told)) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     return { ask: null, verbatim: [] };
   }
@@ -204,7 +232,7 @@ export async function textedAsk(store, session, asked, told = "", { who = null, 
     // goes out whole, so an ask that is dropped instead leaves nothing a yes
     // can reach, even if withdrawing it below fails.
     try {
-      await armForText(store, { userId: session.actorUserId, ids });
+      await armForText(store, { userId: session.actorUserId, ids, chat });
       return { ask, verbatim: [ask] };
     } catch {
       await withdrawPending(store, { userId: session.actorUserId, ids }).catch(() => {});
@@ -230,7 +258,8 @@ export async function textedAsk(store, session, asked, told = "", { who = null, 
  */
 async function dropStale(store, session, ids) {
   const wanted = new Set(ids);
-  const waiting = (await listPending(store, { userId: session.actorUserId, texting: true })).filter(({ record }) => wanted.has(record.id));
+  // Every chat: these are named by id, and dropping one armed elsewhere is the safe direction.
+  const waiting = (await listPending(store, { userId: session.actorUserId, texting: true, chat: EVERY_CHAT })).filter(({ record }) => wanted.has(record.id));
   if (waiting.length === 0) return null;
   const stuck = await disarmRecords(store, waiting);
   console.log(JSON.stringify({ event: "ask_superseded", asks: waiting.length, stuck }));
@@ -306,12 +335,13 @@ function clean(text) {
  * Returns the reply, or null when nothing was waiting — in which case the text
  * is an ordinary one and the model answers it.
  */
-export async function settleByText(store, session, verdict) {
+export async function settleByText(store, session, verdict, { chat = null } = {}) {
   // Only what this thread asked about, lately, and not since moved on from: a
   // yes here never releases a call some other client raised that the person was
-  // not told of. Every record left armed was asked in the thread's latest ask,
-  // and the ask line named all of them, so one yes answers all of them.
-  const waiting = await listPending(store, { userId: session.actorUserId, texting: true });
+  // not told of, nor one asked in another chat. Every record left armed was
+  // asked in the thread's latest ask, and the ask line named all of them, so
+  // one yes answers all of them.
+  const waiting = await listPending(store, { userId: session.actorUserId, texting: true, chat });
   if (waiting.length === 0) return null;
   const replies = [];
   for (const entry of [...waiting].reverse()) {

@@ -1,18 +1,18 @@
 /**
  * THE MEMORY NUDGE: EVERY 10 TEXTS, TEX SAVES WHAT IT LEARNED (Dev, 2026-10-19).
  *
- * Tex is told on every turn to keep `tex/about-me.md` current, and often
+ * Tex is told on every turn to keep `tex/about.md` current, and often
  * doesn't: it is busy with the job. The nightly dream catches up, but a fact
  * from this morning is missing all day. Hermes answers this with a nudge
  * every 10 user turns, and so does Tex: after a texted turn has answered
  * (deferred, so nobody waits), once 10 of the person's texts have come since
  * the last nudge, one small built-in-model turn reads their recent texts and
- * may write `tex/about-me.md` once, or answer NONE.
+ * may write `tex/about.md` once, or answer NONE.
  *
  * It is shown the words of untainted exchanges only: an exchange whose answer
  * read from outside the workspace is left out whole, because what it writes is
  * read as Tex's own memory on every later turn. It may call `read_note` and
- * `write_note` on `tex/about-me.md` in their own workspace and nothing else
+ * `write_note` on `tex/about.md` in their own workspace and nothing else
  * (`nudgeCallTool`), and the note's own size limit holds (`aboutMe.js`).
  *
  * It also runs at once when their newest text answers a question Tex asked
@@ -46,7 +46,7 @@ function refused(text) {
   return { isError: true, content: [{ type: "text", text }] };
 }
 
-/** `read_note` and one `write_note`, on `tex/about-me.md` in their own workspace only. */
+/** `read_note` and one `write_note`, on `tex/about.md` in their own workspace only. */
 export function nudgeCallTool(dispatch) {
   let wrote = false;
   const call = async (name, args) => {

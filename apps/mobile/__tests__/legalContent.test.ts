@@ -161,7 +161,9 @@ describe("the policy describes Google data as the code uses it", () => {
     expect(googleUse).toContain("send email you approve");
     expect(googleUse).toContain("create or change events on your calendar");
     expect(googleUse).toContain("asking you first when a change would notify a guest");
-    expect(googleUse).toContain("send Chat messages you approve");
+    expect(googleUse).toContain("send Google Chat messages you approve, starting a direct conversation with the person when it is your first message to them");
+    // The only creation is the direct conversation a first approved message starts; nothing makes a named space.
+    expect(googleUse).not.toMatch(/create Google Chat spaces/);
     expect(googleUse).not.toMatch(/only to provide the integration you requested/);
     expect(termsGoogle).not.toMatch(/only to sync/);
     expect(termsGoogle).toContain("send the email and Chat messages you approve");

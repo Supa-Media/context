@@ -17,6 +17,7 @@
  * agent; `{ move: { queued: true, count } }` is done.
  */
 
+import { objectSettled } from "../../workspaceObjectPush";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
@@ -49,6 +50,7 @@ export async function gatewayMoveStartHandler(ctx: ActionCtx, body: Record<strin
     grantedNames: entry.grantedNames ?? [],
     operation: { kind: "nodesMoveStart", from, to, ...(expectedEtag === null ? {} : { expectedEtag }) },
   });
+  await objectSettled(ctx, entry.workspaceId as Id<"workspaces">);
   if (result.kind !== "moveQueued") return json({ move: { queued: false } });
   const { kind: _kind, ...move } = result;
   return json({ move });
@@ -97,6 +99,7 @@ export async function gatewayMoveBatchHandler(ctx: ActionCtx, body: Record<strin
     grantedNames: entry.grantedNames ?? [],
     operation: { kind: "nodesMoveBatch", moves },
   });
+  await objectSettled(ctx, entry.workspaceId as Id<"workspaces">);
   if (result.kind !== "moveBatch") return json({ move: null });
   const { kind: _kind, ...move } = result;
   return json({ move });

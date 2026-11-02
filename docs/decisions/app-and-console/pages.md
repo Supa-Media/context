@@ -157,6 +157,23 @@ required when making pages".
   Left plain: a change to a note that already exists (an etag was passed),
   Tex's own `tex/` notes, `about-me`, `todo.md`, index pages, the inbox and
   routines, and any turn where the person asked for a plain note.
+- **A note they already have is never made a page, moved or archived
+  unasked** (owner, 2026-10-30: "why was my note completely overwritten,
+  archived and replaced with this ugly page?"). Their chapter note Joshua 1
+  was archived and `Joshua 1.page.md` put in its place. The page floor read
+  "created" from the write's activity hint, a texting wrapper's spread had
+  dropped it, and the fallback counted any write with no etag as new, so an
+  overwrite of their note was sent back with "write it as a page, then
+  archive the plain note". Now: the hint is enumerable and survives a spread,
+  a write with no hint is a change, never new (`noteWrite`); a new plain note
+  in a folder of their plain notes follows its neighbours (`amongPlainNotes`)
+  unless they asked for a page; and a texted or group turn's dispatcher
+  (`agent/theirNotes.js`) answers, instead of running, an archive or move of
+  a note this turn did not make unless their words ask to move, file, tidy,
+  archive or the like, and a new `<name>.page.md` beside their own
+  `<name>.md` unless they asked for a page. The page floor's own "archive the
+  plain copy you made this turn" still runs. Tests:
+  `apps/mcp/test/agentTheirNotes.test.mjs`, `agentPageNotice.test.mjs`.
 - **A page opens bare** (owner, same day: "no properties, no floating
   buttons, nothing but the page please, maybe 1 menu to hide actions"). On a
   page the note screen draws no contact header, properties or routine bar,

@@ -27,6 +27,7 @@
 import type { InboxStorage } from "./inbox";
 import { MAX_INBOUND_TEXT } from "./inbound";
 import type { Message } from "./reply";
+import { inboxByName } from "./objectPlace";
 
 export const SIMULATOR_PATH = "/texts-simulator";
 
@@ -147,7 +148,7 @@ export async function handleSimulator(request: Request, env: SimulatorEnv, page:
   }
   if (phone === null || !SIMULATED_PHONE.test(phone)) return new Response(null, { status: 400 });
 
-  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
+  const stub = inboxByName(env.SENDER_INBOX, phone);
   return stub.fetch(`https://inbox/sim/${action}`, {
     method: "POST",
     body: JSON.stringify({ keyHash: await sha256Hex(key), phone, text }),

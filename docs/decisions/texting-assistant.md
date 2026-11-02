@@ -85,8 +85,8 @@ Linq wants a quick 2xx and retries anything else, while an answer can take a
 minute. So each sender has a Durable Object queue that holds a message, and
 once computed its reply, only until the reply is sent or given up on (three
 attempts). Deduplication keeps webhook ids and timestamps, never text, for a
-day. Conversation history is not kept in the Worker. The gateway keeps it in
-the person's own bucket, which follows non-negotiable #1. Test:
+day. History lives in the person's own bucket (non-negotiable #1); the Worker
+keeps only the gateway's sealed warm copy of it ([warm-copy](./texting-assistant/warm-copy.md)). Test:
 `inbox.test.ts`, "keeps no text afterwards".
 
 Linq's v3 send endpoint requires `parts` and `idempotency_key` inside a
@@ -213,8 +213,8 @@ own action: [the vault](./texting-assistant/vault.md).
 
 Tex's own jobs, each with its record:
 
-- [Transcripts](./texting-assistant/transcripts.md): each person's texts,
-  thinking and tool calls, daily in their own `tex/transcripts/`.
+- [Transcripts](./texting-assistant/transcripts.md): each person's texts, thinking and tool
+  calls, daily in `tex/transcripts/`; each chat's [ledger](./texting-assistant/chat-ledger.md) keeps everything.
 - [Dreams](./texting-assistant/dreams.md): nightly, brings `tex/about-me.md`
   up to date from the day's transcripts and the facts their other AI apps saved, logged in `tex/dreams/`.
 - [Who they are](./texting-assistant/who-they-are.md): their phone, name, emails
@@ -245,13 +245,13 @@ Tex's own jobs, each with its record:
   get right, gating a setup; the task skills it reads before doing one, and
   why a read skill may vouch for an address.
 
-### The built-in model is free, capped at 100 a day, and metered like Jev
+### The built-in model is free, capped at 500 a day, and metered like Jev
 
 Decided by the owner, 2026-10-17 ("Open to all"), replacing "Premium, capped".
 Every workspace's texts are answered by a model we pay for (GLM-4.7 Flash or
-Claude Haiku 5.5, see below; `AGENT_BUILTIN_MODEL` to swap it), up to 100 turns
-per UTC day, paying or not (plan `everyone`, `dailyCallsFree: 100`); dreams,
-check-ins, housekeeping and routines count toward the same 100.
+Claude Haiku 5.5, see below; `AGENT_BUILTIN_MODEL` to swap it), up to 500 turns
+per UTC day (raised from 100 by the owner, 2026-10-31), paying or not; dreams,
+check-ins, housekeeping and routines count toward it; background jobs do not.
 
 **Removed 2026-10-10 (owner's decision): saved provider keys deleted; the
 assistant uses only the built-in model.** People could once save their own
@@ -321,9 +321,9 @@ credit, and nothing that costs money is spent while it lasts:
 - Each call is labelled with ids only (feature, workspace, client), never
   text. The address is built from two ids checked against a strict shape, so
   nothing a caller sends can point the gateway's token at another host.
-- Prompt caching is on for the tool list, the system prompt and the
-  conversation so far, because a turn is several rounds over a growing
-  transcript.
+- Prompt caching: tools, stable system prompt, slow context, then the chat,
+  each behind a five-minute mark; per-text facts (clock, model, nudge) ride in
+  the person's turn (`turnPrompt.js`, guarded by `agentPromptCache.test.mjs`).
 
 **What a simplification would cost:** dropping `cf-aig-collect-log` would
 quietly copy every texted question and the notes it read into a log outside
@@ -491,7 +491,7 @@ the person must act themselves (sign in, a code, a captcha), the model asks
 for a `handoff`; the gateway adds the link to the text itself, so the model
 never holds it, and it is kept out of the saved conversation. Since
 2026-10-11 that link is the person's own page, not Browserbase's live view:
-[Tex's computer](./texting-assistant/computer.md).
+[Tex's computer](./texting-assistant/computer.md). The Tex page, live from each chat's box: [Tex page](./texting-assistant/tex-page.md).
 
 A Browserbase billing refusal (402, every texted browser job from
 2026-10-13) is answered 402 by the screenshot Worker, which logs only the

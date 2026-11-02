@@ -179,6 +179,12 @@ function unsupportedRecreation(key, value) {
   return true;
 }
 
+/** A body that can be sent again after a refused write: text or bytes held in memory, never a stream. */
+function sendableTwice(value) {
+  if (typeof value === "string" || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return true;
+  return typeof Blob !== "undefined" && value instanceof Blob;
+}
+
 function stampedWrite(key, value, options, inspected) {
   const text = markdownText(value);
   if (!inspected?.stamp) {
@@ -405,6 +411,21 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
         return store.put(key, stamped.value, stamped.options);
       }
       const raw = beginRawOperation();
+      // A create ("only if nothing is there") goes first, on a provider that
+      // enforces that precondition: if anything holds the key, a deletion
+      // marker included, the provider refuses it, so a write that lands
+      // replaced nothing and needed no inspection. Only a refusal reads the
+      // key, below, to tell a marker (recreated over) from a real object
+      // (refused). Starting a note's history makes several creates; each
+      // used to read first (2026-10-29).
+      // A body that can be read only once (a stream) keeps the read first: a
+      // refused create would have spent it before the marker path could.
+      if (options.onlyIf?.absent === true && options.onlyIf.etagMatches === undefined &&
+          store.capabilities?.conditionalCreate === true && sendableTwice(value)) {
+        const stamped = stampedWrite(key, value, options, null);
+        const created = await raw.put(key, stamped.value, stamped.options);
+        if (created !== null) return created;
+      }
       // A file that is not a note, written over a version the caller names:
       // a HEAD tells it from a marker without downloading it, which is what
       // a move's claim on a large attachment would otherwise cost. The

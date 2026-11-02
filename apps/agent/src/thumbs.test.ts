@@ -18,6 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 import { drain, react, type InboxDeps } from "./inbox";
+import { keptEvents } from "./events";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { readRemovedTapback } from "./reactions";
 import { parseSendblueInbound } from "./sendblue";
@@ -217,10 +218,38 @@ describe("a thumbs up on an ask, in a group", () => {
       participants: [ADA, BO],
     });
     expect(parsed).toMatchObject({ kind: "group-message", reaction: { how: "Liked", words: groupAsk } });
-    expect(parseSendblueGroup({ message_handle: "h3", is_outbound: false, from_number: ADA, sendblue_number: LINE, service: "iMessage", content: "Liked “lol”", group_id: GROUP })).toEqual({
-      kind: "ignored",
-      reason: "reaction",
+    // Every tapback is read since 2026-11-01 (Dev2); one on a text that is no ask reaches the group as context.
+    expect(parseSendblueGroup({ message_handle: "h3", is_outbound: false, from_number: ADA, sendblue_number: LINE, service: "iMessage", content: "Liked “lol”", group_id: GROUP })).toMatchObject({
+      kind: "group-message",
+      reaction: { how: "Liked", words: "lol" },
     });
+  });
+
+  it("reads a dislike on an ask from the group webhook, as the asker's no", async () => {
+    const parsed = parseSendblueGroup({
+      message_handle: "h4",
+      is_outbound: false,
+      from_number: ADA,
+      sendblue_number: LINE,
+      service: "iMessage",
+      content: `Disliked “${groupAsk}”`,
+      group_id: GROUP,
+      participants: [ADA, BO],
+    });
+    expect(parsed).toMatchObject({ kind: "group-message", reaction: { how: "Disliked", words: groupAsk } });
+    const storage = new MemoryStorage();
+    const asks: Record<string, unknown>[] = [];
+    const clock = { now: 0 };
+    await acceptGroup(storage, msg("Tex, email Jo that Thursday works"), 0);
+    await drainGroup(storage, groupDeps(asks, clock, { answer: groupAsk, verbatim: [groupAsk] }));
+    const dislike = (from: string, id: string) => msg(`Disliked “${groupAsk}”`, { from, messageId: id, reaction: { how: "Disliked", words: groupAsk } });
+    // Somebody else's 👎 is a line of the chat, never the asker's no (only the asker's is held).
+    expect(await acceptGroup(storage, dislike(BO, "bo"), 1_000)).not.toBe("queued");
+    expect(await storage.get("gthumb")).toBeUndefined();
+    expect(await acceptGroup(storage, dislike(ADA, "ada"), 1_000)).toBe("queued");
+    clock.now = 1_000;
+    await drainGroup(storage, groupDeps(asks, clock, { answer: "OK, dropped." }));
+    expect(asks[1]).toMatchObject({ question: "👎", quoted: groupAsk, tapback: "Disliked" });
   });
 
   it("only the asker's like goes, at once, with the ask's words", async () => {
@@ -231,7 +260,9 @@ describe("a thumbs up on an ask, in a group", () => {
     await drainGroup(storage, groupDeps(asks, clock, { answer: groupAsk, verbatim: [groupAsk] }));
     const like = (from: string, id: string, removed = false) =>
       msg(`Liked “${groupAsk}”`, { from, messageId: id, reaction: { how: "Liked", words: groupAsk, ...(removed ? { removed: true as const } : {}) } });
-    expect(await acceptGroup(storage, like(BO, "bo"), 1_000)).toBe("ignored");
+    // Somebody else's 👍 is a line of the chat, never the asker's yes: nothing is held for it.
+    expect(await acceptGroup(storage, like(BO, "bo"), 1_000)).not.toBe("queued");
+    expect(await storage.get("gthumb")).toBeUndefined();
     expect(await acceptGroup(storage, like(ADA, "ada"), 1_000)).toBe("queued");
     clock.now = 1_000;
     await drainGroup(storage, groupDeps(asks, clock, { answer: "Sent." }));
@@ -359,5 +390,14 @@ describe("a 👍 on the ask itself goes on in the words the ask was sent in", ()
   it("holds a like on the standing-forward ask too", () => {
     expect(holdsAsYes(like("Here's what I'd keep doing:\n\nFrom now on, forward receipts…"))).toBe(true);
     expect(holdsAsYes(like("Here’s the email I’d send:\n\nTo: jo@example.test"))).toBe(true);
+  });
+});
+
+describe("a reaction one to one, in the chat's log (Dev2, 2026-11-01)", () => {
+  it("logs one taken back, and one noted, as the line the model reads", async () => {
+    const storage = new MemoryStorage();
+    expect(await react(storage, tapback("t1", "Liked", "see you then", true), NOW)).toBe("noted");
+    expect(await react(storage, tapback("t2", "Loved", "see you then"), NOW)).toBe("noted");
+    expect((await keptEvents(storage, "chat_1")).map((event) => event.text)).toEqual(['took back 👍 on the message "see you then"', '❤️ (yes) on the message "see you then"']);
   });
 });

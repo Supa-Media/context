@@ -6,7 +6,8 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { internalQuery, mutation, query } from "../_generated/server";
+import { internalQuery, query } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import { requireAdmin } from "./lib/admin";
 import { recordAdminAudit } from "./lib/adminFns/audit";
 import { toConvexError } from "./lib/adminFns/errors";

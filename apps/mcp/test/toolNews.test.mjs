@@ -12,6 +12,7 @@ import { toolDefinitions } from "../src/tools/registry.js";
 import { TOOL_NEWS, TOOL_SHAPE, toolNewsSection, toolShape } from "../src/tools/news.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -76,7 +77,7 @@ test("a very stale client gets the newest eight and a count of the rest", () => 
 const S3_ENDPOINT = "https://s3.example-tool-news.test";
 const TOKEN_STALE = `cat_news_stale__${"0".repeat(24)}`;
 const TOKEN_UNKNOWN = `cat_news_unknown${"0".repeat(24)}`;
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 const OLDEST = TOOL_NEWS[TOOL_NEWS.length - 1];
 
 let controlPlane;

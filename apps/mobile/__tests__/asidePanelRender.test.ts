@@ -162,7 +162,7 @@ function stranded(over: Record<string, unknown> = {}, session: Record<string, un
   return {
     session: {
       id: "m0",
-      title: "Jhon / Seyi",
+      title: "Dev2 / Seyi",
       state: "failed",
       failureReason: "the upload timed out.",
       startedAt: new Date(Date.now() - 3_600_000).toISOString(),
