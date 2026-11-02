@@ -66,7 +66,15 @@ export function readerOf(raw) {
   if (!reader.groups.every((group) => typeof group === "string" && group.length > 0 && group.length <= 128)) return null;
   if (!Number.isFinite(reader.deadline)) return null;
   if (reader.userId !== undefined && !(typeof reader.userId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(reader.userId))) return null;
-  return { scope: reader.scope, groups: [...new Set(reader.groups)], deadline: reader.deadline, ...(reader.userId ? { userId: reader.userId } : {}) };
+  // `behind`: the control plane holds a tree change it has not pushed here yet, so this object's rows are older
+  // than the answer the reader is owed (`live/treeRoute.js`). Served exactly as a workspace this object does not.
+  return {
+    scope: reader.scope,
+    groups: [...new Set(reader.groups)],
+    deadline: reader.deadline,
+    behind: reader.behind === true,
+    ...(reader.userId ? { userId: reader.userId } : {}),
+  };
 }
 
 async function digest(text) {
@@ -202,7 +210,7 @@ export function treeSockets(state, sql, store, deps = {}) {
       if (reader === null) return new Response(JSON.stringify({ error: "bad_reader" }), { status: 400 });
       const [client, server] = pair();
       state.acceptWebSocket(server, ["tree"]);
-      if (store.rows.home() !== HOMES.OBJECT) {
+      if (store.rows.home() !== HOMES.OBJECT || reader.behind === true) {
         server.send(notServedFrame());
         close(server, TREE_CLOSE_NOT_SERVED, "not served");
         return upgraded(client);
