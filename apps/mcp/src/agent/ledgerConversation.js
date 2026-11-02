@@ -28,11 +28,10 @@
  */
 
 import { HISTORY, MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, TOLD, TOLD_QUESTION } from "./conversation.js";
-import { eventEntry, ONE_TO_ONE_CHAT } from "./ledger.js";
+import { BACKFILLED, eventEntry, ONE_TO_ONE_CHAT } from "./ledger.js";
 import { deskLedger } from "./history.js";
 import { words } from "./logRender.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
-import { BACKFILLED } from "./ledgerBackfill.js";
 
 /** Every line Tex sent without a text from them begins so (`heartbeat.js`, `conversation.js`, `attention.js`). */
 const BY_ITSELF = /^\(Not a text from them\./;
