@@ -273,10 +273,10 @@ describe("a group's style", () => {
     const set = await agentPost(t, "/agent-texts/group/engagement", { line: LINE, groupId: GROUP, style: "helpful", setBy: ADA });
     expect(JSON.parse(set.text)).toEqual({ ok: true });
     const [row] = await t.run((ctx) => ctx.db.query("textGroups").collect());
-    expect(row!.engagement).toBe("helpful");
-    expect(row!.engagementSetBy).toMatch(/^[0-9a-f]{64}$/);
+    expect(row!.speaksUp).toBe("helpful");
+    expect(row!.speaksUpSetBy).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(row)).not.toContain(ADA);
-    expect(typeof row!.engagementSetAt).toBe("number");
+    expect(typeof row!.speaksUpSetAt).toBe("number");
 
     const again = JSON.parse((await agentPost(t, "/agent-texts/group", { line: LINE, groupId: GROUP, sender: BO, participants: [ADA, BO, LINE], mint: true })).text);
     expect(again).toMatchObject({ status: "ready", engagement: "helpful", engagementChosen: true });
@@ -290,7 +290,7 @@ describe("a group's style", () => {
       expect(refused.status).toBe(400);
     }
     const [row] = await t.run((ctx) => ctx.db.query("textGroups").collect());
-    expect(row!.engagement).toBeUndefined();
+    expect(row!.speaksUp).toBeUndefined();
   });
 });
 

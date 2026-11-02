@@ -190,6 +190,7 @@ import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_appearance from "../functions/appearance.js";
 import type * as functions_texStyle from "../functions/texStyle.js";
 import type * as functions_texCommands from "../functions/texCommands.js";
+import type * as functions_texSettingsMigration from "../functions/texSettingsMigration.js";
 import type * as functions_spelling from "../functions/spelling.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_textGroupUsage from "../functions/textGroupUsage.js";
@@ -439,6 +440,7 @@ declare const fullApi: ApiFromModules<{
   "functions/appearance": typeof functions_appearance;
   "functions/texStyle": typeof functions_texStyle;
   "functions/texCommands": typeof functions_texCommands;
+  "functions/texSettingsMigration": typeof functions_texSettingsMigration;
   "functions/spelling": typeof functions_spelling;
   "functions/textLinks": typeof functions_textLinks;
   "functions/textGroupUsage": typeof functions_textGroupUsage;
