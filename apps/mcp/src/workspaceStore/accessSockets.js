@@ -197,6 +197,14 @@ export function accessSockets(state, sql, deps = {}) {
       if (id === null) continue;
       const reader = readerFor(id);
       if (expired(ws, id, reader)) continue;
+      // A pushed topic is a frame of this object's access data, so it is checked as `accept` and `message` check
+      // theirs. `lockOut` is meant to have closed this socket already; the push does not rely on that having
+      // happened, because the one path that skipped the check is the one nobody asked for.
+      if (!admitted(reader)) {
+        forget(id);
+        close(ws, ACCESS_CLOSE_FORBIDDEN, "forbidden");
+        continue;
+      }
       const held = all(sql.exec("SELECT topic FROM ws_access_topics WHERE socket = ?", id)).map((row) => row.topic);
       await sendTopics(ws, id, reader, notice.all ? held : held.filter((topic) => notice.topics.has(topic)));
     }
