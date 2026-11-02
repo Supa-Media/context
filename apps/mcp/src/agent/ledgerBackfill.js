@@ -127,6 +127,8 @@ export { BACKFILLED };
  * before the first one.
  */
 export const GROUP_BACKFILLED = "backfilledv2";
+/** A group's memory page's mark, first once it is copied in (`groupPageCopy.js` keeps the same value). */
+const GROUP_PAGE_COPIED = "pagecopiedv1";
 /** The most log events one run copies: a run is a texted turn's after-work, so it stays well inside the time that has. */
 export const BACKFILL_EVENTS = 400;
 
@@ -146,7 +148,8 @@ export async function backfillLedger(store, { dryRun = false, most = BACKFILL_EV
   const chat = group ?? ONE_TO_ONE_CHAT;
   const mark = group === null ? BACKFILLED : GROUP_BACKFILLED;
   const oldest = await ledger.oldest(chat);
-  if (oldest?.id === mark) return { state: "done", entries: 0 };
+  // A group's memory page goes in before its old log, under its own mark (`groupPageCopy.js`), only once the log is in.
+  if (oldest?.id === mark || (group !== null && oldest?.id === GROUP_PAGE_COPIED)) return { state: "done", entries: 0 };
   const before = oldest?.at ?? Number.MAX_SAFE_INTEGER;
   if (group !== null && typeof logChat !== "string") return { state: "none", entries: 0 };
   const keys = (await logKeys(store, group === null ? LOG_PREFIX : await logPrefix(logChat))).filter((found) => found.at < before);

@@ -126,7 +126,10 @@ jobs:
           - 'apps/mcp/src/agent/agentHomeMove.js'
           - 'apps/mcp/src/agent/conversation.js'
           - 'apps/mcp/src/agent/events.js'
+          - 'apps/mcp/src/agent/groupPageCopy.js'
+          - 'apps/mcp/src/agent/groupPageFormat.js'
           - 'apps/mcp/src/agent/history.js'
+          - 'apps/mcp/src/agent/historyFile.js'
           - 'apps/mcp/src/agent/ledger.js'
           - 'apps/mcp/src/agent/ledgerBackfill.js'
           - 'apps/mcp/src/agent/ledgerConversation.js'
@@ -743,7 +746,10 @@ jobs:
             apps/mcp/src/agent/agentHomeMove.js
             apps/mcp/src/agent/conversation.js
             apps/mcp/src/agent/events.js
+            apps/mcp/src/agent/groupPageCopy.js
+            apps/mcp/src/agent/groupPageFormat.js
             apps/mcp/src/agent/history.js
+            apps/mcp/src/agent/historyFile.js
             apps/mcp/src/agent/ledger.js
             apps/mcp/src/agent/ledgerBackfill.js
             apps/mcp/src/agent/ledgerConversation.js

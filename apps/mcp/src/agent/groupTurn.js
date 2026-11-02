@@ -41,6 +41,8 @@
 
 import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.js";
 import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupPage, timedTurn, updateGroupPage } from "./groupMemoryNote.js";
+import { copyGroupPageIn, groupPageCopied } from "./groupPageCopy.js";
+import { readGroupLedgerConversation } from "./groupLedgerHistory.js";
 import { CARRIED, ON_PAGE, carryOldNotes, mergeTurns } from "./groupMemoryCarry.js";
 import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
@@ -262,12 +264,16 @@ function oldNotePlaces(group, dispatch, names) {
 export async function readGroupMemory(store, group, dispatch = null) {
   // Every read below is its own note, so they run side by side: one after another they took 3 to 5 s of each group reply (2026-10-31).
   const names = await chatNames(group);
+  // Once the page is copied into the chat's ledger, the ledger is the history and the page is never read (`groupPageCopy.js`).
+  const ledger = groupLedger(store, group);
+  const copied = ledger === null ? Promise.resolve(false) : groupPageCopied(ledger, group.key);
   const [kept] = await Promise.all([readRecord(store, group), openHome(store, group)]);
   // A home's notes by their names now, or the old ones the last lookup found them under (`homeNames.js`).
   const named = homeNamesOf(group, names.key, kept);
   const readHome = (path, old) => readEitherName((at) => readGroupPage(group.home.dispatch, at), path, old);
   let pagePath = named?.live.memory ?? null;
   const record = (async () => {
+    if (await copied) return { turns: [], copied: true };
     if (pagePath !== null && kept.onPage === ON_PAGE) {
       // Straight from the chat's object when the record kept the page's key (`groupDirectNotes.js`), else through the tool.
       const held = await directNote(group, kept, "memory");
@@ -314,10 +320,38 @@ export async function readGroupMemory(store, group, dispatch = null) {
   const jobsRead = group.home ? (direct ? directNote(group, direct, "jobs") : Promise.resolve(null)).then((held) => readChatJobs(group.home, held)) : Promise.resolve(null);
   const [memory, playbook, voice, aboutUs, jobs] = await Promise.all([record, readPlaybook(inFirstReach(dispatch, group), group), voiceRead, aboutRead, jobsRead]);
   const turns = Array.isArray(memory?.turns) ? memory.turns.filter(isTurn) : [];
-  // The words, and what each answer used and wrote, as a person's own texts keep them (`conversation.js`).
-  const history = trimGroupTurns(turns.map(({ role, text, tainted, tools, sources, timing }) => ({ ...keptTurn({ role, text, tainted, tools, sources }), ...timedTurn(role, timing) })));
   Object.assign(group, { playbook, voice, aboutUs, jobs });
-  return history;
+  const fromLedger = await historyFromLedger(ledger, group, turns, { copied: memory?.copied === true, writes: dispatch !== null && kept.onPage === ON_PAGE });
+  if (fromLedger !== null) return fromLedger;
+  // The words, and what each answer used and wrote, as a person's own texts keep them (`conversation.js`).
+  return trimGroupTurns(turns.map(({ role, text, tainted, tools, sources, timing }) => ({ ...keptTurn({ role, text, tainted, tools, sources }), ...timedTurn(role, timing) })));
+}
+
+/** The chat's ledger through the turn's store, by its group key, or null (`ledger.js` `storeLedger`). */
+function groupLedger(store, group) {
+  return typeof store?.texLedger === "function" && typeof group?.key === "string" && /^[0-9a-f]{64}$/.test(group.key) ? store.texLedger(group.key) : null;
+}
+
+/**
+ * The history from the chat's ledger once its page is copied in, copying it in first on a turn that writes and whose
+ * page is the one copy (`ON_PAGE`); null to read the page as before (no ledger, the old log not in yet, a failure).
+ * `group.pageCopied` tells the exchange's keeping not to write the page (`keepGroupExchange`).
+ */
+async function historyFromLedger(ledger, group, turns, { copied, writes }) {
+  if (ledger === null) return null;
+  try {
+    if (!copied) {
+      if (!writes) return null;
+      const copy = await copyGroupPageIn(ledger, group.key, turns);
+      console.log(JSON.stringify({ event: "group_page_copy", state: copy.state, entries: copy.entries }));
+      if (copy.state !== "copied" && copy.state !== "done") return null;
+    }
+    group.pageCopied = true;
+    return (await readGroupLedgerConversation(ledger, group.key)).map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources }));
+  } catch (error) {
+    console.log(JSON.stringify({ event: "group_history_from_ledger_failed", reason: String(error?.name ?? "error").slice(0, 40) }));
+    return null;
+  }
 }
 
 /**
@@ -452,7 +486,8 @@ export async function keepGroupExchange(store, group, history, question, answer,
     return;
   }
   if (latest.onPage === ON_PAGE) {
-    await updateGroupPage(group.home.dispatch, memory, (turns) => trimGroupTurns([...turns, ...exchange]));
+    // Copied into the ledger, the page is never written again: the exchange is in the ledger already (`groupPageCopy.js`).
+    if (group.pageCopied !== true) await updateGroupPage(group.home.dispatch, memory, (turns) => trimGroupTurns([...turns, ...exchange]));
     if (JSON.stringify(withDirect.direct ?? null) !== JSON.stringify(latest.direct ?? null)) await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ version: 1, ...marks, ...withDirect }));
     return;
   }
@@ -563,6 +598,10 @@ export function groupPrompt(group, workspace) {
 
 /** Where the chat's memory is kept, for the prompt: its home's page, or with the chat until it has a home (`groupMemoryCarry.js`). */
 function memoryLine(group) {
+  if (group?.pageCopied === true) {
+    const kept = "What you remember of this chat is its history, everything said and done in it, which its people can open in its home; read all of it with earlier_chat. ";
+    return group?.home ? `${kept}${homePrompt(group)}` : kept;
+  }
   const kept = group?.home
     ? "What you remember of this chat is its memory page in its home, which its people can read and change; read all of it with earlier_chat. "
     : "What you remember of this chat is kept with the chat itself; read all of it with earlier_chat. ";

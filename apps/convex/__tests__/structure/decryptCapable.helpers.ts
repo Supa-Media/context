@@ -142,6 +142,10 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       // (`texGroupMigration.ts`), run by hand from the workflow. internalAction, reached only from that workflow's
       // deploy key; it answers counts and fixed codes. Its tree side (`texGroupMigrationRows.ts`) reads no credential.
       "functions.texGroupMigration.sweep",
+      // Copies each group chat's memory page into its ledger and trashes the page (`texGroupPagesRetire.ts`), run by
+      // hand from the ledger workflow. internal only, reached from that workflow's deploy key; counts and fixed codes.
+      "functions.texGroupPagesRetire.homes",
+      "functions.texGroupPagesRetire.run",
       // Copies and compares each workspace's note texts, editing history, rows and rules with its workspace object
       // (`workspaceObjects.ts`; `docs/decisions/storage-and-credentials/workspace-objects.md`): run by hand from the
       // backfill, parity and home workflows, and `syncRows` from the cron. internalActions, reached only from those

@@ -320,6 +320,7 @@ test/agentJobRestart.test.mjs
 test/jobReportReply.test.mjs
 test/agentHeartbeatFailure.test.mjs
 test/groupMemoryCarry.test.mjs
+test/groupPageCopy.test.mjs
 test/pictureCompressionUnit.test.mjs
 test/readNoteCalls.test.mjs
 test/workspaceStore.test.mjs
