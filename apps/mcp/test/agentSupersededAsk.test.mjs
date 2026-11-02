@@ -28,7 +28,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createPending, listPending } from "../src/tools/approvals.js";
+import { EVERY_CHAT, createPending, listPending } from "../src/tools/approvals.js";
 import { settleTextedText } from "../src/agent/textedSettle.js";
 import { askLine, textedAsk, thumbsUpIsYes } from "../src/agent/textedApprovals.js";
 import { SUPERSEDE_NOTICE, claimCheck, correctsTheAsk } from "../src/agent/claimCheck.js";
@@ -73,7 +73,7 @@ const settle = (store, question) =>
   });
 
 const armed = async (store, userId = ACTOR.userId) =>
-  (await listPending(store, { userId, texting: true })).map(({ record }) => record.args.to).sort();
+  (await listPending(store, { userId, texting: true, chat: EVERY_CHAT })).map(({ record }) => record.args.to).sort();
 
 /**
  * One texted turn after the person's text, as `route.js` runs it: the check on

@@ -196,8 +196,9 @@ Test: `apps/mcp/test/chatHomeWrite.test.mjs`.
 Routines, dreams and a heartbeat for a chat need their jobs moved too: a
 chat's routines are still written in its bound workspace's `tex/routines/`
 with `chat:` in their front matter, its check-in is a timer on the chat's
-row, and chats have no dreams yet. Empty folders for them are not made until
-something runs from them. The workspace's playbook stays the workspace's.
+row, and chats have no dreams yet. A home holds `skills/` and `routines/` from the
+start (`HOME_FOLDERS`, 2026-11-02, the owner: the homes "still look very empty"); a home made before then gets
+them on its chat's next turn. The workspace's playbook stays the workspace's.
 Then: the chat reads every workspace everyone in it shares instead of one
 bound workspace. The chats that exist move in as above, and the one copy a
 home cannot retract is left sealed until a delete exists for homes.

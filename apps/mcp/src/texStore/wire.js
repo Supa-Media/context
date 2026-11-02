@@ -49,6 +49,11 @@ export function ownerName(owner) {
 const pack = (value) => encodeURIComponent(JSON.stringify(value ?? null));
 const unpack = (value) => (value ? JSON.parse(decodeURIComponent(value)) : null);
 
+/** What a page shows from a chat's notes: About, routines and check-ins are all notes. */
+const NOTE_SECTIONS = Object.freeze(["about", "routines", "checkins"]);
+/** A note's text, not the object's own bookkeeping (`state/`): only those change what the page shows. */
+const touchesNotes = (key) => typeof key === "string" && key.startsWith("notes/");
+
 const unknownOp = () => Response.json({ error: "unknown_op" }, { status: 400 });
 
 /**
@@ -57,7 +62,7 @@ const unknownOp = () => Response.json({ error: "unknown_op" }, { status: 400 });
  * (`{schedule(alarm), cancel(id)}`, `texStore.js`); without it the alarm
  * calls are unknown.
  */
-export async function serveTexStore(objects, request, timers = null) {
+export async function serveTexStore(objects, request, timers = null, live = null) {
   let call;
   try {
     call = unpack(request.headers.get(CALL));
@@ -93,10 +98,23 @@ export async function serveTexStore(objects, request, timers = null) {
       }
       case "put": {
         const bytes = new Uint8Array(await request.arrayBuffer());
-        return new Response(null, { headers: { [META]: pack(await objects.put(call.key, bytes, call.options ?? {})) } });
+        const written = await objects.put(call.key, bytes, call.options ?? {});
+        if (written !== null && touchesNotes(call.key)) live?.changed(NOTE_SECTIONS);
+        return new Response(null, { headers: { [META]: pack(written) } });
       }
       case "delete":
         objects.delete(call.keys);
+        if ((Array.isArray(call.keys) ? call.keys : [call.keys]).some(touchesNotes)) live?.changed(NOTE_SECTIONS);
+        return Response.json({ ok: true });
+      // The chat's Tex page: views of its one log (`pageRecords.js`), empty until the log provides them.
+      case "page_list":
+        if (!objects.records) return Response.json({ items: [], count: 0 });
+        return Response.json({
+          ...objects.records.list(call.kind, { limit: call.limit, cursor: call.cursor, since: call.since }),
+          ...(call.kind === "mailcheck" ? { waiting: objects.records.waiting() } : {}),
+        });
+      case "page_poke":
+        live?.changed(Array.isArray(call.sections) ? call.sections : []);
         return Response.json({ ok: true });
       case "list":
         return Response.json(objects.list(call.options ?? {}));

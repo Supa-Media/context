@@ -26,7 +26,7 @@ import { test } from "node:test";
 import { ask, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { mayAnswerAsk, readFrontDoor, waitingAsks } from "../src/agent/frontDoor.js";
 import { textedAsk } from "../src/agent/textedApprovals.js";
-import { createPending, listPending } from "../src/tools/approvals.js";
+import { EVERY_CHAT, createPending, listPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const claim = (slug) => ({ toolCalls: [{ name: "create_workspace", args: { slug, name: slug } }] });
@@ -141,9 +141,9 @@ test("a reply that asks something disarms the older ask before it answers", asyn
     detail: "To: jo@example.com\n\nshort",
     texting: true,
   });
-  assert.equal((await listPending(slow, { userId: "u1", texting: true })).length, 1);
+  assert.equal((await listPending(slow, { userId: "u1", texting: true, chat: EVERY_CHAT })).length, 1);
   await textedAsk(slow, { actorUserId: "u1" }, [], "Sure, what time?", { defer: () => undefined });
-  assert.equal((await listPending(slow, { userId: "u1", texting: true })).length, 0, "the older ask is still armed: a bare yes would release it");
+  assert.equal((await listPending(slow, { userId: "u1", texting: true, chat: EVERY_CHAT })).length, 0, "the older ask is still armed: a bare yes would release it");
 });
 
 test("a reply that asks something always lists the waiting asks, whatever the turn saw earlier", async () => {
@@ -177,5 +177,5 @@ test("an ask armed since the last turn is still found and disarmed", async () =>
 
   const { ask } = await textedAsk(store, session, [], "Sunny — want the hourly too?");
   assert.equal(ask, null);
-  assert.equal((await listPending(store, { userId: "u1", texting: true })).length, 0, "and it is disarmed before the reply goes");
+  assert.equal((await listPending(store, { userId: "u1", texting: true, chat: EVERY_CHAT })).length, 0, "and it is disarmed before the reply goes");
 });
