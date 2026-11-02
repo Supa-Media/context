@@ -327,4 +327,5 @@ test/texFolderNames.test.mjs
 test/workspaceMembers.test.mjs
 test/workspaceMembersAccess.test.mjs
 test/accessTopics.test.mjs
+test/accessMirror.test.mjs
 test/personTopics.test.mjs

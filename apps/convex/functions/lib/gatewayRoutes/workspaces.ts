@@ -30,6 +30,7 @@ import { hashToken } from "../crypto";
 import { httpsAppOrigin, json, stringField } from "../gatewayAuth";
 // Members' display profiles for a workspace object, registered beside these (`./accessProfiles.ts`).
 export { gatewayAccessProfilesHandler } from "./accessProfiles";
+export { gatewayAccessMirrorHandler } from "./accessMirror";
 import { isLayoutName, layoutStructure } from "../workspaces/layouts";
 import { clearanceOf } from "../clearance";
 import { toConvexError } from "../filesFns/operationErrors";
