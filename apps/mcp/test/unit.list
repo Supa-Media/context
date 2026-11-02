@@ -338,7 +338,10 @@ test/accessMirror.test.mjs
 test/objectGrants.test.mjs
 test/personTopics.test.mjs
 test/agentGroupAskChat.test.mjs
+test/chatLedger.test.mjs
 test/objectManifest.test.mjs
+test/chatLedgerWrites.test.mjs
+test/chatLedgerReads.test.mjs
 test/texPage.test.mjs
 test/texPageLive.test.mjs
 test/texPageNotes.test.mjs

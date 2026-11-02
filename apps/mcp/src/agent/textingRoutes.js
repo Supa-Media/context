@@ -19,6 +19,7 @@
  *   is dropped or disarmed, never armed or extended.
  */
 
+import { eventEntry, storeLedger } from "./ledger.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { EVERY_CHAT, disarmRecords, listPending, withdrawPending } from "../tools/approvals.js";
@@ -55,7 +56,11 @@ export async function handleEvents(request, store, session) {
   if (conversation === "texts" ? session.actorClientId !== TEXTS_CLIENT_ID : typeof group !== "string" || session.actorClientId !== TEXTS_GROUP_CLIENT_ID) return invalid("conversation");
   const chat = conversation === "texts" ? (Array.isArray(events) ? events[0]?.chat : undefined) : group;
   try {
-    return json({ written: await appendEvents(store, chat, events) });
+    const written = await appendEvents(store, chat, events);
+    // And into the chat's one record (`ledger.js`), by each event's own id, so a retried post keeps one copy.
+    const ledger = storeLedger(store, session);
+    if (ledger !== null) await ledger.write(events.filter((event) => written.includes(event?.id)).map(eventEntry)).then(ledger.flush);
+    return json({ written });
   } catch (error) {
     if (error instanceof EventRefusal) return invalid(error.field);
     throw error;
