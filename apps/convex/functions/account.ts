@@ -62,6 +62,7 @@ import {
 } from "./lib/account/deletionGuards";
 import { deletePersonalRows } from "./lib/account/personalRows";
 import { soleOwnerOf } from "./lib/account/soleOwner";
+import { takeAwayFirst } from "./lib/accessHandOff/takeAway";
 import { finalizeWorkspaceDeletion } from "./lib/account/finalizeWorkspaceDeletion";
 import { disableMeaningHandler } from "./lib/meaningFns/rows";
 
@@ -79,8 +80,8 @@ export const deleteTestWorkspace = mutation({
   returns: v.object({ deleted: v.boolean() }),
   handler: async (ctx, args) => {
     await authorizeTestWorkspaceDeletion(ctx, args);
-
-    await deleteWorkspaceCascade(ctx, args.workspaceId);
+    // Switched access is taken away in its objects first (`lib/accessHandOff/takeAway.ts`).
+    if (!(await takeAwayFirst(ctx, { kind: "workspace", workspaceId: args.workspaceId }))) await deleteWorkspaceCascade(ctx, args.workspaceId);
     return { deleted: true };
   },
 });
@@ -141,8 +142,7 @@ export const deleteWorkspace = mutation({
     await authorizeWorkspaceDeletion(ctx, args);
     // Deleting is a big change (`lib/emailProof.ts`): a phone alone cannot.
     await requireEmailProof(ctx, (await requireAuthId(ctx)) as Id<"users">);
-
-    await deleteWorkspaceCascade(ctx, args.workspaceId);
+    if (!(await takeAwayFirst(ctx, { kind: "workspace", workspaceId: args.workspaceId }))) await deleteWorkspaceCascade(ctx, args.workspaceId);
     return { deleted: true };
   },
 });
@@ -161,32 +161,29 @@ export const deleteAccount = mutation({
   handler: async (ctx) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
     await requireEmailProof(ctx, userId);
-
-    // Workspaces first, membership by membership. The cascade deletes the
-    // membership row along with everything else, so the two branches converge
-    // on "this membership no longer exists".
-    const memberships = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect();
-    for (const membership of memberships) {
-      const soleOwner = await soleOwnerOf(ctx, membership, userId);
-      if (soleOwner) {
-        // Note the edge this deliberately includes: a workspace whose only
-        // owner leaves dies even if editors or members remain. An ownerless
-        // context has nobody who can rebind storage or revoke a grant, which
-        // is not a state to leave anybody in.
-        await deleteWorkspaceCascade(ctx, membership.workspaceId);
-      } else {
-        await ctx.db.delete(membership._id);
-      }
-    }
-
-    await deletePersonalRows(ctx, userId);
-
+    if (!(await takeAwayFirst(ctx, { kind: "account", userId }))) await deleteAccountFor(ctx, userId);
     return { deleted: true };
   },
 });
+
+/** `deleteAccount`'s work, also run behind the objects once they took it (`accessTakeAway.ts`). */
+export async function deleteAccountFor(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
+  // Workspaces first, membership by membership: the cascade deletes the membership row with everything else.
+  const memberships = await ctx.db.query("workspaceMembers").withIndex("by_user", (q) => q.eq("userId", userId)).collect();
+  for (const membership of memberships) {
+    if (await soleOwnerOf(ctx, membership, userId)) {
+      // Note the edge this deliberately includes: a workspace whose only
+      // owner leaves dies even if editors or members remain. An ownerless
+      // context has nobody who can rebind storage or revoke a grant, which
+      // is not a state to leave anybody in.
+      await deleteWorkspaceCascade(ctx, membership.workspaceId);
+    } else {
+      await ctx.db.delete(membership._id);
+    }
+  }
+
+  await deletePersonalRows(ctx, userId);
+}
 
 /**
  * Remove a workspace and everything that hangs off it.
@@ -281,7 +278,7 @@ export const deleteAccount = mutation({
  *    workspace-owned at all: keyed by an arbitrary string, by client, or
  *    platform-scoped, so a workspace teardown has nothing to key a sweep on.
  */
-async function deleteWorkspaceCascade(
+export async function deleteWorkspaceCascade(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<void> {

@@ -61,6 +61,16 @@ the copy, because an old access token still resolves through the control plane
 until it expires. The control plane refuses to rotate a switched person's grant
 and hands a revocation back to the gateway with the grant's id.
 
+## Deleting an account or a workspace
+
+A mutation cannot call an object, so a deletion that touches any scope on
+`object` is queued (`accessTakeAways`) and reported done; an action removes
+the members and invites and revokes the connections in every object it
+touches (on `dual` too), then deletes Convex's rows behind them in one
+transaction (`functions/accessTakeAway.ts`). An object that does not answer is
+retried with backoff and the deletion stays queued: Convex never says someone
+is gone before their objects do.
+
 ## Convex keeps a read-only copy of membership
 
 Decided by the owner, 2026-11-02: Convex's own membership checks (about 160

@@ -51,8 +51,9 @@ export async function flushRowChanges(
 
 type AnyDefinition = { handler: (ctx: MutationCtx, args: never) => unknown } & Record<string, unknown>;
 type Handler = (ctx: MutationCtx, args: never) => unknown;
+type WriteBehind = boolean | "authorityTaken";
 
-function watched<T>(definition: T, options: { writeBehind: boolean } = { writeBehind: false }): T {
+function watched<T>(definition: T, options: { writeBehind: WriteBehind } = { writeBehind: false }): T {
   const def = (typeof definition === "function" ? { handler: definition as Handler } : definition) as AnyDefinition;
   const handler = def.handler;
   return {
@@ -81,6 +82,14 @@ export const internalMutation = ((definition: unknown) =>
  */
 export const internalMutationWriteBehind = ((definition: unknown) =>
   convexInternalMutation(watched(definition, { writeBehind: true }) as never)) as typeof convexInternalMutation;
+
+/**
+ * An `internalMutation` run after the objects already took a take-away (`functions/accessTakeAway.ts`): its writes to
+ * an authority table (members, invites, connections) of a switched scope are written behind and never refused, and
+ * every other access write is pushed to its object as usual, so the people whose copies it changes still hear of it.
+ */
+export const internalMutationAfterTakeAway = ((definition: unknown) =>
+  convexInternalMutation(watched(definition, { writeBehind: "authorityTaken" }) as never)) as typeof convexInternalMutation;
 
 // The rest of the builders and contexts, so a file that takes its mutations from here needs one import.
 export { action, internalAction, internalQuery, query, type ActionCtx, type MutationCtx, type QueryCtx } from "../../../_generated/server";
