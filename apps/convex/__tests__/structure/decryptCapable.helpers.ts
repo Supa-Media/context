@@ -163,6 +163,10 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       // (`texHistoryMigration.ts`, `apps/mcp/src/agent/agentHomeMove.js`), run by hand from the workflow. internalAction,
       // reached only from that workflow's deploy key; it answers counts only, and deletes nothing.
       "functions.texHistoryMigration.run",
+      // Copies each personal workspace's one-to-one Tex chat into its ledger (`texLedgerBackfill.ts`,
+      // `apps/mcp/src/agent/ledgerBackfill.js`), run by hand from its workflow. internalAction, reached only from that
+      // workflow's deploy key; it answers counts and fixed codes only, and deletes nothing.
+      "functions.texLedgerBackfill.run",
       // Reads each group chat's event log in a window and answers counts, bytes and runs by set of people
       // (`texGroupLogShape.ts`), run by hand from its workflow. internalAction, reached only from that workflow's deploy
       // key; it answers fixed codes and counts, never a word, and writes nothing.
