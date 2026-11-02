@@ -164,6 +164,8 @@ const TEX_PART_ICONS = Object.freeze({
   transcripts: contextPartMarker("tex_transcripts"),
   // How they talk (`personVoice.js`, a chat's `chatVoice.js`): a speech bubble, as the chats are.
   "voice.md": contextPartMarker("tex_chats"),
+  // Everything the chat's ledger keeps, read only (`texStore/historyView.js`): the chats' bubble too.
+  "history.ledger.json": contextPartMarker("tex_chats"),
 });
 const CADENCE_ICONS = Object.freeze({
   once: contextPartMarker("cadence_once"),
