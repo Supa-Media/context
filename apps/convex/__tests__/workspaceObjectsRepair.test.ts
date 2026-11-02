@@ -12,11 +12,12 @@
  * the backup instead of restored); delete from the bucket without the etag
  * read (a save meanwhile is removed); let a read-only run write; class a
  * missing note text as `bucketNewer` whatever the rows say (a removed note's
- * text is brought back).
+ * text is brought back); drop the live-note check or the leak-fixed time from
+ * `mayBeErased` (a live note's only history is deleted from the bucket).
  */
 
 import { describe, expect, test } from "vitest";
-import { Facts, WRITE_BEHIND_LAG_MS, documentOfKey, repairPage, settleKey } from "../functions/lib/workspaceObjects/repair";
+import { ERASE_LEAK_FIXED_AT, Facts, WRITE_BEHIND_LAG_MS, documentOfKey, repairPage, settleKey } from "../functions/lib/workspaceObjects/repair";
 import type { BodyStore, WalkCursor } from "../functions/lib/workspaceObjects/bodies";
 
 const ROOT = ".context/collaboration/v1/";
@@ -83,6 +84,13 @@ function world() {
 }
 
 const live = (current: string) => JSON.stringify({ documentId: LIVE, revision: current, pending: null });
+/** A document the object no longer has, made for the note at `gone.md`. */
+const goneState = (extra: Record<string, unknown> = {}) => JSON.stringify({ documentId: GONE, path: "gone.md", revision: "r1", ...extra });
+
+/** Facts that may class an erase: the bucket to read a document's note from, and the workspace's live notes. */
+function guarded(o: BodyStore, b: BodyStore, notes: { paths?: string[]; noteIds?: string[] } = {}) {
+  return new Facts(o, null, { bucket: b, liveNotes: async () => ({ paths: new Set(notes.paths ?? []), noteIds: new Set(notes.noteIds ?? []) }) });
+}
 
 describe("the key a document belongs to", () => {
   test("state, revisions and operations name their document; heads and notes do not", () => {
@@ -118,11 +126,12 @@ describe("classing a key the bucket holds and the object lacks", () => {
 
   test("everything of a document the object no longer has was erased: deleted from the bucket", async () => {
     const { bucket, object, b, o } = world();
-    bucket.seed(state(GONE), JSON.stringify({ documentId: GONE, revision: "r1" }));
+    bucket.seed(state(GONE), goneState());
     bucket.seed(revision(GONE, "r1"), "erased words");
-    bucket.seed(head("h-gone"), JSON.stringify({ documentId: GONE }));
-    const facts = new Facts(o);
-    for (const key of [state(GONE), revision(GONE, "r1"), head("h-gone")]) {
+    bucket.seed(head("h-gone"), JSON.stringify({ documentId: GONE, path: "gone.md", noteId: "n-gone" }));
+    const facts = guarded(o, b, { paths: ["kept.md"], noteIds: ["n-kept"] });
+    // The head goes last: the others read the note they belong to from the bucket's state.
+    for (const key of [revision(GONE, "r1"), head("h-gone"), state(GONE)]) {
       expect(await settleKey(b, o, key, facts, true)).toEqual({ verdict: "eraseNotApplied", done: "erased" });
     }
     expect(bucket.objects.size).toBe(0);
@@ -205,19 +214,59 @@ describe("classing a key both hold with different bytes", () => {
   });
 });
 
+describe("history only the bucket ever held is never deleted as an erase", () => {
+  // Until #2710 the app wrote an object-home workspace's notes and their history to the bucket alone, so a document
+  // the object lacks may be the one copy of a live note's history rather than an erase the bucket missed.
+  test("a document whose note is still live at its path is left alone", async () => {
+    const { bucket, object, b, o } = world();
+    bucket.seed(state(GONE), goneState());
+    bucket.seed(revision(GONE, "r1"), "words of a live note");
+    const facts = guarded(o, b, { paths: ["gone.md"] });
+    for (const key of [state(GONE), revision(GONE, "r1")]) {
+      expect(await settleKey(b, o, key, facts, true)).toEqual({ verdict: "unsure", done: null });
+    }
+    expect(bucket.writes).toEqual([]);
+    expect(object.writes).toEqual([]);
+  });
+
+  test("a head whose note id still has a live row is left alone, wherever the note now lives", async () => {
+    const { bucket, b, o } = world();
+    bucket.seed(head("h-moved"), JSON.stringify({ documentId: GONE, path: "old-name.md", noteId: "n-live" }));
+    expect(await settleKey(b, o, head("h-moved"), guarded(o, b, { paths: ["new-name.md"], noteIds: ["n-live"] }), true)).toEqual({ verdict: "unsure", done: null });
+    expect(bucket.writes).toEqual([]);
+  });
+
+  test("a copy written after the erase leak was fixed is never an erase the bucket missed", async () => {
+    const { bucket, b, o } = world();
+    bucket.seed(state(GONE), goneState(), ERASE_LEAK_FIXED_AT + 60_000);
+    expect(await settleKey(b, o, state(GONE), guarded(o, b), true)).toEqual({ verdict: "unsure", done: null });
+    expect(bucket.writes).toEqual([]);
+  });
+
+  test("a document whose note cannot be told, or with nobody to ask about live notes, is left alone", async () => {
+    const { bucket, b, o } = world();
+    bucket.seed(revision(GONE, "r1"), "no state to name its note");
+    expect(await settleKey(b, o, revision(GONE, "r1"), guarded(o, b), true)).toEqual({ verdict: "unsure", done: null });
+    bucket.seed(state(GONE), goneState());
+    expect(await settleKey(b, o, state(GONE), new Facts(o), true)).toEqual({ verdict: "unsure", done: null });
+    expect(bucket.writes).toEqual([]);
+  });
+});
+
 describe("races and read-only runs", () => {
   test("an erase is applied only to the bucket copy that was read: a save meanwhile survives", async () => {
     const { bucket, b, o } = world();
-    bucket.seed(state(GONE), "old");
+    bucket.seed(state(GONE), goneState());
     const realGet = bucket.get.bind(bucket);
     // The bucket's copy is replaced between the read and the delete.
+    let reads = 0;
     (bucket as { get: typeof bucket.get }).get = async (key: string) => {
       const found = await realGet(key);
-      bucket.seed(key, "saved meanwhile");
+      if ((reads += 1) === 1) bucket.seed(key, goneState({ saved: "meanwhile" }));
       return found;
     };
-    expect(await settleKey(b, o, state(GONE), new Facts(o), true)).toEqual({ verdict: "eraseNotApplied", done: "raced" });
-    expect(bucket.text(state(GONE))).toBe("saved meanwhile");
+    expect(await settleKey(b, o, state(GONE), guarded(o, b), true)).toEqual({ verdict: "eraseNotApplied", done: "raced" });
+    expect(bucket.text(state(GONE))).toBe(goneState({ saved: "meanwhile" }));
   });
 
   test("without apply nothing is written on either side, and the page counts each class by shape", async () => {
@@ -226,12 +275,12 @@ describe("races and read-only runs", () => {
     bucket.seed(state(LIVE), live("r2"));
     bucket.seed(revision(LIVE, "r2"), "lost");
     bucket.seed(revision(LIVE, "r1"), "older");
-    bucket.seed(state(GONE), "erased");
+    bucket.seed(state(GONE), goneState());
     bucket.seed(head("h1"), JSON.stringify({ documentId: LIVE }), clock.now - 10_000);
     object.seed(head("h1"), JSON.stringify({ documentId: LIVE, moved: true }));
     bucket.seed(NOTE, "# same");
     object.seed(NOTE, "# same");
-    const facts = new Facts(o);
+    const facts = guarded(o, b);
     const totals: Record<string, number> = {};
     const shapes: Record<string, number> = {};
     let at: WalkCursor | null = { prefix: 0 };

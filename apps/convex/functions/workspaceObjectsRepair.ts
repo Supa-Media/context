@@ -15,10 +15,10 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { internalAction } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
 import { failureOf, withRetries } from "./lib/workspaceObjects/failures";
 import { consoleWorkspaceClient } from "./lib/workspaceObjects/door";
-import { emptyRepairCounts, Facts, repairPage, settleKey, type RepairCounts } from "./lib/workspaceObjects/repair";
+import { emptyRepairCounts, Facts, repairPage, settleKey, type LiveNotes, type RepairCounts } from "./lib/workspaceObjects/repair";
 import type { BodyStore } from "./lib/workspaceObjects/bodies";
 import { nextWorkspace, openBucket, sleep, startState } from "./workspaceObjects";
 
@@ -40,6 +40,25 @@ const repairCountsValidator = v.object({
   raced: v.number(),
   failed: v.number(),
 });
+
+/** Every live note of a workspace, by path and note id: what an erase is checked against before the bucket loses a key. */
+async function liveNotesOf(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<LiveNotes> {
+  const live: LiveNotes = { paths: new Set(), noteIds: new Set() };
+  let after: string | undefined;
+  for (;;) {
+    const page: { rows: Array<{ path: string; kind: string; noteId?: string }>; next: string | null } = await ctx.runQuery(
+      internal.functions.workspaceObjectsRows.rowsPage,
+      { workspaceId, ...(after === undefined ? {} : { after }) },
+    );
+    for (const row of page.rows) {
+      if (row.kind !== "file") continue;
+      live.paths.add(row.path);
+      if (row.noteId !== undefined) live.noteIds.add(row.noteId);
+    }
+    if (page.next === null) return live;
+    after = page.next;
+  }
+}
 
 /** Whether a workspace's last recorded parity check found its bodies differing (no check recorded counts as differing). */
 function bodiesDiffered(record: unknown): boolean {
@@ -103,7 +122,10 @@ export const repair = internalAction({
         }
         const object = withRetries(client.bodies as unknown as BodyStore, sleep);
         // One set of facts per call: a document settled by an earlier call is read again, as it now is.
-        const facts = new Facts(object, async (key) => await ctx.runQuery(internal.functions.workspaceObjectsRows.rowReadsKey, { workspaceId, key }));
+        const facts = new Facts(object, async (key) => await ctx.runQuery(internal.functions.workspaceObjectsRows.rowReadsKey, { workspaceId, key }), {
+          bucket,
+          liveNotes: () => liveNotesOf(ctx, workspaceId),
+        });
         let at = state.at ?? { prefix: 0 };
         let finished = false;
         while (Date.now() - started < PAGE_BUDGET_MS) {
@@ -172,7 +194,10 @@ export const repairRecent = internalAction({
     if (bucket === null || client === null) return { keys: 0, complete: true, counts, why, refused: "UNREACHABLE" };
     const object = withRetries(client.bodies as unknown as BodyStore, sleep);
     const { keys, complete }: { keys: string[]; complete: boolean } = await ctx.runQuery(internal.functions.workspaceObjectsRows.keysWrittenSince, { workspaceId, since, limit: RECENT_KEYS });
-    const facts = new Facts(object, async (key: string): Promise<boolean> => await ctx.runQuery(internal.functions.workspaceObjectsRows.rowReadsKey, { workspaceId, key }));
+    const facts = new Facts(object, async (key: string): Promise<boolean> => await ctx.runQuery(internal.functions.workspaceObjectsRows.rowReadsKey, { workspaceId, key }), {
+      bucket,
+      liveNotes: () => liveNotesOf(ctx, workspaceId),
+    });
     for (let start = 0; start < keys.length; start += 8) {
       await Promise.all(
         keys.slice(start, start + 8).map(async (key) => {
