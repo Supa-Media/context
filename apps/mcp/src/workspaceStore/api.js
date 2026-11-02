@@ -95,7 +95,7 @@ export function workspaceStub(env, workspaceId) {
  * Every `ws.*` call names its workspace; the object pins the first it sees and refuses any other.
  * - `rules.put(heldRules, audience)`, `rules.get(audience)`
  * - `apply({rows, removed, at, rules: {member?, guest?}})`: rows, removals and rules in one storage transaction
- * - `state()` → `{home, backfilledAt, rows, objects, accessVersion, members: {home, members, invites, reachPending}}`; `setHome(home)`; `markBackfilled(at)`
+ * - `state()` → `{home, backfilledAt, encryption, rows, objects, accessVersion, members: {home, members, invites, reachPending}}`; `setHome(home)`; `setEncryption("none"|"keyed")`; `markBackfilled(at)`
  * - `members.*`, `invites.*`: who belongs to the workspace (`workspaceStore/members.js`): see `membershipClient`.
  */
 export function workspaceClient(env, workspaceId) {
@@ -104,14 +104,14 @@ export function workspaceClient(env, workspaceId) {
   const ask = async (op, fields = {}) => await (await callTexStore(stub, op, {}, new TextEncoder().encode(JSON.stringify({ ...fields, workspaceId })))).json();
   return {
     bodies: new R2Store(texBucket(stub)),
-    read: async ({ ids, scope, groups = [], audience = "member", userId = null }) => await ask("ws.read", { ids, scope, groups, audience, ...(userId ? { userId } : {}) }),
+    read: async ({ ids, scope, groups = [], audience = "member", userId = null, chatNames = null }) => await ask("ws.read", { ids, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
     visible: async ({ ids, scope, groups = [], audience = "member", userId = null }) => (await ask("ws.visible", { ids, scope, groups, audience, ...(userId ? { userId } : {}) })).visible,
     rows: {
       put: async (rows) => await ask("ws.rows.put", { rows }),
       remove: async (ids, at) => await ask("ws.rows.remove", { ids, at }),
       get: async (ids) => await ask("ws.rows.get", { ids }),
-      lookup: async ({ paths, scope, groups = [], audience = "member", userId = null }) => await ask("ws.rows.lookup", { paths, scope, groups, audience, ...(userId ? { userId } : {}) }),
-      resolve: async ({ noteIds, scope, groups = [], audience = "member", userId = null }) => await ask("ws.rows.resolve", { noteIds, scope, groups, audience, ...(userId ? { userId } : {}) }),
+      lookup: async ({ paths, scope, groups = [], audience = "member", userId = null, chatNames = null }) => await ask("ws.rows.lookup", { paths, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
+      resolve: async ({ noteIds, scope, groups = [], audience = "member", userId = null, chatNames = null }) => await ask("ws.rows.resolve", { noteIds, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
       list: async ({ after = null, limit = 1000 } = {}) => await ask("ws.rows.list", { after, limit }),
       snapshot: async ({ epoch, rows, last = false, mode = "replace" }) => await ask("ws.rows.snapshot", { epoch, rows, last, mode }),
       digest: async () => await ask("ws.rows.digest"),
@@ -124,6 +124,7 @@ export function workspaceClient(env, workspaceId) {
     ...membershipClient(ask),
     state: async () => await ask("ws.state"),
     setHome: async (home) => await ask("ws.home", { home }),
+    setEncryption: async (state) => await ask("ws.encryption", { state }),
     markBackfilled: async (at) => await ask("ws.backfilled", { at }),
     // A personal workspace's object is its person's too (`workspaceStore/access.js`).
     access: personAccessClient(ask, workspaceId),

@@ -37,6 +37,9 @@ const SCHEMA = [
 /** The readers the control plane renders rules for, kept apart. A Tex guest chat's rules are not kept here. */
 export const AUDIENCES = new Set(["member", "guest"]);
 
+/** Whether a workspace holds a data key: `keyed` once one is made, `none` where the control plane found none. */
+export const ENCRYPTION_STATES = new Set(["none", "keyed"]);
+
 /** The fields a row's digest covers, in order. */
 const DIGEST_FIELDS = ["id", "noteId", "path", "kind", "storageKey", "etag", "size", "collaborates", "uploaded", "role", "order", "archiveOf"];
 
@@ -228,6 +231,21 @@ export function workspaceRows(sql) {
       if (!isHome(home)) throw new WorkspaceRowRefused("not a home");
       setMeta("home", home);
       return home;
+    },
+    /**
+     * Whether this workspace holds a data key (`ENCRYPTION_STATES`), or null where nobody has said. Only `none` lets a
+     * reader go without asking the control plane for the key; `keyed` sticks, so a late `none` (a copy that read the
+     * key rows before an owner turned encryption on) never undoes it.
+     */
+    encryption() {
+      const value = meta("encryption");
+      return ENCRYPTION_STATES.has(value) ? value : null;
+    },
+    setEncryption(state) {
+      if (!ENCRYPTION_STATES.has(state)) throw new WorkspaceRowRefused("not an encryption state");
+      if (state === "none" && meta("encryption") === "keyed") return "keyed";
+      setMeta("encryption", state);
+      return state;
     },
     backfilledAt() {
       const value = meta("backfilledAt");
