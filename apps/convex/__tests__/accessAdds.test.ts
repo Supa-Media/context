@@ -176,8 +176,8 @@ describe("addsOf", () => {
     expect(addsOf([inserted, { ...joinerGroupRow, doc: { workspaceId: "ws-1", userId: "u-9", groupId: "g-1" } }], W)).toBeNull();
   });
 
-  test("a group write gives null", () => {
-    expect(addsOf([{ table: "workspaceGroups", id: "g-1", op: "insert", doc: { workspaceId: "ws-1", name: "crew" } }], W)).toBeNull();
+  test("a new group names nobody and passes; changing or deleting a group gives null", () => {
+    expect(addsOf([{ table: "workspaceGroups", id: "g-1", op: "insert", doc: { workspaceId: "ws-1", name: "crew" } }], W)).toEqual({ userIds: [], inviteIds: [] });
     expect(addsOf([inserted, { table: "workspaceGroups", id: "g-1", op: "before", doc: { workspaceId: "ws-1", name: "crew" } }], W)).toBeNull();
   });
 

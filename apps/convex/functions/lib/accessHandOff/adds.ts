@@ -11,7 +11,8 @@
  * which the outbox puts there row by row, as Convex holds it when the push
  * runs (`functions/accessObjectPush.ts`). What stays refused is anything that
  * takes access away or changes it for someone already in (a removal, a role
- * change, a group change): those go to the object first.
+ * change, leaving or deleting a group, `ungroup.ts`): those go to the object
+ * first. Joining a group, and a new group nobody is in yet, count as joins.
  *
  * Invitations are always allowed. An invitation's link is only ever checked
  * against Convex's copy (`lib/invitations/join.ts`; nothing reads the
@@ -37,12 +38,16 @@ export function addsOf(writes: readonly AccessWrite[], workspaceId: Id<"workspac
     targetsOf(write).some((target) => target.kind === "workspace" && target.workspaceId === workspaceId && (target.table === "members" || target.table === "invites")),
   );
   const joined = new Set<string>();
+  /** Joined the workspace itself (not just a group): only these may have their old group rows cleared. */
+  const newMembers = new Set<string>();
   const invites = new Set<string>();
   for (const write of mine) {
-    if (write.table === "workspaceMembers" && write.op === "insert") {
+    if ((write.table === "workspaceMembers" || write.table === "workspaceGroupMembers") && write.op === "insert") {
+      // Joining the workspace, or one of its groups: the push puts the member's row as Convex holds it then.
       const userId = str(write.doc.userId);
       if (userId === null) return null;
       joined.add(userId);
+      if (write.table === "workspaceMembers") newMembers.add(userId);
     } else if (write.table === "workspaceInvitations") {
       invites.add(write.id);
     }
@@ -51,9 +56,11 @@ export function addsOf(writes: readonly AccessWrite[], workspaceId: Id<"workspac
   const patched = new Set(mine.filter((write) => write.op === "after").map((write) => write.id));
   for (const write of mine) {
     if (write.table === "workspaceInvitations") continue;
-    if (write.table === "workspaceMembers" && write.op === "insert") continue;
+    if ((write.table === "workspaceMembers" || write.table === "workspaceGroupMembers") && write.op === "insert") continue;
+    // A new group names nobody yet: nothing in the object changes until someone joins it.
+    if (write.table === "workspaceGroups" && write.op === "insert") continue;
     // A join starts from no group names (`clearGroupNames`): deleting the joiner's own old group rows is part of it.
-    const joinerGroupRowGone = write.table === "workspaceGroupMembers" && write.op === "before" && !patched.has(write.id) && joined.has(String(write.doc.userId));
+    const joinerGroupRowGone = write.table === "workspaceGroupMembers" && write.op === "before" && !patched.has(write.id) && newMembers.has(String(write.doc.userId));
     if (!joinerGroupRowGone) return null;
   }
   return { userIds: [...joined].sort(), inviteIds: [...invites].sort() };

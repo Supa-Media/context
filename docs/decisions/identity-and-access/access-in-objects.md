@@ -113,10 +113,13 @@ changed invitation in the object row by row, as Convex holds it when the push
 runs (`functions/lib/accessHandOff/adds.ts`, `functions/accessObjectPush.ts`).
 Nobody is let in until the object holds the row. An invitation's link is only
 ever checked against Convex's copy, so an invitation revoked, declined or
-accepted in Convex is already spent, and the object's list follows. Anything
+accepted in Convex is already spent, and the object's list follows. Joining a group, and a new group nobody is in yet, count as joins. Anything
 that takes access away or changes it for someone already in (a removal, a role
-change, a group change) is still refused in Convex and goes to the object
-first.
+change) is still refused in Convex and goes to the object first. Leaving a
+group, deleting one, and a Tex chat guest leaving the chat's group take access
+away too, so at `object` they are queued like a deletion: the queue puts each
+leaving member's row without the group in the object, then deletes Convex's
+group rows (`functions/lib/accessHandOff/ungroup.ts`).
 
 ## What a simplification would cost
 

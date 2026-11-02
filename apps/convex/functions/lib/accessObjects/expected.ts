@@ -57,7 +57,7 @@ const capped = <T>(rows: T[], what: string): T[] => {
  * The names of `userId`'s groups in `workspaceId`, sorted. Group names only:
  * the person's own handle is added when a session is built (contract).
  */
-export async function groupNames(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">): Promise<string[]> {
+export async function groupNames(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">, without?: Id<"workspaceGroups">): Promise<string[]> {
   const rows = capped(
     await ctx.db
       .query("workspaceGroupMembers")
@@ -67,7 +67,7 @@ export async function groupNames(ctx: QueryCtx, workspaceId: Id<"workspaces">, u
   );
   const names = new Set<string>();
   for (const row of rows) {
-    if (row.workspaceId !== workspaceId) continue;
+    if (row.workspaceId !== workspaceId || row.groupId === without) continue;
     const group = await ctx.db.get(row.groupId);
     if (group !== null && group.workspaceId === workspaceId) names.add(group.name);
   }
@@ -95,15 +95,15 @@ export async function membersPage(
   return { rows, skipped, next: page.isDone ? null : page.continueCursor };
 }
 
-/** One member as the workspace object keeps them, or `null` for an account with no personal workspace. */
-export async function memberRow(ctx: QueryCtx, member: Doc<"workspaceMembers">, now: number): Promise<Row | null> {
+/** One member as the workspace object keeps them (leaving out group `without`), or `null` without a personal workspace. */
+export async function memberRow(ctx: QueryCtx, member: Doc<"workspaceMembers">, now: number, without?: Id<"workspaceGroups">): Promise<Row | null> {
   const personal = await personalWorkspaceOf(ctx, member.userId);
   if (personal === null) return null;
   return {
     userId: String(member.userId),
     personalWorkspaceId: String(personal._id),
     role: member.role,
-    groups: await groupNames(ctx, member.workspaceId, member.userId),
+    groups: await groupNames(ctx, member.workspaceId, member.userId, without),
     at: now,
   };
 }

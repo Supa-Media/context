@@ -60,14 +60,14 @@ export async function foldSteps(ctx: QueryCtx, job: Doc<"accessTakeAways">): Pro
       .query("workspaceMembers")
       .withIndex("by_workspace_user", (q) => q.eq("workspaceId", workspaceId).eq("userId", intoId))
       .unique();
-    const put =
+    const puts =
       membership !== null && into !== null
         ? {
-            row: { userId: String(intoId), personalWorkspaceId: String(into._id), role: membership.role, groups: await groupNames(ctx, workspaceId, intoId), at: job.at },
+            rows: [{ userId: String(intoId), personalWorkspaceId: String(into._id), role: membership.role, groups: await groupNames(ctx, workspaceId, intoId), at: job.at }],
             workspace: { slug: workspace.slug, kind: workspace.kind },
           }
         : undefined;
-    steps.push({ scope: "workspace", workspaceId, home, userIds: [String(fromId)], inviteIds: [], ...(put ? { put } : {}) });
+    steps.push({ scope: "workspace", workspaceId, home, userIds: [String(fromId)], inviteIds: [], ...(puts ? { puts } : {}) });
   }
   return steps;
 }

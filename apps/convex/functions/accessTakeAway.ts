@@ -14,6 +14,7 @@ import { internalAction, internalQuery, type ActionCtx } from "../_generated/ser
 import { internalMutationAfterTakeAway } from "./lib/rowWatch/mutations";
 import { takeAwaySteps, type TakeAwayStep, type TakeAwayTarget } from "./lib/accessHandOff/takeAway";
 import { foldSteps } from "./lib/accessHandOff/fold";
+import { finishUngroup, ungroupSteps } from "./lib/accessHandOff/ungroup";
 import { leaveDroppedDomains } from "./lib/domainMembership";
 import { consoleWorkspaceClient } from "./lib/workspaceObjects/door";
 import { deleteAccountFor, deleteWorkspaceCascade } from "./account";
@@ -41,6 +42,7 @@ export const planOf = internalQuery({
     const job = await ctx.db.get(id);
     if (job === null) return null;
     if (job.kind === "fold") return { at: job.at, attempt: job.attempt, steps: await foldSteps(ctx, job) };
+    if (job.kind === "ungroup") return { at: job.at, attempt: job.attempt, steps: await ungroupSteps(ctx, job) };
     const target: TakeAwayTarget =
       job.kind === "account"
         ? { kind: "account", userId: job.userId! }
@@ -63,8 +65,8 @@ async function applyStep(open: OpenObject, step: TakeAwayStep, at: number): Prom
   const object = open(step.workspaceId);
   if (object === null) throw new Error("take-away: object unreachable");
   if (step.scope === "workspace") {
-    // A fold puts the account it moved into; its row carries the workspace's name, as a first put must.
-    if (step.put !== undefined && failed(await object.members.put([step.put.row], { workspace: step.put.workspace }))) throw new Error("take-away: member put refused");
+    // A fold puts the account it moved into, a group change its members' new groups; with the workspace's name, as a first put needs.
+    if (step.puts !== undefined && step.puts.rows.length > 0 && failed(await object.members.put(step.puts.rows, { workspace: step.puts.workspace }))) throw new Error("take-away: member put refused");
     for (const userIds of chunks(step.userIds)) if (failed(await object.members.remove(userIds, at))) throw new Error("take-away: members refused");
     for (const ids of chunks(step.inviteIds)) if (failed(await object.invites.remove(ids, at))) throw new Error("take-away: invites refused");
     return;
@@ -73,7 +75,7 @@ async function applyStep(open: OpenObject, step: TakeAwayStep, at: number): Prom
 }
 
 /** One pass over a queued deletion: `"done"`, `"gone"` (nothing queued) or `"failed"` (left queued). */
-export async function runTakeAway(ctx: ActionCtx, id: Id<"accessTakeAways">, open: OpenObject): Promise<"done" | "gone" | "failed"> {
+export async function runTakeAway(ctx: ActionCtx, id: Id<"accessTakeAways">, open: OpenObject, passes = 3): Promise<"done" | "gone" | "failed"> {
   const plan = (await ctx.runQuery(internal.functions.accessTakeAway.planOf, { id })) as { at: number; attempt: number; steps: TakeAwayStep[] } | null;
   if (plan === null) return "gone";
   try {
@@ -81,7 +83,8 @@ export async function runTakeAway(ctx: ActionCtx, id: Id<"accessTakeAways">, ope
   } catch {
     return "failed";
   }
-  await ctx.runMutation(internal.functions.accessTakeAway.finish, { id });
+  // A whole group that gained a member meanwhile is planned again and run again (`ungroup.ts`).
+  if (!(await ctx.runMutation(internal.functions.accessTakeAway.finish, { id }))) return passes > 1 ? await runTakeAway(ctx, id, open, passes - 1) : "failed";
   return "done";
 }
 
@@ -122,13 +125,18 @@ export const retried = internalMutationAfterTakeAway({
  */
 export const finish = internalMutationAfterTakeAway({
   args: { id: v.id("accessTakeAways") },
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx, { id }) => {
     const job = await ctx.db.get(id);
-    if (job === null) return null;
+    if (job === null) return true;
+    if (job.kind === "ungroup") {
+      if (!(await finishUngroup(ctx, job))) return false;
+      await ctx.db.delete(id);
+      return true;
+    }
     await ctx.db.delete(id);
     // A fold is already in Convex: the objects were all that was owed.
-    if (job.kind === "fold") return null;
+    if (job.kind === "fold") return true;
     if (job.kind === "leave" && job.userId !== undefined) {
       await leaveDroppedDomains(ctx, job.userId, job.workspaceIds ?? []);
     } else if (job.kind === "account" && job.userId !== undefined) {
@@ -136,6 +144,6 @@ export const finish = internalMutationAfterTakeAway({
     } else if (job.workspaceId !== undefined && (await ctx.db.get(job.workspaceId)) !== null) {
       await deleteWorkspaceCascade(ctx, job.workspaceId);
     }
-    return null;
+    return true;
   },
 });
