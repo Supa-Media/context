@@ -31,6 +31,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { digestId } from "../../../packages/communications/src/backup.js";
 import { BACKUP_LOG_PREFIX, LOG_PAGE_OBJECTS, readLogPage } from "../../../packages/communications/src/backupLog.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-messages-read.test";
 const tok = (name) => `cat_msgread_${name}_`.padEnd(40, "0");
@@ -67,7 +68,7 @@ async function setUp() {
   await grant(T.sharedOwner, "ws_mr_shared", "owner", all, "user_mine");
   await grant(T.teamTier, "ws_mr_mine", "owner", ["context:read", "context:write"], "user_mine");
   return {
-    env: { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET },
+    env: { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET },
     restore: () => {
       for (const restore of restores.reverse()) restore();
     },

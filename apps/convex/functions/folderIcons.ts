@@ -17,7 +17,7 @@
 import { audienceOfNames } from "./lib/pinnedReaders";
 import type { Audience } from "./lib/nodes/rowAccess";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { nameSaysSomething, suggestIconFor } from "@context/shared/src/iconSuggest";
 import { contextIconByWords, suggestContextIconFor } from "@context/shared/src/contextIconSuggest";
 import { contextIconMarker } from "@context/shared/src/contextIcons.cjs";

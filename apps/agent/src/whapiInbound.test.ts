@@ -225,13 +225,13 @@ describe("whapi webhook: 1:1 chats", () => {
         delivery(message({ type: "action", text: undefined, action: { type: "reaction", target: "3EB0TARGET-ABCD7777", emoji } })),
         LINE,
       )[0];
-    const on = (how: string) => ({
+    const on = (how: string, emoji?: string) => ({
       kind: "reaction",
       eventId: "whapi:3EB0ABCD-EF121234",
       chatId: `whapi:${LINE}:${PERSON}`,
       from: PERSON,
       messageId: "3EB0ABCD-EF121234",
-      reaction: { how, words: "" },
+      reaction: { how, words: "", ...(emoji ? { emoji } : {}) },
       on: "3EB0TARGET-ABCD7777",
     });
     expect(reaction("\u{1F44D}")).toEqual(on("Liked"));
@@ -243,8 +243,8 @@ describe("whapi webhook: 1:1 chats", () => {
     expect(reaction("‼️")).toEqual(on("Emphasized"));
     expect(reaction("❓")).toEqual(on("Questioned"));
     expect(reaction("❔")).toEqual(on("Questioned"));
-    expect(reaction("\u{1F525}")).toEqual(on("Reacted"));
-    expect(reaction("constructor")).toEqual(on("Reacted"));
+    expect(reaction("\u{1F525}")).toEqual(on("Reacted", "\u{1F525}"));
+    expect(reaction("constructor")).toEqual(on("Reacted", "construc"));
   });
 
   it("takes an empty emoji as a tapback taken back", () => {
@@ -285,6 +285,24 @@ describe("whapi webhook: groups", () => {
     expect(event).toMatchObject({ kind: "group-message", text: "Tex what's up @15550001112" });
     const [again] = parseWhapiWebhook(delivery(group({ text: { body: "@15550001111 and @15550001111" } })), LINE);
     expect(again).toMatchObject({ text: "Tex and Tex" });
+  });
+
+  it("reads a @lid mention as Tex when context.mentions names Tex's number (WhatsApp's group shape)", () => {
+    const body = "@123456789012345 where is the page";
+    const [event] = parseWhapiWebhook(delivery(group({ text: { body }, context: { mentions: ["15550001111@s.whatsapp.net"] } })), LINE);
+    expect(event).toMatchObject({ kind: "group-message", text: "Tex where is the page" });
+    // Only the mention the list says is Tex: someone else's stays as it was.
+    const [two] = parseWhapiWebhook(
+      delivery(group({ text: { body: "@111111111111111 ask @222222222222222" }, context: { mentions: ["15551234567@s.whatsapp.net", "15550001111@s.whatsapp.net"] } })),
+      LINE,
+    );
+    expect(two).toMatchObject({ text: "@111111111111111 ask Tex" });
+    // Listed but not written as a mention: still addressed to Tex.
+    const [listed] = parseWhapiWebhook(delivery(group({ text: { body: "where is it" }, context: { mentions: ["15550001111@s.whatsapp.net"] } })), LINE);
+    expect(listed).toMatchObject({ text: "Tex where is it" });
+    // A mention of someone else only is never Tex.
+    const [other] = parseWhapiWebhook(delivery(group({ text: { body: "@123456789012345 hi" }, context: { mentions: ["15551234567@s.whatsapp.net"] } })), LINE);
+    expect(other).toMatchObject({ text: "@123456789012345 hi" });
   });
 
   it("names a sender with only a @lid id as lid:<digits>, never as a phone", () => {
@@ -352,10 +370,13 @@ describe("whapi webhook: groups", () => {
     expect(removed).toMatchObject({ reaction: { how: "Liked", words: "", removed: true }, reactionOn: "3EB0TARGET-ABCD7777" });
   });
 
-  it("ignores any other group reaction", () => {
-    expect(
-      parseWhapiWebhook(delivery(group({ type: "action", text: undefined, action: { type: "reaction", target: "3EB0TARGET-ABCD7777", emoji: "\u{1F602}" } })), LINE),
-    ).toEqual([{ kind: "ignored", reason: "reaction" }]);
+  // Since 2026-11-01 (Dev2) a group reads every reaction, not only a like or a love.
+  it("reads any other group reaction, by its emoji", () => {
+    const read = (emoji: string) =>
+      parseWhapiWebhook(delivery(group({ type: "action", text: undefined, action: { type: "reaction", target: "3EB0TARGET-ABCD7777", emoji } })), LINE)[0];
+    expect(read("\u{1F602}")).toMatchObject({ kind: "group-message", reaction: { how: "Laughed at", words: "" }, reactionOn: "3EB0TARGET-ABCD7777" });
+    expect(read("\u{1F44E}")).toMatchObject({ kind: "group-message", reaction: { how: "Disliked", words: "" } });
+    expect(read("\u{1F525}")).toMatchObject({ kind: "group-message", reaction: { how: "Reacted", words: "", emoji: "\u{1F525}" } });
   });
 
   it("ignores a group's own messages and its edits", () => {

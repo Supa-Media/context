@@ -1,8 +1,9 @@
 import { createSupaAuth } from "@supa-media/convex/auth";
 import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
-import { APP_REVIEW_PHONE, appReviewPhoneCodeMatches, reviewerTestEmail } from "./functions/lib/reviewerAccount";
+import { APP_REVIEW_PHONE, appReviewPhoneCodeMatches, googleReviewTestEmail, reviewerTestEmail } from "./functions/lib/reviewerAccount";
 import { testAccountEmail } from "./functions/lib/testAccount";
 import { mayCreateUser } from "./functions/lib/waitlist";
+import { limitEmailCodeSends } from "./functions/lib/emailCodeSends";
 import { userWithSignInEmail } from "./functions/lib/signInEmails";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -25,7 +26,7 @@ sealDevOtpBypass();
  * methods and their transports (Resend for email, Twilio Verify for phone)
  * are configured here. See @supa-media/convex/auth for all options.
  */
-export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth({
+const supaAuth = createSupaAuth({
   appName: "Context",
   methods: ["email"],
   // Invite-only (Dev2, 2026-09-28). A stranger is not mailed a code and not
@@ -109,11 +110,12 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
   // Dedicated production CUJ identity. The framework registers a separate
   // provider that refuses every other address; this is not the global dev
   // bypass and cannot change the ordinary customer email provider. The
-  // connector-directory reviewer gets a provider of its own the same way.
-  // Both codes live only in the deployment's environment
-  // (`TEST_ACCOUNT_SIGNIN_CODE`, `REVIEWER_SIGNIN_CODE`); unset, neither
-  // provider exists.
-  testEmail: [...testAccountEmail(), ...reviewerTestEmail()],
+  // connector-directory reviewer gets a provider of its own the same way, and
+  // so does Google's verification reviewer. Every code lives only in the
+  // deployment's environment (`TEST_ACCOUNT_SIGNIN_CODE`,
+  // `REVIEWER_SIGNIN_CODE`, `GOOGLE_REVIEW_SIGNIN_CODE`); unset, that provider
+  // does not exist.
+  testEmail: [...testAccountEmail(), ...reviewerTestEmail(), ...googleReviewTestEmail()],
   // The framework honours `DEV_OTP_BYPASS` — which changes what the ORDINARY
   // customer provider mints, for every address — unless this is truthy and
   // `CONVEX_SITE_URL` contains it. Passing nothing is not "no opinion": it is
@@ -122,3 +124,11 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
   // the bypass is for.
   productionIdentifier: productionOtpGuard(),
 });
+
+export const { auth, signIn, signOut, isAuthenticated } = supaAuth;
+// Every new email code spends one of its address's sends, in the transaction
+// that writes it. The library's store, under a name of its own, and `auth:store` (the name the
+// library calls) spending the email code send budget first. See
+// `functions/lib/emailCodeSends.ts`.
+export const libraryStore = supaAuth.store;
+export const store = limitEmailCodeSends();

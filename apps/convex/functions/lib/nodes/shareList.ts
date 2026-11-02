@@ -11,7 +11,7 @@
  * not shown here; `setAccessRow` never touches one either.
  */
 
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "../signedIn";
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";

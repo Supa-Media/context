@@ -202,6 +202,38 @@ describe("staying quiet", () => {
       }),
     ).toEqual({ kind: "none" });
   });
+
+  test("a new bucket still waiting out its key, with folders queued, is being laid out", () => {
+    // The first check of a bucket we made writes the folders once the key
+    // works, and the first run sends people to the console while it waits.
+    const now = 1_000_000;
+    expect(
+      contextSetupFor({
+        role: "owner",
+        storage: { status: "unverified", scaffoldQueuedAt: now - 5_000 },
+        root: emptyRoot,
+        now,
+      }),
+    ).toEqual({ kind: "writing" });
+    // An answered check is not still writing, whatever its stamp said.
+    expect(
+      contextSetupFor({
+        role: "owner",
+        storage: { status: "error", scaffoldQueuedAt: now - 5_000 },
+        root: emptyRoot,
+        now,
+      }),
+    ).toEqual({ kind: "none" });
+    // And nobody but the owner is told.
+    expect(
+      contextSetupFor({
+        role: "member",
+        storage: { status: "unverified", scaffoldQueuedAt: now - 5_000 },
+        root: emptyRoot,
+        now,
+      }),
+    ).toEqual({ kind: "none" });
+  });
 });
 
 describe("what the card says", () => {

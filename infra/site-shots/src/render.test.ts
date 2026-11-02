@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_HEIGHT, mayLoad, withoutHints, parseRenderRequest, render, type InterceptedRequest, type RenderBrowser, type RenderPage } from "./render";
+import { MAX_HEIGHT, mayLoad, pngHeight, withoutHints, parseRenderRequest, render, type InterceptedRequest, type RenderBrowser, type RenderPage } from "./render";
 
 function fakeBrowser(requested: string[]) {
   const calls: string[] = [];
@@ -98,5 +98,69 @@ describe("withoutHints", () => {
     expect(html).toMatch(/<link rel="none" href="https:\/\/x.example">/);
     expect(html).toMatch(/rel="stylesheet"/);
     expect(html.startsWith('<meta http-equiv="x-dns-prefetch-control" content="off">')).toBe(true);
+  });
+});
+
+/** A PNG's first 24 bytes (signature, IHDR length, type, width, height) for a picture `tall` pixels high, as base64. */
+function pngOf(tall: number): string {
+  const bytes = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 4, 0xb0, (tall >>> 24) & 255, (tall >>> 16) & 255, (tall >>> 8) & 255, tall & 255];
+  return btoa(String.fromCharCode(...bytes)) + "AAAA";
+}
+
+describe("render fit", () => {
+  function fitBrowser(tall: number) {
+    const made = fakeBrowser([]);
+    const shots: boolean[] = [];
+    const page = { ...(made.browser as unknown as { newPage(): Promise<RenderPage> }) };
+    const browser: RenderBrowser = {
+      async newPage() {
+        const inner = await page.newPage();
+        return {
+          ...inner,
+          async screenshot(options) {
+            shots.push(options.fullPage);
+            return pngOf(tall);
+          },
+        };
+      },
+      close: made.browser.close,
+    };
+    return { browser, calls: made.calls, shots };
+  }
+
+  it("reads a PNG's height from its header, and nothing else as one", () => {
+    expect(pngHeight(pngOf(1234))).toBe(1234);
+    expect(pngHeight("UE5H")).toBeNull();
+    expect(pngHeight("not base64 !!")).toBeNull();
+  });
+
+  it("is off unless asked for", () => {
+    expect(parseRenderRequest({ html: "<p>x</p>" })?.fit).toBe(false);
+    expect(parseRenderRequest({ html: "<p>x</p>", fit: "yes" })?.fit).toBe(false);
+    expect(parseRenderRequest({ html: "<p>x</p>", fit: true })?.fit).toBe(true);
+  });
+
+  it("cuts a card to the page's own height, starting from a short viewport", async () => {
+    const { browser, calls, shots } = fitBrowser(980);
+    const result = await render(browser, parseRenderRequest({ html: "<p>x</p>", width: 1200, height: 1500, fit: true })!);
+    expect(result.height).toBe(980);
+    expect(shots).toEqual([true]);
+    expect(calls[0]).toBe("viewport 1200x200");
+  });
+
+  it("never returns a picture taller than asked: a longer page is taken at the height asked", async () => {
+    const { browser, calls, shots } = fitBrowser(5000);
+    const result = await render(browser, parseRenderRequest({ html: "<p>x</p>", width: 1200, height: 1500, fit: true })!);
+    expect(result.height).toBe(1500);
+    expect(shots).toEqual([true, false]);
+    expect(calls).toContain("viewport 1200x1500");
+  });
+
+  it("without fit, takes the viewport as before", async () => {
+    const { browser, calls, shots } = fitBrowser(980);
+    const result = await render(browser, parseRenderRequest({ html: "<p>x</p>", width: 1200, height: 1500 })!);
+    expect(result.height).toBe(1500);
+    expect(shots).toEqual([false]);
+    expect(calls[0]).toBe("viewport 1200x1500");
   });
 });

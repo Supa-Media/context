@@ -14,9 +14,9 @@
     "@context/shared": "workspace:*",
     "@convex-dev/auth": "^0.0.96",
     "@resvg/resvg-wasm": "^2.6.2",
-    "@supa-media/convex": "^1.11.0",
+    "@supa-media/convex": "^1.11.2",
     "convex": "^1.31.3",
-    "satori": "0.29.0",
+    "satori": "0.33.5",
     "@context/collaboration": "workspace:*"
   },
   "devDependencies": {
@@ -24,6 +24,7 @@
     "@types/node": "^22.0.0",
     "convex-test": "^0.0.56",
     "typescript": "~5.9.2",
-    "vitest": "^2"
+    "vite": "^7.3.7",
+    "vitest": "^4"
   }
 }

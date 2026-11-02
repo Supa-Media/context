@@ -43,6 +43,8 @@ export interface TrayActions {
   openNotepad: () => void;
   /** "Record a meeting" — the yes, given about a meeting nothing detected. */
   record: () => void;
+  /** "Join and take notes" (`record`) or "Join only", for the meeting the menu bar names. */
+  join: (record: boolean) => void;
   end: () => void;
   toggleDetection: () => void;
   connect: () => void;
@@ -55,6 +57,8 @@ export interface TrayActions {
 /** What the menu needs to know about the app, beyond what the icon draws. */
 export interface TrayMenuState {
   recording: boolean;
+  /** The meeting the menu bar names, from fifteen minutes before it until it ends. */
+  nextMeeting: { title: string; hasCall: boolean } | null;
   detectionEnabled: boolean;
   /** Follows `settings.imessageEnabled`, exactly as `detectionEnabled` follows its own setting. */
   imessageEnabled: boolean;
@@ -72,6 +76,7 @@ export class AppTray {
   #actions: TrayActions;
   #state: TrayMenuState = {
     recording: false,
+    nextMeeting: null,
     detectionEnabled: false,
     imessageEnabled: false,
     connected: false,
@@ -99,8 +104,25 @@ export class AppTray {
    * meetings when it is not.
    */
   #menu(): Electron.Menu {
-    const { recording, detectionEnabled, connected, updateReady } = this.#state;
+    const { recording, nextMeeting, detectionEnabled, connected, updateReady } = this.#state;
+    /*
+      The calendar's meeting first, while nothing records: the menu-bar title
+      already names it, so the first item is the press it is offering. A
+      meeting with no call link only takes notes; there is nothing to open.
+    */
+    const joinItems =
+      nextMeeting === null || recording
+        ? []
+        : [
+            { label: nextMeeting.title, enabled: false },
+            nextMeeting.hasCall
+              ? { label: "Join and take notes", click: () => this.#actions.join(true) }
+              : { label: "Take notes", click: () => this.#actions.join(true) },
+            ...(nextMeeting.hasCall ? [{ label: "Join only", click: () => this.#actions.join(false) }] : []),
+            { type: "separator" as const },
+          ];
     return Menu.buildFromTemplate([
+      ...joinItems,
       ...(recording
         ? [{ label: "End & write up", click: () => this.#actions.end() }]
         : [{ label: "Record a meeting", click: () => this.#actions.record() }]),

@@ -599,13 +599,22 @@ async function readJsonStdin(stream) {
   }
 }
 
+/**
+ * The program and arguments that open `href` in the default browser, never
+ * through a shell. Windows' `start` is a cmd.exe builtin, so it needed one,
+ * and cmd splits the sign-in URL at its first `&`; rundll32 hands the whole
+ * URL to the registered handler as one argument instead.
+ */
+export function browserCommand(platform, href) {
+  if (platform === "darwin") return ["open", [href]];
+  if (platform === "win32") return ["rundll32", ["url.dll,FileProtocolHandler", href]];
+  return ["xdg-open", [href]];
+}
+
 async function defaultOpenBrowser(href) {
   const { spawn } = await import("node:child_process");
-  const command =
-    process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-  // No shell: the URL is built by us, but a spawn through a shell is a habit
-  // worth not having in a file that also handles credentials.
-  spawn(command, [href], { stdio: "ignore", detached: true, shell: process.platform === "win32" }).unref();
+  const [command, args] = browserCommand(process.platform, href);
+  spawn(command, args, { stdio: "ignore", detached: true, shell: false }).unref();
 }
 
 export { install, uninstall, runTool } from "./setup.js";

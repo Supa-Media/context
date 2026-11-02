@@ -32,6 +32,8 @@ import { CHAT_KEY, type InboxStorage, type RememberedChat } from "./inbox";
 import { lineFor, type LineDeps } from "./line";
 import { record } from "./simulator";
 import { rememberText, threadUnder } from "./threads";
+import { keepBeside } from "./warm";
+import { inboxByName } from "./objectPlace";
 
 /** Runs worked on at once in one tick. */
 export const ROUTINE_CONCURRENCY = 4;
@@ -45,7 +47,7 @@ export type RoutineDeps = {
   workerSecret: string | undefined;
   gatewayOrigin: string | undefined;
   /** Text one phone the answer, through that phone's own inbox. */
-  textPhone: (phone: string, text: string, idempotencyKey: string) => Promise<PhoneTexted>;
+  textPhone: (phone: string, text: string, idempotencyKey: string, continues?: string, beside?: string) => Promise<PhoneTexted>;
   /**
    * Hand a chat routine's run to its chat's own queue (`groupRoutines.ts`),
    * which reports how it went; `no_chat` when this Worker doesn't know the chat.
@@ -100,6 +102,58 @@ export async function runDueRoutines(deps: RoutineDeps): Promise<void> {
   await Promise.all(Array.from({ length: Math.min(ROUTINE_CONCURRENCY, people.length) }, worker));
 }
 
+/**
+ * One routine, as an alarm asks for it (`texRoutineDue.ts`): its run if the
+ * control plane hands it out now, run exactly as the cron runs one, and the
+ * time it next runs. Nothing due is a `null` and runs nothing. Throws when the
+ * control plane cannot be asked, so the caller can ask again.
+ */
+export type RoutineScope = { workspaceId: string; path: string };
+
+export async function runScopedRoutine(deps: RoutineDeps, scope: RoutineScope): Promise<{ next: number | null }> {
+  if (!set(deps.controlPlaneOrigin) || !set(deps.workerSecret) || !set(deps.gatewayOrigin)) {
+    throw new Error("routines are not configured");
+  }
+  const origin = deps.controlPlaneOrigin;
+  const secret = deps.workerSecret;
+  const gateway = deps.gatewayOrigin;
+  const due = await fetchDueRoutines(deps.fetch, origin, secret, scope);
+  let next: number | null = null;
+  for (const run of due) {
+    try {
+      await runOne(run, deps, origin, secret, gateway);
+    } catch {
+      deps.log({ event: "routine_run", run: run.runId, error: "unexpected" });
+      await reportRoutineResult(deps.fetch, origin, secret, { runId: run.runId, outcome: "failed", texted: 0 }).catch(() => undefined);
+    }
+    next = run.nextRunAt ?? null;
+  }
+  deps.log({ event: "routine_alarm", runs: due.length });
+  return { next };
+}
+
+/** The inbox's internal route for a routine's text. Only this Worker reaches it. */
+const ROUTINE_TEXT_URL = "https://inbox/routine-text";
+
+/** Ask one phone's inbox to text it a routine's answer, or a check-in under the text it `continues`. */
+export async function textPhone(
+  env: { SENDER_INBOX: DurableObjectNamespace },
+  phone: string,
+  text: string,
+  idempotencyKey: string,
+  continues?: string,
+  beside?: string,
+): Promise<PhoneTexted> {
+  const stub = inboxByName(env.SENDER_INBOX, phone);
+  const response = await stub.fetch(ROUTINE_TEXT_URL, {
+    method: "POST",
+    body: JSON.stringify({ text, idempotencyKey, ...(continues !== undefined ? { continues } : {}), ...(beside !== undefined ? { beside } : {}) }),
+  });
+  if (!response.ok) return "failed";
+  const { status } = (await response.json()) as { status?: unknown };
+  return status === "texted" || status === "no_chat" ? status : "failed";
+}
+
 /** Due runs grouped by the phones they text, in the order they came. */
 export function byPerson(due: DueRoutine[]): DueRoutine[][] {
   const groups = new Map<string, DueRoutine[]>();
@@ -133,7 +187,7 @@ async function runOne(run: DueRoutine, deps: RoutineDeps, origin: string, secret
     const results: PhoneTexted[] = [];
     for (const phone of run.phones) {
       try {
-        results.push(await deps.textPhone(phone, ran.answer, `routine:${run.runId}:${phone}`));
+        results.push(await deps.textPhone(phone, ran.answer, `routine:${run.runId}:${phone}`, undefined, ran.beside));
       } catch {
         results.push("failed");
       }
@@ -179,11 +233,12 @@ export type RoutineTextDeps = LineDeps & {
  */
 export async function textRoutine(
   storage: InboxStorage,
-  body: { text: string; idempotencyKey: string; continues?: string },
+  body: { text: string; idempotencyKey: string; continues?: string; beside?: string },
   deps: RoutineTextDeps,
 ): Promise<PhoneTexted> {
   const chat = await storage.get<RememberedChat>(CHAT_KEY);
   if (!chat || typeof chat.chatId !== "string" || chat.chatId === "") return "no_chat";
+  await keepBeside(storage, body.beside, deps.now()); // what the gateway wrote to the history for this text reaches the warm copy, or the copy goes (`warm.ts`)
   const texts = textsFromAnswer(body.text);
   if (chat.channel === "simulator") {
     if (!deps.simulator) return "no_chat";

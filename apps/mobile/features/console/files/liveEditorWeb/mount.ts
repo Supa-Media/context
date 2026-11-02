@@ -31,7 +31,8 @@ import { noteMail } from "../mail/extension";
 import { commentRail } from "../comments/rail";
 import { commentSheet } from "../comments/sheet";
 import { DIAGRAM_FRAME_PATH } from "../livePreview/diagram";
-import { spelling, spellingCard } from "../spelling/extension";
+import { spelling } from "../spelling/extension";
+import { pageStyleNonce } from "./styleNonce";
 
 export function mountEditor({
   host,
@@ -148,6 +149,9 @@ export function mountEditor({
     // keymap (`findInNote`) is web-only — see that module's header for why
     // it is appended here instead of folded into the shared list.
     extensions: [
+      // The served page's style nonce, if it has one, for CodeMirror's
+      // stylesheet (`styleNonce.ts`). Empty, it sets nothing.
+      EditorView.cspNonce.of(pageStyleNonce()),
       ...editorExtensions({
         editable,
         editableCompartment: editableCompartment.current,
@@ -246,16 +250,12 @@ export function mountEditor({
       collab.current.of([]),
       reportSelection(() => presenceRef.current?.report),
       /*
-        Spelling: Context's own checker and its underline, and the card a
-        plain click on an underlined word opens (boards 1 and 3, 2026-10-27).
-        The card is this editor's menu with only the spelling rows — a
-        popover on a wide window, a sheet on a narrow one. Web only for now:
-        the iOS guest keeps the system's own checker (`spelling/extension.ts`).
+        Spelling: Context's own checker, whose fixes sit on top of the
+        right-click menu. Nothing is drawn in the note (Dev2, 2026-10-28).
+        Web only for now: the iOS guest keeps the system's own checker
+        (`spelling/extension.ts`).
       */
       spelling(),
-      spellingCard.of(({ misspelling, x, y }) =>
-        setMenuAt({ x, y, spelling: misspelling, spellingLearns: true, spellingOnly: true }),
-      ),
     ],
   });
 

@@ -237,3 +237,14 @@ From the owner's chat of 2026-10-22: Tex found the Google Voice invoice on the A
 - must: tell Kofi the draft to Ama is saved in his Gmail with the September invoice attached
 - must not: ask Kofi to download, attach, find or forward the invoice himself
 - must not: say it can't download files or can't put a file into an email
+
+## 15. Will confirm tonight
+
+From two self-reviews (2026-10-26 and 2026-10-27, `areas/tex-reviews/themes/promised-checkin-not-set.md`): Tex texted "I'll check with you tonight" and "I'll check the log at 4:30 and text you" with nothing set to do it, so neither check ever came. What Maya expected was a reminder about the approval tonight. A check-in promised for a set time is set in the same turn as a one-off routine, or not promised.
+
+- kind: task
+- person starts: "the invoice is waiting on jo's approval of the video. will confirm tonight"
+- if asked whether to remind her or check in tonight: "yes please"
+- must write: maya/tex/routines/once/
+- must: tell Maya when it will check in with her about Jo's approval tonight
+- must not: promise to check in, remind or text her later without a routine written in the same turn to do it

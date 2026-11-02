@@ -20,6 +20,7 @@
 import type { GroupStyle } from "./decide";
 import { armBy } from "./events";
 import type { InboxStorage } from "./inbox";
+import { styleReaches } from "./groupPolicy";
 
 const STYLE_KEY = "gstyle";
 const FOLLOW_KEY = "gfollow";
@@ -99,10 +100,7 @@ export async function followingAlong(storage: InboxStorage): Promise<boolean> {
 
 /** Whether an untagged message reaches decide in this style; `asker`: it is from the person whose ask is open. */
 export async function reachesDecide(storage: InboxStorage, style: GroupStyle, asker: boolean): Promise<boolean> {
-  if (style === "helpful") return true;
-  if (style === "quiet") return false;
-  if (asker) return true;
-  return style === "followAlong" && (await followingAlong(storage));
+  return await styleReaches(style, asker, () => followingAlong(storage));
 }
 
 export type HeldOriginal<T> = { item: T; at: number };
@@ -115,7 +113,7 @@ export async function openQuestion<T>(storage: InboxStorage, now: number, origin
 
 /**
  * The alarm for a question still holding a message stays set, whatever set a
- * sooner one since (a message waiting `GROUP_TEXT_WAIT_MS`): a Durable Object
+ * sooner one since (a burst decide held, `chatState.ts`): a Durable Object
  * has one alarm, so it is put back after each drain.
  */
 export async function keepQuestionAlarm(storage: InboxStorage, now: number): Promise<void> {

@@ -26,6 +26,7 @@ import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
 import { idKeyFor, newNoteId } from "../../functions/lib/nodes/noteIds";
 import { recordCopyPage } from "../../functions/lib/noteIds/copyRecord";
 import { ADMIN, boundWorkspace, tester, user, type T } from "./noteIds.helpers";
+import { withSession } from "../session.helpers";
 
 let previous: string | undefined;
 beforeEach(() => {
@@ -71,7 +72,7 @@ function freshCopy(noteId: string, path: string, etag: string) {
 }
 
 async function staffIdentity(t: T) {
-  return t.withIdentity({ subject: await user(t, ADMIN) });
+  return withSession(t, await user(t, ADMIN));
 }
 
 type Group = { noteId: string; paths: string[]; needsLook: boolean; copies: string[] };
@@ -171,7 +172,7 @@ describe("sharedIdReport: finding the groups", () => {
     await row(t, other, "p.md", { noteId: PAIR });
     await row(t, other, "q.md", { noteId: PAIR });
     expect(await allGroups(t, ws)).toEqual([]);
-    const stranger = t.withIdentity({ subject: await user(t, "someone@example.com") });
+    const stranger = withSession(t, await user(t, "someone@example.com"));
     await expect(stranger.query(api.functions.noteIds.sharedIdReport, { workspaceId: ws })).rejects.toThrow();
   });
 });
@@ -276,7 +277,7 @@ describe("repairSharedIds: the repair", () => {
     const ws = await boundWorkspace(t, "mu");
     await row(t, ws, "a.md", { noteId: PAIR });
     await row(t, ws, "b.md", { noteId: PAIR });
-    const stranger = t.withIdentity({ subject: await user(t, "someone@example.com") });
+    const stranger = withSession(t, await user(t, "someone@example.com"));
     await expect(stranger.mutation(api.functions.noteIds.repairSharedIds, { workspaceId: ws })).rejects.toThrow();
     const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
     expect(jobs.filter((job) => job.name.endsWith("repairSharedIdsPage"))).toEqual([]);

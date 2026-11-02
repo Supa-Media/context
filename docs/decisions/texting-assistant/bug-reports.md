@@ -15,13 +15,16 @@ same Sentry destination, nothing of it stored by us. By text it takes
 
 **By text, nothing goes without a YES to the exact report.** Every
 `report_problem` from the texting assistant is held by `reportGate.js`, one of
-the `HELD_GATES` that run before the deployment's `EGRESS_APPROVALS = "off"`,
-like an email or a calendar change. The person is texted the report word for
-word, told whether their texts go with it, and only a YES sends it
-(`YES_ONLY` in `agent/textedApprovals.js`), or a yes that says to send it:
-"yes please", "yes, file it", "ok send it" (decided by the owner, 2026-10-19:
-"these all count as yes"). A bare "ok" is not a yes, "yes but change X" is
-more than one, and any other text disarms the ask. A report by text is at most 500 characters (2,000 until
+the `HELD_GATES` (`apps/mcp/src/tools/heldGates.js`), like an email or a
+calendar change. The person is texted the report word for word, told whether
+their texts go with it, and only a YES sends it (`YES` in
+`agent/textedApprovals.js`), or a yes that says to send it: "yes please",
+"yes, file it", "ok send it" (decided by the owner, 2026-10-19: "these all
+count as yes"). "yes but change X" is more than one, and any other text
+disarms the ask. (Superseded since this was written: the
+`EGRESS_APPROVALS = "off"` switch the gates ran before was removed in #1859;
+`YES_ONLY` is now `YES`; and "a bare ok is not a yes" was reversed by Dev2 on
+2026-10-22, so a bare "ok" is a yes, `agent/textedApprovals.js`.) A report by text is at most 500 characters (2,000 until
 2026-10-26, when a person who had just given up on a booking was texted a
 paragraph of steps and element numbers to 👍), so the ask is a few plain
 sentences read at a glance; their texts, when they go, carry the detail.

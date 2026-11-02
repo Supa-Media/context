@@ -93,7 +93,8 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { internalAction, internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { stampTreeAudiences } from "./treeSignals";
@@ -437,8 +438,11 @@ interface S3IngestionBinding {
   rootPrefix?: string;
   accessKeyId: string;
   secretAccessKey: string;
+  sessionToken?: string;
   forcePathStyle?: boolean;
   capabilities: StorageCapabilities;
+  notesHome?: "dual" | "object";
+  notesBackfilledAt?: number;
   status: string;
 }
 
@@ -470,8 +474,11 @@ export const openIngestionBinding = internalAction({
       rootPrefix: v.optional(v.string()),
       accessKeyId: v.string(),
       secretAccessKey: v.string(),
+      sessionToken: v.optional(v.string()),
       forcePathStyle: v.optional(v.boolean()),
       capabilities: capabilitiesValidator,
+      notesHome: v.optional(v.union(v.literal("dual"), v.literal("object"))),
+      notesBackfilledAt: v.optional(v.number()),
       status: v.string(),
     }),
   ),
@@ -511,8 +518,13 @@ export const openIngestionBinding = internalAction({
       rootPrefix: credential.rootPrefix,
       accessKeyId: credential.accessKeyId,
       secretAccessKey: credential.secretAccessKey,
+      ...(credential.sessionToken === undefined ? {} : { sessionToken: credential.sessionToken }),
       forcePathStyle: credential.forcePathStyle,
       capabilities: credential.capabilities,
+      // Where the note texts live, as on `/gateway/binding`: the email worker files mail into the workspace's object
+      // where its notes live there (`infra/email-worker`), never into the bucket alone. Absent while `bucket`.
+      ...(credential.notesHome === undefined ? {} : { notesHome: credential.notesHome }),
+      ...(credential.notesBackfilledAt === undefined ? {} : { notesBackfilledAt: credential.notesBackfilledAt }),
       // The contract's vocabulary, not the row's — same translation
       // `openStorageBinding` does.
       status: "active",

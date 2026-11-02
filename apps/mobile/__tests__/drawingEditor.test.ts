@@ -40,6 +40,7 @@ import { afterEach, describe, expect, test } from "@jest/globals";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 import { act, createElement } from "react";
+import { Dimensions } from "react-native";
 import { createRoot } from "react-dom/client";
 import { compressToBase64, parseDrawing, serializeDrawing } from "@context/drawings";
 
@@ -355,5 +356,27 @@ describe("a save is a splice of the file, never a new file", () => {
     expect(next).toContain("keep-me: yes");
     expect(next).toContain("boxA: [[2-areas/apps/context/storage]]");
     expect(parseDrawing(next!, PATH).elements).toHaveLength(3);
+  });
+});
+
+describe("the canvas is the whole page (owner, 2026-10-30)", () => {
+  const canvasOf = (fill: boolean) => {
+    const container = mount({ path: PATH, source: drawingFile(ELEMENTS), canEdit: true, onChange: () => {}, fill });
+    const canvas = container.querySelector<HTMLElement>("[data-testid='drawing-editor']");
+    expect(canvas).not.toBeNull();
+    return getComputedStyle(canvas!);
+  };
+
+  test("a pointer layout's canvas grows into the region, with no frame and no fixed height", () => {
+    const style = canvasOf(true);
+    expect(style.flexGrow).toBe("1");
+    expect(style.height).toBe("");
+    expect(style.borderRadius).toBe("");
+  });
+
+  test("a phone's canvas is as tall as the window less the title, never the old 560 box", () => {
+    const style = canvasOf(false);
+    expect(style.height).toBe(`${Math.max(320, Dimensions.get("window").height - 220)}px`);
+    expect(style.height).not.toBe("560px");
   });
 });

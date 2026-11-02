@@ -10,7 +10,7 @@ import {
 } from "../presence.js";
 import { pruneActivity, recordActivity, recordPersonActivity } from "../agentActivity.js";
 import { peopleForCaller, recordPerson } from "../peopleActive.js";
-import { CLOSE_REAUTHORIZE, PRESENCE_SOCKET_MAX_MS, json, publicMember } from "./wire.js";
+import { CLOSE_REAUTHORIZE, PRESENCE_SOCKET_MAX_MS, json, markSamePerson, publicMember } from "./wire.js";
 
 /**
  * Open one socket into this room.
@@ -340,6 +340,12 @@ export async function fetchRoom(request) {
       Opaque and stable; see `presenceClientKey` in the gateway.
     */
     clientKey: typeof intent.clientKey === "string" ? intent.clientKey : null,
+    /*
+      Which person, from the route and never from the client; see
+      `accountKey` there. Kept on the socket only: a peer is told "this one is
+      you too" (`me`) and never the key itself.
+    */
+    accountKey: typeof intent.accountKey === "string" && intent.accountKey ? intent.accountKey : null,
     ...(collaborationV2
       ? {
           grantId: intent.grantId,
@@ -389,11 +395,11 @@ export async function fetchRoom(request) {
       heartbeatMs: HEARTBEAT_MS,
       idleMs: MEMBER_IDLE_MS,
       reconnectAfterMs: PRESENCE_SOCKET_MAX_MS,
-      members: roster(room),
+      members: markSamePerson(roster(room), this.openSockets(), attachment.accountKey),
       ...(collaborationV2 ? {} : { seed }),
     }),
   );
-  this.broadcast({ t: "join", member: publicMember(seated.member) }, server);
+  this.broadcastJoin(publicMember(seated.member), attachment.accountKey, server);
 
   /*
     The document so far, replayed in order.

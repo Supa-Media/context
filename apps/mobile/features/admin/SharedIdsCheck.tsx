@@ -13,6 +13,7 @@
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useConvex, useMutation } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button, Text, space, useThemedStyles, type Colors } from "../design";
@@ -40,7 +41,10 @@ export function SharedIdsCheck({ workspaceId }: { workspaceId: string }) {
       let after: string | undefined = undefined;
       let next: string | null = "";
       do {
-        const page = await convex.query(api.functions.noteIds.sharedIdReport, { workspaceId: id, after });
+        const page: FunctionReturnType<typeof api.functions.noteIds.sharedIdReport> = await convex.query(
+          api.functions.noteIds.sharedIdReport,
+          { workspaceId: id, after },
+        );
         for (const group of page.groups) {
           count += group.rows.length;
           if (group.needsLook) looks.push(group.rows.map((row) => row.path));

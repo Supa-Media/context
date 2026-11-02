@@ -221,6 +221,22 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
     folded: true,
   },
+  {
+    /*
+      How Tex talks to this person in their own chat (Dev2, 2026-10-28): the
+      settings "Tex, settings" changes by text. Reached from Profile's Tex row
+      and by search; a group chat's own are changed in that chat.
+    */
+    key: "tex",
+    keywords:
+      "tex texting assistant imessage whatsapp text tone warmth enthusiasm emoji length bubbles humor humour tars personality style voice friendly professional efficient candid quirky nerdy cynical",
+    label: "Tex",
+    scope: "account",
+    group: "You",
+    icon: "chat",
+    personalOnly: false,
+    folded: true,
+  },
   /*
     From here the order is the settings artboard's (2026-09-29, approved by
     the owner): the workspace itself, who is in it, what is connected to it,

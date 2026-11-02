@@ -90,6 +90,13 @@ export const PINNED_CONTEXT_SLUG = "context-lc";
  */
 export const PINNED_CONTEXT_ROLE = "member" as const;
 
+/**
+ * Where group Tex keeps each chat's home in the pinned context, one folder per chat beneath it (decided by the owner,
+ * 2026-10-31). Sealed: what is under it is seen only by the people named on a chat's folder, never by a role in the
+ * pinned context, its owners' included (`docs/decisions/texting-assistant/chat-homes.md`).
+ */
+export const CHAT_HOMES_FOLDER = "tex/groups";
+
 /** Is this the pinned context's name? Compared after `@` and case are stripped. */
 export function isPinnedContextSlug(slug: string | null | undefined): boolean {
   if (typeof slug !== "string") return false;

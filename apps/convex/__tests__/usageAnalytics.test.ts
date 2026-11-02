@@ -7,6 +7,7 @@ import { modules } from "../test.setup";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { usageAnalytics, usageQueries, windowDays } from "../functions/lib/adminFns/usageAnalytics";
 import { clampUsageDays } from "../functions/usageAnalytics";
+import { withSession } from "./session.helpers";
 
 /**
  * THE USAGE TAB'S READ OF POSTHOG.
@@ -219,7 +220,7 @@ describe("the action is staff only", () => {
       async (ctx) => await ctx.db.insert("users", { email: "someone@example.com", emailVerificationTime: Date.now() } as never),
     );
     await expect(
-      t.withIdentity({ subject: stranger }).action(api.functions.usageAnalytics.report, { days: 7 }),
+      withSession(t, stranger).action(api.functions.usageAnalytics.report, { days: 7 }),
     ).rejects.toThrow();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -231,7 +232,7 @@ describe("the action is staff only", () => {
     const staff: Id<"users"> = await t.run(
       async (ctx) => await ctx.db.insert("users", { email: "staff@supa.media", emailVerificationTime: Date.now() } as never),
     );
-    expect(await t.withIdentity({ subject: staff }).action(api.functions.usageAnalytics.report, { days: 7 })).toEqual({
+    expect(await withSession(t, staff).action(api.functions.usageAnalytics.report, { days: 7 })).toEqual({
       connected: false,
     });
   });

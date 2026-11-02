@@ -47,7 +47,12 @@
  *   them to the person's own bucket (`events.ts`).
  */
 
-import { textsFromAnswer } from "./format";
+import { partEvent, sendCardPart, threadFor } from "./sendParts";
+import type { Choice } from "./pickCard";
+import { settleCard, withCardsHere } from "./cardChats";
+import type { Offer } from "./dataCards";
+import { withAnswerCards } from "./answerCards";
+import { textsFromAnswer } from "./format"; import { isControlWord } from "./controlWords";
 import { noteCardDrawer } from "./noteCards";
 import { lineFor, type LineDeps } from "./line";
 import { pruneMedia } from "./media";
@@ -63,16 +68,20 @@ import { startPresence, type Presence } from "./presence";
 import { MAX_CANDIDATES, staleAsks } from "./decide";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
-import { answers, clearReactions, noteReaction, notedReactions, tapbackText, type Reaction } from "./reactions";
-import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
+import { reactionFor } from "./reactEmoji";
+import { closeMenu, isSettingsText, keepTexStyle, keptTexStyle, menuState, openMenu } from "./texStyle";
+import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
+import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
-import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events";
+import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
-import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
+import { chatJobs, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
-import { watchConversation } from "./reviewWatch";
+import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
+import { afterReplyWork, deferAfterReply, rememberSession, type TurnTiming } from "./afterReply";
+import type { TimingDataset } from "./textTiming";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -88,10 +97,14 @@ export type InboxStorage = {
 export type InboxDeps = ReplyDeps &
   Omit<LineDeps, "fetch"> & {
     now: () => number;
+    /** Where each answered text's wait is written (`textTiming.ts`); absent, nowhere. */
+    textTiming?: TimingDataset;
     /** Starts a background job in an object of its own (`jobs.ts`); absent, texted turns are offered none. */
     spawnJob?: (id: string, run: JobRun) => Promise<void>;
     /** Hands a later text to a running job's object; true when it took it (`jobRun.ts`). */
     steerJob?: (id: string, steer: JobSteer) => Promise<boolean>;
+    /** The object's `waitUntil`: keeps it alive while the work after a reply runs, which nothing waits on (`afterReply.ts`). */
+    waitUntil?: (promise: Promise<unknown>) => void;
   };
 
 /**
@@ -103,6 +116,7 @@ export type InboxDeps = ReplyDeps &
 
 
 export const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
+const PROGRESS_PREFIX = "psent:"; // a progress line sent for the oldest text a turn answers, by the line's hash, until that work is answered (`answerTexts`)
 export const MAX_SEND_ATTEMPTS = 3;
 /** Tries at a text whose turn could not start (`TryLater`), the last one saying so. */
 export const MAX_ANSWER_ATTEMPTS = 3;
@@ -125,12 +139,11 @@ export type RememberedChat = { chatId: string; channel?: "simulator"; at: number
 export const MEDIA_WAIT_MS = 4_000;
 
 /**
- * How long words with no file wait for a photo sent just before them: Messages
- * sends the photo first, but its upload can make Linq deliver the words first
- * (2026-10-16, a photo then "and this one?" 0.4 s apart arrived words first and
- * got two answers).
+ * How long words with no file wait for a photo sent just before them: none since
+ * Tex's front door (Seyi, 2026-10-31: a "hi Tex" took minutes). It was 3 s, for a
+ * photo whose upload made Linq deliver the words first (2026-10-16).
  */
-export const TEXT_WAIT_MS = 3_000;
+export const TEXT_WAIT_MS = 0;
 
 /** When this sender last texted a web address, never the address: a link's preview can follow it as a text of its own. */
 export const LINK_AT_KEY = "link-at";
@@ -154,7 +167,6 @@ async function isLatePreview(storage: InboxStorage, message: Message, now: numbe
   return pictures;
 }
 
-
 const seenKey = (eventId: string) => `seen:${eventId}`;
 const pendingKey = (seq: number) => `pending:${String(seq).padStart(12, "0")}`;
 
@@ -169,6 +181,7 @@ export async function accept(
     return "preview";
   }
   if (isSendblueChat(message.chatId) && WEB_ADDRESS.test(message.text)) await storage.put<number>(LINK_AT_KEY, now);
+  message = await settleCard(storage, message, now);
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   if (pending.size >= MAX_PENDING) return "full";
 
@@ -176,12 +189,14 @@ export async function accept(
   // A plain text after a quiet spell starts a topic (`threadFor`).
   const quiet = previous === undefined || previous.chatId !== message.chatId || now - previous.at >= NEW_TOPIC_AFTER_MS;
   if (quiet && !message.threaded && !message.tapback) message = { ...message, newTopic: true };
+  // A settings text, or a reply the open menu reads, is answered by code before decide (Dev2, 2026-10-28; `texStyle.ts`).
+  if (!message.sms && !message.tapback && (await isSettingsText(storage, message.text, now))) message = { ...message, setting: true };
   const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
   // An SMS is never logged as the person's words: anyone can send one that shows their number.
   const ev = message.sms ? undefined : await logInbound(storage, message, now);
-  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) });
+  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0, at: now, ...(ev ? { ev } : {}) });
   await rememberText(storage, message.chatId, message.messageId, message.text, now);
   const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
   if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && !isWhapiChat(previous.chatId) && isSendblueChat(message.chatId)) {
@@ -198,10 +213,10 @@ export async function accept(
   await storage.setAlarm(now + wait);
   // Anything sent while Tex works in this chat is decided with the turn running (`inboxTurn.ts`).
   try {
-    await decideWhileRunning(storage, pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text) => {
+    await decideWhileRunning(storage, pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text, emoji) => {
       const running = runningTurn(storage, text.chatId);
       if (running !== undefined && text.messageId && !text.tapback && text.channel !== "simulator") {
-        await lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, ackEmoji(text.text));
+        await lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, reactionFor(emoji, ackEmoji(text.text)));
       }
     });
   } catch {
@@ -222,25 +237,20 @@ export async function carryOnAfterSave(storage: InboxStorage, deps: Pick<InboxDe
   const chat = await storage.get<RememberedChat>(CHAT_KEY);
   if (chat === undefined) return logVaultWatch("no_chat");
   if (chat.at > saved.savedAt) return logVaultWatch("texted_since");
-  const eventId = `vault-saved:${saved.savedAt}`;
-  if ((await storage.get<number>(seenKey(eventId))) !== undefined) return;
-  const now = deps.now();
+  const channel = chat.channel === "simulator" ? { channel: "simulator" as const } : {};
+  const message: Message = { kind: "message", eventId: `vault-saved:${saved.savedAt}`, chatId: chat.chatId, from: saved.phone, messageId: "", text: "", event: "vault_saved", ...channel };
+  if (await queueByCode(storage, message, deps.now())) logVaultWatch("queued");
+}
+
+/** Queue a turn this Worker asks for itself (a saved login's, a job's report), never a webhook; false when that event was queued already. */
+export async function queueByCode(storage: InboxStorage, message: Message, now: number): Promise<boolean> {
+  if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return false;
   const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
   await storage.put("seq", seq);
-  await storage.put(seenKey(eventId), now);
-  const message: Message = {
-    kind: "message",
-    eventId,
-    chatId: chat.chatId,
-    from: saved.phone,
-    messageId: "",
-    text: "",
-    event: "vault_saved",
-    ...(chat.channel === "simulator" ? { channel: "simulator" as const } : {}),
-  };
+  await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
   await storage.setAlarm(now);
-  logVaultWatch("queued");
+  return true;
 }
 
 /** What became of a tapback, without its words: enough to tell a 👍 that reached nothing from one never sent. */
@@ -258,12 +268,14 @@ export async function react(
   now: number,
 ): Promise<"queued" | "duplicate" | "full" | "noted" | "preview" | "held" | "dropped"> {
   const { reaction, kind: _kind, ...message } = inbound;
-  // A 👍 on an ask goes on the next alarm, at once; taking it back before then drops it (`thumbs.ts`).
-  if (reaction.removed) return (await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
+  const logged = async () => logInbound(storage, { kind: "message", ...message, text: reactionLine(reaction, await onTexText(storage, message.chatId, reaction)), tapback: reaction.how }, now); // every reaction in the log, as its line (Dev2, 2026-11-01)
+  // A 👍 or 👎 on an ask goes on the next alarm, at once; taking it back before then drops it (`thumbs.ts`).
+  if (reaction.removed) return (await logged(), await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
   // On the line above an ask, it is a 👍 on the ask; taking it back still names the line it was on.
   const onAsk = await onTheAsk(storage, reaction, now);
-  if (holdsAsYes(onAsk)) {
-    const asked: Message = { kind: "message", ...message, text: tapbackText(onAsk.how), quoted: onAsk.words, tapback: onAsk.how };
+  if (holdsAsAnswer(onAsk)) {
+    // Marked so decide can never silence, fold, drop or stale it: the gateway alone says whether it is the yes (`inboxTurn.ts` `decidedByCode`).
+    const asked: Message = { kind: "message", ...message, text: tapbackText(onAsk.how), quoted: onAsk.words, tapback: onAsk.how, askYes: true };
     await holdThumb(storage, asked, reaction.words, now);
     logTapback(reaction, "held", onAsk !== reaction);
     return "held";
@@ -274,12 +286,14 @@ export async function react(
   }
   if ((await storage.get<number>(seenKey(inbound.eventId))) !== undefined) return "duplicate";
   await storage.put(seenKey(inbound.eventId), now);
+  await logged();
   await noteReaction(storage, reaction, now);
   return "noted";
 }
 
 /** Answer everything pending, oldest first. Called from the alarm. */
 export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<void> {
+  deps = await withCardsHere(storage, deps);
   // A 👍 on an ask joins the queue as the tapback it is.
   const thumb = await dueThumb<Message>(storage, deps.now());
   if (thumb !== undefined) await accept(storage, thumb, deps.now());
@@ -298,14 +312,16 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     // Only "ok", "thanks", tapbacks: read, and no bubble until decide picks an answer (`answerTexts` starts it then).
     const acksOnly = pending.every(([, item]) => item.message.chatId !== first.chatId || (!item.force && pureAck(item.message)));
     if (acksOnly) await line?.markRead(first.chatId, first.messageId);
-    const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first);
+    const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first, { aimLater: true });
+    // Emoji: less (`texStyle.ts`): no quick tapback, the answer is the only sign.
+    if ((await keptTexStyle(storage)).emoji === "less") presence?.dropTapback();
     try {
       const choice = await chooseTurn(storage, deps, pending);
       for (const [key] of choice.drop) await storage.delete(key);
       if (choice.answer.length === 0) await presence?.stop();
       // One tapback per text: decide's, or else presence's on the text being answered.
       if (choice.react !== undefined) {
-        await acknowledgeText(deps, choice.react);
+        await acknowledgeText(deps, choice.react, choice.emoji);
         presence?.dropTapback();
       }
       if (choice.answer.length > 0) presence?.aim(choice.answer.at(-1)![1].message);
@@ -319,10 +335,16 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   await pruneEvents(storage, deps.now());
 }
 
-/** A tapback on the person's text, picked from its words (`ackEmoji.ts`): decide's `react`. */
-async function acknowledgeText(deps: InboxDeps, message: Message): Promise<void> {
+/** Decide's `react`: its emoji when one of the 64, else one picked from the words (`ackEmoji.ts`). */
+async function acknowledgeText(deps: InboxDeps, message: Message, emoji?: string): Promise<void> {
   if (message.channel === "simulator" || !message.messageId || message.tapback) return;
-  await lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, ackEmoji(message.text));
+  await lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, reactionFor(emoji, ackEmoji(message.text)));
+}
+
+/** When the oldest of `entries` came in; nothing for texts queued before this was kept. */
+function arrivedAt(entries: Entry[]): number | undefined {
+  const times = entries.flatMap(([, entry]) => (entry.at === undefined ? [] : [entry.at]));
+  return times.length === 0 ? undefined : Math.min(...times);
 }
 
 /**
@@ -333,11 +355,13 @@ async function acknowledgeText(deps: InboxDeps, message: Message): Promise<void>
 async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry[], presence?: Presence): Promise<boolean> {
   const [key, item] = entries.at(-1)!;
   const message = merged(entries.map(([, entry]) => entry.message));
+  const work = entries[0][1].message.eventId; // a rerun, a newer text merged in or not, still answers its oldest: its lines are kept by that
   const covers = entries.flatMap(([, entry]) => (entry.ev ? [entry.ev] : [])).slice(-MAX_CANDIDATES);
   const tries = (item.tries ?? 0) + 1;
+  const timing: TurnTiming = { started: deps.now(), arrived: arrivedAt(entries) };
   let turn: Answered;
   try {
-    turn = await answering(message, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS }, storage, covers, presence);
+    turn = await answering(message, work, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, arrivedAt: timing.arrived }, storage, covers, presence, timing);
   } catch (error) {
     if (!(error instanceof TryLater)) throw error;
     // Nothing ran, so these texts and the ones behind them wait; later ones keep their order.
@@ -347,6 +371,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   }
   // Restarted (`steer.ts`): nothing it said goes; its texts wait, marked, for the turn that answers them with the newer one.
   if (turn.cancelled) return true;
+  for (const sentKey of (await storage.list({ prefix: `${PROGRESS_PREFIX}${work}:` })).keys()) await storage.delete(sentKey); // answered: its lines (`answerTexts`) go
   let reply = turn.parts;
   // The first answer on the new line says it is Tex's new number, once.
   const movedTo = await storage.get<string>(NEW_LINE_KEY);
@@ -360,15 +385,20 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   const by = turn.fixed ? { system: true as const } : { covers: covers.slice(-MAX_CANDIDATES), turn: turn.turn };
   const ready: Pending = { message, reply, attempts: 0, ...by, ...(turn.asks.length > 0 ? { asks: turn.asks, askText: turn.askText } : {}) };
   await storage.put<Pending>(key, ready);
-  return await sendReply(storage, deps, [key, ready]);
+  return await sendReply(storage, deps, [key, ready], timing);
 }
 
-/** Send a computed reply, each part logged as an event (`events.ts`). False when a retry is set for later. */
-async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: Entry): Promise<boolean> {
+/**
+ * Send a computed reply, each part logged as an event (`events.ts`). False when a retry is set for later.
+ * What follows the reply (`afterReply`) is deferred, never awaited here: the next text is answered without waiting for it.
+ */
+async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: Entry, timing?: TurnTiming): Promise<boolean> {
   const reply = [item.reply ?? []].flat();
   let sent = item.sent ?? 0;
-  const out = (part: Omit<TexEvent, "id" | "at" | "chat" | "from">) =>
-    addEvent(storage, {
+  const out = (part: Omit<TexEvent, "id" | "at" | "chat" | "from">) => {
+    // Each part is logged once it went: the first is when the person's wait ended (`textTiming.ts`).
+    if (timing && timing.firstSent === undefined) timing.firstSent = deps.now();
+    return addEvent(storage, {
       at: deps.now(),
       chat: item.message.chatId,
       from: { kind: item.system ? "system" : "tex" },
@@ -376,6 +406,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
       ...(item.covers ? { covers: item.covers } : {}),
       ...part,
     });
+  };
   try {
     // Each text keeps its own idempotency key, so a retry after a partial
     // send repeats nothing Linq already accepted; `sent` does the same on
@@ -387,6 +418,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
     );
     const thread = threadFor(item.message, overtaken);
     let carousels = true;
+    if (timing) timing.sendStart = deps.now();
     for (const [index, part] of reply.entries()) {
       if (index < sent) continue;
       // Two or more pictures in a row go as one swipeable set where the line has carousels.
@@ -410,23 +442,27 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
         continue;
       }
       const idempotency = index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`;
-      if (typeof part === "string") {
+      if (typeof part === "string" && isControlWord(part)) console.log(JSON.stringify({ event: "reply", outcome: "control_word_dropped" })); // a word meant for us, never a text (`controlWords.ts`)
+      else if (typeof part === "string") {
         const handle = await line.sendText(item.message.chatId, part, idempotency, thread);
         await rememberText(storage, item.message.chatId, handle, part, deps.now());
         await out(partEvent(part));
+      } else if ("card" in part) {
+        await sendCardPart(line, item.message.chatId, part, thread, idempotency);
       } else {
         const went = await sendPicture(deps, item.message.chatId, part.media, idempotency, thread);
         await out(went ? partEvent(part) : { kind: "picture", delivered: false, reason: "send_refused" });
       }
       sent = index + 1;
     }
+    if (timing) timing.sendEnd = deps.now();
     // One ask event per approval the turn armed, after the words that ask it.
     for (const record of item.asks ?? []) {
       await logAsk(storage, { at: deps.now(), chat: item.message.chatId, from: { kind: "tex" }, ...(item.turn ? { turn: item.turn } : {}) }, record, await sha256Hex(item.message.from), item.askText ?? "");
     }
     await storage.delete(key);
-    await flushOwed(storage, deps, item.message.from);
-    if (item.message.channel !== "simulator") await offerCard(storage, item.message.chatId, { ...lineDeps(deps), now: deps.now });
+    // The network work after the reply (the flush, the card) runs behind the next text, not before it.
+    deferAfterReply(storage, deps.waitUntil, () => afterReply(storage, deps, item, reply.length, timing));
     return true;
   } catch {
     const attempts = item.attempts + 1;
@@ -442,36 +478,11 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
   }
 }
 
-/** The event for one part Tex sent: a picture it could not upload is one that never went. */
-function partEvent(part: SendPart): Omit<TexEvent, "id" | "at" | "chat" | "from"> {
-  if (part === PICTURE_FAILED) return { kind: "picture", delivered: false, reason: "upload_failed" };
-  if (typeof part !== "string") return { kind: "picture", delivered: true, ...("url" in part.media ? { text: part.media.url } : {}) };
-  return { kind: kindOf(part), text: part, delivered: true };
-}
-
-/** The last session's token, in memory only, so what a turn sent is written to the log once it went (`events.ts`). */
-const sessions = new WeakMap<InboxStorage, string>();
-
-async function flushOwed(storage: InboxStorage, deps: InboxDeps, phone: string): Promise<void> {
-  const token = sessions.get(storage);
-  if (token !== undefined) await flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(phone));
-}
-
-/**
- * The person's message an answer goes inside the thread of, or none: Tex
- * matches how it was texted, and a new topic gets a thread of its own
- * (decided by the owner, 2026-10-20). A text typed inside a thread is
- * answered there; a plain text that starts a topic (`newTopic`: the first
- * after a quiet spell) opens a thread under it; any other plain text is
- * answered plainly, unless a newer text overtook it, when its thread keeps
- * the answer next to its question. Answering every text in its own thread
- * (2026-10-19) put a whole conversation under an unrelated check-in, because
- * each answer landed in whatever thread its text was in.
- */
-function threadFor(message: Message, overtaken = false): string | undefined {
-  // A tapback's answer goes plain: under the tapback it would read as a reply to an emoji.
-  if (message.channel === "simulator" || !message.messageId || message.tapback) return undefined;
-  return message.threaded || message.newTopic || overtaken ? message.messageId : undefined;
+/** What follows a reply that went out, behind it (`afterReply.ts`). */
+function afterReply(storage: InboxStorage, deps: InboxDeps, item: Pending, parts: number, timing?: TurnTiming): Promise<void> {
+  return afterReplyWork(storage, deps, { chat: item.message.chatId, from: item.message.from, simulator: item.message.channel === "simulator", parts, timing }, () =>
+    offerCard(storage, item.message.chatId, { ...lineDeps(deps), now: deps.now }),
+  );
 }
 
 function lineDeps(deps: InboxDeps): LineDeps {
@@ -490,16 +501,18 @@ export { ACKNOWLEDGE_AFTER_MS, TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./pres
  * queue, so it gets none; its progress goes to its log.
  *
  * Progress texts are sent once, as they happen, each with its own idempotency
- * key, and are not retried with the answer: a line about where a task had got
- * to is stale by the time a retry would send it.
+ * key, once by its words until the work is answered (`PROGRESS_PREFIX`), and never
+ * retried with the answer: a line about where a task had got to is stale by then.
  *
  * `fixed`: the reply is one of the Worker's own texts (a failure, a limit,
  * setup), never the model's: the gateway recorded no turn for it.
  */
 type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; askText: string; fixed: boolean };
 
-async function answering(message: Message, deps: InboxDeps, storage: InboxStorage, covers: string[], presence?: Presence): Promise<Answered> {
+async function answering(message: Message, work: string, deps: InboxDeps, storage: InboxStorage, covers: string[], presence: Presence | undefined, timing: TurnTiming): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
+  let choices: Choice[] = [];
+  let offers: Offer[] = [];
   let asks: string[] = [];
   let askText = "";
   let modelWrote = false;
@@ -523,12 +536,12 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     covers,
     (ids) => dropSteered(storage, ids, covers),
     async (token) => {
-      sessions.set(storage, token);
-      await flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(message.from));
+      rememberSession(storage, token);
+      void flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(message.from)).catch(() => {}); // beside the turn, not before: it is handed the same events (`warm.ts`)
     },
   );
   const texts = await answerTexts(
-    reacted.length > 0 ? { ...message, reacted } : message,
+    reacted.length > 0 ? { ...message, reacted } : message, work,
     {
       ...deps,
       steer,
@@ -540,12 +553,18 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       onTold: (sent) => noteTold(storage, sent, message.chatId, deps.now()),
       // A link to save a login went: watch for the save, to carry the task on (`vaultWatch.ts`).
       onVaultLink: () => watchForSave(storage, message.from, deps.now()),
-      onPictures: (sent) => void (pictures = sent),
+      onPictures: (sent, offered) => void ((pictures = sent), (choices = offered)),
+      onOffers: (offered) => void (offers = offered),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
+      // "Tex, settings" and the style it keeps (`texStyle.ts`).
+      settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
+      onTexStyle: (style) => keepTexStyle(storage, style), warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
+      onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
     },
     storage,
     presence,
+    timing,
   ).finally(end);
   const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, askText, fixed: !modelWrote });
   if (live.cancelled) {
@@ -558,14 +577,15 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
   if (texts.length > 0 && message.channel !== "simulator") await watchConversation(storage, { kind: "one", phone: message.from }, deps.now());
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).
   await rememberAskReply(storage, texts, deps.now());
-  if (pictures.length === 0) return done(texts);
+  const cards = message.channel === "simulator" || !isSendblueChat(message.chatId) ? null : deps.appCard;
+  if (pictures.length === 0) return done(await withAnswerCards(texts, { texts, choices: [], offers }, cards, deps.threadsLink));
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =
     message.channel === "simulator"
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
-      : async (picture: { name: string; mediaType: string; data: string }) =>
+      : async (picture: { name: string; mediaType: string; data: string; title?: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
-  return done(await partsFor(texts, pictures, upload));
+  return done(await withAnswerCards(await partsFor(texts, pictures, upload), { texts, choices, offers }, cards, deps.threadsLink));
 }
 
 /** What a texted turn is shown of the chat's background jobs, and how it starts more (`jobs.ts`). */
@@ -574,19 +594,20 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
   if (spawn === undefined || message.sms) return {};
   const channel = message.channel === "simulator" ? { channel: "simulator" as const } : {};
   return {
-    running: await chatJobs(storage, deps.now()),
-    onJobs: async (jobs) => {
-      await startJobs(storage, jobs, {
+    running: await chatJobs(storage, deps.now(), { results: true }),
+    onJobs: async (jobs) =>
+      notStartedText((await startJobs(storage, jobs, {
         now: deps.now(),
         inbox: message.from,
         origin: { kind: "phone", phone: message.from, question: message.text, ...channel },
         place: { chatId: message.chatId, ...(message.messageId ? { messageId: message.messageId } : {}), ...channel },
         spawn,
-      });
-    },
+      })).notStarted),
     // The model only names the job: what the job is handed is always their own text.
     onSteers: async (asks) => {
-      if (deps.steerJob && message.text.trim() !== "") await steerJobs(storage, asks, { id: message.eventId, text: message.text }, deps.steerJob, deps.now());
+      if (!deps.steerJob) return;
+      await steerJobs(storage, asks, { id: message.eventId, text: message.event ? "" : message.text.trim() }, deps.steerJob, deps.now()); // a turn by code passes only its own notes
+      return notResumedText(await resumeJobs(storage, asks, { id: message.eventId }, deps.steerJob, deps.now())); // "restart it" picks an ended job back up
     },
   };
 }
@@ -619,24 +640,29 @@ async function sendPicture(deps: InboxDeps, chatId: string, media: Media, key: s
   }
 }
 
-async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStorage, presence?: Presence): Promise<string[]> {
+async function answerTexts(message: Message, work: string, deps: InboxDeps, storage: InboxStorage, presence: Presence | undefined, timing: TurnTiming): Promise<string[]> {
+  // The gateway's answer is in when the reply is (`replyTo`); what follows it, before the first send, is `beforeSendMs`.
+  const replied = (texts: Promise<string[]>): Promise<string[]> =>
+    texts.then((reply) => {
+      timing.answered = deps.now();
+      return reply;
+    });
   const simulator = message.channel === "simulator";
-  let progressSent = 0;
   let chain: Promise<void> = Promise.resolve();
   const say = (text: string): Promise<void> => {
-    const index = progressSent;
-    progressSent += 1;
+    if (isControlWord(text)) return chain; // a word meant for us, never a text (`controlWords.ts`)
     chain = chain.then(async () => {
       try {
-        if (simulator) await record(storage, "in", text, deps.now());
-        else {
-          const line = lineFor(lineDeps(deps), message.chatId);
-          // Progress lines go where the answer will, as far as can be told yet.
-          await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`, threadFor(message));
-          await addEvent(storage, { at: deps.now(), chat: message.chatId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: true, ...(deps.steer ? { turn: deps.steer.turn } : {}) });
-          // Sending a text clears the bubble; the task is still going.
-          await line.startTyping(message.chatId);
-        }
+        const hash = await sha256Hex(text), sentKey = `${PROGRESS_PREFIX}${work}:${hash}`;
+        if ((await storage.get<string>(sentKey)) !== undefined) return;
+        const line = simulator ? null : lineFor(lineDeps(deps), message.chatId);
+        // Progress lines go where the answer will, as far as can be told yet.
+        if (line === null) await record(storage, "in", text, deps.now());
+        else await line.sendText(message.chatId, text, `progress:${work}:${hash.slice(0, 16)}`, threadFor(message));
+        await storage.put(sentKey, deps.now());
+        await addEvent(storage, { at: deps.now(), chat: message.chatId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: true, ...(deps.steer ? { turn: deps.steer.turn } : {}) });
+        // Sending a text clears the bubble; the task is still going.
+        await line?.startTyping(message.chatId);
       } catch {
         // A progress line that failed costs the person a line, never the answer.
       }
@@ -654,14 +680,14 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
 
   if (simulator) {
     try {
-      return await replyTo(message, { ...deps, onProgress });
+      return await replied(replyTo(message, { ...deps, onProgress }));
     } finally {
       await chain;
     }
   }
   const shown = presence ?? (await startPresence(lineFor(lineDeps(deps), message.chatId), message));
   try {
-    return await replyTo(message, { ...deps, onProgress });
+    return await replied(replyTo(message, { ...deps, onProgress }));
   } finally {
     await shown.stop();
     await chain;
@@ -669,8 +695,6 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
 }
 
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {
-  const seen = await storage.list<number>({ prefix: "seen:" });
-  for (const [key, at] of seen) {
-    if (now - at > SEEN_FOR_MS) await storage.delete(key);
-  }
+  // Progress lines go too, kept for work that was never answered (`PROGRESS_PREFIX`).
+  for (const prefix of ["seen:", PROGRESS_PREFIX]) for (const [key, at] of await storage.list<number>({ prefix })) if (now - at > SEEN_FOR_MS) await storage.delete(key);
 }

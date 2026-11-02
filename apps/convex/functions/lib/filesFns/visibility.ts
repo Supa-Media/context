@@ -8,6 +8,7 @@
  * registrations (names, args, returns) stay there.
  */
 
+import { objectFirst } from "../rowWatch/objectFirst";
 import { ConvexError, type Infer } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
@@ -86,13 +87,25 @@ async function rowsChange(
   if (change.kind === "folder" && isPlumbing(change.path)) {
     throw new ConvexError({ code: "PATH_INVALID", message: "That path is reserved." });
   }
-  const answer = await ctx.runMutation(internal.functions.nodesAccess.consoleAccess, change);
+  const answer = await objectFirst(ctx, change.workspaceId, () => ctx.runMutation(internal.functions.nodesAccess.consoleAccess, change));
   if (!answer.ok) {
     if (answer.code === "GROUP_NOT_FOUND") {
       throw new ConvexError({ code: "GROUP_NOT_FOUND", message: "That is not a group or a member of this context." });
     }
     throw new ConvexError({ code: "FILE_NOT_FOUND", message: "That file does not exist." });
   }
+  // Fast search keeps each note's rows in a tier, and an access change leaves
+  // the text and version alone, so no sweep would ever move them: a note
+  // opened to the team stayed out of every team caller's search (2026-10-29).
+  // Followed behind the change, with no read; caught, because the search
+  // database is a derivative and must never fail the change it follows.
+  await ctx.scheduler
+    .runAfter(0, internal.functions.files.runFileOperation, {
+      workspaceId: change.workspaceId,
+      scope: "private",
+      operation: { kind: "indexNotes", written: [], gone: [], retiered: [answer.path] },
+    })
+    .catch(() => {});
   return {
     kind: "visibility",
     path: answer.path,

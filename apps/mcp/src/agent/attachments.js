@@ -16,8 +16,8 @@
  * transcription service (`ingestion/transcription.js`, the one meetings use,
  * with its silence filtering), so a voice message is turned into its words
  * before the model sees the turn, `{ name, mediaType, text, heard: true }`. A
- * deployment without that service, or a transcription that fails, makes it an
- * `unread` with the reason, so the model says so rather than guessing.
+ * deployment without that service, or a transcription that fails twice, makes
+ * it an `unread` with the reason, so the model says so rather than guessing.
  *
  * This module checks each against what the model API takes (types and sizes),
  * builds the blocks, and lets the model keep a picture in a note without ever
@@ -150,6 +150,13 @@ function heardText(payload) {
  * Every voice message replaced by its words (or by why there are none). The
  * audio goes to the service and nowhere else: not logged, not kept, and the
  * caller is named to it only as `callerId`, which the forwarder hashes.
+ *
+ * Texting Tex a voice message is the request to hear it, the same way texting
+ * words is the request to read them (owner, 2026-10-28: "make Tex understand
+ * voice messages"), so this asks no meeting-transcription question: that one
+ * covers the app recording a room, where the microphone permission was the
+ * only signal (docs/decisions/meetings/transcription-consent.md). A failed
+ * transcription is tried once more before Tex is told it could not be heard.
  */
 export async function hearVoiceMessages(attachments, transcribe, callerId) {
   if (!attachments.some(isAudio)) return attachments;
@@ -158,15 +165,22 @@ export async function hearVoiceMessages(attachments, transcribe, callerId) {
       if (!isAudio(attachment)) return attachment;
       const { name, mediaType } = attachment;
       if (typeof transcribe !== "function") {
-        return { name, mediaType, unread: "It is a voice message, and voice messages can't be transcribed on this server. Ask them to type it." };
+        return { name, mediaType, unread: "It is a voice message, and this server has no transcription service, so nobody could hear it. Say so plainly." };
       }
+      const listen = () => transcribe({ audioBase64: attachment.data, mimeType: mediaType, callerId: String(callerId) });
+      let payload;
       try {
-        const text = heardText(await transcribe({ audioBase64: attachment.data, mimeType: mediaType, callerId: String(callerId) }));
-        if (!text) return { name, mediaType, unread: "It is a voice message with no words you could make out. Ask them to say it again or type it." };
-        return { name, mediaType, text: text.slice(0, MAX_TEXT_CHARS), heard: true };
+        payload = await listen();
       } catch {
-        return { name, mediaType, unread: "It is a voice message, and transcribing it failed. Ask them to send it again or type it." };
+        try {
+          payload = await listen();
+        } catch {
+          return { name, mediaType, unread: "It is a voice message, and transcribing it failed twice. Say you couldn't hear it this time and ask them to send it again; never ask them to type it." };
+        }
       }
+      const text = heardText(payload);
+      if (!text) return { name, mediaType, unread: "It is a voice message with no words you could make out. Ask them to say it again; never ask them to type it." };
+      return { name, mediaType, text: text.slice(0, MAX_TEXT_CHARS), heard: true };
     }),
   );
 }
@@ -210,7 +224,7 @@ function describe(attachments) {
       return `${n}. ${attachment.name}: a file they sent earlier in this chat, kept as ${attachment.kept.id} and shown above again so you can read it now.${rest}`;
     }
     if (typeof attachment.unread === "string") return `${n}. ${attachment.name}: could not be opened. ${attachment.unread}`;
-    if (isPicture(attachment)) return `${n}. ${attachment.name}: a picture, shown above.`;
+    if (isPicture(attachment)) return `${n}. ${attachment.name}: a picture, shown above. To email it, send_email or save_email_draft with attach: ["attachment:${n}"].`;
     if (attachment.mediaType === PDF) return `${n}. ${attachment.name}: a PDF, shown above.`;
     if (attachment.heard) return `${n}. ${attachment.name}: a voice message; what they said is transcribed above. Answer it as if they had typed it.`;
     const length = attachment.text.length;
@@ -312,7 +326,7 @@ export function attachmentsLine(all, kept = []) {
   });
   const lost = attachments.some((attachment) => !attachment.kept && !attachment.heard);
   const again = [
-    ...(where.size > 0 ? [" read_image with that note and image shows it again."] : []),
+    ...(where.size > 0 ? [' read_image with that note and image shows it again; to email one, attach takes the same words (<image> in <note>), never the browser.'] : []),
     ...(attachments.some((attachment) => attachment.kept) ? [' read_file with path "download:…" reads a kept file again; never ask them to resend it.'] : []),
   ].join("");
   const line = `[Sent with this text: ${names.join(", ")}.${lost ? " Seen only on that turn." : ""}${again}]`;

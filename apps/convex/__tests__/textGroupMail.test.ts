@@ -9,9 +9,10 @@
  *
  * Sabotage (run by hand, each must fail a test here):
  *  - drop `ownGmail` from `shareMail`: "only the mailbox's own person" fails;
- *  - drop the `guestGroupId` check in `chatMailClearance`: covered by
- *    `sharingWorkspace` refusing a guest chat, "never into a guest chat" fails
- *    when both are dropped;
+ *  - a guest chat refused again (`sharingWorkspace`, `liveMailShares` or
+ *    `chatMailClearance`): "a guest chat reads it too" fails (the owner,
+ *    2026-10-29: "it should work even in guest mode if I'm sharing my email
+ *    explicitly");
  *  - drop `withinShare` from the search: "every search is narrowed" fails;
  *  - keep the query's brackets in `withinShare`: "a search is narrowed" fails;
  *  - drop `insideShare` from the read: "a message outside the share" fails;
@@ -114,7 +115,7 @@ async function family(t: T) {
   const id = await seedGoogleConnection(t, { workspaceId: seyi.workspaceId, boundBy: seyi.userId, address: WORK });
   const encryptedAccessToken = await encryptSecret("ya29.fake-access-token", requireKeyset(), { workspaceId: seyi.workspaceId });
   await t.run((ctx) => ctx.db.patch(id, { encryptedAccessToken, accessTokenExpiresAt: Date.now() + HOUR }));
-  expect((await turn(t, SEYI, { command: { kind: "use", slug: "crystal-care" } })).status).toBe("ready");
+  expect((await turn(t, SEYI, { mint: false })).status).toBe("ready");
   return { seyi, dad, care, connectionId: id };
 }
 
@@ -178,6 +179,7 @@ describe("sharing a mailbox with the chat", () => {
     });
     expect(await turn(t, SEYI, share(WORK))).toEqual({ status: "mail_refused" });
   });
+
 
   test("a message outside the share is not found, one inside is read", async () => {
     gmail(false);

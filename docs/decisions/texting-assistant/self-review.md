@@ -40,6 +40,31 @@ The control plane decides the tier before the model is asked for words, and
 again when the review arrives, dropping any words it should not have been
 sent. The gateway never decides who may share.
 
+**Saying yes by text (Dev2, 2026-10-29).** "Someone needs to be able to text
+Tex … to opt in to sharing their entire history in order to improve the app
+… and then it just works." The yes is the same `texReviewSharing` row, set
+from a text as well as from Settings: "Tex, share my chats with the devs"
+(or "opt into sharing with devs"), "stop sharing with the devs" (or "opt
+out"), and "am I sharing with the devs?" (`apps/agent/src/reviewSharing.ts`,
+`POST /agent-texts/review-sharing`, keyed by the phone that texted). The words
+are read whole by code, never by the model, as "Tex, settings" is: a yes that
+lets people read somebody's messages has to be their own words, so every
+pattern names what it is about ("the team" alone is not "the devs", and a bare
+"stop sharing" may mean a note, so it goes to the model). The reply says who reads what (the Context team, the whole
+conversation, the scores), that it is never public, sold or used for ads, and
+how to stop; a no says only scores are kept from then on and what was already
+shared stays with the team.
+
+A 1:1 yes also files, once, everything Tex still keeps of that chat (up to 300
+turns): the Worker asks `/agent/review` with `whole: true`, which reads past
+the review mark without moving it and files under `reason: shared` on the
+`full` tier only, with no scores row, since those turns were scored when their
+conversations ended. Three a day per person, so switching on and off cannot
+file it over and over. **Groups keep the everybody rule**: a yes said in a
+group is the sender's own switch, and the reply says, naming nobody, whether
+everyone in the chat has now said yes; until they have, that chat's words stay
+out. A group's history is never backfilled on one person's yes.
+
 **The scores.** 1 to 10, higher is better: `goal`, `independence`, `turns`,
 `friendly`, `calm` (10 is no frustration). A small model
 (`apps/mcp/src/agent/selfReview.js`) reads the conversation's words and the
@@ -58,6 +83,28 @@ grant. A group's review also reads what the chat said after Tex's last text
 (a "sharrap", a sigh) without consuming it. Each review reads only what came
 after the last one, found by a fingerprint of the last exchange it read, kept
 beside the conversation's history.
+
+**A turn that failed is reviewed too** (2026-10-29). A group turn given up on
+(the chat got "I couldn't answer that one" or "I'm having trouble answering")
+starts the same watch, and its review carries the asks nobody answered and
+the line sent instead, from the events the chat's object already keeps for the
+gateway, each sent once. The gateway scores those even though no answer was
+kept, and moves no mark. Before this, a chat where every reply failed was
+never watched, so the conversations that went worst were never scored (Tex
+Devs, 2026-10-29). Reverting it: the "a turn that failed is still scored"
+tests fail. The gateway also answers why a review filed nothing (`off`,
+`nothing_new`, `no_tier`, `no_score`, `not_filed`), and the Worker logs it,
+since "asked" alone hid 15 of 17 reviews that day filing nothing.
+
+**The scorer gets room to think** (2026-10-29). The review model thinks by
+default, and its thinking counts against the answer's token limit. At 200
+tokens (960 with the words), a long chat's thinking used all of it and the
+answer came back empty: that log then showed 8 of 10 reviews as `no_score`.
+A review now asks for 2,000 tokens (4,000 with the words). The answer itself
+is still short, and at Haiku's price the extra room costs about a tenth of a
+cent. A miss also says which kind it was: `model_failed` (the call threw),
+`cut_off` (it still ran out of room) or `no_score` (it answered nothing
+readable). Reverting it: "a review leaves the model room to think" fails.
 
 **"fix this" reviews at once.** The owner's own words, and plain frustration
 (swearing, "I already told you", an angry face), review the conversation right

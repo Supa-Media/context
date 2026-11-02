@@ -1,0 +1,51 @@
+# Tell every workspace object (homes `dual` and `object`) whether its workspace
+# holds a data key, from the key rows (`apps/convex/functions/workspaceObjectEncryption.ts`).
+# Needed once for workspaces copied before objects recorded it; a request there
+# cannot open its store from the object until this has run. Safe to repeat.
+name: Workspace objects encryption
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      dry_run:
+        description: "Count only; change nothing."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Record encryption
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=$(jq -cn --argjson dry "$DRY_RUN" '{dryRun: $dry}')
+          answer=$(npx convex run functions/workspaceObjectEncryption:record "$args" 2>/dev/null)
+          echo "$answer"
+          if [ "$(echo "$answer" | jq -r '.failed')" != "0" ] || [ "$(echo "$answer" | jq -r '.unreachable')" != "0" ]; then exit 1; fi

@@ -20,6 +20,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { TRANSCRIBE_WORKER_SECRET_ENV_VAR, TRANSCRIBE_WORKER_URL_ENV_VAR } from "../functions/meetings/transcribe";
 import { utcDay } from "../functions/lib/jev/meter";
+import { ADDRESSED_RULE, OTHER_ASSISTANT_RULE, decideRequest, readDecideBody } from "../functions/lib/gatewayRoutes/textDecide";
+import { groupKeyOf } from "../functions/textGroups";
 import { addMember, asUser, createUser, createWorkspace, setupTest, TEST_GATEWAY_SECRET } from "./fixtures.helpers";
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
@@ -98,7 +100,7 @@ function clef(answers: Record<string, unknown> | null) {
 const ANSWER = {
   act: { type: "choice", choice: "answer", confidence: 0.83, probabilities: { silent: 0.1, react: 0.07, answer: 0.83 } },
   start: { type: "choice", choice: id(2), confidence: 0.6, probabilities: { [id(1)]: 0.3, [id(2)]: 0.6, [NEWEST]: 0.1 } },
-  movedOn: { type: "noul", noul: 0.2 },
+  moved_on: { type: "noul", noul: 0.2 },
 };
 
 async function decide(t: T, extra: Record<string, unknown> = {}) {
@@ -150,7 +152,9 @@ describe("the door", () => {
 describe("the decision", () => {
   test("asks typed questions over the transcript and maps the answers", async () => {
     const t = setupTest();
-    const { studio } = await boundGroup(t);
+    // Metered to the sponsor (Ada, whose turn minted the grant), not the shared workspace (Dev2, 2026-11-01).
+    const { ada } = await boundGroup(t);
+    const studio = ada.workspaceId;
     const sent = clef(ANSWER);
     const logs: string[] = [];
     vi.spyOn(console, "info").mockImplementation((line: unknown) => void logs.push(String(line)));
@@ -158,7 +162,7 @@ describe("the decision", () => {
     expect(response.json).toEqual({ ok: true, act: "answer", covers: [id(2), NEWEST], stale: [], movedOn: false, confidence: 0.83 });
     expect(sent).toHaveLength(1);
     expect(sent[0]!.state).toContain(SECRET_WORDS);
-    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "start", "movedOn"]);
+    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "also_react", "wait_seconds", "start", "moved_on", "emoji"]);
     expect(Object.keys(sent[0]!.questions.start!.criteria)).toEqual([id(1), id(2), NEWEST]);
     // Never the transcript in the answer or the log.
     expect(response.text).not.toContain("pineapple");
@@ -196,16 +200,16 @@ describe("the decision", () => {
     const asks = [id(20), id(21), id(22)];
     const sent = clef({
       ...ANSWER,
-      midTurn: { type: "choice", choice: "restart", confidence: 0.7 },
+      mid_turn: { type: "choice", choice: "restart", confidence: 0.7 },
       stale_0: { type: "noul", noul: 0.85 },
       stale_1: { type: "noul", noul: 0.84 },
       stale_2: { type: "noul", noul: 0.95 },
-      movedOn: { type: "noul", noul: 0.8 },
+      moved_on: { type: "noul", noul: 0.8 },
     });
     const response = await decide(t, { running: true, waitingAsks: asks });
     expect(response.json).toMatchObject({ ok: true, midTurn: "restart", stale: [id(20), id(22)], movedOn: true });
-    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "start", "midTurn", "stale_0", "stale_1", "stale_2", "movedOn"]);
-    expect(Object.keys(sent[0]!.questions.midTurn!.criteria)).toEqual(["fold", "queue", "restart"]);
+    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "also_react", "wait_seconds", "start", "mid_turn", "stale_0", "stale_1", "stale_2", "moved_on", "emoji"]);
+    expect(Object.keys(sent[0]!.questions.mid_turn!.criteria)).toEqual(["fold", "queue", "restart"]);
   });
 
   test("a 1:1 text is metered against the sender's personal workspace, in direct style", async () => {
@@ -221,10 +225,11 @@ describe("the decision", () => {
 
   test("off and capped: ok false, and nothing is sent", async () => {
     const t = setupTest();
-    const { studio } = await boundGroup(t);
+    const { ada } = await boundGroup(t);
+    const studio = ada.workspaceId;
     const sent = clef(ANSWER);
     await t.run((ctx) => ctx.db.insert("jevSwitches", { feature: "textDecide", off: true, updatedAt: Date.now() }));
-    expect((await decide(t)).json).toEqual({ ok: false, reason: "off" });
+    expect((await decide(t)).json).toEqual({ ok: false, reason: "off", cause: "switched_off" });
     await t.run(async (ctx) => {
       for (const row of await ctx.db.query("jevSwitches").collect()) await ctx.db.delete(row._id);
       // The refusal above already wrote today's row; a day at the cap.
@@ -232,7 +237,7 @@ describe("the decision", () => {
       expect(row?.workspaceId).toBe(studio);
       await ctx.db.patch(row!._id, { calls: 2000 });
     });
-    expect((await decide(t)).json).toEqual({ ok: false, reason: "capped" });
+    expect((await decide(t)).json).toEqual({ ok: false, reason: "capped", cause: "daily_cap" });
     expect(sent).toHaveLength(0);
   });
 
@@ -240,17 +245,17 @@ describe("the decision", () => {
     const t = setupTest();
     await boundGroup(t);
     clef(null);
-    expect((await decide(t)).json).toEqual({ ok: false, reason: "unavailable" });
+    expect((await decide(t)).json).toEqual({ ok: false, reason: "unavailable", cause: "model_failed" });
     vi.unstubAllGlobals();
     clef({ ...ANSWER, act: { type: "choice", choice: "shout", confidence: 1 } });
-    expect((await decide(t)).json).toEqual({ ok: false, reason: "unavailable" });
+    expect((await decide(t)).json).toEqual({ ok: false, reason: "unavailable", cause: "bad_answer" });
   });
 
   test("a group with no bound workspace, or a stranger's 1:1, is unavailable", async () => {
     const t = setupTest();
     clef(ANSWER);
-    expect((await decide(t)).json).toEqual({ ok: false, reason: "unavailable" });
-    expect((await decide(t, { chat: BO, line: undefined, sender: BO, style: "direct" })).json).toEqual({ ok: false, reason: "unavailable" });
+    expect((await decide(t)).json).toEqual({ ok: false, reason: "unavailable", cause: "no_group" });
+    expect((await decide(t, { chat: BO, line: undefined, sender: BO, style: "direct" })).json).toEqual({ ok: false, reason: "unavailable", cause: "no_group" });
   });
 });
 
@@ -287,4 +292,78 @@ describe("a group's style", () => {
     const [row] = await t.run((ctx) => ctx.db.query("textGroups").collect());
     expect(row!.engagement).toBeUndefined();
   });
+});
+
+// 2026-10-27: with one message waiting, `start` went out as a choice of one, which the decide Worker
+// (infra/transcribe-worker/src/decide.ts) refuses, so every single-message decide failed as model_failed.
+test("every choice it asks offers at least two options, whatever the number of messages waiting", () => {
+  const base = { chat: GROUP, line: LINE, style: "helpful" as const, transcript: "x", running: true, waitingAsks: [] };
+  for (const candidates of [["1761619442000-000001"], ["1761619442000-000001", "1761619443000-000002"]]) {
+    const { questions } = decideRequest({ ...base, candidates, newest: candidates.at(-1)! });
+    for (const [name, question] of Object.entries(questions as Record<string, { type: string; criteria: object }>)) {
+      if (question.type === "choice") expect(Object.keys(question.criteria).length, name).toBeGreaterThanOrEqual(2);
+    }
+    expect("start" in questions).toBe(candidates.length > 1);
+  }
+});
+
+// 2026-10-27: "movedOn" and "midTurn" broke the inference Worker's name rule, so it refused every request as
+// malformed and decide never once answered. These mirror its request rules (infra/transcribe-worker readQuestion).
+test("every request it builds passes the inference Worker's request rules", () => {
+  const NAME = /^[a-z][a-z0-9_]{0,39}$/;
+  const OPTION = /^[a-z0-9][a-z0-9_-]{0,59}$/;
+  const ids = Array.from({ length: 3 }, (_, n) => `1761619442000-00000${n}`);
+  for (const [running, addressed] of [[false, false], [true, false], [false, true]] as const) {
+    for (const candidates of [ids.slice(0, 1), ids]) {
+      const { state, questions } = decideRequest({ chat: GROUP, line: LINE, style: "helpful", transcript: "x", running, waitingAsks: ids.slice(0, 2), candidates, newest: candidates.at(-1)!, ...(addressed ? { addressed: true as const } : {}) });
+      expect(state.length).toBeGreaterThan(0);
+      const entries = Object.entries(questions as Record<string, { type: string; instructions: string; criteria: Record<string, string> }>);
+      expect(entries.length).toBeLessThanOrEqual(16);
+      for (const [name, question] of entries) {
+        expect(name, name).toMatch(NAME);
+        expect(question.instructions.length, name).toBeLessThanOrEqual(1_000);
+        if (question.type === "choice") {
+          expect(Object.keys(question.criteria).length, name).toBeGreaterThanOrEqual(2);
+          for (const option of Object.keys(question.criteria)) expect(option, name).toMatch(OPTION);
+        }
+      }
+    }
+  }
+});
+
+// Dev2, 2026-10-31: a message for another assistant (Instinct is in Tex Devs) is not Tex's.
+test("every style tells decide a message for another assistant is silent, never a react", () => {
+  for (const style of ["quiet", "attentive", "followAlong", "helpful", "direct"] as const) {
+    const { questions } = decideRequest({ chat: GROUP, line: LINE, style, transcript: "x", running: false, waitingAsks: [], candidates: ["1761619442000-000001"], newest: "1761619442000-000001" });
+    const act = (questions as Record<string, { instructions: string }>).act!;
+    expect(act.instructions).toContain(OTHER_ASSISTANT_RULE);
+    expect(act.instructions.length).toBeLessThanOrEqual(1_000);
+  }
+});
+
+// Dev2, 2026-11-01: an addressed message's turn runs while decide judges it, so decide is told it looks addressed.
+test("decide is told when the newest message looks addressed to Tex, and only then", () => {
+  const body = { chat: GROUP, line: LINE, style: "followAlong", transcript: "x", running: false, waitingAsks: [], candidates: ["1761619442000-000001"], newest: "1761619442000-000001" };
+  const act = (read: Record<string, unknown>) => (decideRequest(readDecideBody(read)!).questions as Record<string, { instructions: string }>).act!.instructions;
+  expect(act({ ...body, addressed: true })).toContain(ADDRESSED_RULE);
+  expect(act(body)).not.toContain(ADDRESSED_RULE);
+  expect(act({ ...body, addressed: "yes" })).not.toContain(ADDRESSED_RULE);
+});
+
+// 2026-11-01: in a chat that reaches no shared workspace (home-only, like Tex Devs), every decide was refused as no_group,
+// so untagged texts and reactions were never judged. Decide is metered to the sponsor in every group, as turns are.
+test("decide is metered to the chat's sponsor, including a chat that reaches no shared workspace", async () => {
+  const t = setupTest();
+  const ada = await texter(t, "ada", ADA);
+  const groupKey = await groupKeyOf(LINE, GROUP);
+  await t.run((ctx) => ctx.db.insert("textGroups", { groupKey, sponsorId: ada.userId, lastSeenAt: Date.now() } as never));
+  clef(ANSWER);
+  expect((await decide(t)).json).toMatchObject({ ok: true });
+  vi.unstubAllGlobals();
+  await t.run(async (ctx) => {
+    const row = await ctx.db.query("textGroups").withIndex("by_key", (q) => q.eq("groupKey", groupKey)).unique();
+    await ctx.db.patch(row!._id, { sponsorId: undefined });
+  });
+  clef(ANSWER);
+  expect((await decide(t)).json).toMatchObject({ ok: false, cause: "no_group" });
 });

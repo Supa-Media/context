@@ -10,12 +10,14 @@ import { SIGN_UP_CSS } from "./signUpCss";
  * Page a, the front door: the notes page (Dev2, 2026-10-21: "since we have
  * tex.lc and that is more text focused, context.lc's homepage should look
  * more notes focused", then "I like A, but also want to show that you can
- * create different workspaces for free"). A notes app every AI can read, the
- * sign-up, the editor as a picture, what Context is in four lines, a
+ * create different workspaces for free"). The hero is Dev2's own words from
+ * the 2026-10-11 page (Dev2, 2026-10-29: "A notes app that every AI you use
+ * can read" is terrible, "change the wording to something more personable",
+ * everything else the same), then the sign-up, the editor as a picture, what Context is in four lines, a
  * workspace for each part of your life, and Tex as the way in from a phone,
  * linking to tex.lc. Light only, on the brand's Paper.
  */
-export const NOTES_TITLE = "Context: notes every AI can read";
+export const NOTES_TITLE = "Context";
 
 export function NotesPage() {
   useEffect(() => {
@@ -73,10 +75,10 @@ export function NotesPage() {
       </header>
       <main>
         <section className="np-wrap np-hero">
-          <h1 className="np-h1">A notes app that every AI you use can read.</h1>
+          <h1 className="np-h1">Context gives your brain that feeling you have when your room is clean.</h1>
           <p className="np-sub">
-            Write in plain Markdown, alone or together. Claude, ChatGPT, Cursor and Codex read the notes you can see and
-            write back where you let them.
+            It's an opinionated way to put everything away in plain notes that you can always edit, export, do whatever you
+            want with it, and so can all your AI tools.
           </p>
           <div className="np-sign" id="join">
             <InlineSignUp />

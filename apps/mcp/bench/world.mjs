@@ -35,6 +35,7 @@ import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
+import { texStoreNamespace } from "../test/texStoreFixture.mjs";
 import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 import { calendarAnswer, calendarWrites } from "./calendar.mjs";
 
@@ -336,6 +337,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
     GATEWAY_SECRET,
+    // Tex's objects, as in production: the person's history and turn records live there (`src/agent/history.js`).
+    TEX_STORE: texStoreNamespace().namespace,
     // Where the person's own pages live, as in production: a handoff texts
     // `<APP_ORIGIN>/tex/<handle>` (`http/texComputer.js`), and without one
     // the browser cannot be handed over at all.
@@ -399,7 +402,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
   return {
     /** One texted message, answered with the conversation so far. */
-    async text(message) {
+    async text(message, attachments = []) {
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
@@ -413,7 +416,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         new Request("https://mcp.bench.invalid/agent", {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
-          body: JSON.stringify({ question: message, conversation: "texts" }),
+          body: JSON.stringify({ question: message, conversation: "texts", ...(attachments.length > 0 ? { attachments } : {}) }),
         }),
         env,
         ctx,

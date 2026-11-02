@@ -57,6 +57,8 @@ export const UNTRUSTED_READS = new Set([
   "read_image",
   "slack_api",
   "google_chat",
+  // A Chat conversation: every word in it is somebody else's.
+  "read_google_chat",
   "app_read",
   "app_change",
   "read_proposal",
@@ -96,11 +98,20 @@ const UNTRUSTED_FRONTMATTER = /^trust:\s*"?untrusted"?\s*$/m;
 
 /** A fresh ledger for one turn the gateway sees whole. */
 export function newLedger() {
-  return { untrusted: false, asked: [] };
+  return { untrusted: false, outside: false, asked: [] };
 }
 
 /** Mark the ledger: the turn took in something from outside the workspace. */
 export function markUntrusted(ledger) {
+  if (ledger) ledger.untrusted = ledger.outside = true;
+}
+
+/**
+ * Mark a group chat's turn: it carries other people's words, so its sends stay held as any untrusted turn's, but the
+ * people in the chat are not outside it (the owner, 2026-11-02), so `outside` is left for what came from beyond the
+ * chat: a page, an email, a file. Only a chat's own learned skills read it (`agent/chatSkills.js`).
+ */
+export function markChatWords(ledger) {
   if (ledger) ledger.untrusted = true;
 }
 
@@ -114,24 +125,27 @@ export function recordRead(ledger, { name, args, result, writing = false }) {
   if (!ledger || !result || result.isError === true) return;
   if (writing && !UNTRUSTED_READS.has(name)) return;
   if (LISTING_TOOLS.has(name)) {
-    if (UNTRUSTED_LISTINGS.has(name)) ledger.untrusted = true;
+    if (UNTRUSTED_LISTINGS.has(name)) ledger.untrusted = ledger.outside = true;
     return;
   }
   if (UNTRUSTED_READS.has(name) || readsCapturedContent(name, args) || carriesUntrustedFrontmatter(result)) {
-    ledger.untrusted = true;
+    ledger.untrusted = ledger.outside = true;
   }
 }
 
 /** A note read by path that is a mailbox day, a calendar day, a meeting or a saved chat. */
 function readsCapturedContent(name, args) {
+  // `read_notes` reads many: any one of them that is captured content marks the turn.
+  if (name === "read_notes") return (Array.isArray(args?.paths) ? args.paths : []).some((path) => readsCapturedContent("read_note", { path }));
   const raw = name === "fetch" ? args?.id : args?.path;
   const path = typeof raw === "string" ? normalizePath(raw) : null;
   return path !== null && path !== undefined && classifyCaptureKind(path) !== null;
 }
 
+/** Any part of the answer: `read_notes` answers one part per note, and any of them may be a stranger's. */
 function carriesUntrustedFrontmatter(result) {
-  const text = result?.content?.[0]?.text;
-  return typeof text === "string" && UNTRUSTED_FRONTMATTER.test(text.slice(0, 2000));
+  const parts = Array.isArray(result?.content) ? result.content : [];
+  return parts.some((part) => typeof part?.text === "string" && UNTRUSTED_FRONTMATTER.test(part.text.slice(0, 2000)));
 }
 
 /**

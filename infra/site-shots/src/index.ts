@@ -32,10 +32,13 @@
  *                 gateway's turn and nowhere else; the browser closes itself
  *                 when idle, and nothing in it is kept.
  *   POST /browse/close `{ session }` → closes that browser now.
- *   Either with `provider: "browserbase"` drives the person's Browserbase
+ *   POST /browse/hold `{ owner }` → keeps the person's Browserbase browser up
+ *                 fifteen minutes while Tex waits on them (./idle.ts HOLD_MS);
+ *                 Cloudflare's browser closes with its question, so it holds nothing.
+ *   Any of these with `provider: "browserbase"` drives the person's Browserbase
  *   browser instead (./browserbaseRoute.ts); that path holds the Worker's
  *   one secret, the Browserbase key, which never leaves this Worker.
- *   POST /render  `{ html, width?, height?, allow? }` → `{ png, width, height,
+ *   POST /render  `{ html, width?, height?, allow?, fit? }` → `{ png, width, height,
  *                 blocked }`: a page the texting assistant wrote, as a
  *                 picture, reaching only the addresses in `allow` (./render.ts)
  *   POST /view/frame `{ owner }`, /view/input `{ owner, action }`: the
@@ -69,8 +72,8 @@ const json = (body: unknown, status = 200) =>
 /** One per person, by owner tag: their browser's five-minute idle alarm (./idle.ts). */
 export class BrowserIdle extends DurableObject<Env> {
   private timer = new IdleTimer(this.ctx.storage, this.env, fetch, Date.now, (fn) => this.ctx.blockConcurrencyWhile(fn));
-  async touch(owner: string): Promise<void> {
-    await this.timer.touch(owner);
+  async touch(owner: string, ms?: number): Promise<void> {
+    await this.timer.touch(owner, ms);
   }
   async alarm(): Promise<void> {
     await this.timer.alarm();
@@ -80,7 +83,7 @@ export class BrowserIdle extends DurableObject<Env> {
 export default {
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === "POST" && (url.pathname === "/browse" || url.pathname === "/browse/close")) {
+    if (request.method === "POST" && (url.pathname === "/browse" || url.pathname === "/browse/close" || url.pathname === "/browse/hold")) {
       const body = await request.json().catch(() => null);
       if ((body as { provider?: unknown })?.provider === "browserbase") return await browseOnBrowserbase(env, url.pathname, body, fetch, (work) => ctx?.waitUntil(work));
       return await browse(env, url.pathname, body);
@@ -230,6 +233,7 @@ const BROWSE_KEEP_ALIVE_MS = 600_000;
 
 async function browse(env: Env, path: string, body: unknown): Promise<Response> {
   const session = typeof (body as { session?: unknown })?.session === "string" ? (body as { session: string }).session : null;
+  if (path === "/browse/hold") return json({ held: false });
   if (path === "/browse/close") {
     if (session === null || !/^[A-Za-z0-9-]{8,80}$/.test(session)) return json({ error: "a session is required" }, 400);
     const browser = await puppeteer.connect(env.BROWSER, session).catch(() => null);

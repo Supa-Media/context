@@ -110,7 +110,6 @@ function mountConsole(): () => void {
       canEdit: true,
       onSelect: files.select,
       onToggle: files.toggleFolder,
-      onCycleVisibility: () => {},
     } as never);
   }
 

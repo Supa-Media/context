@@ -46,6 +46,7 @@ import {
   presenceReducer,
   presenceSummary,
   savesToBucket,
+  shownMembers,
 } from "./session";
 import { tabSeed } from "./peers";
 import { openPresenceRoom } from "./roomSocket";
@@ -410,7 +411,7 @@ export function usePresence(options: PresenceOptions): Presence {
     () => ({
       drawing,
       announceSaved,
-      members: state.stale ? [] : state.members,
+      members: state.stale ? [] : shownMembers(state),
       phase: state.phase,
       summary: presenceSummary(state),
       report,

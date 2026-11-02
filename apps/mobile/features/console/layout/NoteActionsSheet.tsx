@@ -10,6 +10,9 @@ import type { ConsoleData } from "../types";
 import { noteActionItems, type NoteActionId } from "./noteActions";
 import { askAddProperty } from "../files/noteEditor/chips/addPropertyAsk";
 import { trackButton } from "../../observability/client";
+import { isPagePath } from "@context/shared/src/pages/index.cjs";
+import { PAGE_VIEW_AVAILABLE } from "../files/pageView/PageView";
+import { setPageAsText, usePageAsText } from "../files/pageView/pageText";
 
 /**
  * The ••• sheet over the open note — see `noteActions.ts` for which rows and
@@ -33,17 +36,21 @@ export function NoteActionsSheet({
   const files = data.files;
   const visitor = data.visitor;
   const reading = useReadMode();
+  const asText = usePageAsText(entry.path);
+  const page = PAGE_VIEW_AVAILABLE && isPagePath(entry.path);
   const items = noteActionItems({
     entry,
     canEdit: files.canEdit,
     canShare: files.canShare,
     visitor: visitor !== undefined,
     reading,
+    pageAsText: page ? asText : undefined,
   });
 
   const run = (id: NoteActionId) => {
     onDismiss();
     if (id === "read") return setReadMode(!reading);
+    if (id === "pageText") return setPageAsText(entry.path, !asText);
     if (id === "addProperty") return askAddProperty();
     runNoteAction(id, { data, entry, contextLabel, setBarDialog });
   };
@@ -65,7 +72,7 @@ export function NoteActionsSheet({
  */
 export function runNoteAction(
   /** Reading mode and Add property are the sheet's own rows (`NoteActionsSheet`), not operations on the note. */
-  id: Exclude<NoteActionId, "read" | "addProperty">,
+  id: Exclude<NoteActionId, "read" | "pageText" | "addProperty">,
   {
     data,
     entry,

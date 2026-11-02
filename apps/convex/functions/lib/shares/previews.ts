@@ -16,6 +16,8 @@ import { isProductMandatedPath } from "../scaffold";
 import { isPlumbing } from "../privacy";
 import { boundPreviewChildren } from "../shareTitle";
 import { isLive } from "./standing";
+import { coverVersion, pageCoverLeaf } from "./pageCover";
+import type { Doc } from "../../../_generated/dataModel";
 
 export const previewForNoteArgs = { slug: v.string(), path: v.string() };
 
@@ -31,6 +33,12 @@ export const previewForNoteReturns = v.object({
    * "a note rather than a folder".
    */
   children: v.array(v.string()),
+  /**
+   * The cache key of a linked page's cover, absent for the title card and
+   * for every absence (`pageCover.ts`, owner 2026-10-27). A hash: nothing
+   * about the note.
+   */
+  cover: v.optional(v.string()),
 });
 
 /**
@@ -175,7 +183,14 @@ export async function previewForNoteHandler(
     // anonymous reader. The title is bounded twice for the same reason, and
     // the router bounds both a third time.
     children: boundPreviewChildren(share.previewChildren ?? []),
+    ...(await coverOf(ctx, share)),
   };
+}
+
+/** `{ cover }`, the version of a live, titled share's page cover, or nothing. */
+async function coverOf(ctx: QueryCtx, share: Doc<"noteShares">): Promise<{ cover?: string }> {
+  const leaf = await pageCoverLeaf(ctx.db, share);
+  return leaf === null ? {} : { cover: coverVersion(leaf) };
 }
 
 export const previewTitleForTokenArgs = { token: v.string() };
@@ -201,6 +216,8 @@ export const previewTitleForTokenReturns = v.object({
    * a single value.
    */
   openToAnyone: v.boolean(),
+  /** A linked page's cover version, as `previewForNote` has it; absent for every absence. */
+  cover: v.optional(v.string()),
 });
 
 /**
@@ -275,5 +292,6 @@ export async function previewTitleForTokenHandler(
   return {
     title: share.previewTitle,
     openToAnyone: share.recipientKind === "anyone",
+    ...(await coverOf(ctx, share)),
   };
 }

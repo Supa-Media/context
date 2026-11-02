@@ -3,8 +3,7 @@ import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "re
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { Icon } from "../../design/components/Icon";
-import { TextLink } from "../../design/components/TextLink";
-import { leading, pointerType as t, radii, space } from "../../design/tokens";
+import { leading, pointerType as t } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 
 /**
@@ -26,6 +25,21 @@ import { useThemedStyles, type Colors } from "../../design/theme";
  * laptop window, drawn with no scroll. Now the card is capped at the window's
  * height (`doneCardMaxHeight`), its body scrolls, a close mark sits in its
  * corner outside the scrolling part, and Escape closes it.
+ *
+ * The cap is measured against the layer the host draws it in (`areaHeight`),
+ * not the window: in the console that layer sits under the top bar and above
+ * the status line, so a cap taken from the window let the card's foot run
+ * past the layer's bottom edge and be cut off with nothing left to scroll
+ * (Dev2, 2026-10-29). The window is only the fallback before the first layout.
+ *
+ * **And it should never need the scroll** (Dev2, same day: "we shouldn't need
+ * to scroll, this could be much much more compact"). The badge sits beside the
+ * title rather than above it, the exit is one sentence rather than a boxed
+ * panel, each "What's next" row is a title, one short line and a small button,
+ * and the second Close at the foot is gone: the corner mark and Escape close
+ * it. With every row present it is about 360pt tall, so it fits a laptop
+ * window under the console's bars; the scroll is only for a window shorter
+ * than that.
  */
 export function SetupDone({
   onClose,
@@ -35,8 +49,11 @@ export function SetupDone({
   invitesLeft,
   onInviteFriends,
   closeOnEscape = true,
+  areaHeight,
 }: {
   onClose: () => void;
+  /** The height of the layer the card is drawn in, once laid out; the cap is taken from it. */
+  areaHeight?: number;
   /** False while something is open over the card, so Escape closes that instead. */
   closeOnEscape?: boolean;
   onNewWorkspace?: () => void;
@@ -54,95 +71,86 @@ export function SetupDone({
   const { height } = useWindowDimensions();
   useEscape(closeOnEscape, onClose);
 
+  const rows: NextRow[] = [];
+  if (onNewWorkspace) {
+    rows.push({
+      title: "Add a shared workspace",
+      body: "Its own storage and members, for a team.",
+      action: "Start",
+      onPress: onNewWorkspace,
+      testID: "setup-done-shared",
+    });
+  }
+  if (onJoinCommunity) {
+    rows.push({
+      title: "Join the community",
+      body: "Early users and the Context team, on Discord.",
+      action: "Join",
+      onPress: onJoinCommunity,
+      testID: "setup-done-community",
+    });
+  }
+  if (onInviteFriends && invitesLeft !== undefined && invitesLeft > 0) {
+    rows.push({
+      title: `You have ${invitesLeft} ${invitesLeft === 1 ? "invite" : "invites"}`,
+      body: "Friends you invite skip the waitlist.",
+      action: "Invite",
+      onPress: onInviteFriends,
+      testID: "setup-done-invite",
+    });
+  }
+  rows.push({
+    title: "Bring in what your AI knows",
+    body:
+      copied === true
+        ? "Copied. Paste it into Claude or ChatGPT."
+        : "One prompt for Claude or ChatGPT fills your folders.",
+    status: copied !== null,
+    action: "Copy prompt",
+    onPress: () => {
+      void onCopyBootstrap().then(setCopied);
+    },
+    testID: "setup-done-bootstrap",
+  });
+
   return (
     <View
-      style={[styles.card, { maxHeight: doneCardMaxHeight(height) }]}
+      style={[styles.card, { maxHeight: doneCardMaxHeight(areaHeight ?? height) }]}
       testID="setup-done"
       role="dialog"
       aria-label="You're set up"
     >
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.body}
-        testID="setup-done-body"
-      >
-      <View style={styles.badge} aria-hidden>
-        <Text style={styles.badgeMark}>✓</Text>
-      </View>
-      <Text role="heading" aria-level={2} style={styles.title}>
-        You're set up.
-      </Text>
-      <Text style={styles.lede}>Handle, storage, notes and a tool are all connected.</Text>
-
-      <View style={styles.exit} testID="setup-done-exit">
-        <Text style={styles.exitTitle}>Take everything with you</Text>
-        <Text style={styles.exitBody}>
-          Every note is a plain Markdown file. Any folder downloads as a .zip from Files, free, any
-          time. Storage we run can move every file to your own bucket from Settings → Storage.
-        </Text>
-      </View>
-
-      <View style={styles.next}>
-        <Text variant="eyebrow" style={styles.nextHead}>
-          What's next
-        </Text>
-        {onNewWorkspace ? (
-          <View style={styles.nextRow}>
-            <View style={styles.nextText}>
-              <Text style={styles.nextTitle}>Add a shared workspace for your team</Text>
-              <Text style={styles.nextBody}>
-                A separate workspace with its own storage and members.
-              </Text>
-            </View>
-            <Button
-              label="Start →"
-              variant="dialog"
-              onPress={onNewWorkspace}
-              testID="setup-done-shared"
-            />
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.body} testID="setup-done-body">
+        <View style={styles.head}>
+          <View style={styles.badge} aria-hidden>
+            <Text style={styles.badgeMark}>✓</Text>
           </View>
-        ) : null}
-        {onJoinCommunity ? (
-          <View style={[styles.nextRow, onNewWorkspace ? styles.nextRule : null]}>
-            <View style={styles.nextText}>
-              <Text style={styles.nextTitle}>Join the community</Text>
-              <Text style={styles.nextBody}>Early users and the Context team talk every day on Discord.</Text>
-            </View>
-            <Button label="Join on Discord" variant="dialog" onPress={onJoinCommunity} testID="setup-done-community" />
-          </View>
-        ) : null}
-        {onInviteFriends && invitesLeft !== undefined && invitesLeft > 0 ? (
-          <View style={[styles.nextRow, onNewWorkspace || onJoinCommunity ? styles.nextRule : null]}>
-            <View style={styles.nextText}>
-              <Text style={styles.nextTitle}>
-                You have {invitesLeft} {invitesLeft === 1 ? "invite" : "invites"}
-              </Text>
-              <Text style={styles.nextBody}>Friends you invite skip the waitlist.</Text>
-            </View>
-            <Button label="Invite" variant="dialog" onPress={onInviteFriends} testID="setup-done-invite" />
-          </View>
-        ) : null}
-        <View style={[styles.nextRow, onNewWorkspace || onJoinCommunity || onInviteFriends ? styles.nextRule : null]}>
-          <View style={styles.nextText}>
-            <Text style={styles.nextTitle}>Bootstrap what your AI already knows</Text>
-            <Text style={styles.nextBody} role={copied === null ? undefined : "status"}>
-              {copied === true
-                ? "Copied — paste it into Claude or ChatGPT and watch the folders fill."
-                : "Paste one prompt into Claude or ChatGPT — folders and notes appear here."}
+          <View style={styles.headText}>
+            <Text role="heading" aria-level={2} style={styles.title}>
+              You're set up.
             </Text>
+            <Text style={styles.lede}>Handle, storage, notes and a tool are all connected.</Text>
           </View>
-          <Button
-            label="Copy prompt"
-            variant="dialog"
-            onPress={() => {
-              void onCopyBootstrap().then(setCopied);
-            }}
-            testID="setup-done-bootstrap"
-          />
         </View>
-      </View>
 
-      <TextLink label="Close" onPress={onClose} style={styles.close} testID="setup-done-close" />
+        <Text style={styles.exit} testID="setup-done-exit">
+          Every note is plain Markdown. Any folder downloads as a .zip from Files, and it can all
+          move to your own bucket in Settings → Storage. Free, any time.
+        </Text>
+
+        <View style={styles.next}>
+          {rows.map((row, index) => (
+            <View key={row.testID} style={[styles.nextRow, index > 0 ? styles.nextRule : null]}>
+              <View style={styles.nextText}>
+                <Text style={styles.nextTitle}>{row.title}</Text>
+                <Text style={styles.nextBody} role={row.status ? "status" : undefined}>
+                  {row.body}
+                </Text>
+              </View>
+              <Button label={row.action} variant="mini" onPress={row.onPress} testID={row.testID} />
+            </View>
+          ))}
+        </View>
       </ScrollView>
       <Pressable
         accessibilityRole="button"
@@ -152,18 +160,28 @@ export function SetupDone({
         style={styles.dismiss}
         testID="setup-done-dismiss"
       >
-        <Icon name="close" size={18} />
+        <Icon name="close" size={16} />
       </Pressable>
     </View>
   );
 }
 
-/** Where the host draws the card from the window's top, and what it keeps below. */
+interface NextRow {
+  title: string;
+  body: string;
+  /** The body is a result someone is waiting on, so it is announced. */
+  status?: boolean;
+  action: string;
+  onPress: () => void;
+  testID: string;
+}
+
+/** Where the host draws the card from its layer's top, and what it keeps below. */
 export const DONE_TOP = 60;
 const DONE_BOTTOM = 24;
 
 /**
- * The tallest the card may be in a window this high: from where the host
+ * The tallest the card may be in a layer this high: from where the host
  * draws it to a margin above the bottom edge, so nothing in it is ever out of
  * reach. The rest scrolls.
  */
@@ -188,78 +206,44 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     card: {
       width: "100%",
-      maxWidth: 520,
+      maxWidth: 460,
       borderWidth: 1,
       borderColor: colors.lineStrong,
-      borderRadius: 16,
+      borderRadius: 14,
       backgroundColor: colors.ground,
       overflow: "hidden",
       boxShadow: "0 20px 48px rgba(26,23,20,.16)",
     },
     scroll: { flexGrow: 0 },
-    body: {
-      paddingTop: 40,
-      paddingBottom: 24,
-      paddingHorizontal: 40,
-      alignItems: "center",
-    },
+    body: { padding: 20, gap: 14 },
     dismiss: {
       position: "absolute",
-      top: 12,
-      right: 12,
+      top: 10,
+      right: 10,
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    head: { flexDirection: "row", alignItems: "center", gap: 12, paddingRight: 28 },
+    badge: {
       width: 32,
       height: 32,
       borderRadius: 16,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.ground,
-    },
-    badge: {
-      width: 56,
-      height: 56,
-      borderRadius: 28,
       backgroundColor: colors.hintWash,
       alignItems: "center",
       justifyContent: "center",
-      marginBottom: 20,
     },
-    badgeMark: { fontSize: t.h2, fontWeight: "700", color: colors.accent },
-    title: { fontSize: t.h2, fontWeight: "600", color: colors.text, textAlign: "center" },
-    lede: {
-      marginTop: 10,
-      marginBottom: 20,
-      fontSize: t.body,
-      lineHeight: leading(t.body, 1.55),
-      color: colors.text2,
-      textAlign: "center",
-    },
-    exit: {
-      alignSelf: "stretch",
-      borderWidth: 1,
-      borderColor: colors.accent,
-      borderRadius: radii.card,
-      backgroundColor: colors.hintWash,
-      paddingVertical: 14,
-      paddingHorizontal: 18,
-      gap: 2,
-    },
-    exitTitle: { fontSize: t.ui, fontWeight: "600", color: colors.text },
-    exitBody: { fontSize: t.meta, color: colors.text2, lineHeight: leading(t.meta, 1.5) },
-    next: {
-      alignSelf: "stretch",
-      marginTop: 22,
-      borderWidth: 1,
-      borderColor: colors.lineStrong,
-      borderRadius: radii.card,
-      backgroundColor: colors.surface2,
-      paddingVertical: 18,
-      paddingHorizontal: 20,
-    },
-    nextHead: { color: colors.muted, marginBottom: space.x2 },
-    nextRow: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 10 },
+    badgeMark: { fontSize: t.ui, fontWeight: "700", color: colors.accent },
+    headText: { flex: 1, minWidth: 0 },
+    title: { fontSize: t.h3, fontWeight: "600", color: colors.text },
+    lede: { marginTop: 2, fontSize: t.meta, lineHeight: leading(t.meta, 1.5), color: colors.text2 },
+    exit: { fontSize: t.meta, lineHeight: leading(t.meta, 1.5), color: colors.text2 },
+    next: { borderTopWidth: 1, borderTopColor: colors.line },
+    nextRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 9 },
     nextRule: { borderTopWidth: 1, borderTopColor: colors.line },
     nextText: { flex: 1, minWidth: 0 },
     nextTitle: { fontSize: t.ui, fontWeight: "600", color: colors.text },
-    nextBody: { marginTop: 2, fontSize: t.meta, color: colors.text2, lineHeight: leading(t.meta, 1.5) },
-    close: { marginTop: space.x3 },
+    nextBody: { marginTop: 1, fontSize: t.meta, color: colors.text2, lineHeight: leading(t.meta, 1.45) },
   });

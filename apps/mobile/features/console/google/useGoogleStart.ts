@@ -18,23 +18,25 @@ export function useGoogleStart(workspaceId: string | null): {
   state: GoogleStartState;
   /** `loginHint` is the address of an account being reconnected. */
   start: (syncServices: GoogleSyncServices, loginHint?: string) => void;
+  /**
+   * The second consent, to the agent client, for an account already
+   * connected: what AI reads through once AI access to Google is split from
+   * the person's own (functions/googleClients.ts). Same callback, same
+   * completion secret handling.
+   */
+  allowAi: (connectionId: string) => void;
 } {
   const startConnect = useAction(api.functions.googleConnect.startGoogleConnect);
+  const startAgentConnect = useAction(api.functions.googleClients.startGoogleAgentConnect);
   const [state, setState] = useState<GoogleStartState>({ kind: "idle" });
   const redirectUri = googleRedirectUri(browserOrigin());
 
-  const start = useCallback(
-    (syncServices: GoogleSyncServices, loginHint?: string) => {
-      if (workspaceId === null || redirectUri === null) return;
+  const go = useCallback(
+    (begin: () => Promise<{ authorizeUrl: string; completionSecret: string }>) => {
       setState({ kind: "starting" });
       void (async () => {
         try {
-          const { authorizeUrl, completionSecret } = await startConnect({
-            workspaceId: workspaceId as Id<"workspaces">,
-            redirectUri,
-            syncServices,
-            ...(loginHint === undefined ? {} : { loginHint }),
-          });
+          const { authorizeUrl, completionSecret } = await begin();
           const oauthState = stateFromGoogleAuthorizeUrl(authorizeUrl);
           if (oauthState === null || !rememberGoogleCompletionSecret(oauthState, completionSecret)) {
             setState({
@@ -50,8 +52,37 @@ export function useGoogleStart(workspaceId: string | null): {
         }
       })();
     },
-    [redirectUri, startConnect, workspaceId],
+    [],
   );
 
-  return { redirectUri, state, start };
+  const start = useCallback(
+    (syncServices: GoogleSyncServices, loginHint?: string) => {
+      if (workspaceId === null || redirectUri === null) return;
+      go(() =>
+        startConnect({
+          workspaceId: workspaceId as Id<"workspaces">,
+          redirectUri,
+          syncServices,
+          ...(loginHint === undefined ? {} : { loginHint }),
+        }),
+      );
+    },
+    [go, redirectUri, startConnect, workspaceId],
+  );
+
+  const allowAi = useCallback(
+    (connectionId: string) => {
+      if (workspaceId === null || redirectUri === null) return;
+      go(() =>
+        startAgentConnect({
+          workspaceId: workspaceId as Id<"workspaces">,
+          connectionId: connectionId as Id<"googleConnections">,
+          redirectUri,
+        }),
+      );
+    },
+    [go, redirectUri, startAgentConnect, workspaceId],
+  );
+
+  return { redirectUri, state, start, allowAi };
 }

@@ -42,6 +42,7 @@ import { cardWords } from "./visuals/said.js";
 
 /** The most pictures one answer sends: a set of option cards, not an album. Two or more go as one swipeable carousel. */
 export const MAX_PICTURES = 8;
+const MAX_CHOICE_NAME = 60;
 /** The most base64 one answer carries back to the texting Worker. */
 const MAX_PICTURE_CHARS = 16_000_000;
 /** The most bytes kept from tool results to check a web address against. */
@@ -53,6 +54,8 @@ const MAX_URL_LENGTH = 2000;
 // sentence with "[picture 1]" still means the picture, and the person must
 // never see the marker (Dev, 2026-10-19).
 const PICTURE_LINE = /[ \t]*\[picture[ \t]+([^\]\s]+)[ \t]*\]/gi;
+/** A card the person's phone can open on their own data (`apps/agent/src/dataCards.ts`): `[card times]` or `[card inbox]`; `[card threads]`, the live view of the chat's jobs (`apps/agent/src/jobs.ts`). */
+const CARD_LINE = /[ \t]*\[card[ \t]+(times|inbox|threads)[ \t]*\]/gi;
 /** Any https address, wherever it sits in a block of text or in a tool's arguments. */
 const ADDRESS = /https:\/\/[^\s"'()<>\\]+/gi;
 /** The most addresses one call's arguments are checked against: an argument may be a whole page. */
@@ -66,10 +69,21 @@ const MADE_BY = new Set(["draw_picture", "draw_visual", "make_picture"]);
 export const PICTURES_LINE =
   "You can text them pictures: write [picture N] on its own line for picture N a tool result showed you " +
   "(open a note's picture with fetch and image first), or [picture <https address>] for a web image whose address " +
-  "you read in a tool result. It goes as a photo after your words. To make one, send draw_visual (your designed cards: " +
+  "you read in a tool result. It goes after your words; a card you draw arrives as a Context card on a phone with the Context app, " +
+  "and as a photo elsewhere, so never tell them a card can only be a picture in iMessage. To make one, send draw_visual (your designed cards: " +
   "options, photos, plans, days, boards, charts), draw_picture (a poster, an invite, from a page you write) or make_picture " +
   "(a photo: them in an outfit, a scene). Asked for a picture, make one " +
   "now, guessing what they left out, then offer changes; don't ask first.";
+
+/**
+ * The two cards that open on the person's own data in Messages, offered by a
+ * line of their own. Only a phone with the Context app gets one, so the words
+ * never lean on it (`apps/agent/src/dataCards.ts`).
+ */
+export const DATA_CARDS_LINE =
+  "Asking when they're free, add [card times] on its own line; asked to go through their email, add [card inbox]. A phone with " +
+  "the Context app gets a card to tap from (their free times, their newest mail); keep your words whole without it, never mention it. " +
+  "When you start a background job, or they ask what you're working on, add [card threads]: it sends a live view of every job and its steps.";
 
 /**
  * One tool result's words, with every address this same call carried in cut
@@ -108,8 +122,32 @@ function webAddress(value) {
 
 /** The shortest address worth looking up: "Main" alone could be anywhere, and anything. */
 const MIN_ADDRESS = 6;
-/** An address as it is compared: case, commas and spacing aside. */
-const plainAddress = (value) => (typeof value === "string" ? value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() : "");
+/**
+ * The words an address is written in either way, as one spelling: a page says
+ * "48 East 7th Street" where the card says "48 E 7th St" (owner, 2026-10-27:
+ * an ice cream card's map was left off over exactly that). Only spelling is
+ * forgiven; the address still has to be in what the turn read.
+ */
+const SPELLED = new Map(
+  Object.entries({
+    street: "st", avenue: "ave", av: "ave", boulevard: "blvd", road: "rd", drive: "dr", place: "pl", lane: "ln", parkway: "pkwy",
+    square: "sq", court: "ct", terrace: "ter", highway: "hwy", plaza: "plz", saint: "st",
+    east: "e", west: "w", north: "n", south: "s",
+    first: "1st", second: "2nd", third: "3rd", fourth: "4th", fifth: "5th", sixth: "6th", seventh: "7th", eighth: "8th", ninth: "9th", tenth: "10th", eleventh: "11th", twelfth: "12th",
+  }),
+);
+/** An address as it is compared: case, commas, spacing and the spellings above aside. */
+const plainAddress = (value) =>
+  typeof value === "string"
+    ? value
+        .toLowerCase()
+        .replace(/avenue of the americas/g, "6th ave")
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .trim()
+        .split(" ")
+        .map((word) => SPELLED.get(word) ?? word)
+        .join(" ")
+    : "";
 
 /**
  * One turn's pictures. `enabled` is false for every turn that is not a text
@@ -132,7 +170,7 @@ export function outgoingPictures({ enabled, question = "" }) {
           text += `\n${withoutGiven(block.text, name, args).slice(0, MAX_SEEN_TEXT - text.length)}`;
         }
         if (block?.type === "image" && typeof block.data === "string" && SENDABLE_TYPES.has(block.mimeType)) {
-          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data, tool: name, caption: captionOf(name, args), template: typeof args?.template === "string" ? args.template : "" });
+          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data, tool: name, caption: captionOf(name, args), title: titleOf(name, args), template: typeof args?.template === "string" ? args.template : "", choice: choiceOf(name, args) });
           numbers.push(seen.length);
         }
       }
@@ -142,11 +180,25 @@ export function outgoingPictures({ enabled, question = "" }) {
     };
   };
 
+  /**
+   * The turn's web tools (`turnWeb.js`), read the same way: they run beside
+   * the dispatcher, not through it, so until 2026-10-27 no page or picture
+   * search a texted turn read ever reached `read` or `vouches`, and every web
+   * photo on a card was dropped as unread (Dev2: "why isn't it adding images?").
+   */
+  const wrapWeb = (web) => (web === null || !enabled ? web : { ...web, call: wrap((name, args) => web.call(name, args)) });
+
   /** The answer without its picture lines, and the pictures those lines named that may go. */
   const take = (answer) => {
     if (!enabled || typeof answer !== "string") return { answer, pictures: [] };
+    const offers = [];
+    answer = answer.replace(CARD_LINE, (_, kind) => {
+      if (!offers.includes(kind.toLowerCase())) offers.push(kind.toLowerCase());
+      return "";
+    });
     const pictures = [];
     const captions = [];
+    const choices = [];
     const named = new Set();
     let carried = 0;
     const stripped = answer.replace(PICTURE_LINE, (_, ref) => {
@@ -156,7 +208,8 @@ export function outgoingPictures({ enabled, question = "" }) {
         const picture = seen[Number(ref) - 1];
         if (picture && carried + picture.data.length <= MAX_PICTURE_CHARS) {
           carried += picture.data.length;
-          pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data });
+          if (picture.choice) choices.push({ ...picture.choice, picture: pictures.length });
+          pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data, ...(picture.title ? { title: picture.title } : {}) });
           captions.push(picture.caption);
         }
         return "";
@@ -173,11 +226,13 @@ export function outgoingPictures({ enabled, question = "" }) {
       for (const picture of unnamedCards()) {
         if (pictures.length >= MAX_PICTURES || carried + picture.data.length > MAX_PICTURE_CHARS) break;
         carried += picture.data.length;
-        pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data });
+        if (picture.choice) choices.push({ ...picture.choice, picture: pictures.length });
+        pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data, ...(picture.title ? { title: picture.title } : {}) });
         captions.push(picture.caption);
       }
     }
-    return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures, captions };
+    // Two or more option cards are a choice the person can make with one tap (`apps/agent/src/pickCard.ts`).
+    return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures, captions, choices: choices.length >= 2 ? choices : [], offers };
   };
 
   /**
@@ -223,12 +278,19 @@ export function outgoingPictures({ enabled, question = "" }) {
     return notes;
   };
   /** Whether an address was in their words, a tool result this turn, or their about-me note, so it may go to a geocoder. */
+  // The turn's text as compared, kept until more is read: a card asks about each of its addresses.
+  let plain = { length: -1, text: "" };
+  const plainSeen = () => {
+    if (plain.length !== text.length) plain = { length: text.length, text: ` ${plainAddress(text)} ` };
+    return plain.text;
+  };
   const locates = (address) => {
     const wanted = plainAddress(address);
-    return wanted.length >= MIN_ADDRESS && (plainAddress(text).includes(wanted) || plainAddress(known).includes(wanted));
+    // Whole words only, so "8 W 9th St" is not found inside "48 W 9th St".
+    return wanted.length >= MIN_ADDRESS && (plainSeen().includes(` ${wanted} `) || ` ${plainAddress(known)} `.includes(` ${wanted} `));
   };
 
-  return { wrap, take, picture, made, vouches, read, knows, locates };
+  return { wrap, wrapWeb, take, picture, made, vouches, read, knows, locates };
 }
 
 /**
@@ -241,6 +303,33 @@ function captionOf(name, args) {
   if (name !== "draw_visual" || !args || typeof args.data !== "object" || args.data === null) return "";
   // Every option and its facts, not only the title: a later turn and the self-review read only these words (`visuals/said.js`).
   return cardWords(args.data);
+}
+
+/**
+ * What a drawn card is called, for a chat where it goes as a Context card
+ * (`apps/agent/src/sendParts.ts`): its title, or its kicker. None for an
+ * option card, whose set goes as a carousel with a pick card instead, and
+ * none for anything not drawn by `draw_visual`.
+ */
+function titleOf(name, args) {
+  if (name !== "draw_visual" || args?.template === "option" || !args?.data || typeof args.data !== "object") return "";
+  const title = [args.data.title, args.data.kicker].find((value) => typeof value === "string" && value.trim());
+  return title ? title.replace(/\s+/g, " ").trim().slice(0, 100) : "";
+}
+
+/**
+ * The option an option card shows, for the card that lets the person choose
+ * among a set of them with one tap: its name, its price and whether it is
+ * Tex's pick. Words only, cut short; the texting Worker checks them again.
+ */
+function choiceOf(name, args) {
+  if (name !== "draw_visual" || args?.template !== "option" || !args.data || typeof args.data !== "object") return null;
+  const data = args.data;
+  const clean = (value, max) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
+  const option = clean(data.name, MAX_CHOICE_NAME);
+  if (!option) return null;
+  const price = clean(data.price, 20);
+  return { name: option, ...(price ? { price } : {}), ...(data.pick === true ? { pick: true } : {}) };
 }
 
 /** The line the saved conversation keeps for what was sent, so "what was that picture?" and "the 2nd one" have an answer. */

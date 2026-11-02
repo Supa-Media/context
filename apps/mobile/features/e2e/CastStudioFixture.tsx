@@ -57,7 +57,7 @@ export function CastStudioFixture({ pages = false, folders = false }: { pages?: 
   const [members, setMembers] = useState<PresenceMember[]>([]);
   useEffect(() => {
     (window as unknown as { __castStudioAgent?: (from: string, to: string) => void }).__castStudioAgent = (from, to) => {
-      setMembers([{ id: "agent", name: "@maya's Codex", color: null, anchor: null, head: null, canWrite: true, isAgent: true }]);
+      setMembers([{ id: "agent", name: "@maya's Codex", color: null, anchor: null, head: null, canWrite: true, isAgent: true, isYou: false }]);
       setDraft((current) => current.replace(from, to));
     };
   }, []);

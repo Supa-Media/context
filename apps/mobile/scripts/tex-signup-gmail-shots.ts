@@ -169,7 +169,7 @@ describe("tex signup and gmail first shots", () => {
     await board("06-gate-gmail-dark", gate, { ...HOME, mainEmail: null, gmails: [] }, [PHONE], "dark");
   });
   test("07 gate, typed email", async () => {
-    await board("07-gate-fallback", () => createElement(EmailCheckScreen, { onUseGmail: () => {} }), HOME, [PHONE]);
+    await board("07-gate-fallback", () => createElement(EmailCheckScreen as (props: { onUseGmail?: () => void }) => ReactElement, { onUseGmail: () => {} }), HOME, [PHONE]);
   });
   test("08 done, main email", async () => {
     await board("08-gmail-done", () => createElement(GmailDone, { mode: "primary" }), { ...HOME, firstText: false }, [DESKTOP, PHONE]);

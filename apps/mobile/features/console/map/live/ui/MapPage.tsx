@@ -90,6 +90,7 @@ function DesktopMap({
                 box={box}
                 onClose={peek.close}
                 onExpand={() => onOpenNote(open.workspaceId, open.path)}
+                onPeek={peek.onTapNote}
               />
             ) : null}
           </View>

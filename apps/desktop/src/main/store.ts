@@ -35,10 +35,41 @@ async function readJson(path: string): Promise<unknown> {
   }
 }
 
-async function writeJson(path: string, value: unknown): Promise<void> {
+/*
+  ONE WRITE PER FILE AT A TIME, EACH WITH ITS OWN TEMPORARY FILE.
+
+  The outbox is written from three places that do not wait for each other: the
+  page's meeting writes, the drain, and the capture controller. All three wrote
+  through one fixed `outbox.json.tmp`, so two writes in flight shared a
+  temporary file: the first rename moved it, and the second rename found
+  nothing and threw `ENOENT`. That throw came back to the page as the answer to
+  its finalize, and the owner's meetings sat "Not in your bucket yet" behind it
+  (2026-10-28). Worse, the renames could land out of order and put an older
+  queue on disk over a newer one.
+
+  Writes to one path now run in the order they were asked for, and each has a
+  temporary name of its own, so neither failure can happen. A write that fails
+  does not stop the next one.
+*/
+const pending = new Map<string, Promise<void>>();
+let temporaries = 0;
+
+function writeJson(path: string, value: unknown): Promise<void> {
+  const text = JSON.stringify(value, null, 2);
+  const previous = pending.get(path) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(() => replaceFile(path, text));
+  pending.set(path, next);
+  void next.finally(() => {
+    if (pending.get(path) === next) pending.delete(path);
+  }).catch(() => undefined);
+  return next;
+}
+
+async function replaceFile(path: string, text: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  const temporary = `${path}.tmp`;
-  await writeFile(temporary, JSON.stringify(value, null, 2), { mode: 0o600 });
+  temporaries += 1;
+  const temporary = `${path}.${process.pid}.${temporaries}.tmp`;
+  await writeFile(temporary, text, { mode: 0o600 });
   await rename(temporary, path);
 }
 

@@ -22,6 +22,14 @@ export const getConnectionForSyncReturns = v.union(
     encryptedAccessToken: v.optional(v.string()),
     accessTokenExpiresAt: v.optional(v.number()),
     disconnectedAt: v.optional(v.number()),
+    consentPlan: v.optional(v.literal("split")),
+    agentGrant: v.optional(
+      v.object({
+        encryptedRefreshToken: v.string(),
+        encryptedAccessToken: v.optional(v.string()),
+        accessTokenExpiresAt: v.optional(v.number()),
+      }),
+    ),
   }),
 );
 
@@ -37,6 +45,16 @@ export async function getConnectionForSyncHandler(
     encryptedAccessToken: connection.encryptedAccessToken,
     accessTokenExpiresAt: connection.accessTokenExpiresAt,
     disconnectedAt: connection.disconnectedAt,
+    ...(connection.consentPlan === "split" ? { consentPlan: "split" as const } : {}),
+    ...(connection.agentGrant
+      ? {
+          agentGrant: {
+            encryptedRefreshToken: connection.agentGrant.encryptedRefreshToken,
+            encryptedAccessToken: connection.agentGrant.encryptedAccessToken,
+            accessTokenExpiresAt: connection.agentGrant.accessTokenExpiresAt,
+          },
+        }
+      : {}),
   };
 }
 

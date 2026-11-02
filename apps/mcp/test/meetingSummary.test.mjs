@@ -30,6 +30,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { SUMMARY_FAILED, SUMMARY_TOO_SHORT, SUMMARY_WAITING_PREFIX } from "../../../packages/meetings/src/summary.js";
 import { TRANSCRIPT_CAVEAT, SUMMARY_PLACEHOLDER } from "../../../packages/meetings/src/note.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-meeting-summary.test";
 const TOKEN = `cat_summary_owner_${"0".repeat(22)}`;
@@ -175,7 +176,7 @@ export async function runMeetingSummaryChecks(check) {
       userId: "user_reader",
     });
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
       AI_GATEWAY_ID: "context-gw",
@@ -215,6 +216,18 @@ export async function runMeetingSummaryChecks(check) {
       capped.body?.status === "waiting" && gatewayCalls.length === 0 && summaryOf(stored()).includes(SUMMARY_WAITING_PREFIX),
     );
     controlPlane.setMeetingSummaryVerdict("ws_summary", { allowed: true, remaining: 9, paying: false });
+
+    // One yes covers transcripts and summaries (docs/decisions/meetings/transcription-consent.md).
+    controlPlane.transcription.state.everyone = false;
+    put(meeting(), "m4b");
+    const asksBefore = controlPlane.transcription.asks.length;
+    const unconsented = await summarize(env, TOKEN, { path: PATH, force: true });
+    check(
+      "without the person's yes to AI, nothing goes to the model and the note is untouched",
+      unconsented.body?.status === "not_allowed" && gatewayCalls.length === 0 && stored() === meeting(),
+    );
+    check("...and it was the caller's own yes that was asked for", controlPlane.transcription.asks.slice(asksBefore).some((ask) => ask.accessToken === TOKEN && ask.workspaceId === "ws_summary"));
+    controlPlane.transcription.state.everyone = true;
 
     /* ---------------- a summary ---------------- */
 

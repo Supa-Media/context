@@ -31,6 +31,7 @@ import test from "node:test";
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const OWNER = "cat_test_treenames_owner_000000000000";
 const WS = "ws_treenames";
@@ -119,7 +120,7 @@ async function scenario() {
   });
   const tree = treeOf(bucket);
   controlPlane.serveTree(WS, tree);
-  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, NATIVE_BINDINGS: "CONTEXT_BUCKET", CONTEXT_BUCKET: bucket };
+  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, NATIVE_BINDINGS: "CONTEXT_BUCKET", CONTEXT_BUCKET: bucket };
   await store.put("privacy.md", PRIVACY);
   await store.put("1-projects/plan.md", "# Plan\n");
   let id = 0;
@@ -252,11 +253,12 @@ test("write_note asks the tree whether the note exists, and never opens a name t
     };
     const created = await s.call("write_note", { path: "1-projects/new.md", content: "# New\n" });
     assert.equal(created.error, false, created.text);
-    // Before the note lands, one read: the store's own put, which looks for a
-    // deleted-note marker at the name (`store/logicalDelete.js`). Nothing
-    // opens the note to ask whether it exists; the tree said.
+    // Nothing opens the note to ask whether it exists; the tree said. Its
+    // create lands first, with no read: the store looks for a deleted-note
+    // marker only when the bucket refuses it (`store/logicalDelete.js`,
+    // since 2026-10-29; it used to read before every create).
     const touching = events.filter((event) => event.endsWith(" 1-projects/new.md"));
-    assert.deepEqual(touching.slice(0, touching.indexOf("put 1-projects/new.md") + 1), ["get 1-projects/new.md", "put 1-projects/new.md"]);
+    assert.deepEqual(touching.slice(0, touching.indexOf("put 1-projects/new.md") + 1), ["put 1-projects/new.md"]);
 
     // A name the tree draws is opened, and is the edit it is.
     const edited = await s.call("write_note", { path: "1-projects/plan.md", content: "# Plan, edited\n" });

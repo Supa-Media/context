@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { isDrawingPath } from "@context/drawings";
 import { View } from "react-native";
 import { Reveal } from "../../design/components/Reveal";
 import { useConsoleNav } from "../ConsoleNavContext";
@@ -341,6 +342,19 @@ export function BrowsePane({
   const commsRoute = selected === null ? null : classifyCommsPath(selected.path);
   // The live map draws where the document would, filling the slot (`?map=1`).
   const mapPage = useMapRoute()?.open === true && current != null;
+  /*
+    An Excalidraw note open in the editor fills the region the way the map
+    does: no reading margin around the canvas (owner, 2026-10-30). Only once
+    its body is the editor's, and not while a conflict or an encrypted note's
+    envelope stands where the canvas would be. A phone keeps its own page.
+  */
+  const drawingPage =
+    !compact &&
+    selected?.kind === "file" &&
+    isDrawingPath(selected.path) &&
+    files.editor.path === selected.path &&
+    !files.editor.encrypted &&
+    files.conflict?.path !== selected.path;
   // Inbox or Folders, when nothing is open on a phone (`home/homeView.ts`).
   const homeView = useHomeView();
   // Every page a phone shows, in order, so ‹ goes back to the one before (`phoneHistory.ts`).
@@ -496,7 +510,7 @@ export function BrowsePane({
         openDocument={openDocument}
         notices={notices}
         pathBar={pathBar}
-        fill={mapPage}
+        fill={mapPage || drawingPage}
         topPage={homeView === "folders" ? FOLDERS_PAGE : ""}
         onSwipeHome={selected !== null || homeView === "folders" ? () => goToLevel({ folder: null, label: HOME_LABEL, view: "inbox" }, files) : undefined}
       />

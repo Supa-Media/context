@@ -104,13 +104,31 @@ test("an address the turn never saw is never sent to the geocoder", async () => 
 
 test("their about-me address is a start the card may measure from", () => {
   const route = readFileSync(new URL("../src/agent/route.js", import.meta.url), "utf8");
-  assert.match(route, /outgoing\.knows\(await readTexNotes\(/, "the texted turn's about-me reaches `locates`");
+  // The read starts early (`ahead`) and is handed to `knows` when the turn is built; both halves must hold.
+  assert.match(route, /knowsRead = texting \? tex\.ahead\("tex_notes", \(\) => deskTexts\(store\)\.then\(\(desk\) => readTexNotes\(/, "the texted turn's about-me reaches `locates`, read from the person's desk (`texDesk.js`)");
+  assert.match(route, /knows = knowsRead === null \? null : await tex\.wait\("tex_notes", knowsRead\)/, "waited for before the model");
+  assert.match(route, /outgoing\.knows\(knows\)/, "and is handed to `knows` from that read");
   const outgoing = outgoingPictures({ enabled: true });
   assert.equal(outgoing.locates(HOME), false);
   const notes = { aboutMe: `Lives at ${HOME.toUpperCase().replace(/,/g, "")}` };
   assert.equal(outgoing.knows(notes), notes, "the notes are handed on unchanged");
   assert.equal(outgoing.locates(HOME), true, "case and commas aside");
   assert.equal(outgoing.locates("NY"), false, "too short to mean one place");
+});
+
+// Dev2's "top 5 ice cream shops in manhattan" (2026-10-27): the pages said "48 East 7th Street", the
+// card "48 E 7th St", and the map was left off.
+test("an address the turn read is found however its street words are spelled, and only as whole words", () => {
+  const outgoing = outgoingPictures({ enabled: true, question: "ice cream" });
+  const page = outgoing.wrap(async () => ({ content: [{ type: "text", text: "Van Leeuwen, 48 East Seventh Street. Il Lab: 188 Ludlow Street. Bryant Park Cafe, 1065 Avenue of the Americas." }] }));
+  return page("open_page", {}).then(() => {
+    assert.equal(outgoing.locates("48 E 7th St"), true, "East Seventh Street is E 7th St");
+    assert.equal(outgoing.locates("188 Ludlow St"), true);
+    assert.equal(outgoing.locates("1065 6th Ave"), true, "Avenue of the Americas is 6th Ave");
+    assert.equal(outgoing.locates("8 E 7th St"), false, "a number inside another is not the address");
+    assert.equal(outgoing.locates("48 W 7th St"), false, "west is not east");
+    assert.equal(outgoing.locates("99 Secret Ln"), false);
+  });
 });
 
 test("a place found in another city gets no distance, and a distance the model wrote is kept", async () => {

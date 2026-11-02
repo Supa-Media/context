@@ -131,5 +131,8 @@ describe("which tabs a console shows", () => {
 
   test("an answer just given keeps the tab until the person leaves it", () => {
     expect(visibleAsideTabs({ approvals: true, waiting: 0, answered: true })).toEqual(["meetings", "approvals"]);
+    // A list that could not be read is not an empty one: the tab stays, with its reason.
+    expect(visibleAsideTabs({ approvals: true, waiting: 0, failed: true })).toEqual(["meetings", "approvals"]);
+    expect(visibleAsideTabs({ approvals: false, waiting: 0, failed: true })).toEqual(["meetings"]);
   });
 });

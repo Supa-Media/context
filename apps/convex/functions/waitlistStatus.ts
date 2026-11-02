@@ -23,7 +23,8 @@
 
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
-import { mutation, query, type QueryCtx } from "../_generated/server";
+import { query, type QueryCtx } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import { dedicatedTexLines, texLineFor } from "./lib/adminFns/texAllowlist";
 import { currentPhoneOf } from "./lib/emailProof";
 import { hasTextedTex } from "./texHome";

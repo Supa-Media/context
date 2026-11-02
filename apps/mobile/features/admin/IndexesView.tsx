@@ -9,15 +9,12 @@
  * buttons are `./IndexRows`.
  *
  * Three cards since every reader moved to the Convex tree (the owner approved
- * the board, 2026-10-13): the file tree card is the migration's Convex copy,
- * its facts shown in each row's detail. The D1 tree's details and
- * their Fill left in phase 7 of the migration. The card carries the switch
- * that pauses copying (`nodesMigration.setPaused`); since 2026-10-13 it no
- * longer sends anyone to the bucket, because no reader has a bucket path left
- * (decided by the owner), and a check that differs is an alarm here and
- * nothing more. Start all, Fill all and Refresh went:
- * `nodesMigration.keepCurrent` copies every due workspace, and fills its
- * facts, every 15 minutes, and a row's Repair does the rest.
+ * the board, 2026-10-13): the file tree card is the tree's facts. The card
+ * carries the switch that pauses the facts fill (`nodesMigration.setPaused`).
+ * Copying, Check all and a row's Repair and Check went with the copy of the
+ * bucket they acted on, once notes were kept by id (#2116):
+ * `nodesMigration.keepCurrent` starts every facts fill that is due, every 15
+ * minutes.
  *
  * Search by meaning, the copy and its facts are all live queries.
  */
@@ -61,13 +58,6 @@ export function useIndexesAttention(): number | null {
   );
 }
 
-const checkingLine = (started: number) =>
-  started === 0
-    ? "Nothing to check yet. A copy is checked once it has finished."
-    : started === 1
-      ? "Checking 1 workspace against its bucket."
-      : `Checking ${started} workspaces against their buckets.`;
-
 export function IndexesView() {
   const styles = useThemedStyles(makeStyles);
   const report = useQuery(api.functions.meaningAdmin.meaningIndexReport, {});
@@ -75,8 +65,6 @@ export function IndexesView() {
   const restartFast = useMutation(api.functions.meaningAdmin.restartFastSearch);
   const migration = useQuery(api.functions.nodesMigration.report, {});
   const setMigrationPaused = useMutation(api.functions.nodesMigration.setPaused);
-  const startMigration = useMutation(api.functions.nodesMigration.start);
-  const checkMigration = useMutation(api.functions.nodesMigration.checkParity);
   const reseal = useMutation(api.functions.managedEncryption.resealWorkspace);
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<Said>(null);
@@ -102,12 +90,6 @@ export function IndexesView() {
     }
   }
 
-  const repair = (workspaceId: string) =>
-    act(`repair:${workspaceId}`, async () => {
-      await startMigration({ workspaceId: workspaceId as Id<"workspaces"> });
-      return "Copying the file tree again. Its details follow the copy.";
-    });
-
   const restartMeaning = (workspaceId?: string) =>
     act(workspaceId ? `meaning:${workspaceId}` : "meaning:all", async () => {
       const result = await restart(workspaceId ? { workspaceId: workspaceId as Id<"workspaces"> } : {});
@@ -117,19 +99,11 @@ export function IndexesView() {
   const togglePaused = () => {
     const next = !paused;
     return act("convex:pause", async () => {
-      const { started } = await setMigrationPaused({ paused: next });
-      if (next) return "Copying paused. Each copy stops at its next pass; everyone still reads the file tree.";
-      return `Copying again. Restarted ${started === 1 ? "1 workspace" : `${started} workspaces`}.`;
+      await setMigrationPaused({ paused: next });
+      if (next) return "Facts paused. Each fill stops at its next pass; everyone still reads the file tree.";
+      return "Facts running again. The next round starts each fill that is due.";
     });
   };
-
-  const checkAll = () =>
-    act("convex:check:all", async () => checkingLine((await checkMigration({})).started));
-
-  const checkOne = (workspaceId: string) =>
-    act(`check:${workspaceId}`, async () =>
-      checkingLine((await checkMigration({ workspaceId: workspaceId as Id<"workspaces"> })).started),
-    );
 
   const actions: IndexActions = {
     busy,
@@ -138,9 +112,6 @@ export function IndexesView() {
       void act(`fast:${workspaceId}`, async () =>
         fastRestartedLine((await restartFast({ workspaceId: workspaceId as Id<"workspaces"> })).outcome),
       ),
-    migrationPaused: paused,
-    repair,
-    check: checkOne,
     reseal: (workspaceId) =>
       void act(`reseal:${workspaceId}`, async () => {
         await reseal({ workspaceId: workspaceId as Id<"workspaces"> });
@@ -172,21 +143,15 @@ export function IndexesView() {
                     <Text variant="meta" style={styles.grow}>
                       {paused
                         ? migration.changedAt === null
-                          ? "Copying paused · served live to everyone"
-                          : `Copying paused since ${whenLabel(migration.changedAt, Date.now())} · served live to everyone`
+                          ? "Facts paused · served live to everyone"
+                          : `Facts paused since ${whenLabel(migration.changedAt, Date.now())} · served live to everyone`
                         : "Served live to everyone"}
                     </Text>
                     <Button
-                      label={busy === "convex:pause" ? "Saving…" : paused ? "Resume copying" : "Pause copying"}
+                      label={busy === "convex:pause" ? "Saving…" : paused ? "Resume facts" : "Pause facts"}
                       disabled={busy !== null}
                       onPress={() => void togglePaused()}
                       testID="admin-files-serve"
-                    />
-                    <Button
-                      label={busy === "convex:check:all" ? "Checking…" : "Check all"}
-                      disabled={busy !== null || migration.rows.length === 0}
-                      onPress={() => void checkAll()}
-                      testID="admin-files-check-all"
                     />
                   </>
                 )

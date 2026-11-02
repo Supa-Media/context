@@ -39,6 +39,12 @@ import {
   type ProviderCredentialRekeyCandidates,
 } from "./rekeyColumns";
 
+/**
+ * How long before a temporary credential's expiry the gateway stops being
+ * handed it: a request signed a moment before expiry must not land after it.
+ */
+export const TEMPORARY_CREDENTIAL_MARGIN_MS = 5 * 60 * 1000;
+
 // Same inference cycle as `bindStorage`: annotated, not inferred.
 export const getBindingForGatewayHandler = async (
   ctx: ActionCtx,
@@ -75,13 +81,41 @@ export const getBindingForGatewayHandler = async (
   // this call was made *for* — rather than one carried inside the row — is
   // what makes a future id-confusion bug in the gateway a decrypt failure
   // instead of a cross-tenant credential handout.
+  /*
+    A new managed bucket is served on a temporary credential until its own
+    key answers (see the schema), and only while R2 still honours it: an
+    expired one falls back to the bucket's own key, which has long since
+    propagated by then.
+  */
+  const temporary =
+    binding.temporaryAccessKeyId !== undefined &&
+    binding.encryptedTemporarySecretAccessKey !== undefined &&
+    binding.encryptedSessionToken !== undefined &&
+    binding.temporaryUntil !== undefined &&
+    Date.now() < binding.temporaryUntil - TEMPORARY_CREDENTIAL_MARGIN_MS
+      ? {
+          accessKeyId: binding.temporaryAccessKeyId,
+          encryptedSecretAccessKey: binding.encryptedTemporarySecretAccessKey,
+          encryptedSessionToken: binding.encryptedSessionToken,
+        }
+      : null;
+
+  let accessKeyId = binding.accessKeyId;
   let secretAccessKey: string;
+  let sessionToken: string | undefined;
   try {
+    // Sealed under the same workspace either way, for the same reason.
     secretAccessKey = await decryptSecret(
-      binding.encryptedSecretAccessKey,
+      temporary?.encryptedSecretAccessKey ?? binding.encryptedSecretAccessKey,
       requireKeyset(),
       { workspaceId: args.workspaceId },
     );
+    if (temporary !== null) {
+      sessionToken = await decryptSecret(temporary.encryptedSessionToken, requireKeyset(), {
+        workspaceId: args.workspaceId,
+      });
+      accessKeyId = temporary.accessKeyId;
+    }
   } catch (error) {
     // A `CredentialCryptoError` is a plain `Error`, which a caller sees as an
     // unhelpful "Server Error". Re-throw with a code so the gateway can tell
@@ -98,17 +132,34 @@ export const getBindingForGatewayHandler = async (
     throw error;
   }
 
+  // Where the workspace's note texts are read from while they move into its object (`functions/workspaceObjects.ts`):
+  // absent while `bucket`, so every store built from this credential, the gateway's and the console's, routes by it.
+  const notes: { home: "bucket" | "dual" | "object"; backfilledAt?: number } | null = await ctx.runQuery(
+    internal.functions.workspaceObjectsRows.recordFor,
+    { workspaceId: args.workspaceId },
+  );
+  // A change committed here and not yet taken by the object (a public mutation cannot wait for it): every reader
+  // of this binding asks the control plane until it lands, so a share just taken back is never served from the
+  // object in between (`functions/workspaceObjectPush.ts`).
+  const behind =
+    notes?.home === "object" &&
+    (await ctx.runQuery(internal.functions.workspaceObjectPush.waitingSince, { workspaceId: args.workspaceId, at: Number.MAX_SAFE_INTEGER }));
+
   return {
     provider: binding.provider,
     endpoint: binding.endpoint,
     region: binding.region,
     bucket: binding.bucket,
     rootPrefix: binding.rootPrefix,
-    accessKeyId: binding.accessKeyId,
+    accessKeyId,
     secretAccessKey,
+    ...(sessionToken === undefined ? {} : { sessionToken }),
     forcePathStyle: binding.forcePathStyle,
     capabilities: binding.capabilities,
     status: binding.status,
+    ...(notes === null || notes.home === "bucket" ? {} : { notesHome: notes.home }),
+    ...(notes?.backfilledAt === undefined || notes.home === "bucket" ? {} : { notesBackfilledAt: notes.backfilledAt }),
+    ...(behind ? { notesBehind: true as const } : {}),
   };
 };
 

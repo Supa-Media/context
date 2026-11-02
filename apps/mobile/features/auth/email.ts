@@ -84,12 +84,16 @@ export const TEST_EMAIL_PROVIDER_ID = "test-email";
 /** The directory reviewer's address; see apps/convex/functions/lib/reviewerAccount.ts. */
 export const REVIEWER_EMAIL = "connector-review@supa.media";
 export const REVIEWER_PROVIDER_ID = "test-email-reviewer";
+/** Google's verification reviewer; same file. */
+export const GOOGLE_REVIEW_EMAIL = "google-review@supa.media";
+export const GOOGLE_REVIEW_PROVIDER_ID = "test-email-google-review";
 
 /** Client routing only; the provider repeats the exact check server-side. */
 export function signInProviderForEmail(
   email: string,
-): "email" | typeof TEST_EMAIL_PROVIDER_ID | typeof REVIEWER_PROVIDER_ID {
+): "email" | typeof TEST_EMAIL_PROVIDER_ID | typeof REVIEWER_PROVIDER_ID | typeof GOOGLE_REVIEW_PROVIDER_ID {
   if (email === PRODUCTION_TEST_EMAIL) return TEST_EMAIL_PROVIDER_ID;
   if (email === REVIEWER_EMAIL) return REVIEWER_PROVIDER_ID;
+  if (email === GOOGLE_REVIEW_EMAIL) return GOOGLE_REVIEW_PROVIDER_ID;
   return "email";
 }

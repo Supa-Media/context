@@ -1,7 +1,8 @@
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION } from "@context/shared";
 import { jest } from "@jest/globals";
 import type { TranscriptSegment } from "../../features/meetings/protocol";
 import type { RecorderError } from "../../features/meetings/capture";
-import { fakeTranscriber, setTranscriber, type FakeTranscriber } from "../../features/meetings/capture/transcriber";
+import { fakeTranscriber, setTranscriber, setTranscriptionConsent, type FakeTranscriber } from "../../features/meetings/capture/transcriber";
 import { setAudioSpool } from "../../features/meetings/capture/spool";
 import { setCaptureOffline } from "../../features/meetings/capture/connectivity";
 
@@ -560,6 +561,7 @@ export function harness(options: HarnessOptions = {}): Harness {
     },
   };
   setTranscriber(options.noTranscriber === true ? null : transcriber);
+  setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
   /*
     ANDROID BY DEFAULT, BECAUSE ROTATION IS ANDROID'S NOW.
 
@@ -642,6 +644,7 @@ export function resetCapture(): void {
 /** The `afterEach` every file in this folder runs. */
 export function teardownCapture(): void {
   setTranscriber(null);
+  setTranscriptionConsent(null);
   setAudioSpool(null);
   setCaptureOffline(false);
   jest.useRealTimers();

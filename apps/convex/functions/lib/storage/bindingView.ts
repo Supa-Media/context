@@ -9,7 +9,7 @@
 import { intoOwnersBucket } from "../managedProvisioningFns/direction";
 import { v } from "convex/values";
 import type { ObjectType } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "../signedIn";
 import type { QueryCtx } from "../../../_generated/server";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import { maskAccessKeyId } from "../crypto";

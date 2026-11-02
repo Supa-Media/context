@@ -19,6 +19,7 @@ import { startRowMove } from "../../functions/lib/nodes/rowMoveStart";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 import { renderPrivacyManifest, setFolderVisibility, translateSeededRules } from "../seededRules.helpers";
 import { pathObjectsOf, seedTreeRows } from "../fixtures.helpers";
+import { withSession } from "../session.helpers";
 
 export type T = ReturnType<typeof convexTest>;
 export type Store = MemoryStore & FileStore;
@@ -94,9 +95,9 @@ export async function fixture(kind: "r2" | "s3" = "r2") {
     ws: ids.ws,
     ownerId: ids.ownerId,
     memberId: ids.memberId,
-    owner: t.withIdentity({ subject: ids.ownerId }),
-    member: t.withIdentity({ subject: ids.memberId }),
-    staff: t.withIdentity({ subject: ids.staffId }),
+    owner: withSession(t, ids.ownerId),
+    member: withSession(t, ids.memberId),
+    staff: withSession(t, ids.staffId),
   };
 }
 

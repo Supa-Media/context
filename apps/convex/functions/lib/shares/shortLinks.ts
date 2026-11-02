@@ -12,6 +12,7 @@ import type { ObjectType } from "convex/values";
 import type { QueryCtx } from "../../../_generated/server";
 import { findName } from "../nameClaims";
 import { cardImageLeaf, cardSignature, hashTitle } from "../cardKey";
+import { coverVersion, pageCoverLeaf } from "./pageCover";
 import { shortLinkSlugFrom } from "../shareSlug";
 import { boundPreviewChildren, normalizePreviewTitle } from "../shareTitle";
 import { isLive } from "./standing";
@@ -72,6 +73,8 @@ export const previewForShortLinkReturns = v.object({
    * the cache correct without widening what a guessable address answers.
    */
   cardVersion: v.union(v.string(), v.null()),
+  /** Set when the card is a linked page's cover (`pageCover.ts`), so the edge says its portrait size. */
+  cover: v.optional(v.literal(true)),
 });
 
 /**
@@ -169,6 +172,9 @@ export async function previewForShortLinkHandler(
         live.previewTitle,
         boundPreviewChildren(live.previewChildren ?? []),
       );
+  // A linked page's card is its cover (`pageCover.ts`); its version is the cover's.
+  const cover = await pageCoverLeaf(ctx.db, live);
+  if (cover !== null) return { title, cardVersion: coverVersion(cover), cover: true as const };
   return {
     title,
     cardVersion: drawable

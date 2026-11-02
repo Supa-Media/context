@@ -1,23 +1,43 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { texStyleValidator } from "../texStyle";
 
 /**
  * The iMessage group chats Tex has been tagged in (`functions/textGroups.ts`).
  *
- * Metadata only, never a message: which workspace the chat is bound to, who
+ * Metadata only, never a message: which workspaces the chat reaches, who
  * muted it, and whether its intro went. A chat is named by a hash of its line
  * and Sendblue's `group_id`, so this table never holds the id itself, and the
- * participants are never stored at all: they arrive with every message and are
+ * participants are never stored here: they arrive with every message and are
  * resolved again each time (decided by the owner, 2026-10-20;
- * `docs/decisions/texting-assistant/groups.md`).
+ * `docs/decisions/texting-assistant/groups.md`). A guest chat's numbers are kept
+ * beside it as keyed hashes only (`chatGuestPhones`, `lib/guestPhones.ts`).
  */
 export const textGroupTables = {
   textGroups: defineTable({
     /** sha256 of `<line>:<group_id>`. */
     groupKey: v.string(),
-    /** The one shared workspace this chat reads, writes and remembers in, once chosen. */
+    /**
+     * DEPRECATED (2026-10-31): the one workspace a chat used to be bound to ("Tex, use @slug"). Nothing binds a chat
+     * now: its reach is every shared workspace all its people share (`reach`). Kept readable for old rows and set by
+     * "Tex, add everyone here to @slug"; where one workspace is needed, `chatWorkspace` (`lib/textGroupReach.ts`)
+     * takes this one if it is still in reach, else the first in reach by name.
+     */
     workspaceId: v.optional(v.id("workspaces")),
+    /**
+     * The chat's reach as of its last turn (`lib/textGroupReach.ts`) and the accounts it was worked out for. A hint to
+     * re-check live, never trusted as it stands: every consumer re-reads each person's membership.
+     */
+    reach: v.optional(v.array(v.id("workspaces"))),
+    reachPeople: v.optional(v.array(v.id("users"))),
     boundBy: v.optional(v.id("users")),
+    /**
+     * The person who brought Tex into the chat (decided by the owner, 2026-10-31): set once, by the first account
+     * holder whose turn mints a grant here, and never overwritten. Every turn in the chat is metered to the sponsor's
+     * personal workspace, whoever tagged Tex. Absent on rows from before: read as `boundBy`, then the tagger
+     * (`lib/textGroupUsage.ts`), and written on the next turn that mints.
+     */
+    sponsorId: v.optional(v.id("users")),
     /** "Tex, stop": nothing but "Tex, start" is answered until it is lifted. */
     mutedAt: v.optional(v.number()),
     mutedBy: v.optional(v.id("users")),
@@ -26,9 +46,9 @@ export const textGroupTables = {
     /** Hashes of senders who are not set up and were told so once (`groupKey`-salted, never a number). */
     toldUnknown: v.optional(v.array(v.string())),
     /**
-     * Guest mode (`lib/textGroupGuests.ts`, decided by the owner, 2026-10-25): the chat's own group in
-     * `workspaceId`, named with three words, and its folder, shared with that group to edit. Set together, by an
-     * owner or editor saying "Tex, use @slug"; while set the chat reads only what is shared with the group.
+     * Legacy guest mode (`lib/textGroupGuests.ts`, decided by the owner 2026-10-25, retired 2026-10-31): the chat's own group in
+     * `workspaceId`, named with three words, and its folder, shared with that group to edit. Nothing sets these now;
+     * old rows keep them until `clearGuests` clears them, and `guestBinder` reads them.
      */
     guestGroupId: v.optional(v.id("workspaceGroups")),
     guestFolder: v.optional(v.string()),
@@ -50,6 +70,16 @@ export const textGroupTables = {
     /** Who chose it: their display handle or label as the Worker named them, or a `groupKey`-salted hash of a number. */
     engagementSetBy: v.optional(v.string()),
     engagementSetAt: v.optional(v.number()),
+    /** How Tex talks in this chat (`lib/texStyle.ts`, Dev2, 2026-10-28): only changed settings; who changed them last, as `engagementSetBy`. */
+    texStyle: v.optional(texStyleValidator),
+    texStyleSetBy: v.optional(v.string()),
+    texStyleSetAt: v.optional(v.number()),
+    /**
+     * The chat's home (`lib/textGroupHome.ts`, decided by the owner, 2026-10-31): `tex/groups/<words>/` in the pinned
+     * workspace, sealed to the chat's people, and the accounts its row names now, each to edit. Account ids only.
+     */
+    homeWords: v.optional(v.string()),
+    homeUsers: v.optional(v.array(v.id("users"))),
     lastSeenAt: v.number(),
     /**
      * The chat's own check-in (`lib/textGroupLooks.ts`, decided by the owner, 2026-10-27): when the next look is
@@ -64,7 +94,24 @@ export const textGroupTables = {
     .index("by_key", ["groupKey"])
     .index("by_workspace", ["workspaceId"])
     .index("by_nextLookAt", ["nextLookAt"])
+    .index("by_home_words", ["homeWords"])
     .index("by_look_run", ["lookRunId"]),
+  /**
+   * What each person spent in a group chat, per UTC day (`lib/textGroupUsage.ts`, decided by the owner, 2026-10-31):
+   * the cost of each finished turn, recorded against the person who tagged Tex. `who` is `user:<userId>` for an
+   * account holder, `phone:<E.164>` for a number, or `guest` for a guest tagger whose number is not known to the
+   * gateway yet. Counts and cost only, never a message.
+   */
+  textGroupUsage: defineTable({
+    groupId: v.id("textGroups"),
+    who: v.string(),
+    /** YYYY-MM-DD, UTC. */
+    day: v.string(),
+    turns: v.number(),
+    /** Micro-USD, priced as `addUsage` prices the same turn. */
+    costMicroUsd: v.number(),
+    updatedAt: v.number(),
+  }).index("by_group_day_who", ["groupId", "day", "who"]),
   /**
    * A mailbox its owner shares with one chat (`lib/textGroupMail.ts`, decided by
    * the owner, 2026-10-27; `docs/decisions/texting-assistant/chat-mail.md`):

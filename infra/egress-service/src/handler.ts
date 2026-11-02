@@ -1,7 +1,7 @@
 import { isAuthorized } from "./auth";
 
 export interface EgressIngressEnv {
-  EGRESS: { getByName(name: string): { fetch(request: Request): Promise<Response> } };
+  EGRESS: { getByName(name: string, options?: { locationHint?: "enam" }): { fetch(request: Request): Promise<Response> } };
   EGRESS_SERVICE_SECRET?: string;
 }
 
@@ -21,5 +21,6 @@ export async function handleRequest(request: Request, env: EgressIngressEnv): Pr
     headers,
     body: request.method === "POST" ? await request.arrayBuffer() : undefined,
   });
-  return env.EGRESS.getByName("public-egress").fetch(internal);
+  // Placed in eastern North America like every object of ours (decided by the owner, 2026-11-01).
+  return env.EGRESS.getByName("public-egress", { locationHint: "enam" }).fetch(internal);
 }

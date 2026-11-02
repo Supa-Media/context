@@ -355,7 +355,7 @@ async function board(
 
 const sidebarFor = (selected: string | null) =>
   createElement(SharedSidebar, {
-    items: mockShots.items,
+    items: mockShots.items as never,
     selected,
     seenAt: mockShots.seenAt,
     onEverything: () => {},

@@ -41,7 +41,7 @@ import { contextsForGrant, resolveLiveGrant } from "../controlPlane/liveGrants";
 import { TOKEN_HASH_PATTERN, hashToken } from "../crypto";
 import { json } from "../gatewayAuth";
 import { syncManifest } from "../fileOps/syncManifest";
-import { NO_BUCKET, servedNodesStore } from "./manifestStore";
+import { NO_BUCKET, changedNodesStore, servedNodesStore } from "./manifestStore";
 
 /**
  * Keys one answer carries. The console's walk stops at `MANIFEST_PAGE_ENTRIES`
@@ -128,21 +128,28 @@ const NOT_SERVED: GatewayManifestPage = { served: false };
 /**
  * One page of the keys `scope` may see in `workspaceId`, from the tree, or
  * `served: false`. `folder` narrows it to one subtree, as a folder List does.
+ * `changedSince` asks instead for the notes written after that time, whole in
+ * one page (a check-in's question, `nodes.listChangedSince`); `served: false`
+ * there means "walk the whole tree".
  */
 export async function gatewayManifestPage(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   scope: "private" | "team",
-  options: { cursor?: string; folder?: string; names?: readonly string[] },
+  options: { cursor?: string; folder?: string; names?: readonly string[]; changedSince?: number },
 ): Promise<GatewayManifestPage> {
   const names = options.names ?? [];
-  const store = await servedNodesStore(ctx, workspaceId, NO_BUCKET, audienceOfNames(names));
+  const audience = audienceOfNames(names);
+  const changed = options.changedSince !== undefined;
+  const store = changed
+    ? await changedNodesStore(ctx, workspaceId, options.changedSince!, audience)
+    : await servedNodesStore(ctx, workspaceId, NO_BUCKET, audience);
   if (store === null) return NOT_SERVED;
   const manifest = await syncManifest(store, {
     clearance: names.length === 0 ? { scope, names: NO_NAMES } : clearanceOf(scope, names),
     pageEntries: GATEWAY_PAGE_ENTRIES,
-    ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
-    ...(options.folder === undefined ? {} : { folder: options.folder }),
+    ...(changed || options.cursor === undefined ? {} : { cursor: options.cursor }),
+    ...(changed || options.folder === undefined ? {} : { folder: options.folder }),
   });
   // A walk that stopped short, or rules that do not parse, is not a listing
   // anyone may be answered from: the bucket answers it, as it does today.
@@ -182,6 +189,9 @@ async function manifestFor(ctx: ActionCtx, body: Record<string, unknown>): Promi
   const expected = typeof body.expectedWorkspaceId === "string" ? body.expectedWorkspaceId : null;
   const cursor = pathField(body, "cursor");
   const folder = pathField(body, "folder");
+  const since = body.changedSince;
+  const changedSince = typeof since === "number" && Number.isFinite(since) && since >= 0 ? since : undefined;
+  if (since !== undefined && since !== null && changedSince === undefined) return NOT_SERVED;
   if (accessToken === null || expected === null || !cursor.ok || !folder.ok) return NOT_SERVED;
   try {
     const reader = await ctx.runQuery(internal.functions.nodesGateway.readClearance, {
@@ -193,6 +203,7 @@ async function manifestFor(ctx: ActionCtx, body: Record<string, unknown>): Promi
       names: reader.names,
       ...(cursor.value === undefined || cursor.value === "" ? {} : { cursor: cursor.value }),
       ...(folder.value === undefined ? {} : { folder: folder.value }),
+      ...(changedSince === undefined ? {} : { changedSince }),
     });
   } catch {
     // A path the manifest refuses, a page that failed: the bucket answers.

@@ -17,7 +17,7 @@ import {
   requireSupported,
 } from "./storage.js";
 import { applyUpdateTo, assertTextSize, docFromSnapshot } from "./ydoc.js";
-import { makeResult, readRevision } from "./records.js";
+import { assertExpectedRevision, makeResult, readRevision } from "./records.js";
 import { ready } from "./load.js";
 import { commitSnapshot } from "./commit.js";
 import { replayResolution } from "./replay.js";
@@ -99,7 +99,14 @@ async function cachedReplacementUpdate(store, documentId, generation, expectedEt
   return base64ToBytes(racedValue.update);
 }
 
-/** Replace an agent's exact retained base while preserving unseen Yjs items. */
+/**
+ * Replace an agent's exact retained base while preserving unseen Yjs items.
+ *
+ * With `onlyCurrent`, the base must be the document's current version (or
+ * the Markdown etag of a document nothing has changed since it started), and
+ * any other base is a `CONFLICT`: a whole-note write from an agent is refused,
+ * not merged, once the note has moved past what it read.
+ */
 export async function replaceText(store, path, input) {
   requireSupported(store);
   if (!eligible(path, "")) throw fail("INELIGIBLE_DOCUMENT", "document is not eligible for collaboration");
@@ -110,13 +117,18 @@ export async function replaceText(store, path, input) {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     if (input.documentId !== undefined && loaded.state.documentId !== input.documentId) throw fail("GENERATION_MISMATCH", "document generation does not match");
     if (loaded.state.deferredUpdates.length > 0) throw fail("DEPENDENCY_PENDING", "replacement waits for missing Yjs dependencies");
+    // A writer that names the version it read, and means it: anything since
+    // is somebody else's edit, so the write is a conflict rather than a merge.
+    // Checked on every attempt, so a commit lost to a race is refused too.
+    if (input.onlyCurrent === true) assertExpectedRevision(loaded.state, input.expectedEtag);
     let baseRevision;
     const tokenMatch = /^c2\.([A-Za-z0-9-]+)\.([A-Za-z0-9-]+)$/.exec(input.expectedEtag);
     if (tokenMatch) {
       if (tokenMatch[1] !== loaded.state.documentId) throw fail("GENERATION_MISMATCH", "the requested base belongs to another generation");
       const suffix = tokenMatch[2];
       if (!/^[A-Za-z0-9-]+$/.test(suffix)) throw fail("BASE_MISSING", "the requested Markdown base is invalid");
-      baseRevision = await readRevision(store, loaded.state.documentId, suffix);
+      // The base is usually the revision just loaded (nobody wrote since the caller read): no second read.
+      baseRevision = suffix === loaded.state.revision ? loaded.revision : await readRevision(store, loaded.state.documentId, suffix);
     } else if (input.expectedEtag === loaded.state.legacyRawEtag) {
       baseRevision = await readRevision(store, loaded.state.documentId, loaded.state.legacyRevision);
     } else {

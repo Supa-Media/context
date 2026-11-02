@@ -1,0 +1,68 @@
+import { defineTable } from "convex/server";
+import { v } from "convex/values";
+
+/**
+ * Where each workspace's note bodies and rows are read from while they move
+ * into its workspace object (decided by the owner, 2026-11-01;
+ * `docs/decisions/storage-and-credentials/workspace-objects.md`). One row per
+ * workspace that has started; no row means `bucket`. The object holds the
+ * same switch (`ws.home`), set by the same flip (`functions/workspaceObjects.ts`
+ * `setHome`), so the control plane knows it without a call.
+ *
+ * Counts, times and digests only: never a key, a path or a body.
+ */
+export const workspaceObjectTables = {
+  workspaceObjectHomes: defineTable({
+    workspaceId: v.id("workspaces"),
+    home: v.union(v.literal("bucket"), v.literal("dual"), v.literal("object")),
+    /** When `home` was last set. */
+    since: v.number(),
+    /** When every body and the rows were last copied whole. */
+    backfilledAt: v.optional(v.number()),
+    /** The rows digest last pushed to the object, and the rules' access version with it. */
+    rowsSha: v.optional(v.string()),
+    rulesVersion: v.optional(v.number()),
+    rowsSyncedAt: v.optional(v.number()),
+    /** The last parity check: zero everywhere is a match. */
+    parity: v.optional(
+      v.object({
+        at: v.number(),
+        bodies: v.object({
+          bucketKeys: v.number(),
+          objectKeys: v.number(),
+          missingInObject: v.number(),
+          extraInObject: v.number(),
+          differ: v.number(),
+        }),
+        rows: v.object({ convex: v.number(), object: v.number(), match: v.boolean() }),
+        rules: v.object({ match: v.boolean() }),
+        visibility: v.object({ principals: v.number(), checked: v.number(), differ: v.number() }),
+      }),
+    ),
+    /**
+     * Where this workspace's members and invites are read from while they move
+     * into its object (decided by the owner, 2026-11-01, plan "Access lives in
+     * the objects"; `functions/accessObjects.ts`). Absent is `convex`. `dual`:
+     * Convex decides and every change is mirrored to the object. `object`: the
+     * object decides; one step back to `dual` is the rollback.
+     */
+    access: v.optional(v.union(v.literal("convex"), v.literal("dual"), v.literal("object"))),
+    accessSince: v.optional(v.number()),
+    /** When members and invites were last copied whole. */
+    accessBackfilledAt: v.optional(v.number()),
+    /** The last members/invites parity check: per table, counts on each side and whether the digests match. */
+    accessParity: v.optional(v.object({ at: v.number(), tables: v.array(v.object({ table: v.string(), convex: v.number(), object: v.number(), match: v.boolean() })) })),
+    /**
+     * A personal workspace only: the same switch for its person's reach,
+     * "shared with me" and connections, which its object also holds.
+     */
+    personAccess: v.optional(v.union(v.literal("convex"), v.literal("dual"), v.literal("object"))),
+    personAccessSince: v.optional(v.number()),
+    personBackfilledAt: v.optional(v.number()),
+    personParity: v.optional(v.object({ at: v.number(), tables: v.array(v.object({ table: v.string(), convex: v.number(), object: v.number(), match: v.boolean() })) })),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_home", ["home"])
+    .index("by_access", ["access"])
+    .index("by_person_access", ["personAccess"]),
+};

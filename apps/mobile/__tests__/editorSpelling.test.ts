@@ -3,19 +3,20 @@
  */
 
 /**
- * SPELLING IN THE NOTE, THE GOOGLE DOCS WAY (Dev2, 2026-10-27, boards 1–5).
+ * SPELLING IN THE NOTE: FIXES ON RIGHT-CLICK, NO RED LINE (Dev2, 2026-10-27
+ * boards; the line left out 2026-10-28).
  *
  * The real `LiveEditor` on web, with Context's own checker and the real US
  * dictionary handed to the store instead of fetched:
  *
- *  - misspelled prose is underlined, code / links / tags / front matter are not,
- *    and a note nobody may write is not underlined at all;
- *  - a plain click on an underlined word opens a card with only the fixes,
- *    Add to dictionary and Ignore in this note — and pressing one does it;
- *  - right-click has the same rows on top of the formatting menu, with no
- *    Shift-right-click signpost;
- *  - the browser's checker is off while ours runs, on while ours has no
- *    dictionary, and off when the person turned checking off.
+ *  - nothing is drawn under any word, by us or by the browser;
+ *  - right-click on misspelled prose puts the fixes, Add to dictionary and
+ *    Ignore in this note on top of the formatting menu, and each one works;
+ *    code / links / tags / front matter / note links get no fixes, and a note
+ *    nobody may write gets none and never downloads the dictionary;
+ *  - a plain click is only a click;
+ *  - the browser's checker is off while ours runs or loads, on only when ours
+ *    could not load, and off when the person turned checking off.
  *
  * jsdom lays nothing out, so `posAtCoords` is stubbed to the position the
  * click is meant to land on, as `editorContextMenu.test.ts` does.
@@ -23,11 +24,8 @@
  * ## Sabotage record
  *
  *   drop "InlineCode" from SKIPPED_NODES                     1 fail
- *   underline a read-only note                                1 fail
- *   click opens the card on a correct word                    1 fail
  *   Ignore does not dispatch the effect                       1 fail
- *   browserChecker always answers "true"                      1 fail
- *   passiveKeys ignored by the popover                        1 fail
+ *   browserChecker always answers "true"                      3 fail
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
@@ -107,7 +105,6 @@ async function mount(options: { value: string; editable?: boolean }) {
     content,
     find,
     doc: () => view().state.doc.toString(),
-    underlined: () => Array.from(container.querySelectorAll(".cm-misspelled")).map((node) => node.textContent),
     click: (position: number) => {
       aimAt(position);
       act(() => {
@@ -135,95 +132,18 @@ async function mount(options: { value: string; editable?: boolean }) {
   };
 }
 
-describe("the underline", () => {
-  test("misspelled prose is underlined once the dictionary is in", async () => {
+describe("nothing is drawn", () => {
+  test("misspelled words get no line once the dictionary is in, and the browser draws none either", async () => {
     const m = await mount({ value: "the israelites took elevn days\n" });
     expect(getSpelling().status).toBe("ready");
-    expect(m.underlined()).toEqual(["israelites", "elevn"]);
+    expect(m.content.querySelectorAll("[class*='misspell']").length).toBe(0);
+    expect(m.content.getAttribute("spellcheck")).toBe("false");
   });
 
-  test("code, addresses, tags, note links and front matter are left alone", async () => {
-    const m = await mount({
-      value: "---\ntitel: draft\n---\n\nmispeled `the wrod here` https://exmaple.com #tagg [[exodsu]]\n",
-    });
-    expect(m.underlined()).toEqual(["mispeled"]);
-  });
-
-  test("a note nobody may write is not underlined, and never downloads the dictionary", async () => {
-    let fetched = 0;
-    resetSpellingForTests(async () => {
-      fetched += 1;
-      return { aff, dic };
-    });
-    const m = await mount({ value: "the israelites took elevn days\n", editable: false });
-    expect(m.underlined()).toEqual([]);
-    expect(fetched).toBe(0);
-  });
-
-  test("the word being typed waits until the caret leaves it", async () => {
-    const m = await mount({ value: "hello " });
-    act(() => {
-      m.view().dispatch({ changes: { from: 6, insert: "wrold" }, selection: { anchor: 11 }, userEvent: "input.type" });
-    });
-    expect(m.underlined()).toEqual([]);
-    act(() => {
-      m.view().dispatch({ changes: { from: 11, insert: " " }, selection: { anchor: 12 }, userEvent: "input.type" });
-    });
-    expect(m.underlined()).toEqual(["wrold"]);
-  });
-});
-
-describe("the click card", () => {
-  test("a click on an underlined word opens only the fixes, and one press replaces it", async () => {
+  test("a plain click on a misspelled word is only a click", async () => {
     const m = await mount({ value: "it takes elevn days" });
     m.click(11);
-    expect(m.labels()).toEqual(["eleven", "elev", "Add to dictionary", "Ignore in this note"]);
-    expect(m.find("menu-item-bold")).toBeNull();
-    m.press("menu-item-spelling:0");
-    expect(m.doc()).toBe("it takes eleven days");
-    expect(m.underlined()).toEqual([]);
-  });
-
-  test("a click on a correct word opens nothing", async () => {
-    const m = await mount({ value: "it takes elevn days" });
-    m.click(4);
     expect(m.labels()).toEqual([]);
-  });
-
-  test("the next key closes the card and goes to the note", async () => {
-    const m = await mount({ value: "it takes elevn days" });
-    m.click(11);
-    expect(m.find("menu-item-spelling:0")).not.toBeNull();
-    act(() => {
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
-    });
-    expect(m.find("menu-item-spelling:0")).toBeNull();
-  });
-
-  test("Ignore in this note takes the underline away from every copy of the word", async () => {
-    const m = await mount({ value: "elevn and elevn" });
-    m.click(2);
-    m.press("menu-item-spellingIgnore");
-    expect(m.underlined()).toEqual([]);
-    expect(m.doc()).toBe("elevn and elevn");
-  });
-
-  test("Add to dictionary saves the word on the account and it stops being red", async () => {
-    const learned: string[] = [];
-    setSpellingSaver({
-      learn: async (word) => learned.push(word),
-      forget: async () => undefined,
-      setEnabled: async () => undefined,
-      setLanguage: async () => undefined,
-    });
-    const m = await mount({ value: "ask Kayode today, Kayode's turn" });
-    expect(m.underlined()).toEqual(["Kayode", "Kayode's"]);
-    m.click(6);
-    m.press("menu-item-spellingAdd");
-    await settle();
-    expect(learned).toEqual(["Kayode"]);
-    // Its possessive goes with it.
-    expect(m.underlined()).toEqual([]);
   });
 });
 
@@ -235,29 +155,98 @@ describe("right-click", () => {
     expect(m.find("menu-item-bold")).not.toBeNull();
     expect(m.find("menu-item-spellingHint")).toBeNull();
   });
+
+  test("a fix replaces the word", async () => {
+    const m = await mount({ value: "it takes elevn days" });
+    m.rightClick(11);
+    m.press("menu-item-spelling:0");
+    expect(m.doc()).toBe("it takes eleven days");
+  });
+
+  test("a correct word gets the plain menu", async () => {
+    const m = await mount({ value: "it takes elevn days" });
+    m.rightClick(4);
+    expect(m.find("menu-item-spelling:0")).toBeNull();
+    expect(m.find("menu-item-bold")).not.toBeNull();
+  });
+
+  test("code, addresses, tags, note links and front matter get no fixes", async () => {
+    const value = "---\ntitel: draft\n---\n\nmispeled `the wrod here` https://exmaple.com #tagg [[exodsu]]\n";
+    const m = await mount({ value });
+    for (const word of ["titel", "wrod", "exmaple", "tagg", "exodsu"]) {
+      act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      m.rightClick(value.indexOf(word) + 1);
+      expect([word, m.find("menu-item-spelling:0")]).toEqual([word, null]);
+    }
+    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    m.rightClick(value.indexOf("mispeled") + 1);
+    expect(m.find("menu-item-spelling:0")).not.toBeNull();
+  });
+
+  test("a note nobody may write gets no fixes, and never downloads the dictionary", async () => {
+    let fetched = 0;
+    resetSpellingForTests(async () => {
+      fetched += 1;
+      return { aff, dic };
+    });
+    const m = await mount({ value: "the israelites took elevn days\n", editable: false });
+    m.rightClick(22);
+    expect(m.find("menu-item-spelling:0")).toBeNull();
+    expect(fetched).toBe(0);
+  });
+
+  test("Ignore in this note stops offering fixes for every copy of the word", async () => {
+    const m = await mount({ value: "elevn and elevn" });
+    m.rightClick(2);
+    m.press("menu-item-spellingIgnore");
+    m.rightClick(12);
+    expect(m.find("menu-item-spelling:0")).toBeNull();
+    expect(m.doc()).toBe("elevn and elevn");
+  });
+
+  test("Add to dictionary saves the word on the account, possessive included", async () => {
+    const learned: string[] = [];
+    setSpellingSaver({
+      learn: async (word) => learned.push(word),
+      forget: async () => undefined,
+      setEnabled: async () => undefined,
+      setLanguage: async () => undefined,
+    });
+    const m = await mount({ value: "ask Kayode today, Kayode's turn" });
+    m.rightClick(6);
+    expect(m.find("menu-item-spellingAdd")).not.toBeNull();
+    m.press("menu-item-spellingAdd");
+    await settle();
+    expect(learned).toEqual(["Kayode"]);
+    m.rightClick(20);
+    expect(m.find("menu-item-spelling:0")).toBeNull();
+    expect(m.find("menu-item-noSuggestions")).toBeNull();
+  });
 });
 
 describe("the browser's own checker", () => {
-  test("off while ours runs, so nothing is underlined twice", async () => {
-    const m = await mount({ value: "words" });
+  test("off while ours is still loading, so no line flashes up first", async () => {
+    resetSpellingForTests(() => new Promise(() => undefined));
+    const m = await mount({ value: "it takes elevn days" });
+    expect(getSpelling().status).toBe("loading");
     expect(m.content.getAttribute("spellcheck")).toBe("false");
   });
 
-  test("on while ours has no dictionary, so checking never goes silent", async () => {
+  test("on when ours could not load, so checking never goes silent", async () => {
     resetSpellingForTests(async () => {
       throw new Error("offline");
     });
     const m = await mount({ value: "it takes elevn days" });
     expect(getSpelling().status).toBe("failed");
     expect(m.content.getAttribute("spellcheck")).toBe("true");
-    expect(m.underlined()).toEqual([]);
   });
 
-  test("off, with no underline of ours either, when the person turned checking off", async () => {
+  test("off, with no fixes of ours either, when the person turned checking off", async () => {
     const m = await mount({ value: "it takes elevn days" });
     act(() => setSpellingEnabled(false));
     await settle();
     expect(m.content.getAttribute("spellcheck")).toBe("false");
-    expect(m.underlined()).toEqual([]);
+    m.rightClick(11);
+    expect(m.find("menu-item-spelling:0")).toBeNull();
   });
 });

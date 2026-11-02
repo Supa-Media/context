@@ -1,5 +1,5 @@
 /**
- * WHAT TEX KNOWS ABOUT THE PERSON, IN `tex/about-me.md` (owner, 2026-10-14).
+ * WHAT TEX KNOWS ABOUT THE PERSON, IN `tex/about.md` (owner, 2026-10-14).
  *
  * A texted turn reads the note through the session's own dispatcher and puts
  * it in the system prompt; a missing note is a turn that is told to start
@@ -56,9 +56,9 @@ test("a missing note, a refusal or a throw is an empty note, never a failed turn
 
 test("the prompt says what the note holds, bounded, and to keep it only when the turn can write", () => {
   const kept = aboutMePrompt("- Has a dog called Pip.", { edits: true });
-  assert.match(kept, /What you know about them, from tex\/about-me\.md/);
+  assert.match(kept, /What you know about them, from tex\/about\.md/);
   assert.match(kept, /Has a dog called Pip/);
-  assert.match(kept, /add it to tex\/about-me\.md/);
+  assert.match(kept, /add it to tex\/about\.md/);
   assert.doesNotMatch(aboutMePrompt("- Has a dog.", { edits: false }), /add it to/);
   assert.match(aboutMePrompt("", { edits: true }), /doesn't exist yet/);
   assert.equal(aboutMePrompt("", { edits: false }), "");
@@ -81,5 +81,5 @@ test("a texted turn is told what the note says, and to keep it", async () => {
   });
   const system = ai.calls[0].input.messages.find((message) => message.role === "system").content;
   assert.match(system, /Goes by Mo\./);
-  assert.match(system, /add it to tex\/about-me\.md/);
+  assert.match(system, /add it to tex\/about\.md/);
 });

@@ -61,7 +61,7 @@ const WALK_PHASES = new Set(WALK_PAGE_PHASES);
 /** A walk failure's own code (`ManagedEncryptionError`), when it is one. */
 const WALK_CODE = /^[A-Z_]{3,40}$/;
 
-async function carriesGatewaySecret(request, env) {
+export async function carriesGatewaySecret(request, env) {
   const secret = typeof env?.GATEWAY_SECRET === "string" ? env.GATEWAY_SECRET : "";
   if (secret === "") return false;
   const header = request.headers.get("authorization") || "";

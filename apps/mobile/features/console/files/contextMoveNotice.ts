@@ -154,5 +154,17 @@ export function contextMoveNotices(
 ): ContextMoveNotice[] {
   return moves
     .filter((move) => move.status === "moving" || !dismissed.has(move.id))
+    .filter((move) => !cleanlyDone(move))
     .map(describeContextMove);
+}
+
+/**
+ * A move that finished with nothing left behind says nothing: the tree has
+ * already changed, and a "Moved … to @…" line over the Notes page told the
+ * person what they had just done (owner, 2026-10-30: "why are we showing what
+ * moved at the top? so useless"). Only what still needs them is drawn: a move
+ * running, one that stopped, and one that left notes behind.
+ */
+function cleanlyDone(move: ContextMoveProgress): boolean {
+  return move.status === "complete" && move.skipped.length === 0;
 }

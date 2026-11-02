@@ -85,10 +85,8 @@ function file(path: string, depth = 0): TreeRow {
 function tree(iconOf?: (path: string) => string | null) {
   return createElement(FileTree, {
     rows: [folder("2-areas"), folder("2-areas/cooking", 1), file("2-areas/plan.md", 1), file("2-areas/photo.png", 1)],
-    canSetVisibility: false,
     onSelect: () => {},
     onToggle: () => {},
-    onCycleVisibility: () => {},
     workspaceId: "ws-1",
     ...(iconOf === undefined ? {} : { iconOf }),
   });
@@ -139,10 +137,8 @@ describe("the tree draws a folder's own icon in its glyph slot", () => {
     const container = mount(
       createElement(FileTree, {
         rows: [file("plan.md")],
-        canSetVisibility: false,
         onSelect: () => {},
         onToggle: () => {},
-        onCycleVisibility: () => {},
         iconOf: () => null,
         onIconPress: () => {},
       }),

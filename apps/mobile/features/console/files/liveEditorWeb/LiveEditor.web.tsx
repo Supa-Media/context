@@ -614,21 +614,9 @@ export function LiveEditor({
             spelling: menuAt.spelling ?? null,
             spellingHint: menuAt.spellingHint === true,
             spellingLearns: menuAt.spellingLearns === true,
-            spellingOnly: menuAt.spellingOnly === true,
           })}
           anchor={menuAt}
-          /*
-            The click card leaves the keyboard with the note: a click inside a
-            red word is as often somebody about to fix it by hand, and their
-            next key — an arrow, a letter — closes the card and goes to the
-            note rather than being swallowed by a menu they did not ask for.
-          */
-          passiveKeys={menuAt.spellingOnly === true}
-          title={
-            menuAt.spellingOnly === true && menuAt.spelling != null
-              ? `\u201C${menuAt.spelling.word}\u201D isn\u2019t in the dictionary`
-              : "Format"
-          }
+          title="Format"
           onSelect={runMenuAction}
           onDismiss={() => setMenuAt(null)}
         />

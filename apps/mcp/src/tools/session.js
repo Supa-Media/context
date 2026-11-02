@@ -44,6 +44,7 @@ import { likedPreviewAllows } from "./likedPreview.js";
 import { wordsOfTurn } from "../agent/conversation.js";
 import { actsOnOwnAccount } from "../agent/groupTurn.js";
 import { wideningOf } from "../privacy/widening.js";
+import { judgeSubject } from "../privacy/judgeSubject.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { PrivacyOverrides } from "../privacy/engine.js";
 import { recordChange } from "../activity/record.js";
@@ -214,6 +215,7 @@ async function judgedGate(name, suppliedName, args, { store, session, target, ta
     words,
     action: widening.summary,
     workspace: typeof target.workspaceSlug === "string" ? `@${target.workspaceSlug}` : undefined,
+    subject: await judgeSubject(targetStore, args),
   });
   if (verdict.allow === true) {
     // Their yes, found in their words, is what the tools' own publish flag asks for.
@@ -631,6 +633,13 @@ function noteAgentActivity(store, name, args, result) {
   const kind = AGENT_ACTIVITY_TOOLS.get(name);
   if (!kind || !result || result.isError) return;
   const hint = activityHintOf(result);
+  // `read_notes`: each note it opened (`notesRead`, as the read reported its path), never one it refused.
+  if (name === "read_notes") {
+    const paths = (result.notesRead ?? []).filter((path) => !isPlumbing(path));
+    recordAgentActivity(store, paths.map((path) => ({ kind: "read", path })));
+    for (const path of paths) recordAgentRead(store, { tool: name, path });
+    return;
+  }
   if (kind === "move") {
     const notePath = (value) => {
       const path = normalizePath(value);

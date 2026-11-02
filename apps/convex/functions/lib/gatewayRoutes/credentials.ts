@@ -64,15 +64,24 @@ export async function gatewayBindingHandler(
       ? body.completeEncryptionRotation
       : undefined;
 
-  const opened = await ctx.runAction(
-    internal.functions.controlPlane.openStorageBinding,
-    {
+  // The binding, and beside it the two deployment-wide switches, which need
+  // nothing from it (before 2026-11-02 they were read one after another).
+  const [opened, idLayout, features] = await Promise.all([
+    ctx.runAction(internal.functions.controlPlane.openStorageBinding, {
       hashedAccessToken: await hashToken(accessToken),
       expectedWorkspaceId: expected.value,
       startEncryptionRotation,
       completeEncryptionRotation,
-    },
-  );
+      // Tex reading its own setup in the pin (`lib/texSetupRead.ts`); absent on every other request.
+      ...(body?.setupRead === true ? { setupRead: true } : {}),
+    }),
+    // The id-copy switch (`functions/noteIds.ts`): `"ids"` only while reads use the id keys, absent otherwise.
+    // Not caught: a switch the gateway cannot read must not be guessed at.
+    ctx.runQuery(internal.functions.noteIds.idLayout, {}),
+    // The staff console's feature switches (`functions/featureSwitches.ts`), absent while every one is off.
+    // Not caught, like the id switch: a switch the gateway cannot read is not guessed on.
+    ctx.runQuery(internal.functions.featureSwitches.gatewayFeatures, {}),
+  ]);
   if (opened === null) return json({ binding: null });
   // The workspace's access rules, rendered from its rows for this reader (`nodesPrivacy.ts`). Absent only when
   // they cannot be read, and the gateway then fails closed. The workspace is the one the grant opened, never one
@@ -83,17 +92,12 @@ export async function gatewayBindingHandler(
       // A pin reader holds the rows as a guest sees them (`lib/pinnedReaders.ts`), so every read the gateway
       // judges by these rules, listing and search included, gives them the notes open to All Context users only.
       ...(opened.audience === "guest" ? { audience: "guest" as const } : {}),
+      // Tex's setup read: a member's rules, narrowed to the setup's folders (`lib/texSetupRead.ts`).
+      ...(opened.setupRead === true ? { setupOnly: true as const } : {}),
       // A Tex guest chat holds the guest rules read for it: only its group's rows (`lib/nodes/chatFolders.ts`).
       ...(opened.chatNames !== undefined ? { chatNames: opened.chatNames } : {}),
     })
     .catch(() => null);
-  // The id-copy switch (`functions/noteIds.ts`): `"ids"` only while reads use the id keys, absent otherwise.
-  // Unlike the two above this is not caught: a switch the gateway cannot read must not be guessed at.
-  const idLayout = await ctx.runQuery(internal.functions.noteIds.idLayout, {});
-  // Eleventh: the staff console's feature switches (`functions/featureSwitches.ts`),
-  // absent while every one is off, as the siblings above are absent in the ordinary case.
-  // Not caught, like the id switch: a switch the gateway cannot read is not guessed on.
-  const features = await ctx.runQuery(internal.functions.featureSwitches.gatewayFeatures, {});
   // `searchIndex` is `undefined` for every context that has no usable index,
   // and `JSON.stringify` drops an undefined value — so the normal case is the
   // key being **absent**, not present and null. A gateway on an older build

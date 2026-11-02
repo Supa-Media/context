@@ -25,7 +25,7 @@ class Socket {
   onclose: ((event: CloseEvent) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: (() => void) | null = null;
-  constructor(readonly url: string) { sockets.push(this); }
+  constructor(readonly url: string, readonly protocols: string[] = []) { sockets.push(this); }
   send(value: string) {
     if (this.readyState !== Socket.OPEN) throw new Error("not open");
     this.sent.push(value);
@@ -122,7 +122,7 @@ describe("presence recovers from stalled connections", () => {
 
   test("refreshes a potentially rejected cached grant once after repeated failed handshakes", async () => {
     await mount();
-    const originalUrl = sockets[0].url;
+    const originalProtocols = sockets[0].protocols.join(",");
     // Browser WebSocket does not expose the HTTP 401 from a rejected upgrade.
     // Two pre-open failures warrant one credential refresh, not one per retry.
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -130,7 +130,7 @@ describe("presence recovers from stalled connections", () => {
       await advance(1_000);
     }
     expect(mockIssue).toHaveBeenCalledTimes(2);
-    expect(sockets[sockets.length - 1].url).not.toBe(originalUrl);
+    expect(sockets[sockets.length - 1].protocols.join(",")).not.toBe(originalProtocols);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await event(() => sockets[sockets.length - 1].drop());
       await advance(30_000);

@@ -161,6 +161,14 @@ describe("a destination that already has files", () => {
     const row = await t.run((ctx) => ctx.db.query("managedStorageMigrations").unique());
     expect(row).toMatchObject({ status: "copying", existingFiles: "replace", targetClaimed: true });
     expect(await scheduled(t, "runManagedStorageMigration")).toBe(true);
+    // Cancel the scheduled replace before the test ends. Left to run, it can
+    // fire during the next test, through that test's `fetch` stub (a global),
+    // and delete the very file the merge test checks is never deleted.
+    await t.run(async (ctx) => {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
+        if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+      }
+    });
   });
 
   test("merging keeps every file: the move starts and the destination is never claimed", async () => {

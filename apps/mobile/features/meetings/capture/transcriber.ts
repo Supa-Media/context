@@ -1,4 +1,5 @@
 import { makeFunctionReference } from "convex/server";
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION, NO_TRANSCRIPTION_CONSENT } from "@context/shared";
 import { TRANSCRIPT_CHANNELS } from "../protocol";
 import type { TranscriptSegment } from "../protocol";
 import type { TranscribesAt } from "./index";
@@ -137,6 +138,12 @@ export function cloudTranscriber(client: ActionRunner): ChunkTranscriber {
   return {
     transcribesAt: "cloud",
     async transcribe(input) {
+      /*
+        Asked again at the moment of sending, not only when the transcriber
+        was resolved: a chunk queued before a withdrawal must not leave after
+        it. The control plane refuses it too; this keeps it on the device.
+      */
+      if (!cloudTranscriptionAllowed()) throw new TranscriptionConsentMissing();
       const answer = await client.action(TRANSCRIBE_CHUNK, input);
       return {
         segments: (answer?.segments ?? []).map(intoSegment),
@@ -237,6 +244,90 @@ export function fakeTranscriber(
 let installedClient: ActionRunner | null = null;
 let installedTranscriber: ChunkTranscriber | null = null;
 
+/*
+  CLOUD TRANSCRIPTION CONSENT, AS THIS DEVICE LAST HEARD IT.
+
+  App Review 5.1.1(i)/5.1.2(i): a microphone permission is not permission to
+  send a recording to Cloudflare Workers AI. The disclosure version the
+  signed-in account (or, on the homepage, the visitor's press) said yes to,
+  or `null`. Starts `null` and goes back to `null` on a sign-out, a withdrawal,
+  a stale version or a query that has not answered yet: every unknown is no.
+  `resolveTranscriber` answers `null` for a cloud transcriber without it, so
+  every recorder releases the microphone and keeps nothing
+  (`docs/decisions/meetings/transcription-consent.md`).
+*/
+let consentedVersion: number | null = null;
+const consentListeners = new Set<() => void>();
+/**
+ * Set by Turn off on this device and held until the account is seen saying no
+ * or somebody presses Allow here again. Without it, a withdrawal whose save
+ * failed would be undone by the next answer the account sends, and the
+ * device-stop promise in Settings would last only until the next query.
+ */
+let withdrawnHere = false;
+
+/** The thrown refusal when a chunk would have left without a current yes. */
+export class TranscriptionConsentMissing extends Error {
+  constructor() {
+    super(NO_TRANSCRIPTION_CONSENT);
+    this.name = "TranscriptionConsentMissing";
+  }
+}
+
+/**
+ * Record what the account said, or `null` for no. Only the version this build
+ * shows counts: a yes to another version is treated as no.
+ */
+export function setTranscriptionConsent(version: number | null): void {
+  // Turned off here and not yet confirmed by the account: an account answer
+  // that still says yes (a failed or pending withdrawal, a reconnect) is not
+  // allowed to switch this device back on.
+  const next = version === CLOUD_TRANSCRIPTION_CONSENT_VERSION && !withdrawnHere ? version : null;
+  if (next === consentedVersion) return;
+  consentedVersion = next;
+  for (const listener of [...consentListeners]) listener();
+}
+
+/** Turn off on this device: stops at once, whatever the account says until it agrees. */
+export function withdrawTranscriptionHere(): void {
+  withdrawnHere = true;
+  setTranscriptionConsent(null);
+}
+
+/** Allow pressed on this device, after the dialog: the one thing that lifts a local Turn off. */
+export function allowTranscriptionHere(version: number): void {
+  withdrawnHere = false;
+  setTranscriptionConsent(version);
+}
+
+/** The account was seen saying no, so the local Turn off has reached it. */
+export function transcriptionWithdrawalConfirmed(): void {
+  withdrawnHere = false;
+}
+
+/** Whether a chunk may go to the cloud right now. */
+export function cloudTranscriptionAllowed(): boolean {
+  return consentedVersion === CLOUD_TRANSCRIPTION_CONSENT_VERSION;
+}
+
+/**
+ * Whether the only thing between this recorder and a transcriber is the
+ * missing yes. A recorder asks at `start`, before the microphone permission,
+ * so a declined dialog never opens the microphone at all.
+ */
+export function blockedByConsent(): boolean {
+  if (cloudTranscriptionAllowed()) return false;
+  const transcriber =
+    installedTranscriber ?? (installedClient !== null ? cloudTranscriber(installedClient) : null);
+  return transcriber !== null && transcriber.transcribesAt === "cloud";
+}
+
+/** Called whenever the answer changes. Returns an unsubscribe. */
+export function onTranscriptionConsentChange(listener: () => void): () => void {
+  consentListeners.add(listener);
+  return () => consentListeners.delete(listener);
+}
+
 /**
  * Hand the app's Convex client to the recorders.
  *
@@ -271,9 +362,12 @@ export function setTranscriber(transcriber: ChunkTranscriber | null): void {
  * recorder that had cached `null` would stay deaf for the life of the session.
  */
 export function resolveTranscriber(): ChunkTranscriber | null {
-  if (installedTranscriber !== null) return installedTranscriber;
-  if (installedClient !== null) return cloudTranscriber(installedClient);
-  return null;
+  const transcriber =
+    installedTranscriber ?? (installedClient !== null ? cloudTranscriber(installedClient) : null);
+  if (transcriber === null) return null;
+  // No current yes, nowhere to send: the recorders give the microphone back.
+  if (transcriber.transcribesAt === "cloud" && !cloudTranscriptionAllowed()) return null;
+  return transcriber;
 }
 
 /* -------------------------------------------------------------------------- */

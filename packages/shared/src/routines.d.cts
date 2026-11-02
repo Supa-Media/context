@@ -57,6 +57,9 @@ export function cadenceFromFolder(folder: string): RoutineCadence | null;
 export function routineFromPath(path: string): RoutinePath | null;
 export function routineRootOf(path: string): RoutineRoot | null;
 export function isRoutinePath(path: unknown): boolean;
+/** A group chat's home routines folder or a path under it: the home's words and the path read under `tex/routines/`. */
+export function homeRoutineOf(path: unknown): { words: string; routinePath: string } | null;
+export function isHomeRoutinePath(path: unknown): boolean;
 export function frontMatter(text: string): Record<string, string>;
 export function parseTime(value: string): ClockTime | null;
 export function parseWeekdays(value: string): number[] | null;

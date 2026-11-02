@@ -26,7 +26,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, query, type MutationCtx } from "../_generated/server";
+import { internalQuery, query, type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { recordAudit } from "./lib/audit";
 import { clearanceOf } from "./lib/clearance";
 import { callerId, personalNameFor, resolveFileAccess } from "./lib/filesFns/access";
@@ -75,7 +76,8 @@ export const listTrash = query({
     const actorUserId = await callerId(ctx);
     const { scope, grantedNames } = await resolveFileAccess(ctx, { actorUserId, workspaceId, minimum: "member" });
     const clearance = clearanceOf(scope, grantedNames);
-    const live = scope === "private" ? null : await rulesForReaders(ctx, workspaceId);
+    // An owner's too: a chat home's trashed note stays sealed from them (`lib/nodes/sealedChats.ts`).
+    const live = await rulesForReaders(ctx, workspaceId);
     const items: Item[] = [];
     let more = false;
     for (const stamp of await stampFolders(ctx.db, workspaceId)) {
@@ -86,8 +88,8 @@ export const listTrash = query({
       const rows = await rowsUnder(ctx.db, workspaceId, stamp.folder);
       const item = await trashedItemOf(ctx.db, workspaceId, stamp, rows);
       if (item === null) continue;
-      const rules = live === null ? null : rulesAsTrashed(live, stamp.folder);
-      const sees = (path: string) => rules === null || canSee(path, clearance.scope, rules.rules, rules.overrides, clearance.names);
+      const rules = rulesAsTrashed(live, stamp.folder);
+      const sees = (path: string) => canSee(path, clearance.scope, rules.rules, rules.overrides, clearance.names);
       if (!sees(item.path)) continue;
       const notes =
         item.kind === "file"

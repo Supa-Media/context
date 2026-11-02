@@ -148,6 +148,17 @@ export function capFor(feature: JevFeatureName, paying: boolean): number {
 }
 
 /**
+ * The most turns a workspace's background jobs may run in a UTC day: job parts
+ * and their reports to the chat's own turn. Not a product cap, which jobs are
+ * exempt from (Dev2, 2026-10-31: three restarted jobs once used up the day's
+ * 100 in five minutes, and every text after was refused). A ceiling on a
+ * runaway, and on a texting grant that claims every turn is a job's: each job
+ * is started by a counted turn, at most 3 run per chat and each runs at most
+ * 10 parts, so 500 is many days' real use.
+ */
+export const BACKGROUND_TURNS_PER_DAY = 500;
+
+/**
  * May this workspace use this feature right now, and for how many requests?
  * Asked at the moment of use, never cached across a run's start.
  * A "premium" feature refuses a workspace that is not paying; an "everyone"
@@ -158,19 +169,25 @@ export async function gate(
   feature: JevFeatureName,
   workspaceId: Id<"workspaces">,
   now: number,
+  { background = false }: { background?: boolean } = {},
 ): Promise<{ allowed: true; remaining: number } | { allowed: false; reason: JevRefusal }> {
   if (disabledByEnv(feature)) return { allowed: false, reason: "disabled" };
   if (!(await featureIsOn(ctx, feature))) return { allowed: false, reason: "switched_off" };
   const paying = await isPaying(ctx, workspaceId);
   if (JEV_FEATURES[feature].plan === "premium" && !paying) return { allowed: false, reason: "not_premium" };
   const used = await usageRow(ctx, utcDay(now), feature, workspaceId);
-  const remaining = capFor(feature, paying) - ((used?.calls ?? 0) + (used?.failed ?? 0));
+  // A background job's turn is held only to its own runaway ceiling, never to the person's cap (Dev2, 2026-10-31).
+  const remaining = background
+    ? BACKGROUND_TURNS_PER_DAY - (used?.background ?? 0)
+    : capFor(feature, paying) - ((used?.calls ?? 0) + (used?.failed ?? 0));
   if (remaining <= 0) return { allowed: false, reason: "daily_cap" };
   return { allowed: true, remaining };
 }
 
 export interface UsageDelta {
   calls: number;
+  /** A background job's turns (`jevUsage.background`): never in `calls`, so never against the cap. */
+  background?: number;
   failed: number;
   refused: number;
   questions: number;
@@ -257,7 +274,7 @@ export async function addUsage(
   now: number,
 ): Promise<void> {
   const day = utcDay(now);
-  const { writtenMicroUsd = 0, writtenTokens = 0, ...counts } = delta;
+  const { writtenMicroUsd = 0, writtenTokens = 0, background = 0, ...counts } = delta;
   const cost = costMicroUsd(Math.max(0, counts.tokens - writtenTokens)) + writtenMicroUsd;
   const row = await usageRow(ctx, day, feature, workspaceId);
   if (row) {
@@ -269,9 +286,10 @@ export async function addUsage(
       tokens: row.tokens + counts.tokens,
       costMicroUsd: row.costMicroUsd + cost,
       ms: row.ms + counts.ms,
+      ...(background !== 0 ? { background: (row.background ?? 0) + background } : {}),
       updatedAt: now,
     });
     return;
   }
-  await ctx.db.insert("jevUsage", { day, feature, workspaceId, ...counts, costMicroUsd: cost, updatedAt: now });
+  await ctx.db.insert("jevUsage", { day, feature, workspaceId, ...counts, ...(background !== 0 ? { background } : {}), costMicroUsd: cost, updatedAt: now });
 }

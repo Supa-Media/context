@@ -30,10 +30,12 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { internalAction, internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "../_generated/server";
 import { cardImageLeaf, hashTitle } from "./lib/cardKey";
+import { pageCoverLeaf } from "./lib/shares/pageCover";
 import { findName } from "./lib/nameClaims";
 import { shortLinkSlugFrom } from "./lib/shareSlug";
 import { isRenderableTitle } from "./lib/cardCoverage";
@@ -411,6 +413,9 @@ export const cardLocation = internalQuery({
     if (share === null || share.status !== "active") return null;
     if (share.expiresAt !== undefined && share.expiresAt <= Date.now()) return null;
     if (!share.titleInPreview) return null;
+    // A linked page's card is its cover (`lib/shares/pageCover.ts`), titled or not yet rendered.
+    const cover = share.previewTitle?.trim() ? await pageCoverLeaf(ctx.db, share) : null;
+    if (cover !== null) return { workspaceId: share.workspaceId, leaf: cover };
     if (share.cardImageLeaf === undefined) return null;
 
     /**
@@ -504,6 +509,8 @@ export const cardLocationForShortLink = internalQuery({
     if (share.expiresAt !== undefined && share.expiresAt <= now) return null;
     if (share.recipientKind !== "anyone") return null;
     if (!share.titleInPreview) return null;
+    const cover = share.previewTitle?.trim() ? await pageCoverLeaf(ctx.db, share) : null;
+    if (cover !== null) return { workspaceId: share.workspaceId, leaf: cover };
     if (share.cardImageLeaf === undefined) return null;
     if (share.previewTitle === undefined || share.previewTitle.trim() === "") return null;
     // The leaf is recomputed rather than trusted, for the reason `cardLocation`

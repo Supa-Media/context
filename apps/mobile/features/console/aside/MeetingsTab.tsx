@@ -11,6 +11,9 @@ import { CallAudioWarning } from "../../meetings/components/CallAudioWarning";
 import { LiveMeters } from "../../meetings/components/LiveMeters";
 import { MeetingTitleField } from "../../meetings/components/MeetingTitleField";
 import { TransportMark } from "../../meetings/components/TransportMark";
+import { OpenCallButton } from "../../meetings/components/OpenCallButton";
+import { TodayMeetings } from "../../meetings/components/TodayMeetings";
+import type { CalendarEvent } from "../../meetings/protocol";
 import { writeClipboard } from "../../design/clipboard";
 import { meetingElapsedMs, meetings } from "../../meetings/controller";
 import { describeDestination } from "../../meetings/destination";
@@ -73,6 +76,7 @@ import { useFieldFont } from "../../design/fieldFont";
  */
 export function MeetingsTab({
   onOpenNote,
+  onJoin = null,
 }: {
   /**
    * Open a finished meeting's note in the console, by its href.
@@ -81,6 +85,8 @@ export function MeetingsTab({
    * behind it — and the row is then absent rather than pressable and inert.
    */
   onOpenNote: ((href: string, path: string) => void) | null;
+  /** Join and take notes, for today's meetings on the calendar. `null` where there is none. */
+  onJoin?: ((meeting: CalendarEvent) => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const snapshot = useMeetingsSnapshot();
@@ -128,6 +134,8 @@ export function MeetingsTab({
       <Text variant="rowSub" style={styles.empty} testID="aside-no-meeting">
         {NO_MEETING}
       </Text>
+      {/* Today's meetings from the calendar, each one press from notes (board w1). */}
+      {onJoin === null ? null : <TodayMeetings onJoin={onJoin} testID="aside-today" />}
       {snapshot.records.length === 0 ? null : (
         <View style={styles.recent}>
           <Text variant="railHead" style={styles.recentHead}>
@@ -252,6 +260,13 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
         ) : null}
 
         <CallAudioWarning testID="aside-call-audio-warning" />
+
+        {/*
+          A meeting joined from the calendar in a browser: the share prompt
+          spent the press, so the call is offered here once notes are running
+          (board w2).
+        */}
+        <OpenCallButton session={record.session} testID="aside-open-call" />
 
         <View style={styles.transport}>
           <Pressable

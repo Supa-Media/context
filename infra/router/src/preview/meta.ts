@@ -90,6 +90,11 @@ export interface PreviewMeta {
    * image, which is what the nine-variant byte-identity test above pins.
    */
   readonly imageUrl?: string | null;
+  /**
+   * The image's size, when it is not the 1200 x 630 card: a linked page's
+   * cover is a portrait 1080 x 1350 (`coverPreview`).
+   */
+  readonly imageSize?: { readonly width: number; readonly height: number };
   /** `<meta name="robots">`, when the route should stay out of search. */
   readonly robots?: string;
   /**
@@ -293,8 +298,8 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
   <meta property="og:image" content="${imageUrl}">
   <meta property="og:image:secure_url" content="${imageUrl}">
   <meta property="og:image:type" content="image/png">
-  <meta property="og:image:width" content="${OG_CARD_WIDTH}">
-  <meta property="og:image:height" content="${OG_CARD_HEIGHT}">
+  <meta property="og:image:width" content="${meta.imageSize?.width ?? OG_CARD_WIDTH}">
+  <meta property="og:image:height" content="${meta.imageSize?.height ?? OG_CARD_HEIGHT}">
   <meta property="og:image:alt" content="${imageAlt}">`}
 
   <meta name="twitter:card" content="${imageUrl === null ? "summary" : "summary_large_image"}">
@@ -329,4 +334,18 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
 </body>
 </html>
 `;
+}
+
+/** A linked page's cover (`docs/decisions/privacy-and-sharing/page-covers.md`): the size `draw_visual` draws it. */
+export const COVER_SIZE = Object.freeze({ width: 1080, height: 1350 });
+
+/**
+ * The image fields for a card that is a page's cover, served at the share's
+ * own card address with the cover's version as its cache key; nothing when
+ * there is no cover. `version` is shape-checked again here, at the place it
+ * is put into a URL.
+ */
+export function coverPreview(cardPath: string | null, version: string | null | undefined): Pick<PreviewMeta, "imageUrl" | "imageSize"> {
+  if (cardPath === null || typeof version !== "string" || !/^[0-9a-f]{8}$/.test(version)) return {};
+  return { imageUrl: `${ORIGIN}${cardPath}?v=${version}`, imageSize: COVER_SIZE };
 }

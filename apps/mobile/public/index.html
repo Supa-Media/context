@@ -21,9 +21,9 @@
 
     <!--
       No URL of ours is ever sent to a third party. `/invite/<token>?code=…`
-      is the highest-value URL in the product and this document makes
-      cross-origin font requests; today's browsers already send only the
-      origin, which is one default away from being a leak.
+      is the highest-value URL in the product, and this document still makes
+      cross-origin requests (sign-in's Turnstile, analytics); today's browsers
+      already send only the origin, which is one default away from being a leak.
     -->
     <meta name="referrer" content="no-referrer" />
 
@@ -48,18 +48,16 @@
     />
 
     <!--
-      The type, linked from the head so the first paint already has it.
-      `features/design/fonts.web.ts` injects the same stylesheet from app code
-      for a host that serves its own shell; the two hrefs are pinned together
-      by the test.
+      The type, linked from the head so the first paint already has it, from
+      our own origin: Instrument Sans and JetBrains Mono, as Google Fonts
+      served them, with their licences beside them. No third-party stylesheet
+      loads here, so none needs an integrity hash, and Google's CSS could never
+      have one: it differs per browser. `features/design/fonts.web.ts` injects
+      the same stylesheet from app code for a host that serves its own shell;
+      the two hrefs are pinned together by the test.
     -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
-    <link
-      id="context-fonts"
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
-    />
+    <link rel="preload" href="/InstrumentSans-latin.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    <link id="context-fonts" rel="stylesheet" href="/context-fonts.css" />
     <!-- Libron, the face note text is read in, from our own origin: not on Google Fonts. -->
     <link rel="preload" href="/Libron-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
     <link id="context-libron" rel="stylesheet" href="/libron.css" />
@@ -145,7 +143,9 @@
       Light, Dark or follow the device, read from the device's copy of the
       person's choice before the first paint, so a pinned appearance never
       flashes the device's. Same key as `APPEARANCE_KEY`; the shell test pins
-      the two together.
+      the two together. Every inline script here runs by its hash under the
+      script policy (infra/router/src/cspReport.ts), so editing one means
+      updating its hash there; the router's tests fail until it is.
     -->
     <script id="context-appearance">
       try {

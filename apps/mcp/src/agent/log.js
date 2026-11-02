@@ -24,6 +24,7 @@ export const MAX_EVENTS_PER_CALL = 50;
 export const MAX_EVENT_TEXT = 3_000;
 export const READ_LIMIT = 400;
 export const READ_CHARS = 120_000;
+const READ_BATCH = 25;
 const DAY_MS = 86_400_000;
 const MAX_COVERS = 32;
 
@@ -137,20 +138,25 @@ export async function readEvents(store, chat, { limit = READ_LIMIT, chars = READ
     cursor = listed.cursor;
   }
   keys.sort();
+  keys.reverse();
   const events = [];
   let room = chars;
-  for (const key of keys.reverse()) {
-    if (events.length >= limit) break;
-    const object = await store.get(key);
-    if (!object) continue;
-    const text = await object.text();
-    room -= text.length;
-    if (room < 0) break;
-    try {
-      const event = JSON.parse(text);
-      if (typeof event?.id === "string" && EVENT_ID.test(event.id) && EVENT_KINDS.has(event.kind)) events.push(event);
-    } catch {
-      // Not an event: left out.
+  // Newest first, a batch side by side at a time: one after another, 400 reads took 42 s of a "hi Tex" (2026-10-31).
+  for (let at = 0; at < keys.length && events.length < limit && room >= 0; at += READ_BATCH) {
+    const texts = await Promise.all(keys.slice(at, Math.min(at + READ_BATCH, at + limit - events.length)).map(async (key) => {
+      const object = await store.get(key);
+      return object ? await object.text() : null;
+    }));
+    for (const text of texts) {
+      if (text === null) continue;
+      room -= text.length;
+      if (room < 0) break;
+      try {
+        const event = JSON.parse(text);
+        if (typeof event?.id === "string" && EVENT_ID.test(event.id) && EVENT_KINDS.has(event.kind)) events.push(event);
+      } catch {
+        // Not an event: left out.
+      }
     }
   }
   return events.reverse();

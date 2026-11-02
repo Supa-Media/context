@@ -32,6 +32,8 @@ import { routineFromPath, routineRootOf } from "../../../../packages/shared/src/
 import { normalizePath } from "../notes/paths.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { toolError } from "../tools/results.js";
+import { datedDayWords } from "./dayWords.js";
+import { DEFAULT_TIME_ZONE } from "./localNow.js";
 import { routineWhen } from "./routineWhen.js";
 import { NOTE_SOURCE_PREFIX } from "./sources.js";
 
@@ -67,6 +69,8 @@ const ROUTINE_HELP =
   "A routine texts only the person who wrote it, and runs in their own personal workspace; in a shared one only a routine set up from its group chat runs, and it answers in that chat. " +
   "The body is plain instructions for the assistant, written as the person asked; " +
   "a reminder's body is the reminder itself, with any link they gave (\"Call Apple about the app review: <link>\"). " +
+  // A review, 2026-11-01: an hourly routine texted "closes tomorrow" on the day the form closed.
+  "A deadline or event in a routine is written as its date (\"closes Sunday, November 1, 11:59 pm PT\"), never as tomorrow or tonight; \"today\" in a routine means the day it runs. " +
   // The owner, 2026-10-23: "stop the check please wth", after Tex sent a pause for approval.
   "When they ask to stop, pause, cancel or delete a routine, archive it yourself at once; never send it for approval. " +
   "One routine per thing: when they change a reminder (\"every 3 hours until I do it\"), edit or archive the old one, never add a second. " +
@@ -182,11 +186,56 @@ export function textingAwareCallTool(callTool, writeTools, { timeZone = null, no
     if (extra.length > 0) return toolError(`${extra.join(", ")} can't be passed from a text.`);
     const refusal = refusalFor(name, given);
     if (refusal) return toolError(refusal);
-    const done = name === "write_note" && given.expected_etag === undefined && isRoutineFilePath(given.path)
-      ? Promise.resolve(callTool(name, given)).then((result) => withOtherRoutines(callTool, given.path, result))
-      : Promise.resolve(callTool(name, given));
-    return done.then((result) => withRunTime(withWrittenNotes(result, given), given, timeZone, now()));
+    const dated = name === "write_note" ? withDatedDayWords(callTool, given, timeZone, now()) : Promise.resolve(given);
+    return dated.then((sent) => {
+      const done = name === "write_note" && sent.expected_etag === undefined && isRoutineFilePath(sent.path)
+        ? Promise.resolve(callTool(name, sent)).then((result) => withOtherRoutines(callTool, sent.path, result))
+        : Promise.resolve(callTool(name, sent));
+      return done.then((result) => withRunTime(withWrittenNotes(result, sent), sent, timeZone, now()));
+    });
   };
+}
+
+/** Tex's notes that are instructions it runs again (a routine, a skill, a check-in's), where "today" means each run's. */
+const RUN_AGAIN = /^tex\/(?:routines|skills|heartbeat|housekeeping|attention)(?:\/|\.md$)/i;
+
+/**
+ * Whether `path` is one of Tex's own record notes in its `tex/` folder (its
+ * jobs, what it knows about them): not instructions it runs again, whose
+ * "today" means the day each run happens ("Text me what's due today"), and
+ * which ROUTINE_HELP tells to write deadlines as dates instead.
+ */
+export function isTexOwnNote(path) {
+  return isWritablePath(path) && path.endsWith(".md") && /^tex\//i.test(path) && !RUN_AGAIN.test(path) && routineRootOf(path) === null;
+}
+
+/**
+ * A note Tex writes for itself carries the date each day word meant (a
+ * review, 2026-11-01: a routine read "closes tomorrow" on the day it closed).
+ * Only its own notes in its own workspace: the person's notes keep their words.
+ * Only lines it writes now: a line the note already had keeps what it said,
+ * since its "tomorrow" meant the day after it was first written, not today's.
+ */
+async function withDatedDayWords(callTool, args, timeZone, now) {
+  if (typeof args.content !== "string" || args.context !== undefined || !isTexOwnNote(args.path)) return args;
+  const dated = datedDayWords(args.content, now, timeZone ?? DEFAULT_TIME_ZONE);
+  if (dated === args.content) return args;
+  const kept = await linesAlready(callTool, args.path);
+  const given = args.content.split("\n");
+  const content = dated.split("\n").map((line, i) => (kept.has(given[i]) ? given[i] : line)).join("\n");
+  return content === args.content ? args : { ...args, content };
+}
+
+/** The lines the note has now (none when it is new or can't be read), so an edit dates only what it adds. */
+async function linesAlready(callTool, path) {
+  try {
+    const read = await callTool("read_note", { path });
+    const text = read?.isError === true ? "" : String(read?.content?.[0]?.text ?? "");
+    const split = text.indexOf("\n\n"); // header lines, a blank line, then the note (`read_note`)
+    return new Set(split === -1 ? [] : text.slice(split + 2).split("\n"));
+  } catch {
+    return new Set();
+  }
 }
 
 /** A routine written: when it first texts them, or why it won't (`routineWhen.js`). */

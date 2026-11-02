@@ -64,6 +64,25 @@ export const storageTables = {
     accessKeyId: v.optional(v.string()),
     encryptedSecretAccessKey: v.optional(v.string()),
     /**
+     * A TEMPORARY CREDENTIAL'S THIRD PART, while a new managed bucket's own
+     * key propagates.
+     *
+     * Cloudflare takes up to two minutes to accept a key it has just minted,
+     * and a person who has just signed up should not wait for it. So a new
+     * managed bucket is bound first with temporary credentials R2 derives
+     * from a key it already trusts, usable at once. `accessKeyId` and
+     * `encryptedSecretAccessKey` stay the bucket's own key throughout (every
+     * revoke and every "is this our token" check reads them); these four hold
+     * the temporary trio, sealed the same way, and `temporaryUntil` says when
+     * R2 stops honouring it. The gateway is handed the temporary trio while it
+     * stands (`credentialOpening.ts`), and `promoteManagedKey` clears all four
+     * once the bucket's own key answers. Absent on every other binding.
+     */
+    temporaryAccessKeyId: v.optional(v.string()),
+    encryptedTemporarySecretAccessKey: v.optional(v.string()),
+    encryptedSessionToken: v.optional(v.string()),
+    temporaryUntil: v.optional(v.number()),
+    /**
      * How the bucket is addressed in a request URL: as a path segment
      * (`https://endpoint/my-context/note.md`) or as the first host label
      * (`https://my-context.s3.example/note.md`).

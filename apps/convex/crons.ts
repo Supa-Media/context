@@ -92,7 +92,7 @@ crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dream
 
 /**
  * And a first look, now, for anyone Tex texts with who still has no
- * `tex/about-me.md` (`functions/lib/dreams/firstLook.ts`): once each, and only
+ * `tex/about.md` (`functions/lib/dreams/firstLook.ts`): once each, and only
  * a schedule row.
  */
 crons.interval("give Tex's people a first look", { hours: 1 }, internal.functions.dreams.armFirstLooks, {});
@@ -145,6 +145,19 @@ crons.interval("hide old copies of mail and calendar", { minutes: 10 }, internal
  * the hundred are granted it returns at its first read.
  */
 crons.interval("grant founding Premium", { hours: 1 }, internal.functions.foundingPremium.catchUp, {});
+
+/**
+ * Re-drives each workspace whose row changes have waited for its object longer than a retry
+ * (`functions/workspaceObjectPush.ts`): a lost scheduled push, or an object that was down.
+ * Nothing is waiting in a workspace whose notes are not judged in its object.
+ */
+crons.interval("push waiting rows to workspace objects", { minutes: 1 }, internal.functions.workspaceObjectPush.sweep, {});
+
+/**
+ * Access changes still waiting for an object on `dual` (`functions/accessObjectPush.ts`): a lost scheduled push, or
+ * an object that was down.
+ */
+crons.interval("push waiting access changes to objects", { minutes: 1 }, internal.functions.accessObjectPush.sweep, {});
 
 crons.interval(
   "re-read routine folders",
@@ -546,5 +559,12 @@ crons.interval(
   internal.functions.texTriageWatch.check,
   {},
 );
+
+/**
+ * Keep each `dual` workspace's object copy of its rows and access rules current (`functions/workspaceObjects.ts`):
+ * pushed whole only when the object's digest or rules version is not Convex's. Convex decides access while a
+ * workspace is `dual`; a workspace at `object` is never pushed from here.
+ */
+crons.interval("copy dual workspaces' rows into their objects", { minutes: 1 }, internal.functions.workspaceObjects.syncRows, {});
 
 export default crons;

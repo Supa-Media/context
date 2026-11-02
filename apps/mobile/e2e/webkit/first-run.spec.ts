@@ -137,7 +137,7 @@ test("provisioning that failed says the money is safe, and offers both ways on",
   await page.goto(`${STORAGE}&at=settling&failed=yes`);
   const body = page.locator("body");
   await expect(page.getByTestId("managed-settling-own")).toBeVisible();
-  await expect(body).toContainText("Your payment went through");
+  await expect(body).toContainText("Your subscription is active");
   await expect(body).toContainText("will not create a second copy");
   await expect(page.getByTestId("managed-settling-retry")).toBeVisible();
   // Not still pretending to work.

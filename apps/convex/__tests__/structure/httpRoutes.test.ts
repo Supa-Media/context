@@ -145,6 +145,7 @@ describe("the gateway's HTTP routes", () => {
   const CONTRACT_ROUTES: Record<string, string> = {
     "/gateway/session": "gatewaySession",
     "/gateway/agent/identity": "gatewayAgentIdentity",
+    "/gateway/transcription/consent": "gatewayTranscriptionConsent",
     "/gateway/sessions/by-grant": "gatewaySessionsByGrant",
     "/gateway/binding": "gatewayBinding",
     "/gateway/privacy": "gatewayPrivacy",
@@ -153,6 +154,7 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/jobs/open": "gatewayJobsOpen",
     "/gateway/jobs/report": "gatewayJobsReport",
     "/gateway/mover/open": "gatewayMoverOpen",
+    "/gateway/tex-store/open": "gatewayTexStoreOpen",
     "/gateway/usage": "gatewayUsage",
     "/gateway/search-timing": "gatewaySearchTiming",
     "/gateway/feedback": "gatewayFeedback",
@@ -374,8 +376,11 @@ describe("the gateway's HTTP routes", () => {
      * from upstream that nobody looked at.
      */
     expect(body).toContain("previewTitleForToken");
+    // `cover` (owner, 2026-10-27, `docs/decisions/privacy-and-sharing/page-covers.md`):
+    // an 8-hex version of a linked page's cover, `null` for every absence and
+    // every card that is not a page's, so the tuple keeps one absence.
     expect(body).toMatch(
-      /json\(\{\s*title:\s*result\.title,\s*openToAnyone:\s*result\.openToAnyone\s*\}\)/,
+      /json\(\{\s*title:\s*result\.title,\s*openToAnyone:\s*result\.openToAnyone,\s*cover:/,
     );
     expect(
       body,
@@ -399,7 +404,7 @@ describe("the gateway's HTTP routes", () => {
       expect(
         keys,
         "every sharePreview response returns exactly these fields",
-      ).toEqual(["openToAnyone", "title"]);
+      ).toEqual(["cover", "openToAnyone", "title"]);
     }
   });
 
@@ -481,7 +486,7 @@ describe("the gateway's HTTP routes", () => {
       expect(
         keys,
         "every shareNotePreview response returns exactly these fields",
-      ).toEqual(["cardToken", "children", "title"]);
+      ).toEqual(["cardToken", "children", "cover", "title"]);
     }
     for (const forbidden of [
       "workspaceId",
@@ -544,7 +549,7 @@ describe("the gateway's HTTP routes", () => {
       expect(
         keys,
         "every shareShortLinkPreview response returns exactly these fields",
-      ).toEqual(["cardVersion", "title"]);
+      ).toEqual(["cardVersion", "cover", "title"]);
     }
 
     for (const forbidden of [

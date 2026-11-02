@@ -92,6 +92,7 @@ export async function syncDayFromGmail(options) {
       for (const event of events) kept.set(event.messageId, event);
       await writeDayCache(options.store, options.mailboxSlug, options.date, serializeDayCache(options.date, [...kept.values()]), {
         existed: cache.existed,
+        now: options.wallClockMs,
       });
     }
     throw error;
@@ -117,7 +118,7 @@ export async function syncDayFromGmail(options) {
   });
   // After the note, so a cache never runs ahead of the day it describes.
   if (cacheText !== null && !result.quotaExceeded) {
-    await writeDayCache(options.store, options.mailboxSlug, options.date, cacheText, { existed: cache.existed });
+    await writeDayCache(options.store, options.mailboxSlug, options.date, cacheText, { existed: cache.existed, now: options.wallClockMs });
   }
   return { ...result, messageCount: events.length, fetched, skipped: false };
 }

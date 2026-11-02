@@ -27,6 +27,7 @@ import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationTurns } from "./agentConversationFixture.mjs";
 import { VAULT_SAVED_QUESTION } from "../src/agent/vaultSaved.js";
+import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-vault-saved.test";
 const TOKEN_TEXTS = `cat_vsaved_texts_${"0".repeat(23)}`;
@@ -118,8 +119,9 @@ export async function runAgentVaultSavedChecks(check) {
     await grant(TOKEN_TEXTS, "context_texts");
     await grant(TOKEN_APP, "context_console");
     controlPlane.setBuiltinVerdict("ws_vsaved", BUILTIN_ALLOWED);
-    const bucket = s3.bucketFor("tenant-vault-saved");
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const tex = texStoreNamespace();
+    const bucket = withAgentHome(s3.bucketFor("tenant-vault-saved"), tex, "ws_vsaved"); // the bookkeeping is the person's object's (`texStoreFixture.mjs`)
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
     controlPlane.serveTreesFrom(env, { s3 });
 
     /* ---------------- a login's link needs its site ---------------- */

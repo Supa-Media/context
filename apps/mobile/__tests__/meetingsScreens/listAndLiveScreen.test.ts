@@ -100,7 +100,7 @@ describe("the list says what it knows and no more", () => {
     mounted.unmount();
   });
 
-  test("a calendar event, when something does supply one, offers Record and nothing to open", async () => {
+  test("a calendar event, when something does supply one, offers Take notes and nothing to open", async () => {
     await configure();
     const soon = new Date(Date.now() + 12 * 60_000).toISOString();
     const ends = new Date(Date.now() + 60 * 60_000).toISOString();
@@ -120,6 +120,9 @@ describe("the list says what it knows and no more", () => {
     expect(mounted.container.textContent).toContain("Coming up");
     expect(mounted.container.textContent).toContain("Design review — Portal");
     expect(mounted.container.textContent).toContain("4 people");
+    // No call link on the invite: the press records the room.
+    expect(mounted.container.textContent).toContain("Take notes");
+    expect(mounted.container.textContent).not.toContain("Join and take notes");
     expect(has(mounted.container, "meeting-upcoming-ev-1")).toBe(true);
     mounted.unmount();
   });

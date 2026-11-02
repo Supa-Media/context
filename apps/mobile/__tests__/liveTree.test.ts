@@ -4,6 +4,7 @@
  * within `LIVE_FOLDERS`, in one stable order so the same set is the same
  * subscription.
  */
+import { describe, expect, test } from "@jest/globals";
 import { LIVE_FOLDERS, liveFolders } from "../features/console/files/fileBrowser/useLiveTree";
 
 describe("liveFolders", () => {

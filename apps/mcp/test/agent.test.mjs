@@ -90,6 +90,7 @@ import {
   systemText,
 } from "./agentModelFixture.mjs";
 import { conversationText, conversationTurns } from "./agentConversationFixture.mjs";
+import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-agent.test";
 const TOKEN_OWNER = `cat_agent_owner_${"0".repeat(24)}`;
@@ -244,13 +245,15 @@ export async function runAgentChecks(check) {
 
     controlPlane.setBuiltinVerdict("ws_agent", BUILTIN_ALLOWED);
 
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const tex = texStoreNamespace();
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 
     // Seeded straight into the backend, the way the tenancy suite does it.
     // `4-archive` takes the manifest's `private` default; `1-projects` is
     // `team` — so one grant's tier really does decide which of the two an agent
     // can read, rather than both being reachable and the test proving nothing.
-    const bucket = s3.bucketFor("tenant-agent");
+    // The texting bookkeeping lives in the person's Tex object, not the bucket (`withAgentHome`).
+    const bucket = withAgentHome(s3.bucketFor("tenant-agent"), tex, "ws_agent");
     bucket.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "g0" });
     bucket.set("1-projects/pricing.md", {
       body: "# Pricing\n\nWe moved to $5 on 12 September.\n",
@@ -440,7 +443,8 @@ export async function runAgentChecks(check) {
         text: "PRIVATE-ONLY-MARKER",
       },
     });
-    const sentSystem = systemText(model.requests[model.requests.length - 1].body);
+    // The place and the meeting are said in the person's turn, after the cached prefix (`turn.js`): the whole request is read.
+    const sentSystem = JSON.stringify(model.requests[model.requests.length - 1].body);
     check(
       "the ambient place reaches the model",
       sentSystem.includes("1-projects/pricing.md") && sentSystem.includes("unsaved"),
@@ -512,8 +516,11 @@ export async function runAgentChecks(check) {
         secondMessages.includes("The launch is on Friday."),
     );
     check(
-      "the conversation is kept in the customer's own bucket",
-      conversationTurns(bucket).length > 0 && [...bucket.keys()].some((key) => key.startsWith(".context/agent/events/")),
+      "the conversation is kept in the person's Tex object, never in the customer's bucket",
+      conversationTurns(bucket).length > 0 &&
+        tex.keysIn("person:ws_agent").includes("state/agent/history/texts.json") &&
+        !bucket.bucket.has(".context/agent/history/texts.json") &&
+        ![...bucket.bucket.keys()].some((key) => key.startsWith(".context/agent/events/")),
     );
 
     // A turn that looked something up says so to the next one, by tool name
@@ -533,7 +540,7 @@ export async function runAgentChecks(check) {
     );
     check(
       "...and the next turn is told it used them",
-      /Where is the launch\?.{0,4}: you used search_notes/.test(JSON.stringify(model.requests.at(-1)?.body?.system ?? "")),
+      /Where is the launch\?.{0,4}: you used search_notes/.test(JSON.stringify(model.requests.at(-1)?.body ?? "")),
     );
 
     // Every turn knows the time where the person is (owner, 2026-10-14: Tex
@@ -542,7 +549,8 @@ export async function runAgentChecks(check) {
     model.install([{ text: "ok" }, { text: "ok" }]);
     await ask(env, TOKEN_OWNER, { question: "Remind me in 2 minutes", conversation: "texts", timeZone: "Asia/Tokyo" });
     await ask(env, TOKEN_OWNER, { question: "And now?", conversation: "texts", timeZone: "Not/AZone" });
-    const toldZone = JSON.stringify(model.requests[0]?.body?.system ?? "");
+    // The clock is said in the person's turn, not the system prompt (`turn.js`): the whole request is read.
+    const toldZone = JSON.stringify(model.requests[0]?.body ?? "");
     check(
       "a texted turn is told the date and time in the zone it was sent",
       /It is now \w+day, \w+ \d+, 20\d\d, \d+:\d\d [ap]m where they are \(Asia\/Tokyo\)/.test(toldZone) &&
@@ -550,8 +558,8 @@ export async function runAgentChecks(check) {
     );
     check(
       "...and a zone that is not one falls back to the routines' default, named",
-      JSON.stringify(model.requests[1]?.body?.system ?? "").includes("(America/New_York)") &&
-        !JSON.stringify(model.requests[1]?.body?.system ?? "").includes("Not/AZone"),
+      JSON.stringify(model.requests[1]?.body ?? "").includes("(America/New_York)") &&
+        !JSON.stringify(model.requests[1]?.body ?? "").includes("Not/AZone"),
     );
 
     model.requests.length = 0;

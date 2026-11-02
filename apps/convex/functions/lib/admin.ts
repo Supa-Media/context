@@ -51,7 +51,8 @@
  * larger capability.
  */
 
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./signedIn";
+import { staffFactorStanding } from "./staffFactor";
 import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 
@@ -124,8 +125,27 @@ export interface AdminActor {
  * and deliberately not a wrapper that a new endpoint could forget to apply:
  * `__tests__/adminSurface.test.ts` walks the admin module and fails on any
  * exported function whose handler does not reach it.
+ *
+ * Staff means the allowlisted, verified address (`requireStaffIdentity`) AND
+ * the second factor's standing (`lib/staffFactor.ts`): an enrolled account
+ * whose session has not typed a code, or an unenrolled one on a deployment
+ * that requires a key, is refused like anybody else.
  */
 export async function requireAdmin(
+  ctx: QueryCtx,
+  env: Record<string, string | undefined> = process.env,
+): Promise<AdminActor> {
+  const actor = await requireStaffIdentity(ctx, env);
+  if ((await staffFactorStanding(ctx, actor.userId, env)) !== "open") throw new NotAdminError();
+  return actor;
+}
+
+/**
+ * The first factor alone: signed in, verified, allowlisted. Only the second
+ * factor's own enrollment and code checks (`functions/staffSecondFactor.ts`)
+ * may stop here; everything else is `requireAdmin`.
+ */
+export async function requireStaffIdentity(
   ctx: QueryCtx,
   env: Record<string, string | undefined> = process.env,
 ): Promise<AdminActor> {

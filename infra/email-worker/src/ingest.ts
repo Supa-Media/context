@@ -102,6 +102,7 @@ import {
   storableImageExtension,
   type MimeLimits,
 } from "./mime";
+import { sniffImageType } from "../../../packages/shared/src/remoteImage.cjs";
 import type { IngestionPolicy, SenderMatcher } from "./policy";
 import { renderCaptureNote, type AttachmentPolicy, type RenderedAttachment } from "./note";
 
@@ -293,6 +294,16 @@ export interface IngestConfig {
    * authentication refusal left to ride on.
    */
   arcDiagnostics?: boolean;
+  /**
+   * Re-encodes a picture before it is stored (the owner's 2026-11-01 rule:
+   * pictures are kept compressed; `packages/shared/src/pictureCompression.cjs`).
+   * Injected like `matcher`, so this file still does no I/O of its own. Absent,
+   * a picture is stored as it came.
+   */
+  compressPicture?: (
+    bytes: Uint8Array,
+    type: { contentType: string; extension: string },
+  ) => Promise<{ bytes: Uint8Array; contentType: string; extension: string }>;
 }
 
 export interface IngestInput {
@@ -488,10 +499,21 @@ export async function decideCapture(
     // them would put a stranger's files in the customer's storage to produce a
     // link nothing can follow. Those stay described-only, exactly as under
     // `list`.
-    const extension = attachment.bytes
-      ? storableImageExtension(attachment.contentType)
-      : null;
-    if (config.attachmentPolicy === "store" && attachment.bytes && extension) {
+    //
+    // A sender writes the Content-Type, so the bytes have the last word. The
+    // allow-list's reason holds only while what is stored really is the picture
+    // its headers claim: otherwise a stranger's arbitrary bytes sit in the
+    // customer's storage, and `read_image` hands a model a type that does not
+    // match them. An attachment that lies stays described-only, exactly as an
+    // unstorable type does, and the sniffed type is what `compressPicture` is
+    // given, as its contract requires.
+    const declared = attachment.bytes ? storableImageExtension(attachment.contentType) : null;
+    const sniffed = attachment.bytes ? sniffImageType(attachment.bytes) : null;
+    const stored =
+      declared !== null && sniffed !== null && storableImageExtension(sniffed.contentType) === declared
+        ? { contentType: sniffed.contentType, extension: declared }
+        : null;
+    if (config.attachmentPolicy === "store" && attachment.bytes && stored) {
       // The key is the full sha256 of the bytes and nothing else.
       //
       // Two things follow, and both are the point. The same screenshot arriving
@@ -500,12 +522,18 @@ export async function decideCapture(
       // is for never happened. And there is no longer any place in the key for
       // a sender-chosen string, which makes a traversal or an overwrite
       // structurally impossible rather than merely sanitized.
+      //
+      // The hash is of the bytes that arrived, so a repeat is still one object;
+      // what is stored is the compressed copy, whose type names the extension.
       const digest = await sha256HexBytes(attachment.bytes);
-      storedPath = `${IMAGE_STORE_PREFIX}${digest}.${extension}`;
+      const picture = config.compressPicture
+        ? await config.compressPicture(attachment.bytes, stored)
+        : { bytes: attachment.bytes, ...stored };
+      storedPath = `${IMAGE_STORE_PREFIX}${digest}.${picture.extension}`;
       writes.push({
         key: storedPath,
-        bytes: attachment.bytes,
-        contentType: attachment.contentType,
+        bytes: picture.bytes,
+        contentType: picture.contentType,
       });
     }
     rendered.push({

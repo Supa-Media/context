@@ -77,12 +77,8 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import {
-  internalAction,
-  internalMutation,
-  internalQuery,
-  type ActionCtx,
-} from "../_generated/server";
+import { internalAction, internalQuery, type ActionCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { grantedNamesFor } from "./lib/grantedNames";

@@ -10,16 +10,17 @@ import { expect, test } from "@playwright/test";
   still is. `/d` and `/e`, retired, send a visit to `/`.
 */
 
-test("/ is page a: notes first, the sign-up, the editor, free workspaces, and Tex at tex.lc", async ({ page }) => {
+test("/ is page a: Dev2's words first, the sign-up, the editor, free workspaces, and Tex at tex.lc", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.locator("[data-landing=a]")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^A notes app that every AI you use can read\.$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^Context gives your brain that feeling you have when your room is clean\.$/);
   const wide = await page.locator(".np").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(wide).toBeLessThanOrEqual(1);
-  // The sign-up is open from the start, +1 already there, and its button says what it does.
-  await expect(page.getByLabel("Join the waitlist")).toBeVisible();
-  await expect(page.locator(".tp-cc")).toContainText("+1");
+  // The sign-up is open from the start, asks for an email (tex.lc is the
+  // texting one), and its button says what it does.
+  await expect(page.getByLabel("Join the waitlist")).toHaveAttribute("type", "email");
+  await expect(page.locator(".tp-cc")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Join the waitlist" })).toBeVisible();
   await expect(page.getByRole("region", { name: "The Context editor, with an example note" })).toContainText("Supper club");
   await expect(page.getByRole("heading", { name: "A workspace for each part of your life. Free." })).toBeAttached();
@@ -53,7 +54,7 @@ test("the sign-up is in the first screen, on a laptop and on a phone, and nothin
     const join = await page.getByRole("button", { name: "Join the waitlist" }).evaluate((el) => el.getBoundingClientRect());
     expect(join.bottom).toBeLessThanOrEqual(height);
     if (width < 600) {
-      // The button sits under the field, so the number has the whole width.
+      // The button sits under the field, so the address has the whole width.
       expect(join.top).toBeGreaterThanOrEqual(field.bottom);
       expect(field.width).toBeGreaterThan(width - 60);
     }

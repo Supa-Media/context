@@ -43,6 +43,7 @@ export {
  * it does not count as "this person has a context of their own".
  */
 export {
+  CHAT_HOMES_FOLDER,
   PINNED_CONTEXT_ROLE,
   PINNED_CONTEXT_SLUG,
   isPinnedContextSlug,
@@ -308,3 +309,13 @@ export {
   type UsageButton,
 } from "./usageButtons";
 export * from "./usageJourneys";
+export {
+  CLOUD_TRANSCRIPTION_CONSENT_VERSION,
+  CLOUD_TRANSCRIPTION_DISCLOSURE,
+  NO_TRANSCRIPTION_CONSENT,
+  PRIVACY_POLICY_URL,
+  TRANSCRIPTION_CONSENT_COPY,
+  TRANSCRIPTION_CONSENT_REQUIRED,
+  TRANSCRIPTION_SETTINGS_COPY,
+  isCurrentTranscriptionConsent,
+} from "./transcriptionConsent";

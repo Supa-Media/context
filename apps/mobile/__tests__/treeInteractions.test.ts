@@ -99,7 +99,6 @@ function mountTree(options: {
         canEdit: options.canEdit ?? true,
         onSelect: options.onSelect ?? (() => {}),
         onToggle: () => {},
-        onCycleVisibility: () => {},
         onMenu: options.onMenu,
         onPick: options.onPick,
         drag: options.drag as never,

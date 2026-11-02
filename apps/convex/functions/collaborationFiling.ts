@@ -13,16 +13,19 @@
  * for the `Collaboration filing` workflow.
  */
 
+import { consoleWorkspaceRouting } from "./lib/rowWatch/consoleRouting";
 import { v } from "convex/values";
 import { fileHeadsByNote, supported as collaborationSupported } from "@context/collaboration";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalAction, internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
+import { internalAction, internalQuery, type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import type { FileStore } from "./lib/fileOps/store";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import { consoleIdLayoutHooks } from "./lib/noteIds/consoleLayer";
 import type { GatewayCredential } from "./lib/storage/shapes";
+import { consoleTexRouting } from "./lib/texStore";
 
 /** Workspaces one cron tick looks at, and pages one pass files before it hands on to the next pass. */
 const WORKSPACE_PAGE = 50;
@@ -146,7 +149,8 @@ export const fileWorkspace = internalAction({
       }
       const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
       // Through the console's id layer, so a head made before heads recorded ids is filed under the id of the row at its name.
-      store = storeForBinding(credential, undefined, { managedEncryption, idLayout: consoleIdLayoutHooks(ctx, workspaceId) }) as unknown as FileStore;
+      const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+      store = storeForBinding(routing.credential(credential), undefined, { managedEncryption, idLayout: consoleIdLayoutHooks(ctx, workspaceId), ...consoleTexRouting(ctx, workspaceId), ...routing.options }) as unknown as FileStore;
     } catch (error) {
       await ctx.runMutation(internal.functions.collaborationFiling.recordFailure, { workspaceId, error: codeOf(error), now: Date.now() });
       return null;

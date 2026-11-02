@@ -55,6 +55,7 @@ import {
   totalOf,
 } from "../functions/lib/census";
 import { dayKey, dayRange } from "../functions/lib/usage";
+import { withSession } from "./session.helpers";
 
 const ADMIN = "staff@example.test";
 const DAY = 86_400_000;
@@ -355,7 +356,7 @@ async function grant(
 async function staff(t: Harness) {
   process.env[ADMIN_EMAILS_ENV_VAR] = ADMIN;
   const userId = await seedUser(t, ADMIN);
-  return { userId, as: t.withIdentity({ subject: userId }) };
+  return { userId, as: withSession(t, userId) };
 }
 
 describe("the census refuses everyone who is not staff", () => {
@@ -366,7 +367,7 @@ describe("the census refuses everyone who is not staff", () => {
 
     const strangerId = await seedUser(t, "someone@example.test");
     await expect(
-      t.withIdentity({ subject: strangerId }).query(api.functions.admin.censusReport, {}),
+      withSession(t, strangerId).query(api.functions.admin.censusReport, {}),
     ).rejects.toThrow();
   });
 });

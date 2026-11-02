@@ -55,10 +55,8 @@ function draw(dropTarget: { path: string; zone: "above" | "below" | "into" } | n
     root!.render(
       createElement(FileTree, {
         rows: [row("Projects"), row("Projects/alpha", 1), row("Areas")],
-        canSetVisibility: false,
         onSelect: () => {},
         onToggle: () => {},
-        onCycleVisibility: () => {},
         dropTarget,
       }),
     ),

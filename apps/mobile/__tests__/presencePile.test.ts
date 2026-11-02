@@ -19,6 +19,7 @@ const member = (id: string, name: string) => ({
   head: null,
   canWrite: true,
   isAgent: false,
+  isYou: false,
 });
 
 describe("presence pile label", () => {

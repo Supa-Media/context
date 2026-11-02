@@ -8,11 +8,15 @@
  * note, whether it is paused — when it reads the note to run it.
  */
 
+import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { SCOPE_PRIVATE, SCOPE_READ, SCOPE_WRITE, clampScopes, hasOperationScope } from "../consentScopes";
-import { accountTimeZone, routineRecipients, runsRoutine, writingRole } from "./access";
+import { accountTimeZone, routineRecipients, runsRoutine, writerPhones, writingRole } from "./access";
+import { homeRoutineChat } from "./homes";
+import { homeRoutineOf } from "@context/shared/src/routines.cjs";
+import { sealsChatHomes } from "../nodes/sealedChats";
 import { routineChat } from "./chats";
 import { claimChatLooks, finishChatLook } from "../textGroupLooks";
 import {
@@ -52,7 +56,15 @@ export type ClaimedRun = {
   chat?: string;
   /** A chat routine's last run, so its turn can say what is new since (`wake: new mail`). */
   since?: number;
+  /** When this routine next runs after this run (`null` when paused): the alarm re-arms at it. */
+  nextRunAt?: number | null;
 };
+
+/** One routine, named by its workspace and path: an alarm's call, not the cron's. */
+export type RunScope = { workspaceId: string; path: string };
+
+/** The message a refused scope carries, which the due route answers as a 400. */
+export const INVALID_SCOPE = "routine scope is not a workspace";
 
 function leaseIsLive(row: Doc<"routines">, now: number): boolean {
   return row.claimedAt !== undefined && row.claimedAt + ROUTINE_LEASE_MS > now;
@@ -71,15 +83,23 @@ function leaseIsLive(row: Doc<"routines">, now: number): boolean {
  */
 export async function claimDueRoutinesHandler(
   ctx: MutationCtx,
-  args: { runIds: string[]; tokens: MintedToken[] },
+  args: { runIds: string[]; tokens: MintedToken[]; scope?: RunScope },
 ): Promise<ClaimedRun[]> {
   const now = Date.now();
   const limit = Math.min(MAX_DUE_RUNS, args.tokens.length, args.runIds.length);
   if (limit === 0) return [];
-  const candidates = await ctx.db
-    .query("routines")
-    .withIndex("by_nextRunAt", (q) => q.gte("nextRunAt", 0).lte("nextRunAt", now))
-    .take(limit * 5);
+  // A scoped call (an alarm) looks at its one routine only. A workspace id that is not one of ours is refused, not read as nothing.
+  const scoped = args.scope === undefined ? null : scopeOf(ctx, args.scope);
+  const candidates =
+    scoped === null
+      ? await ctx.db
+          .query("routines")
+          .withIndex("by_nextRunAt", (q) => q.gte("nextRunAt", 0).lte("nextRunAt", now))
+          .take(limit * 5)
+      : await ctx.db
+          .query("routines")
+          .withIndex("by_workspace_path", (q) => q.eq("workspaceId", scoped.workspaceId).eq("path", scoped.path))
+          .take(5);
 
   const runs: ClaimedRun[] = [];
   /** `${workspaceId}:${userId}` → token index already minted in this call. */
@@ -89,15 +109,21 @@ export async function claimDueRoutinesHandler(
   for (const row of candidates) {
     if (runs.length >= limit) break;
     if (leaseIsLive(row, now)) continue;
+    // Due means now: a scoped call can find a row that is not due yet, and must leave it alone.
+    if (row.nextRunAt === null || row.nextRunAt === undefined || row.nextRunAt > now) continue;
 
     const workspace = await ctx.db.get(row.workspaceId);
+    // An alarm is for a person's own routines. A shared workspace's are the cron's to clean up, not an alarm's to run.
+    if (scoped !== null && workspace?.kind !== "personal") continue;
     if (workspace === null || !runsRoutine(workspace, row)) {
       // Asked when a run is handed out, so a shared workspace's row left from
       // before routines were personal-only goes now, not at the next scan.
       await ctx.db.delete(row._id);
       continue;
     }
-    const role = await writingRole(ctx, row.workspaceId, row.writerUserId);
+    // A chat's home routine is its chat's people's, never a role in the pin (`homes.ts`): asked again below, with the chat.
+    const home = homeRoutineOf(row.path) !== null && (await sealsChatHomes(ctx, row.workspaceId));
+    const role = home ? "editor" : await writingRole(ctx, row.workspaceId, row.writerUserId);
     if (role === null) {
       // Asked now, not when the row was written: a writer who left, was made a
       // member, or deleted their account no longer runs anything here.
@@ -114,8 +140,8 @@ export async function claimDueRoutinesHandler(
     }
     if (workspace.kind !== "personal") {
       // A chat routine: into its chat, as its writer's tag there, or nowhere.
-      const chat = await routineChat(ctx, row.workspaceId, row.chat ?? "");
-      const phones = chat === null ? [] : await routineRecipients(ctx, { ...row, send: "text" });
+      const chat = home ? await homeRoutineChat(ctx.db, row) : await routineChat(ctx, row.workspaceId, row.chat ?? "");
+      const phones = chat === null ? [] : home ? await writerPhones(ctx.db, row.writerUserId) : await routineRecipients(ctx, { ...row, send: "text" });
       const zone = effectiveTimeZone(row.timeZone, await accountTimeZone(ctx, row.writerUserId));
       if (chat === null || phones.length === 0) {
         await ctx.db.patch(row._id, { lastOutcome: "no_chat", lastRunAt: now, nextRunAt: nextRunFor(row, zone, now), updatedAt: now });
@@ -153,11 +179,12 @@ export async function claimDueRoutinesHandler(
 
     const zone = effectiveTimeZone(row.timeZone, await accountTimeZone(ctx, row.writerUserId));
     const runId = args.runIds[runs.length]!;
+    const next = nextRunFor(row, zone, now);
     await ctx.db.patch(row._id, {
       claimedAt: now,
       runId,
       lastRunAt: now,
-      nextRunAt: nextRunFor(row, zone, now),
+      nextRunAt: next,
       updatedAt: now,
     });
     await recordAudit(ctx, {
@@ -176,11 +203,20 @@ export async function claimDueRoutinesHandler(
       send: row.send,
       // The writer's own phone and nobody else's.
       phones: await routineRecipients(ctx, row),
+      nextRunAt: next,
     });
   }
+  if (scoped !== null) return runs;
   // A chat's own look at the mail shared with it is a chat run with no note behind it.
   runs.push(...(await claimChatLooks(ctx, args.runIds.slice(runs.length, limit), now)));
   return runs;
+}
+
+/** The scope as the ids the table is read by. A workspace id that is not one of ours is refused. */
+function scopeOf(ctx: MutationCtx, scope: RunScope): { workspaceId: Id<"workspaces">; path: string } {
+  const workspaceId = ctx.db.normalizeId("workspaces", scope.workspaceId);
+  if (workspaceId === null) throw new ConvexError(INVALID_SCOPE);
+  return { workspaceId, path: scope.path };
 }
 
 /** Whether another of this writer's routines here is still out under a live lease. */

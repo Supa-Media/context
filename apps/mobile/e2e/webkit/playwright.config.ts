@@ -1,6 +1,9 @@
 import { defineConfig } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import workerPolicy from "./ci-workers.cjs";
+import { writeCandidate } from "./csp-candidate";
 
 const { workersFor } = workerPolicy;
 
@@ -45,7 +48,41 @@ const HERE = __dirname;
  * new default phone in a future Playwright release should not silently
  * change what "the phone viewport" means here.
  */
-const PORT = Number(process.env.E2E_PORT ?? 4873);
+/*
+  `E2E_CSP_CANDIDATE` (`production`, `script` or `full`) serves every document
+  with the router's headers and that much of its report-only policy enforced
+  (`csp-candidate.ts`), on a port of its own so a plain server already running
+  is never reused for it.
+*/
+const CSP_MODE = process.env.E2E_CSP_CANDIDATE;
+const CSP_CANDIDATE =
+  CSP_MODE === "production" || CSP_MODE === "script" || CSP_MODE === "full"
+    ? // One directory per mode and transport, so a later run in the same job never resets an earlier one's log.
+      writeCandidate(join(HERE, "csp-candidate", `${CSP_MODE}-${process.env.E2E_HTTPS === "1" ? "https" : "http"}`), CSP_MODE)
+    : null;
+/*
+  `E2E_HTTPS=1` serves the export over HTTPS, on a port of its own, with a
+  self-signed certificate made here for this run only and trusted by nothing
+  but these browsers (`ignoreHTTPSErrors`). It exists because WebKit treats
+  an opaque-origin frame's `'self'` differently on plain HTTP than on HTTPS
+  (`cspDiagramFrame.spec.ts`), and production is HTTPS.
+*/
+const HTTPS = process.env.E2E_HTTPS === "1";
+function throwawayCertificate(): { key: string; cert: string } {
+  const dir = join(HERE, "tls");
+  mkdirSync(dir, { recursive: true });
+  const key = join(dir, "key.pem");
+  const cert = join(dir, "cert.pem");
+  execFileSync("openssl", [
+    "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+    "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1",
+    "-keyout", key, "-out", cert,
+  ], { stdio: "ignore" });
+  return { key, cert };
+}
+const TLS = HTTPS ? throwawayCertificate() : null;
+const PORT = Number(process.env.E2E_PORT ?? (HTTPS ? 4875 : CSP_CANDIDATE ? 4874 : 4873));
+const SCHEME = HTTPS ? "https" : "http";
 const EXPORT_DIR = process.env.E2E_WEB_EXPORT_DIR ?? join(HERE, "..", "..", "web-build");
 
 export default defineConfig({
@@ -65,13 +102,18 @@ export default defineConfig({
   reporter: process.env.CI ? [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]] : [["list"]],
   outputDir: join(HERE, "test-results"),
   use: {
-    baseURL: `http://127.0.0.1:${PORT}`,
+    baseURL: `${SCHEME}://127.0.0.1:${PORT}`,
+    ignoreHTTPSErrors: HTTPS,
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true,
     // Fail loudly with an artifact, per the task: a screenshot on every
     // failure and a trace to replay it, uploaded by the CI job on failure.
-    screenshot: "only-on-failure",
+    // Not under the style nonce: the recorder screenshots every page as it
+    // closes, and in WebKit that screenshot appends an un-nonced `<style>` of
+    // Playwright's own, which the enforced style-src rightly refuses
+    // (`cspStyleNonce.spec.ts` proves it). The trace still holds every frame.
+    screenshot: process.env.E2E_CSP_NONCE === "1" ? "off" : "only-on-failure",
     trace: "retain-on-failure",
   },
   projects: [
@@ -80,8 +122,15 @@ export default defineConfig({
   ],
   webServer: {
     command: `node ${JSON.stringify(join(HERE, "static-server.mjs"))} ${JSON.stringify(EXPORT_DIR)} ${PORT}`,
-    port: PORT,
-    reuseExistingServer: !process.env.CI,
+    // Over HTTPS, readiness is a request that skips the throwaway certificate's check; otherwise the open port.
+    ...(HTTPS ? { url: `https://127.0.0.1:${PORT}/`, ignoreHTTPSErrors: true } : { port: PORT }),
+    reuseExistingServer: !process.env.CI && !CSP_CANDIDATE && !HTTPS,
+    env: {
+      ...(CSP_CANDIDATE
+        ? { E2E_CSP_RULES: CSP_CANDIDATE.rules, E2E_CSP_REPORTS: CSP_CANDIDATE.reports, E2E_CSP_NONCE: process.env.E2E_CSP_NONCE ?? "" }
+        : {}),
+      ...(TLS ? { E2E_TLS_KEY: TLS.key, E2E_TLS_CERT: TLS.cert } : {}),
+    },
     timeout: 20_000,
   },
 });

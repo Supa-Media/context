@@ -434,9 +434,14 @@ export async function runPrivacyAclChecks() {
   check("CAS write with fresh etag ok", !wOk.isError);
   const wStale = await call("priv-token", "write_note", { path: "index.md", content: "v3", expected_etag: etag });
   const afterStaleMerge = (await call("priv-token", "read_note", { path: "index.md" })).content[0].text;
+  // Refused, not merged (Dev2, 2026-10-28): a merge from an older version
+  // took the owner's words out of the lines an agent had rewritten.
   check(
-    "a retained stale collaboration base is merged instead of rejected",
-    !wStale.isError && afterStaleMerge.includes("v2") && afterStaleMerge.includes("v3"),
+    "a stale collaboration base is a conflict, and the newer text stays",
+    wStale.isError &&
+      wStale.content[0].text.startsWith("conflict: note changed since you read it") &&
+      afterStaleMerge.includes("v2") &&
+      !afterStaleMerge.includes("v3"),
   );
   check(
     "an overwrite writes no history snapshot",

@@ -16,9 +16,9 @@
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 import { MAX_INBOUND_TEXT } from "./inbound";
 import { readRemovedTapback, readTapback, type Reaction } from "./reactions";
-import { holdsAsYes, takesBackYes } from "./thumbs";
 import { call, E164, getJson, handleOf, isLinkPreview, isRecord, line, sendCall, TAPBACK, type SendblueKeys } from "./sendblue";
 import type { InboundAttachment } from "./inbound";
+import type { JobReport } from "./jobs";
 
 /** Sendblue's group ids are uuids; anything much longer is not one. */
 const MAX_GROUP_ID = 200;
@@ -39,7 +39,7 @@ export type GroupMessage = {
   replyTo?: string;
   /** A green-bubble group: answered with one fixed line, never with notes. */
   sms?: true;
-  /** A like on one of Tex's asks, or one taken back (`thumbs.ts`); `text` is then the tapback's own words. */
+  /** Any tapback or emoji reaction (`groupInbox.ts` `acceptReaction`); `text` is then the tapback's own words. */
   reaction?: Reaction;
   /**
    * WhatsApp names the message a reaction is on rather than quoting it: its
@@ -55,6 +55,8 @@ export type GroupMessage = {
   attachments?: InboundAttachment[];
   /** A chat routine's run, queued by this Worker itself and never by a webhook (`groupRoutines.ts`). */
   routine?: { runId: string; path: string };
+  /** A background job's report, queued by this Worker for the chat's own turn, which decides what is said (`jobTexts.ts`). */
+  jobReport?: JobReport;
 };
 
 export type GroupInbound = GroupMessage | { kind: "ignored"; reason: string } | { kind: "invalid" };
@@ -88,9 +90,10 @@ export function parseSendblueGroup(payload: unknown): GroupInbound | null {
   // An SMS group never has its files read: it is answered with one fixed line (`groupInbox.ts`).
   const attachment = payload.service === "SMS" || (text !== "" && TAPBACK.test(text)) ? null : sentFile(payload.media_url, text);
   if (text === "" && attachment === null) return { kind: "ignored", reason: "empty" };
-  // A like on an ask, or one taken back off it, is read: it may be the asker's yes (`thumbs.ts`). Any other tapback is not.
+  // Every tapback is read (Dev2, 2026-11-01): a yes to an ask, an answer to Tex's question, or a line of context
+  // (`groupInbox.ts` `acceptReaction`). Only one that cannot be read at all is dropped.
   const reaction = TAPBACK.test(text) ? (readTapback(text) ?? readRemovedTapback(text)) : null;
-  if (TAPBACK.test(text) && (reaction === null || !(holdsAsYes(reaction) || takesBackYes(reaction)))) return { kind: "ignored", reason: "reaction" };
+  if (TAPBACK.test(text) && reaction === null) return { kind: "ignored", reason: "reaction" };
   const replyTo = handleOf(payload.reply_to);
   return {
     kind: "group-message",

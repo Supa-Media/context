@@ -21,6 +21,21 @@ import { capturePlan, nextSystemAudioProbe } from "../core/capture/plan.ts";
 import { revealNotepadQuietly } from "./windows.ts";
 import { CONSOLE_NOTICES, logCaptureFailure } from "./notices.ts";
 import type { MainActions, MainContext } from "./context.ts";
+import type { UpcomingMeetingView } from "@context/desktop-bridge";
+import { callKindOf } from "@context/meetings/scheduled";
+import type { Attendee, MeetingSource } from "../core/contract.ts";
+
+/** What a meeting started from the calendar is filed as: its name, its guests, its call. */
+function fromCalendar(meeting: UpcomingMeetingView): { source: MeetingSource; title: string; attendees: Attendee[] } {
+  return {
+    source:
+      meeting.conferenceUrl === null
+        ? { kind: "in-person", calendarEventId: meeting.id }
+        : { kind: callKindOf(meeting.conferenceUrl), url: meeting.conferenceUrl, calendarEventId: meeting.id },
+    title: meeting.title,
+    attendees: meeting.attendees.map((attendee) => ({ name: attendee.name, email: attendee.email, via: "calendar" as const })),
+  };
+}
 
 export function createMeetings(ctx: MainContext): Pick<MainActions, "onDetection" | "beginMeeting" | "recordNow" | "endMeeting"> {
   const { controller, connection, capture, updater, panel, notepad } = ctx;
@@ -66,8 +81,10 @@ export function createMeetings(ctx: MainContext): Pick<MainActions, "onDetection
     manual = false,
     id?: string,
     queueWrites = true,
+    calendar?: UpcomingMeetingView,
   ): Promise<BeginResult | null> {
     const detected = manual ? null : ctx.lastUpdate;
+    const named = calendar === undefined ? null : fromCalendar(calendar);
     if (!manual && !detected) return null;
     // What this machine can actually do right now, in one place. `plan.notice`
     // is the sentence the panel shows when it is less than everything.
@@ -80,9 +97,9 @@ export function createMeetings(ctx: MainContext): Pick<MainActions, "onDetection
     const result = await controller.begin({
       id,
       queueWrites,
-      source: detected?.state.source ?? detected?.result.source ?? { kind: "unknown" },
-      title: detected?.result.suggestedTitle ?? "Untitled meeting",
-      attendees: detected?.result.suggestedAttendees ?? [],
+      source: named?.source ?? detected?.state.source ?? detected?.result.source ?? { kind: "unknown" },
+      title: named?.title ?? detected?.result.suggestedTitle ?? "Untitled meeting",
+      attendees: named?.attendees ?? detected?.result.suggestedAttendees ?? [],
       grantedEpisode: episode,
       channels: plan.channels,
       notice: plan.notice,
@@ -173,7 +190,7 @@ export function createMeetings(ctx: MainContext): Pick<MainActions, "onDetection
    * mean "refuse an instruction I gave with the app in front of me" without
    * watching the app it promised not to watch.
    */
-  async function recordNow(): Promise<void> {
+  async function recordNow(meeting?: UpcomingMeetingView): Promise<void> {
     if (controller.recording) return;
     /*
       The master switch still wins, and it is the reason this is not a silent
@@ -198,7 +215,7 @@ export function createMeetings(ctx: MainContext): Pick<MainActions, "onDetection
     }
     const episode = `manual:${Date.now()}`;
     ctx.consent = answered(episode, "granted");
-    await beginMeeting(episode, true);
+    await beginMeeting(episode, true, undefined, true, meeting);
   }
 
   async function endMeeting(): Promise<SessionView | null> {

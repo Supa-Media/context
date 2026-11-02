@@ -34,6 +34,8 @@ export const APP = "https://app.context.invalid";
 export const REDIRECT = `${APP}/calendar/google/callback`;
 export const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
+/** What every new Calendar request asks the standard client for (2026-10-30): the owned read, never the broad one. */
+export const CALENDAR_REQUEST_SCOPE = "https://www.googleapis.com/auth/calendar.events.owned.readonly";
 
 afterEach(() => {
   vi.unstubAllEnvs();

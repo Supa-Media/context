@@ -33,16 +33,23 @@ import { sharedInboxTables } from "./functions/lib/schema/sharedInbox";
 import { telemetryTables } from "./functions/lib/schema/telemetry";
 import { texReviewTables } from "./functions/lib/schema/texReviews";
 import { appearanceTables } from "./functions/lib/schema/appearance";
+import { phoneCheckSkipTables } from "./functions/lib/schema/phoneCheckSkips";
+import { texStyleTables } from "./functions/lib/schema/texStyle";
+import { meetingJoinTables } from "./functions/lib/schema/meetingJoin";
+import { transcriptionConsentTables } from "./functions/lib/schema/transcriptionConsent";
 import { spellingTables } from "./functions/lib/schema/spelling";
+import { browserProfileTables } from "./functions/lib/schema/browserProfiles";
 import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
 import { textLinkTables } from "./functions/lib/schema/textLinks";
 import { textGroupTables } from "./functions/lib/schema/textGroups";
+import { guestPassTables } from "./functions/lib/schema/guestPasses";
 import { vaultTables } from "./functions/lib/schema/vault";
 import { connectionTables } from "./functions/lib/schema/connections";
 import { signInEmailTables } from "./functions/lib/schema/signInEmails";
 import { emailProofTables } from "./functions/lib/schema/emailProof";
+import { staffSecondFactorTables } from "./functions/lib/schema/staffSecondFactor";
 import { workspaceDomainTables } from "./functions/lib/schema/workspaceDomains";
 import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
@@ -60,6 +67,9 @@ import { nodeAccessTables } from "./functions/lib/schema/nodeAccess";
 import { smallDataTables } from "./functions/lib/schema/smallData";
 import { blockTables } from "./functions/lib/schema/blocks";
 import { contentReportTables } from "./functions/lib/schema/contentReports";
+import { workspaceObjectTables } from "./functions/lib/schema/workspaceObjects";
+import { workspaceObjectOutboxTables } from "./functions/lib/schema/workspaceObjectOutbox";
+import { accessObjectOutboxTables } from "./functions/lib/schema/accessObjectOutbox";
 
 /**
  * Control-plane schema for Context.
@@ -124,17 +134,24 @@ const schema = defineSchema({
   ...sharedInboxTables,
   ...telemetryTables,
   ...appearanceTables,
+  ...phoneCheckSkipTables,
+  ...texStyleTables,
+  ...meetingJoinTables,
+  ...transcriptionConsentTables,
   ...spellingTables,
+  ...browserProfileTables,
   ...messageTables,
   ...placeTables,
   ...feedbackTables,
   ...textLinkTables,
   ...textGroupTables,
+  ...guestPassTables,
   ...texReviewTables,
   ...vaultTables,
   ...connectionTables,
   ...signInEmailTables,
   ...emailProofTables,
+  ...staffSecondFactorTables,
   ...workspaceDomainTables,
   ...archivedAccountTables,
   ...agentTurnTables,
@@ -152,10 +169,13 @@ const schema = defineSchema({
   ...housekeepingTables,
   ...nodeTables,
   ...nodeAccessTables,
+  ...workspaceObjectOutboxTables,
+  ...accessObjectOutboxTables,
   ...smallDataTables,
   ...noteMailTables,
   ...blockTables,
   ...contentReportTables,
+  ...workspaceObjectTables,
 });
 
 export default schema;

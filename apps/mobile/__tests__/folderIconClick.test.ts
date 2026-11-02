@@ -71,10 +71,8 @@ function setup(editable: boolean) {
   const container = mount(
     createElement(FileTree, {
       rows: [folder("2-areas"), file("plan.md")],
-      canSetVisibility: false,
       onSelect: (path: string) => opened.push(path),
       onToggle: (path: string) => toggled.push(path),
-      onCycleVisibility: () => {},
       iconOf: (path: string) => (path === "2-areas" ? "🍳" : null),
       ...(editable
         ? { onIconPress: (path: string, anchor: { x: number; y: number }) => iconPresses.push({ path, anchor }) }

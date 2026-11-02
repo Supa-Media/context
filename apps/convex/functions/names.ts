@@ -6,7 +6,7 @@
  */
 
 import { v } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "./lib/signedIn";
 import { query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { checkAvailability } from "./lib/nameClaims";

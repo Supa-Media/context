@@ -33,6 +33,12 @@ export const heartbeatTables = {
     textedCount: v.optional(v.number()),
     /** A code from `HEARTBEAT_OUTCOMES`. Never text. */
     lastOutcome: v.optional(v.string()),
+    /**
+     * Looks in a row that failed before the slot `failedFor` (its `nextBeatAt`), so a failing one is tried
+     * again a few times in each slot and then waits for the next, which starts the count again.
+     */
+    failedLooks: v.optional(v.number()),
+    failedFor: v.optional(v.number()),
     /** The lease: when a check-in was handed out, and the id its result names. */
     claimedAt: v.optional(v.number()),
     runId: v.optional(v.string()),

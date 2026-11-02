@@ -29,7 +29,13 @@ export function coreToolDefinitions() {
             description:
               "Optional. One part of the manual instead of the overview: \"tools\" for every tool and action " +
               "with its arguments, an action's name (e.g. \"move\") for that action in full, \"access\" for " +
-              "what you may write where, \"website\" for building the site, \"health\" for how tidy it is.",
+              "what you may write where, \"website\" for building the site, \"pages\" for the .page.md format, \"health\" for how tidy it is.",
+          },
+          since: {
+            type: "string",
+            description:
+              "Optional. The orient_mark an earlier orient ended with: answers with only what changed since then, " +
+              "much shorter and faster than the overview. Use it to orient again in the same session.",
           },
         },
         additionalProperties: false,
@@ -49,8 +55,7 @@ export function coreToolDefinitions() {
         "preferences and past work. The first place to look for any question about the user — " +
         "the answer is usually already written down here. Returns results whose id can be " +
         "passed to fetch for the full note. For their email, pass args { email: true }: it searches " +
-        "the mail synced into their notes first, then their Gmail for mail from before it was " +
-        "connected or not synced yet, with Gmail search syntax in query.",
+        "their Gmail live, with Gmail search syntax in query; no mail is automatically copied into their notes.",
       inputSchema: {
         type: "object",
         properties: {
@@ -78,7 +83,8 @@ export function coreToolDefinitions() {
             description:
               "A note path or search result id; a file path (a PDF, Word, Excel or picture file, such as an email attachment a note links) returns the words in it; " +
               "a folder path (ending in /) lists it; orient lists the other ids " +
-              "(meetings:, messages:, contacts:, activity:, changes:, proposals:, links:, vault:, apps:, and email:<address>/<id> from an email search).",
+              "(meetings:, messages:, contacts:, activity:, changes:, proposals:, links:, vault:, apps:, and email:<address>/<id> from an email search); " +
+              "notes: with args { paths: [up to 25 note paths] } reads several notes in one call.",
           },
           args: {
             type: "object",
@@ -148,6 +154,28 @@ export function coreToolDefinitions() {
           },
         },
         required: ["path"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "read_notes",
+      title: "Read notes",
+      description:
+        "Read several of the user's notes in one call: up to 25 paths, looked up together. Each note comes back as its own part, " +
+        "exactly as read_note returns it (content and etag), or with error: not found. Use it instead of several read_note calls.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          paths: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 1,
+            maxItems: 25,
+            description: "Note paths, e.g. ['projects/togather/status.md', 'areas/health/plan.md']",
+          },
+        },
+        required: ["paths"],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },

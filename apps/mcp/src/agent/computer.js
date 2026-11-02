@@ -36,6 +36,7 @@
  * so it is allowed to open exactly as a link on a page is.
  */
 
+import { BUILT_FORM_LINK_ERROR, builtFormLink } from "./pageWalls.js";
 import { READ_FAILED_NEXT, thinPageHint } from "./otherSites.js";
 import { BROWSE_TOOL, browserSession } from "./browse.js";
 export { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./browse.js";
@@ -43,6 +44,8 @@ import { FILL_LOGIN_TOOL, fillLoginTool, savedLoginOn } from "./fillLogin.js";
 import { FILL_CARD_TOOL, fillCardTool } from "./fillCard.js";
 import { siteShotsComputer } from "./browserProviders.js";
 import { browserJar } from "./browserJar.js";
+import { browserProfile } from "./browserProfile.js";
+import { SIGN_OUT_BROWSER_TOOL, signOutBrowserTool } from "./signOutBrowser.js";
 import { decisionTokens } from "./decide.js";
 import { MAX_SEARCHES_PER_TURN, MAX_SEARCHES_PER_TURN_OPEN_WEB, cleanQuery } from "./search.js";
 import { OpenableAddresses } from "./trustedSites.js";
@@ -93,9 +96,11 @@ const PROVIDERS = {
  */
 export function computerFor(env, { owner = null, viewer = null, store = null, group = null } = {}) {
   const jar = store === null ? null : browserJar(store, { group });
+  // Its saved profile is filed where its jar is kept, so only where there is one.
+  const profile = jar === null ? null : browserProfile(store, { owner, group });
   const name = typeof env?.AGENT_COMPUTER === "string" && env.AGENT_COMPUTER ? env.AGENT_COMPUTER : "cloudflare";
   const make = Object.prototype.hasOwnProperty.call(PROVIDERS, name) ? PROVIDERS[name] : null;
-  return make ? make(env, { owner, viewer, jar }) : null;
+  return make ? make(env, { owner, viewer, jar, profile }) : null;
 }
 
 /**
@@ -150,6 +155,10 @@ const OPEN_PAGE_DEFINITION = {
         items: { type: "string" },
         maxItems: MAX_PAGES_PER_TURN,
         description: "The pages' full addresses.",
+      },
+      from: {
+        type: "string",
+        description: "Optional: a heading or words on the page to read on from, for a page that came back cut.",
       },
     },
     required: ["urls"],
@@ -246,8 +255,27 @@ function text(value, isError = false) {
   return { content: [{ type: "text", text: value }], ...(isError ? { isError: true } : {}) };
 }
 
-function pageText(page) {
-  const body = page.text.length > MAX_PAGE_CHARS ? `${page.text.slice(0, MAX_PAGE_CHARS)}\n[cut]` : page.text;
+/**
+ * A page's text from where `from` asks (a heading further down), cut to
+ * `MAX_PAGE_CHARS` with a line saying how much is unread, so an answer never
+ * reviews a page's first part as the whole (`readClaims.js`).
+ */
+export function pageBody(text, from = null) {
+  const wanted = typeof from === "string" ? from.trim().slice(0, 120) : "";
+  const at = wanted === "" ? -1 : text.toLowerCase().indexOf(wanted.toLowerCase());
+  const start = at > 0 ? at : 0;
+  const lead = wanted === "" ? [] : [at >= 0 ? `(Read from "${wanted}", ${start.toLocaleString("en-US")} characters in.)` : `("${wanted}" isn't on this page; shown from the start.)`];
+  const rest = text.slice(start);
+  if (rest.length <= MAX_PAGE_CHARS) return [...lead, rest].join("\n");
+  return [
+    ...lead,
+    rest.slice(0, MAX_PAGE_CHARS),
+    `[cut: ${(start + MAX_PAGE_CHARS).toLocaleString("en-US")} of ${text.length.toLocaleString("en-US")} characters read; the rest of this page is unread. open_page it again with from: a heading further down to read on.]`,
+  ].join("\n");
+}
+
+function pageText(page, from = null) {
+  const body = pageBody(page.text, from);
   const links = (page.links ?? [])
     .slice(0, MAX_LINKS_SHOWN)
     .map((link, i) => `${i + 1}. ${link.text || "(no text)"} - ${link.href}`)
@@ -350,6 +378,8 @@ export function webSession(computer, question, { decide = null, search = null, a
           },
         })
       : null;
+  // "Sign Tex out" of every site (`signOutBrowser.js`).
+  const signOut = browser && typeof computer?.signOut === "function" ? signOutBrowserTool(computer) : null;
   const tools = [
     ...(computer ? [OPEN_PAGE_DEFINITION] : []),
     ...(browser ? [browser.definition] : []),
@@ -357,6 +387,7 @@ export function webSession(computer, question, { decide = null, search = null, a
     ...(cards ? [cards.definition] : []),
     ...(search ? [SEARCH_WEB_DEFINITION] : []),
     ...(travel ? [travel.definition] : []),
+    ...(signOut ? [signOut.definition] : []),
   ];
   return {
     tools,
@@ -397,17 +428,19 @@ export function webSession(computer, question, { decide = null, search = null, a
       });
     },
     /** Ends this question's browser, if it opened one. */
-    close: () => browser?.close() ?? Promise.resolve(),
+    close: (options) => browser?.close(options) ?? Promise.resolve(),
     async call(name, args) {
       if (name === SEARCH_WEB_TOOL && search) return searchWeb(args);
       if (name === BROWSE_TOOL && browser) return browser.call(args);
       if (name === FILL_LOGIN_TOOL && logins) return logins.call(args);
       if (name === FILL_CARD_TOOL && cards) return cards.call(args);
       if (name === TRAVEL_TIME_TOOL && travel) return travel.call(args);
+      if (name === SIGN_OUT_BROWSER_TOOL && signOut) return signOut.call(args);
       if (name !== OPEN_PAGE_TOOL || !computer) return text("There is no such tool.", true);
       // `url` alone is accepted too: models reach for the singular.
       const asked = Array.isArray(args?.urls) ? args.urls : [args?.url];
       const wanted = [...new Set(asked.map(canonicalUrl))];
+      if (wanted.some(builtFormLink)) return text(BUILT_FORM_LINK_ERROR, true);
       if (wanted.length === 0 || wanted.some((url) => url === null || !allowed.has(url))) {
         return text(
           "You can only open an address the person wrote, a link from a page you opened, or a page on a trusted site — and there only its plain path, with nothing of yours written into it. Ask them for the address.",
@@ -433,7 +466,7 @@ export function webSession(computer, question, { decide = null, search = null, a
         }
       }
       if (pages.every((page) => page === null)) return text(`That page could not be opened. ${READ_FAILED_NEXT}`, true);
-      const parts = pages.map((page, i) => (page === null ? `${wanted[i]} could not be opened. ${READ_FAILED_NEXT}` : pageText(page)));
+      const parts = pages.map((page, i) => (page === null ? `${wanted[i]} could not be opened. ${READ_FAILED_NEXT}` : pageText(page, args?.from)));
       const next = decide !== null && opened < cap ? await guessNext(decide, question, pages, seen, usage) : null;
       // Already allowed (a link on a page opened now); checked again so the
       // guard stays the one place that decides, whatever picked the link.

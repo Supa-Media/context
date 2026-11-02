@@ -23,8 +23,12 @@ for all of them.
   Tex page of 2026-10-18 now that tex.lc has its own: "since we have tex.lc
   and that is more text focused, context.lc's homepage should look more notes
   focused", then, picking option A of four, "I like A, but also want to show
-  that you can create different workspaces for free"). The headline is "A
-  notes app that every AI you use can read.", then the sign-up, the editor as
+  that you can create different workspaces for free"). The headline is the
+  owner's own words from the 2026-10-11 page, "Context gives your brain that
+  feeling you have when your room is clean.", with its second sentence under
+  it (decided by the owner, 2026-10-29: the old "A notes app that every AI you
+  use can read." was "terrible - i wouldnt sign up for that", and the sign-up
+  asks for an email, since tex.lc is the texting one), then the sign-up, the editor as
   a still picture (folders, one shared note, who and which AI is in it), four
   lines of what Context is, a workspace for each part of your life with the
   free line, and "Tex comes built in", which links to tex.lc rather than

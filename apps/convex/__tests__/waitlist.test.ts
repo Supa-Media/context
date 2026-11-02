@@ -26,6 +26,7 @@ import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { isAdmitted, isPhoneAdmitted, mayCreateUser, OPEN_SIGNUP_ENV_VAR } from "../functions/lib/waitlist";
 import { WAITLIST_JOINS_PER_HOUR } from "../functions/waitlist";
 import { setupTest, type TestConvex } from "./fixtures.helpers";
+import { withSession } from "./session.helpers";
 
 const STAFF = "staff@context.invalid";
 const ENV_KEYS = [
@@ -71,7 +72,7 @@ async function seedUser(t: TestConvex, email: string): Promise<Id<"users">> {
 }
 
 async function staff(t: TestConvex) {
-  return t.withIdentity({ subject: await seedUser(t, STAFF) });
+  return withSession(t, await seedUser(t, STAFF));
 }
 
 async function row(t: TestConvex, email: string) {
@@ -230,7 +231,7 @@ describe("the staff Waitlist", () => {
     const t = setupTest();
     await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test" });
     const id = (await row(t, "jon@studio.test"))!._id;
-    const stranger = t.withIdentity({ subject: await seedUser(t, "who@else.test") });
+    const stranger = withSession(t, await seedUser(t, "who@else.test"));
     await expect(stranger.query(api.functions.admin.listWaitlist, { status: "waiting" })).rejects.toThrow();
     await expect(stranger.mutation(api.functions.admin.admitWaitlist, { ids: [id] })).rejects.toThrow();
     await expect(t.mutation(api.functions.admin.addToWaitlist, { emails: "me@else.test" })).rejects.toThrow();
@@ -380,7 +381,7 @@ describe("which landing page a person saw", () => {
   test("the landing counts are staff only", async () => {
     const t = setupTest();
     await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test", landing: "b" });
-    const stranger = t.withIdentity({ subject: await seedUser(t, "who@else.test") });
+    const stranger = withSession(t, await seedUser(t, "who@else.test"));
     await expect(stranger.query(api.functions.admin.waitlistLandingCounts, {})).rejects.toThrow();
     await expect(t.query(api.functions.admin.waitlistLandingCounts, {})).rejects.toThrow();
   });

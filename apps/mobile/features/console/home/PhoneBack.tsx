@@ -31,11 +31,14 @@ export function PhoneBack({
   levels,
   onGo,
   after,
+  bare = false,
 }: {
   /** From `phoneBackLevels`: Home first, the page's own folder last. Never empty. */
   levels: PhoneBackTarget[];
   onGo: (target: PhoneBackTarget) => void;
   after?: ReactNode;
+  /** Over a page: the round ‹ alone, never a name beside it on the page's cover (owner, 2026-10-28). */
+  bare?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -57,7 +60,7 @@ export function PhoneBack({
         <View style={styles.key}>
           <Icon name="chevronLeft" size={20} color={colors.accent} />
         </View>
-        {nearest.view === undefined ? null : (
+        {nearest.view === undefined || bare ? null : (
           <Text style={styles.label} numberOfLines={1}>
             {nearest.label}
           </Text>

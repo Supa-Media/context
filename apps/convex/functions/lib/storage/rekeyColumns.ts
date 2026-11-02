@@ -51,7 +51,12 @@ export const REKEY_BATCH_SIZE = 50;
  * the rotated or exempt lists, so the coupling is enforced rather than
  * remembered.
  */
-export const ENVELOPE_FIELDS = ["encryptedSecretAccessKey"] as const;
+export const ENVELOPE_FIELDS = [
+  "encryptedSecretAccessKey",
+  // A new managed bucket's temporary credential, until its own key answers.
+  "encryptedTemporarySecretAccessKey",
+  "encryptedSessionToken",
+] as const;
 
 export type EnvelopeField = (typeof ENVELOPE_FIELDS)[number];
 
@@ -108,6 +113,8 @@ export const ROTATION_EXEMPT_ENVELOPE_COLUMNS = [
 
 export const envelopeFieldValidator = v.union(
   v.literal("encryptedSecretAccessKey"),
+  v.literal("encryptedTemporarySecretAccessKey"),
+  v.literal("encryptedSessionToken"),
 );
 
 /**

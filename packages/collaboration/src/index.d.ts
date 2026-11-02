@@ -33,6 +33,8 @@ export interface DocumentResult {
   etag: string;
   /** Provider object version corresponding to this acknowledged text. */
   rawEtag: string;
+  /** The Markdown etag from before the document started, present while nothing has changed since. */
+  unchangedMarkdownEtag?: string;
   /** False means the update is durably retained but waiting for Yjs dependencies. */
   applied?: boolean;
   pendingDependencies?: boolean;
@@ -47,6 +49,8 @@ export interface ReplaceTextInput {
   documentId?: string;
   expectedEtag: string;
   text: string;
+  /** Refuse with `CONFLICT` unless `expectedEtag` is the current version. */
+  onlyCurrent?: boolean;
 }
 
 export interface SealDocumentInput {
@@ -88,9 +92,13 @@ export class CollaborationError extends Error {
 
 export function supported(store: ContextStore | unknown): boolean;
 export function eligible(path: string, text?: string): boolean;
+/** Whether `etag` names the document's current version (its etag, or its unchanged Markdown etag). */
+export function isCurrentEtag(document: DocumentResult, etag: string | undefined): boolean;
 export function readDocument(store: ContextStore, path: string): Promise<DocumentResult>;
 /** The document when the path already has collaboration state; `null`, creating nothing, when it has none. */
 export function readDocumentIfStarted(store: ContextStore, path: string): Promise<DocumentResult | null>;
+/** Whether `path` has a collaboration document (a head, live or deleted). */
+export function documentStarted(store: ContextStore, path: string): Promise<boolean>;
 export function commitUpdate(store: ContextStore, path: string, input: CommitUpdateInput): Promise<DocumentResult>;
 export function replaceText(store: ContextStore, path: string, input: ReplaceTextInput): Promise<DocumentResult>;
 export function sealDocument(store: ContextStore, path: string, input: SealDocumentInput): Promise<SealDocumentResult>;

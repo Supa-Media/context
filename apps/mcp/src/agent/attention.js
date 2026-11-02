@@ -25,7 +25,7 @@
  */
 
 import { readWithEtag, clock, dayOf, longDate } from "./jobLog.js";
-import { appendConversation, readConversation } from "./conversation.js";
+import { appendConversation } from "./conversation.js";
 import { ATTENTION_FOLDER, ATTENTION_SETTINGS_PATH } from "./checkIns.js";
 
 export { ATTENTION_FOLDER, ATTENTION_SETTINGS_PATH };
@@ -243,7 +243,7 @@ export async function deliverAttention(dispatch, store, { now, timeZone }) {
   try {
     // Their reply is answered with the ping in front of the turn, which is how Tex learns their tolerance.
     // An agent chose these words, so the turn that follows treats them as untrusted.
-    await appendConversation(store, "texts", await readConversation(store, "texts", { entries: 1 }), ATTENTION_QUESTION, text, { tainted: true });
+    await appendConversation(store, "texts", ATTENTION_QUESTION, text, { tainted: true });
   } catch {
     // A history that could not be written costs the reply some context, never the ping.
   }

@@ -11,8 +11,8 @@
 import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, ServiceError, type Fetch } from "./clients";
 import { sendLinqMedia, uploadLinqPicture, type Media } from "./outgoing";
 import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
-import { noteCard, noteLinkOf, type AppCardConfig } from "./appCards";
-import { linkAfterCard, type NoteCardDrawer } from "./noteCards";
+import { cardsOn, noteCard, type AppCard, type AppCardConfig } from "./appCards";
+import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import { isRefusal } from "./carousel";
 import {
   isSendblueChat,
@@ -34,6 +34,7 @@ import {
   parseWhapiChat,
   reactWhapi,
   sendWhapiContact,
+  sendWhapiLinkPreview,
   sendWhapiMedia,
   sendWhapiText,
   startWhapiTyping,
@@ -41,7 +42,8 @@ import {
   type WhapiKeys,
 } from "./whapi";
 
-export type Picture = { name: string; mediaType: string; data: string };
+/** A picture to send; `title` marks a card Tex drew, kept longer where it is hosted (`media.ts` `CARD_FOR_MS`). */
+export type Picture = { name: string; mediaType: string; data: string; title?: string };
 
 export interface Line {
   /**
@@ -50,6 +52,8 @@ export interface Line {
    */
   sendText(chatId: string, text: string, idempotencyKey: string, replyTo?: string): Promise<string | undefined>;
   sendMedia(chatId: string, media: Media, idempotencyKey: string, replyTo?: string): Promise<void>;
+  /** A Context card on its own (`pickCard.ts`), where the line has App Cards (Sendblue); absent elsewhere. Refused with a 4xx. */
+  sendAppCard?(chatId: string, card: AppCard, replyTo?: string): Promise<void>;
   /** Pictures by address as one swipeable set, where the line has carousels (Sendblue); absent elsewhere. */
   sendCarousel?(chatId: string, urls: string[], replyTo?: string): Promise<void>;
   /** A picture's bytes made sendable: an uploaded attachment, or an address the line fetches. */
@@ -78,6 +82,8 @@ export type LineDeps = {
   appCard?: AppCardConfig | null;
   /** Draws a note link's picture (`noteCards.ts`), sent before the link where there is no App Card. */
   noteCardPicture?: NoteCardDrawer;
+  /** A new link to this chat's live view of its jobs (`jobs.ts` `mintThreadsLink`); absent, the view is never offered. */
+  threadsLink?: () => Promise<string>;
 };
 
 export function lineFor(deps: LineDeps, chatId: string): Line {
@@ -111,7 +117,7 @@ function sendblueLine(deps: LineDeps): Line {
   };
   return {
     sendText: async (chatId, text, _key, replyTo) => {
-      const card = deps.appCard ? noteCard(text, deps.appCard) : null;
+      const card = cardsOn(deps.appCard) ? noteCard(text, deps.appCard) : null;
       if (card) {
         try {
           return await sendSendblueAppCard(fetch, keys(), chatId, card, replyTo);
@@ -121,13 +127,11 @@ function sendblueLine(deps: LineDeps): Line {
         }
       }
       // No card: the note's picture first, then the link inside a sentence (`noteCards.ts`).
-      const link = deps.noteCardPicture && deps.hostPicture ? noteLinkOf(text) : null;
-      const picture = link && deps.noteCardPicture ? await deps.noteCardPicture(link) : null;
-      const address = picture && deps.hostPicture ? await deps.hostPicture(picture).catch(() => null) : null;
-      if (link && address) {
+      const drawn = await hostedNoteCard(text, deps.noteCardPicture, deps.hostPicture);
+      if (drawn) {
         try {
-          await sendSendblueMedia(fetch, keys(), chatId, address, replyTo);
-          return await sendSendblueText(fetch, keys(), chatId, linkAfterCard(link), replyTo);
+          await sendSendblueMedia(fetch, keys(), chatId, drawn.address, replyTo);
+          return await sendSendblueText(fetch, keys(), chatId, linkAfterCard(drawn.link), replyTo);
         } catch (error) {
           // A picture the line would not take: the link alone, as before.
           if (!isRefusal(error)) throw error;
@@ -139,6 +143,9 @@ function sendblueLine(deps: LineDeps): Line {
       // Only an address: an uploaded attachment id is Linq's.
       if (!("url" in media)) throw new ServiceError("sendblue", 400);
       await sendSendblueMedia(fetch, keys(), chatId, media.url, replyTo);
+    },
+    sendAppCard: async (chatId, card, replyTo) => {
+      await sendSendblueAppCard(fetch, keys(), chatId, card, replyTo);
     },
     sendCarousel: (chatId, urls, replyTo) => sendSendblueCarousel(fetch, keys(), chatId, urls, replyTo),
     uploadPicture: async (picture) => {
@@ -177,8 +184,8 @@ function sendblueLine(deps: LineDeps): Line {
 /**
  * WhatsApp through Whapi (`whapi.ts`). A reply quotes the person's message
  * where the inbox threads one (WhatsApp's reply); no carousels and no cards,
- * so pictures go one by one and a note's link goes as a link, which WhatsApp
- * previews itself. The contact card is a WhatsApp contact message; the name
+ * so pictures go one by one, and a note's link goes with the preview Tex
+ * draws for it (`whapiNotePreview`). The contact card is a WhatsApp contact message; the name
  * and photo at the top of the chat are the account's own profile, set once
  * on the channel, so there is nothing to share per chat.
  */
@@ -194,7 +201,12 @@ function whapiLine(deps: LineDeps): Line {
     return toOfPhone(chat.phone);
   };
   return {
-    sendText: (chatId, text, _key, replyTo) => sendWhapiText(fetch, keys(), to(chatId), text, replyTo),
+    sendText: async (chatId, text, _key, replyTo) => {
+      // A note's link carries its own preview (`noteCards.ts`); one Whapi refuses goes plain.
+      const preview = await whapiNotePreview(text, deps.noteCardPicture, deps.hostPicture);
+      const sent = preview ? await sendWhapiLinkPreview(fetch, keys(), to(chatId), preview, replyTo) : null;
+      return sent !== null ? sent : await sendWhapiText(fetch, keys(), to(chatId), text, replyTo);
+    },
     sendMedia: async (chatId, media, _key, replyTo) => {
       // Only an address: an uploaded attachment id is Linq's.
       if (!("url" in media)) throw new ServiceError("whapi", 400);

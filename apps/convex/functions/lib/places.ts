@@ -15,8 +15,14 @@ export const OPENS_WINDOW_DAYS = 14;
 export const PINS_PER_WORKSPACE = 60;
 /** One row per folder opened; the stalest makes room past this. */
 export const OPEN_ROWS_PER_WORKSPACE = 300;
-/** One row per note opened or edited; the oldest makes room past this. */
+/** Rows for notes only opened, never edited; the oldest of them makes room past this. */
 export const RECENT_ROWS_PER_WORKSPACE = 50;
+/**
+ * Rows for notes the person edited, kept apart so a run of opens never pushes
+ * out what they wrote: the phone's Notes page lists these by month and year.
+ * The oldest edit makes room past this.
+ */
+export const EDITED_ROWS_PER_WORKSPACE = 500;
 
 export const dayOf = (at: number) => Math.floor(at / DAY_MS);
 
@@ -114,7 +120,13 @@ export async function retargetPlaces(
       recentAt.set(path, { ...row, path });
       continue;
     }
-    if (row.at > existing.at) await ctx.db.patch(existing._id, { at: row.at, kind: row.kind });
+    // The later edit of the two survives, whichever row said what was done last.
+    const editOf = (r: typeof row) => r.editedAt ?? (r.kind === "edited" ? r.at : -Infinity);
+    const editedAt = Math.max(editOf(row), editOf(existing));
+    await ctx.db.patch(existing._id, {
+      ...(row.at > existing.at ? { at: row.at, kind: row.kind } : {}),
+      ...(Number.isFinite(editedAt) ? { editedAt } : {}),
+    });
     await ctx.db.delete(row._id);
   }
 }

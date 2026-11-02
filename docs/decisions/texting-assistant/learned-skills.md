@@ -102,3 +102,10 @@ itself", "a tainted turn reflects blind: their text and tool-shaped step names,
 never the answer", "a tainted turn reflects only on the person's own text", "the reflect step's dispatcher refuses every other tool, path and
 workspace", "a 41st skill is refused"), and the check-in's own-output check in
 `apps/mcp/test/agentHeartbeat.test.mjs`.
+
+## A group chat's skills (2026-11-02)
+
+A group chat keeps its own in its home, `<home>/skills/<name>.md` in `@context-lc`, by the same rules
+(`apps/mcp/src/agent/chatSkills.js`). The people in the chat are not outside it (the owner, 2026-11-02), so what stops
+one being written is a turn that read a page, an email or a file (`ledger.outside`), never the chat's own texts. Tests:
+`apps/mcp/test/chatSkills.test.mjs`.

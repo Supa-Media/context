@@ -5,6 +5,7 @@ import { renderChannelDayNote } from "../../../packages/communications/src/note.
 import { runCommentFormatChecks, runCommentToolChecks } from "./comments.test.mjs";
 import { runProtocolBasicsChecks } from "./protocolBasics.test.mjs";
 import { runTransportSecurityChecks } from "./transportSecurity.test.mjs";
+import { runTokenTransportChecks } from "./tokenTransport.test.mjs";
 import { runProtocolVersioningChecks } from "./protocolVersioning.test.mjs";
 import { runOrientVisibilityChecks } from "./orientVisibility.test.mjs";
 import { runPrivacyAclChecks } from "./privacyAcl.test.mjs";
@@ -15,6 +16,7 @@ import { runAttachmentsCoreChecks } from "./attachmentsCore.test.mjs";
 import { runAttachmentsEdgeChecks } from "./attachmentsEdge.test.mjs";
 import { runUploadedImageChecks } from "./uploadedImages.test.mjs";
 import { runImageUploadLinkChecks } from "./imageUploadLinks.test.mjs";
+import { runPictureCompressionChecks } from "./pictureCompression.test.mjs";
 
 /**
  * This file used to hold the ~4,100 lines of sequential checks below inline.
@@ -29,6 +31,7 @@ import { runImageUploadLinkChecks } from "./imageUploadLinks.test.mjs";
  */
 await runProtocolBasicsChecks();
 await runTransportSecurityChecks();
+await runTokenTransportChecks();
 await runProtocolVersioningChecks();
 await runOrientVisibilityChecks();
 await runPrivacyAclChecks();
@@ -39,6 +42,7 @@ await runAttachmentsCoreChecks();
 await runAttachmentsEdgeChecks();
 await runUploadedImageChecks();
 await runImageUploadLinkChecks();
+await runPictureCompressionChecks();
 
 await suite("runStoreChecks", () => runStoreChecks(check, {
   // The hostile-backend checks need a real way in; there is only one.

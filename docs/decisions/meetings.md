@@ -258,3 +258,11 @@ Words need transcription, and `transcribeChunk` refuses anybody without an accou
 ## Meeting summaries (2026-10-09)
 
 Moved to [Meeting summaries](./meetings/summaries.md): the model fills a tool and our code writes the Markdown, the same on every plan under a daily ceiling, started by opening the note.
+
+## Joining from the calendar (2026-10-27)
+
+Moved to [Joining from the calendar](./meetings/joining-from-the-calendar.md): one press opens the call and starts the notes, never none; only known call hosts open; a browser is two presses in the same spot.
+
+## Cloud transcription consent (2026-10-28)
+
+Moved to [Cloud transcription consent](./meetings/transcription-consent.md): no audio goes to cloud transcription without the account's current yes to the named provider; every boundary refuses without it, and Settings takes it back mid-recording.

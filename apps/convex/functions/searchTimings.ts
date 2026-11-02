@@ -23,10 +23,10 @@
  * shape, and there is no field a query could be put in.
  */
 
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, mutation } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { searchAnsweredByValidator, searchSurfaceValidator } from "./lib/schema/searchTimings";
 import { clampSearchMs } from "./lib/searchTiming";
 import { getMembership } from "./lib/workspaceAuth";

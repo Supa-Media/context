@@ -7,12 +7,13 @@
  * of different things like tree index, search by meaning etc … not the best
  * UI"): three stacked tables became one, opening on what needs attention.
  *
- * The file tree column is the Convex copy, which the sidebar, folder pages,
- * Home and agents read (the owner approved the board, 2026-10-13). Its detail
- * adds the copy's facts:
- * the links and front matter Lists, Boards, the map and the chaos score read,
- * which lived in each workspace's own D1 tables until phase 7 of the tree
- * migration. Pure, so the rules are pinned by `adminSearchIndexes.test.ts`.
+ * The file tree column is the tree's facts: the links and front matter Lists,
+ * Boards, the map and the chaos score read, which lived in each workspace's
+ * own D1 tables until phase 7 of the tree migration. Since notes are kept by
+ * id (#2116) there is no copy of the bucket left to compare, and
+ * `nodesMigration.report` says only whether a workspace is archived and where
+ * its facts are, so that is all this column reads. Pure, so the rules are
+ * pinned by `adminSearchIndexes.test.ts`.
  */
 
 import type { FunctionReturnType } from "convex/server";
@@ -55,14 +56,10 @@ export const INDEXES: readonly { key: IndexKey; label: string; what: string }[] 
 export type WorkspaceIndexes = {
   workspaceId: string;
   slug: string | null;
-  /** The file tree column: the Convex copy. */
+  /** The file tree column: its facts behind Lists, Boards, the map and the chaos score. */
   files: IndexCell;
   fast: IndexCell;
   meaning: IndexCell;
-  /** The Convex copy alone, for the row's detail. */
-  convex: IndexCell;
-  /** The copy's facts behind Lists, Boards, the map and the chaos score, for the row's detail. */
-  details: IndexCell;
   /** Only archived accounts hold it: nothing runs on it, and it never needs attention. */
   archived: boolean;
   /** Newest change we know of across them, for the Changed column. */
@@ -207,47 +204,6 @@ export function meaningCell(row: MeaningIndexRow | null): IndexCell {
   }
 }
 
-/** Where the Convex copy's differences are, in words: `3 files differ from the bucket; privacy rules differ`. */
-export function parityWords(parity: MigrationRow["parity"]): string {
-  if (parity === null) return "Not checked against the bucket yet";
-  const parts: string[] = [];
-  if (parity.mismatches > 0) {
-    parts.push(`${format(parity.mismatches)} ${parity.mismatches === 1 ? "file differs" : "files differ"} from the bucket`);
-  }
-  if (!parity.privacyMatches) parts.push("privacy rules differ");
-  if (parts.length === 0) return "Matches the bucket";
-  const said = parts.join("; ");
-  return said.charAt(0).toUpperCase() + said.slice(1);
-}
-
-/**
- * The Convex copy (the backend migration). While the whole migration is
- * paused, a copy that has not finished reads as paused, not as stuck: the
- * owner paused it on purpose.
- */
-export function convexCell(row: MigrationRow | null, paused = false): IndexCell {
-  if (row === null) return NONE;
-  const base = { figure: row.files > 0 ? format(row.files) : null, progress: null, problem: null, tiers: null };
-  switch (row.stage) {
-    case "matches":
-      return { ...base, health: "ok", label: "Matches" };
-    case "copied":
-      return { ...base, health: "ok", label: "Copied" };
-    case "copying":
-      return paused ? { ...base, health: "off", label: "Paused" } : { ...base, health: "working", label: "Copying" };
-    case "waiting":
-      return paused ? { ...base, health: "off", label: "Paused" } : { ...base, health: "working", label: "Not started" };
-    case "stuck":
-      return { ...base, health: "stuck", label: "Stuck", problem: row.error ?? "The last pass failed" };
-    case "differs":
-      return { ...base, health: "stuck", label: "Differs", problem: parityWords(row.parity) };
-    case "skipped":
-      return { ...base, health: "off", label: "Skipped", problem: "This storage can't be listed in order" };
-    case "keyed":
-      return { ...base, health: "ok", label: "Notes by id" };
-  }
-}
-
 const RANK: Record<IndexHealth, number> = { stuck: 0, working: 1, ok: 2, off: 3, none: 3 };
 
 /** The worst of a row's three, which decides its order and whether it needs attention. */
@@ -279,22 +235,16 @@ export function joinIndexes(
   const copies = new Map<string, MigrationRow>((migration ?? []).map((row) => [row.workspaceId, row] as const));
   const rows = [...byId.entries()].map(([workspaceId, entry]): WorkspaceIndexes => {
     const copy = copies.get(workspaceId) ?? null;
-    const changed = [entry.meaning?.updatedAt ?? null, copy?.sweptAt ?? null].filter(
-      (n): n is number => n !== null,
-    );
     const archived = entry.meaning?.archived === true || copy?.archived === true;
-    const convex = archived ? ARCHIVED : convexCell(copy, paused);
     const unreadable = unreadableOf(copy);
     return {
       workspaceId,
       slug: entry.slug,
-      files: convex,
+      files: archived ? ARCHIVED : factsCell(copy, paused),
       fast: archived ? ARCHIVED : waitingOnUnreadable(fastCell(entry.meaning?.fastSearch ?? null), unreadable),
       meaning: archived ? ARCHIVED : waitingOnUnreadable(meaningCell(entry.meaning), unreadable),
-      convex,
-      details: archived ? ARCHIVED : factsCell(copy, paused),
       archived,
-      changedAt: changed.length === 0 ? null : Math.max(...changed),
+      changedAt: entry.meaning?.updatedAt ?? null,
       meaningRow: entry.meaning,
       migrationRow: copy,
       unreadable: archived ? null : unreadable,
@@ -315,7 +265,7 @@ export function healthCounts(rows: readonly WorkspaceIndexes[], key: IndexKey): 
 /** `ready`, `indexing` and so on for a summary card, in the index's own words; only the non-zero ones. */
 export function countParts(key: IndexKey, counts: Record<IndexHealth, number>): { health: IndexHealth; text: string }[] {
   const words: Record<IndexKey, Record<"ok" | "working" | "stuck" | "off", string>> = {
-    files: { ok: "ready", working: "copying", stuck: "stuck or differ", off: "paused, skipped or archived" },
+    files: { ok: "ready", working: "reading", stuck: "can't read", off: "paused or archived" },
     fast: { ok: "ready", working: "indexing", stuck: "failed", off: "off or archived" },
     meaning: { ok: "ready", working: "indexing", stuck: "failed", off: "off or archived" },
   };

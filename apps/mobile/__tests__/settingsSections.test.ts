@@ -68,7 +68,7 @@ describe("the order and the grouping", () => {
     }
   });
 
-  test("nine listed rows; six pages live behind a row on another page", () => {
+  test("nine listed rows; seven pages live behind a row on another page", () => {
     /*
       The owner called the fifteen-row list cluttered (2026-10-10). Feedback,
       Activity, Meetings and Emoji keep their pages and their keys —
@@ -100,12 +100,12 @@ describe("the order and the grouping", () => {
         .map((section) => section.key),
     ).toContain("premium");
     expect(all.filter(isFoldedSection).map((section) => section.key).sort()).toEqual(
-      // Spelling (2026-10-27) is reached from Profile, like Feedback.
-      ["activity", "emoji", "feedback", "folders", "meetings", "spelling"],
+      // Spelling (2026-10-27) is reached from Profile, like Feedback; so is Tex (Dev2, 2026-10-28).
+      ["activity", "emoji", "feedback", "folders", "meetings", "spelling", "tex"],
     );
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(16);
+    ).toHaveLength(17);
   });
 
   test("every section sits under a heading somebody can answer", () => {

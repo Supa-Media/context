@@ -28,6 +28,7 @@ import { rulesForReaders } from "./lib/nodes/readerRules";
 import { trashEntryOf } from "./lib/nodes/trashTrail";
 import { canSee } from "./lib/privacy";
 import { eraseAtOf, rulesAsTrashed, stampFolderOf, stampTimeOf } from "./lib/trash/bin";
+import { touchesChatHomes } from "./lib/nodes/sealedChats";
 
 const answerValidator = v.union(
   v.null(),
@@ -55,7 +56,8 @@ async function answerFor(ctx: QueryCtx, actorUserId: Id<"users">, workspaceId: I
   const entry = await trashEntryOf(ctx.db, workspaceId, path);
   if (entry === null) return null;
   const folder = stampFolderOf(entry.trash);
-  if (scope !== "private") {
+  // An owner's too where the path is sealed (`lib/nodes/sealedChats.ts`): `canSee` answers that by name.
+  if (scope !== "private" || touchesChatHomes(path)) {
     // No rules (a missing or unparseable file) judge every path private, so the answer is the same as before.
     // Judged as it stood when trashed: a row trash took the note's own setting with its row (`rulesAsTrashed`).
     const live = await rulesForReaders(ctx, workspaceId);

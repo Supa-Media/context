@@ -6,7 +6,7 @@
  * ever fetches a workspace.
  */
 
-import { GENERIC_PREVIEW, ORIGIN, normalisePath, type PreviewMeta } from "./meta";
+import { coverPreview, GENERIC_PREVIEW, ORIGIN, normalisePath, type PreviewMeta } from "./meta";
 import { boundTitle } from "./textBounds";
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -124,6 +124,8 @@ export function previewForShare(
    * returns GENERIC_PREVIEW before this is read at all.
    */
   openToAnyone = false,
+  /** A linked page's cover version: the card is then its cover (`coverPreview`). */
+  cover?: string | null,
 ): PreviewMeta {
   // Cleaned and bounded, mirroring MAX_PREVIEW_TITLE and the control character
   // strip in the control plane. Done in both places on purpose: this one is
@@ -151,6 +153,7 @@ export function previewForShare(
      * branding, which is a ready-made phishing asset.
      */
     imageUrl: token === undefined ? undefined : `${ORIGIN}${shareCardPath(token, bounded)}`,
+    ...coverPreview(token === undefined ? null : `${SHARE_CARD_PREFIX}${token}.png`, cover),
   };
 }
 

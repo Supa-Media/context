@@ -56,7 +56,8 @@
 
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { action, internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { action, internalAction, internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
@@ -64,7 +65,6 @@ import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
 import {
-  scopesForConnect,
   createPkcePair,
   exchangeGoogleCode,
   googleAuthorizeUrl,
@@ -74,6 +74,7 @@ import {
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
+import { planForBinding, standardScopesFor } from "./lib/googleConnect/consentPlan";
 import {
   accountSlugFor,
   defaultGoogleDestinationFolder,
@@ -265,7 +266,7 @@ export const startCalendarConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: scopesForConnect(products),
+        scopes: standardScopesFor(products),
       }),
     };
   },
@@ -486,7 +487,7 @@ export const applyCalendarConnectionBinding = internalMutation({
     // with all of its products approved this time. `reconnect_required` is
     // exactly the existing word for that (`markReconnectRequired`), and the
     // remedy is the same one.
-    const starved = [...products].filter((product) => grantedScopesFor(product, args.scopes).length === 0);
+    const { consentPlan, starved } = planForBinding(args.workspaceId, existing, [...products], args.scopes);
 
     const fields = {
       workspaceId: args.workspaceId,
@@ -497,7 +498,7 @@ export const applyCalendarConnectionBinding = internalMutation({
       accessTokenExpiresAt: args.accessTokenExpiresAt,
       scopes: args.scopes,
       googleAccountId: args.googleAccountId,
-      products: [...products],
+      products: [...products], consentPlan,
       // Gmail's settings and cursor are its own and are kept untouched by a
       // Calendar bind; only its scope slice is a view of the account's
       // grant and is derived fresh, same rule as every other slice here.

@@ -85,9 +85,13 @@ export function otherRoutesNotice(untried) {
   );
 }
 
-/** "Once it answers, I'll check your serving schedule and text you what I find." */
+/**
+ * "Once it answers, I'll check your serving schedule and text you what I find." A word may carry a
+ * clock time: "I'll check the log at 4:30 and text you" (a tester's chat, 2026-10-27) slipped past while
+ * words were letters only.
+ */
 const PROMISE =
-  /\b(?:I'll|I will|I'm going to|I am going to)\s+(?:[\w'’,]+\s+){0,8}?(?:text|message|ping|tell|let|get back to|update|circle back to)\s+you\b/i;
+  /\b(?:I'll|I will|I'm going to|I am going to)\s+(?:[\w'’,:]+\s+){0,8}?(?:text|message|ping|tell|let|get back to|update|circle back to)\s+you\b/i;
 /**
  * "I'll send the organized breakdown … within the next 10–15 minutes" (2026-10-24): a promise of work by a
  * time, with no "text you" in it. Tex had started nothing, and said so only when asked what 医保 meant.
@@ -95,19 +99,37 @@ const PROMISE =
 const TIMED_PROMISE =
   /\b(?:I'll|I will|I'm going to|I am going to)\b[^.!?\n]{0,240}?\b(?:within|in)(?:\s+(?:the next|the|about|around))?\s+(?:\d+|a few|a couple of)(?:\s*(?:-|\u2013|to)\s*\d+)?\s*(?:minutes?|mins?|hours?|hrs?)\b/i;
 /**
- * "I'll keep trying every hour through Monday" (@shyoh, 2026-10-25): a promise
+ * "I'll keep trying every hour through Monday" (a tester's chat, 2026-10-25): a promise
  * to retry on a schedule, which nothing in the turn had set up.
  */
 const RETRY_PROMISE =
   /\b(?:I'll|I will|I'm going to|I am going to)\s+(?:keep\s+(?:trying|retrying|checking|at it)|(?:try|retry|check)(?:\s+(?:it|that|this))?\s+again\b[^.!?\n]{0,80}?\b(?:later|tomorrow|tonight|every|each|hourly|until|through)\b|(?:try|retry|check)\b[^.!?\n]{0,80}?\b(?:every|each)\s+(?:\d+\s+|few\s+)?(?:minutes?|hours?|days?|morning|night)\b)/i;
+/**
+ * A check-in at a set time: "I'll check with you tonight" (a tester's chat, 2026-10-26), "I'll check the log
+ * at 4:30" (2026-10-27). Neither says "text you", and in both Tex set nothing to come back.
+ */
+const AT_A_TIME =
+  /\b(?:at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m|p\.m)?(?!\s*%)|tonight|tomorrow(?!['’]s)|this\s+(?:morning|afternoon|evening)|later\s+(?:today|tonight|on|this)|in\s+the\s+(?:morning|afternoon|evening)|on\s+(?:mon|tues|wednes|thurs|fri|satur|sun)day|by\s+(?:\d{1,2}(?::\d{2})?|noon|end of (?:the )?day|tonight|tomorrow)|end of (?:the )?day|after (?:lunch|dinner|work|your meeting))\b/i;
+const CHECK_IN_PROMISE =
+  /\b(?:I'll|I will|I'm going to|I am going to)\s+(?:[\w'’,:]+\s+){0,4}?(?:(?:text|message|ping|call)\s+you|check\s+(?:in|back|on|with\s+you)|follow\s+up|remind\s+you|ask\s+you|circle\s+back|come\s+back\s+to\s+you|reach\s+out|check|look|review|confirm|see\s+(?:how|if|whether))\b/i;
 /** A later that's theirs or Tex's in-turn work: "once you say yes", "when you're back". */
 const THEIR_LATER = /\b(?:once|when|after|if)\s+you\b|\byes\b|\u{1F44D}/iu;
 
+const sentences = (answer) => words(answer).split(/\n+|(?<=[.!?])\s+(?=[A-Z0-9"“(])/);
+
+/** Whether a sentence promises a check-in at a set time: a reminder for that time keeps it. */
+const checksInAt = (sentence) => CHECK_IN_PROMISE.test(sentence) && AT_A_TIME.test(sentence) && !THEIR_LATER.test(sentence);
+
 /** Whether an answer promises to text them later about something. */
 export function promisesLater(answer) {
-  return words(answer)
-    .split(/\n+|(?<=[.!?])\s+/)
-    .some((sentence) => (PROMISE.test(sentence) || TIMED_PROMISE.test(sentence) || RETRY_PROMISE.test(sentence)) && !THEIR_LATER.test(sentence));
+  return sentences(answer).some(
+    (sentence) => ((PROMISE.test(sentence) || TIMED_PROMISE.test(sentence) || RETRY_PROMISE.test(sentence)) && !THEIR_LATER.test(sentence)) || checksInAt(sentence),
+  );
+}
+
+/** Whether an answer promises a check-in at a set time ("tonight", "at 4:30"). */
+export function promisesCheckInAt(answer) {
+  return sentences(answer).some(checksInAt);
 }
 
 /** The calls that keep a promise to text later: a job, a delegated job, or a routine written. */
@@ -118,4 +140,20 @@ export const LATER_NOTICE =
   "Keep it now: write a routine note under tex/routines/hourly/ (never more often) with `until:` in its front matter naming what answers their question, " +
   "whose body says to try the source again and the other ways to the answer (their email from that app, their calendar, their notes, the app's website in your browser), " +
   "text them the answer in this chat with where it came from once it has one, and answer SKIP until then. Or start a background job if it is long work happening now. " +
-  "Then send your answer, saying when you'll check. If the promise was about something already running, send your answer again as it was.";
+  "Then send your answer, saying when you'll check. If the promise was about something already running, send your answer again as it was. " +
+  // 2026-10-29: a count blocked on a sign-in only the person could finish became an hourly check nobody asked for.
+  "But if they didn't ask to be told later, or nothing can change until they do something (a sign-in, a code, an approval, access only they can give), set nothing: " +
+  "take the promise out and say plainly what is in the way.";
+
+/** A check-in promised for a set time: a one-off reminder at that time keeps it, or the promise goes. */
+export const CHECK_IN_NOTICE =
+  "Before this goes: your answer promises to check in with them at a set time, but nothing in this turn will. " +
+  "Keep it now: write a one-off routine note under tex/routines/once/ with `at:` in its front matter set to that date and time in their local time " +
+  "(\"tonight\" with no hour is 8:00 pm, \"tomorrow\" with no hour is 9:00 am), whose body says what to check and what to ask them, so it texts them then in this chat. " +
+  "Then send your answer, saying when you'll check. If a routine you can see already does it, send your answer again as it was. If you can't set it, take the promise out of your answer rather than send one nothing keeps.";
+
+/** The notice for a promise nothing in the turn keeps, or null when the answer makes none. */
+export function laterNotice(answer) {
+  if (promisesCheckInAt(answer)) return CHECK_IN_NOTICE;
+  return promisesLater(answer) ? LATER_NOTICE : null;
+}

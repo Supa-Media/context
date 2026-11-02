@@ -18,6 +18,7 @@
  */
 
 import type { GroupMessage } from "./sendblueGroups";
+import { isControlWord } from "./controlWords";
 
 /** The object that knows where a chat is, named by its key alone. */
 export function chatDirectoryName(groupKey: string): string {
@@ -75,10 +76,13 @@ export function lastRanWords(since: number | undefined, timeZone: string | undef
   }
 }
 
+/** Whether a routine is kept in its chat's home, `tex/groups/<words>/routines/` in `@context-lc` (the owner, 2026-11-02). */
+const inChatHome = (path: string): boolean => /^tex\/groups\/[a-z][a-z0-9-]*\/routines\//i.test(path);
+
 /** What a chat routine's turn is asked: its writer's tag, in words only this Worker writes. */
 export function chatRoutineQuestion(path: string, lastRan: string | null = null): string {
   return (
-    `(It's time for this chat's routine, ${path}. Read that note and do what it says now, for everyone here, ` +
+    `(It's time for this chat's routine, ${path}${inChatHome(path) ? ` (context: "@context-lc")` : ""}. Read that note and do what it says now, for everyone here, ` +
     "as if it had just been asked. " +
     (lastRan === null ? "" : `It last ran ${lastRan}: anything "new" means since then. `) +
     "If it only wants a word when there is something to say and there isn't, answer exactly SKIP.)"
@@ -98,10 +102,10 @@ export function chatLookQuestion(since: number | undefined, lastRan: string | nu
   const after = since === undefined ? "" : ` (search it with after:${Math.floor(since / 1000)})`;
   return (
     `(Time for this chat's check-in: look on your own at what is new${lastRan === null ? "" : ` since ${lastRan}`}, ` +
-    "the way a good assistant glances over the shared work. Read this workspace's recent activity (fetch activity:) " +
-    `and any mail shared with this chat${after}, and connect it to what you know of the work. ` +
-    "Post here only what someone in this chat needs to act on or know now, in one short message: " +
-    "what happened, who should handle it, and one next step you can take for them. " +
+    `in two places only: mail shared with this chat${after}, and what was asked of you in this chat that you said you would follow up on. ` +
+    "Never post about the workspace's other activity, notes or other agents' work: nobody here asked. " +
+    "Post here only what someone in this chat needs to act on or know now, in one short line: " +
+    "what happened and who should handle it. " +
     "Leave out mail that concerns only the mailbox's owner personally: their own check-ins text them about it. " +
     "Never post just to say hello or to summarize; newsletters, receipts and automated notices are not worth a message, " +
     "and neither is anything you already posted here. If nothing needs the chat, answer exactly SKIP.)"
@@ -126,7 +130,5 @@ export function chatRoutineMessage(run: ChatRoutineRun): GroupMessage {
   };
 }
 
-/** An answer that means "nothing to say": SKIP on its own. */
-export function saysSkip(text: string): boolean {
-  return /^\W*skip\W*$/i.test(text.trim());
-}
+/** An answer that means "nothing to say": SKIP, or any other control word, on its own (`controlWords.ts`). */
+export const saysSkip = isControlWord;

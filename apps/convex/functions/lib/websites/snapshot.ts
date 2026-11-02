@@ -38,7 +38,7 @@ import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import { findName } from "../nameClaims";
 import { isEncryptedNote } from "../noteEncryption";
 import { readBatches, releasedTexts } from "./lists";
-import { treeRows } from "./treeFacts";
+import { currentRows } from "./treeFacts";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { normalizedHandle } from "./resolver";
 import { readPublishedEmoji } from "./emoji";
@@ -175,7 +175,7 @@ export async function websiteSnapshot(
   // The tree answers whether each page still publishes, and whether its copy is
   // the live file: neither is read from storage. A page the tree cannot judge
   // is left out, as a page with no tree row is.
-  const rows = await treeRows(ctx, home.workspaceId, published.map((page) => page.objectKey));
+  const rows = await currentRows(ctx, home.workspaceId, published.map((page) => page.objectKey));
   const still = published.flatMap((page) => {
     const row = rows?.get(page.objectKey);
     if (row === undefined || row.sealed || row.facts === null) return [];

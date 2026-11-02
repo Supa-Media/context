@@ -12,6 +12,10 @@ export type ConfirmStatus = "confirmed" | "joined" | "wrong" | "taken" | "too_ma
 export const PHONE_CHECK_TITLE = "Add your phone number";
 export const PHONE_CHECK_WHY =
   "We text you a code once to check it's yours. From then on, your phone is how you sign in.";
+/** The same step for someone who may skip it (Dev2, 2026-10-29: "Ask, but let them skip"). */
+export const PHONE_CHECK_WHY_SKIPPABLE =
+  "Add one so you can sign in by text if you ever lose your email. We text you a code once to check it's yours.";
+export const PHONE_CHECK_LATER = "You can add a phone any time in Settings › Account.";
 
 /** After "joined": this email went onto the account the number already had. */
 export const JOINED_TITLE = "Welcome back.";

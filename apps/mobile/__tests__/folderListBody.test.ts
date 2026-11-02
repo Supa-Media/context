@@ -32,7 +32,7 @@ const note = (path: string, text: string, encrypted = false): OpenNote => ({
 });
 
 const io = (bucket: Record<string, OpenNote>): FolderListIO => ({
-  manifest: async () => Promise.reject(new Error("offline")),
+  folderNotes: async () => Promise.reject(new Error("offline")),
   readNotes: async () => Promise.reject(new Error("offline")),
   readNote: async (path) => {
     served.push(path);

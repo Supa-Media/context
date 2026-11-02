@@ -24,6 +24,7 @@ import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
 import { modules } from "../test.setup";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
+import { withSession } from "./session.helpers";
 
 const ADMIN = "staff@example.test";
 const DAY = 86_400_000;
@@ -77,7 +78,7 @@ async function seedRow(
 async function report(t: Harness) {
   process.env[ADMIN_EMAILS_ENV_VAR] = ADMIN;
   const staffId = await seedUser(t, ADMIN);
-  return await t.withIdentity({ subject: staffId }).query(api.functions.admin.censusReport, { days: 30 });
+  return await withSession(t, staffId).query(api.functions.admin.censusReport, { days: 30 });
 }
 
 describe("the census's waitlist slice", () => {
@@ -139,7 +140,7 @@ describe("the census's waitlist slice", () => {
     const stranger = await seedUser(t, "stranger@example.test");
     await seedRow(t, "someone@example.test", "admitted");
     await expect(
-      t.withIdentity({ subject: stranger }).query(api.functions.admin.censusReport, {}),
+      withSession(t, stranger).query(api.functions.admin.censusReport, {}),
     ).rejects.toThrow();
   });
 });

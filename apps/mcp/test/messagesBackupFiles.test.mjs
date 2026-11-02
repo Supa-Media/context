@@ -34,6 +34,7 @@ import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_
 import { handleMessagesBackup, MESSAGES_BACKUP_LOG } from "../src/communications/messagesBackup.js";
 import { handleMessagesBackupFile, withoutEarlierCopies } from "../src/communications/messagesBackupFiles.js";
 import { BACKUP_PREFIX, LIMITS, digestId, fileKeyOf } from "../../../packages/communications/src/backup.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-messages-files.test";
 const tok = (name) => `cat_msgfiles_${name}_`.padEnd(40, "0");
@@ -70,7 +71,7 @@ async function setUp() {
   await grant(T.sharedOwner, "ws_mf_shared", "owner", all, "user_mine");
   await grant(T.teamTier, "ws_mf_mine", "owner", ["context:read", "context:write"], "user_mine");
   return {
-    env: { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET },
+    env: { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET },
     keys: (name, prefix = BACKUP_PREFIX) => [...s3.bucketFor(name).keys()].filter((key) => key.startsWith(prefix)).sort(),
     body: (name, key) => s3.bucketFor(name).get(key)?.body,
     restore: () => {

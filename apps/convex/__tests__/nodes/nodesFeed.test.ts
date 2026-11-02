@@ -24,6 +24,7 @@ import schema from "../../schema";
 import { modules } from "../../test.setup";
 import { seqAt } from "../../functions/lib/nodes/log";
 import { translateMirror } from "../seededRules.helpers";
+import { withSession } from "../session.helpers";
 
 type T = ReturnType<typeof convexTest>;
 
@@ -72,7 +73,7 @@ async function fixture() {
   // The tree serves once a first copy has finished; an empty seed is that finish, and the rows come through the seam.
   await seedTreeRows(t, ids.ws, []);
   await observe(t, ids.ws, 10, ["privacy.md", "1-projects/plan.md", "1-projects/secret/codes.md", "2-areas/mine.md", "2-areas/shared.md"]);
-  return { t, ...ids, owner: t.withIdentity({ subject: ids.ownerId }), member: t.withIdentity({ subject: ids.memberId }), stranger: t.withIdentity({ subject: ids.strangerId }) };
+  return { t, ...ids, owner: withSession(t, ids.ownerId), member: withSession(t, ids.memberId), stranger: withSession(t, ids.strangerId) };
 }
 
 /**

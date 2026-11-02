@@ -287,10 +287,8 @@ describe("the tree's folder counts while the map is open", () => {
   const tree = (workspaceId: string | null) =>
     createElement(FileTree, {
       rows: [folder("0-inbox", 0), folder("1-projects", 0), folder("1-projects/launch", 1)],
-      canSetVisibility: false,
       onSelect: noop,
       onToggle: noop,
-      onCycleVisibility: noop,
       workspaceId,
     });
   const counts = () => [...document.body.querySelectorAll("[data-testid='tree-map-count']")].map((n) => n.textContent);

@@ -1,4 +1,5 @@
 import { ConvexError } from "convex/values";
+import { TRANSCRIPTION_CONSENT_REQUIRED } from "@context/shared";
 import type { TranscriptSegment } from "../protocol";
 import { captureOffline } from "./connectivity";
 import { audioSpool, claimChunk, isClaimed, releaseChunk, type SpooledChunk } from "./spool";
@@ -54,7 +55,14 @@ import { resolveTranscriber } from "./transcriber";
 export const MAX_REFUSALS = 3;
 
 /** Codes that are about the caller or the deployment, never about the chunk. */
-const NOT_THE_CHUNK = new Set(["NOT_AUTHENTICATED", "TRANSCRIPTION_NOT_CONFIGURED", "RATE_LIMITED"]);
+const NOT_THE_CHUNK = new Set([
+  "NOT_AUTHENTICATED",
+  "TRANSCRIPTION_NOT_CONFIGURED",
+  "RATE_LIMITED",
+  // The account said no: the chunk is not at fault, and the spool is
+  // emptied by `useTranscriptionConsent` rather than set aside chunk by chunk.
+  TRANSCRIPTION_CONSENT_REQUIRED,
+]);
 
 /** Refused for its own sake: it can never succeed, so it is set aside at once. */
 const HOPELESS = new Set(["INVALID_CHUNK_ID"]);

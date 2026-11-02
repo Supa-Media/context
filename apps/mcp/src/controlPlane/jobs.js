@@ -45,5 +45,20 @@ export function createJobMethods({ post, required }) {
       if (!page || typeof page !== "object") throw new ControlPlaneError("malformed mover page");
       return page;
     },
+
+    /**
+     * Open a Tex store ticket (`texStore/door.js`): which workspace's control
+     * plane call it is, and the owners whose objects it may reach. `null`
+     * when it is unknown or expired.
+     */
+    async openTexStoreTicket(ticket) {
+      const parsed = await post("/gateway/tex-store/open", { ticket });
+      const opened = required(parsed, "opened");
+      if (opened === null) return null;
+      if (!opened || typeof opened !== "object" || typeof opened.workspaceId !== "string" || !Array.isArray(opened.owners)) {
+        throw new ControlPlaneError("malformed Tex store ticket");
+      }
+      return opened;
+    },
   };
 }

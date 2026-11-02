@@ -8,10 +8,10 @@
  */
 
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
-import { mutation, query } from "../_generated/server";
+import { query } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import { consumeRateLimit } from "./lib/rateLimit";
 
 const preferences = v.object({

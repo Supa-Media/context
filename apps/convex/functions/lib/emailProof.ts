@@ -59,7 +59,9 @@ export async function liveSessionOf(
   ctx: QueryCtx,
   userId: Id<"users">,
 ): Promise<Id<"authSessions"> | null> {
-  const sessionId = await getAuthSessionId(ctx);
+  // A token whose subject names no session, or not a session id, is no session.
+  const named = await getAuthSessionId(ctx);
+  const sessionId = typeof named === "string" ? ctx.db.normalizeId("authSessions", named) : null;
   if (sessionId === null) return null;
   const session = await ctx.db.get(sessionId);
   if (session === null || session.userId !== userId || session.expirationTime <= Date.now()) return null;

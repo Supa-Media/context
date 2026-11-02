@@ -21,7 +21,8 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { action, internalAction, internalMutation, internalQuery, mutation, query } from "../_generated/server";
+import { action, internalAction, internalQuery, query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { decryptSecret, encryptSecret, hashToken, requireKeyset } from "./lib/crypto";

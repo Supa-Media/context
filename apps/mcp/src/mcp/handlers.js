@@ -14,6 +14,7 @@ import {
   SERVER_INFO,
 } from "./responses.js";
 import { callToolForSession } from "../tools/session.js";
+import { withOutcome } from "./outcome.js";
 import {
   declaredProtocolVersion,
   ERROR_HEADER_MISMATCH,
@@ -174,7 +175,7 @@ async function handleModernMcp(request, msg, store, session) {
           ...CACHEABLE,
         });
       case "tools/call":
-        return modernResultResponse(id, await callToolForSession(params, store, session));
+        return modernResultResponse(id, withOutcome(params?.name, await callToolForSession(params, store, session)));
       default:
         // On this transport an unknown method is `404`, not `200` with an error
         // body. The status is what lets a dual-era client tell "this server
@@ -242,7 +243,7 @@ async function handleRpc(msg, store, session) {
         return rpcResult(id, { tools: await toolsForSession(session, store) });
       case "tools/call": {
         if (isNotification) return null;
-        return rpcResult(id, await callToolForSession(params, store, session));
+        return rpcResult(id, withOutcome(params?.name, await callToolForSession(params, store, session)));
       }
       default:
         return isNotification ? null : jsonRpcErrorObj(id, -32601, `method not found: ${method}`);

@@ -41,6 +41,38 @@ What is built:
   as a user). Without it Google answers `SERVICE_DISABLED` or "Chat app not
   found", and Tex says it is Context's to fix, never the person's.
 
+**"Sent" is what Google answered (2026-10-30).** A live first direct message
+was reported sent while no conversation could be found afterwards, and the
+answer could not say where it went, because it echoed the address that was
+asked for. Now a send is sent only when `messages.create` names a message
+inside the conversation it was posted to, and `spaces.setup` counts only
+when it answers a `DIRECT_MESSAGE` space. The answer carries Google's ids
+(`space`, `message`, and `setupUsed` when the lookup by address found
+nothing and the direct conversation was asked of `spaces.setup`) and Tex's
+reply names them, so anyone can read back exactly that conversation. A 2xx without
+them, or a connection lost while the message was being made, is
+`unconfirmed`: never told as sent, never as "nothing was sent", and never
+retried by itself. Tests: `googleChatSend.test.ts` ("a send Google does not
+confirm is never called sent", "a first direct message goes only into the
+direct message Google made") and `googleChatGate.test.mjs` ("approving it in
+the app sends it, once, and not as a check").
+
+**A lookup by address is not proof of none (2026-10-30).** The live case
+resolved: the first message did arrive, in a direct message Google set up
+that day, but `spaces.findDirectMessage` by the outside person's email and
+`spaces.list` both missed it afterwards. Google documents that
+`spaces.setup` may answer a direct message that already exists, so
+`setupUsed` means only that setup was asked, and no reply says a
+conversation was created or is new. A read by address that finds nothing
+says Google did not find one by that address, never that they have none,
+and points at the `spaces/…` id a send answered. The privacy policy says
+Tex starts a direct conversation for an approved first message, the one
+thing `chat.spaces.create` is used for; nothing creates a named space or a
+group chat. Tests: `googleChatSend.test.ts` ("a lookup by address that
+misses a direct message Google already has…"), `googleChatGate.test.mjs`
+("a send that asked for the direct conversation says so, and never calls it
+new") and `googleChatConversation.test.mjs`.
+
 Not built: replies in a thread, reading a space's messages live, and group
 chats sending as their tagger. The browser stays the fallback only when the
 API refuses.
@@ -58,8 +90,25 @@ and as the person, the few spaces most recently active since the last look
 (at most eight, never further back than three days), and answers at most ten
 messages: everything someone else wrote in a direct message or group chat,
 and in a named space only a message that mentions them. Bots are left out.
-Their own Chat id comes from their membership of a space, looked up by their
-address, since Chat names people only by id.
+Their own words never count, so a look cannot read back what Tex sent as
+them.
+
+**Who "them" is (2026-10-28).** The first version looked their Chat id up
+with `spaces.members.get`, which Google's discovery document allows only
+with a `chat.memberships` scope the connect never asks for, so Google would
+refuse it and every look would find nothing (found by reading the code
+against the discovery document, not measured in production). Now the person is matched by the address
+Google's id token gave the connection: Chat's `User` fills `email` for a
+message's sender and for mentioned users under user authentication, for
+members of the space, and their canonical `users/{id}` is learned from any
+message of theirs in the same look. A sender with neither a known id nor
+an address could be them, so it is left out, never counted as someone else.
+The Google account `sub` is not used as a Chat id: Chat documents its id as
+the People API person id and the Directory user id, and says nothing of
+`sub`. Adding the memberships scope instead was turned down: no new grant
+for a lookup the messages already answer. The test that fails if a Chat
+call needs a scope the connect does not ask for checks each one against a
+copy of the discovery document's scopes.
 
 - `chat.messages.readonly` is restricted, and rides on the Gmail connect
   like the send scopes: one reconnect grants both.

@@ -54,6 +54,7 @@ import {
   type BlendedResult,
   type PageState,
   type SearchableContext,
+  withMeaningRows,
 } from "./results";
 
 /**
@@ -227,7 +228,7 @@ export function useBlendedSearch(options: {
     // type the control plane's own validator names. `scopeIds` reads the ids
     // off the context list the server sent, which is the only place a real
     // one comes from — so the cast sits at that boundary and nowhere else.
-    async (args: { query: string; contexts?: Id<"workspaces">[]; cursor?: string }) =>
+    async (args: { query: string; contexts?: Id<"workspaces">[]; cursor?: string; half?: "words" | "meaning" }) =>
       await raceTimeout(
         // Called inside the race so a client that throws synchronously is a
         // rejected promise here rather than an exception out of the caller.
@@ -320,10 +321,16 @@ export function useBlendedSearch(options: {
           await fromDevice(local, "offline");
           return;
         }
-        const settled = await ask({
-          query: trimmed,
-          ...(scope.length > 0 ? { contexts: scope as Id<"workspaces">[] } : {}),
-        });
+        /*
+          The words and the meaning as two requests (the search tune-up,
+          2026-10-27): the words are drawn as soon as they land, without
+          waiting for meaning, which joins below them when it arrives and
+          never moves a row already drawn (`withMeaningRows`). Meaning that
+          lands first waits for the words, for the same reason.
+        */
+        const scoped = scope.length > 0 ? { contexts: scope as Id<"workspaces">[] } : {};
+        const meaning = ask({ query: trimmed, ...scoped, half: "meaning" });
+        const settled = await ask({ query: trimmed, ...scoped, half: "words" });
         if (asked.current !== question) return;
         if (settled.kind === "value") {
           setTook(Date.now() - sentAt);
@@ -331,6 +338,11 @@ export function useBlendedSearch(options: {
           setNotice(null);
           setAnswer(settled.value);
           setResults(settled.value.results);
+          void meaning.then((joined) => {
+            // A failed or late meaning half leaves the words as the answer.
+            if (asked.current !== question || joined.kind !== "value") return;
+            setResults((current) => withMeaningRows(current, joined.value.results));
+          });
           return;
         }
         if (local !== null) {

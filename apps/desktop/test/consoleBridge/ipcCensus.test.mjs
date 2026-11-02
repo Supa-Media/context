@@ -690,9 +690,10 @@ export async function runIpcCensusChecks(check) {
       takes nothing and answers nothing; it turns this Mac's backup off and
       starts its cursor over, which only stops copying.
     */
+    // 39 → 40: today's meetings for the menu bar, gated and rebuilt (`consoleBridge/calendarChannel.test.mjs`).
     check(
       "...and the census adds up, so neither side can drift unnoticed",
-      registrations + gatedAsync + gatedSync === 39,
+      registrations + gatedAsync + gatedSync === 40,
     );
   }
 }

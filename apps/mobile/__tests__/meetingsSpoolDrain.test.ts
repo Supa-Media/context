@@ -1,3 +1,4 @@
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION } from "@context/shared";
 import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
 import { ConvexError } from "convex/values";
 import type { TranscriptSegment } from "../features/meetings/protocol";
@@ -12,7 +13,7 @@ import {
 import { setCaptureOffline } from "../features/meetings/capture/connectivity";
 import {
   fakeTranscriber,
-  setTranscriber,
+  setTranscriber, setTranscriptionConsent,
   type TranscribeChunkArgs,
 } from "../features/meetings/capture/transcriber";
 
@@ -61,6 +62,7 @@ function scripted(answers: ((input: TranscribeChunkArgs) => Promise<TranscriptSe
   const base = fakeTranscriber();
   const seen: TranscribeChunkArgs[] = [];
   let call = 0;
+  setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
   setTranscriber({
     ...base,
     async transcribe(input) {
@@ -99,6 +101,7 @@ beforeEach(() => {
 afterEach(() => {
   setAudioSpool(null);
   setTranscriber(null);
+  setTranscriptionConsent(null);
   setCaptureOffline(false);
 });
 
@@ -251,6 +254,7 @@ describe("what stops a pass, and what does not", () => {
   test("with nothing to transcribe with, nothing is sent and nothing is lost", async () => {
     keepChunks(spool, ONE, 1);
     setTranscriber(null);
+    setTranscriptionConsent(null);
     const report = await drainSpooledAudio(deps([]));
     expect(report.stoppedEarly).toBe(true);
     expect(spool.list()).toHaveLength(1);

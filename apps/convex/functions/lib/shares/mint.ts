@@ -67,7 +67,7 @@
 
 import { ConvexError, v } from "convex/values";
 import type { ObjectType } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "../signedIn";
 import type { MutationCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { recordAudit } from "../audit";

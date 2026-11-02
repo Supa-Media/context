@@ -168,6 +168,15 @@ describe("records written by earlier builds", () => {
     expect(strandedMeetings([record])).toEqual([]);
   });
 
+  test("a meeting parked because the Mac app could not write its queue file comes back to be tried again", () => {
+    const message =
+      "ENOENT: no such file or directory, rename '/Users/x/Library/Application Support/@context/desktop/outbox.json.tmp' -> '/Users/x/Library/Application Support/@context/desktop/outbox.json'";
+    const record = parseRecord(raw({ rejection: { code: "RETRIES_EXHAUSTED", message, noticedAt: 1 } }), "ws-1")!;
+    expect(record.rejection).toBeUndefined();
+    expect(record.attempts).toBe(0);
+    expect(record.lastError).toBe(message);
+  });
+
   test("any other exhausted retry stays parked", () => {
     const record = parseRecord(
       raw({ rejection: { code: "RETRIES_EXHAUSTED", message: "gateway timed out. It is still…", noticedAt: 1 } }),

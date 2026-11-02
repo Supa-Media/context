@@ -133,6 +133,13 @@ export {
 
 export { cloudflareRequest, stripCredentialFields } from "./cloudflare/request";
 
+export type { TemporaryCredential } from "./cloudflare/temporary";
+export {
+  callerTokenId,
+  createTemporaryR2Credential,
+  TEMPORARY_CREDENTIAL_TTL_SECONDS,
+} from "./cloudflare/temporary";
+
 export {
   deleteEmptyR2Bucket,
   ERASE_PAGE_SIZE,

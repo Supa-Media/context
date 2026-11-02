@@ -24,6 +24,7 @@ import { runNoteChecks } from "./note.test.mjs";
 import { runPathChecks } from "./paths.test.mjs";
 import { runRecorderChecks } from "./recorder.test.mjs";
 import { runRecoveryChecks } from "./recovery.test.mjs";
+import { runScheduledChecks } from "./scheduled.test.mjs";
 import { runSessionChecks } from "./session.test.mjs";
 import { runSummaryChecks } from "./summary.test.mjs";
 import { runTranscriptChecks } from "./transcript.test.mjs";
@@ -293,6 +294,7 @@ runRecorderChecks(check);
 runEnhanceChecks(check);
 runChunkChecks(check);
 runRecoveryChecks(check);
+runScheduledChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);

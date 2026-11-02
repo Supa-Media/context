@@ -28,6 +28,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Report
-        run: npx convex run functions/googleSyncHealth:report
+        run: npx convex run functions/googleSyncHealth:report 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

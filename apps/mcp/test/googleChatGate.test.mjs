@@ -17,10 +17,18 @@
  *  2. `googleChatGate` skipping the check. → `the place is asked about first,
  *     spending nothing` fails.
  *  3. `emailCaller` ignored in the gate. → `a routine never sends one` fails.
+ *  4. The approved replay sending with `check: true` (`sendGoogleChat` given
+ *     `{ check: true }` from `store.googleChat.send`). → `approving it in the
+ *     app sends it, once, and not as a check` fails.
+ *  5. `sendGoogleChat` answering ok without Google's ids. → `a send Google
+ *     does not confirm is never told as sent` fails.
+ *  6. The reply calling a setup "a new direct message". → `a send that asked
+ *     for the direct conversation says so, and never calls it new` fails.
  */
 
-import { ask, call, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { readChatMessage } from "../src/tools/googleChat.js";
+import { ask, call, request, textOf, createEgressWorld, TOKEN_CONSOLE, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { readChatMessage, toolGoogleChat } from "../src/tools/googleChat.js";
+import { createGoogleChatMethods } from "../src/controlPlane/googleChat.js";
 
 const DM = { to: "sayo@example.com", text: "Hey Sayo, I'm testing Google Chat with my assistant. Ignore this." };
 
@@ -79,6 +87,42 @@ export async function runGoogleChatGateChecks(check) {
         sends().length === 1,
     );
 
+    // The app's Approve runs the held call as a send, never a check, and the
+    // asking AI's exact replay is told what Google answered, ids included.
+    const appMessage = { ...DM, text: "From another AI." };
+    const held = (await request(env, TOKEN_CONSOLE, "/approvals", undefined, "GET")).body?.approvals ?? [];
+    const callsBefore = chat.calls.length;
+    const approved = await request(env, TOKEN_CONSOLE, "/approvals", { id: held.find((entry) => entry.tool === "google_chat")?.id, action: "approve" });
+    const ran = chat.calls.slice(callsBefore);
+    const replay = await call(env, TOKEN_MCP, "google_chat", appMessage);
+    const again = await call(env, TOKEN_MCP, "google_chat", appMessage);
+    check(
+      "approving it in the app sends it, once, and not as a check",
+      approved.body?.ok === true &&
+        ran.filter((entry) => !entry.check).length === 1 &&
+        JSON.stringify(ran.find((entry) => !entry.check)?.message) === JSON.stringify(readChatMessage(appMessage).message) &&
+        /Sent on Google Chat from seyi@work\.example to sayo@example\.com \(Google's message spaces\/AAA\/messages\/m\d+ in spaces\/AAA\)/.test(textOf(replay)) &&
+        sends().length === 2 &&
+        again.isError === true &&
+        /approve this exact message in the Context app/.test(textOf(again)),
+    );
+    for (const left of (await request(env, TOKEN_CONSOLE, "/approvals", undefined, "GET")).body?.approvals ?? []) {
+      await request(env, TOKEN_CONSOLE, "/approvals", { id: left.id, action: "deny" });
+    }
+
+    chat.flags.unnamed = true;
+    const unnamed = { ...DM, text: "Google answers without an id." };
+    await call(env, TOKEN_MCP, "google_chat", unnamed);
+    const waitingOne = ((await request(env, TOKEN_CONSOLE, "/approvals", undefined, "GET")).body?.approvals ?? []).find((entry) => entry.tool === "google_chat");
+    const unconfirmed = await request(env, TOKEN_CONSOLE, "/approvals", { id: waitingOne?.id, action: "approve" });
+    check(
+      "a send Google does not confirm is never told as sent",
+      unconfirmed.body?.ok === false &&
+        /^Not confirmed: /.test(unconfirmed.body?.result ?? "") &&
+        !/Sent on Google Chat|Nothing was sent/.test(unconfirmed.body?.result ?? ""),
+    );
+    chat.flags.unnamed = false;
+
     const listed = await call(env, TOKEN_MCP, "google_chat", { action: "spaces" });
     check("listing spaces is never held", listed.isError !== true && /Portal team — spaces\/AAA/.test(textOf(listed)));
 
@@ -96,4 +140,15 @@ export async function runGoogleChatGateChecks(check) {
   } finally {
     world.restore();
   }
+
+  // Setup can answer a direct message that already existed, so the reply says setup was asked, never that one was made.
+  const methods = createGoogleChatMethods({
+    post: async () => ({ ok: true, from: "seyi@work.example", place: { person: "sayo@example.com" }, space: "spaces/OLD", message: "spaces/OLD/messages/m1", setupUsed: true }),
+  });
+  const setupReply = textOf(await toolGoogleChat({ googleChat: { send: (message) => methods.sendGoogleChat("t", "w", message) } }, DM));
+  check(
+    "a send that asked for the direct conversation says so, and never calls it new",
+    /Sent on Google Chat from seyi@work\.example to sayo@example\.com \(Google's message spaces\/OLD\/messages\/m1 in spaces\/OLD; Google found no conversation by that address, so direct-conversation setup was requested\)/.test(setupReply) &&
+      !/\bnew\b|created|started/i.test(setupReply),
+  );
 }

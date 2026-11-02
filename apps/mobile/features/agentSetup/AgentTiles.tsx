@@ -52,6 +52,7 @@ export function LiveAgentTiles(props: { workspaceId: string; onOpen: (agent: Set
 function SubscribedTiles(props: { workspaceId: string; onOpen: (agent: SetupAgent) => void; touch?: boolean }) {
   const grants = useQuery(api.functions.grants.listGrants, {
     workspaceId: props.workspaceId as Id<"workspaces">,
+    activeOnly: true,
   }) as GrantFacts[] | undefined;
   return <AgentTiles {...props} grants={grants} />;
 }

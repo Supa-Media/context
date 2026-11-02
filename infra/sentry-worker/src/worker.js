@@ -190,7 +190,8 @@ async function contextAccessToken(env) {
   // A new OAuth client gets a fresh broker identity, so replacing a revoked
   // grant never reuses the previous client's persisted rotating token.
   const id = env.CONTEXT_TOKEN_BROKER.idFromName(env.CONTEXT_MCP_CLIENT_ID);
-  const response = await env.CONTEXT_TOKEN_BROKER.get(id).fetch("https://context-token.internal/token");
+  // Placed in eastern North America like every object of ours (decided by the owner, 2026-11-01).
+  const response = await env.CONTEXT_TOKEN_BROKER.get(id, { locationHint: "enam" }).fetch("https://context-token.internal/token");
   if (!response.ok) throw new Error("ContextTokenUnavailable");
   const result = await response.json();
   if (!field(result?.accessToken)) throw new Error("ContextTokenMalformed");

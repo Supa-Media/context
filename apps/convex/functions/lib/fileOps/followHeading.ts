@@ -27,9 +27,15 @@ import type { FileStore } from "./store";
 import { writeFile } from "./writing";
 
 /**
- * The note's new etag when its heading was rewritten, `undefined` when nothing
- * changed: a folder or a queued move, a note with no heading or an address
- * name, an encrypted note, or a note somebody wrote to after the move.
+ * The version a read of the renamed note hands out once its heading has followed: the written version, or
+ * the version read when nothing needed writing. For a note with no collaboration document that is its
+ * Markdown's own version, which a save accepts as its base when it starts the document. `undefined` when
+ * this step did not read the note at all (a folder, a queued move) or the read failed, and when somebody
+ * wrote to the note after the move: the caller then asks for the version itself.
+ *
+ * Never throws. The rename has landed before this runs, so a failure here — a refusal, or the bucket not
+ * answering — leaves a note whose heading and name differ, which the next title edit links again; failing
+ * the rename for it told the app a move had not happened when it had (2026-10-29).
  */
 export async function followHeading(
   store: FileStore,
@@ -39,34 +45,31 @@ export async function followHeading(
   // A row move (`rowed`) has landed whole; only a queued one still has its bucket catching up.
   if ((moved.queued !== undefined && moved.rowed !== true) || moved.etag === undefined || moved.paths.length !== 1) return undefined;
   if (moved.paths[0] !== moved.to) return undefined;
-  // Read as every open reads it, so a collaborative note's version is its
-  // document's, the one the move answered with, not the bucket object's.
-  let current;
   try {
-    current = await readFile(store, { path: moved.to, clearance: options.clearance, forward: "never" });
-  } catch (error) {
-    if (error instanceof FileOpError) return undefined;
-    throw error;
-  }
-  // Written since the move made it: that writer's text stands.
-  if (current.etag !== moved.etag) return undefined;
-  const text = current.text;
-  if (isEncryptedNote(text)) return undefined;
-  const next = retitled(moved.from, moved.to, text);
-  if (next === null) return undefined;
-  try {
+    // Read as every open reads it, so a collaborative note's version is its document's. The move answered
+    // with the row's Markdown etag (`handOut: false`, so it did not read the note too), or with the version a
+    // read hands out. A note nobody has opened has no document, and starting one to change a heading was most
+    // of a never-opened note's rename (about 14 bucket round trips): it is read and written as its Markdown
+    // instead, and its first open starts the document from that (2026-10-29).
+    const current = await readFile(store, { path: moved.to, clearance: options.clearance, forward: "never", startsNoDocument: true });
+    const quiet = current.documentId === undefined;
+    // Written since the move made it: that writer's text stands.
+    if (current.etag !== moved.etag && current.rawEtag !== moved.etag) return undefined;
+    const text = current.text;
+    if (isEncryptedNote(text)) return current.etag;
+    const next = retitled(moved.from, moved.to, text);
+    if (next === null) return current.etag;
     const written = await writeFile(store, {
       path: moved.to,
       text: next,
-      expectedEtag: moved.etag,
+      expectedEtag: current.etag,
       clearance: options.clearance,
       now: options.now,
+      ...(quiet ? { startsNoDocument: true } : {}),
     });
     return written.etag;
   } catch (error) {
-    // The rename has happened either way; a heading that could not follow is
-    // a note whose two names differ, which the next title edit links again.
-    if (error instanceof FileOpError) return undefined;
-    throw error;
+    console.warn(JSON.stringify({ event: "rename.heading_not_followed", error: String((error as Error)?.name ?? "Error"), code: error instanceof FileOpError ? error.code : null }));
+    return undefined;
   }
 }

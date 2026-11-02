@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, query, type MutationCtx } from "../_generated/server";
+import { internalQuery, query, type MutationCtx } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { callerId, resolveFileAccess } from "./files";
 import { audiencesOf, isAudience } from "./lib/treeAudiences";
 

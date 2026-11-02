@@ -51,6 +51,7 @@ import {
   tablesForTier,
   toMatchExpression,
   toRelaxedMatchExpression,
+  toTypingMatchExpression,
 } from "./query.js";
 
 /**
@@ -126,9 +127,33 @@ export async function searchProjection(
   } = {}
 ) {
   const match = given === undefined ? toMatchExpression(query) : given;
+  const [result] = await searchProjectionEach(client, { matches: [match], prefix, tier, budget, reserve, chunkCap });
+  return result;
+}
+
+/**
+ * Several MATCH expressions over the same tables, asked in ONE request.
+ *
+ * A search used to ask the strict expression, wait for the answer, and only
+ * on a miss ask the relaxed one: two round trips across the internet for
+ * every query that held a word nobody wrote, which is most of what a person
+ * types before they finish a word (the search review, 2026-10-27: each trip
+ * is 0.14 to 1.1 s from our server). Both now travel together and the caller
+ * picks; the database does a little more work and nobody waits for it.
+ *
+ * One answer per expression, in order: `{notes, truncated}`, or `null` for an
+ * expression that has no usable token. `null` for every one when the tier is
+ * unknown or the budget cannot pay for the whole request, for the reasons
+ * `searchProjection` always gave: half a corpus is a different question.
+ */
+export async function searchProjectionEach(
+  client,
+  { matches, prefix = "", tier, budget = null, reserve = 0, chunkCap = CHUNK_FETCH_CAP } = {}
+) {
   // An empty MATCH is a syntax error in FTS5 and the other reading of it —
   // "match everything" — returns the whole context. Neither is an answer.
-  if (match === null) return null;
+  const asked = matches.filter((match) => match !== null);
+  if (asked.length === 0) return matches.map(() => null);
 
   let tables;
   try {
@@ -137,7 +162,7 @@ export async function searchProjection(
     // `tablesForTier` throws rather than guessing, and guessing here would be
     // the same mistake one level up: the safe table set and the useful one
     // differ, and the useful one is the leak.
-    return null;
+    return matches.map(() => null);
   }
 
   const options = { limit: chunkCap, prefix };
@@ -145,15 +170,13 @@ export async function searchProjection(
   /*
    * **Every op taken before any query starts, and then all of them at once.**
    *
-   * The two halves are independent — separate tables, separate statements —
-   * so awaiting them one at a time bought nothing and cost a round trip, and
-   * they now travel as one batched request where the client takes one. That
+   * The tables are independent — separate tables, separate statements — so
+   * awaiting them one at a time bought nothing and cost a round trip, and
+   * they travel as one batched request where the client takes one. That
    * matters more here than anywhere else in the search: this client talks to
    * D1 over Cloudflare's HTTP API rather than a native binding, because the
    * databases are created per workspace at runtime and a Worker's D1 bindings
-   * are fixed at deploy time. So a tier is a full HTTPS request, and a
-   * personal connection reads both — which made the fast path's floor two
-   * round trips when its whole claim is to be one.
+   * are fixed at deploy time. So a request is a full HTTPS round trip.
    *
    * The budget is settled first, for the reason `walkReserve` exists: a
    * reserve taken out of what the previous stage happened to leave is not a
@@ -164,33 +187,39 @@ export async function searchProjection(
    * plausible, quietly wrong order instead of a slow correct one; half a
    * corpus is not a smaller answer, it is a different question.
    */
+  const statements = asked.flatMap((match) =>
+    tables.map((table) => ({ sql: searchSql(table, options), params: searchParams(match, options) })),
+  );
   if (budget) {
-    for (let n = 0; n < tables.length; n += 1) {
-      if (!budget.take(reserve)) return null;
+    for (let n = 0; n < statements.length; n += 1) {
+      if (!budget.take(reserve)) return matches.map(() => null);
     }
   }
-  const statements = tables.map((table) => ({ sql: searchSql(table, options), params: searchParams(match, options) }));
-  // Both tables in one request where the client can batch (`client.js`).
+  // Every table and every expression in one request where the client can
+  // batch (`client.js`).
   const answers =
     typeof client.queryAll === "function"
       ? await client.queryAll(statements)
       : await Promise.all(statements.map(({ sql, params }) => client.query(sql, params)));
 
-  const rows = [];
-  let truncated = false;
-  for (const answered of answers) {
-    // A table that filled its cap may have had more to say. Reported rather
-    // than hidden, because the count above this becomes "N+" and not "N".
-    if (answered.length >= chunkCap) truncated = true;
-    rows.push(...answered);
-  }
-
-  // `mergeHits` is where a note becomes its best chunk and the score flips into
-  // "higher is better". Its own limit is applied by the caller, after the
-  // privacy filter — slicing before the filter would make the number of results
-  // a team caller sees depend on how many private notes outranked them, which
-  // is a subtraction attack with extra steps.
-  return { notes: mergeHits(rows, Number.POSITIVE_INFINITY), truncated };
+  const results = asked.map((_, index) => {
+    const rows = [];
+    let truncated = false;
+    for (const answered of answers.slice(index * tables.length, (index + 1) * tables.length)) {
+      // A table that filled its cap may have had more to say. Reported rather
+      // than hidden, because the count above this becomes "N+" and not "N".
+      if (answered.length >= chunkCap) truncated = true;
+      rows.push(...answered);
+    }
+    // `mergeHits` is where a note becomes its best chunk and the score flips
+    // into "higher is better". Its own limit is applied by the caller, after
+    // the privacy filter — slicing before the filter would make the number of
+    // results a team caller sees depend on how many private notes outranked
+    // them, which is a subtraction attack with extra steps.
+    return { notes: mergeHits(rows, Number.POSITIVE_INFINITY), truncated };
+  });
+  let next = 0;
+  return matches.map((match) => (match === null ? null : results[next++]));
 }
 
 /**
@@ -271,7 +300,13 @@ export async function answerFromProjection(
   } = {}
 ) {
   const depth = pageDepth(limit);
-  let result = await searchProjection(client, { query, prefix, tier, budget, reserve });
+  // Every word, the last one also as the start of a longer word, and beside
+  // it the any-word retry, asked in the same request (`searchProjectionEach`):
+  // the retry is only read when the strict half found nothing.
+  const strict = toTypingMatchExpression(query);
+  const relaxedExpression = toRelaxedMatchExpression(query);
+  const relaxed = relaxedExpression === strict ? null : relaxedExpression;
+  let [result, second] = await searchProjectionEach(client, { matches: [strict, relaxed], prefix, tier, budget, reserve });
   if (!result) return null;
 
   // The boundary. Nothing below this line has seen a path the caller may not
@@ -281,18 +316,14 @@ export async function answerFromProjection(
   let visible = result.notes.filter((note) => isVisible(note.path));
   if (typeof onCounts === "function") onCounts(result.notes.length, visible.length);
 
-  // Nothing had every word exactly: ask again for any of them, prefixes
+  // Nothing had every word: the retry's rows, any of the words with prefixes
   // included, before calling it a miss (`toRelaxedMatchExpression`).
-  const relaxed = visible.length === 0 ? toRelaxedMatchExpression(query) : null;
   let loose = false;
-  if (relaxed !== null) {
-    const second = await searchProjection(client, { query, prefix, tier, budget, reserve, match: relaxed });
-    if (second) {
-      result = second;
-      loose = true;
-      visible = second.notes.filter((note) => isVisible(note.path));
-      if (typeof onCounts === "function") onCounts(second.notes.length, visible.length);
-    }
+  if (visible.length === 0 && second) {
+    result = second;
+    loose = true;
+    visible = second.notes.filter((note) => isVisible(note.path));
+    if (typeof onCounts === "function") onCounts(second.notes.length, visible.length);
   }
 
   if (visible.length === 0) {

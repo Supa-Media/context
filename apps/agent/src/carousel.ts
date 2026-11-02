@@ -11,7 +11,7 @@ import { MAX_CAROUSEL } from "./sendblue";
 export function carouselRun(reply: SendPart[], index: number): string[] {
   const urls: string[] = [];
   for (const part of reply.slice(index)) {
-    if (typeof part === "string" || !("url" in part.media)) break;
+    if (typeof part === "string" || !("media" in part) || !("url" in part.media)) break;
     urls.push(part.media.url);
   }
   return urls.slice(0, MAX_CAROUSEL);

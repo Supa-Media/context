@@ -33,8 +33,12 @@ export const SCORE_LABELS: Record<ScoreKey, string> = {
   calm: "They stayed calm (10 = no frustration)",
 };
 
-/** What made a review run. */
-export const REVIEW_REASONS = ["ended", "fix_this", "frustrated"] as const;
+/**
+ * What made a review run. `shared`: the person texted yes to sharing, and
+ * the history Tex keeps of their chat is filed for its words alone, its turns
+ * having been scored already (`functions/lib/gatewayRoutes/texReview.ts`).
+ */
+export const REVIEW_REASONS = ["ended", "fix_this", "frustrated", "shared"] as const;
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
 
 /**
@@ -68,7 +72,8 @@ export function parseTexts(value: unknown): number | null {
 
 /** Bounds on what a review may carry, so one review cannot fill a note. */
 export const MAX_REVIEW_TEXT_CHARS = 2_000;
-export const MAX_REVIEW_TRANSCRIPT_CHARS = 40_000;
+/** A shared history (`shared`) carries up to everything Tex keeps of a chat. */
+export const MAX_REVIEW_TRANSCRIPT_CHARS = 120_000;
 
 /** The scores, each a whole number 1 to 10, or null when any is missing or out of range. */
 export function parseScores(value: unknown): Scores | null {

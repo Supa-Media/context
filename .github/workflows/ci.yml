@@ -118,10 +118,17 @@ jobs:
           # Not all of apps/mcp: only the gateway files Convex code and tests
           # reach (`node scripts/convex-gateway-reads.mjs --filter` prints this
           # list; check-ci-path-gates.mjs fails when it stops covering them).
-          # A texting-assistant change under apps/mcp/src/agent reaches none,
-          # so it no longer waits four minutes on this suite; the tests that
-          # read the whole gateway run in Gateway Contracts instead.
+          # A texting-assistant change under apps/mcp/src/agent reaches none but
+          # the history move's files named here, so it no longer waits four
+          # minutes on this suite; the tests that read the whole gateway run in
+          # Gateway Contracts instead.
           - 'apps/mcp/src/activity/**'
+          - 'apps/mcp/src/agent/agentHomeMove.js'
+          - 'apps/mcp/src/agent/conversation.js'
+          - 'apps/mcp/src/agent/events.js'
+          - 'apps/mcp/src/agent/history.js'
+          - 'apps/mcp/src/agent/ledger.js'
+          - 'apps/mcp/src/agent/sources.js'
           - 'apps/mcp/src/chaos/**'
           - 'apps/mcp/src/communications/**'
           - 'apps/mcp/src/context/**'
@@ -139,17 +146,27 @@ jobs:
           - 'apps/mcp/src/lists.js'
           - 'apps/mcp/src/lists/**'
           - 'apps/mcp/src/live/**'
+          - 'apps/mcp/src/mcp/**'
           - 'apps/mcp/src/moves/**'
           - 'apps/mcp/src/notes/**'
+          - 'apps/mcp/src/objectPlace.js'
+          - 'apps/mcp/src/orient/**'
           - 'apps/mcp/src/plugins/**'
           - 'apps/mcp/src/presence.js'
           - 'apps/mcp/src/privacy/**'
           - 'apps/mcp/src/search/**'
           - 'apps/mcp/src/session.js'
+          - 'apps/mcp/src/sessionPayload.js'
           - 'apps/mcp/src/sessionStore.js'
           - 'apps/mcp/src/storageLayout.js'
           - 'apps/mcp/src/store/**'
+          - 'apps/mcp/src/texStore/**'
           - 'apps/mcp/src/tools/approvalKeys.js'
+          - 'apps/mcp/src/tools/emailRead.js'
+          - 'apps/mcp/src/tools/fileParts.js'
+          - 'apps/mcp/src/tools/googleAiAccess.js'
+          - 'apps/mcp/src/tools/pdfLinks.js'
+          - 'apps/mcp/src/tools/readFile.js'
           - 'apps/mcp/src/tools/moves/archive.js'
           - 'apps/mcp/src/tools/moves/destination.js'
           - 'apps/mcp/src/tools/moves/folder.js'
@@ -165,6 +182,7 @@ jobs:
           - 'apps/mcp/src/tree/**'
           - 'apps/mcp/src/vault/**'
           - 'apps/mcp/src/workspacePath.js'
+          - 'apps/mcp/src/workspaceStore/**'
           - 'apps/mcp/test/attachmentsCore.test.mjs'
           - 'packages/**'
           - 'infra/**'
@@ -374,6 +392,12 @@ jobs:
           # js-tiktoken: the usage tokenizer, in its one file (docs/decisions/observability/token-usage.md).
           node scripts/check-gateway-imports.mjs --allow-import=js-tiktoken/lite:src/mcp/tokens.js --allow-import=js-tiktoken/ranks/o200k_base:src/mcp/tokens.js apps/mcp/src
 
+      # Every step on Tex's reply path is a named, timed call (`apps/mcp/src/agent/texEntryPoint.js`).
+      - name: Nothing joins Tex's reply path untimed
+        run: |
+          node scripts/tex-entry-check.mjs --self-test
+          node scripts/tex-entry-check.mjs
+
       # The mirror of the check above: the gateway imports none of the desktop
       # bridge, and the control plane imports plenty of the gateway — so its
       # deploy has to notice when any of that changes. It stopped noticing, for
@@ -386,6 +410,8 @@ jobs:
           node --test scripts/deploy-plan.test.mjs
           node --test scripts/ci-performance-report.test.mjs
           node --test scripts/release-communication-evidence.test.mjs
+          node --test scripts/tex-alert.test.mjs
+          node --test scripts/agent-logs-filter.test.mjs
           node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/devlog-draft.test.mjs scripts/devlog-sync.test.mjs
           node scripts/check-convex-deploy-paths.mjs --self-test
           node scripts/check-convex-deploy-paths.mjs
@@ -648,6 +674,46 @@ jobs:
           EXPO_PUBLIC_CONVEX_URL: "https://native-bundle-check.invalid"
         run: pnpm exec expo export --platform "${{ matrix.platform }}" --output-dir "$RUNNER_TEMP/native-bundle"
 
+  # The app's own `tsc`. Without it a Convex function's return shape could
+  # change under a screen that still read the old one: #2116 cut
+  # `nodesMigration.report` rows to four fields while the staff Search tab
+  # still switched on `stage`, and the tab threw in production (#2367). Jest
+  # strips types, so no test saw it. Needs about 3 GB of heap.
+  mobile-typecheck:
+    name: The app typechecks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      # The same filter as the native bundle: what the app's types reach.
+      - name: Does this touch the app or what it types against?
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
+
+      - uses: pnpm/action-setup@v4
+        if: steps.changes.outputs.mobile == 'true'
+
+      - uses: actions/setup-node@v5
+        if: steps.changes.outputs.mobile == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.changes.outputs.mobile == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck the app
+        if: steps.changes.outputs.mobile == 'true'
+        working-directory: apps/mobile
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm typecheck
+
   # The Convex deploy's own `tsc` reads gateway JSDoc through fileOps.ts; the package
   # `tsc` does not, so a stranded `@param` block once passed PR CI and broke staging.
   convex-deploy-typecheck:
@@ -668,6 +734,12 @@ jobs:
           # check-ci-path-gates.mjs holds both lists to the same derivation.
           paths: |
             apps/mcp/src/activity/**
+            apps/mcp/src/agent/agentHomeMove.js
+            apps/mcp/src/agent/conversation.js
+            apps/mcp/src/agent/events.js
+            apps/mcp/src/agent/history.js
+            apps/mcp/src/agent/ledger.js
+            apps/mcp/src/agent/sources.js
             apps/mcp/src/chaos/**
             apps/mcp/src/communications/**
             apps/mcp/src/context/**
@@ -685,17 +757,27 @@ jobs:
             apps/mcp/src/lists.js
             apps/mcp/src/lists/**
             apps/mcp/src/live/**
+            apps/mcp/src/mcp/**
             apps/mcp/src/moves/**
             apps/mcp/src/notes/**
+            apps/mcp/src/objectPlace.js
+            apps/mcp/src/orient/**
             apps/mcp/src/plugins/**
             apps/mcp/src/presence.js
             apps/mcp/src/privacy/**
             apps/mcp/src/search/**
             apps/mcp/src/session.js
+            apps/mcp/src/sessionPayload.js
             apps/mcp/src/sessionStore.js
             apps/mcp/src/storageLayout.js
             apps/mcp/src/store/**
+            apps/mcp/src/texStore/**
             apps/mcp/src/tools/approvalKeys.js
+            apps/mcp/src/tools/emailRead.js
+            apps/mcp/src/tools/fileParts.js
+            apps/mcp/src/tools/googleAiAccess.js
+            apps/mcp/src/tools/pdfLinks.js
+            apps/mcp/src/tools/readFile.js
             apps/mcp/src/tools/moves/archive.js
             apps/mcp/src/tools/moves/destination.js
             apps/mcp/src/tools/moves/folder.js
@@ -711,6 +793,7 @@ jobs:
             apps/mcp/src/tree/**
             apps/mcp/src/vault/**
             apps/mcp/src/workspacePath.js
+            apps/mcp/src/workspaceStore/**
             apps/mcp/test/attachmentsCore.test.mjs
             packages/**
             .github/workflows/ci.yml
@@ -731,3 +814,47 @@ jobs:
       - name: Typecheck what the Convex deploy would push
         if: steps.scope.outputs.affected == 'true'
         run: pnpm exec convex typecheck
+
+  # The Messages extension (`apps/mobile/targets/context-messages`) is built
+  # only by a native release, which is a separate, hand-run step; a Swift
+  # mistake would otherwise first show up there, after the change merged.
+  # This type-checks it against the iOS SDK on every pull request that
+  # touches it, without building the app.
+  messages-extension:
+    name: The Messages extension compiles
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Does this touch the Messages extension?
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            extension:
+              - "apps/mobile/targets/context-messages/**"
+              - "apps/mobile/plugins/with-context-messages.js"
+              - ".github/workflows/ci.yml"
+
+      - name: Type-check the extension against the iOS SDK
+        if: steps.changes.outputs.extension == 'true'
+        working-directory: apps/mobile/targets/context-messages
+        run: |
+          deployment=$(sed -n 's/.*IPHONEOS_DEPLOYMENT_TARGET = "\([0-9.]*\)".*/\1/p' ../../plugins/with-context-messages.js)
+          xcrun --sdk iphoneos swiftc -typecheck \
+            -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" \
+            -target "arm64-apple-ios${deployment}" \
+            -swift-version 5 \
+            *.swift
+
+      - name: Compile the Messages icon catalog
+        if: steps.changes.outputs.extension == 'true'
+        run: |
+          output=$(mktemp -d)
+          trap 'rm -rf "$output"' EXIT
+          xcrun actool apps/mobile/targets/context-messages/Assets.xcassets \
+            --compile "$output" --platform iphoneos --minimum-deployment-target 16.1 \
+            --target-device iphone --target-device ipad --app-icon "iMessage App Icon" \
+            --product-type com.apple.product-type.app-extension.messages \
+            --output-partial-info-plist "$output/Info.plist"

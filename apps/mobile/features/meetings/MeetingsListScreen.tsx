@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ScreenScroll } from "../app/Screen";
 import { useOptionalLocalSearchParams } from "../app/useOptionalLocalSearchParams";
@@ -10,7 +10,12 @@ import { Text } from "../design/components/Text";
 import { MeetingRow, RowDivider } from "./components/MeetingRow";
 import { RecordButton } from "./components/RecordButton";
 import { meetings } from "./controller";
-import { groupMeetings, startsIn, type MeetingListSection } from "./format";
+import { groupMeetings, type MeetingListSection } from "./format";
+import { ScheduledRow } from "./components/ScheduledRow";
+import { useTranscriptionConsentGate } from "./useTranscriptionConsent";
+import { joinStartInput } from "./join";
+import { useScheduledMeetings } from "./scheduled";
+import { nextMeeting } from "@context/meetings/scheduled";
 import type { CalendarEvent } from "./protocol";
 import { CONSOLE_ROOT } from "../console/nav";
 import { strandedMeetings } from "./landing";
@@ -34,15 +39,14 @@ import { useMeetingsSnapshot, useTick } from "./useMeetings";
  * editable — and asking for one first is a modal between somebody and a meeting
  * that has already started.
  *
- * ## The calendar is not wired, and the screen says nothing rather than lying
+ * ## The calendar is the person's connected Google calendars, read live
  *
- * "Coming up" renders only when there are real events. There is no calendar
- * integration in this app yet — reading the device calendar is a native
- * permission and a decision about what leaves the phone — so the section is
- * simply absent, rather than showing a plausible-looking placeholder. That is
- * `placeholderData.ts`'s rule, and it is the one this repo has already been
- * burned by twice: "an invented value may never reach a signed-in person as a
- * fact about their own data".
+ * "Coming up" is today's meetings from `scheduled.ts`, each with Join and take
+ * notes, and it renders only when there are real events: no calendar
+ * connected, or none answered yet, draws no section rather than a
+ * plausible-looking placeholder. That is `placeholderData.ts`'s rule: "an
+ * invented value may never reach a signed-in person as a fact about their own
+ * data".
  */
 /**
  * The empty calendar, as one frozen value.
@@ -61,13 +65,19 @@ export function MeetingsListScreen({
    * so whoever wires a calendar has one place to plug into. Empty means the
    * section is not drawn at all.
    */
-  upcoming = NO_EVENTS,
+  upcoming: upcomingProp,
   locale,
 }: {
   upcoming?: readonly CalendarEvent[];
   locale?: string;
 }) {
   const snapshot = useMeetingsSnapshot();
+  const scheduled = useScheduledMeetings();
+  /*
+    Today's meetings from the person's own calendars (`scheduled.ts`), unless
+    a caller hands a list in, which is what the render tests do.
+  */
+  const upcoming = upcomingProp ?? (scheduled.meetings.length > 0 ? scheduled.meetings : NO_EVENTS);
   const router = useRouter();
   const styles = useThemedStyles(makeStyles);
   const now = useTick(upcoming.length > 0, 30_000);
@@ -103,12 +113,45 @@ export function MeetingsListScreen({
     [snapshot.records, upcoming, now, locale],
   );
 
+  /*
+    Cloud transcription consent, in front of both starts below
+    (docs/decisions/meetings/transcription-consent.md). Not now still starts
+    the meeting: it runs as typed notes, with no microphone opened.
+  */
+  const consent = useTranscriptionConsentGate({ capture: snapshot.capture });
+  const consentGate = consent.gate;
+
   const start = useCallback(
-    async (title: string) => {
-      const id = await meetings.start({ title });
-      router.push(meetingHref(id));
+    (title: string) =>
+      new Promise<void>((resolve, reject) => {
+        consentGate(() => {
+          void meetings
+            .start({ title })
+            .then((id) => {
+              router.push(meetingHref(id));
+              resolve();
+            }, reject);
+        });
+      }),
+    [consentGate, router],
+  );
+
+  /*
+    Join and take notes. The call opens in the same press where nothing else
+    needs it (a phone records the microphone, no share prompt); a browser opens
+    its prompt and the live screen offers the call after
+    (docs/decisions/meetings/joining-from-the-calendar.md).
+  */
+  const join = useCallback(
+    async (meeting: CalendarEvent) => {
+      if (meeting.conferenceUrl !== undefined && !snapshot.capture.systemAudioNeedsPicker) {
+        void Linking.openURL(meeting.conferenceUrl).catch(() => {});
+      }
+      consentGate(() => {
+        void meetings.start(joinStartInput(meeting)).then((id) => router.push(meetingHref(id)), () => {});
+      });
     },
-    [router],
+    [consentGate, router, snapshot.capture.systemAudioNeedsPicker],
   );
 
   useEffect(() => {
@@ -173,7 +216,7 @@ export function MeetingsListScreen({
               now={now === 0 ? Date.now() : now}
               onOpen={(id) => router.push(meetingHref(id))}
               stranded={strandedIds}
-              onRecord={(title) => void start(title)}
+              onJoin={(meeting) => void join(meeting)}
             />
           ))
         )}
@@ -200,6 +243,7 @@ export function MeetingsListScreen({
           testID="meetings-record"
         />
       ) : null}
+      {consent.sheet}
     </>
   );
 }
@@ -243,7 +287,7 @@ function Section({
   now,
   onOpen,
   stranded,
-  onRecord,
+  onJoin,
 }: {
   section: MeetingListSection;
   locale?: string;
@@ -251,7 +295,7 @@ function Section({
   onOpen: (id: string) => void;
   /** Ids of the meetings nothing is going to send on its own. */
   stranded: ReadonlySet<string>;
-  onRecord: (title: string) => void;
+  onJoin: (meeting: CalendarEvent) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -259,12 +303,15 @@ function Section({
       <Text variant="railHead">{section.heading}</Text>
 
       {section.upcoming.map((event) => (
-        <UpcomingRow
-          key={event.id}
-          event={event}
-          now={now}
-          onRecord={() => onRecord(event.title)}
-        />
+        <View key={event.id} testID={`meeting-upcoming-${event.id}`}>
+          <ScheduledRow
+            meeting={event}
+            now={now}
+            next={nextMeeting(section.upcoming, now)?.id === event.id}
+            onJoin={onJoin}
+            locale={locale}
+          />
+        </View>
       ))}
 
       {section.meetings.length > 0 ? (
@@ -282,60 +329,6 @@ function Section({
           ))}
         </View>
       ) : null}
-    </View>
-  );
-}
-
-/**
- * A calendar event that has not happened.
- *
- * Drawn in the accent wash rather than as a list row, because it is not one:
- * there is nothing to open, and the only thing to do with it is start
- * recording. The Record button carries the event's title straight through, so
- * the meeting is named before it begins without anybody typing.
- */
-function UpcomingRow({
-  event,
-  now,
-  onRecord,
-}: {
-  event: CalendarEvent;
-  now: number;
-  onRecord: () => void;
-}) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  const people = event.attendees.length;
-  const detail = [
-    startsIn(event.startsAt, now),
-    people > 0 ? `${people} ${people === 1 ? "person" : "people"}` : "",
-  ]
-    .filter((part) => part !== "")
-    .join(" · ");
-
-  return (
-    <View style={styles.upcoming} testID={`meeting-upcoming-${event.id}`}>
-      <View style={styles.upcomingMark} aria-hidden>
-        <Icon name="constellation" size={18} color={colors.accent} />
-      </View>
-      <View style={styles.grow}>
-        <Text variant="rowTitle" numberOfLines={1}>
-          {event.title}
-        </Text>
-        <Text variant="rowSub" numberOfLines={1}>
-          {detail}
-        </Text>
-      </View>
-      <Pressable
-        onPress={onRecord}
-        accessibilityRole="button"
-        accessibilityLabel={`Record ${event.title}`}
-        style={({ pressed }) => [styles.recordChip, pressed && styles.chipPressed]}
-      >
-        <Text variant="mini" style={styles.recordChipLabel}>
-          Record
-        </Text>
-      </Pressable>
     </View>
   );
 }
@@ -399,34 +392,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     overflow: "hidden",
   },
   grow: { flex: 1, minWidth: 0, gap: 3 },
-  upcoming: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 13,
-    borderWidth: 1,
-    borderColor: colors.hintBorder,
-    backgroundColor: colors.hintWash,
-    borderRadius: radii.sheet,
-    padding: 15,
-  },
-  upcomingMark: {
-    width: 38,
-    height: 38,
-    borderRadius: radii.card,
-    backgroundColor: colors.accentDim,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  recordChip: {
-    height: 32,
-    paddingHorizontal: 14,
-    borderRadius: radii.pill,
-    backgroundColor: colors.white,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
   recordChipLabel: { color: colors.ink, fontSize: t.ui },
   chipPressed: { opacity: 0.8 },
   quiet: { height: 120 },

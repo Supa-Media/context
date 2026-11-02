@@ -14,7 +14,7 @@ import {
   websiteRouteLookupKey,
   type ResolvedWebsiteAddress,
 } from "@context/shared";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "../signedIn";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx, QueryCtx } from "../../../_generated/server";

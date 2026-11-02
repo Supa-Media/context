@@ -208,6 +208,8 @@ export function handleRoomFrame(
         head: null,
         canWrite: false,
         isAgent: true,
+        // A tool is drawn as a robot even when it acts for you.
+        isYou: false,
       };
       holdAgent(member.id);
       dispatch({ type: "frame", notePath: path, frame: { t: "join", member } });

@@ -8,7 +8,7 @@
  * lifecycle state only after that bucket step succeeds.
  */
 
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "../signedIn";
 import {
   DEFAULT_WEBSITE_ROOT,
   WEBSITE_CONTRACT_VERSION,

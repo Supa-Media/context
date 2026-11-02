@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { MAX_INSTRUCTION_CHARS, summaryState } from "@context/meetings/summary";
 import { useConsoleGrant } from "../agent/useConsoleGrant";
+import { cloudTranscriptionAllowed, onTranscriptionConsentChange } from "./capture";
 import { gatewayOriginFrom } from "./gateway";
 import {
   automaticSummaryDue,
@@ -56,6 +57,8 @@ export function useMeetingSummary(options: UseMeetingSummaryOptions): MeetingSum
   const flights = useRef(new Set<string>());
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // A yes that arrives after the note opened starts its summary then.
+  useEffect(() => onTranscriptionConsentChange(rerender), []);
 
   const key = workspaceId !== null && path !== null ? summaryKey(workspaceId, path) : null;
   const pending = key !== null && flights.current.has(key);
@@ -63,7 +66,14 @@ export function useMeetingSummary(options: UseMeetingSummaryOptions): MeetingSum
   const due =
     key !== null &&
     endpoint !== null &&
-    automaticSummaryDue({ key, text, canEdit, pending, started: automaticStarted });
+    automaticSummaryDue({
+      key,
+      text,
+      canEdit,
+      pending,
+      started: automaticStarted,
+      aiAllowed: cloudTranscriptionAllowed(),
+    });
 
   // Read from the latest render: the effect below must not re-run when `send`
   // changes identity, and the request must see the path it was started for.

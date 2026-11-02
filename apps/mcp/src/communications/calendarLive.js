@@ -26,7 +26,11 @@ export const MAX_LIVE_CALENDAR_DAYS = 14;
 /**
  * @param {{fetchImpl: typeof fetch, accessToken: string, account: string,
  *          from: string, days: number, nonce: string, now?: string}} args
- * @returns {Promise<{timezone: string, days: Array<{date: string, events: number, text: string}>}>}
+ * `busy` is when the day's timed events run, as instants and nothing else
+ * (no title, place or guest), for a card that picks free times
+ * (`http/cards.js`); `allDay` counts the rest.
+ *
+ * @returns {Promise<{timezone: string, days: Array<{date: string, events: number, busy: Array<{start: string, end: string}>, allDay: number, text: string}>}>}
  */
 export async function readCalendarDays({ fetchImpl, accessToken, account, from, days, nonce, now }) {
   if (!isCalendarDayDate(from)) throw new TypeError("from must be YYYY-MM-DD");
@@ -49,8 +53,23 @@ export async function readCalendarDays({ fetchImpl, accessToken, account, from, 
     out.push({
       date,
       events: onDay.length,
+      busy: busyTimes(onDay),
+      allDay: onDay.filter((event) => typeof event?.start?.date === "string").length,
       text: renderCalendarDay({ date, timezone, events: onDay, nonce: `${nonce}:${date}`, now, origin: "calendar-live" }),
     });
   }
   return { timezone, days: out };
+}
+
+/** The timed, not-cancelled events' start and end, as ISO instants, in order. */
+export function busyTimes(events) {
+  const busy = [];
+  for (const event of events) {
+    if (event?.status === "cancelled") continue;
+    const start = Date.parse(String(event?.start?.dateTime ?? ""));
+    const end = Date.parse(String(event?.end?.dateTime ?? ""));
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    busy.push({ start: new Date(start).toISOString(), end: new Date(end).toISOString() });
+  }
+  return busy.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
 }

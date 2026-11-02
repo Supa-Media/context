@@ -79,12 +79,22 @@ describe("saving an email as a draft in the person's Gmail", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("a Gmail that may only compose saves a draft but sends nothing", async () => {
+  // gmail.compose is the one Gmail write a connect asks for (2026-10-28):
+  // Google's users.messages.send accepts it, so it both drafts and sends.
+  test("a Gmail that granted only compose saves a draft and sends", async () => {
     const calls = gmail();
     const { t, aliceWs } = await connected([READ, GMAIL_COMPOSE_SCOPE]);
-    expect(await post(t, "/gateway/email/send", ACCESS_A, aliceWs)).toEqual({ ok: false, refused: "no_sender" });
     expect(await post(t, "/gateway/email/draft", ACCESS_A, aliceWs)).toEqual({ ok: true, from: "alice@gmail.example" });
-    expect(calls.map((call) => call.url.endsWith("/drafts"))).toEqual([true]);
+    expect(await post(t, "/gateway/email/send", ACCESS_A, aliceWs)).toEqual({ ok: true, from: "alice@gmail.example" });
+    expect(calls.map((call) => call.url.endsWith("/drafts"))).toEqual([true, false]);
+  });
+
+  test("a Gmail that may only read neither drafts nor sends", async () => {
+    const calls = gmail();
+    const { t, aliceWs } = await connected([READ]);
+    expect(await post(t, "/gateway/email/send", ACCESS_A, aliceWs)).toEqual({ ok: false, refused: "no_sender" });
+    expect(await post(t, "/gateway/email/draft", ACCESS_A, aliceWs)).toEqual({ ok: false, refused: "no_sender" });
+    expect(calls).toHaveLength(0);
   });
 
   test("another tenant's token cannot save a draft in their Gmail", async () => {

@@ -36,13 +36,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Count
-        run: npx convex run functions/billingStripe:countChargeableSubscriptions
+        run: npx convex run functions/billingStripe:countChargeableSubscriptions 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
 
       - name: Cancel
         if: ${{ inputs.mode == 'cancel' }}
         run: |
-          npx convex run functions/billingStripe:cancelEveryChargeableSubscription '{"confirm":"cancel-every-subscription"}'
+          npx convex run functions/billingStripe:cancelEveryChargeableSubscription '{"confirm":"cancel-every-subscription"}' 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

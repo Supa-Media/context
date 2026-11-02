@@ -1,7 +1,8 @@
 /**
- * Durable v2 text, relayed live: every frame is authorized afresh for its
- * sender and for each recipient, at most eight authorizations in flight per
- * socket, and nothing here is ever written to the room log.
+ * Durable v2 text, relayed live: frames are authorized for their sender and
+ * for each recipient, at most eight in flight per socket, and nothing here is
+ * ever written to the room log. One authorization covers a socket's frames for
+ * LIVE_RECHECK_MS while the token and the people in the note stay the same.
  */
 
 import { COLLABORATION_PROTOCOL_VERSION } from "../presence.js";
@@ -64,6 +65,39 @@ export const ALONE_RECHECK_MS = 30_000;
 /** When each socket's live frames were last authorized while it was alone. */
 const aloneCheckedAt = new WeakMap();
 
+/**
+ * How long one authorization covers a socket's live frames to the same people.
+ *
+ * Every keystroke used to cost a control-plane session, a grant lookup and the
+ * workspace's privacy state, from each typist with a peer in the note: a large
+ * share of the Convex reads billed for Oct 12-30. The owner chose ten seconds
+ * (2026-10-30): someone whose access is taken away may go on receiving another
+ * person's keystrokes in a note they already had open for at most that long.
+ * Joining, leaving, a new grant on either side or a new token asks again at
+ * once, and a refusal is never reused.
+ */
+export const LIVE_RECHECK_MS = 10_000;
+
+/** Each socket's last authorization with company: its key, when it was asked, and its answer. */
+const liveAuthorizations = new WeakMap();
+
+// The bearer is never kept, even in memory: the key holds its digest.
+async function liveAuthorizationKey(sender, accessToken, documentId, candidates) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(accessToken));
+  return JSON.stringify([
+    btoa(String.fromCharCode(...new Uint8Array(digest))), sender.id, sender.grantId, sender.workspaceId, sender.path, documentId,
+    candidates.map(({ id, grantId }) => `${id}\u0000${grantId}`).sort(),
+  ]);
+}
+
+function coversEveryone(authorization, candidates) {
+  if (!authorization?.sender) return false;
+  const allowed = authorization.recipients instanceof Set
+    ? authorization.recipients
+    : new Set(authorization.recipients || []);
+  return candidates.every(({ id }) => allowed.has(id));
+}
+
 export async function relayLiveUpdate(ws, message) {
   // Re-read on every frame. Cursor and heartbeat traffic may have updated the
   // attachment while this frame waited behind another authorization.
@@ -99,14 +133,36 @@ export async function relayLiveUpdate(ws, message) {
     aloneCheckedAt.set(ws, now);
   }
 
+  const ask = () => this.authorizeLiveRelay({
+    sender,
+    accessToken: message.accessToken,
+    documentId: message.documentId,
+    recipients: candidates.map(({ id, grantId }) => ({ id, grantId })),
+  });
   let authorization;
   try {
-    authorization = await this.authorizeLiveRelay({
-      sender,
-      accessToken: message.accessToken,
-      documentId: message.documentId,
-      recipients: candidates.map(({ id, grantId }) => ({ id, grantId })),
-    });
+    if (candidates.length === 0) {
+      authorization = await ask();
+    } else {
+      // Frames typed while an answer is on its way wait for that answer rather than asking again.
+      const key = await liveAuthorizationKey(sender, message.accessToken, message.documentId, candidates);
+      const now = Date.now();
+      let held = liveAuthorizations.get(ws);
+      if (held === undefined || held.key !== key || now - held.at >= LIVE_RECHECK_MS) {
+        held = { key, at: now, answer: ask() };
+        liveAuthorizations.set(ws, held);
+      }
+      try {
+        authorization = await held.answer;
+      } catch (error) {
+        if (liveAuthorizations.get(ws) === held) liveAuthorizations.delete(ws);
+        throw error;
+      }
+      // Only a yes for everyone is reused: a refusal, or anyone left out, is asked about afresh.
+      if (!coversEveryone(authorization, candidates) && liveAuthorizations.get(ws) === held) {
+        liveAuthorizations.delete(ws);
+      }
+    }
   } catch {
     return;
   }
@@ -159,6 +215,7 @@ export async function relayLiveUpdate(ws, message) {
 
 export function cancelLiveRelay(ws) {
   this.closedLiveSockets.add(ws);
+  liveAuthorizations.delete(ws);
   const state = this.liveRelayQueues.get(ws);
   if (!state) return;
   state.closed = true;

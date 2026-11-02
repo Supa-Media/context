@@ -59,8 +59,37 @@ export interface BlendedResult {
   meaningOnly?: boolean;
   /** Has some of the words typed, not all of them. */
   loose?: boolean;
+  /**
+   * A meaning half's row close enough to show beside notes that had every
+   * word typed. Absent on every row of a merged answer.
+   */
+  close?: boolean;
   /** When the note was last written (ms), where the tree knows. */
   edited?: number;
+}
+
+/**
+ * The words half's rows with the meaning half's after them (the search
+ * tune-up, Dev2's pick, 2026-10-27: board M2).
+ *
+ * The words are drawn the moment they land, and **nothing already drawn
+ * moves**: meaning's rows only ever go below. A note the words already found
+ * is not repeated. When the words found notes with every word typed, only the
+ * close meaning rows join; a weakly related note under the right answer is
+ * the noise the search review found. When the words found nothing, or only
+ * notes with some of the words, every meaning row joins: then meaning is the
+ * better half of the answer.
+ */
+export function withMeaningRows(
+  words: readonly BlendedResult[],
+  meaning: readonly BlendedResult[],
+): BlendedResult[] {
+  const shown = new Set(words.map((row) => `${row.workspaceId}/${row.path}`));
+  const strict = words.some((row) => !row.loose && !row.meaningOnly);
+  const joining = meaning.filter(
+    (row) => !shown.has(`${row.workspaceId}/${row.path}`) && (!strict || row.close === true),
+  );
+  return [...words, ...joining.map((row) => ({ ...row, meaningOnly: true }))];
 }
 
 /** One context that was searched, and how it went. */

@@ -14,6 +14,7 @@ import { defaultGoogleDestinationFolder, mailConnectEnabled } from "../../google
 import { calendarConnectEnabled } from "../../calendarConnect";
 import { nextProductToSync, syncableProductsOf, syncBytesUsed } from "../googleSchedule";
 import { REPAIR_DAYS_PER_PASS } from "./repairDays";
+import { aiAccessNeeded } from "../googleConnect/aiScopes";
 
 export const googleForwardSyncJobArgs = {
   workspaceId: v.id("workspaces"),
@@ -115,6 +116,13 @@ export async function googleForwardSyncJobHandler(
     // per pass, forever. A reconnect rewrites `health`, which is what puts
     // this connection back in the loop.
     return { kind: "skip" as const, reason: "GOOGLE_RECONNECT_REQUIRED" };
+  }
+  if (connection.agentGrant === undefined && aiAccessNeeded(connection)) {
+    // Sync writes notes for AI to read, so it mints as AI: a connection waiting
+    // for its owner's AI consent has no grant to mint from, and a failed pass
+    // would tell them to reconnect, which never gives AI a grant. The first
+    // Gmail import waits with it, untouched, rather than spending its tries.
+    return { kind: "skip" as const, reason: "GOOGLE_AI_ACCESS_NEEDED" };
   }
   const products = syncableProductsOf(connection).filter((product) => {
     if (product === "gmail") return mailConnectEnabled() && connection.gmail !== undefined;

@@ -44,6 +44,7 @@ import {
 import { peopleForCaller, recordPerson } from "../src/peopleActive.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { activityRequest, callTool, createBucket, createLiveNamespace } from "./agentActivityFixtures.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const T = (name) => `cat_agentmap_${name}_`.padEnd(32, "0");
 const OWNER = T("owner");
@@ -256,7 +257,7 @@ export async function runAgentMapChecks(check) {
 
     const rooms = createLiveNamespace();
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "MAP_BUCKET,MAP_OTHER",
       MAP_BUCKET: bucket,

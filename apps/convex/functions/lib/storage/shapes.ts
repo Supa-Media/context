@@ -95,6 +95,11 @@ export interface SealedBinding {
   rootPrefix?: string;
   accessKeyId?: string;
   encryptedSecretAccessKey?: string;
+  /** A new managed bucket's temporary credential; see the schema. */
+  temporaryAccessKeyId?: string;
+  encryptedTemporarySecretAccessKey?: string;
+  encryptedSessionToken?: string;
+  temporaryUntil?: number;
   /** Absent means "let the adapter decide". See the schema for why. */
   forcePathStyle?: boolean;
   capabilities: StorageCapabilities;
@@ -120,9 +125,16 @@ export interface S3GatewayCredential {
   rootPrefix?: string;
   accessKeyId: string;
   secretAccessKey: string;
+  /** Present only while a new managed bucket is served on a temporary credential. */
+  sessionToken?: string;
   forcePathStyle?: boolean;
   capabilities: StorageCapabilities;
   status: string;
+  /** Where the note texts are read from while they move into the workspace object; absent while `bucket`. */
+  notesHome?: "dual" | "object";
+  notesBackfilledAt?: number;
+  /** Row changes the object has not taken yet (`workspaceObjectPush.ts`): read by the control plane until they land. */
+  notesBehind?: true;
 }
 
 export type GatewayCredential = S3GatewayCredential;

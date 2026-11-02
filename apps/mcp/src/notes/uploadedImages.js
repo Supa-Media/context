@@ -31,6 +31,7 @@ import { IMAGE_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs"
 import { MAX_REMOTE_IMAGE_BYTES, fetchRemoteImage, sniffImageType } from "../../../../packages/shared/src/remoteImage.cjs";
 import { parseLinks } from "../links.js";
 import { imageRefFor } from "../tools/readImage.js";
+import { pictureForStore } from "./pictureCompression.js";
 
 /** At most this many images per write. A note is a document, not a bulk import. */
 export const MAX_IMAGES_PER_WRITE = 10;
@@ -137,6 +138,20 @@ function decodeBase64(value) {
   }
 }
 
+/**
+ * The stored type of a base64 picture a write would accept, or null: what a
+ * caller attaching pictures it found itself checks first, so one it could
+ * never store (an AVIF, an SVG, an oversized photo) is left out rather than
+ * refusing the whole write (`agent/visuals/pagePhotos.js`). The same checks
+ * as `prepareNoteImages` below, which still decides.
+ */
+export function storableImage(data) {
+  const bytes = typeof data === "string" ? decodeBase64(data) : null;
+  if (!bytes || bytes.byteLength === 0 || bytes.byteLength > MAX_UPLOADED_IMAGE_BYTES) return null;
+  const type = sniffImageType(bytes);
+  return type ? { contentType: type.contentType, bytes: bytes.byteLength } : null;
+}
+
 async function fetchImage(value, label) {
   const fetched = await fetchRemoteImage(value, (...request) => fetch(...request));
   if (fetched.error) return { error: `${label}: ${fetched.error}` };
@@ -183,6 +198,7 @@ export async function prepareNoteImages(content, images, store = null) {
   }
   const names = new Set();
   const prepared = [];
+  const compressing = [];
   let total = 0;
   for (const [index, image] of images.entries()) {
     const label = `images[${index}]`;
@@ -236,12 +252,23 @@ export async function prepareNoteImages(content, images, store = null) {
     if (!type) {
       return { error: `${label}: not a PNG, JPEG, GIF, WebP or HEIC image (SVG is never stored)` };
     }
-    const leaf = uploadLeaf(await sha256Hex(bytes), type.extension);
+    // Named from the bytes that came in, so the same picture sent twice is
+    // still one object; stored as the compressed copy (`pictureCompression.js`),
+    // whose type names the extension.
+    // Compressed all at once after this loop, not one after another: each
+    // takes up to a second, and a page's photos are saved in one write.
+    const entry = { name, alt: cleanAlt(image.alt), label: cleanLabel(image.label) };
+    compressing.push({ label, entry, done: Promise.all([sha256Hex(bytes), pictureForStore(store, bytes, type)]) });
+    prepared.push(entry);
+  }
+  for (const { label, entry, done } of compressing) {
+    const [hash, picture] = await done;
+    const leaf = uploadLeaf(hash, picture.extension);
     // The name this produces must be one `read_image` resolves, or the bytes
     // could never be read back out. Asserted rather than assumed.
     const ref = imageRefFor(leaf);
-    if (!ref || ref.mimeType !== type.contentType) return { error: `${label}: could not name the image` };
-    prepared.push({ name, leaf, key: IMAGE_PREFIX + leaf, bytes, contentType: type.contentType, alt: cleanAlt(image.alt), label: cleanLabel(image.label) });
+    if (!ref || ref.mimeType !== picture.contentType) return { error: `${label}: could not name the image` };
+    Object.assign(entry, { leaf, key: IMAGE_PREFIX + leaf, bytes: picture.bytes, contentType: picture.contentType });
   }
   if (prepared.length === 0) return { content, images: [] };
 
@@ -305,13 +332,34 @@ function rewriteCodeReferences(content, byName, embedded) {
       .replace(url, (_, lead, quote, dot, close) => `${lead}${quote}${dot}${image.leaf}${quote}${close}`);
     if (next !== before) embedded.add(name);
   }
-  return next;
+  return rewritePageFields(next, byName, embedded);
+}
+
+/**
+ * A page (`.page.md`) names its pictures in fields, not embeds: `photo:
+ * stand.jpg`, `photos: a.jpg, b.jpg`, `cover:` and a places block's `map:`
+ * (`packages/shared/src/pages/`). Each value that is exactly an attached
+ * name becomes the stored copy's name, so the page shows the picture where
+ * the writer put it, and it is not tacked on below as an embed.
+ */
+const PAGE_PICTURE_FIELD = /^([ \t]*(?:photos?|cover|map)[ \t]*:[ \t]*)(.+)$/gim;
+
+function rewritePageFields(content, byName, embedded) {
+  return content.replace(PAGE_PICTURE_FIELD, (_, lead, value) => {
+    const names = value.split(",").map((part) => {
+      const name = part.trim();
+      const image = byName.get(name) ?? byName.get(name.replace(/^\.\//, ""));
+      if (!image) return part;
+      embedded.add(image.name);
+      return part.replace(name, image.leaf);
+    });
+    return lead + names.join(",");
+  });
 }
 
 /** Put every prepared image in the opaque store. Content-addressed, so a repeat is a no-op in effect. */
 export async function storeNoteImages(store, images) {
-  for (const image of images) {
-    if (image.stored) continue;
-    await store.put(image.key, image.bytes, { contentType: image.contentType });
-  }
+  await Promise.all(
+    images.filter((image) => !image.stored).map((image) => store.put(image.key, image.bytes, { contentType: image.contentType })),
+  );
 }

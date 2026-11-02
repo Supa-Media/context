@@ -61,6 +61,16 @@ export interface PresenceMember {
    * the only thing a caret can honestly claim.
    */
   isAgent: boolean;
+  /**
+   * Whether this member is **you**, in another window: the Mac app, a phone, a
+   * second tab, or this tab's own socket from before a reconnect.
+   *
+   * Said by the room, which knows whose grant each socket holds; never worked
+   * out here from a name, since two people can share one. Still a member for
+   * the election (it saves like any other), but never drawn: a caret with your
+   * own name, parked where you last typed, reads as a stranger in your note.
+   */
+  isYou: boolean;
 }
 
 export type ServerFrame =
@@ -223,6 +233,7 @@ function member(value: unknown): PresenceMember | null {
     // roster, and one that includes somebody the room refuses costs every save.
     canWrite: raw.w === true,
     isAgent: raw.g === true,
+    isYou: raw.me === true,
   };
 }
 
@@ -456,29 +467,31 @@ export function clampToDocument(value: number, length: number): number {
 export const CLOSE_REFUSED = 4003;
 
 /**
- * The presence socket's URL for one note.
- *
- * The token goes in the path, as `/t/<token>/presence`, because a browser
- * `WebSocket` cannot set an `Authorization` header and the gateway already has
- * exactly this fallback for exactly this reason (`index.js`, "Token-in-path
- * fallback"). It is a transport for an OAuth-issued token and not a second kind
- * of credential: same resolution, same grant, same authority. A URL lands in
- * logs and history, so what rides here is the short-lived console grant and
- * never anything longer-lived.
+ * The presence socket's URL for one note. It carries no token: a browser
+ * `WebSocket` cannot set an `Authorization` header, so the token rides in the
+ * subprotocols it offers instead (`presenceSocketProtocols`), where history,
+ * referrers and URL logs never see it. The gateway answers with
+ * `context.presence` alone (`apps/mcp/src/http/presentedToken.js`). The old
+ * `/t/<token>/presence` form still works for builds that predate this, and is
+ * counted until nobody uses it (docs/decisions/gateway-protocol/token-transport.md).
  */
 export function presenceSocketUrl(options: {
   gatewayOrigin: string;
   notePath: string;
-  token: string;
   colorSeed: string;
   collaborationVersion?: 2;
   documentId?: string;
 }): string {
-  const url = new URL(`/t/${encodeURIComponent(options.token)}/presence`, options.gatewayOrigin);
+  const url = new URL("/presence", options.gatewayOrigin);
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
   url.searchParams.set("note", options.notePath);
   url.searchParams.set("seed", options.colorSeed);
   if (options.collaborationVersion !== undefined) url.searchParams.set("collaboration", String(options.collaborationVersion));
   if (options.documentId !== undefined) url.searchParams.set("documentId", options.documentId);
   return url.toString();
+}
+
+/** The subprotocols the presence socket offers: the protocol, and its token. */
+export function presenceSocketProtocols(token: string): string[] {
+  return ["context.presence", `context.token.${token}`];
 }

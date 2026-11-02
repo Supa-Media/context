@@ -116,6 +116,28 @@ describe("the web shell's ground", () => {
     expect(readFileSync(join(publicDir, "Libron-OFL.txt"), "utf8")).toContain("SIL Open Font License");
   });
 
+  test("every face context-fonts.css names is a file in public/, with both licences beside them", () => {
+    // Served from our own origin like Libron: a renamed or missing woff2 is a silent fallback to system type.
+    const publicDir = join(__dirname, "..", "public");
+    const css = readFileSync(join(publicDir, FONT_STYLESHEET_HREF.slice(1)), "utf8");
+    const faces = [...css.matchAll(/font-family: "([^"]+)";\s*src: url\("([^"]+)"\)/g)].map((m) => [m[1], m[2]]);
+    expect(faces.map(([family]) => family).sort()).toEqual([...Array(2).fill("Instrument Sans"), ...Array(6).fill("JetBrains Mono")]);
+    for (const [, url] of faces) {
+      expect(url).toMatch(/^\/[A-Za-z0-9-]+\.woff2$/);
+      expect(readFileSync(join(publicDir, url.slice(1))).subarray(0, 4).toString("latin1")).toBe("wOF2");
+    }
+    for (const licence of ["InstrumentSans-OFL.txt", "JetBrainsMono-OFL.txt"]) {
+      expect(readFileSync(join(publicDir, licence), "utf8")).toContain("SIL Open Font License");
+    }
+    expect(shell).toContain('<link rel="preload" href="/InstrumentSans-latin.woff2"');
+  });
+
+  test("the shell loads no stylesheet, font or script from Google Fonts", () => {
+    // The CASA scan's missing-SRI finding was this link: Google's CSS differs per browser, so it can never carry a hash.
+    expect(shell).not.toMatch(/fonts\.(?:googleapis|gstatic)\.com/);
+    expect(FONT_STYLESHEET_HREF.startsWith("/")).toBe(true);
+  });
+
   test("no URL of ours is handed to Google Fonts", () => {
     // `/invite/<token>?code=…` is the highest-value URL in the product and
     // this document makes cross-origin requests. Today's browser default

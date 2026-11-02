@@ -253,7 +253,7 @@ export function useOnboarding(
   }, [claimed]);
 
   const bindingResults = useQueries(bindingSpec);
-  const binding = usable<(WatchedBinding & { scaffoldReason?: string }) | null>(
+  const binding = usable<(WatchedBinding & { scaffoldReason?: string; scaffoldQueuedAt?: number }) | null>(
     bindingResults.binding,
   );
 
@@ -360,6 +360,22 @@ export function useOnboarding(
     if (landed === "managed") void layOutFreshBucket();
     else go(afterStorage("connected", landed));
   }, [clearTimer, connectState.kind, go, layOutFreshBucket, step, submitted]);
+
+  /*
+    A bucket we made, still waiting out its new key, with the folders already
+    queued by the control plane (`managedProvisioningFns/complete.ts`): the
+    console is where that wait is spent, drawing the folders arriving, so the
+    first run hands over the moment the row exists. That wait was the "taking
+    time to set up your account" the owner asked about (2026-10-28) — up to two
+    minutes of Cloudflare propagating a key, on a screen of its own.
+  */
+  const queuedOnBind = binding?.status === "unverified" && typeof binding.scaffoldQueuedAt === "number";
+  useEffect(() => {
+    if (step !== "storage" || submitted || !queuedOnBind) return;
+    clearTimer();
+    setRoute("managed");
+    go("console");
+  }, [clearTimer, go, queuedOnBind, step, submitted]);
 
   // ── Step 2 ──────────────────────────────────────────────────────────────────
   // Storage we run, with no price, wherever it can be started; the priced

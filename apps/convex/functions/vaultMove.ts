@@ -16,7 +16,7 @@
  * AIs ask again the first time, as for any new key there.
  */
 
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";

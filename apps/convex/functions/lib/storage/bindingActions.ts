@@ -14,7 +14,7 @@
 
 import { refuseDuringMove } from "../managedProvisioningFns/direction";
 import { ConvexError } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "../signedIn";
 import { internal } from "../../../_generated/api";
 import type { MutationCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";

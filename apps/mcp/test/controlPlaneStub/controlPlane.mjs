@@ -34,7 +34,9 @@ import { createMailRoutes } from "./mail.mjs";
 import { createTreeRoutes } from "./tree.mjs";
 import { createWorkspaceRoutes } from "./workspaces.mjs";
 import { createDreamRoutes } from "./dreams.mjs";
+import { createTranscriptionRoutes } from "./transcription.mjs";
 import { createMoveRoutes } from "./moves.mjs";
+import { TEX_SETUP_CLIENTS } from "../../src/session.js";
 import { mintKeyMaterial, nextGeneration } from "./keys.mjs";
 
 const encoder = new TextEncoder();
@@ -138,7 +140,7 @@ export function createControlPlaneStub(options = {}) {
   /** workspaceId → when the gateway last said that context changed */
   const activityStamps = new Map();
 
-  const { clearedOwner, clearedEditor, clearedOwnAccount } = createClearances(grantForAccessToken, coveredContexts);
+  const { clearedOwner, clearedEditor, clearedOwnAccount, clearedRead } = createClearances(grantForAccessToken, coveredContexts);
 
   /** One row as the real route reports it: URLs, and never the token. */
   function describeStubLink(row) {
@@ -263,9 +265,11 @@ export function createControlPlaneStub(options = {}) {
         slug: workspaces.get(membership.workspaceId)?.slug ?? null,
         role: membership.role ?? "member",
         kind: workspaces.get(membership.workspaceId)?.kind ?? "personal",
-        ...(namesFor(membership.workspaceId) === undefined
-          ? {}
-          : { grantedNames: namesFor(membership.workspaceId) }),
+        ...(Array.isArray(membership.grantedNames)
+          ? { grantedNames: [...membership.grantedNames] }
+          : namesFor(membership.workspaceId) === undefined
+            ? {}
+            : { grantedNames: namesFor(membership.workspaceId) }),
         // A group chat's pin, as the control plane marks it (`liveGrants.ts`).
         ...(membership.setupOnly === true ? { setupOnly: true } : {}),
       });
@@ -296,13 +300,14 @@ export function createControlPlaneStub(options = {}) {
 
   // Note mail mailboxes (`mail.mjs`).
   const mail = createMailRoutes(grantForAccessToken, coveredContexts);
-  const email = createEmailRoute(clearedOwnAccount, flags, clearedEditor);
-  const calendar = createCalendarRoute(clearedOwnAccount, flags);
+  const email = createEmailRoute(clearedOwnAccount, flags, clearedRead);
+  const calendar = createCalendarRoute(clearedOwnAccount, flags, clearedRead);
   const googleChat = createGoogleChatRoute(clearedOwnAccount);
   // Setting a workspace up (`workspaces.mjs`).
   const workspaceSetup = createWorkspaceRoutes({ grantForAccessToken, coveredContexts, workspaces, grants });
   const dreams = createDreamRoutes(clearedOwner);
   const moves = createMoveRoutes(grantForAccessToken, coveredContexts);
+  const transcription = createTranscriptionRoutes(grantForAccessToken, coveredContexts);
 
   async function handle(url, init = {}) {
     gatewayCalls.total += 1;
@@ -393,6 +398,12 @@ export function createControlPlaneStub(options = {}) {
         const served = flags.bindingWorkspaceId ?? named.workspaceId;
         const binding = bindings.get(served);
         if (!binding) return ok({ binding: null });
+        // Tex's setup read (`apps/convex/functions/lib/texSetupRead.ts`): a Tex client's token and the pin, or nothing.
+        const setupRead = body.setupRead === true;
+        if (setupRead) {
+          setupReads.push({ clientId: grant.clientId, workspaceId: served });
+          if (!TEX_SETUP_CLIENTS.has(grant.clientId) || workspaces.get(served)?.slug !== "context-lc") return ok({ binding: null });
+        }
         // `omitBindingWorkspaceId` stands in for a control plane older than the
         // field, or one that stopped sending it. The gateway's identity check
         // must refuse that rather than skip itself — see `storeForSession`.
@@ -449,7 +460,7 @@ export function createControlPlaneStub(options = {}) {
         // `meaningIndex` is the sixth: search by meaning's descriptor, a sibling
         // of `searchIndex` on the wire for the same reason (`storeIndexes.js`).
         const { searchIndex, meaningIndex, encryptionKey, noteCap, ...storage } = binding;
-        const privacy = heldRules.get(served) ?? (await tree.rulesFor(served));
+        const privacy = (setupRead ? setupRules.get(served) : heldRules.get(served)) ?? (await tree.rulesFor(served));
         const envelope = (workspaceId) => ({
           binding: workspaceId === null ? { ...storage } : { workspaceId, ...storage },
           ...(searchIndex ? { searchIndex } : {}),
@@ -475,7 +486,7 @@ export function createControlPlaneStub(options = {}) {
           return ok({ recorded: Boolean(known) });
         }
         if (!known) return ok({ verdict: null });
-        builtinStarts.push({ workspaceId: grant.workspaceId, tryIt: body.tryIt === true });
+        builtinStarts.push({ workspaceId: grant.workspaceId, tryIt: body.tryIt === true, ...(body.background === true ? { background: true } : {}) });
         return ok({ verdict: builtinVerdicts.get(grant.workspaceId) ?? { allowed: false, reason: "not_premium" } });
       }
 
@@ -881,7 +892,7 @@ export function createControlPlaneStub(options = {}) {
         const answered =
           (await mail.handle(path, body)) ?? (await tree.handle(path, body)) ?? (await workspaceSetup.handle(path, body)) ?? (await email.handle(path, body)) ??
           (await calendar.handle(path, body)) ?? (await googleChat.handle(path, body)) ?? (await dreams.handle(path, body)) ??
-          (await moves.handle(path, body));
+          (await moves.handle(path, body)) ?? (await transcription.handle(path, body));
         if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
       }
@@ -916,6 +927,14 @@ export function createControlPlaneStub(options = {}) {
     heldRules.set(workspaceId, held);
   }
 
+  /** The rules a Tex setup read of the pin carries, as given (the real route narrows a member's: `texSetupRead.ts`). */
+  const setupRules = new Map();
+  function holdSetupRules(workspaceId, held) {
+    setupRules.set(workspaceId, held);
+  }
+  /** Every `setupRead` binding request, with the asking client and the workspace served. */
+  const setupReads = [];
+
   /** What `/gateway/builtin-model` answers for one workspace. */
   function setBuiltinVerdict(workspaceId, verdict) {
     builtinVerdicts.set(workspaceId, verdict);
@@ -943,9 +962,12 @@ export function createControlPlaneStub(options = {}) {
     mailboxes: mail.mailboxes,
     dreams,
     moves,
+    transcription,
     issueCode,
     setBuiltinVerdict,
     holdRules,
+    holdSetupRules,
+    setupReads,
     builtinReports,
     builtinStarts,
     setMeetingSummaryVerdict,

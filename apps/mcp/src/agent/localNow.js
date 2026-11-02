@@ -11,6 +11,7 @@
  */
 
 import { wallClock } from "../../../../packages/shared/src/routines.cjs";
+import { dayWordsPrompt } from "./dayWords.js";
 
 /** The routines' default zone when an account has none (Convex `DEFAULT_ROUTINE_TIME_ZONE`). */
 export const DEFAULT_TIME_ZONE = "America/New_York";
@@ -51,6 +52,7 @@ export function localNowPrompt(now, timeZone) {
   return (
     `\n\nIt is now ${WEEKDAYS[w.weekday]}, ${MONTHS[w.month - 1]} ${w.day}, ${w.year}, ${time} where they are (${zone}); ` +
     `as a routine's at: line that is ${date} ${time}. ` +
-    `Work out today, tomorrow, "in 2 minutes" and every date you write from this. You always know the time: never ask them for it.`
+    `Work out today, tomorrow, "in 2 minutes" and every date you write from this. You always know the time: never ask them for it.` +
+    dayWordsPrompt(now, zone) // the day words worked out (`dayWords.js`)
   );
 }

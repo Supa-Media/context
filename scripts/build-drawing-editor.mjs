@@ -31,6 +31,9 @@
 
 import { build } from "esbuild";
 import { buildSpellingDictionaries } from "./build-spelling-dictionaries.mjs";
+import { buildPageFrame } from "./build-page-frame.mjs";
+import { buildPluginSandbox } from "./build-plugin-sandbox.mjs";
+import { fontCdnFallbackPlugin } from "./excalidraw-font-fallback.mjs";
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -188,6 +191,9 @@ async function main() {
     // Its stylesheet is a real file the page has to load; esbuild writes it
     // beside the bundle under the same base name.
     loader: { ".woff2": "file", ".ttf": "file" },
+    // Every font face's list ends with the same file on esm.sh; that request is dropped here
+    // (`excalidraw-font-fallback.mjs`), so a face we do not deploy asks nobody.
+    plugins: [fontCdnFallbackPlugin()],
     logLevel: "warning",
     metafile: true,
   });
@@ -239,6 +245,10 @@ async function main() {
   if (result.warnings.length > 0) console.log(`${result.warnings.length} esbuild warning(s)`);
 
   await buildDiagramFrame();
+  // The page runtime `.page.md` notes are drawn in, a sealed frame like the diagram's.
+  await buildPageFrame();
+  // The plugin sandbox, loaded by URL so it carries its own policy, not the console's.
+  await buildPluginSandbox();
   // The note editor's spelling dictionaries, served beside it for the same reason.
   await buildSpellingDictionaries();
 }

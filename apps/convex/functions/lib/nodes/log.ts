@@ -28,7 +28,7 @@
 
 import { audiencesOf, treeAudiences } from "../treeAudiences";
 import type { Clearance } from "../clearance";
-import { canSee, isPlumbing, visibilityOf, type PrivacyRule, type Visibility } from "../privacy";
+import { canSee, isPlumbing, sealedCovers, visibilityOf, type PrivacyRule, type Visibility } from "../privacy";
 import { describeFile, folderVisibleAtScope } from "../fileOps/listing";
 import type { ManifestEntry, ManifestFolder } from "../fileOps";
 import { loadPrivacyState } from "../fileOps/privacyState";
@@ -178,7 +178,8 @@ export function audiencesNow(path: string, rules: Rules): string[] {
 /** Whether a reader at `clearance` may hear of this row. */
 export function toldOf(row: LogRow, clearance: Clearance, rules: Rules, reader: ReadonlySet<string>): boolean {
   if (isPlumbing(row.path)) return false;
-  if (clearance.scope === "private") return true;
+  // An owner hears of every row but a sealed one, which `canSee` answers by name (`sealedChats.ts`).
+  if (clearance.scope === "private" && !sealedCovers(row.path, rules.rules)) return true;
   if (row.gone) return (row.audiences ?? []).some((audience) => reader.has(audience));
   return canSee(row.path, clearance.scope, rules.rules, rules.overrides, clearance.names);
 }
@@ -318,18 +319,26 @@ export function settleFolders(
 }
 
 /**
- * The newest row this reader may hear of, among `newest` (newest first), or
- * `null` when none of them: what the live head says, so a change somebody
- * cannot see never moves what they are sent.
+ * The seq of the newest log row this reader may hear of, or `null` when none
+ * of the newest `limit` is: what the live head says, so a change somebody
+ * cannot see never moves what they are sent. Read newest first one row at a
+ * time, stopping at the first that counts: the head used to take all
+ * `NODE_HEAD_SCAN` rows on every run, though the newest is almost always the
+ * answer, and every open device re-runs it on each change in the workspace
+ * (34 GB of Convex reads in eighteen days, owner 2026-10-30).
  */
-export function newestTold(
-  newest: readonly LogRow[],
+export async function newestTold(
+  newestFirst: AsyncIterable<LogRow>,
+  limit: number,
   clearance: Clearance,
   rules: Rules,
   skip?: (path: string) => boolean,
-): number | null {
+): Promise<number | null> {
   const reader = readerAudiences(clearance);
-  for (const row of newest) {
+  let read = 0;
+  for await (const row of newestFirst) {
+    if (read >= limit) return null;
+    read += 1;
     if (skip?.(row.path) === true) continue;
     if (toldOf(row, clearance, rules, reader)) return row.seq;
   }

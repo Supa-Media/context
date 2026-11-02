@@ -175,7 +175,7 @@ export function attachQueueMove(
   }
   if (!QUEUEING.has(args.operation.kind)) return;
   Object.defineProperty(store, "queueMove", {
-    value: (move: { from: string; to: string; clearance: ReturnType<typeof clearanceOf>; now: number; expectedEtag?: string }) =>
+    value: (move: { from: string; to: string; clearance: ReturnType<typeof clearanceOf>; now: number; expectedEtag?: string; handOut?: boolean }) =>
       startRowMove(ctx, { workspaceId: args.workspaceId, store: bucket, projection, ...move }),
     enumerable: false,
     configurable: true,

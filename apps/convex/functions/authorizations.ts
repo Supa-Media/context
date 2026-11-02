@@ -42,14 +42,10 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
-import {
-  action,
-  internalMutation,
-  query,
-} from "../_generated/server";
+import { action, query } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";

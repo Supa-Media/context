@@ -356,7 +356,7 @@ export async function runGoogleForwardSync(
      * scheduler holding the failure and the row holding its claim, so the
      * connection goes quiet for fifteen minutes with nothing on it to say why.
      */
-    const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessTokenOutcome, {
+    const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessTokenOutcome, { role: "agent" as const,
       connectionId: job.connectionId,
     });
     if (minted.kind === "unavailable") {

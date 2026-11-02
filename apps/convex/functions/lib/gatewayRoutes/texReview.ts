@@ -18,10 +18,11 @@
 
 import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
+import type { FunctionReturnType } from "convex/server";
 import type { ActionCtx } from "../../../_generated/server";
 import { fileTeamNote } from "../../bugNotes";
 import { hashToken } from "../crypto";
-import { parseReason, parseScores, parseSignals, parseTask, parseTexts, parseWords, renderReviewNote, renderScoresNote, reviewNotePath, scoresNotePath } from "../feedback/texReviewNote";
+import { parseReason, parseScores, parseSignals, parseTask, parseTexts, parseWords, renderReviewNote, type ReviewNoteInput, renderScoresNote, reviewNotePath, scoresNotePath } from "../feedback/texReviewNote";
 import { json, stringField } from "../gatewayAuth";
 
 function randomId(): string {
@@ -46,6 +47,9 @@ export async function gatewayTexReviewHandler(ctx: ActionCtx, body: Record<strin
   if (scores === null || reason === null) return json({ review: null, refused: "invalid" });
 
   const now = Date.now();
+  // A texted yes to sharing (`texReviews.setTextsReviewSharing`): its words, on `full` only, and no scores row,
+  // since every turn in it was scored when its conversation ended. Rate limited apart from the reviews.
+  if (reason === "shared") return await fileShared(ctx, setup, body, now, scores, parseTask(body.task), parseSignals(body.signals));
   let rows;
   // Codes and a count, each read strictly: anything else is dropped, never kept.
   const task = parseTask(body.task);
@@ -75,14 +79,36 @@ export async function gatewayTexReviewHandler(ctx: ActionCtx, body: Record<strin
   // Decided here again, never by what the gateway sent.
   const words = setup.tier === "full" ? parseWords(body.words) : null;
   if (words === null) return json({ review: { filed: "scores" } });
+  return json({ review: { filed: (await fileReview(ctx, setup, { now, reason, scores, task, signals, words })) ? "full" : "scores" } });
+}
+
+type Setup = NonNullable<FunctionReturnType<typeof internal.functions.texReviews.reviewSetup>>;
+type Filing = Omit<ReviewNoteInput, "id" | "kind" | "people">;
+
+async function fileReview(ctx: ActionCtx, setup: Setup, filing: Filing): Promise<boolean> {
+  if (setup.destination === null) return false;
   const id = randomId();
-  const path = reviewNotePath(setup.destination.folder, { now, scores, id });
-  const filed = await fileTeamNote(
-    ctx,
-    setup.destination,
-    path,
-    renderReviewNote({ id, now, kind: setup.kind, reason, people: setup.people, scores, task, signals, words }),
-    "tex_review_note",
-  );
-  return json({ review: { filed: filed ? "full" : "scores" } });
+  const path = reviewNotePath(setup.destination.folder, { now: filing.now, scores: filing.scores, id });
+  return await fileTeamNote(ctx, setup.destination, path, renderReviewNote({ id, kind: setup.kind, people: setup.people, ...filing }), "tex_review_note");
+}
+
+async function fileShared(
+  ctx: ActionCtx,
+  setup: Setup,
+  body: Record<string, unknown>,
+  now: number,
+  scores: NonNullable<ReturnType<typeof parseScores>>,
+  task: ReturnType<typeof parseTask>,
+  signals: ReturnType<typeof parseSignals>,
+): Promise<Response> {
+  const words = setup.tier === "full" ? parseWords(body.words) : null;
+  if (words === null || setup.destination === null) return json({ review: null });
+  try {
+    await ctx.runMutation(internal.functions.texReviews.claimSharedReview, { userId: setup.userId });
+  } catch (error) {
+    const code = error instanceof ConvexError ? (error.data as { code?: string })?.code : undefined;
+    return json({ review: null, refused: code === "RATE_LIMITED" ? "rate_limited" : "unavailable" });
+  }
+  const filed = await fileReview(ctx, setup, { now, reason: "shared", scores, task, signals, words });
+  return json({ review: filed ? { filed: "full" } : null });
 }

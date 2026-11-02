@@ -54,6 +54,12 @@ export interface TrayInput {
   pending?: number;
   /** Collectors that could not answer this poll. */
   degraded?: readonly string[];
+  /**
+   * The next meeting on the calendar, as `menuBarTitle` words it. Shown beside
+   * the icon only while nothing is detected or recording: those states own the
+   * menu bar, and a recording's timer must never be replaced by a calendar.
+   */
+  nextUp?: string | null;
 }
 
 /** `mm:ss`, or `h:mm:ss` past an hour. Tabular by construction. */
@@ -72,11 +78,12 @@ export function trayPresentation(input: TrayInput): TrayPresentation {
   const degraded =
     input.degraded && input.degraded.length > 0 ? ` · limited: ${[...input.degraded].sort().join(", ")}` : "";
 
+  const nextUp = input.nextUp ?? "";
   switch (input.state) {
     case "idle":
       return {
         state: "idle",
-        title: "",
+        title: nextUp,
         tooltip: `Context — not watching for meetings${queued}`,
         icon: "idle",
         indicator: false,
@@ -84,7 +91,7 @@ export function trayPresentation(input: TrayInput): TrayPresentation {
     case "armed":
       return {
         state: "armed",
-        title: "",
+        title: nextUp,
         tooltip: `Context — watching for meetings${degraded}${queued}`,
         icon: "armed",
         indicator: false,

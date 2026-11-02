@@ -43,6 +43,10 @@ import { createOutboxDrain } from "./outboxDrain.ts";
 import { createConsoleCapture } from "./consoleCapture.ts";
 import { createConsoleWindowOpener, registerWindowCommands } from "./windowIpc.ts";
 import { createConnectFlow } from "./connectFlow.ts";
+import { createCalendar } from "./calendar.ts";
+
+/** How often the menu bar's "· 4 min" is redrawn and a due ask is shown. */
+const CALENDAR_TICK_MS = 15_000;
 import { reportSmoke } from "./smokeReport.ts";
 
 async function main(): Promise<void> {
@@ -129,6 +133,7 @@ async function main(): Promise<void> {
       if (!ctx.openConsoleWindow()) ctx.explain(CONSOLE_NOTICES.noConsole);
     },
     record: () => void ctx.pressed("record", () => ctx.recordNow()),
+    join: (record) => void ctx.joinMeeting(null, record),
     end: () => void ctx.pressed("end", () => ctx.endMeeting()),
     connect: () => void ctx.connectThisMachine(),
     disconnect: () => void ctx.disconnectThisMachine(),
@@ -169,6 +174,7 @@ async function main(): Promise<void> {
     createConsoleCapture(ctx),
     createConsoleWindowOpener(ctx),
     createConnectFlow(ctx),
+    createCalendar(ctx),
   );
   const { push, drain, endMeeting, showPanel, openConsoleWindow, explain, openConsoleWindowIfAsked } = ctx;
 
@@ -192,6 +198,8 @@ async function main(): Promise<void> {
   imessage.reconfigure();
   messagesBackup.reconfigure();
   setInterval(() => void drain(), DRAIN_INTERVAL_MS);
+  // The menu bar's minutes and the ask. Cheap: a list of today's meetings.
+  setInterval(() => ctx.calendarTick(), CALENDAR_TICK_MS);
   push();
 
   // A recording that is still open when somebody quits is stopped first. The

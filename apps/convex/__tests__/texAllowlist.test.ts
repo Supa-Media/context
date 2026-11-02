@@ -23,6 +23,7 @@ import {
   texLineFor,
   removeFromLinqLine,
 } from "../functions/lib/adminFns/texAllowlist";
+import { withSession } from "./session.helpers";
 
 const KEY = "fixture-linq-key-not-real";
 const ENV = { LINQ_API_KEY: KEY };
@@ -194,12 +195,12 @@ describe("the console's Tex list, through the admin functions", () => {
       const ben = await ctx.db.insert("users", { name: "Ben", phone: listed[1]!, phoneVerificationTime: 1 } as never);
       return { staff, stranger, ada, ben };
     });
-    return { t, fake, ids, as: t.withIdentity({ subject: ids.staff }) };
+    return { t, fake, ids, as: withSession(t, ids.staff) };
   }
 
   test("a stranger can neither read nor change the list, and Linq is never asked", async () => {
     const { t, fake, ids } = await setup(phones(3));
-    const asStranger = t.withIdentity({ subject: ids.stranger });
+    const asStranger = withSession(t, ids.stranger);
     await expect(asStranger.action(api.functions.admin.texAllowlist, {})).rejects.toThrow();
     await expect(
       asStranger.action(api.functions.admin.changeTexAllowlist, { phone: "+15559990010", change: "add" }),

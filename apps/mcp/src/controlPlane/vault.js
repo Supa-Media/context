@@ -26,5 +26,19 @@ export function createVaultMethods({ post, required }) {
       if (typeof env === "string" && env) built.searchParams.set("env", env);
       return { url: built.toString() };
     },
+    /**
+     * Tex's saved Browserbase profile for one browser (`agent/browserProfile.js`):
+     * `{ profileId, created }`, or `{ profileId: null }` when it has none and
+     * none can be made. With `forget`, "sign Tex out": `{ forgotten }`.
+     */
+    async browserProfile(accessToken, expectedWorkspaceId, { owner, chat = null, forget = false }) {
+      return await post("/gateway/browser-profile", {
+        accessToken,
+        expectedWorkspaceId,
+        owner,
+        ...(chat !== null ? { chat } : {}),
+        ...(forget ? { forget: true } : {}),
+      });
+    },
   };
 }

@@ -196,6 +196,19 @@ than asking the bucket index" (`apps/mcp/test/searchProjection/serve.test.mjs`)
 and "a ready projection's miss is the answer, never the bucket index"
 (`apps/convex/__tests__/consoleSearch.test.ts`).
 
+**The relaxed retry travels with the strict question, and the last word is
+a prefix** (the search tune-up, Dev2's pick, 2026-10-27). Asking strict, waiting,
+then asking relaxed was two round trips from our server to Cloudflare (0.14 to
+1.1 s each) on every query that held a word nobody wrote, which is most of what
+a person types before finishing a word; `searchProjectionEach` sends both
+expressions in one batched request and the strict answer is used whenever it
+has a visible note. The strict expression is `toTypingMatchExpression`: every
+word, the last also as the start of a longer word when it has three letters or
+more, so "weekly meet" finds the weekly meeting while it is being typed.
+Reverting fails "a miss costs one request too" and "the word being typed
+matches the start of a longer word"
+(`apps/mcp/test/searchProjection/oneTrip.test.mjs`).
+
 **The tier split ranks; `canSee` decides.** `tablesForTier` picks which FTS
 tables a caller's query is scored against, so `bm25()`'s corpus statistics are
 computed over documents that caller may read — the inference channel
@@ -203,7 +216,23 @@ computed over documents that caller may read — the inference channel
 *ranking* half and it is not access control: the tier stored on a row is
 `privacy.md` as it was at index time, so a note made private a minute ago still
 has team-tier rows. Every path returned is filtered through the caller's live
-`canSee` before it leaves. The count is taken after that filter, not before,
+`canSee` before it leaves.
+
+**An access change moves the rows' tier at once, with no read (2026-10-29).**
+The sweep re-projects only a version it does not hold, and an access change
+touches neither text nor version, so before this a tier was never corrected
+until the note was next edited. Narrowing cost ranking privacy only; widening
+cost recall: a fresh note opened to the team was read by a team-tier
+connection in a CASA setup, and a search for its exact title found nothing,
+because its rows sat in the private table a team caller is never scored
+against. `set_visibility` and `set_folder_visibility` (`searchChangeOf`'s
+`retiered`) and every console access change (`rowsChange` scheduling
+`indexNotes` with `retiered`) now follow into a ready database through
+`followChange`, which moves each held row once (`tierMoveStatements`).
+Search by meaning's tier is not moved; its every hit still passes `canSee`.
+`apps/mcp/test/searchFollow.test.mjs` ("a note opened to the team…", "a
+folder narrowed…") and `apps/convex/__tests__/visibilityFollowsSearch.test.ts`
+fail if either half is dropped. The count is taken after that filter, not before,
 or the number of results a caller sees would depend on how many notes they
 cannot see.
 

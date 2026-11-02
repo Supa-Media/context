@@ -1,5 +1,7 @@
 # The texting assistant — a conversation's history
 
+> **Where it is kept (owner, 2026-11-01):** one record in the person's Tex Durable Object, written by every writer and read with About me in one call; never the bucket, never a copy in the texting Worker. See [one-to-one-history](./one-to-one-history.md).
+
 > **Superseded in part (Dev2, 2026-10-26):** the model now reads the chat's event log rendered with times, delivery results and unanswered messages; the history below keeps being written beside it. See [Tex reads one event log and decides when to answer](./event-log.md).
 
 _Part of [the texting assistant](../texting-assistant.md)._
@@ -85,8 +87,8 @@ that answers a reply to a text it cannot see. Tests
 (`agentEgressTexting.test.mjs`): "the next turn sees the texted YES and what
 it released", "a reply to a routine's text reaches a turn that has that
 text", "a text after the ready text reaches a turn that knows Tex asked them
-to connect Google"; `told.test.ts`, `reply.test.ts`, `ready.test.ts` for the
-Worker's half.
+to connect Google"; `reply.test.ts`, `ready.test.ts` for the Worker's half
+(`told.test.ts` was deleted in #2266).
 
 ### Tex answers inside the iMessage thread it was asked in
 
@@ -170,3 +172,60 @@ Tests: "...with the notes it read kept beside it, by path"
 Same day, a group chat: asked to roast Seyi, Tex called Seyi "her". Every turn
 now carries `PRONOUNS_LINE` (`prompt.js`): the name or they/them unless they or
 their notes say otherwise. Test: "every turn is told never to guess pronouns".
+
+### A figure is quoted only from what the turn read (2026-10-30)
+
+Two research answers in a group chat (self-review, 2026-10-29 and 2026-10-30)
+quoted figures nothing backed: benchmark scores with no source, then Claude
+Haiku and Sonnet prices set beside OpenAI's with only OpenAI's pricing page
+open. The same chat was told "Flovia publishes no prices" about a page that
+offered free launch access, which Tex quoted two texts later. The ground rule
+already said to state only numbers read in a tool result; the model still did.
+
+So a turn that used the web has its answer checked against everything it read
+(`sourcedFigures.js`, from `claimCheck.js`): a price, percentage or score in
+no tool result, their words or an earlier text, or a figure in the same
+sentence as a name no source holding it mentions, gets one more round naming
+them; so does "publishes no prices" when a page it read speaks of price. A
+total worked out in the sentence stands on its parts. A turn carrying their
+pictures is not checked, since the model reads those itself. `RESEARCH_LINE`
+also says a figure comes from that very thing's own page and that a yes/no or
+which-is-cheaper answer leads. What a "simplification" costs: dropping the name
+check lets one company's prices be quoted as another's again. Tests:
+`agentSourcedFigures.test.mjs`.
+
+### A page is said to hold only what the turn read in it (2026-10-30)
+
+The same group chat, the same day (self-review ade1c1, b71289): Tex said a
+spec's memory section "is there" and quoted a heading when only the page's
+first 12,000 characters had come back, then two texts later that the section
+was unread; wrote a link off as being for another company's models before
+opening it; and, having said from the notes that a model switch wasn't made
+yet, described it as live a few turns on. `sourcedFigures.js` checked figures
+only, not what a page is said to say.
+
+So `readClaims.js` runs beside the figure check, once a turn, whatever the turn
+read: an answer that says a page or note has a section, covers a subject or
+quotes its words, with those words in no tool result, pasted text or write of
+this turn; a cut page reviewed or said to lack something without saying it was
+only partly read; a link in their text summed up with nothing on the web read;
+a change something read or said earlier calls not live yet, stated as live with
+no correction named; and "it's unread" after one of Tex's last texts said what
+the page holds, with no correction named. Each gets one more round naming it.
+`open_page` takes `from:` (a heading further down) and its cut line says how
+much of the page was read, so the rest can be read rather than guessed.
+`READ_CLAIMS_LINE` says the same in the prompt. What a "simplification" costs:
+taking their question as backing lets "does it have a memory section?" vouch
+for "yes, it's there". Tests: `agentReadClaims.test.mjs`.
+
+Follow-up the next morning (self-review 7ad738, 2026-10-31): sent an X post a
+second time, Tex called `open_page`, got X's sign-in wall back, and described
+the post. The link check had counted any web read as reading the link. Now a
+link counts as read only when a page result at that link's own address
+carried a body worth the name (`pageReads.js`): not "(no text)", not under
+`THIN_PAGE_CHARS`, not a short page of sign-in or script-wall words, and not a
+redirect to somewhere else. "Ashaya's post says…" counts as describing it
+beside "it's for GPT"; "I couldn't open it" is the honest answer and goes.
+What a "simplification" costs: counting the call rather than the body lets a
+wall vouch for a summary again. Tests: the X wall cases in
+`agentReadClaims.test.mjs`.

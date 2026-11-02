@@ -4,13 +4,13 @@
  */
 
 import { ACTIVITY_KINDS, activityForCaller, agentActivityKey } from "../agentActivity.js";
+import { roomByName } from "../objectPlace.js";
 import { heartbeatPerson } from "./activityHeartbeat.js";
 import { asksForStoredReads, storedReadsAnswer } from "./storedReads.js";
 import { asksForHistory, asksForHistoryDays, historyAnswer, historyDaysAnswer } from "../history/serve.js";
+import { resolvePresentedSession, subprotocolToken, withPresenceProtocol } from "../http/presentedToken.js";
 import {
-  bearerToken,
   hasScope,
-  resolveSession,
   SCOPE_READ,
   SCOPE_WRITE,
   SessionRefusal,
@@ -29,6 +29,9 @@ import { objectExists } from "../storageLayout.js";
 import { presenceClientKey } from "./relayAuthorization.js";
 import { presenceDisplayName } from "./presence.js";
 import { roomKey } from "../presence.js";
+
+export { handleTree, TREE_SOCKET_PATH } from "./treeRoute.js";
+export { handleAccess, ACCESS_SOCKET_PATH } from "./accessRoute.js";
 
 /**
  * `GET /presence?note=<path>` — the socket that says who else has this note
@@ -90,7 +93,7 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
   const controlPlane = createControlPlane(env);
   let session;
   try {
-    session = await resolveSession(pathToken || bearerToken(request), slug, controlPlane);
+    session = await resolvePresentedSession(request, { pathToken, path: "/presence", slug, controlPlane });
   } catch (error) {
     if (!(error instanceof SessionRefusal)) throw error;
     return error.status === 403
@@ -174,9 +177,7 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
     documentId = requestedDocumentId;
   }
 
-  const room = env.PRESENCE_ROOM.get(
-    env.PRESENCE_ROOM.idFromName(roomKey(session.workspaceId, notePath)),
-  );
+  const room = roomByName(env.PRESENCE_ROOM, roomKey(session.workspaceId, notePath));
   // Only the two headers the room consumes cross the internal boundary. In
   // particular, the bearer/cookie and browser websocket negotiation headers
   // from the public request are not forwarded into the Durable Object.
@@ -219,6 +220,18 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
         which is exactly the distinction that has to be drawn.
       */
       clientKey: await presenceClientKey(session.actorClientId),
+      /*
+        **Which person this socket belongs to, so your own other windows are
+        told apart from colleagues.**
+
+        The same person in the Mac app, a phone and a browser tab is three
+        members, and each of them used to draw the other two as somebody else's
+        caret: your own name, in a colour you never chose, parked where you
+        last typed. The room uses this only to tell a socket which of its peers
+        are the same person; it never goes on the wire. A digest, like the
+        client key, so the room holds no account id.
+      */
+      accountKey: await presenceClientKey(`person:${session.actorUserId}`),
       ...(collaborationV2
         ? {
             grantId: session.grantId,
@@ -240,7 +253,8 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
   const roomUrl = collaborationV2
     ? "https://presence.invalid/presence?collaboration=2"
     : "https://presence.invalid/presence";
-  return await room.fetch(new Request(roomUrl, { method: "GET", headers }));
+  const answer = await room.fetch(new Request(roomUrl, { method: "GET", headers }));
+  return !pathToken && subprotocolToken(request) ? withPresenceProtocol(answer) : answer;
 }
 
 /**
@@ -272,7 +286,7 @@ export async function handleAgentActivity(request, env, { slug, pathToken, origi
   const controlPlane = createControlPlane(env);
   let session;
   try {
-    session = await resolveSession(pathToken || bearerToken(request), slug, controlPlane);
+    session = await resolvePresentedSession(request, { pathToken, path: "/agent-activity", slug, controlPlane });
   } catch (error) {
     if (!(error instanceof SessionRefusal)) throw error;
     return error.status === 403
@@ -326,9 +340,7 @@ export async function handleAgentActivity(request, env, { slug, pathToken, origi
     typeof path === "string" && !isPlumbing(path) &&
     canSee(path, session.scope, privacy.rules, privacy.overrides);
   try {
-    const room = env.PRESENCE_ROOM.get(
-      env.PRESENCE_ROOM.idFromName(agentActivityKey(session.workspaceId)),
-    );
+    const room = roomByName(env.PRESENCE_ROOM, agentActivityKey(session.workspaceId));
     const response = await room.fetch("https://presence.invalid/activity", {
       method: "GET",
       headers: person ? { "x-activity-person": JSON.stringify(person) } : {},

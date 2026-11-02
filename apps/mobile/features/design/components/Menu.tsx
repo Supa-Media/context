@@ -73,13 +73,6 @@ export interface MenuProps<Id extends string = MenuActionId> {
    * written out identically.
    */
   sheet?: { items: MenuItem<Id>[]; header?: ReactNode };
-  /**
-   * The popover leaves the keyboard alone: Escape closes it, and any other
-   * key closes it *and* goes to whatever had focus. For a card opened by a
-   * plain click on a word (the note's spelling card), where the next key is
-   * usually the person carrying on typing. The sheet is modal and has no keyboard state, so native ignores it.
-   */
-  passiveKeys?: boolean;
   onSelect: (id: Id) => void;
   onDismiss: () => void;
 }
@@ -245,10 +238,13 @@ export function Menu<Id extends string = MenuActionId>({
       // Both mean "I am done with this sheet", so both are the same callback.
       onRequestClose={onDismiss}
     >
-      <Pressable style={styles.scrim} accessibilityLabel="Close menu" onPress={onDismiss}>
+      <Pressable style={styles.scrim} accessible={false} accessibilityLabel="Close menu" onPress={onDismiss}>
         {/* Swallow presses inside the sheet, so only the scrim dismisses. */}
         <Pressable
           style={[styles.sheet, { paddingBottom: insets.bottom + space.x2 }]}
+          // Gesture containers must not group their action rows into one
+          // iOS accessibility element. The visible Cancel row dismisses it.
+          accessible={false}
           onPress={() => {}}
           accessibilityLabel={title ?? "Actions"}
           testID="menu-sheet"

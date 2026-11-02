@@ -3,9 +3,9 @@ import { Platform } from "react-native";
 /**
  * Font families.
  *
- * On web these are CSS font stacks — the faces themselves are pulled from
- * Google Fonts (see `fonts.web.ts` and `public/index.html`), exactly as the mockup
- * does, except Libron, which is served from our own origin. On native we deliberately hand back `undefined` so the platform
+ * On web these are CSS font stacks — the faces themselves are served from our
+ * own origin (see `fonts.web.ts` and `public/index.html`): Instrument Sans
+ * and JetBrains Mono as Google Fonts serves them, and Libron. On native we deliberately hand back `undefined` so the platform
  * default is used: passing a comma-separated stack to a native text node is
  * meaningless on iOS and can throw on Android, and there are no bundled font
  * binaries to point at yet. Native is a later surface; see the report.
@@ -112,6 +112,19 @@ export const pointerType = {
   page: 34,
   /** Marketing and first-run only; nothing in the console is this size. */
   display: 40,
+} as const;
+
+/**
+ * The Tex page's scale (`features/tex/page`): the sizes of the mock Dev2
+ * approved on 2026-11-02 as "it must look exactly like this mock", in the
+ * page's own voice, as `siteType` is the website's. Its prose sizes are the
+ * mock's (`T`'s `size`); these are the two a stylesheet names.
+ */
+export const texPageType = {
+  /** The address bar over the small live look at Tex's browser. */
+  miniAddress: 9,
+  /** A field on the page, before `useFieldFont` raises it on a phone. */
+  field: 14,
 } as const;
 
 /**

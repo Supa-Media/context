@@ -300,6 +300,9 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // The Mac app's Messages backup posts to `/messages/imessage/batch` on the
   // gateway. Reserved on the same terms as `presence`.
   "messages",
+  // What a card in Messages shows, `/cards/inbox` and `/cards/week` on the
+  // gateway. Reserved on the same terms as `presence`.
+  "cards",
   "oauth",
   "static",
   "status",

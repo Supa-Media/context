@@ -25,8 +25,8 @@
  * would only ever fail.
  */
 
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Platform, Pressable, StyleSheet, TextInput, View, type StyleProp, type TextStyle } from "react-native";
+import { useRef, useState, type ReactNode } from "react";
+import { Pressable, StyleSheet, TextInput, View, type StyleProp, type TextStyle } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Icon } from "../../../design/components/Icon";
 import { Menu } from "../../../design/components/Menu";
@@ -37,6 +37,7 @@ import type { MenuItem } from "../menu";
 import type { OwnerSearch } from "../owners";
 import { OwnerPicker } from "./OwnerPicker";
 import { useFieldFont } from "../../../design/fieldFont";
+import { useHoverTitle } from "../../../design/useHoverTitle";
 
 export interface PropertyValueProps {
   /** The frontmatter key, which names the menu and the field. */
@@ -329,21 +330,6 @@ export function PropertyValue({
       )}
     </View>
   );
-}
-
-/**
- * A native tooltip on web: `title` on the cell's DOM node. React Native Web
- * does not forward a `title` prop, so it is set on the node itself. Native
- * has no hover; the same words are the accessible name there.
- */
-function useHoverTitle(ref: RefObject<View | null>, title: string | null): void {
-  useEffect(() => {
-    if (Platform.OS !== "web") return;
-    const node = ref.current as unknown as HTMLElement | null;
-    if (node === null || typeof node.setAttribute !== "function") return;
-    if (title === null) node.removeAttribute("title");
-    else node.setAttribute("title", title);
-  });
 }
 
 const makeStyles = (colors: Colors) =>

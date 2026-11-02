@@ -10,7 +10,7 @@ const SECRET = "a-webhook-secret-long-enough";
 function env(): { env: Env; routed: { to: string; body: Record<string, unknown> }[] } {
   const routed: { to: string; body: Record<string, unknown> }[] = [];
   const namespace = {
-    idFromName: (name: string) => ({ name }),
+    idFromName: (name: string) => ({ name: name.replace(/^enam:/, "") }), // inboxes live under `enam:<name>` (`inboxByName`); kept here by name
     get: (id: { name: string }) => ({
       fetch: async (_url: string, init?: RequestInit) => {
         routed.push({ to: id.name, body: JSON.parse(String(init?.body ?? "{}")) });
@@ -101,7 +101,7 @@ describe("whapi webhook", () => {
     expect(routed[0].body).toMatchObject({ kind: "group-message", groupId: `whapi:${GROUP}`, line: LINE, from: PHONE, text: "Tex what's on today" });
   });
 
-  it("counts a group 👍 only on a text Tex itself sent in that group", async () => {
+  it("reads a group 👍's words only from a text Tex itself sent in that group", async () => {
     const reaction = text({ chat_id: GROUP, type: "action", text: undefined, action: { type: "reaction", target: "TEXASK-0001", emoji: "👍" } });
 
     const own = env();
@@ -119,7 +119,8 @@ describe("whapi webhook", () => {
       const other = env();
       whapiServes(served);
       await worker.fetch(post([reaction]), other.env);
-      expect(other.routed).toEqual([]);
+      // Since 2026-11-01 (Dev2) it still reaches the group, as context on somebody's message, naming no ask.
+      expect(other.routed[0].body).toMatchObject({ reaction: { how: "Liked", words: "", onOther: true } });
     }
   });
 
@@ -136,7 +137,30 @@ describe("whapi webhook", () => {
     const elsewhere = env();
     whapiServes({ id: "TEXASK-0002", chat_id: "15555550111@s.whatsapp.net", from_me: true, text: { body: "Someone else's ask" } });
     await worker.fetch(post([reaction]), elsewhere.env);
-    expect(elsewhere.routed[0].body).toMatchObject({ reaction: { words: "" } });
+    expect(elsewhere.routed[0].body).toMatchObject({ reaction: { words: "", onOther: true } });
+  });
+
+  // Without it, a like on one's own message reaches `onTheAsk` as one whose
+  // words could not be read, and is taken for the ask still armed
+  // (`askThumbUnnamed.test.ts`).
+  it("marks a 1:1 reaction read and found not to be Tex's, so it names no ask", async () => {
+    const reaction = text({ type: "action", text: undefined, action: { type: "reaction", target: "THEIRS-0001", emoji: "👍" } });
+
+    const theirs = env();
+    whapiServes({ id: "THEIRS-0001", chat_id: "15555550100@s.whatsapp.net", from_me: false, text: { body: "my own earlier text" } });
+    await worker.fetch(post([reaction]), theirs.env);
+
+    expect(theirs.routed[0].body).toMatchObject({ reaction: { how: "Liked", words: "", onOther: true } });
+  });
+
+  it("leaves a 1:1 reaction whose message could not be read unmarked, so the fallback stands", async () => {
+    const reaction = text({ type: "action", text: undefined, action: { type: "reaction", target: "GONE-0001", emoji: "👍" } });
+
+    const unread = env();
+    await worker.fetch(post([reaction]), unread.env);
+
+    expect(unread.routed[0].body).toMatchObject({ reaction: { how: "Liked", words: "" } });
+    expect(unread.routed[0].body.reaction).not.toHaveProperty("onOther");
   });
 
   it("reads every message in one delivery", async () => {

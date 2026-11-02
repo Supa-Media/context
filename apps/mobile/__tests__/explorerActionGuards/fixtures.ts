@@ -74,9 +74,8 @@ import { displayName } from "../../features/console/files/paths";
  * | :222 | `runAction`'s `restore` null target | cannot fire |
  * | :247 | `runAction`'s `case "visibility"` | cannot fire |
  * | :263 | `canDrag`'s `row.kind !== "loading" \|\| "empty"` | cannot fire |
- * | :631 | `cycleVisibility`'s `row.readOnly` | cannot fire |
  *
- * ## The five that cannot fire
+ * ## The four that cannot fire
  *
  *  - **`openMenu`'s `items.length === 0`** — because `Explorer.openMenu` only
  *    ever builds `{ kind: "row", row }`, and `entryItems` returns at least
@@ -108,15 +107,12 @@ import { displayName } from "../../features/console/files/paths";
  *    say so. That was asserted from the resolution rule without opening the
  *    file that works around it — the same shape as the miscount it was written
  *    to correct.)
- *  - **`cycleVisibility`'s `row.readOnly`** — `VisibilityControl` returns the
- *    "generated" lock *before* the pressable for a read-only row, so there is
- *    no press to make.
  *  - **`canDrag`'s `loading`/`empty` arms** — the same `FileTree` fact as the
  *    first bullet: those rows carry no interactions at all, so `canDrag` is
  *    never asked about one. Only the `readOnly` arm of that expression is
  *    reachable, and only that arm is covered below.
  *
- * Those five are defence in depth, and a test for them would have to sabotage
+ * Those four are defence in depth, and a test for them would have to sabotage
  * the outer layer to reach them — which is a test of the sabotage, not of the
  * product. They are left uncovered deliberately, and this is the record of why,
  * so the gap does not read as an unfinished job.

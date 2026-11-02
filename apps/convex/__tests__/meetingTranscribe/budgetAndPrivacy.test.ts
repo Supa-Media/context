@@ -30,6 +30,7 @@ import {
   configureWorker,
   signedIn,
   transcribe,
+  createConsentingUser,
 } from "./fixtures.helpers";
 
 describe("what one account may spend", () => {
@@ -38,7 +39,7 @@ describe("what one account may spend", () => {
     const t = setupTest();
     configureWorker();
     const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
-    const userId = await createUser(t, "spender@example.invalid");
+    const userId = await createConsentingUser(t, "spender@example.invalid");
     const caller = asUser(t, userId);
     let n = 0;
     /** One chunk, with a fresh id so nothing else can be what refused it. */
@@ -185,8 +186,8 @@ describe("what one account may spend", () => {
     configureWorker();
     const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
 
-    const spender = asUser(t, await createUser(t, "spender@example.invalid"));
-    const bystander = asUser(t, await createUser(t, "bystander@example.invalid"));
+    const spender = asUser(t, await createConsentingUser(t, "spender@example.invalid"));
+    const bystander = asUser(t, await createConsentingUser(t, "bystander@example.invalid"));
     const chunk = (id: string) => ({ ...CHUNK, chunkId: id });
 
     for (let i = 0; i < TRANSCRIBE_CHUNKS_PER_WINDOW; i += 1) {

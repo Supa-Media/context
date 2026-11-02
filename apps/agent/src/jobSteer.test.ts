@@ -9,13 +9,15 @@
  *  3. `runJob` texting an answer that missed a later text → "a change that came after the turn's last look gets a turn of its own".
  *  4. `runJob` ignoring `STOP_KEY` after the turn → "a stopped job texts nothing more and runs no further turn".
  *  5. `noteJobUpdate` dropping `step` → "each step is kept for the chat, the last few only".
+ *  6. `runJob` dropping an answer's `untrusted` from the next part's run → "a part that read from outside hands its
+ *     mark to the next part".
  */
 
 import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
 import { drain, accept, type InboxDeps } from "./inbox";
 import { acceptJob, runJob, steerJob, STEERS_KEY, STOP_KEY, type JobDeps } from "./jobRun";
-import { chatJobs, JOB_LINES, MAX_STEPS_KEPT, noteJobUpdate, readSteers, RUN_KEY, steerJobs, type JobEntry, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { chatJobs, JOB_LINES, MAX_STEPS_KEPT, noteJobUpdate, readSteers, RUN_KEY, steerJobs, type JobEntry, type JobRun, type JobSteer, type JobUpdate, MAX_JOB_ATTEMPTS } from "./jobs";
 import { jobUpdate } from "./jobTexts";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
@@ -123,6 +125,25 @@ describe("steering a running job", () => {
     expect(await steerJob(storage, yellow)).toBe(false); // ended: the chat's turn answers it itself
   });
 
+  /*
+    A part that read from outside hands its mark on. The next part is built on this one's words — its draft, and the
+    advisor's advice on it (`apps/mcp/src/agent/jobCheck.js`) — so a page's words reach it through a model that read
+    them. In the gateway that mark is what refuses a learned skill's write and what holds a widening, and it dies with
+    the request, so only the job's own record carries it between parts (`JobAsk.tainted`).
+  */
+  it("a part that read from outside hands its mark to the next part", async () => {
+    const storage = new MemoryStorage();
+    await acceptJob(storage, run(), NOW);
+    const { deps, asked } = jobDeps([
+      { body: { answer: "I read their pricing page. Next I'll write it up.", untrusted: true, unfinished: true } },
+      { body: { answer: "Written up in 1-projects/logo.md." } },
+    ]);
+    await runJob(storage, deps);
+    await runJob(storage, deps);
+    expect(asked[0].job).not.toMatchObject({ tainted: true });
+    expect(asked[1].job).toMatchObject({ attempt: 2, tainted: true });
+  });
+
   it("a change that came after the turn's last look gets a turn of its own", async () => {
     const storage = new MemoryStorage();
     await acceptJob(storage, run(), NOW);
@@ -143,7 +164,7 @@ describe("steering a running job", () => {
 
   it("says so when the change came after its last turn", async () => {
     const storage = new MemoryStorage();
-    await acceptJob(storage, run({ attempt: 3 }), NOW);
+    await acceptJob(storage, run({ attempt: MAX_JOB_ATTEMPTS }), NOW);
     const { deps, reports } = jobDeps([{ body: { answer: "Made a green logo." }, during: async () => void (await steerJob(storage, yellow)) }]);
     await runJob(storage, deps);
     expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Made a green logo.", JOB_LINES.missed] });
@@ -161,7 +182,7 @@ describe("stopping a running job", () => {
     await runJob(storage, deps);
     expect(steered[0].body).toMatchObject({ text: "stop the logo", stop: true }); // its turn winds up at its next step
     expect(asked).toHaveLength(1);
-    expect(reports.at(-1)).toEqual({ id: "job-1234-abcd", state: "failed", status: "Stopped", first: 0 });
+    expect(reports.at(-1)).toEqual({ id: "job-1234-abcd", state: "failed", status: "Stopped", first: 0, pass: expect.any(String) });
     expect(storage.data.has(RUN_KEY)).toBe(false);
     expect(storage.data.has(STOP_KEY)).toBe(false);
   });

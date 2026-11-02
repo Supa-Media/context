@@ -74,8 +74,9 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
-import { internalMutation, mutation, query } from "../_generated/server";
+import { requireAuthId } from "./lib/signedIn";
+import { query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import type { QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { invalidateInvitationSignInCode } from "./invitationEmail";

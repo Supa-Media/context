@@ -36,14 +36,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Repair
-        run: npx convex run functions/gmailDayRepair:rearmRecentImports
+        run: npx convex run functions/gmailDayRepair:rearmRecentImports 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
 
       - name: Window repair
         if: ${{ inputs.since != '' }}
         run: |
-          npx convex run functions/gmailDayRepair:queueDayRepair "{\"since\":\"$SINCE\"}"
+          npx convex run functions/gmailDayRepair:queueDayRepair "{\"since\":\"$SINCE\"}" 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           SINCE: ${{ inputs.since }}

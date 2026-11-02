@@ -26,13 +26,8 @@
  */
 
 import { describe, expect, test } from "vitest";
-import {
-  archiveRoot,
-  archiveRoots,
-  insideArchive,
-  type PrivacyRule,
-  type Visibility,
-} from "../functions/lib/privacy";
+import { archiveRoot, archiveRoots, insideArchive } from "../functions/lib/archiveRoots";
+import type { PrivacyRule, Visibility } from "../functions/lib/privacy";
 import { gatewayInternals } from "./gatewayFormat.helpers";
 
 const rulesFor = (...prefixes: string[]): PrivacyRule[] =>

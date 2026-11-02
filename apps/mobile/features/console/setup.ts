@@ -155,7 +155,17 @@ export function contextSetupFor(options: {
   */
   const storage = options.storage;
   if (storage === null || storage === undefined) return { kind: "none" };
-  if (storage.status !== "connected") return { kind: "none" };
+  if (storage.status !== "connected") {
+    /*
+      Except a bucket we have just made. Its first check is waiting out the new
+      key and writes the folders once it works (`managedProvisioningFns/
+      complete.ts`), and the first run sends people here for those seconds
+      rather than holding them on a screen of their own.
+    */
+    return storage.status === "unverified" && layoutWriting(storage, options.now ?? Date.now())
+      ? { kind: "writing" }
+      : { kind: "none" };
+  }
 
   // Before the root listing is read: while a layout is landing, the listing
   // on screen is the one from before it, and "empty" is the wrong answer.

@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text as RNText, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
@@ -8,6 +8,7 @@ import { useColors, useThemedStyles, type Colors } from "../../../../design/them
 import { whenText } from "../feed";
 import type { MapPageState } from "../hooks/useMapPage";
 import { useNotePeek, type NotePeekText } from "../hooks/useNotePeek";
+import { peekRuns, type PeekRun } from "../peek/peekInline";
 import { lastWritten, peekCrumbs, peekPlacement, peekPresence, presenceChips, type PeekBlock, type PeekNote, type PresenceChip } from "../peek/peekModel";
 
 /** The note a dot tap opened, and where on the canvas the tap was (none when the map came back with it open). */
@@ -25,6 +26,11 @@ const CARD = { width: 380, height: 460 };
  *
  * Reading is shown for the whole note: the map knows which notes were read,
  * not which parts.
+ *
+ * Words are drawn as the editor draws them: bold, italic, code, and links.
+ * A wiki link to a note on the map moves the card to that note; one to a
+ * heading of this note opens it, as Expand does; one the map cannot place is
+ * muted. A web link opens in the browser.
  */
 export function NotePeek({
   page,
@@ -33,6 +39,7 @@ export function NotePeek({
   box,
   onClose,
   onExpand,
+  onPeek,
 }: {
   page: MapPageState;
   peek: OpenPeek;
@@ -40,6 +47,8 @@ export function NotePeek({
   box: { width: number; height: number };
   onClose: () => void;
   onExpand: () => void;
+  /** A link in the card to another note on the map: the card opens on it, where it is now. */
+  onPeek: (next: OpenPeek) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -49,6 +58,10 @@ export function NotePeek({
   const title = page.book.title(peek.workspaceId, peek.path);
   const crumbs = peekCrumbs(peek.path);
   const chips = presenceChips(presence);
+  const link: LinkTo = {
+    find: (target) => page.book.link(peek.workspaceId, peek.path, target),
+    open: (path) => (path === peek.path ? onExpand() : onPeek({ ...peek, path })),
+  };
 
   useEffect(() => {
     if (Platform.OS !== "web" || typeof document === "undefined") return;
@@ -91,7 +104,7 @@ export function NotePeek({
         </View>
       ) : null}
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyInner} testID="map-peek-body">
-        <PeekText text={text} writing={writing} writer={presence.writers[0] ?? null} />
+        <PeekText text={text} writing={writing} writer={presence.writers[0] ?? null} link={link} />
       </ScrollView>
       <View style={[styles.foot, compact && styles.footPhone]}>
         {!compact ? (
@@ -126,7 +139,10 @@ function Chip({ chip }: { chip: PresenceChip }) {
   );
 }
 
-function PeekText({ text, writing, writer }: { text: NotePeekText; writing: boolean; writer: string | null }) {
+/** How the card's note links find their notes and open them. */
+type LinkTo = { find: (target: string) => string | null; open: (path: string) => void };
+
+function PeekText({ text, writing, writer, link }: { text: NotePeekText; writing: boolean; writer: string | null; link: LinkTo }) {
   const styles = useThemedStyles(makeStyles);
   if (text.state === "loading") return <Text style={styles.quiet}>Opening…</Text>;
   if (text.state === "failed") return <Text style={styles.quiet}>This note couldn't be read just now.</Text>;
@@ -137,29 +153,80 @@ function PeekText({ text, writing, writer }: { text: NotePeekText; writing: bool
   return (
     <>
       {text.blocks.map((block, i) => (
-        <Block key={i} block={block} changed={changed.has(i)} caret={i === caretAt} writer={writer} />
+        <Block key={i} block={block} changed={changed.has(i)} caret={i === caretAt} writer={writer} link={link} />
       ))}
     </>
   );
 }
 
-function Block({ block, changed, caret, writer }: { block: PeekBlock; changed: boolean; caret: boolean; writer: string | null }) {
+function Block({ block, changed, caret, writer, link }: { block: PeekBlock; changed: boolean; caret: boolean; writer: string | null; link: LinkTo }) {
   const styles = useThemedStyles(makeStyles);
   const style =
-    block.kind === "heading" ? (block.level <= 2 ? styles.h2 : styles.h3) : block.kind === "code" ? styles.code : styles.para;
+    block.kind === "heading"
+      ? block.level <= 2
+        ? styles.h2
+        : styles.h3
+      : block.kind === "code"
+        ? styles.codeBlock
+        : block.kind === "quote"
+          ? [styles.para, styles.quote]
+          : styles.para;
   return (
     <View style={[styles.block, changed && styles.blockChanged]} testID={changed ? "map-peek-changed" : undefined}>
-      <Text style={style}>
-        {block.kind === "item" ? "•  " : ""}
-        {isolateForDisplay(block.text)}
-        {caret ? <Text style={styles.caret}>▍</Text> : null}
-      </Text>
+      {block.kind === "rule" ? (
+        <View style={styles.rule} testID="map-peek-rule" />
+      ) : (
+        <Text style={style}>
+          {block.kind === "item" ? "•  " : ""}
+          {block.kind === "code" ? isolateForDisplay(block.text) : <Runs text={block.text} link={link} />}
+          {caret ? <Text style={styles.caret}>▍</Text> : null}
+        </Text>
+      )}
       {caret && writer !== null ? (
         <Text style={styles.caretName} numberOfLines={1} testID="map-peek-caret">
           {writer}
         </Text>
       ) : null}
     </View>
+  );
+}
+
+function Runs({ text, link }: { text: string; link: LinkTo }) {
+  const styles = useThemedStyles(makeStyles);
+  const runs = useMemo(() => peekRuns(text), [text]);
+  return (
+    <>
+      {runs.map((run, i) => (
+        <Run key={i} run={run} link={link} look={styles[run.style]} />
+      ))}
+    </>
+  );
+}
+
+function Run({ run, link, look }: { run: PeekRun; link: LinkTo; look: object }) {
+  const styles = useThemedStyles(makeStyles);
+  const words = isolateForDisplay(run.text);
+  if (run.link === undefined) return <RNText style={look}>{words}</RNText>;
+  if (run.link.kind === "url") {
+    const href = run.link.href;
+    return (
+      <RNText style={[look, styles.link]} accessibilityRole="link" onPress={() => void Linking.openURL(href).catch(() => {})}>
+        {words}
+      </RNText>
+    );
+  }
+  const path = link.find(run.link.target);
+  if (path === null) {
+    return (
+      <RNText style={[look, styles.linkMissing]} testID="map-peek-link-missing">
+        {words}
+      </RNText>
+    );
+  }
+  return (
+    <RNText style={[look, styles.link]} accessibilityRole="link" onPress={() => link.open(path)} testID="map-peek-link">
+      {words}
+    </RNText>
   );
 }
 
@@ -215,8 +282,19 @@ const makeStyles = (colors: Colors) =>
     h2: { fontFamily: fonts.body, fontSize: pointerType.body, fontWeight: "600", color: colors.text },
     h3: { fontFamily: fonts.body, fontSize: pointerType.lede, fontWeight: "600", color: colors.text },
     para: { fontFamily: fonts.body, fontSize: pointerType.lede, lineHeight: 22, color: colors.text2 },
-    code: { fontFamily: fonts.mono, fontSize: pointerType.ui, lineHeight: 19, color: colors.text2 },
+    codeBlock: { fontFamily: fonts.mono, fontSize: pointerType.ui, lineHeight: 19, color: colors.text2 },
     caret: { color: colors.accent },
+    quote: { paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: colors.line },
+    rule: { height: StyleSheet.hairlineWidth, marginVertical: 6, backgroundColor: colors.lineStrong },
+    plain: {},
+    strong: { fontWeight: "600", color: colors.text },
+    em: { fontStyle: "italic" },
+    // Smaller than the line around it, as in the editor.
+    code: { fontFamily: fonts.mono, fontSize: pointerType.ui, color: colors.text },
+    strike: { textDecorationLine: "line-through" },
+    mark: { backgroundColor: colors.markWash, color: colors.text },
+    link: { color: colors.accentText, textDecorationLine: "underline" },
+    linkMissing: { color: colors.chromeMuted, textDecorationLine: "underline", textDecorationStyle: "dotted" },
     caretName: {
       alignSelf: "flex-start",
       marginTop: 2,

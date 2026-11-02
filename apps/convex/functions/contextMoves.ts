@@ -61,17 +61,11 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import {
-  action,
-  internalAction,
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "../_generated/server";
+import { action, internalAction, internalQuery, query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { CONTEXT_MOVE_CONFLICT_RETRIES, carryHere } from "./lib/contextMoveBatches";
 import { requireWorkspaceRole, workspaceNotFound } from "./lib/workspaceAuth";
 import { authorizeMove, messageOf, normalizeMovePath, TOO_MANY_PASSES } from "./lib/contextMoveAuthorize";
@@ -355,6 +349,9 @@ export const reopenMove = internalMutation({
       throw workspaceNotFound();
     }
     if (row.status !== "failed") return false;
+    // A guest chat's move into its home is the system's alone to resume (`lib/contextMoveChatHome.ts`): a person's
+    // roles never stand in for the chat, and the answer is the one a move that is not theirs gives.
+    if (row.chatHome !== undefined) throw workspaceNotFound();
     await authorizeMove(ctx, {
       sourceWorkspaceId: row.sourceWorkspaceId,
       destinationWorkspaceId: row.destinationWorkspaceId,
@@ -401,12 +398,14 @@ export const readMove = internalQuery({
       movedBytes: v.number(),
       skipped: v.array(skipValidator),
       error: v.optional(v.string()),
+      chatHome: v.optional(v.object({ groupId: v.id("textGroups") })),
     }),
   ),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.moveId);
     if (row === null) return null;
     return {
+      ...(row.chatHome === undefined ? {} : { chatHome: row.chatHome }),
       sourceWorkspaceId: row.sourceWorkspaceId,
       destinationWorkspaceId: row.destinationWorkspaceId,
       actorUserId: row.actorUserId,
@@ -558,7 +557,15 @@ export const advanceContextMove = internalAction({
     */
     let source: { scope: "private" | "team"; grantedNames: string[] };
     let destination: { scope: "private" | "team"; grantedNames: string[] };
-    try {
+    if (row.chatHome !== undefined) {
+      // A guest chat's folder into its own home: no person's role stands in, the chat's row decides, every pass.
+      const held = await ctx.runQuery(internal.functions.texGuestRetire.chatHomeAccess, { moveId: args.moveId });
+      if (held === null) {
+        return await stop("failed", "This move stopped because it is no longer the chat's own folder going into the chat's own home.");
+      }
+      source = held.source;
+      destination = held.destination;
+    } else try {
       source = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
         actorUserId: row.actorUserId,
         workspaceId: row.sourceWorkspaceId,
@@ -579,7 +586,7 @@ export const advanceContextMove = internalAction({
     // Batches carried through this deployment's own layer (`lib/contextMoveBatches.ts`): each end's
     // keyed layer answers for its own notes, so a keyed workspace needs no other path.
     try {
-      const pass = await carryHere(ctx, { row, source, destination, skipped, batches: BATCHES_PER_PASS, conflictsLeft });
+      const pass = await carryHere(ctx, { row, source, destination, skipped, batches: BATCHES_PER_PASS, conflictsLeft, intoHome: row.chatHome !== undefined });
       conflictsUsed = pass.conflicts ?? 0;
       movedObjects = pass.movedObjects;
       movedBytes = pass.movedBytes;
@@ -626,6 +633,8 @@ export const advanceContextMove = internalAction({
           survivors: skipped.map((entry) => entry.path),
         },
       });
+      // The chat's folder is in its home: guest mode's fields and group go (`functions/texGuestRetire.ts`).
+      if (row.chatHome !== undefined) await ctx.runMutation(internal.functions.texGuestRetire.finishChat, { moveId: args.moveId });
     } catch (error) {
       return await stop("failed", messageOf(error));
     }

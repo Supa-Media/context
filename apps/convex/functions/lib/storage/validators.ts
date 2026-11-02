@@ -8,6 +8,7 @@
  */
 
 import { v } from "convex/values";
+import { sealedTemporaryValidator } from "../managedProvisioningFns/temporaryKey";
 import { capabilitiesValidator, providerValidator } from "./shapes";
 
 export const bindStorageArgs = {
@@ -49,6 +50,25 @@ export const applyBindingArgs = {
   forcePathStyle: v.optional(v.boolean()),
   /** Keep a newly minted managed credential amber while IAM propagates. */
   verificationRetryUntil: v.optional(v.number()),
+  /**
+   * A temporary credential a new managed bucket is served on until its own key
+   * answers (the schema's `temporaryAccessKeyId`). Every field sealed.
+   */
+  temporary: sealedTemporaryValidator,
+  /**
+   * A layout the first check writes once the bucket answers. Only a bucket we
+   * just made for a personal workspace is given one
+   * (`managedProvisioningFns/complete.ts`): the binding says a layout is on
+   * its way from the moment it exists, so the console can show the folders
+   * arriving rather than the first run holding somebody on a wait screen.
+   */
+  firstStructure: v.optional(
+    v.object({
+      template: v.literal("para"),
+      folders: v.array(v.object({ folder: v.string(), description: v.string() })),
+      kind: v.literal("personal"),
+    }),
+  ),
   /**
    * The storage-move engine's own switch-over. Every other caller is refused
    * while a move is copying, because a binding changed under a move is a
@@ -108,8 +128,14 @@ export const getBindingForGatewayReturns = v.union(
     rootPrefix: v.optional(v.string()),
     accessKeyId: v.string(),
     secretAccessKey: v.string(),
+    sessionToken: v.optional(v.string()),
     forcePathStyle: v.optional(v.boolean()),
     capabilities: capabilitiesValidator,
     status: v.string(),
+    /** Absent while the workspace's notes are read from the bucket (`functions/workspaceObjects.ts`). */
+    notesHome: v.optional(v.union(v.literal("dual"), v.literal("object"))),
+    notesBackfilledAt: v.optional(v.number()),
+    /** Row changes the object has not taken yet: a reader judges by the control plane until they land. */
+    notesBehind: v.optional(v.literal(true)),
   }),
 );

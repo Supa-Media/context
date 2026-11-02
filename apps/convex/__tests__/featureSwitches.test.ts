@@ -15,6 +15,7 @@ import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { gatewayPost } from "./fixtures.helpers";
 import { ACCESS_A, bodyOf, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
 import { ADMIN, tester, user } from "./noteIds/noteIds.helpers";
+import { withSession } from "./session.helpers";
 
 let previous: string | undefined;
 beforeEach(() => {
@@ -29,7 +30,7 @@ afterEach(() => {
 describe("the Features tab", () => {
   test("every feature is off until staff turn it on, and back off again", async () => {
     const t = tester();
-    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
+    const staff = withSession(t, await user(t, ADMIN));
     const listed = await staff.query(api.functions.featureSwitches.listFeatureSwitches, {});
     expect(listed.map((f) => [f.key, f.on])).toEqual([["vaultKeyUse", false]]);
     await staff.mutation(api.functions.featureSwitches.setFeatureSwitch, { key: "vaultKeyUse", on: true });
@@ -42,7 +43,7 @@ describe("the Features tab", () => {
 
   test("a stranger and nobody can neither read nor switch them", async () => {
     const t = tester();
-    const stranger = t.withIdentity({ subject: await user(t, "someone@example.com") });
+    const stranger = withSession(t, await user(t, "someone@example.com"));
     for (const caller of [t, stranger]) {
       await expect(caller.query(api.functions.featureSwitches.listFeatureSwitches, {})).rejects.toThrow();
       await expect(caller.mutation(api.functions.featureSwitches.setFeatureSwitch, { key: "vaultKeyUse", on: true })).rejects.toThrow();
@@ -52,7 +53,7 @@ describe("the Features tab", () => {
 
   test("a name not on the list is refused", async () => {
     const t = tester();
-    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
+    const staff = withSession(t, await user(t, ADMIN));
     await expect(staff.mutation(api.functions.featureSwitches.setFeatureSwitch, { key: "everything", on: true })).rejects.toThrow(/no such feature/);
   });
 });
@@ -62,7 +63,7 @@ describe("/gateway/binding: features", () => {
     const { t, aliceWs } = await twoConnectedTenants();
     const before = await bodyOf(await gatewayPost(t, "/gateway/binding", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs }));
     expect("features" in before).toBe(false);
-    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
+    const staff = withSession(t, await user(t, ADMIN));
     await staff.mutation(api.functions.featureSwitches.setFeatureSwitch, { key: "vaultKeyUse", on: true });
     const after = await bodyOf(await gatewayPost(t, "/gateway/binding", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs }));
     expect(after.features).toEqual({ vaultKeyUse: true });
@@ -71,7 +72,7 @@ describe("/gateway/binding: features", () => {
 
 test("switched back off, the binding carries no features again", async () => {
   const { t, aliceWs } = await twoConnectedTenants();
-  const staff = t.withIdentity({ subject: await user(t, ADMIN) });
+  const staff = withSession(t, await user(t, ADMIN));
   await staff.mutation(api.functions.featureSwitches.setFeatureSwitch, { key: "vaultKeyUse", on: true });
   await staff.mutation(api.functions.featureSwitches.setFeatureSwitch, { key: "vaultKeyUse", on: false });
   const after = await bodyOf(await gatewayPost(t, "/gateway/binding", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs }));

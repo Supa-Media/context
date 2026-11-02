@@ -33,12 +33,13 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
 import { fullToolList } from "./fullToolList.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-remember.test";
 const OWNER = `cat_remember_owner_${"0".repeat(21)}`;
 const READ_ONLY = `cat_remember_readonly_${"0".repeat(18)}`;
 const RAW = `cat_remember_raw_${"0".repeat(23)}`;
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 const PREFS = "3-resources/working-preferences.md";
 const PREFS_TEXT = "# Working preferences\n\n- Prefer concise but complete answers.\n- Use plain language.\n";
 
@@ -416,15 +417,15 @@ test("the trail's description admits the provenance the trail stores", async () 
 
 test("Tex's memory note holds at most 500 lines, from write_note and remember alike", async () => {
   const lines = (n) => Array.from({ length: n }, (_, i) => `- fact ${i + 1}`).join("\n") + "\n";
-  const full = await call(OWNER, "write_note", { path: "tex/about-me.md", content: lines(500) });
+  const full = await call(OWNER, "write_note", { path: "tex/about.md", content: lines(500) });
   assert.equal(full.isError, false, full.text);
 
-  const over = await call(OWNER, "write_note", { path: "tex/about-me.md", content: lines(501) });
+  const over = await call(OWNER, "write_note", { path: "tex/about.md", content: lines(501) });
   assert.equal(over.isError, true);
-  assert.match(over.text, /^too long: tex\/about-me\.md holds at most 500 lines/);
-  assert.equal((await read("tex/about-me.md")).trim().split("\n").length, 500);
+  assert.match(over.text, /^too long: tex\/about\.md holds at most 500 lines/);
+  assert.equal((await read("tex/about.md")).trim().split("\n").length, 500);
 
-  const remembered = await remember({ fact: "Prefers mornings.", kind: "stated", note: "tex/about-me.md" });
+  const remembered = await remember({ fact: "Prefers mornings.", kind: "stated", note: "tex/about.md" });
   assert.equal(remembered.isError, true);
   assert.match(remembered.text, /too long/);
 

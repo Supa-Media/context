@@ -15,15 +15,10 @@
 
 import { scheduleSignupAlert } from "./signupAlerts";
 import { v } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
-import {
-  action,
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "../_generated/server";
+import { action, internalQuery, query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import type { WebsiteEnableResult, WebsiteStateView } from "@context/shared";
 import { createWorkspaceHandler } from "./lib/workspaces/create";
 import { applyStructureHandler } from "./lib/workspaces/structure";

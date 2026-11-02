@@ -44,8 +44,9 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
-import { mutation, query } from "../_generated/server";
+import { requireAuthId } from "./lib/signedIn";
+import { query } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import type { Doc, Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import {

@@ -1,5 +1,6 @@
 /** `set_encryption`. */
 
+import { versionMatches } from "../../notes/version.js";
 import { canSee, isPlumbing } from "../../privacy/engine.js";
 import {
   eligible as collaborationEligible,
@@ -106,7 +107,7 @@ export async function toolSetEncryption(store, scope, rules, overrides, args) {
     }
   }
   const currentEtag = collaborationBase?.etag ?? existing.etag;
-  if (expectedEtag && currentEtag !== expectedEtag && !recoveredSeal) {
+  if (expectedEtag && !versionMatches(expectedEtag, { document: collaborationBase, rawEtag: existing.etag }) && !recoveredSeal) {
     return toolError(
       `conflict: note changed since you read it (current etag ${currentEtag}). Re-read and try again.`,
     );

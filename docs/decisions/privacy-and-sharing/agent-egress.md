@@ -74,13 +74,25 @@ call that would let more people see something, as `privacy/widening.js` names
 it: a link, a website publish, an image fetched from an address the model
 chose, a visibility change where the manifest reads narrower now, people named
 on a note, a move asked to publish. The judge
-(`privacy/judge.js`) is shown two things only: the gateway's own one-line
-summary of the call, and the person's words, fenced as data it must never
-follow. It answers with a boolean. Yes runs the call (writing
+(`privacy/judge.js`) is shown three things only: the gateway's own one-line
+summary of the call, the person's words, fenced as data it must never
+follow, and what the call acts on: the one note or folder's path and, for a
+note, its title from the tree's facts (front matter `title`, else its first
+heading), cut to a line and fenced the same way. Never its body. The title
+was added by the owner on 2026-10-28, after "make the coordination channel
+visible to the team" was refused for a note titled that because the judge
+saw only `projects/…/sync.md` (`privacy/judgeSubject.js`). The audience is
+still judged from the words alone. It answers with a boolean. Yes runs the call (writing
 `confirm_team_publish` for a publication, since their words were the yes) and
 leaves a `judge_allow` audit row; anything else (no, an error, a non-boolean,
 no words) is "not done", and the model is told to ask in the chat and call
 again. `judgedGate` in `apps/mcp/src/tools/session.js`.
+
+A website has no smaller Publish: it puts every saved change of the site live
+at once, so the judge is told that words asking to publish a page, a
+stylesheet or a change of the website ask for publishing the website. Without
+it, "yes" to "Should I publish the rolled-back stylesheet?" was refused as
+narrower (2026-10-28).
 
 **Where the words come from.** A turn this gateway runs itself (`/agent`: the
 texting thread, the app's panel, a routine) has the person's real message,
@@ -393,3 +405,26 @@ text, never the message they replied to", "the model still reads the quoted
 message, marked as quoted and vouching for nothing");
 `apps/agent/src/reply.test.ts` ("sends the message a reply answers apart from
 the person's own words").
+
+### A yes answers the ask made in its own chat, and only the latest (Dev2, 2026-11-02)
+
+In a group, Cy's email was held and asked about; later, in Ada's turn, Tex asked "@cy, want me to book Bo's for dinner at 8?", and Cy's
+"Tex, yes", meant for dinner, sent the two-hour-old email with no model on
+the turn. A group turn has no conversation of its own for `askOvertaken.js`
+to read, and the disarm on Tex's "?" covered only the asker's asks. A plain
+yes now releases a held action only while it is still the most recent thing
+Tex asked in that chat. Each ask is stamped with the chat it was armed in
+(`chat_key` on the record: the group's key, or null for the person's own
+texts), and every texted listing, the yes, the 👍 and 👎, the card's yes and
+what the model is told still waits, reads only the asks of the chat it is
+in, so a yes in another group or in their own texts never releases it, nor
+the other way round. Any "?" in Tex's reply in a group, in anyone's turn, a
+chat routine's or a check-in's included, stops every ask armed in that chat
+from listening (`disarmChat`), whoever it was put to: which member a
+question is addressed to is not told apart, and disarming too much only
+means asking again. Like any ask the thread moved on from, each is dropped,
+not left in the app, so one member's turn can drop another's ask. A late yes with nothing asked in the chat since still
+works within the twelve hours. An ask armed before the stamp counts as the
+person's own texts' when their own Tex asked it, and as no chat's when a
+group's Tex did, so no yes reaches it. The matching stays in code; the model
+never judges which ask a yes answers. Test: `agentGroupAskChat.test.mjs`.

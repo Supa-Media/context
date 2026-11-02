@@ -3,7 +3,8 @@ import { Platform } from "react-native";
 import { useConvex } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { memoryStore } from "../../offline/memory";
-import { createRecorderFor, setTranscriptionClient } from "../../meetings/capture";
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION } from "@context/shared";
+import { createRecorderFor, setTranscriptionClient, setTranscriptionConsent } from "../../meetings/capture";
 import { meetings } from "../../meetings/controller";
 import { HOME_MEETINGS_WORKSPACE, homeMeetingsGateway, newVisitorId } from "./homeMeetings";
 
@@ -42,11 +43,19 @@ export function useHomeMeetings(put: (path: string, text: string) => boolean): v
     let cancelled = false;
     visitorId ??= newVisitorId();
     const id = visitorId;
+    /*
+      A visitor has said nothing yet: no audio leaves this tab until their own
+      press on "Allow transcription" (`useTranscriptionConsentGate`, visitor
+      mode), which is the only thing that sets it. The version that press
+      answered travels with every chunk and the action refuses any other.
+    */
+    setTranscriptionConsent(null);
     setTranscriptionClient({
       action: (_reference, args) =>
         convex.action(api.functions.meetings.demoTranscribe.transcribeDemoChunk, {
           ...args,
           visitorId: id,
+          consentVersion: CLOUD_TRANSCRIPTION_CONSENT_VERSION,
         }),
     });
     void (async () => {
@@ -63,6 +72,7 @@ export function useHomeMeetings(put: (path: string, text: string) => boolean): v
     return () => {
       cancelled = true;
       setTranscriptionClient(null);
+      setTranscriptionConsent(null);
       const now = meetings.getSnapshot();
       if (now.workspaceId !== HOME_MEETINGS_WORKSPACE) return;
       const forget = () => {

@@ -65,10 +65,8 @@ function setup() {
     root.render(
       createElement(FileTree, {
         rows: [row("2-areas", "folder"), row("plan.md", "file")],
-        canSetVisibility: false,
         onSelect: () => {},
         onToggle: () => {},
-        onCycleVisibility: () => {},
         onIntent: (path: string) => intents.push(path),
       }),
     ),

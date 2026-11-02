@@ -83,11 +83,12 @@ type QueueMove = (move: {
   clearance: Clearance;
   now: number;
   expectedEtag?: string;
+  handOut?: boolean;
 }) => Promise<MoveResult | null>;
 
 async function queuedMove(
   store: FileStore,
-  move: { from: string; to: string; clearance: Clearance; now: number; expectedEtag?: string },
+  move: { from: string; to: string; clearance: Clearance; now: number; expectedEtag?: string; handOut?: boolean },
 ): Promise<MoveResult | null> {
   const queue = (store as { queueMove?: QueueMove }).queueMove;
   return typeof queue === "function" ? await queue(move) : null;
@@ -129,6 +130,11 @@ export async function movePath(
      * it gets the check an online save gets on the same bucket.
      */
     requireAtomic?: boolean;
+    /**
+     * `false` when the caller reads the moved note straight after (`followHeading.ts`): the move then answers
+     * with the row's Markdown etag rather than reading the note to find the version a read hands out.
+     */
+    handOut?: boolean;
   },
 ): Promise<MoveResult> {
   const from = requirePath(options.from);
@@ -165,6 +171,7 @@ export async function movePath(
     clearance: options.clearance,
     now: options.now,
     ...(options.expectedEtag === undefined ? {} : { expectedEtag: options.expectedEtag }),
+    ...(options.handOut === false ? { handOut: false } : {}),
   });
   if (moved === null) throw new FileOpError("KEYED_WORKSPACE", KEYED_REFUSAL);
   return moved;

@@ -171,3 +171,7 @@ Moved to [In the pinned workspace, `team` means its members, and All Context use
 ### A link shows the pictures its note embeds, and no other object
 
 Moved to [A link shows the pictures its note embeds, and no other object](./privacy-and-sharing/link-previews-and-audience.md#a-link-shows-the-pictures-its-note-embeds-and-no-other-object).
+
+### A linked page's card is its cover
+
+[A linked page unfurls with its first screen](./privacy-and-sharing/page-covers.md) (decided by the owner, 2026-10-27): a `.page.md` note linked for the team or for anyone previews the cover Tex drew of it; a link for named people keeps the title card.

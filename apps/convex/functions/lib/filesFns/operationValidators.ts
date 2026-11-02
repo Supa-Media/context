@@ -236,6 +236,11 @@ export const operationValidator = v.union(
      * it false; `searchNotes` carries the arithmetic for why.
      */
     refreshOnMiss: v.optional(v.boolean()),
+    /**
+     * Half of a search, for a palette that draws the words before meaning
+     * joins (the search tune-up, 2026-10-27). Absent is both, merged.
+     */
+    half: v.optional(v.union(v.literal("words"), v.literal("meaning"))),
   }),
   /**
    * Every note path this scope may see, for the editor's link resolution.
@@ -269,6 +274,8 @@ export const operationValidator = v.union(
     gone: v.array(v.string()),
     moved: v.optional(v.array(v.array(v.string()))),
     queued: v.optional(v.boolean()),
+    /** Notes or folders whose access changed (`lib/filesFns/visibility.ts`): fast search moves their tier. */
+    retiered: v.optional(v.array(v.string())),
   }),
   /**
    * Copy a pass's worth of this context's notes into its search database.

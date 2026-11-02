@@ -43,3 +43,22 @@ export function publicMember(member) {
     h: member.h,
   };
 }
+
+/**
+ * The roster as one socket is shown it: every member who is the same person as
+ * that socket carries `me: true`.
+ *
+ * Per recipient because "is this you" is a different answer for every reader,
+ * and a flag rather than the key because a peer must learn nothing about who
+ * anybody else is beyond the name the room already shows. A socket with no
+ * person behind it (`accountKey` null) is nobody's other window.
+ */
+export function markSamePerson(members, sockets, accountKey) {
+  if (typeof accountKey !== "string" || !accountKey) return members;
+  const mine = new Set();
+  for (const ws of sockets) {
+    const held = ws.deserializeAttachment();
+    if (held && held.accountKey === accountKey && typeof held.id === "string") mine.add(held.id);
+  }
+  return members.map((member) => (mine.has(member.id) ? { ...member, me: true } : member));
+}

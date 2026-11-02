@@ -136,3 +136,26 @@ what is waiting sends it` in `apps/mcp/test/reportGate.test.mjs`.
   ask. A typed yes or a 👍 to an email Tex previewed in its own words, with
   nothing held, sends it once its every recipient and whole body are in that
   preview (`likedPreview.js`, `agreedWordsHold`).
+- **Never put to decide (2026-10-28).** Since decide chose which texts a
+  turn answers (2026-10-26), a held 👍 reached it as a tapback, which
+  `pureAck` counts as asking nothing, so decide's "silent" or "react", an
+  answer whose `covers` left it out, or a mid-turn "fold" could drop it
+  before the gateway saw it: no send and no reply. Found from the source
+  after a controlled test's 👍 on Tex's email ask got no answer. `react` now
+  marks a held like or love `askYes`, and `decidedByCode` answers it on its
+  own, intact, as a group's already was (`byCode`). Nothing else changes: the
+  gateway's `thumbsUpIsYes` still decides whether it is the yes to what is
+  armed, and any other tapback is decide's as before. Test:
+  `askThumbDecide.test.ts`.
+- **A 👎 is the no, and a yes-or-no invites both (2026-10-30).** A new
+  tester (SB Studio) asked why Tex says "say yes" when a 👍 already counts.
+  Three changes. Every texted turn is told to end a yes-or-no question with
+  "👍 or 👎?", never "say yes" (`chatVoice.js`, `YES_NO_LINE`). A 👎 on a
+  held ask, or on the line above it, is held and answered by code exactly as
+  a 👍 is (`holdsAsNo`, groups included), and the gateway's `thumbsDownIsNo`
+  drops what is armed when its words are that ask: before, a 👎 reached the
+  model as a bare emoji, nothing was dropped, and a later "yes" could still
+  send it. A typed 👎 is a no (`NO`). And a 👍 or 👎 on any text of Tex's
+  that asked something is never left silent by decide (`pureAck`), since Tex
+  invited it as the answer. Tests: `emailGateThumbDown.test.mjs`,
+  `askThumbDecide.test.ts`, `thumbs.test.ts`.

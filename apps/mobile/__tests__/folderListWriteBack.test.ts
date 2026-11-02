@@ -51,7 +51,7 @@ const noteAt = (path: string): OpenNote & { updatedAt: number } => {
 
 const io: FolderListIO = {
   // Offline in this suite: the server's list reads are never asked.
-  manifest: async () => Promise.reject(new Error("offline")),
+  folderNotes: async () => Promise.reject(new Error("offline")),
   readNotes: async () => Promise.reject(new Error("offline")),
   readNote: async (path) => noteAt(path),
   writeNote: async (path, text, expectedEtag) => {

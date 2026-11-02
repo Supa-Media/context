@@ -22,15 +22,22 @@ export type PeekBlock =
   | { kind: "heading"; level: number; text: string }
   | { kind: "paragraph"; text: string }
   | { kind: "item"; text: string }
-  | { kind: "code"; text: string };
+  | { kind: "quote"; text: string }
+  | { kind: "code"; text: string }
+  /** `---` on a line of its own: drawn as a line, never as dashes. */
+  | { kind: "rule"; text: "" };
 
 const FENCE = /^\s*(```|~~~)/;
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const ITEM = /^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.*)$/;
+const RULE = /^(?:-[ \t]*){3,}$|^(?:\*[ \t]*){3,}$|^(?:_[ \t]*){3,}$/;
+const QUOTE = /^>\s?(.*)$/;
 
 /**
  * The note's body as blocks: front matter dropped, headings, paragraphs (a
- * run of lines up to a blank one), list items and code kept apart. An
+ * run of lines up to a blank one), list items, quotes, rules and code kept
+ * apart. A block's text is still Markdown inside the line; the card draws it
+ * through `peekRuns` (`peekInline.ts`). An
  * unclosed fence keeps what was typed, because a note being written often
  * has one for a moment.
  */
@@ -58,6 +65,11 @@ export function peekBlocks(text: string): PeekBlock[] {
       endPara();
       continue;
     }
+    if (RULE.test(trimmed)) {
+      endPara();
+      out.push({ kind: "rule", text: "" });
+      continue;
+    }
     const heading = HEADING.exec(trimmed);
     if (heading) {
       endPara();
@@ -68,6 +80,12 @@ export function peekBlocks(text: string): PeekBlock[] {
     if (item) {
       endPara();
       out.push({ kind: "item", text: item[1]!.trim() });
+      continue;
+    }
+    const quote = QUOTE.exec(trimmed);
+    if (quote) {
+      endPara();
+      out.push({ kind: "quote", text: quote[1]!.trim() });
       continue;
     }
     para.push(trimmed);

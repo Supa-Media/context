@@ -1,5 +1,6 @@
 /** `move_note` within one context. */
 
+import { versionMatches } from "../../notes/version.js";
 import { withActivityHint } from "../../live/activityHint.js";
 import {
   canSee,
@@ -82,7 +83,7 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
     }
   }
   const currentSourceEtag = collaborationBase?.etag ?? sourceObject.etag;
-  if (expectedSourceEtag && currentSourceEtag !== expectedSourceEtag) {
+  if (expectedSourceEtag && !versionMatches(expectedSourceEtag, { document: collaborationBase, rawEtag: sourceObject.etag })) {
     return toolError(
       `conflict: source changed since you read it (current etag ${currentSourceEtag}); re-read and retry`
     );

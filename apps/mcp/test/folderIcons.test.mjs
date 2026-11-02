@@ -222,7 +222,7 @@ test("every folder Context files into under tex/ or inbox/ draws a Context part"
   assert.ok(files.length > 100, `read ${files.length} files`);
   const named = new Map();
   for (const file of files) {
-    for (const match of readFileSync(file, "utf8").matchAll(/["'`](tex|inbox)\/([a-z0-9][a-z0-9-]*(?:\.md)?)(?![a-z0-9-])/g)) {
+    for (const match of readFileSync(file, "utf8").matchAll(/["'`](tex|inbox)\/([a-z0-9][a-z0-9-]*(?:\.md|\.ledger\.json)?)(?![a-z0-9-])/g)) {
       const key = `${match[1]}/${match[2]}`;
       if (!named.has(key)) named.set(key, file.slice(repo.length));
     }

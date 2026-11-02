@@ -4,6 +4,7 @@ import { DEFAULT_REQUESTED_SCOPE } from "./policy.js";
 import { oauthError } from "./responses.js";
 import { resourceMatches, slugFromResource } from "./discovery.js";
 import { redirectUriMatches } from "./registration.js";
+import { repeatedParameter } from "./token.js";
 
 /* ------------------------------- authorize -------------------------------- */
 
@@ -19,6 +20,10 @@ import { redirectUriMatches } from "./registration.js";
  */
 export async function handleAuthorize(request, env, controlPlane, { origin, slug }) {
   const params = new URL(request.url).searchParams;
+  // Rendered, not redirected: a repeated redirect_uri is itself the case where
+  // there is no single proven-safe destination.
+  const repeated = repeatedParameter(params);
+  if (repeated) return oauthError("invalid_request", `${repeated} was sent more than once.`);
   const clientId = params.get("client_id");
   const redirectUri = params.get("redirect_uri");
 

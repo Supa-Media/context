@@ -55,6 +55,8 @@ export interface S3GatewayBinding {
   accessKeyId: string;
   /** Radioactive: sign with it, never log it, never cache it. */
   secretAccessKey: string;
+  /** A temporary credential's third part, as radioactive as the secret. */
+  sessionToken?: string;
   /**
    * `binding.forcePathStyle` in the contract. Absent means "let `S3Store`
    * decide", which is what the gateway's `nativeStore` already passes through.
@@ -181,6 +183,8 @@ export interface OpenedGatewayBinding {
   audience?: "guest";
   /** A Tex guest chat's names, whose rules are the guest rules read for it (`lib/nodes/chatFolders.ts`). Absent otherwise. */
   chatNames?: string[];
+  /** Tex's setup read (`lib/texSetupRead.ts`): rules narrowed to the setup's folders. Absent otherwise. */
+  setupRead?: true;
 }
 
 /**
@@ -215,9 +219,15 @@ export const s3BindingValidator = v.object({
   rootPrefix: v.optional(v.string()),
   accessKeyId: v.string(),
   secretAccessKey: v.string(),
+  sessionToken: v.optional(v.string()),
   forcePathStyle: v.optional(v.boolean()),
   capabilities: capabilitiesValidator,
   status: v.string(),
+  /** Where the note texts are read from while they move into the workspace object (`functions/workspaceObjects.ts`). */
+  notesHome: v.optional(v.union(v.literal("dual"), v.literal("object"))),
+  notesBackfilledAt: v.optional(v.number()),
+  /** Row changes the object has not taken yet: a reader judges by the control plane until they land. */
+  notesBehind: v.optional(v.literal(true)),
 });
 
 export const encryptionKeyValidator = v.object({

@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   parsePluginSandboxMessage,
-  pluginSandboxDocument,
   sandboxFrameIsOurs,
 } from "@context/obsidian-runtime";
 import type { ParsedSandboxEvent, PluginSandboxProps } from "./sandboxTypes";
+
+/**
+ * The sandbox page: `pluginSandboxDocument()`, written beside the drawing
+ * editor by `scripts/build-plugin-sandbox.mjs`. Loaded by URL rather than as
+ * `srcdoc`, because a `srcdoc` document inherits the console's Content
+ * Security Policy and the sandbox runs plugins as inline script; by URL it
+ * gets the policy the router gives its own path (`infra/router/src/cspReport.ts`).
+ * `sandbox="allow-scripts"` without `allow-same-origin` keeps its origin opaque
+ * either way.
+ */
+export const PLUGIN_SANDBOX_PATH = "/drawing-assets/plugin-sandbox/index.html";
 
 /** One opaque-origin browser sandbox. Bundle bytes arrive after `ready`. */
 export function PluginSandbox({
@@ -35,7 +45,7 @@ export function PluginSandbox({
   */
   const [loaded, setLoaded] = useState(false);
   /*
-    `srcdoc` is written once from the constant below and never re-set, so this
+    `src` is set once from the constant above and never re-set, so this
     counts documents rather than renders: the first load is ours and any later
     one is a frame that navigated itself somewhere. `sandboxFrameIsOurs` carries
     the reasoning and why no sandbox flag or CSP directive prevents it.
@@ -49,7 +59,6 @@ export function PluginSandbox({
       "*",
     );
   }, []);
-  const documentText = useMemo(() => pluginSandboxDocument(), []);
   const load = useCallback(() => {
     loads.current += 1;
     if (!sandboxFrameIsOurs(loads.current)) {
@@ -246,7 +255,7 @@ export function PluginSandbox({
     <iframe
       ref={frame}
       sandbox="allow-scripts"
-      srcDoc={documentText}
+      src={PLUGIN_SANDBOX_PATH}
       onLoad={load}
       title={`Plugin sandbox: ${bundle.pluginId}`}
       aria-hidden="true"

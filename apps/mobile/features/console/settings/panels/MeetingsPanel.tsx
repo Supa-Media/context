@@ -24,7 +24,9 @@ import {
   readCallAudioMemory,
 } from "../../../meetings/capture";
 import { loadedFolders } from "../../files/browser";
+import { CloudTranscriptionSettings } from "./CloudTranscriptionSettings";
 import { MeetingsDestination } from "./MeetingsDestination";
+import { MeetingJoinSettings } from "./MeetingJoinSettings";
 import { PanelHead } from "./PanelHead";
 import {
   CALL_AUDIO_PICKER_SENTENCE,
@@ -80,6 +82,9 @@ export function MeetingsPanel({
 
       {personal ? <ThisMachineCard focus="meetings" /> : null}
 
+      {/* On the account, so it is here whichever workspace is open. */}
+      {data.demo !== true ? <CloudTranscriptionSettings /> : null}
+
       {/*
         A control, where there used to be a paragraph.
 
@@ -99,6 +104,8 @@ export function MeetingsPanel({
         folder={current?.meetingsFolder}
         folders={loadedFolders(data.files.listings)}
       />
+
+      {personal && data.demo !== true ? <MeetingJoinSettings connections={data.googleConnections} /> : null}
 
       <AudioLine />
     </>

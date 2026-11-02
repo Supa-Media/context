@@ -40,11 +40,14 @@ export type Presence = {
 
 /**
  * Mark `message` read, show the bubble, and arm the renewals and the tapback.
+ * `aimLater`: several texts wait and decide has not yet said which one is answered,
+ * so a tapback due before `aim` waits for it and then goes on the aimed text
+ * (CI 2026-10-28: a decide slower than the timer tapped the first waiting text).
  * The first bubble is awaited (it is quick, and bounded) so it cannot land
  * after a fast reply and hang in the chat. Read first, then the bubble, as a
  * person would: the text is seen, then answered. Both never throw.
  */
-export async function startPresence(line: Line, message: Message): Promise<Presence> {
+export async function startPresence(line: Line, message: Message, options: { aimLater?: boolean } = {}): Promise<Presence> {
   await line.markRead(message.chatId, message.messageId);
   const typing = () => line.startTyping(message.chatId);
   await typing();
@@ -56,23 +59,39 @@ export async function startPresence(line: Line, message: Message): Promise<Prese
     renewal = typing();
   }, TYPING_REFRESH_MS);
   let target = message;
+  let aimed = options.aimLater !== true;
+  /** Due before decide aimed it: sent by `aim`, once, unless dropped first. */
+  let due = false;
   let acknowledged: Promise<void> = Promise.resolve();
-  const acknowledge = setTimeout(() => {
+  const send = () => {
+    due = false;
     // A tapback goes on the text itself, so not on a tapback, and only on a text the line can name.
     if (target.tapback || !target.messageId) return;
     // A tapback is a message of ours, which can clear the bubble; the task is still going.
     acknowledged = line.acknowledge(target.chatId, target.messageId, ackEmoji(target.text)).then(typing);
+  };
+  const acknowledge = setTimeout(() => {
+    if (aimed) send();
+    else due = true;
   }, ACKNOWLEDGE_AFTER_MS);
   let stopped: Promise<void> | undefined;
   return {
     typing,
-    aim: (next) => void (target = next),
-    dropTapback: () => clearTimeout(acknowledge),
+    aim: (next) => {
+      target = next;
+      aimed = true;
+      if (due && stopped === undefined) send();
+    },
+    dropTapback: () => {
+      clearTimeout(acknowledge);
+      due = false;
+    },
     stop: () =>
       (stopped ??= (async () => {
         clearTimeout(again);
         clearInterval(timer);
         clearTimeout(acknowledge);
+        due = false;
         await renewal;
         await acknowledged;
       })()),

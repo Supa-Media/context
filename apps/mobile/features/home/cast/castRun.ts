@@ -277,9 +277,9 @@ export function playCast(
         id,
         name: actor.name,
         color: colors.get(actor.name) ?? null,
-        anchor: null,
-        head: null,
+        anchor: null, head: null,
         canWrite: false,
+        isYou: false,
         isAgent: actor.kind === "agent",
       });
     }

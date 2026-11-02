@@ -80,7 +80,9 @@ export function PhoneCard() {
         Phone you sign in with
       </Text>
       <Text variant="rowSub" style={styles.sub}>
-        You sign in and text the assistant with this number. Changing it needs a code from your email first.
+        {check.phone === undefined
+          ? "Add one so you can sign in by text if you ever lose your email."
+          : "You sign in and text the assistant with this number. Changing it needs a code from your email first."}
       </Text>
       <Card>
         <Row>
@@ -88,7 +90,7 @@ export function PhoneCard() {
             <Text variant="rowTitle">{check.phone ?? "No phone yet"}</Text>
           </Grow>
           {changing ? null : (
-            <Button label="Change" disabled={busy} onPress={() => setChanging(true)} testID="account-phone-change" />
+            <Button label={check.phone === undefined ? "Add a phone" : "Change"} disabled={busy} onPress={() => setChanging(true)} testID="account-phone-change" />
           )}
         </Row>
         {changing ? (

@@ -103,11 +103,12 @@ export function workspaceToolDefinitions() {
       description:
         "Get the link where the person connects Gmail or Google Calendar to their personal workspace " +
         "themselves: they open it, sign in to Context if asked, press Connect Google, and sign in to Google. You cannot " +
-        "finish a Google sign-in for them, and the link is the page, not Google's own address.",
+        "finish a Google sign-in for them, and the link is the page, not Google's own address. kind ai gives the page where " +
+        "they allow AI access to an account already connected, when a Google tool says AI access isn't allowed yet.",
       inputSchema: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: ["gmail", "calendar"], description: "What to connect." },
+          kind: { type: "string", enum: ["gmail", "calendar", "ai"], description: "What to connect, or ai to allow AI access to a connected account." },
         },
         required: ["kind"],
         additionalProperties: false,

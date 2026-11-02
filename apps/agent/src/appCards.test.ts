@@ -36,6 +36,7 @@ describe("note cards", () => {
     expect(card?.layout).toMatchObject({ caption: "Launch plan", subcaption: "@dev2 · 1-projects/tex" });
     expect(noteCard("https://context.lc/note/@dev2/todo.md", CONFIG)?.layout.subcaption).toBe("@dev2");
     expect(noteCard("https://context.lc/note/@dev2/areas/Dentist%20visits.md", CONFIG)?.layout.caption).toBe("Dentist visits");
+    expect(noteCard("https://context.lc/note/@dev2/trip/dinner-plan.page.md", CONFIG)?.layout.caption).toBe("Dinner plan");
   });
 
   it("are only for a text that is nothing but a note link", () => {

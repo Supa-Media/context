@@ -32,8 +32,8 @@ describe("a row's list token is never printed", () => {
   });
 
   test("the tree's screen-reader line", () => {
-    expect(describeVisibility(folderRow(TOKEN))).toBe("areas folder default is shared. Change it to team.");
-    expect(describeVisibility(folderRow("team"))).toBe("areas folder default is team. Change it to private.");
+    expect(describeVisibility(folderRow(TOKEN))).toBe("areas folder default is shared. Change it from the folder's menu.");
+    expect(describeVisibility(folderRow("team"))).toBe("areas folder default is team. Change it from the folder's menu.");
   });
 
   test("the privacy panel's pill and default lines", () => {

@@ -1,0 +1,103 @@
+# Copy every workspace's who-may-reach-what (members, invites, reach, "shared
+# with me", connections) into its workspace object (owner, 2026-11-01; the
+# access-in-objects plan, "Access lives in the objects"; see
+# `apps/convex/functions/accessObjects.ts`).
+#
+# Manual only. Run step `arm` first: it puts every scope still on Convex on
+# `dual`, so each access change from then on is mirrored into its object. Then
+# step `copy`, which writes every table whole and never rolls back a newer
+# mirrored change. `dry_run` counts and changes nothing. It pages through
+# `functions/accessObjects:backfill`, which answers with counts and a cursor,
+# never an id, a handle, an address or a hash: this repository is public, and
+# so is this job's log. Running it again copies nothing already copied.
+name: Access objects backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to copy in."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      step:
+        description: "arm: put scopes on dual. copy: copy members, invites, reach and connections."
+        type: choice
+        options:
+          - arm
+          - copy
+        default: copy
+      dry_run:
+        description: "Count only; change nothing."
+        type: boolean
+        default: true
+      only:
+        description: "A handle: this workspace alone (empty for every workspace)."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Backfill
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          STEP: ${{ inputs.step }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          page=0
+          refused=""
+          total='{"workspaces":0,"armed":0,"alreadyArmed":0,"copied":0,"wouldCopy":0,"people":0,"rows":0,"skippedRows":0,"skippedObject":0,"notReady":0,"unreachable":0,"failed":0}'
+          while :; do
+            page=$((page + 1))
+            args=$(jq -cn --arg step "$STEP" --argjson dry "$DRY_RUN" '{step: $step, dryRun: $dry}')
+            if [ -n "$cursor" ]; then args=$(echo "$args" | jq -c --arg cursor "$cursor" '. + {cursor: $cursor}'); fi
+            if [ -n "$ONLY" ]; then args=$(echo "$args" | jq -c --arg only "$ONLY" '. + {only: $only}'); fi
+            answer=$(npx convex run functions/accessObjects:backfill "$args" 2>/dev/null)
+            echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
+            if [ -n "$(echo "$answer" | jq -r '.refused // empty')" ]; then refused="$(echo "$answer" | jq -r '.refused')"; fi
+            total=$(jq -cn --argjson a "$total" --argjson b "$answer" '{
+              workspaces: ($a.workspaces + $b.workspaces),
+              armed: ($a.armed + $b.armed),
+              alreadyArmed: ($a.alreadyArmed + $b.alreadyArmed),
+              copied: ($a.copied + $b.copied),
+              wouldCopy: ($a.wouldCopy + $b.wouldCopy),
+              people: ($a.people + $b.people),
+              rows: ($a.rows + $b.rows),
+              skippedRows: ($a.skippedRows + $b.skippedRows),
+              skippedObject: ($a.skippedObject + $b.skippedObject),
+              notReady: ($a.notReady + $b.notReady),
+              unreachable: ($a.unreachable + $b.unreachable),
+              failed: ($a.failed + $b.failed)
+            }')
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+            if [ "$page" -ge 2000 ]; then echo "stopped after $page pages"; exit 1; fi
+          done
+          echo "total: $total"
+          echo "### Access objects backfill" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$total\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$refused" ]; then echo "refused: $refused" >> "$GITHUB_STEP_SUMMARY"; echo "refused: $refused"; exit 1; fi
+          if [ "$(echo "$total" | jq -r '.failed + .unreachable')" != "0" ]; then exit 1; fi

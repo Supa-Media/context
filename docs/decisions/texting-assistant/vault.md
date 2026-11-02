@@ -428,6 +428,8 @@ sign in again. Its sign-ins are now one item in their personal vault,
 `.context/vault/browser-jar.json` (`apps/mcp/src/agent/browserJar.js`), sealed
 with the same key and seal as a login, its associated data naming the jar, so
 the bucket alone never yields one and no entry's part opens as it.
+Since 2026-10-29 the browser keeps them first in a saved Browserbase profile,
+and this jar is the fallback and the copy that leaves (next section).
 
 - **What is kept.** Every cookie the browser holds (a partitioned one aside)
   and each https site's localStorage and (since 2026-10-22, below) IndexedDB,
@@ -455,33 +457,70 @@ the bucket, `jar` passed on to the turn, the personal check dropped),
 `infra/site-shots/src/jar.test.ts` and `browserbase.test.ts` ("sign-ins kept
 between browsers"); restore and read-back were checked in real Chromium.
 
-### Browserbase Contexts stay off; the jar is how Tex stays signed in
+### Tex's sign-ins live in a saved Browserbase profile, the sealed jar beside it
 
-Weighed again 2026-10-22, when the owner asked to use every Browserbase
-feature we pay for. A Browserbase Context is a saved Chrome profile kept at
-Browserbase between sessions. It would keep more than the jar did (IndexedDB,
-service workers, a sign-in bound to the browser's own key), but it fails the
-rule this jar exists for, which non-negotiable #1 now names: the browser's
-sign-ins live sealed in the person's own bucket, with the key outside it.
+Decided by the owner, 2026-10-29 ("can we keep 2 copies, one in browserbase
+as the default, but also in the vault as a fallback or in case we switch
+browser providers"; "let's build this for personal and group chats"),
+reversing the 2026-10-20 choice and the 2026-10-22 review below. A Google
+sign-in replayed from the jar dies: Chrome binds it to the browser's own key
+(device-bound session credentials), which no cookie copy carries, and a
+person's form chat looped on Google's passkey screen because of it. A
+Browserbase Context, a saved Chrome profile, keeps the browser itself.
 
-- **A kept Context is every sign-in held at a vendor.** The profile sits in
-  Browserbase's account, not the person's bucket. It does not leave with
-  Download as folders, a person cannot see or revoke it from Context, and
-  deleting their account would have to remember to delete it there too.
-  Browserbase lets us upload a profile encrypted to its key, but not take one
-  back out, so it cannot be sealed under ours and returned to the bucket.
-- **A Context made and deleted per browser buys nothing.** A browser already
-  lives until five idle minutes pass (`idle.ts`), and the next one is handed
-  the jar. A throwaway profile would hold exactly what the running browser
-  already holds.
-- **What stays true.** `createSession` sends no `browserSettings.context`;
-  `browserbase.test.ts` checks the request body never names one. Turning it on
-  is an owner decision recorded here, not a field flipped in a PR.
+- **One profile per browser owner.** A person's own browser (`browserOwner`)
+  and each group chat's set of people (`groupBrowserOwner`) has one, filed
+  where its jar is kept: the personal workspace, or the chat's shared one. A
+  chat whose people change gets a new browser tag, and its old profile is
+  released. A group never opens a person's profile.
+- **The control plane holds the only handle.** `browserProfiles` rows
+  (`apps/convex/functions/browserProfiles.ts`) carry the profile id; the
+  control plane makes it at Browserbase on the first ask
+  (`POST /gateway/browser-profile`, cleared like every gateway route: the
+  token's own grant, the workspace selected within it, personal for a
+  person, shared for a chat) and deletes it there, retried with backoff, when
+  the account or workspace is deleted (`finalizeWorkspaceDeletion`) or when
+  the person asks Tex to sign out (`sign_out_browser`, which also drops the
+  jar and lets the running browser go). Two first asks at once keep one.
+  Without a Browserbase key nothing is made and the browser runs on the jar
+  alone, as before.
+- **Browsers open it and save back into it** (`browserSettings.context`,
+  `persist: true`, `infra/site-shots/src/browserbase.ts`). A browser starting
+  on a profile already in use is not given the jar's cookies, since an older
+  copy would overwrite the newer, key-bound ones; a new profile is given them
+  once, so sign-ins kept before it carry over. A profile Browserbase no
+  longer has is dropped for that browser, which starts from the jar, and the
+  gateway asks for a new one.
+- **The jar stays, read and sealed after every run.** It is the fallback when
+  a profile is lost, the copy a new profile (or another browser provider)
+  starts from, and the only copy that leaves: Download as folders carries the
+  sealed jar, never the profile. Browserbase lets us upload a profile but not
+  take one back out, so the jar is what makes the vendor replaceable.
+- **What it costs, accepted by the owner.** Every sign-in is also held at a
+  vendor, outside the person's bucket, until the account, the workspace or a
+  sign-out deletes it. Non-negotiable #1 names it. The profile id goes from the
+  control plane through the gateway to the screenshot Worker only; never into
+  a tool result, a log or a message.
 
-Closing a gap means carrying more into the sealed jar, never keeping a
-profile at Browserbase. So the same day the jar took IndexedDB too (the owner's
-"use all these features", over leaving it), since Firebase Auth keeps its web
-sign-in there and every app built on it started signed out
+What would undo it: `sessionRequests` dropping `context` fails "opens the
+owner's saved profile…" in `infra/site-shots/src/browserbase.test.ts`; the
+cascade forgetting the profile fails "deleting the account deletes the
+profile at Browserbase" in `apps/convex/__tests__/browserProfiles.test.ts`;
+the jar no longer read back fails "the browser opens the person's profile…"
+in `apps/mcp/test/agentBrowserProfile.test.mjs`.
+
+#### Before: Browserbase Contexts stayed off (2026-10-22, reversed)
+
+Weighed when the owner asked to use every Browserbase feature we pay for, and
+kept off because a kept Context is every sign-in held at a vendor, which did
+not leave with Download as folders and could not be revoked from Context, and
+because a Context made and deleted per browser bought nothing over the jar.
+The 2026-10-29 decision answers the first with the control plane's handle
+(deleted with the account, workspace and sign-out) and the sealed jar as the
+copy that leaves, and keeps one profile per owner rather than per browser.
+The same day the jar took IndexedDB too (the owner's "use all these
+features", over leaving it), since Firebase Auth keeps its web sign-in there
+and every app built on it started signed out
 (`infra/site-shots/src/jarIdb.ts`):
 
 - **Whole databases of plain data.** A database is kept only when every value
@@ -503,9 +542,9 @@ sign-in there and every app built on it started signed out
   a new browser the jar's cookies…") fails if a read moves back to the
   page's world.
 
-What still starts signed out: sessionStorage, and a sign-in bound to the
-browser by Chrome's device-bound session credentials. Tex signs in again with
-the vault's login or hands the browser over.
+What the jar alone still cannot carry: sessionStorage, and a sign-in bound to
+the browser by Chrome's device-bound session credentials, which is why the
+profile above is now the default.
 
 Tests: `infra/site-shots/src/jarIdb.test.ts` (sabotaged: dropping the
 existing-database check, the own-origin check, and the plain-data check) and

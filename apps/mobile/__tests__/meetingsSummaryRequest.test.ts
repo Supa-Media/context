@@ -84,7 +84,7 @@ describe("requestSummary: the request", () => {
 });
 
 describe("requestSummary: the answer", () => {
-  const statuses: SummaryStatus[] = ["written", "skipped", "recording", "waiting", "too_short", "unavailable", "conflict"];
+  const statuses: SummaryStatus[] = ["written", "skipped", "recording", "waiting", "too_short", "not_allowed", "unavailable", "conflict"];
   for (const status of statuses) {
     test(`returns ${status} as the gateway said it`, async () => {
       const { fetchImpl } = fakeFetch(200, { status });
@@ -162,13 +162,14 @@ describe("summaryMessage", () => {
   test("says one short plain sentence for each other status", () => {
     expect(summaryMessage("waiting")).toBe("Today's summaries are used up. This one will be written tomorrow.");
     expect(summaryMessage("too_short")).toBe("There wasn't enough said to summarize.");
+    expect(summaryMessage("not_allowed")).toBe("AI summaries are off. Turn them on in Settings › Meetings.");
     expect(summaryMessage("unavailable")).toBe("Summaries aren't available right now.");
     expect(summaryMessage("failed")).toBe("Couldn't write the summary. Try again in a moment.");
     expect(summaryMessage("conflict")).toBe("The note changed while the summary was being written. Try again.");
   });
 
   test("no message has an em dash in it", () => {
-    const statuses: SummaryStatus[] = ["written", "skipped", "waiting", "too_short", "unavailable", "failed", "conflict"];
+    const statuses: SummaryStatus[] = ["written", "skipped", "waiting", "too_short", "not_allowed", "unavailable", "failed", "conflict"];
     for (const status of statuses) expect(summaryMessage(status) ?? "").not.toContain("—");
   });
 });
@@ -204,7 +205,7 @@ const WAITING = "_This meeting will be summarized tomorrow. Redo it then._";
 describe("automaticSummaryDue", () => {
   const key = summaryKey("ws_1", PATH);
   const due = (overrides: Partial<Parameters<typeof automaticSummaryDue>[0]> = {}) =>
-    automaticSummaryDue({ key, text: meeting(PLACEHOLDER), canEdit: true, pending: false, started: new Set(), ...overrides });
+    automaticSummaryDue({ key, text: meeting(PLACEHOLDER), canEdit: true, pending: false, started: new Set(), aiAllowed: true, ...overrides });
 
   test("is due for a meeting with no summary yet, that the person may edit", () => {
     expect(due()).toBe(true);
@@ -222,6 +223,10 @@ describe("automaticSummaryDue", () => {
   test("is not due for another note in the same session", () => {
     expect(due({ started: new Set([summaryKey("ws_1", "1-projects/other.md")]) })).toBe(true);
     expect(due({ started: new Set([summaryKey("ws_2", PATH)]) })).toBe(true);
+  });
+
+  test("is not due without the person's yes to AI transcripts and summaries", () => {
+    expect(due({ aiAllowed: false })).toBe(false);
   });
 
   test("is not due while a request for it is pending", () => {

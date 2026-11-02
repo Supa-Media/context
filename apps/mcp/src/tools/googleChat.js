@@ -13,6 +13,7 @@
  */
 
 import { toolError, toolText } from "./results.js";
+import { AI_ACCESS_STEP } from "./googleAiAccess.js";
 
 export const GOOGLE_CHAT_TOOL = "google_chat";
 
@@ -69,9 +70,11 @@ export function chatCopy(place, from, text) {
 export const REFUSED = {
   invalid: "Not sent: the message was not valid.",
   not_allowed: "Not sent: this connection cannot send Google Chat messages as the person.",
+  ai_access_needed: `Not sent: AI access isn't allowed yet for their Google account, so you can't send Chat messages from it. ${AI_ACCESS_STEP}`,
   no_chat:
-    "Not sent: their Google account isn't set up for Google Chat through Context yet. Get the link from manage connect_google (kind gmail) " +
-    "and ask them to reconnect the Google account they use for work once; it adds Chat. Don't send it another way unless they ask.",
+    "Not sent: their Google account isn't set up for Google Chat through Context yet. Get the link from manage connect_google (kind calendar): " +
+    "on Connected apps they reconnect the Google account they use for work (Reconnect beside it, or its ••• menu), which adds Chat; " +
+    "if a tool then says AI access isn't allowed yet, send the kind ai link too. Gmail alone never adds Chat. Don't send it another way unless they ask.",
   hourly_limit: "Not sent: the person has sent 10 Google Chat messages through Context this hour. Try again later.",
   daily_limit: "Not sent: the person has sent 40 Google Chat messages through Context today. Try again tomorrow.",
   space_not_found: "Not sent: they are in no Google Chat space by that name. List their spaces with action spaces and use the exact name.",
@@ -85,6 +88,9 @@ export const REFUSED = {
     "Get the link from manage connect_google (kind gmail) and give it to them.",
   not_configured: "Not sent: this Context deployment does not send Google Chat messages.",
   unavailable: "Not sent: Google Chat did not take the message just now. Nothing was sent; it can be asked for again.",
+  unconfirmed:
+    "Not confirmed: Google Chat did not say it made the message, so whether it went is not known. Don't call it sent and don't " +
+    "send it again: ask the person to look in their Google Chat, or read the conversation with fetch chat:<the space or their email>, first.",
 };
 
 function listSpaces(answer) {
@@ -120,7 +126,10 @@ export async function toolGoogleChat(store, args) {
   }
   if (answer?.ok === true) {
     const where = typeof answer.place?.space === "string" ? `in ${answer.place.space}` : `to ${placeName(answer.place)}`;
-    return toolText(`Sent on Google Chat from ${answer.from} ${where}.`);
+    // The ids Google gave, so anyone can read back exactly where it went.
+    // Setup can answer a direct message that already existed, so it is never called new.
+    const setup = answer.setupUsed === true ? "; Google found no conversation by that address, so direct-conversation setup was requested" : "";
+    return toolText(`Sent on Google Chat from ${answer.from} ${where} (Google's message ${answer.message} in ${answer.space}${setup}).`);
   }
   return toolError(REFUSED[answer?.refused] ?? REFUSED.unavailable);
 }

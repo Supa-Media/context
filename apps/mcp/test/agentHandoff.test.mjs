@@ -26,7 +26,7 @@ function fakeComputer({ canHandOff, handoffUrl = null }) {
       return {
         session: "sess-handoff-0001",
         ran: steps.map((step) => ({ do: step.do, ok: true })),
-        page: { url, title: "Sign in", text: "", truncated: false, elements: [] },
+        page: { url, title: "Sign in", text: "", truncated: false, elements: [{ ref: 1, kind: "input password", label: "Password" }] },
         ...(handoffUrl ? { handoffUrl } : {}),
       };
     },
@@ -78,7 +78,7 @@ function browserbaseBinding(requests) {
       return Response.json({
         session: "bb-1",
         ran: body.steps.map((step) => ({ do: step.do, ok: true })),
-        page: { url: target, title: "Log in", text: "", truncated: false, elements: [] },
+        page: { url: target, title: "Log in", text: "", truncated: false, elements: [{ ref: 1, kind: "input password", label: "Password" }] },
         liveUrl: BROWSERBASE_LINK,
         handoffUrl: BROWSERBASE_LINK,
       });
@@ -98,7 +98,7 @@ test("the handoff text is short: their own /tex/<handle> page and the site, neve
   await web.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://chatgpt.com/" }, { do: "handoff" }] });
   assert.equal(
     web.browser.handoffLine(),
-    "Open this to take over the browser on chatgpt.com, then text me when you're done: https://context.lc/tex/seyi",
+    "Open this to take over the browser on chatgpt.com, then text me when you're done: https://context.lc/tex/seyi?view=computer",
   );
   assert.ok(!web.browser.handoffLine().includes("browserbase"));
   resetBrowserbaseProbe();
@@ -129,7 +129,7 @@ test("the handle is the personal workspace the person owns, never one they are o
   assert.equal(ownHandle(SEYI), "seyi");
   assert.equal(ownHandle({ workspaces: [personal("bola", "editor"), personal("kemi", "member")] }), null);
   assert.equal(ownHandle({ workspaces: [{ workspaceId: "ws_s", slug: "shared-one", role: "owner", kind: "shared" }] }), null);
-  assert.equal(texViewerUrl({ APP_ORIGIN: "https://staging.context.lc/" }, SEYI), "https://staging.context.lc/tex/seyi");
+  assert.equal(texViewerUrl({ APP_ORIGIN: "https://staging.context.lc/" }, SEYI), "https://staging.context.lc/tex/seyi?view=computer");
   assert.equal(texViewerUrl({}, SEYI), null, "a self-hosted gateway with no app origin texts no link");
   assert.equal(texViewerUrl({ APP_ORIGIN: "http://context.lc" }, SEYI), null);
   assert.equal(texViewerUrl({ APP_ORIGIN: "https://context.lc/app" }, SEYI), null);

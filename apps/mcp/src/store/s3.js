@@ -46,6 +46,7 @@ export class S3Store {
    *   bucket: string,
    *   accessKeyId: string,
    *   secretAccessKey: string,
+   *   sessionToken?: string,
    *   rootPrefix?: string,
    *   forcePathStyle?: boolean,
    *   fetchImpl?: typeof fetch,
@@ -86,6 +87,18 @@ export class S3Store {
       enumerable: false,
       writable: true,
       configurable: true,
+    });
+    /*
+      The third part of a temporary credential, which a new managed bucket is
+      served with while its own key propagates (R2 refuses the key and secret
+      without it). Sent as `x-amz-security-token` inside the signature, never
+      in a URL, and hidden from serialization on the secret's terms.
+    */
+    Object.defineProperty(this, "sessionToken", {
+      value: typeof config.sessionToken === "string" && config.sessionToken ? config.sessionToken : undefined,
+      enumerable: false,
+      writable: false,
+      configurable: false,
     });
     // The SigV4 signing key derived from that secret for one day, region and
     // service. Deriving it is four HMACs and five key imports per request,
@@ -171,7 +184,7 @@ export class S3Store {
     const signedHeaders = await signRequest({
       method,
       url,
-      headers,
+      headers: this.sessionToken === undefined ? headers : { ...headers, "x-amz-security-token": this.sessionToken },
       body: bytes,
       accessKeyId: this.accessKeyId,
       secretAccessKey: this.secretAccessKey,

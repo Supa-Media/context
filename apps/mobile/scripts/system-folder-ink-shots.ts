@@ -183,7 +183,7 @@ const TREE: Row[] = [
   row("tex/routines/every-day", 2),
   row("tex/skills", 1),
   row("tex/transcripts", 1),
-  row("tex/about-me.md", 1, { kind: "file" }),
+  row("tex/about.md", 1, { kind: "file" }),
   row("tex/jobs.md", 1, { kind: "file" }),
   row("archive"),
 ];
@@ -209,10 +209,8 @@ const sidebar = (width: number | string) =>
         { style: { paddingTop: 12, paddingHorizontal: 8 } },
         createElement(FileTree, {
           rows: TREE,
-          canSetVisibility: false,
           onSelect: () => {},
           onToggle: () => {},
-          onCycleVisibility: () => {},
           workspaceId: "ws-demo",
           iconOf,
           onIconPress: () => {},

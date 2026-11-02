@@ -14,7 +14,8 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalMutation } from "../_generated/server";
+import { internalAction } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { validAppOrigin } from "./lib/invitationEmail";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import {

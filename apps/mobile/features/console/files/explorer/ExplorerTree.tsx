@@ -8,7 +8,6 @@ import type { FileBrowser } from "../browser";
 import { relabelled } from "../linkedTitle";
 import { FileTree } from "../FileTree";
 import { NO_PICK } from "../selection";
-import { cycleVisibility } from "./rowVisibility";
 import { makeStyles } from "./styles";
 import type { ExplorerState } from "./useExplorer";
 
@@ -101,14 +100,12 @@ export function ExplorerTree({
       ) : (
         <FileTree
           rows={relabelled(rows, files.titleEdit)}
-          canSetVisibility={files.canSetVisibility}
           onSelect={select}
           onToggle={(path) => {
             setPicked(NO_PICK);
             files.toggleFolder(path);
             files.select(path);
           }}
-          onCycleVisibility={(row) => cycleVisibility(files, row)}
           onMenu={openMenu}
           onPick={onPick}
           drag={dragHandlers}

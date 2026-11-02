@@ -30,6 +30,7 @@ export type BlendedAnswer = {
     snippet: string;
     meaningOnly?: boolean;
     loose?: boolean;
+    close?: boolean;
     edited?: number;
   }[];
   matchCount: number;

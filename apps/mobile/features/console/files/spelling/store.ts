@@ -86,7 +86,7 @@ export function subscribeSpelling(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-/** True when `word` should not be underlined: the dictionary or the person knows it. */
+/** True when `word` needs no fix: the dictionary or the person knows it. */
 export function isKnownWord(state: SpellingSnapshot, word: string): boolean {
   const lowered = word.toLowerCase();
   if (state.known.has(lowered)) return true;
@@ -108,8 +108,7 @@ export function setSpellingSaver(next: SpellingSaver | null): void {
 /**
  * Teach the checker a word, everywhere: shown at once, saved on the account.
  *
- * Optimistic because the person is looking at the red line they just asked to
- * go away. If the account refuses, the next account answer puts the list back
+ * Optimistic so the very next right-click already knows the word. If the account refuses, the next account answer puts the list back
  * the way the server has it — the account stays the truth.
  */
 export function learnWord(word: string): void {

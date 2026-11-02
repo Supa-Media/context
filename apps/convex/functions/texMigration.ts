@@ -1,0 +1,87 @@
+/**
+ * Moving Tex's existing notes into their Durable Object, a person's or a
+ * group chat's (decided by the owner, 2026-10-31; `docs/decisions/texting-assistant/tex-durable-objects.md`).
+ *
+ * Run from the `Tex notes into their objects` workflow: first with `dryRun`
+ * (counts only, nothing written), then for real, paging with the cursor until
+ * `done`. The steps are in `lib/texMigration/run.ts`; the tree's side of them
+ * (the rows a page reads, and the key switch) is `texMigrationRows.ts`. This
+ * file is the entry point, and the only one of the three that opens a bucket.
+ * Internal only, so only the workflow's own deploy key can start it.
+ */
+
+import { consoleWorkspaceRouting } from "./lib/rowWatch/consoleRouting";
+import { v } from "convex/values";
+import type { ActionCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { internal } from "../_generated/api";
+import { internalAction } from "../_generated/server";
+import { storeForBinding } from "../../mcp/src/store/factory.js";
+import type { FileStore } from "./lib/fileOps/store";
+import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
+import type { GatewayCredential } from "./lib/storage/shapes";
+import { consoleTexRouting } from "./lib/texStore";
+import { migrateTexNotes, type TexMigrationPage } from "./lib/texMigration/run";
+
+/**
+ * The bucket, as the console opens it for this workspace, with `owner`'s Tex
+ * keys routed to its object (the person's, or a chat's whose home is here);
+ * `null` without a binding.
+ */
+async function openWorkspaceStore(ctx: ActionCtx, workspaceId: Id<"workspaces">, owner: string): Promise<FileStore | null> {
+  const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
+  if (credential === null) return null;
+  const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
+  const chats = owner.startsWith("chat:") ? [owner.slice("chat:".length)] : [];
+  const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+  return storeForBinding(routing.credential(credential), undefined, {
+    managedEncryption,
+    ...consoleTexRouting(ctx, workspaceId, { ticketOwners: [owner] }),
+    texChats: chats,
+    ...routing.options,
+  }) as unknown as FileStore;
+}
+
+const countsValidator = v.object({
+  workspaces: v.number(),
+  rows: v.number(),
+  wouldMove: v.number(),
+  moved: v.number(),
+  alreadyMoved: v.number(),
+  swept: v.number(),
+  other: v.number(),
+  refused: v.record(v.string(), v.number()),
+  paths: v.optional(v.array(v.string())),
+  cursor: v.string(),
+  done: v.boolean(),
+});
+
+/**
+ * One page of the migration. Counts only, unless `listPaths` is passed (never
+ * by the workflow, whose log is public). `dryRun` writes nothing.
+ */
+export const run = internalAction({
+  args: {
+    dryRun: v.boolean(),
+    cursor: v.optional(v.string()),
+    listPaths: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+    /** A handle: move only that person's notes, or the pinned workspace's chat homes. Unknown or another shared one, and nothing moves. */
+    only: v.optional(v.string()),
+  },
+  returns: countsValidator,
+  handler: async (ctx, args): Promise<TexMigrationPage> => {
+    const only: Id<"workspaces"> | null | undefined = args.only === undefined ? undefined : await ctx.runQuery(internal.functions.texMigrationRows.migrationWorkspaceBySlug, { slug: args.only });
+    if (only === null) {
+      return { workspaces: 0, rows: 0, wouldMove: 0, moved: 0, alreadyMoved: 0, swept: 0, other: 0, refused: { NO_WORKSPACE: 1 }, cursor: "", done: true };
+    }
+    return await migrateTexNotes(ctx, {
+      dryRun: args.dryRun,
+      ...(args.cursor === undefined ? {} : { cursor: args.cursor }),
+      ...(args.listPaths === undefined ? {} : { listPaths: args.listPaths }),
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+      ...(only === undefined ? {} : { only }),
+      openStore: (workspaceId, owner) => openWorkspaceStore(ctx, workspaceId, owner),
+    });
+  },
+});

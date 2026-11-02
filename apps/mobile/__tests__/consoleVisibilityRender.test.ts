@@ -227,7 +227,7 @@ describe("personal communications stay out of shared workspaces", () => {
     for (const label of ["Mail and calendar", "Meetings"]) {
       expect(text).toContain(label);
     }
-    expect(text).toContain("Your AI reads mail, calendar and chat from Google when you ask.");
+    expect(text).toContain("Your AI reads mail, calendar and chat from Google when you ask, and during check-ins and routines you allow.");
     expect(text).toContain("Google accounts");
     expect(text).not.toContain("Switch to a personal workspace");
   });

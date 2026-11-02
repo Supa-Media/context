@@ -15,7 +15,8 @@
     "./chunks": "./src/chunks.js",
     "./session": "./src/session.js",
     "./recovery": "./src/recovery.js",
-    "./summary": "./src/summary.js"
+    "./summary": "./src/summary.js",
+    "./scheduled": "./src/scheduled.js"
   },
   "scripts": {
     "test": "node test/test.mjs",

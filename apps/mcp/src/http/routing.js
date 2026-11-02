@@ -5,6 +5,9 @@
  * where its order of checks can be read top to bottom.
  */
 
+import { objectFirstManifest } from "../store/objectManifest.js";
+import { attachHomeRoutineReports } from "../agent/chatHomeSeal.js";
+
 /**
  * The three link calls, attached to the store for each request.
  *
@@ -33,6 +36,17 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   Object.defineProperty(store, "vaultLinks", {
     value: {
       request: (request) => controlPlane.vaultRequest(session.accessToken, session.workspaceId, request),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // Tex's saved Browserbase profile (`agent/browserProfile.js`), filed under
+  // this session's workspace; the control plane makes and releases it.
+  Object.defineProperty(store, "browserProfiles", {
+    value: {
+      get: (owner, chat) => controlPlane.browserProfile(session.accessToken, session.workspaceId, { owner, chat }),
+      forget: (owner) => controlPlane.browserProfile(session.accessToken, session.workspaceId, { owner, forget: true }),
     },
     enumerable: false,
     writable: false,
@@ -87,6 +101,8 @@ export function attachLinkCalls(store, session, controlPlane, env) {
       spaces: () => controlPlane.googleChatSpaces(session.accessToken, session.workspaceId),
       // What was written to them lately, for a check-in (`agent/checkInSources.js`).
       recent: (request) => controlPlane.googleChatRecent(session.accessToken, session.workspaceId, request),
+      // One conversation the person named, read live (`tools/googleChatRead.js`).
+      conversation: (request) => controlPlane.googleChatConversation(session.accessToken, session.workspaceId, request),
     },
     enumerable: false,
     writable: false,
@@ -182,21 +198,29 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
-  // The Convex tree, for the agent tools that list (`tree/served.js`). The
-  // control plane picks the workspace and clearance off this token's grant.
+  // The tree, for the agent tools that list (`tree/served.js`): the workspace's
+  // object where its notes live there (`store/objectManifest.js`), else the
+  // control plane, which picks the workspace and clearance off this token's grant.
+  const readControlManifest = (page, options) => controlPlane.readTreeManifest(session.accessToken, session.workspaceId, page, options);
   Object.defineProperty(store, "treeManifest", {
-    value: (page) => controlPlane.readTreeManifest(session.accessToken, session.workspaceId, page),
+    value: store.objectReading ? objectFirstManifest(readControlManifest, store.objectReading, { defer: () => store.defer }) : readControlManifest,
     enumerable: false,
     writable: false,
     configurable: true,
   });
-  // Its facts: a move's link candidates and the chaos score's extras (`tree/facts.js`).
+  // Its facts: a move's link candidates and the chaos score's extras (`tree/facts.js`). Where the notes live in the
+  // workspace's object, their links and props are asked there first (`store/objectLookup.js` `objectFirstFacts`).
   Object.defineProperty(store, "treeFacts", {
-    value: (request) => controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request),
+    value: async (request) => {
+      const fromObject = typeof store.objectFacts === "function" ? await store.objectFacts(request) : null;
+      return fromObject ?? (await controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request));
+    },
     enumerable: false,
     writable: false,
     configurable: true,
   });
+  // A chat home's door: a routine written there is reported, and only one inside the home (`agent/chatHomeSeal.js`).
+  attachHomeRoutineReports(store, session, controlPlane);
 }
 
 /* ----------------------------- auth & scoping ----------------------------- */

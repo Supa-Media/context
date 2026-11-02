@@ -8,7 +8,7 @@ import type { NoteView } from "./view";
  * `NoteEditor`'s render, at compact only; see the comment at the call site.
  */
 export function noteScroller(view: NoteView, flow: ReactNode) {
-  const { padding, scroller, styles, moving, settledAt, offset } = view;
+  const { padding, scroller, styles, moving, settledAt, offset, pageView } = view;
   /*
     The status bar's band is held back *outside* the scroller and our own
     chrome is paid inside it, which is the whole of `SurfacePadding` and
@@ -24,7 +24,13 @@ export function noteScroller(view: NoteView, flow: ReactNode) {
         ref={scroller}
         style={styles.scroll}
         contentContainerStyle={{
-          paddingTop: padding.content.top,
+          /*
+            A page starts at the top of the glass (owner, 2026-10-28: "remove
+            this freakin header"): its cover photo runs up under the floating
+            ‹ and •••, and the page is told the band (`topInset`) so a cover
+            with no photo keeps its words clear of them.
+          */
+          paddingTop: pageView ? 0 : padding.content.top,
           paddingBottom: padding.content.bottom,
         }}
         /*

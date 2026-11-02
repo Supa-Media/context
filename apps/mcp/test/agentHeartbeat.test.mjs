@@ -58,7 +58,7 @@ import { newMailQuery } from "../src/agent/newMail.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { conversationTurns } from "./agentConversationFixture.mjs";
+import { conversationTurns, newestExchangeId } from "./agentConversationFixture.mjs"; import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-heartbeat.test";
 const TOKEN_BEAT = `cat_beat_heartbeat_${"0".repeat(20)}`;
@@ -354,7 +354,7 @@ export async function runAgentHeartbeatChecks(check) {
     await grant(TOKEN_APP, "client_beat_app");
     controlPlane.setBuiltinVerdict("ws_beat", BUILTIN_ALLOWED);
 
-    const bucket = s3.bucketFor("tenant-beat");
+    const tex = texStoreNamespace(), bucket = withAgentHome(s3.bucketFor("tenant-beat"), tex, "ws_beat"); // Tex's bookkeeping lives in the person's object (`texStoreFixture.mjs`)
     const recently = new Date(Date.now() - HOUR_MS).toISOString();
     const today = transcriptPath(Date.now(), "UTC");
     const brandingNote = "1-projects/tex-branding/about.md";
@@ -370,7 +370,7 @@ export async function runAgentHeartbeatChecks(check) {
       etag: "h3",
       lastModified: recently,
     });
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
     controlPlane.serveTreesFrom(env, { s3 });
     const log = () => bucket.get(heartbeatPath(Date.now(), "UTC"))?.body ?? "";
     const beat = (since = Date.now() - 2 * HOUR_MS) => ({ heartbeat: { timeZone: "UTC", since } });
@@ -599,16 +599,17 @@ export async function runAgentHeartbeatChecks(check) {
 
     /* ---------------- continuing a text ---------------- */
 
-    const earlier = conversationTurns(bucket);
+    const [earlier, lastExchange] = [conversationTurns(bucket), newestExchangeId(bucket)];
     const lastShown = recentTexts(earlier);
     model.install([{ text: `[continues ${lastShown.length}] Still want me to save that image to your branding folder?` }]);
     const continued = await ask(env, TOKEN_BEAT, beat());
     const afterTurns = conversationTurns(bucket);
     check(
-      "a look that continues a text answers without the marker, and names that text's whole words as continues",
+      "a look that continues a text answers without the marker, names that text's whole words as continues, and joins its thread",
       continued.status === 200 && continued.body?.outcome === "speak" &&
         continued.body?.answer === "Still want me to save that image to your branding folder?" &&
-        continued.body?.continues === lastShown.at(-1)?.text && typeof continued.body?.continues === "string",
+        continued.body?.continues === lastShown.at(-1)?.text && typeof continued.body?.continues === "string" &&
+        typeof lastExchange === "string" && afterTurns.at(-2)?.thread === lastExchange, // kept in that text's thread, so a reply there sees it
     );
     check(
       "the marker is kept out of the day's log and the texting conversation",

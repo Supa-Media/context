@@ -135,7 +135,7 @@ hits. **Every word hit stays**; meaning adds at most three notes the words
 missed, each marked "Same topic, different words" and shown with a snippet read
 from the bucket at answer time. A note that cannot be read now (moved, deleted,
 or outside what this connection's store will open) is dropped rather than
-listed blind. Matches below a closeness of 0.40 are noise and dropped (0.55 until 2026-10-10, which dropped nearly every real match: measured on production indexes, what a person meant scored 0.40–0.63 and queries about nothing in the workspace topped out at 0.31–0.34; `MEANING_MIN_SCORE` records the measurements).
+listed blind. Matches below a closeness of 0.40 are noise and dropped (0.55 until 2026-10-10, which dropped nearly every real match: measured on production indexes, what a person meant scored 0.40–0.63 and queries about nothing in the workspace topped out at 0.31–0.34; `MEANING_MIN_SCORE` records the measurements). When the words found notes with every word typed, a note only meaning found needs 0.50 (`MEANING_EXTRA_FLOOR_WITH_WORDS`, 2026-10-27): the search review found "one search bar" answered with unrelated tables at 0.4-something under the right note, and a loosely related match measured up to 0.44. A question the words could not answer keeps the 0.40 floor, and a match the words also found is never dropped, only ranked. Reverting fails "once the words found the note, a loosely related one found only by meaning is left out" (`apps/mcp/test/meaningServe.test.mjs`).
 
 A failing model or index costs nothing but the merge: the word answer comes
 back unchanged, the miss text says it searched words only, and one log line

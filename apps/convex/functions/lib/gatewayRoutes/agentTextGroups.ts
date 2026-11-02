@@ -21,7 +21,6 @@ const MAX_GROUP_ID = 200;
 type Command =
   | { kind: "stop" }
   | { kind: "start" }
-  | { kind: "use"; slug: string }
   | { kind: "invite"; slug: string; role?: "editor" | "member" }
   | { kind: "share_mail"; address: string; query?: string }
   | { kind: "unshare_mail"; address?: string };
@@ -34,7 +33,6 @@ function readCommand(value: unknown): Command | null | undefined {
   if (kind === "share_mail" || kind === "unshare_mail") return readMailCommand(kind, value as Record<string, unknown>);
   const slug = (value as { slug?: unknown }).slug;
   if (typeof slug !== "string" || slug.length === 0 || slug.length > 65) return null;
-  if (kind === "use") return { kind, slug };
   if (kind === "invite") {
     const role = (value as { role?: unknown }).role;
     if (role === undefined) return { kind, slug };

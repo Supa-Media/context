@@ -1,8 +1,8 @@
 /**
  * The one process this app spawns to read iMessage history: `/usr/bin/sqlite3`.
  *
- * Electron 33 ships no SQLite binding, and this package takes no native
- * modules — so rather than a driver, this app shells out to the copy of
+ * This package takes no native modules and does not lean on Node's
+ * still-settling `node:sqlite` — so rather than a driver, this app shells out to the copy of
  * `sqlite3` every Mac already has, exactly as `platform/exec.ts` already does
  * for AppleScript. `-readonly` and `?mode=ro` both say the same thing twice on
  * purpose: `-readonly` is the CLI flag and the URI mode is the belt, so a

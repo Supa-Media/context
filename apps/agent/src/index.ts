@@ -24,17 +24,20 @@
  * grant, exactly as it does for any other connected client.
  */
 
+import { logged } from "./agentError";
+import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
 import { checkReady } from "./ready";
 import { checkGmail } from "./gmailWatch";
 import type { Message } from "./reply";
-import { runDueRoutines, textRoutine, type PhoneTexted } from "./routines";
+import { runDueRoutines, textPhone, textRoutine } from "./routines";
+export { TexRoutines } from "./texRoutineDue";
 import { runDueDreams } from "./dreams";
 import { runDueHeartbeats } from "./heartbeats";
 import { runDueHousekeeping } from "./housekeeping";
 import type { Picture } from "./line";
-import { hostPicture, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
+import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, repliedToText, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
 import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
@@ -44,19 +47,31 @@ import { sha256Hex } from "./groupChat";
 import type { DueRoutine } from "./clients";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
-import { readJobSteer, readJobUpdate, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
-import { acceptJob, runJob, steerJob } from "./jobRun";
+import { mintThreadsLink, readJobSteer, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { acceptJob, armJobNext, failJob, resumeJob, runJob, steerJob } from "./jobRun";
+import { handOverJob, startJobFlow, type JobRunParams } from "./jobWorkflow";
 import { jobUpdate } from "./jobTexts";
+import { pageJobsOf, pageSteerResponse } from "./texPage";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
 import { appCardConfig } from "./appCards";
-import { phoneOfJid, readWhapiMessage, verifyWhapiSecret, whapiKeys, type WhapiKeys } from "./whapi";
+import { phoneOfJid, readWhapiMessage, verifyWhapiSecret, watchGroupPresenceDaily, whapiKeys, type WhapiKeys } from "./whapi";
 import { parseWhapiWebhook } from "./whapiInbound";
 import { groupLineFor } from "./groupLine";
-import { holdsAsYes, takesBackYes } from "./thumbs";
+import { noteCardDrawer } from "./noteCards";
+import { answerHanded, failHanded } from "./groupTurnRun";
+import type { GroupTurnParams } from "./groupTurnWorkflow";
+import type { TimingDataset } from "./textTiming";
+import { inboxByName, objectById, objectByName } from "./objectPlace";
+import { movedAlarm, placeGate, type MoveStorage } from "./inboxMove";
+export { GroupTurnWorkflow } from "./groupTurnWorkflow";
+export { JobRunWorkflow } from "./jobWorkflow";
 
 export interface Env {
   SENDER_INBOX: DurableObjectNamespace;
+  /** Sees each group turn through, with retries (`groupTurnWorkflow.ts`); absent, group turns are answered in their object. */
+  GROUP_TURN?: Workflow<GroupTurnParams>;
+  JOB_RUN?: Workflow<JobRunParams>;
   /** Linq's `whsec_…` webhook signing secret. */
   LINQ_WEBHOOK_SECRET: string;
   /** Linq Partner API key, used to send replies. */
@@ -81,7 +96,9 @@ export interface Env {
   SIMULATOR?: string;
   /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
   IMAGES?: ImagesBinding;
-  /** "on" sends a link to a note as a Context card, with the extension's bundle id and the Apple team id (`appCards.ts`). */
+  /** Each answered text's wait, arrival to first bubble (`textTiming.ts`); absent when self-hosting. */
+  TEX_TEXTS?: TimingDataset;
+  /** "on" sends Context cards to every chat, "app" only to chats that have shown the app (`appCards.ts`, `cardChats.ts`). */
   APP_CARDS?: string;
   APP_CARD_EXTENSION_ID?: string;
   APPLE_TEAM_ID?: string;
@@ -117,12 +134,16 @@ function health(env: Env): Record<string, unknown> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    // First, before any route reads a header, a secret or a body (httpsOnly.ts).
+    const plain = plainHttpResponse(request, url);
+    if (plain !== null) return plain;
     if (url.pathname === "/health" && request.method === "GET") return Response.json(health(env));
     if (url.pathname === SIMULATOR_PATH || url.pathname.startsWith(`${SIMULATOR_PATH}/`)) {
       if (!simulatorEnabled(env.SIMULATOR)) return new Response(null, { status: 404 });
       return handleSimulator(request, env, SIMULATOR_PAGE);
     }
     if (url.pathname.startsWith("/media/")) return media(request, env, url);
+    if (url.pathname.startsWith("/threads/")) return threads(request, env, url);
     if (url.pathname === "/new-line") return newLine(request, env);
     if (url.pathname === "/whapi") return whapiWebhook(request, env, url.origin);
     const line = url.pathname === "/sendblue" ? "sendblue" : url.pathname === "/linq" ? "linq" : null;
@@ -176,7 +197,7 @@ export default {
         inbound.reaction = { ...inbound.reaction, words: (words ?? "").slice(0, 500) };
         delete inbound.on;
       }
-      const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(inbound.from));
+      const stub = inboxByName(env.SENDER_INBOX, inbound.from);
       const result = await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(inbound) });
       return new Response(null, { status: result.ok ? 200 : 503 });
     }
@@ -190,7 +211,7 @@ export default {
       if (keys !== null) Object.assign(message, await threadContext((input, init) => fetch(input, init), keys, replyTo, threadRoot, message.chatId));
     }
 
-    const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(inbound.from));
+    const stub = inboxByName(env.SENDER_INBOX, inbound.from);
     // The Worker's own address goes along, for pictures served back to Sendblue (`media.ts`).
     const result = await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(url.origin)}`, {
       method: "POST",
@@ -206,7 +227,7 @@ export default {
         controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
         workerSecret: env.AGENT_WORKER_SECRET,
         gatewayOrigin: env.GATEWAY_ORIGIN,
-        textPhone: (phone, text, idempotencyKey) => textPhone(env, phone, text, idempotencyKey),
+        textPhone: (phone, text, idempotencyKey, continues, beside) => textPhone(env, phone, text, idempotencyKey, continues, beside),
         runInChat: (run) => runInChat(env, run),
         log: (entry) => console.log(JSON.stringify(entry)),
       }),
@@ -218,7 +239,7 @@ export default {
         controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
         workerSecret: env.AGENT_WORKER_SECRET,
         gatewayOrigin: env.GATEWAY_ORIGIN,
-        textPhone: (phone, text, idempotencyKey, continues) => textPhone(env, phone, text, idempotencyKey, continues),
+        textPhone: (phone, text, idempotencyKey, continues, beside) => textPhone(env, phone, text, idempotencyKey, continues, beside),
         log: (entry) => console.log(JSON.stringify(entry)),
       }),
     );
@@ -264,7 +285,7 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
     logWebhook(line, "ignored", `group_${grouped.reason}`);
     return new Response(null, { status: 200 });
   }
-  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(groupInboxName(grouped.groupId)));
+  const stub = inboxByName(env.SENDER_INBOX, groupInboxName(grouped.groupId));
   // The Worker's own address goes along, as for a 1:1 text: without it the group's pictures had nowhere to be
   // served from, and every answer with a card failed after its words went out (2026-10-26).
   const result = await stub.fetch(`https://inbox/group-accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(grouped) });
@@ -314,13 +335,13 @@ async function whapiWebhook(request: Request, env: Env, origin: string): Promise
 async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof parseWhapiWebhook>[number], origin: string): Promise<Response> {
   if (event.kind === "group-message") {
     if (event.reactionOn !== undefined && event.reaction !== undefined) {
-      // A reaction counts only on a text Tex sent in this same group, and only as a yes held or taken back (`thumbs.ts`).
+      // Every reaction is read (Dev2, 2026-11-01); the words come only from a text Tex sent in this same group, so a
+      // reaction elsewhere is context on "a message", and only one on Tex's own text can answer or be a yes (`thumbs.ts`).
       const words = await groupLineFor({ fetch: (input, init) => fetch(input, init), whapi: keys }, event.groupId).readOwnMessage(
         { line: event.line, groupId: event.groupId },
         event.reactionOn,
       );
-      const reaction = { ...event.reaction, words: (words ?? "").slice(0, 500) };
-      if (words === null || !(holdsAsYes(reaction) || takesBackYes(reaction))) return groupWebhook(env, { kind: "ignored", reason: "reaction" }, origin, "whapi");
+      const reaction = { ...event.reaction, words: (words ?? "").slice(0, 500), ...(words === null ? { onOther: true as const } : { onTex: true as const }) };
       const { reactionOn: _on, ...message } = event;
       return groupWebhook(env, { ...message, reaction }, origin, "whapi");
     }
@@ -336,17 +357,18 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
       // Named, not quoted: the words are read now, and only from Tex's own text in this person's chat.
       const read = await readWhapiMessage((input, init) => fetch(input, init), keys, event.on);
       const own = read !== null && read.fromMe && phoneOfJid(read.chatId) === event.from;
-      event.reaction = { ...event.reaction, words: own ? read.text.slice(0, 500) : "" };
+      // Read and not Tex's is not the same as unread: only the second may be taken for the ask (`thumbs.ts`).
+      event.reaction = { ...event.reaction, words: own ? read.text.slice(0, 500) : "", ...(read !== null && !own ? { onOther: true as const } : {}) };
       delete event.on;
     }
     logWebhook("whapi", "accepted", "reaction");
-    const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(event.from));
+    const stub = inboxByName(env.SENDER_INBOX, event.from);
     const result = await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(event) });
     return new Response(null, { status: result.ok ? 200 : 503 });
   }
   logWebhook("whapi", "accepted");
   const { replyTo: _reply, threadRoot: _root, ...message } = event;
-  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(event.from));
+  const stub = inboxByName(env.SENDER_INBOX, event.from);
   const result = await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(message) });
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
@@ -359,13 +381,23 @@ async function media(request: Request, env: Env, url: URL): Promise<Response> {
   if (request.method !== "GET") return new Response(null, { status: 405 });
   const match = /^\/media\/([0-9a-f]{64})\/([0-9a-f]{64})\.[a-z]{3,4}$/.exec(url.pathname);
   if (!match || !OBJECT_ID.test(match[1])) return new Response(null, { status: 404 });
-  let id: DurableObjectId;
-  try {
-    id = env.SENDER_INBOX.idFromString(match[1]);
-  } catch {
-    return new Response(null, { status: 404 });
-  }
-  return env.SENDER_INBOX.get(id).fetch(`https://inbox/media/${match[2]}`);
+  const stub = objectById(env.SENDER_INBOX, match[1]);
+  if (stub === null) return new Response(null, { status: 404 });
+  return stub.fetch(`https://inbox/media/${match[2]}`);
+}
+
+/**
+ * `GET /threads/<object id>/<token>`: a chat's live view of its jobs, as JSON,
+ * read by the router's page through its binding to this Worker (`jobs.ts`
+ * `serveThreads`). Every miss is the same 404.
+ */
+async function threads(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== "GET") return new Response(null, { status: 405 });
+  const match = /^\/threads\/([0-9a-f]{64})\/([0-9a-f]{64})$/.exec(url.pathname);
+  if (!match || !OBJECT_ID.test(match[1])) return new Response(null, { status: 404 });
+  const stub = objectById(env.SENDER_INBOX, match[1]);
+  if (stub === null) return new Response(null, { status: 404 });
+  return stub.fetch(`https://inbox/threads/${match[2]}`);
 }
 
 /**
@@ -386,7 +418,7 @@ async function newLine(request: Request, env: Env): Promise<Response> {
       controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
       workerSecret: env.AGENT_WORKER_SECRET,
       tellPhone: async (phone, body) => {
-        const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
+        const stub = inboxByName(env.SENDER_INBOX, phone);
         const response = await stub.fetch("https://inbox/new-line", { method: "POST", body: JSON.stringify(body) });
         if (!response.ok) return "failed";
         return ((await response.json()) as { told: Told }).told;
@@ -398,43 +430,48 @@ async function newLine(request: Request, env: Env): Promise<Response> {
   return counts === null ? new Response(null, { status: 502 }) : Response.json({ dryRun: asked.dryRun, ...counts });
 }
 
-/** Ask one phone's inbox to text it a routine's answer, or a check-in under the text it `continues`. */
-async function textPhone(env: Env, phone: string, text: string, idempotencyKey: string, continues?: string): Promise<PhoneTexted> {
-  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
-  const response = await stub.fetch(ROUTINE_TEXT_URL, {
-    method: "POST",
-    body: JSON.stringify({ text, idempotencyKey, ...(continues !== undefined ? { continues } : {}) }),
-  });
-  if (!response.ok) return "failed";
-  const { status } = (await response.json()) as { status?: unknown };
-  return status === "texted" || status === "no_chat" ? status : "failed";
-}
-
 /** A chat routine's run, into its chat's own queue, found by the chat's key (`groupRoutines.ts`). */
 async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat" | "failed"> {
   const phone = run.phones[0];
   if (run.chat === undefined || phone === undefined) return "no_chat";
-  const directory = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(chatDirectoryName(run.chat)));
+  const directory = inboxByName(env.SENDER_INBOX, chatDirectoryName(run.chat));
   const found = await directory.fetch("https://inbox/chat-where", { method: "GET" });
   const where = found.ok ? chatWhereOf(await found.json()) : null;
   if (where === null) return "no_chat";
-  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(groupInboxName(where.groupId)));
+  const stub = inboxByName(env.SENDER_INBOX, groupInboxName(where.groupId));
   const body = { ...where, runId: run.runId, path: run.path, phone, timeZone: run.timeZone, ...(run.since !== undefined ? { since: run.since } : {}) };
   const response = await stub.fetch("https://inbox/group-routine", { method: "POST", body: JSON.stringify(body) });
   if (!response.ok) return "failed";
   return ((await response.json()) as { outcome?: unknown }).outcome === "queued" ? "queued" : "failed";
 }
 
-/** The inbox's internal route for a routine's text. Only this Worker reaches it. */
-const ROUTINE_TEXT_URL = "https://inbox/routine-text";
-
 export class SenderInbox implements DurableObject {
-  constructor(
-    private readonly state: DurableObjectState,
-    private readonly env: Env,
-  ) {}
+  /** Calls, alarms and handed-on work running now: an inbox moves only when there are none (`inboxMove.ts`). */
+  private busy = 0;
+
+  constructor(private readonly state: DurableObjectState, private readonly env: Env) {}
 
   async fetch(request: Request): Promise<Response> {
+    const stubs = (name: string) => objectByName(this.env.SENDER_INBOX, name);
+    const gate = await placeGate(request, this.state.storage as unknown as MoveStorage, stubs, this.busy, (run) => this.state.blockConcurrencyWhile(run));
+    if ("response" in gate) return gate.response;
+    return await this.counted(() => this.serve(gate.request));
+  }
+
+  /** One call or alarm, counted as running until it ends. */
+  private async counted<T>(run: () => Promise<T>): Promise<T> {
+    this.busy += 1;
+    try {
+      return await run();
+    } finally {
+      this.busy -= 1;
+    }
+  }
+
+  /** Work that outlives a call, counted as running until it settles. */
+  private handOff = (work: Promise<unknown>): void => this.state.waitUntil(this.counted(() => Promise.resolve(work)));
+
+  private async serve(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (path.startsWith("/sim/")) {
       // The Worker routes here only while the simulator is on; checked again
@@ -446,13 +483,13 @@ export class SenderInbox implements DurableObject {
       );
     }
     if (path === "/routine-text") {
-      const body = (await request.json()) as { text?: unknown; idempotencyKey?: unknown; continues?: unknown };
+      const body = (await request.json()) as { text?: unknown; idempotencyKey?: unknown; continues?: unknown; beside?: unknown };
       if (typeof body.text !== "string" || typeof body.idempotencyKey !== "string") {
         return new Response(null, { status: 400 });
       }
       const status = await textRoutine(
         this.state.storage,
-        { text: body.text, idempotencyKey: body.idempotencyKey, ...(typeof body.continues === "string" ? { continues: body.continues } : {}) },
+        { text: body.text, idempotencyKey: body.idempotencyKey, ...(typeof body.continues === "string" ? { continues: body.continues } : {}), ...(typeof body.beside === "string" ? { beside: body.beside } : {}) },
         {
           fetch: (input, init) => fetch(input, init),
           linqApiKey: this.env.LINQ_API_KEY,
@@ -481,7 +518,18 @@ export class SenderInbox implements DurableObject {
       // Only this Worker's cron queues a routine's run (`/group-routine`); a webhook's message never names one.
       const { routine: _routine, ...message } = (await request.json()) as GroupMessage;
       await this.keepWhere(message);
-      return Response.json({ outcome: await acceptGroup(this.state.storage, message, Date.now()) });
+      const outcome = await acceptGroup(this.state.storage, message, Date.now());
+      // The group-typing experiment: ask Whapi for this group's presences once a day (`whapi.ts`); never blocks a message.
+      const whapi = whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE);
+      if (whapi !== null && !message.sms) await watchGroupPresenceDaily(this.state.storage, (input, init) => fetch(input, init), whapi, message.groupId, Date.now());
+      return Response.json({ outcome });
+    }
+    // A group turn's workflow (`groupTurnWorkflow.ts`): only this Worker's workflow reaches these.
+    if (path === "/group-answer" || path === "/group-failed") {
+      const { turn } = (await request.json()) as { turn?: unknown };
+      if (typeof turn !== "string") return new Response(null, { status: 400 });
+      const deps = this.deps();
+      return Response.json({ outcome: await (path === "/group-answer" ? answerHanded : failHanded)(this.state.storage, deps, turn) });
     }
     if (path === "/group-routine") {
       const run = chatRoutineRunOf(await request.json());
@@ -498,12 +546,19 @@ export class SenderInbox implements DurableObject {
     }
     // A background job's own object is started here, and reports to its chat's inbox here (`jobs.ts`).
     if (path === "/job-start") {
-      await acceptJob(this.state.storage, (await request.json()) as JobRun, Date.now());
+      const run = (await request.json()) as JobRun;
+      const flow = this.env.JOB_RUN;
+      await acceptJob(this.state.storage, run, Date.now(), flow ? () => startJobFlow(flow, run.id) : undefined);
       return Response.json({ ok: true });
     }
+    // The job's workflow runs each pass here, and ends it here when every try failed (`jobWorkflow.ts`).
+    if (path === "/job-pass") return Response.json({ next: await runJob(this.state.storage, this.jobDeps()) });
+    if (path === "/job-failed") return Response.json({ next: await failJob(this.state.storage, this.jobDeps()) });
     if (path === "/job-steer") {
       const steer = readJobSteer(await request.json());
       if (steer === null) return new Response(null, { status: 400 });
+      // "Restart it": the job ended here picks up where it stopped, under a new workflow (`resumeJob`).
+      if (steer.resume) return Response.json({ taken: await resumeJob(this.state.storage, Date.now(), this.env.JOB_RUN ? (id, resumes) => startJobFlow(this.env.JOB_RUN!, id, resumes) : undefined) });
       return Response.json({ taken: await steerJob(this.state.storage, steer) });
     }
     if (path === "/job-update") {
@@ -511,9 +566,15 @@ export class SenderInbox implements DurableObject {
       if (update === null) return new Response(null, { status: 400 });
       return Response.json({ known: await jobUpdate(this.state.storage, this.deps(), update) });
     }
+    if (path === "/page-jobs") return Response.json(await pageJobsOf(this.state.storage, Date.now()));
+    if (path === "/page-steer") return await pageSteerResponse(this.state.storage, await request.json().catch(() => null), async (id, next) => (await this.deps().steerJob?.(id, next)) ?? false);
     if (path === "/react") {
       const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
       return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });
+    }
+    if (path.startsWith("/threads/")) {
+      if (request.method !== "GET") return new Response(null, { status: 405 });
+      return serveThreads(this.state.storage, path.slice("/threads/".length), Date.now());
     }
     if (path.startsWith("/media/")) {
       if (request.method !== "GET") return new Response(null, { status: 405 });
@@ -526,16 +587,32 @@ export class SenderInbox implements DurableObject {
   }
 
   async alarm(): Promise<void> {
+    // A moved inbox's alarm only clears its old copy (`inboxMove.ts`).
+    if (!(await movedAlarm(this.state.storage as unknown as MoveStorage, Date.now()))) await this.counted(() => this.runAlarm());
+  }
+
+  private async runAlarm(): Promise<void> {
     // A group's object has only `gpending:` keys, a phone's only `pending:`; each drain finds the other's empty.
-    await drainGroup(this.state.storage, this.deps());
-    await drain(this.state.storage, this.deps());
-    await checkReady(this.state.storage, this.deps());
-    await checkGmail(this.state.storage, this.deps());
-    await carryOnAfterSave(this.state.storage, this.deps());
+    // Each stage names its throw in the logs, then throws on as before, so the alarm still retries (`agentError.ts`).
+    await logged("alarm_group", () => drainGroup(this.state.storage, this.deps()));
+    await logged("alarm_inbox", () => drain(this.state.storage, this.deps()));
+    await logged("alarm_ready", () => checkReady(this.state.storage, this.deps()));
+    await logged("alarm_gmail", () => checkGmail(this.state.storage, this.deps()));
+    await logged("alarm_carry_on", () => carryOnAfterSave(this.state.storage, this.deps()));
     // A chat quiet long enough has its conversation scored (`reviewWatch.ts`).
-    await checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) });
-    // A job's object has only `jobrun`; every other object finds nothing to run.
-    await runJob(this.state.storage, { ...this.deps(), report: (inbox, update) => this.reportJob(inbox, update) });
+    await logged("alarm_review", () => checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) }));
+    // A job's object has only `jobrun`; every other object finds nothing to run. With Workflows, an alarm
+    // set before they ran jobs (one release) hands its job to its workflow and sets no alarm of its own.
+    await logged("alarm_job", async () => {
+      const flow = this.env.JOB_RUN;
+      if (!(flow && (await handOverJob(this.state.storage, flow)))) {
+        await armJobNext(this.state.storage, await runJob(this.state.storage, this.jobDeps()), Date.now());
+      }
+    });
+  }
+
+  private jobDeps() {
+    return { ...this.deps(), report: (inbox: string, update: JobUpdate) => this.reportJob(inbox, update) };
   }
 
   /** A group's token for its review, minted as a tagged turn's is; null unless the chat is ready. */
@@ -547,7 +624,7 @@ export class SenderInbox implements DurableObject {
 
   /** A job's word to the inbox it belongs to: taken once it answers 200. */
   private async reportJob(inbox: string, update: JobUpdate): Promise<boolean> {
-    const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(inbox));
+    const stub = inboxByName(this.env.SENDER_INBOX, inbox);
     const response = await stub.fetch("https://inbox/job-update", { method: "POST", body: JSON.stringify(update) });
     return response.ok;
   }
@@ -556,7 +633,7 @@ export class SenderInbox implements DurableObject {
   private async keepWhere(message: GroupMessage): Promise<void> {
     if (message.sms || (await this.state.storage.get(WHERE_KEPT_KEY)) !== undefined) return;
     const key = await sha256Hex(`${message.line}:${message.groupId}`);
-    const directory = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(chatDirectoryName(key)));
+    const directory = inboxByName(this.env.SENDER_INBOX, chatDirectoryName(key));
     const where = { line: message.line, groupId: message.groupId };
     const response = await directory.fetch("https://inbox/chat-where", { method: "POST", body: JSON.stringify(where) });
     if (response.ok) await this.state.storage.put(WHERE_KEPT_KEY, true);
@@ -570,8 +647,10 @@ export class SenderInbox implements DurableObject {
     }
   }
 
-  private deps(): InboxDeps {
+  private deps(): InboxDeps & { startTurn?: (turn: string) => Promise<void>; answerFirst?: (work: Promise<unknown>) => void } {
+    const workflow = this.env.GROUP_TURN;
     return {
+      ...(workflow ? { startTurn: (turn: string) => startGroupTurn(workflow, this.state.id.toString(), turn), answerFirst: (work: Promise<unknown>) => this.handOff(work) } : {}),
       fetch: (input, init) => fetch(input, init),
       controlPlaneOrigin: this.env.CONTROL_PLANE_ORIGIN,
       workerSecret: this.env.AGENT_WORKER_SECRET,
@@ -580,6 +659,9 @@ export class SenderInbox implements DurableObject {
       sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET),
       whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
       appCard: appCardConfig(this.env),
+      waitUntil: (promise) => this.handOff(promise),
+      textTiming: this.env.TEX_TEXTS,
+      noteCardPicture: noteCardDrawer((input, init) => fetch(input, init), this.env.CONTROL_PLANE_ORIGIN, this.env.AGENT_WORKER_SECRET),
       hostPicture: async (picture: Picture) =>
         hostPicture(
           this.state.storage,
@@ -587,19 +669,32 @@ export class SenderInbox implements DurableObject {
           this.state.id.toString(),
           picture,
           Date.now(),
+          picture.title ? CARD_FOR_MS : MEDIA_FOR_MS,
         ),
+      threadsLink: () => mintThreadsLink(this.state.storage, this.state.id.toString(), Date.now()),
       images: this.env.IMAGES,
       now: () => Date.now(),
       spawnJob: async (id: string, run: JobRun) => {
-        const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(`job:${id}`));
+        const stub = inboxByName(this.env.SENDER_INBOX, `job:${id}`);
         const response = await stub.fetch("https://inbox/job-start", { method: "POST", body: JSON.stringify(run) });
         if (!response.ok) throw new Error("job not started");
       },
       steerJob: async (id: string, steer: JobSteer) => {
-        const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(`job:${id}`));
+        const stub = inboxByName(this.env.SENDER_INBOX, `job:${id}`);
         const response = await stub.fetch("https://inbox/job-steer", { method: "POST", body: JSON.stringify(steer) });
         return response.ok && ((await response.json()) as { taken?: unknown }).taken === true;
       },
     };
+  }
+}
+
+/** Start the workflow for one group turn; one already started under this id counts as started. */
+async function startGroupTurn(workflow: Workflow<GroupTurnParams>, inbox: string, turn: string): Promise<void> {
+  try {
+    await workflow.create({ id: turn, params: { inbox, turn } });
+  } catch (error) {
+    await workflow.get(turn).catch(() => {
+      throw error;
+    });
   }
 }

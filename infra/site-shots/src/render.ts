@@ -35,6 +35,8 @@ export interface RenderRequest {
   width: number;
   height: number;
   allow: Set<string>;
+  /** Cut to the page's own height, at most `height`: a card as tall as what it holds. */
+  fit: boolean;
 }
 
 export interface InterceptedRequest {
@@ -50,7 +52,7 @@ export interface RenderPage {
   on(event: "request", handler: (request: InterceptedRequest) => void): unknown;
   setContent(html: string, options: { waitUntil: "networkidle0" | "load"; timeout: number }): Promise<unknown>;
   evaluate<T>(source: string): Promise<T>;
-  screenshot(options: { type: "png"; encoding: "base64"; fullPage: false }): Promise<string | Uint8Array>;
+  screenshot(options: { type: "png"; encoding: "base64"; fullPage: boolean }): Promise<string | Uint8Array>;
   close(): Promise<void>;
 }
 
@@ -67,7 +69,7 @@ function side(value: unknown, fallback: number, most: number): number | null {
 
 export function parseRenderRequest(body: unknown): RenderRequest | null {
   if (!body || typeof body !== "object") return null;
-  const { html, width, height, allow } = body as Record<string, unknown>;
+  const { html, width, height, allow, fit } = body as Record<string, unknown>;
   if (typeof html !== "string" || html.trim().length === 0 || html.length > MAX_HTML_CHARS) return null;
   const w = side(width, 1080, MAX_WIDTH);
   const h = side(height, 1080, MAX_HEIGHT);
@@ -80,7 +82,7 @@ export function parseRenderRequest(body: unknown): RenderRequest | null {
       if (url !== null) allowed.add(url);
     }
   }
-  return { html, width: w, height: h, allow: allowed };
+  return { html, width: w, height: h, allow: allowed, fit: fit === true };
 }
 
 /** Whether the page may make this request (see the top of this file). */
@@ -120,6 +122,18 @@ export function withoutHints(html: string): string {
   return `<meta http-equiv="x-dns-prefetch-control" content="off">${disarmed}`;
 }
 
+/** A PNG's height from its header (bytes 20-23 of the IHDR chunk), or null when it isn't one. */
+export function pngHeight(png: string): number | null {
+  let head: string;
+  try {
+    head = atob(png.slice(0, 32));
+  } catch {
+    return null;
+  }
+  if (head.length < 24 || head.slice(1, 4) !== "PNG" || head.slice(12, 16) !== "IHDR") return null;
+  return ((head.charCodeAt(20) << 24) | (head.charCodeAt(21) << 16) | (head.charCodeAt(22) << 8) | head.charCodeAt(23)) >>> 0;
+}
+
 function base64(bytes: Uint8Array): string {
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -130,7 +144,8 @@ export async function render(browser: RenderBrowser, request: RenderRequest): Pr
   const blocked: string[] = [];
   const page = await browser.newPage();
   try {
-    await page.setViewport({ width: request.width, height: request.height, deviceScaleFactor: 1 });
+    // A fitted page starts short, so the whole-page picture is only as tall as the page.
+    await page.setViewport({ width: request.width, height: request.fit ? MIN_SIDE : request.height, deviceScaleFactor: 1 });
     // No script: a WebSocket or WebRTC connection is not a request the interception sees.
     await page.setJavaScriptEnabled(false);
     await page.setRequestInterception(true);
@@ -146,6 +161,14 @@ export async function render(browser: RenderBrowser, request: RenderRequest): Pr
     // A slow font or picture is not worth losing the whole picture over.
     await page.setContent(withoutHints(request.html), { waitUntil: "networkidle0", timeout: RENDER_TIMEOUT_MS }).catch(() => undefined);
     await Promise.race([page.evaluate(SETTLE_SOURCE), new Promise((resolve) => setTimeout(resolve, 3_000))]).catch(() => undefined);
+    if (request.fit) {
+      const whole = await page.screenshot({ type: "png", encoding: "base64", fullPage: true });
+      const png = typeof whole === "string" ? whole : base64(whole);
+      const tall = pngHeight(png);
+      if (tall !== null && tall <= request.height) return { png, width: request.width, height: tall, blocked };
+      // Taller than asked (or unreadable): the picture is taken at the height asked, as without fit.
+      await page.setViewport({ width: request.width, height: request.height, deviceScaleFactor: 1 });
+    }
     const shot = await page.screenshot({ type: "png", encoding: "base64", fullPage: false });
     const png = typeof shot === "string" ? shot : base64(shot);
     return { png, width: request.width, height: request.height, blocked };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hostPicture, MAX_HOSTED_BYTES, MEDIA_FOR_MS, pruneMedia, serveMedia, workerOrigin } from "./media";
+import { CARD_FOR_MS, hostPicture, MAX_HOSTED_BYTES, MEDIA_FOR_MS, pruneMedia, serveMedia, workerOrigin } from "./media";
 import { MemoryStorage } from "./memoryStorage.testing";
 
 const OBJECT = "a".repeat(64);
@@ -68,11 +68,27 @@ describe("hosted pictures", () => {
     await hostPicture(storage, "https://agent.example", OBJECT, picture, 1_000 + MEDIA_FOR_MS);
     await pruneMedia(storage, 1_000 + MEDIA_FOR_MS + 1);
     expect([...storage.data.keys()].filter((k) => k.startsWith("media:"))).toHaveLength(1);
-    expect(storage.alarms.at(-1)).toBe(1_000 + 2 * MEDIA_FOR_MS + 1 + 1_000);
+    // Wakes just after the one left expires.
+    expect(storage.alarms.at(-1)).toBe(1_000 + 2 * MEDIA_FOR_MS + 1_000);
     await storage.put("pending:000000000001", {});
     const before = storage.alarms.length;
     await pruneMedia(storage, 1_000 + MEDIA_FOR_MS + 2);
     expect(storage.alarms.length).toBe(before);
+  });
+
+  it("keeps a drawn card's picture for a week, so a tap long after still shows it, and prunes it after", async () => {
+    const storage = new MemoryStorage();
+    const card = await hostPicture(storage, "https://agent.example", OBJECT, picture, 1_000, CARD_FOR_MS);
+    const photo = await hostPicture(storage, "https://agent.example", OBJECT, picture, 1_000);
+    const later = 1_000 + 2 * 60 * 60 * 1000;
+    expect((await serveMedia(storage, card.slice(-68, -4), later)).status).toBe(200);
+    expect((await serveMedia(storage, photo.slice(-68, -4), later)).status).toBe(404);
+    await pruneMedia(storage, later);
+    expect([...storage.data.keys()].filter((k) => k.startsWith("media:"))).toHaveLength(1);
+    expect(storage.alarms.at(-1)).toBe(1_000 + CARD_FOR_MS + 1_000);
+    expect((await serveMedia(storage, card.slice(-68, -4), 1_000 + CARD_FOR_MS + 1)).status).toBe(404);
+    await pruneMedia(storage, 1_000 + CARD_FOR_MS + 1);
+    expect([...storage.data.keys()].filter((k) => k.startsWith("media"))).toEqual([]);
   });
 
   it("leaves a sooner alarm alone, such as an owed ready text", async () => {

@@ -23,14 +23,18 @@
  *  4. **Disconnect is an account action** and says so before the second press.
  *  5. **The owner gate survived the rewrite**: no `actions`, no controls at
  *     all, rather than controls that are disabled.
+ *  6. **A disconnected account never says Connected** (2026-10-30): its row
+ *     stays, its marks go neutral, and it offers Reconnect and nothing that
+ *     needs a grant it no longer has.
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ThemeProvider } from "../features/design/theme";
+import { serviceTone } from "../features/console/google/googleStatus";
 import {
   GoogleConnectionsCard,
   accountStatus,
@@ -53,6 +57,7 @@ const SYNCING: GoogleSyncSchedule = {
 
 const mockStartCalls: unknown[] = [];
 const mockNavigations: string[] = [];
+let mockAiAccess: Array<{ connectionId: string; address: string; aiAccess: string }> = [];
 
 jest.mock("convex/react", () => ({
   useAction: () => (args: unknown) => {
@@ -62,6 +67,7 @@ jest.mock("convex/react", () => ({
       completionSecret: "completion-secret",
     });
   },
+  useQuery: () => mockAiAccess,
 }));
 
 jest.mock("../features/console/google/leaveForGoogle", () => ({
@@ -194,11 +200,13 @@ describe("nothing is copied, so nothing is behind", () => {
     screen.unmount();
   });
 
-  test("the card says nothing is copied into notes", () => {
+  // The card's promise matches the privacy policy (#2427): Google content is
+  // read live and never copied in automatically, but what Tex says back, the
+  // quotes it uses and notes the person keeps do stay.
+  test("the card says nothing is copied in automatically, and what is kept", () => {
     const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
-    expect(screen.text()).toContain(
-      "Your AI reads mail, calendar and chat from Google when you ask. Nothing is copied into your notes.",
-    );
+    expect(screen.text()).toContain("Your AI reads mail, calendar and chat from Google when you ask, and during check-ins and routines you allow. Nothing is copied into your notes in bulk; Tex's replies, the quotes and sources they use, check-in records and any note you save stay until you delete them.");
+    expect(screen.text()).not.toContain("Nothing is copied into your notes.");
     expect(screen.text()).not.toContain("land in your inbox folder");
     screen.unmount();
   });
@@ -328,6 +336,56 @@ describe("reconnect is on the broken row", () => {
   });
 });
 
+describe("allowing AI access", () => {
+  /*
+    Once AI reads Google through its own client, an account the person
+    connected for themselves still needs that second yes before Tex or any AI
+    can read it (functions/googleClients.ts). The row says so and carries it.
+  */
+  afterEach(() => {
+    mockAiAccess = [];
+  });
+
+  test("an account AI cannot read yet says so, and its Allow goes to the agent consent for that account", async () => {
+    mockAiAccess = [{ connectionId: "google_1", address: "person@example.invalid", aiAccess: "needed" }];
+    mockStartCalls.length = 0;
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+    expect(screen.text()).toContain("Your AI can't read it until you allow it.");
+    await screen.click("allow-ai-google-google_1");
+    expect(mockStartCalls).toEqual([
+      { workspaceId: "ws_1", connectionId: "google_1", redirectUri: "https://context.lc/connect/google" },
+    ]);
+    screen.unmount();
+  });
+
+  test("before the switch, allowing AI access is offered in the menu, not as a problem on the row", async () => {
+    mockAiAccess = [{ connectionId: "google_1", address: "person@example.invalid", aiAccess: "available" }];
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+    expect(screen.text()).not.toContain("allow it");
+    await screen.click("google-account-google_1");
+    expect(document.querySelector('[data-testid="menu-allow-ai-google_1"]')).not.toBeNull();
+    screen.unmount();
+  });
+
+  test("disconnecting says Google ends Context's access to the account", async () => {
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+    await screen.click("google-account-google_1");
+    await screen.click("menu-disconnect-google_1");
+    expect(screen.text()).toContain("Google ends Context's access to this account, for you and your AI.");
+    screen.unmount();
+  });
+
+  test("an account AI already reads, or with no agent client, says nothing about it", () => {
+    for (const aiAccess of ["granted", "not_needed"]) {
+      mockAiAccess = [{ connectionId: "google_1", address: "person@example.invalid", aiAccess }];
+      const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+      expect(screen.text()).not.toContain("allow it");
+      expect(screen.container.querySelector('[data-testid^="allow-ai-google-"]')).toBeNull();
+      screen.unmount();
+    }
+  });
+});
+
 describe("disconnect is an account action", () => {
   test("it lives in the menu, and asks before it acts", async () => {
     disconnects.length = 0;
@@ -365,6 +423,75 @@ describe("disconnect is an account action", () => {
     await screen.click("menu-disconnect-google_1");
     const button = screen.container.querySelector('[data-testid="disconnect-google-google_1"]');
     expect(button?.getAttribute("aria-label")).toContain("stops Email, Calendar and Chat");
+    screen.unmount();
+  });
+});
+
+describe("a disconnected account says so", () => {
+  /*
+    The row is kept after Disconnect (the notes copied from it before are
+    still the owner's to find and delete), and the list reports it as
+    syncStatus "disconnected". It used to fall through to Connected with green
+    marks while Tex said no Gmail was connected.
+  */
+  const gone = () => connection({ syncStatus: "disconnected" });
+  afterEach(() => {
+    mockAiAccess = [];
+  });
+
+  test("its sentence says Disconnected, never Connected", () => {
+    expect(accountStatus(gone())).toEqual({ tone: "off", text: "Disconnected. Context and your AI no longer read this account." });
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [gone()], actions }));
+    expect(screen.text()).toContain("Disconnected. Context and your AI no longer read this account.");
+    expect(screen.text()).not.toMatch(/(?<!Dis)Connected/);
+    screen.unmount();
+  });
+
+  test("its marks are neutral and say disconnected in words", () => {
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [gone()], actions }));
+    const marks = screen.container.querySelector('[aria-label^="Email "]');
+    expect(marks?.getAttribute("aria-label")).toBe("Email disconnected, Calendar disconnected, Chat disconnected");
+    expect(screen.container.innerHTML).not.toContain("Email connected");
+    screen.unmount();
+    // Each dot's tone: muted for a disconnected account, whatever else the row once said.
+    for (const service of ["gmail", "calendar", "chat"] as const) {
+      expect(serviceTone(gone(), service)).toBe("neutral");
+      expect(serviceTone(connection({ syncStatus: "disconnected", readOnly: ["gmail"] }), service)).toBe("neutral");
+      expect(serviceTone(connection(), service)).toBe("ok");
+    }
+  });
+
+  test("it offers Reconnect for that address, and neither Allow AI access nor Disconnect", async () => {
+    mockAiAccess = [{ connectionId: "google_1", address: "person@example.invalid", aiAccess: "needed" }];
+    mockStartCalls.length = 0;
+    mockNavigations.length = 0;
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [gone()], actions }));
+    expect(screen.text()).not.toContain("allow it");
+    expect(screen.container.querySelector('[data-testid^="allow-ai-google-"]')).toBeNull();
+    await screen.click("google-account-google_1");
+    expect(document.querySelector('[data-testid="menu-reconnect-google_1"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="menu-allow-ai-google_1"]')).toBeNull();
+    expect(document.querySelector('[data-testid="menu-disconnect-google_1"]')).toBeNull();
+    screen.unmount();
+    const again = render(createElement(GoogleConnectionsCard, { connections: [gone()], actions }));
+    await again.click("reconnect-google-google_1");
+    await act(async () => {});
+    expect(mockStartCalls).toHaveLength(1);
+    expect(mockStartCalls[0]).toMatchObject({
+      workspaceId: "ws_1",
+      syncServices: { gmail: true, calendar: true, chat: true },
+      loginHint: "person@example.invalid",
+    });
+    again.unmount();
+  });
+
+  test("a live account beside it keeps its own Connected and Disconnect", async () => {
+    const live = connection({ connectionId: "google_2", email: "other@example.invalid" });
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [gone(), live], actions }));
+    expect(screen.text()).toContain("other@example.invalid");
+    expect(screen.text()).toMatch(/(?<!Dis)Connected/);
+    await screen.click("google-account-google_2");
+    expect(document.querySelector('[data-testid="menu-disconnect-google_2"]')).not.toBeNull();
     screen.unmount();
   });
 });

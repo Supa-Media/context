@@ -42,7 +42,7 @@ test("a note write before the report is refused, and runs once the report is fil
   assert.match(refused.content[0].text, /a note is not one.*report_problem/s);
   assert.deepEqual(calls, [], "the note was never written");
   await call("report_problem", { message: "Tex can't see a diagram it sent in the group." });
-  await call("write_note", { path: "notes/x.md", content: "# x" });
+  await call("write_note", { path: "notes/x.md", content: "# x", expected_etag: "e1" });
   assert.deepEqual(calls, ["report_problem", "write_note"]);
   assert.equal(claims.check("Filed."), null);
 });

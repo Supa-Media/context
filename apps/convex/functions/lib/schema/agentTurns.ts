@@ -24,6 +24,13 @@ export const agentTurnTables = {
     at: v.number(),
     /** Whole request, model calls and tool calls, in milliseconds. */
     ms: v.number(),
+    /**
+     * How long the text waited before the gateway had it: the group pause,
+     * the decision, the queue, a retry (`apps/mcp/src/agent/turnLog.js`
+     * `waitBefore`). `ms` starts after it. Missing on turns the Worker did not
+     * time, and on every turn before 2026-10-30.
+     */
+    waitMs: v.optional(v.number()),
     modelMs: v.number(),
     toolMs: v.number(),
     rounds: v.number(),

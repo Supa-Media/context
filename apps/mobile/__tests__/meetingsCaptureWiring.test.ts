@@ -2,6 +2,7 @@
  * @jest-environment jsdom
  */
 
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION } from "@context/shared";
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -13,7 +14,7 @@ import { fakeGateway } from "../features/meetings/fakeGateway";
 import { fakeRecorder } from "../features/meetings/capture/fake";
 import {
   resolveTranscriber,
-  setTranscriber,
+  setTranscriber, setTranscriptionConsent,
   setTranscriptionClient,
   type ActionRunner,
 } from "../features/meetings/capture/transcriber";
@@ -100,6 +101,18 @@ jest.mock("expo-router", () => {
   };
 });
 
+let mockConsentAnswer: unknown = { allowed: true, currentVersion: CLOUD_TRANSCRIPTION_CONSENT_VERSION, account: "user_one" };
+
+function mockIsConsentQuery(query: unknown): boolean {
+  try {
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    const { getFunctionName } = require("convex/server") as typeof import("convex/server");
+    return getFunctionName(query as never).endsWith("transcriptionConsent:myTranscriptionConsent");
+  } catch {
+    return false;
+  }
+}
+
 jest.mock("convex/react", () => {
   /* eslint-disable-next-line @typescript-eslint/no-require-imports */
   const actual = jest.requireActual("convex/react") as Record<string, unknown>;
@@ -107,7 +120,10 @@ jest.mock("convex/react", () => {
     ...actual,
     useConvex: () => mockClient,
     useConvexAuth: () => ({ isLoading: false, isAuthenticated: true }),
-    useQuery: () => undefined,
+    // Every query is still loading except the account's cloud transcription
+    // answer, which is a current yes: these tests are about where the client
+    // is installed, and without a yes there is no cloud transcriber at all.
+    useQuery: (query: unknown) => (mockIsConsentQuery(query) ? mockConsentAnswer : undefined),
     useQueries: () => ({}),
     useAction: () => async () => ({}),
     useMutation: () => async () => ({}),
@@ -115,6 +131,8 @@ jest.mock("convex/react", () => {
 });
 
 /* eslint-disable @typescript-eslint/no-require-imports */
+const { setWithdrawalStore } =
+  require("../features/meetings/transcriptionWithdrawal") as typeof import("../features/meetings/transcriptionWithdrawal");
 const AppLayout = require("../app/(app)/_layout.tsx").default as () => ReactElement;
 const MeetingsLayout = require("../app/(app)/meetings/_layout.tsx")
   .default as () => ReactElement;
@@ -138,13 +156,23 @@ function mount(node: ReactElement): { unmount: () => void } {
   };
 }
 
+/** The account's yes is used once this device has read it holds no unconfirmed Turn off. */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  });
+}
+
 beforeEach(() => {
+  setWithdrawalStore(memoryStore());
   setTranscriber(null);
+  setTranscriptionConsent(null);
   setTranscriptionClient(null);
 });
 
 afterEach(() => {
   setTranscriber(null);
+  setTranscriptionConsent(null);
   setTranscriptionClient(null);
 });
 
@@ -157,8 +185,9 @@ describe("the transcription client outlives the meetings section", () => {
    * a recording is visible from wherever somebody is, and a recording that is
    * visible from there has to be *working* from there.
    */
-  test("the layout that mounts the recording bar is the one that installs it", () => {
+  test("the layout that mounts the recording bar is the one that installs it", async () => {
     const app = mount(createElement(AppLayout));
+    await settle();
     expect(resolveTranscriber()).not.toBeNull();
     app.unmount();
   });
@@ -168,15 +197,31 @@ describe("the transcription client outlives the meetings section", () => {
    * `useMeetingsSetup` lives in the meetings navigator. Leave `/meetings/*`
    * mid-meeting and from the next chunk on `send()` had nowhere to go.
    */
-  test("leaving the meetings section does not switch transcription off", () => {
+  test("leaving the meetings section does not switch transcription off", async () => {
     const app = mount(createElement(AppLayout));
     const section = mount(createElement(MeetingsLayout));
+    await settle();
     expect(resolveTranscriber()).not.toBeNull();
 
     section.unmount();
 
     expect(resolveTranscriber()).not.toBeNull();
     app.unmount();
+  });
+
+  /**
+   * The account said no (or withdrew on another device): the client is still
+   * installed, but there is no cloud transcriber to hand a recorder.
+   */
+  test("an account without a yes gets no cloud transcriber", () => {
+    mockConsentAnswer = { allowed: false, currentVersion: CLOUD_TRANSCRIPTION_CONSENT_VERSION, account: "user_one" };
+    try {
+      const app = mount(createElement(AppLayout));
+      expect(resolveTranscriber()).toBeNull();
+      app.unmount();
+    } finally {
+      mockConsentAnswer = { allowed: true, currentVersion: CLOUD_TRANSCRIPTION_CONSENT_VERSION, account: "user_one" };
+    }
   });
 
   /** And leaving the whole signed-in area does forget it, as it must. */

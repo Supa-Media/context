@@ -327,6 +327,7 @@ describe("disconnect: revoke the WHOLE grant at Google, delete the token, keep t
 
     const minted = await t.action(internal.functions.googleConnect.mintGoogleAccessToken, {
       connectionId,
+      role: "standard",
     });
     expect(minted).toBeNull();
   });

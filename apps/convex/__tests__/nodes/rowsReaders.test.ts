@@ -31,6 +31,7 @@ import { recordActivity } from "../../functions/lib/activity";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { memoryStore } from "../storeStub.helpers";
 import { translateMirror } from "../seededRules.helpers";
+import { withSession } from "../session.helpers";
 
 const makeTest = () => convexTest(schema, modules);
 type T = ReturnType<typeof makeTest>;
@@ -110,8 +111,8 @@ async function fixture(): Promise<Fixture> {
     t,
     ws: ids.ws,
     ids: { owner: ids.owner, bob: ids.bob },
-    owner: t.withIdentity({ subject: ids.owner }),
-    bob: t.withIdentity({ subject: ids.bob }),
+    owner: withSession(t, ids.owner),
+    bob: withSession(t, ids.bob),
   };
 }
 

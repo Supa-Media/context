@@ -9,7 +9,7 @@
  * link, opened in place in Settings.
  */
 
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { ConvexError, v } from "convex/values";
 import { action, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";

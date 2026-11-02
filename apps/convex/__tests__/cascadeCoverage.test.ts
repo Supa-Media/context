@@ -272,6 +272,9 @@ describe("every sealed, workspace-scoped table is swept or explained", () => {
     // addition — and so this file cannot pass by finding nothing.
     expect(credentialBearingWorkspaceTables()).toEqual([
       "cloudflareProvisioning",
+      // The agent client's second consent (`googleClients.ts`), swept as a
+      // connect attempt like the one above.
+      "googleAgentAttempts",
       "googleConnectAttempts",
       "googleConnections",
       "managedStorageMigrations",

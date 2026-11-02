@@ -29,6 +29,7 @@ import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { allowanceFor, FRIEND_WAIT_MS, INVITE_TTL_MS, SENDS_PER_DAY } from "../functions/lib/referrals";
 import { isAdmitted, OPEN_SIGNUP_ENV_VAR } from "../functions/lib/waitlist";
 import { setupTest, type TestConvex } from "./fixtures.helpers";
+import { withSession } from "./session.helpers";
 
 const STAFF = "staff@context.invalid";
 const ENV_KEYS = [ADMIN_EMAILS_ENV_VAR, OPEN_SIGNUP_ENV_VAR, "RESEND_API_KEY"] as const;
@@ -83,7 +84,7 @@ async function setUpUser(t: TestConvex, email: string): Promise<Id<"users">> {
   return userId;
 }
 
-const as = (t: TestConvex, userId: Id<"users">) => t.withIdentity({ subject: userId });
+const as = (t: TestConvex, userId: Id<"users">) => withSession(t, userId);
 const admitted = (t: TestConvex, email: string, now = Date.now()) =>
   t.run(async (ctx) => isAdmitted(ctx.db, email, process.env, now));
 const invites = (t: TestConvex) => t.run(async (ctx) => ctx.db.query("referralInvites").collect());
@@ -96,6 +97,42 @@ describe("sending an invite", () => {
       /Finish setting up/,
     );
     expect((await as(t, fresh).query(api.functions.referrals.mine, {}))?.locked).toBe("setup");
+  });
+
+  test("the first stamp of an AI client's grant unlocks invites, and is remembered once", async () => {
+    const t = setupTest();
+    const fresh = await seedUser(t, "stamp@acme.test");
+    const grantId = await t.run(async (ctx) => {
+      const workspaceId = await ctx.db.insert("workspaces", {
+        slug: "stamp",
+        displayName: "Mine",
+        createdBy: fresh,
+        kind: "personal",
+        structureTemplate: "para",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      } as never);
+      await ctx.db.insert("workspaceMembers", { workspaceId, userId: fresh, role: "owner", joinedAt: Date.now() } as never);
+      const console = await ctx.db.insert("oauthGrants", {
+        workspaceId, userId: fresh, clientId: "context_console", scopes: [], hashedRefreshToken: "h-console",
+        status: "active", createdAt: Date.now(),
+      });
+      const claude = await ctx.db.insert("oauthGrants", {
+        workspaceId, userId: fresh, clientId: "claude", scopes: [], hashedRefreshToken: "h-claude",
+        status: "active", createdAt: Date.now(),
+      });
+      return { console, claude };
+    });
+    // The console's own grant is the person's hand, not an AI client.
+    await t.mutation(internal.functions.grants.touchGrant, { grantId: grantId.console });
+    expect((await as(t, fresh).query(api.functions.referrals.mine, {}))?.locked).toBe("setup");
+    await t.mutation(internal.functions.grants.touchGrant, { grantId: grantId.claude });
+    expect((await as(t, fresh).query(api.functions.referrals.mine, {}))?.locked).toBeNull();
+    const rows = await t.run(async (ctx) => ctx.db.query("agentUse").collect());
+    expect(rows.map((row) => row.userId)).toEqual([fresh]);
+    // The row alone answers it: the grant gone, invites stay unlocked.
+    await t.run(async (ctx) => ctx.db.delete(grantId.claude));
+    expect((await as(t, fresh).query(api.functions.referrals.mine, {}))?.locked).toBeNull();
   });
 
   test("an invite lets one address in, and uses one of three", async () => {

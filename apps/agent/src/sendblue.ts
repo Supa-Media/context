@@ -25,6 +25,7 @@ import { logShape, sendblueTapback } from "./sendblueTapbacks";
 
 /** The base address docs.sendblue.com names for every call. */
 import type { AppCard } from "./appCards";
+import { cardReply } from "./cardChats";
 
 export const SENDBLUE_API = "https://api.sendblue.com";
 
@@ -460,7 +461,9 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   }
   if (payload.is_outbound !== false) return { kind: "ignored", reason: "event_type" };
 
-  if ((typeof group === "string" && group !== "") || (payload.message_type !== undefined && payload.message_type !== "message")) {
+  // A card sent back may be typed as something other than a message; its card decides (`cardReply`).
+  const typed = payload.message_type === undefined || payload.message_type === "message" || isRecord(payload.app_card);
+  if ((typeof group === "string" && group !== "") || !typed) {
     return { kind: "ignored", reason: "group" };
   }
   const from = payload.from_number;
@@ -474,7 +477,10 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   const ours = line(payload);
   if (ours === undefined) return { kind: "invalid" };
 
-  const text = typeof payload.content === "string" ? payload.content.trim() : "";
+  // A card of ours sent back from their phone is their answer, in words (`cardChats.ts`); any other card is not a message.
+  const card = payload.app_card === undefined || payload.app_card === null ? undefined : cardReply(payload.app_card);
+  if (card === null) return { kind: "ignored", reason: "app_card" };
+  const text = card?.text ?? (typeof payload.content === "string" ? payload.content.trim() : "");
   // Tapback-shaped words no tapback could be read from: not a message either.
   if (TAPBACK.test(text) && !payload.media_url) return { kind: "ignored", reason: "reaction" };
   const attachments: InboundAttachment[] = [];
@@ -509,6 +515,7 @@ export function parseSendblueInbound(payload: unknown): Inbound {
     ...(attachments.length > 0 ? { attachments: attachments.slice(0, MAX_INBOUND_ATTACHMENTS) } : {}),
     ...(replyTo !== undefined ? { replyTo } : {}),
     ...(threadRoot !== undefined ? { threadRoot } : {}),
+    ...(card !== undefined ? { viaCard: card.ask !== undefined ? { ask: card.ask } : {} } : {}),
   };
 }
 

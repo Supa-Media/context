@@ -94,7 +94,8 @@ describe("search on a phone follows the folder you are in", () => {
     app.press(app.find("search-scope-everywhere"));
     type(app, "roadmaps");
     await settle();
-    expect(everywhereAsked.at(-1)).toEqual({ query: "roadmaps" });
+    // The words half is asked last; the meaning half went with it (the search tune-up).
+    expect(everywhereAsked.at(-1)).toEqual({ query: "roadmaps", half: "words" });
     expect(asked.slice(before).some((each) => each.query === "roadmaps")).toBe(false);
     app.unmount();
   });
@@ -122,7 +123,7 @@ describe("search on a phone follows the folder you are in", () => {
     const before = asked.length;
     type(app, "roadmap");
     await settle();
-    expect(everywhereAsked.at(-1)).toEqual({ query: "roadmap" });
+    expect(everywhereAsked.at(-1)).toEqual({ query: "roadmap", half: "words" });
     expect(asked.slice(before).some((each) => each.prefix === "1-projects/")).toBe(false);
     app.unmount();
   });

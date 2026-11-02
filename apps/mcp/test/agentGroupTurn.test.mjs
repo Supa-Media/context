@@ -1,7 +1,7 @@
 /**
  * Tex in a group chat (`src/agent/groupTurn.js`): a group turn reaches the
  * one shared workspace its grant names, writes notes as a person's own text does,
- * has none of the tagger's own tools, and remembers the chat by its people.
+ * has none of the tagger's own tools, and remembers the chat as one memory, shared with whoever is added.
  *
  * Sabotage these and a test here fails:
  *
@@ -9,8 +9,8 @@
  *     turn is offered note writes but none of the tagger's own tools".
  *  2. `groupWriteTools` narrowing a text's writes → "a group turn changes
  *     notes as a text does".
- *  3. `groupMemoryPath` filing by the chat alone → "somebody added to the
- *     chat starts a new memory".
+ *  3. `groupMemoryPath` filing by the people in the chat → "the chat
+ *     remembers as one: somebody added to the chat reads what came before them".
  *  4. The route reading `conversation` for a group → "a group turn never
  *     touches anyone's texts".
  *  5. The route or the memory dropping `chat` → "what the chat said before a
@@ -26,6 +26,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { fakeModel, PRIVACY_MANIFEST } from "./agentEgressFixtures.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-group.test";
 const TOKEN_GROUP = `cat_group_editor_${"0".repeat(22)}`;
@@ -106,7 +107,7 @@ beforeEach(async () => {
   team.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "t0" });
   own.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "p0" });
   team.set("1-projects/setlist.md", { body: "# Setlist\n\n- Opener\n", etag: "t1" });
-  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
   Object.assign(world, {
     model,
     controlPlane,
@@ -210,7 +211,7 @@ test("a group turn changes notes as a text does: edit by etag, make, move and ar
     },
     { text: "Done." },
   ]);
-  const { status, body } = await ask(TOKEN_GROUP, { question: "save friday's load-in, add a closer, and file friday under gigs", group: chat() });
+  const { status, body } = await ask(TOKEN_GROUP, { question: "save friday's load-in as a plain note, add a closer, and file friday under gigs", group: chat() });
   assert.equal(status, 200, JSON.stringify(body));
   const [changed, moved] = toolResults(world.model.requests[2]).slice(-2);
   assert.match(changed, /written: 1-projects\/setlist\.md/, changed);
@@ -226,9 +227,10 @@ test("the next tag knows which note the last one wrote, so it never disowns it (
     { text: "Saved it in 1-projects." },
     { text: "It's there." },
   ]);
-  await ask(TOKEN_GROUP, { question: "add a feature request for reading pictures", group: people });
+  await ask(TOKEN_GROUP, { question: "add a feature request for reading pictures as a plain note", group: people });
   await ask(TOKEN_GROUP, { question: "did you actually save it?", group: people });
-  const system = JSON.stringify(world.model.requests.at(-1).system);
+  // What the earlier answer used is said in the person's turn, after the system prompt (`turn.js`): the whole request is read.
+  const system = JSON.stringify(world.model.requests.at(-1));
   assert.match(system, /you used write_note\. Notes you wrote or changed: 1-projects\/image-reading\.md/, system);
   assert.match(system, /fetch it by that exact path/);
 });
@@ -238,37 +240,14 @@ const folderShares = () =>
     .filter((entry) => entry.path === "/gateway/privacy" && entry.body?.op === "setAccess" && entry.body?.kind === "folder")
     .map((entry) => `${entry.body.path}: ${entry.body.base}`);
 
-test("the chat's memory is a note in tex/groups/ that people can read and fix (the owner, 2026-10-23)", async () => {
+test("the chat's memory is kept with the chat, never as a note in tex/groups/ (the owner, 2026-11-01)", async () => {
   const people = chat({ members: "e".repeat(64) });
-  world.model.install([{ text: "Noted: the gig is Friday." }]);
+  world.model.install([{ text: "Noted: the gig is Friday." }, { text: "Friday." }]);
   await ask(TOKEN_GROUP, { question: "the gig is friday", group: people });
-  // Nobody had to make the folder: the first note shared tex/groups/ (never tex/) with the workspace.
-  assert.deepEqual(folderShares(), ["tex/groups: team"]);
-  const [path] = [...world.team.keys()].filter((key) => key.startsWith("tex/groups/chat-"));
-  assert.ok(path, "the chat's note was written");
-  const note = bodyAt(world.team, path);
-  assert.match(note, /# Tex's memory of this group chat/);
-  assert.match(note, /@ada: the gig is friday\n\n\*\*Tex:\*\* Noted: the gig is Friday\./);
-  assert.doesNotMatch(path, /e{12}|a{12}/, "named by a hash, never the chat's key");
-
-  // Somebody fixes it, here through the same writes the app's editor makes.
-  world.model.install([
-    { toolCalls: [{ name: "read_note", args: { path } }] },
-    (request) => {
-      const read = toolResults(request).at(-1);
-      const etag = /etag: (\S+)/.exec(read)?.[1];
-      const body = read.slice(read.indexOf("\n\n") + 2).replace("the gig is friday", "the gig is saturday").replace("the gig is Friday", "the gig is Saturday");
-      return { toolCalls: [{ name: "write_note", args: { path, content: body, expected_etag: etag } }] };
-    },
-    { text: "Fixed." },
-    { text: "Saturday, like the note says." },
-  ]);
-  await ask(TOKEN_GROUP, { question: "fix your memory: it's saturday", group: chat({ members: "9".repeat(64) }) });
-  await ask(TOKEN_GROUP, { question: "when's the gig?", group: people });
-  const remembered = JSON.stringify(world.model.requests.at(-1).messages);
-  assert.match(remembered, /the gig is saturday/);
-  assert.doesNotMatch(remembered, /the gig is friday/, "the fix is what Tex goes by");
-  assert.match(bodyAt(world.team, path), /the gig is saturday[\s\S]*Saturday, like the note says\./, "and the next exchange is added to the fixed note");
+  assert.deepEqual(folderShares(), [], "no folder is shared for it");
+  assert.deepEqual(live(world.team, "tex/groups/"), [], "no note in the workspace");
+  await ask(TOKEN_GROUP, { question: "when's the gig?", group: chat({ members: "9".repeat(64) }) });
+  assert.match(JSON.stringify(world.model.requests.at(-1).messages), /the gig is friday/, "the next turn remembers it");
 });
 
 test("a tagger who can't write still has the chat's memory, and an untouched note never hides it", async () => {
@@ -293,18 +272,6 @@ test("a tex/ folder someone made private is never shared for the chat's note, an
   assert.deepEqual(folderShares(), [], "the owner's private tex/ is left as they set it");
   assert.deepEqual([...world.team.keys()].filter((key) => key.startsWith("tex/groups/")), []);
   assert.match(JSON.stringify(world.model.requests.at(-1).messages), /the gig is friday/, "kept in the hidden file instead");
-});
-
-test("a member who can't write never shares tex/groups/", async () => {
-  const people = chat({ members: "b".repeat(64), from: "bo" });
-  world.model.install([{ text: "Noted." }, { text: "6." }]);
-  await ask(TOKEN_GROUP_READER, { question: "load-in is at 6", group: people });
-  assert.deepEqual([...world.team.keys()].filter((key) => key.startsWith("tex/groups/")), []);
-  const tried = folderShares().length;
-  // The control plane refused the read-only grant, so the folder was still unset when an editor came.
-  await ask(TOKEN_GROUP, { question: "when's load-in?", group: chat({ members: "b".repeat(64) }) });
-  assert.equal(folderShares().length, tried + 1, "the editor found tex/groups/ unshared and shared it");
-  assert.equal([...world.team.keys()].filter((key) => key.startsWith("tex/groups/")).length, 1);
 });
 
 test("a stale etag changes nothing, and routines and hidden paths are refused in a group", async () => {
@@ -339,18 +306,19 @@ test("a member's read-only chat grant writes nothing", async () => {
   assert.equal(bodyAt(world.team, "1-projects/new.md"), undefined);
 });
 
-test("the chat remembers by its people: somebody added to the chat starts a new memory", async () => {
-  world.model.install([{ text: "Noted: Friday." }, { text: "Friday, like you said." }, { text: "What gig?" }]);
+test("the chat remembers as one: somebody added to the chat reads what came before them (the owner, 2026-10-31)", async () => {
+  world.model.install([{ text: "Noted: Friday." }, { text: "Friday, like you said." }, { text: "Friday at 6." }]);
   await ask(TOKEN_GROUP, { question: "the gig is friday", group: chat() });
   await ask(TOKEN_GROUP, { question: "when's the gig?", group: chat() });
   const remembered = JSON.stringify(world.model.requests[1].messages);
   assert.match(remembered, /@ada: the gig is friday/);
   assert.match(remembered, /Noted: Friday\./);
   await ask(TOKEN_GROUP, { question: "when's the gig?", group: chat({ members: "c".repeat(64) }) });
-  assert.doesNotMatch(JSON.stringify(world.model.requests[2].messages), /the gig is friday/, "a newcomer is never replayed the chat before them");
+  assert.match(JSON.stringify(world.model.requests[2].messages), /the gig is friday/, "a newcomer reads the chat's earlier memory");
   const files = live(world.team, GROUP_MEMORY_PREFIX);
-  assert.equal(files.length, 2);
+  assert.equal(files.length, 1, "one record per chat");
   for (const file of files) assert.doesNotMatch(file, /a{64}|b{64}|c{64}/, "the file name is a hash of the chat, not its key");
+  assert.equal(live(world.team, "tex/groups/").length, 0, "and no note in the workspace");
 });
 
 test("what the chat said before a tag reaches the turn and is kept", async () => {
@@ -423,22 +391,39 @@ test("a note read in a group comes back with its app link, which everyone in the
   }
 });
 
-test("a streamed group turn texts its progress to the chat, as a text does (2026-10-23)", async () => {
-  world.model.install([{ toolCalls: [{ name: "send", args: { action: "progress", args: { text: "Reading the page now." } } }] }, { text: "Done." }]);
+async function streamed(body) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/agent", {
       method: "POST",
       headers: { Authorization: `Bearer ${TOKEN_GROUP}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
-      body: JSON.stringify({ question: "Tex research this link", group: chat() }),
+      body: JSON.stringify(body),
     }),
     world.env,
     ctx,
   );
   const lines = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
   await settle();
-  assert.deepEqual(lines.filter((line) => line.progress).map((line) => line.progress), ["Reading the page now."]);
-  assert.equal(lines.at(-1).body?.answer ?? lines.at(-1).answer, "Done.", JSON.stringify(lines.at(-1)));
+  return { progress: lines.filter((line) => line.progress).map((line) => line.progress), answer: lines.at(-1).body?.answer ?? lines.at(-1).answer, last: lines.at(-1) };
+}
+
+test("a streamed group turn texts its progress to the chat, as a text does (2026-10-23), and its answer stands on its own (2026-11-01)", async () => {
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "progress", args: { text: "Reading the page now." } } }] }, { text: "Reading the page now.\n\nDone." }]);
+  const { progress, answer, last } = await streamed({ question: "Tex research this link", group: chat() });
+  assert.deepEqual(progress, ["Reading the page now."]);
+  assert.equal(answer, "Reading the page now.\n\nDone.", JSON.stringify(last));
+  assert.match(JSON.stringify(world.model.requests[0]), /send with action progress/);
+});
+
+test("a chat set to one bubble, and a job's report, get no progress lines, though each is streamed (Dev2, 2026-11-01)", async () => {
+  const report = { title: "Venue research", state: "done", texts: ["Nopa has a room for 20."] };
+  for (const extra of [{ texStyle: { bubbles: "one" } }, { event: "job_report", jobReport: report }]) {
+    world.model.install([{ toolCalls: [{ name: "send", args: { action: "progress", args: { text: "Reading the page now." } } }] }, { text: "Done." }]);
+    const { progress, answer } = await streamed({ question: "Tex research this link", group: chat(), ...extra });
+    assert.deepEqual(progress, [], JSON.stringify(extra));
+    assert.equal(answer, "Done.");
+    assert.doesNotMatch(JSON.stringify(world.model.requests[0]), /send with action progress/, "never told it may send one");
+  }
 });
 
 /*
@@ -448,36 +433,6 @@ test("a streamed group turn texts its progress to the chat, as a text does (2026
   bytes live at `notes/<noteId>.md` with its folder in a row, so it found
   nothing however much was in the folder. It reads the tree instead.
 */
-test("a note already filed in tex/groups/ stops Tex sharing the folder", async () => {
-  const { shareGroupNotesFolder } = await import("../src/agent/groupMemoryNote.js");
-  const { PRE_PARSED_RULES, PrivacyOverrides } = await import("../src/privacy/engine.js");
-  const held = { rules: [], overrides: new PrivacyOverrides() };
-  const holding = (paths) => {
-    const shared = [];
-    return {
-      shared,
-      get: async () => ({ etag: "e1", [PRE_PARSED_RULES]: held }),
-      // The bucket keys a note by its id, so no key carries the folder's path.
-      list: async () => ({ objects: [] }),
-      treeManifest: async () => ({ served: true, cursor: null, entries: paths.map((path) => ({ path })) }),
-      rowAccess: { setTier: async (path, tier) => (shared.push(`${path}: ${tier}`), { ok: true }) },
-    };
-  };
-
-  const empty = holding([]);
-  assert.equal(await shareGroupNotesFolder(empty), true, "an empty folder is Tex's to share");
-  assert.deepEqual(empty.shared, ["tex/groups: team"]);
-
-  const filed = holding(["tex/groups/what ada wrote.md"]);
-  assert.equal(await shareGroupNotesFolder(filed), false);
-  assert.deepEqual(filed.shared, [], "somebody's own note in the folder is never widened to the workspace");
-
-  const unreachable = holding([]);
-  delete unreachable.treeManifest;
-  assert.equal(await shareGroupNotesFolder(unreachable), false, "a tree that cannot answer shares nothing");
-  assert.deepEqual(unreachable.shared, []);
-});
-
 // Tex Devs, 2026-10-26: "redo the diagram" got "the only graphic I made was the Reason Network one".
 // The chat's memory kept the words and never the card, so the next turn could not see it.
 test("a card sent in a group is kept in the chat's memory with what it showed", async () => {

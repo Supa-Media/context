@@ -206,6 +206,7 @@ function normalizePerson(person) {
   if (typeof person.email === "string" && person.email) out.email = person.email;
   if (person.organizer === true) out.organizer = true;
   if (person.self === true) out.self = true;
+  if (person.resource === true) out.resource = true;
   if (typeof person.responseStatus === "string") out.responseStatus = person.responseStatus;
   return out;
 }

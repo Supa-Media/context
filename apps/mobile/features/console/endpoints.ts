@@ -62,6 +62,8 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "tex",
   // The Mac app's Messages backup, `/messages/imessage/batch` on the gateway.
   "messages",
+  // What a card in Messages shows, `/cards/inbox` and `/cards/week` on the gateway.
+  "cards",
 ]);
 
 /**

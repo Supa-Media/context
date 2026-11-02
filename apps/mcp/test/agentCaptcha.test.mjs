@@ -55,7 +55,7 @@ function captchaComputer(captchas) {
       return {
         session: "bb-captcha",
         ran: steps.map((step) => ({ do: step.do, ok: true })),
-        page: { url: PAGE, title: "Checkout", text: "", truncated: false, elements: [] },
+        page: { url: PAGE, title: "Checkout", text: "", truncated: false, elements: [{ ref: 1, kind: "input password", label: "Password" }] },
         ...(captcha ? { captcha } : {}),
         ...(options.handoff ? { handoffUrl: "https://context.lc/tex/maya" } : {}),
       };

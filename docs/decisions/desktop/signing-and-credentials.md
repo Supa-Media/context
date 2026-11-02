@@ -228,6 +228,25 @@ This is [app-and-console](../app-and-console.md)'s *the UI must never claim a
 write it has not seen acknowledged*, on the surface where somebody is most
 likely to shut the laptop before the drain.
 
+**A finalize the shell holds past the limit is filed by the window**
+(2026-10-28, after the owner's last two meetings of 2026-10-27 sat "queued on
+this machine" for hours while their transcription worked throughout). The
+shell answers a finalize in seconds when its queue can send; one it still holds
+`FINALIZE_TIMEOUT_MS` after the meeting ended is one its queue cannot send, for
+a reason the page cannot see, and before this nothing would ever save it. So
+past that limit `desktopGateway.finalize` files the meeting through the page's
+own writer (`convexGateway.ts`, how every browser saves a meeting): create-only,
+at the path the gateway composes. This is a deliberate handover after a
+timeout, not the race the first rule above refuses — the shell is asked first
+on every attempt, and while it can send it is the one that files. The two ways
+out land on one note: the gateway's later finalize claims a name already held
+by a note carrying this meeting's own `meeting-id` instead of suffixing around
+it (`unclaimedNotePath`). A window that cannot file it either keeps it held,
+with its reason beside the queued sentence. A held meeting is asked about again
+every minute, since nothing about it changes on its own. The tests:
+`systemAudioAndWriter.test.ts` (*a meeting the machine never sends is saved*)
+and `meetingClaimTree.test.mjs` (*this meeting's own note is claimed again*).
+
 **The destination travels as a name, and an unroutable one is refused rather
 than dropped.** The gateway routes on an optional `@name` at the front of the
 path, and the shell is the process that builds the URL — so the page hands over

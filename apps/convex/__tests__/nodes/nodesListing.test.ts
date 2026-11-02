@@ -26,6 +26,7 @@ import { folderRowsStore, NODE_LISTING_ROWS } from "../../functions/lib/nodes/li
 import { listFolder } from "../../functions/lib/fileOps/listing";
 import { clearanceOf } from "../../functions/lib/clearance";
 import { translateMirror } from "../seededRules.helpers";
+import { withSession } from "../session.helpers";
 
 type T = ReturnType<typeof convexTest>;
 
@@ -75,9 +76,9 @@ async function fixture(): Promise<Fixture> {
   return {
     t,
     ws: ids.ws,
-    owner: t.withIdentity({ subject: ids.ownerId }),
-    member: t.withIdentity({ subject: ids.memberId }),
-    stranger: t.withIdentity({ subject: ids.strangerId }),
+    owner: withSession(t, ids.ownerId),
+    member: withSession(t, ids.memberId),
+    stranger: withSession(t, ids.strangerId),
   };
 }
 

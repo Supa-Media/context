@@ -30,6 +30,7 @@ import {
   createS3Backend,
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-refwrite.test";
 const TOKEN_OWNER = `cat_refwrite_own_${"0".repeat(23)}`;
@@ -113,7 +114,7 @@ export async function runReferenceRewriteAuditChecks(check) {
   });
 
   const bucket = s3.bucketFor("ref-rewrite");
-  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
   controlPlane.serveTreesFrom(env, { s3 });
 
   // Count the announcements the way the resolver's freshness depends on them:

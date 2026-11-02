@@ -14,7 +14,6 @@ import { googleTime, guestNames, hasGuests, instant } from "../calendarWrite";
 import { answeredAttendees, editedAttendees, googleReminders, onlyOwnFields } from "../calendarEdit";
 
 export const EVENTS_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
-const CALENDAR_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars/primary";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Whether the change reaches more than the person's own copy of the event. */
@@ -78,11 +77,14 @@ async function getJson(fetchImpl: Fetch, url: string, accessToken: string): Prom
 /**
  * The request that makes an edit, a move, a cancel or an RSVP of the event
  * found, or null when Google did not answer what it needs to know first.
+ * `calendarZone` is the calendar's time zone as the events listing that found
+ * the event named it: reading the calendar itself (calendars.get) needs a
+ * scope a connection does not grant.
  */
 export async function existingEventRequest(
   change: CalendarChange,
   event: GoogleEvent,
-  { accessToken, fetchImpl = fetch }: { accessToken: string; fetchImpl?: Fetch },
+  { accessToken, calendarZone, fetchImpl = fetch }: { accessToken: string; calendarZone?: string; fetchImpl?: Fetch },
 ): Promise<Request | null> {
   const quiet = change.notifyGuests ? "sendUpdates=all" : "sendUpdates=none";
   const edit = change.action === "edit" ? change.edit! : null;
@@ -137,8 +139,7 @@ export async function existingEventRequest(
       body.recurrence = edit.recurrence;
       if (!series && typeof event.start?.dateTime === "string") {
         // Google repeats a timed event only in a named time zone.
-        const zone =
-          typeof event.start.timeZone === "string" ? event.start.timeZone : ((await getJson(fetchImpl, CALENDAR_ENDPOINT, accessToken))?.timeZone as string | undefined);
+        const zone = typeof event.start.timeZone === "string" ? event.start.timeZone : calendarZone;
         if (typeof zone !== "string") return null;
         const start = (body.start as Record<string, unknown> | undefined) ?? { dateTime: event.start.dateTime };
         const end = (body.end as Record<string, unknown> | undefined) ?? { dateTime: event.end?.dateTime };

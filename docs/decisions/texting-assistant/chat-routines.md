@@ -21,7 +21,7 @@ of the owner's defaults on 2026-10-27.
   a guest chat sets none, nor does an invited person with no account, whose
   turn runs on the binder's grant.
 - **When it is due, the control plane asks again** (`functions/lib/routines/chats.ts`):
-  the chat must be bound to the routine's own workspace now, not muted, not in
+  the chat must reach the routine's own workspace now, not muted, not in
   guest mode, and its writer must still write there and have a phone. Else
   the slot passes with `no_chat`. The run names the chat's key and the
   writer's phone, and carries **no grant**.
@@ -44,3 +44,35 @@ membership check, so somebody who joined the chat could be told what the
 workspace's members wrote. `apps/convex/__tests__/routinesChat.test.ts`,
 `apps/agent/src/groupRoutines.test.ts` and
 `apps/mcp/test/agentGroupRoutines.test.mjs` fail if any is reversed.
+
+## In the chat's home (decided by the owner, 2026-11-02)
+
+"We have to be able to see it in order to ... see what routines or reminders
+it's doing." A chat with a home keeps its routines in it:
+`tex/groups/<words>/routines/<how-often>/<name>.md` in `@context-lc`, the
+same shape as a person's `tex/routines/`. The seal hides a home from every
+role in the pin, its owners included, so the scan reads a home's routine rows
+and front matter straight from the tree, times and nothing else
+(`apps/convex/functions/lib/routines/homes.ts`). Three things differ from a
+routine in a bound workspace:
+
+- The chat is the home's (`textGroups.homeWords`), whatever a `chat:` line
+  says, so none is needed.
+- The writer must be one of the home's people (`homeUsers`), never a role in
+  the pin. The home's door reports a write there only for paths inside its own
+  home (`apps/mcp/src/agent/chatHomeSeal.js`), and the control plane keeps the
+  writer only if they are in the chat at that moment.
+- A home's notes never leave it, so asking to stop one sets `paused: yes`
+  instead of archiving it.
+
+The run is still a chat routine's: it runs as its writer's tag, with no grant
+of its own. It passes with `no_chat` when the chat is muted or a guest chat,
+or when its writer has left. A routine already in a bound workspace, tagged
+`chat:`, keeps running where it is.
+
+**What a simplification would cost:** taking the writer from a pin role would
+let nobody's routine run, because no chat person has one, or would let a pin
+owner's run. Trusting a note's `chat:` would let one home answer into another
+chat. `apps/convex/__tests__/homeRoutines.test.ts`,
+`apps/mcp/test/homeRoutines.test.mjs` and `apps/agent/src/groupRoutines.test.ts`
+fail if any of these is reversed.

@@ -7,6 +7,7 @@
  * fetched or stored for a write that was going to be refused.
  */
 import { check, call, contextStore } from "./harness.mjs";
+import { PAGE_SKILL_STAMP } from "../src/pageSkill.js";
 
 // A real PNG signature followed by bytes that are not valid UTF-8, so a
 // pipeline that turned the bytes into text would fail the round trip.
@@ -172,6 +173,33 @@ export async function runUploadedImageChecks() {
   check(
     "a picture the code already names is not also appended as a Markdown embed",
     !layoutBody?.includes("![[")
+  );
+
+  // -- a page names its pictures in fields: photo:, photos:, cover:, map:
+  const pageWrite = await call("priv-token", "write_note", {
+    path: "1-projects/portable/venues.page.md",
+    content: [
+      "---",
+      `skill: ${PAGE_SKILL_STAMP}`,
+      "cover: logo.png",
+      "---",
+      "# Venues",
+      "",
+      "```places Rooms",
+      "- The Stand: 116 E 16th St",
+      "  photos: ./logo.png, other.png",
+      "```",
+      "",
+    ].join("\n"),
+    images: [{ name: "logo.png", data: PNG_B64 }],
+  });
+  const pageBody = await noteText("1-projects/portable/venues.page.md");
+  check(
+    "a page's photo fields naming an attached picture point at the stored copy, and nothing is appended",
+    !pageWrite.isError &&
+      pageBody?.includes(`cover: ${leaf}\n`) &&
+      pageBody?.includes(`  photos: ${leaf}, other.png\n`) &&
+      !pageBody?.includes("![[")
   );
 
   // -- the type comes from the bytes

@@ -18,7 +18,11 @@ import { PhoneCheckScreen } from "../auth/PhoneCheckScreen";
 import { PaletteFilterFixture } from "./PaletteFilterFixture";
 import { PaletteResultsFixture } from "./PaletteResultsFixture";
 import { MeetingCardFixture } from "./MeetingCardFixture";
+import { MeetingJoinFixture } from "./MeetingJoinFixture";
+import { TranscriptionConsentFixture } from "./TranscriptionConsentFixture";
 import { MoveNoticeFixture } from "./MoveNoticeFixture";
+import { SetupDoneFixture } from "./SetupDoneFixture";
+import { TexPageFixture } from "./TexPageFixture";
 
 /**
  * Which fixture `/e2e-fixture` is showing, decided off the query.
@@ -40,6 +44,8 @@ export interface FixtureParams {
    */
   note?: string | string[];
   user?: string | string[];
+  /** `screen=phone-check`: `1` draws the step for an account that may skip it. */
+  skip?: string | string[];
   /** `screen=projects`: `member` draws the page for somebody who may only read. */
   role?: string | string[];
   /** `screen=shared-link`: `no` draws a link addressed to a person rather than open to anyone. */
@@ -72,6 +78,10 @@ export interface FixtureParams {
   available?: string | string[];
   /** `screen=resume`: which Resume surface to draw. See `ResumeFixture`. */
   surface?: string | string[];
+  /** `screen=tex-page`: which chat, sub-page or job it opens on. */
+  chat?: string | string[];
+  view?: string | string[];
+  job?: string | string[];
 }
 
 /** Expo hands a repeated query parameter back as an array. */
@@ -95,13 +105,22 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "mail") return <MailFixture />;
   // The notice band's lines for a move into another workspace. See its own header.
   if (first(params.screen) === "move-notice") return <MoveNoticeFixture at={first(params.at)} />;
+  if (first(params.screen) === "meeting-join") return <MeetingJoinFixture view={first(params.at)} />;
+  if (first(params.screen) === "transcription-consent") return <TranscriptionConsentFixture view={first(params.at)} />;
   if (first(params.screen) === "meeting-card") return <MeetingCardFixture warn={first(params.warn)} at={first(params.at)} />;
   if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} site={first(params.site)} />;
   // The live map open over Browse, on invented data. See its own header.
   if (first(params.screen) === "live-map") return <LiveMapFixture />;
+  if (first(params.screen) === "setup-done") return <SetupDoneFixture />;
+  if (first(params.screen) === "tex-page") return <TexPageFixture params={params as Record<string, string | string[] | undefined>} />;
   // The phone check; `at=code` opens on the code step. Nothing is sent until a button is pressed.
   if (first(params.screen) === "phone-check") {
-    return <PhoneCheckScreen initialSentTo={first(params.at) === "code" ? "+15555550100" : undefined} />;
+    return (
+      <PhoneCheckScreen
+        initialSentTo={first(params.at) === "code" ? "+15555550100" : undefined}
+        canSkip={first(params.skip) === "1"}
+      />
+    );
   }
   // ⌘K's in: filter and workspace chips, on invented workspaces. See its own header.
   if (first(params.screen) === "palette-filters") return <PaletteFilterFixture />;

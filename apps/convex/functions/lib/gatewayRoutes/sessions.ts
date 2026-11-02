@@ -32,19 +32,35 @@ export async function gatewaySessionHandler(
   const accessToken = stringField(body, "accessToken");
   if (accessToken === null) return json({ session: null });
 
-  const session = await ctx.runQuery(
-    internal.functions.controlPlane.resolveGrantByAccessToken,
+  const { session, touchDue } = await ctx.runQuery(
+    internal.functions.controlPlane.resolveGatewaySession,
     { hashedAccessToken: await hashToken(accessToken) },
   );
   if (session === null) return json({ session: null });
 
-  try {
-    await ctx.runMutation(internal.functions.grants.touchGrant, {
-      grantId: session.grantId,
-    });
-  } catch {
-    // Deliberately swallowed. A failed bookkeeping write must not log someone
-    // out of their AI client.
+  // Only when a stamp is due (at most every five minutes per grant): the
+  // mutation wrote nothing on every other request and still cost a round trip.
+  if (touchDue) {
+    try {
+      await ctx.runMutation(internal.functions.grants.touchGrant, {
+        grantId: session.grantId,
+      });
+    } catch {
+      // Deliberately swallowed. A failed bookkeeping write must not log someone
+      // out of their AI client.
+    }
+  }
+  // The token came in the URL (`/t/<token>/...`): counted, so the URL form
+  // can be retired once nobody depends on it (`functions/tokenTransport.ts`).
+  if (body.transport === "path") {
+    try {
+      await ctx.runMutation(internal.functions.tokenTransport.notePathToken, {
+        grantId: session.grantId,
+        route: typeof body.route === "string" ? body.route.slice(0, 32) : "other",
+      });
+    } catch {
+      // Bookkeeping, as above.
+    }
   }
 
   return json({
@@ -71,6 +87,8 @@ export async function gatewaySessionHandler(
       // one. Reach, not permission: the role on each entry is what the gateway
       // clamps that context's scopes and visibility tier to.
       workspaces: session.workspaces,
+      // A group chat's own key, on its turn's grant only (`liveGrants.ts` `texChatIdOf`): the chat whose Tex notes it reaches.
+      ...(session.texChatId === undefined ? {} : { texChatId: session.texChatId }),
     },
   });
 }

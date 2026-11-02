@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { query } from "../_generated/server";
 import { soleOwnerOf } from "./lib/account/soleOwner";
 import { managedBucketName } from "./lib/managedStorage";

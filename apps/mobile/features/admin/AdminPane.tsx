@@ -70,6 +70,7 @@ import { FeaturesSection } from "./FeaturesSection";
 import { DEFAULT_WINDOW, unsetKnownSecrets, type AdminTab } from "./report";
 import { SearchSection } from "./SearchSection";
 import { SecretsSection } from "./SecretsSection";
+import { StaffFactorGate } from "./StaffFactorGate";
 import { UsageSection } from "./UsageSection";
 import { DEFAULT_PLACE, searchView, type AdminPlace } from "./place";
 import type { AdminPlaceControl } from "./useAdminPlace";
@@ -85,13 +86,25 @@ export type AdminPaneProps = Partial<AdminPlaceControl>;
 
 export function AdminPane(props: AdminPaneProps = {}) {
   const isAdmin = useQuery(api.functions.admin.amIAdmin, {});
+  // The second factor (`StaffFactorGate`): only staff are told anything by it.
+  const factor = useQuery(api.functions.staffSecondFactor.myStaffFactor, {});
 
   // Undefined until the first round trip lands, which is not the same as
   // `false`. See the header for why this names nothing.
   if (isAdmin === undefined) return <AuthPending />;
-  if (!isAdmin) return <DeadLinkScreen />;
+  if (!isAdmin) {
+    if (factor?.staff === true && factor.standing !== "open") {
+      return (
+        <AdminChrome>
+          <StaffFactorGate factor={factor} />
+        </AdminChrome>
+      );
+    }
+    return <DeadLinkScreen />;
+  }
   return (
     <AdminChrome wide={props.place?.tab === "ai"}>
+      {factor?.staff === true && !factor.enrolled ? <StaffFactorGate factor={factor} offer /> : null}
       <Console {...props} />
     </AdminChrome>
   );

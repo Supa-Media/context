@@ -24,6 +24,7 @@ import { ProviderConnectionsCard } from "./panels/ProviderConnectionsCard";
 import { PhoneCard } from "./panels/PhoneCard";
 import { AppearancePicker } from "./panels/AppearancePicker";
 import { SpellingSettings } from "./panels/SpellingSettings";
+import { TexSettings } from "./panels/TexSettings";
 import { YourPicture } from "./panels/YourPicture";
 import { MessagesPanel } from "./panels/MessagesPanel";
 import { FeedbackSettings } from "../../feedback/FeedbackSettings";
@@ -74,6 +75,7 @@ export function AccountSection({
 
   if (section === "feedback") return <FeedbackSettings />;
   if (section === "spelling") return <SpellingSettings />;
+  if (section === "tex") return <TexSettings />;
   if (section === "messages") return <MessagesPanel owned={owned} workspaceId={personal?.id ?? null} />;
 
   if (section === "texApps") {
@@ -209,6 +211,15 @@ export function AccountSection({
               onPress={() => onSelect("spelling")}
               testID="profile-spelling-choose"
             />
+          )}
+        </Row>
+        {/* How Tex talks to them in their own chat, a page of its own (Dev2, 2026-10-28). */}
+        <Row divided>
+          <Grow>
+            <Text variant="rowTitle">Tex</Text>
+          </Grow>
+          {onSelect === undefined ? null : (
+            <TextLink label="Choose" accessibilityLabel="Choose how Tex talks to you" onPress={() => onSelect("tex")} testID="profile-tex-choose" />
           )}
         </Row>
         {/* Feedback is a page of its own, reached from this row. */}

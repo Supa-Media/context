@@ -21,6 +21,7 @@ import {
   workerReturning,
   configureWorker,
   transcribe,
+  createConsentingUser,
 } from "./fixtures.helpers";
 
 describe("who the worker is told is asking", () => {
@@ -42,7 +43,7 @@ describe("who the worker is told is asking", () => {
 
   /** One chunk from a named user, returning what the worker was sent. */
   async function transcribeAs(t: TestConvex, email: string) {
-    const userId = await createUser(t, email);
+    const userId = await createConsentingUser(t, email);
     const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
     await asUser(t, userId).action(api.functions.meetings.transcribe.transcribeChunk, CHUNK);
     return { userId: String(userId), requests };
@@ -106,7 +107,7 @@ describe("who the worker is told is asking", () => {
   test("is the same for the same account on every call", async () => {
     const t = setupTest();
     configureWorker();
-    const userId = await createUser(t, "steady@example.invalid");
+    const userId = await createConsentingUser(t, "steady@example.invalid");
     const caller = await asUser(t, userId);
     const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
 
@@ -148,7 +149,7 @@ describe("who the worker is told is asking", () => {
    */
   test("is keyed by the worker secret, so it is not derivable without it", async () => {
     const t = setupTest();
-    const userId = await createUser(t, "keyed@example.invalid");
+    const userId = await createConsentingUser(t, "keyed@example.invalid");
     const caller = await asUser(t, userId);
 
     vi.stubEnv("TRANSCRIBE_WORKER_URL", WORKER_URL);

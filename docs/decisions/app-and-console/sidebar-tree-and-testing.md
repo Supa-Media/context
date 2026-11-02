@@ -109,6 +109,23 @@ open — the action does not resolve until the test lets it — and asserts on w
 is on screen while it is in flight, because a version that awaited the operation
 first would pass against the code this replaced.
 
+## The tree's visibility word is a label, not a button (2026-10-28)
+
+The `team` or `private` word at the end of a sidebar row marks a note (or
+folder) whose visibility differs from the folder it sits in. It used to flip
+that row between `private` and `team` on one click. Dev2 clicked it to find out
+what it meant: the note went private without a word, and the label vanished,
+because the note now matched its folder and the tree draws nothing for that.
+One unexplained click changed who could read a note and removed the only sign
+it had been shared.
+
+The word is now plain text. Hovering it says what it means ("… is shared with
+the team, unlike its folder. Change it from the note's menu."); visibility is
+changed from the row's menu or the share dialog, which spell the choice out.
+Bringing the press back, for an owner or anyone, costs exactly that click.
+`treeVisibilityMarker.test.ts` renders the tree as an owner and fails if the
+word is focusable, pressable or missing its hover sentence.
+
 ## What the sidebar can do to a folder, the listing can do to it too
 
 The tree and the folder page are one listing shown twice, which this document

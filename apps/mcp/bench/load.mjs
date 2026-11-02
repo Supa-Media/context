@@ -79,6 +79,8 @@ function readQuestion(sec) {
     kind: null,
     gate: false,
     personStarts: null,
+    // A picture sent with the opening text, by its file name under `ai/pictures/` (`run.mjs`).
+    sendsPicture: null,
     // "- person answers asks": the played person answers a held ask from the
     // brief, so a case can push back on one instead of the automatic YES.
     answersAsks: false,
@@ -115,6 +117,7 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- kind:\s*(.*)$/))) q.kind = m[1].trim();
     else if (/^- gate:/.test(line)) q.gate = true;
     else if ((m = line.match(/^- person starts:\s*(.*)$/))) q.personStarts = unquote(m[1]);
+    else if ((m = line.match(/^- person sends picture:\s*(.*)$/))) q.sendsPicture = pictureName(m[1].trim());
     else if (/^- person answers asks\s*$/.test(line)) q.answersAsks = true;
     else if ((m = line.match(/^- if asked (.+?):\s*(.*)$/))) q.ifAsked.push({ when: m[1], say: unquote(m[2]) });
     else if ((m = line.match(/^- must not:\s*(.*)$/))) q.mustNot.push(m[1].trim());
@@ -349,4 +352,10 @@ export function expandWorkspaces(bench) {
     workspaces[name] = { files, heldBack: held, fluff: ws.fluff, generated, calendar: ws.calendar ?? [], mail: ws.mail ?? [] };
   }
   return { ...bench, workspaces };
+}
+
+/** A picture a test sends, by its file name under `ai/pictures/`: one segment, a picture type. */
+export function pictureName(value) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:png|jpe?g)$/i.test(value)) throw new Error(`person sends picture takes a .png or .jpg under ai/pictures/, got "${value}"`);
+  return value;
 }

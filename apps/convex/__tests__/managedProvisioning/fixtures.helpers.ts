@@ -61,8 +61,13 @@ export const MINTED_ID = "0123456789abcdef0123456789abcde0";
  * what was — "the bucket was created once" is a claim about the absence of a
  * second call.
  */
+export const TEMPORARY_ID = "temporary-access-key-obviously-fake";
+export const TEMPORARY_SECRET = "temporary-secret-obviously-fake";
+export const TEMPORARY_SESSION = "temporary-session-token-obviously-fake";
+export const OPERATOR_TOKEN_ID = "operator-token-id-obviously-fake";
+
 export function stubCloudflare(
-  options: { bucketTaken?: boolean; mintFails?: boolean } = {},
+  options: { bucketTaken?: boolean; mintFails?: boolean; temporaryFails?: boolean } = {},
 ) {
   const calls: Array<{ url: string; method: string }> = [];
   vi.stubGlobal("fetch", async (url: string, init?: { method?: string }) => {
@@ -73,6 +78,19 @@ export function stubCloudflare(
       status: 200,
       text: async () => JSON.stringify({ success: true, errors: [], result }),
     });
+    if (url.includes("/tokens/verify")) {
+      return ok({ id: OPERATOR_TOKEN_ID, status: "active" });
+    }
+    if (url.includes("/r2/temp-access-credentials") && method === "POST") {
+      if (options.temporaryFails === true) {
+        return {
+          ok: false,
+          status: 403,
+          text: async () => JSON.stringify({ success: false, errors: [{ code: 10000, message: "Forbidden" }] }),
+        };
+      }
+      return ok({ accessKeyId: TEMPORARY_ID, secretAccessKey: TEMPORARY_SECRET, sessionToken: TEMPORARY_SESSION });
+    }
     if (url.includes("/tokens/permission_groups")) {
       return ok([
         { id: "pg_write", name: "Workers R2 Storage Bucket Item Write" },

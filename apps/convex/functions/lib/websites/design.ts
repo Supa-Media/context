@@ -36,7 +36,7 @@ import { premiumFeaturesOn } from "../premium";
 import { isEncryptedNote } from "../noteEncryption";
 import { readPublishedImages } from "./images";
 import { PUBLICATION_CLEARANCE } from "./publication";
-import { treeRows } from "./treeFacts";
+import { currentRows } from "./treeFacts";
 
 /** One code note the index holds as published. */
 export interface DesignNote {
@@ -71,7 +71,7 @@ async function publishedTexts(
   if (notes.length === 0) return texts;
   // Existence, sealing, draft and the narrowing a public note may not carry are
   // the tree's answer; a note it rules out is never opened.
-  const rows = await treeRows(ctx, workspaceId, notes.map((note) => note.objectKey));
+  const rows = await currentRows(ctx, workspaceId, notes.map((note) => note.objectKey));
   if (rows === null) return texts;
   const eligible = notes.filter((note) => {
     // Absent at the publication clearance: held back, deleted or moved. Gone now.

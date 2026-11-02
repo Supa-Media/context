@@ -5,6 +5,8 @@
  */
 
 import { loadPrivacyState } from "../privacy/state.js";
+import { historyWriteRefusal } from "../agent/historyFile.js";
+import { toolDefinitions } from "./registry.js";
 import { toolArchiveNote } from "./moves/archive.js";
 import {
   toolCreateForm,
@@ -20,6 +22,7 @@ import { toolReadEmail, toolSearchEmail } from "./emailRead.js";
 import { toolListTexts, toolReadTexts, toolSearchTexts } from "./texts.js";
 import { toolCalendarEvent } from "./calendarWrite.js";
 import { toolGoogleChat } from "./googleChat.js";
+import { toolReadGoogleChat } from "./googleChatRead.js";
 import { toolForwardRule } from "./forwardRule.js";
 import { toolApplyLayout, toolConnectGoogle, toolCreateWorkspace, toolInviteMember } from "./workspaces.js";
 import { toolDreamNow } from "./dreamNow.js";
@@ -37,7 +40,7 @@ import {
 } from "./communications.js";
 import { toolListMeetings, toolReadMeeting } from "./meetings.js";
 import { toolReadCalendar } from "./calendarRead.js";
-import { toolListNotes, toolReadNote } from "./notes/read.js";
+import { toolListNotes, toolReadNote, toolReadNotes } from "./notes/read.js";
 import { toolListPlugins } from "../plugins/listPluginsTool.js";
 import { toolListProposals, toolReadProposal } from "./proposals.js";
 import { toolMigrateStorageLayout } from "../notes/storage.js";
@@ -82,7 +85,24 @@ export const TREE_LISTING_TOOLS = new Set([
   "list_contacts",
 ]);
 
+/** The tools that change something, by their own annotations: each is held off a chat's history file. */
+let changingTools = null;
+const changes = (name) => (changingTools ??= new Set(toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint !== true).map((tool) => tool.name))).has(name);
+
+/** Every string a call names a path with, at any depth, but a note's content. */
+function pathsNamed(value, found = []) {
+  if (typeof value === "string") found.push(value);
+  else if (Array.isArray(value)) for (const item of value) pathsNamed(item, found);
+  else if (value && typeof value === "object") for (const [key, inner] of Object.entries(value)) if (key !== "content" && key !== "text") pathsNamed(inner, found);
+  return found;
+}
+
 export async function callTool(name, args, store, scope) {
+  // A chat's history file is a view of its log, read only (`agent/historyFile.js`): nothing changes it, whoever asks.
+  if (changes(name)) {
+    const refusal = pathsNamed(args ?? {}).map(historyWriteRefusal).find((words) => words !== null);
+    if (refusal !== undefined) return toolError(refusal);
+  }
   if (!TREE_LISTING_TOOLS.has(name)) return await runTool(name, args, store, scope);
   try {
     return await runTool(name, args, servedListingStore(store), scope);
@@ -114,7 +134,7 @@ async function runTool(name, args, store, scope) {
   const { rules, overrides } = privacy;
   switch (name) {
     case "orient":
-      return toolOrient(store, scope, rules, overrides, { about: args.about, tools: args.tools === true });
+      return toolOrient(store, scope, rules, overrides, { about: args.about, since: args.since, tools: args.tools === true });
     case "scope_info":
       return toolScopeInfo(store, scope, rules, overrides, args.path, args.workspaces === true);
     case "list_notes":
@@ -122,6 +142,8 @@ async function runTool(name, args, store, scope) {
     case "read_note":
       if (args.mail !== undefined) return toolReadMail(store, scope, rules, overrides, args);
       return toolReadNote(store, scope, rules, overrides, args.path);
+    case "read_notes":
+      return toolReadNotes(store, scope, rules, overrides, args.paths);
     case "evaluate_lists":
       return toolEvaluateLists(store, scope, rules, overrides, args.path);
     case "suggest_destination":
@@ -251,6 +273,8 @@ async function runTool(name, args, store, scope) {
       return toolReadTexts(store, args);
     case "calendar_event":
       return toolCalendarEvent(store, args);
+    case "read_google_chat":
+      return toolReadGoogleChat(store, args);
     case "google_chat":
       return toolGoogleChat(store, args);
     case "forward_rule":

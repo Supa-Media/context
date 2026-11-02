@@ -99,7 +99,7 @@ export function PhoneMap({ page, camera, peek, onOpenNote }: { page: MapPageStat
         {page.mode !== "live" ? <ReplayBar page={page} compact /> : null}
       </View>
       {card !== null ? (
-        <NotePeek page={page} peek={card} compact box={box} onClose={peek.close} onExpand={() => onOpenNote(card.workspaceId, card.path)} />
+        <NotePeek page={page} peek={card} compact box={box} onClose={peek.close} onExpand={() => onOpenNote(card.workspaceId, card.path)} onPeek={peek.onTapNote} />
       ) : null}
     </View>
   );

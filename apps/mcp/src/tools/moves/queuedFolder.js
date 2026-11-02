@@ -16,6 +16,7 @@
  * what the caller cannot see behind as it always has, and refuses a larger one.
  */
 
+import { versionMatches } from "../../notes/version.js";
 import { withActivityHint } from "../../live/activityHint.js";
 import { recordChange } from "../../activity/record.js";
 import { canSee, effectiveVisibility, hasOverride, narrowerVisibility, visibilityOf } from "../../privacy/engine.js";
@@ -70,7 +71,7 @@ async function rowVersionOf(store, path, expected) {
   } catch {
     return { conflict: true };
   }
-  if (current?.etag !== expected) return { conflict: true };
+  if (!current || !versionMatches(expected, { document: current, rawEtag: null })) return { conflict: true };
   const stored = await store.head(path);
   return typeof stored?.etag === "string" && stored.etag !== "" ? { etag: stored.etag } : { conflict: true };
 }

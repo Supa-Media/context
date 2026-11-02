@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { describe, expect, test } from "@jest/globals";
+import { describe, expect, jest, test } from "@jest/globals";
 import { EditorState } from "@codemirror/state";
 import { ensureSyntaxTree } from "@codemirror/language";
 import { decorationsFor, markdownLanguage } from "../../features/console/files/livePreview";

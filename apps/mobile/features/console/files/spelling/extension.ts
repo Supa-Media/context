@@ -1,40 +1,44 @@
 /**
- * Spelling in the note editor, the Google Docs way (Dev2, 2026-10-27, boards
- * 1–5 in the project's `spelling-suggestions/`).
+ * Spelling in the note editor: Context's own checker, whose fixes sit on top
+ * of the note's right-click menu (Dev2, 2026-10-27, boards in the project's
+ * `spelling-suggestions/`).
  *
  * ## Why our own checker and not the browser's
  *
- * The browser drew the red line and kept the suggestions in its own context
- * menu, which a page may not open, read or add to. So the note's menu could
- * only point at Shift-right-click, and the desktop app's route to the
- * operating system's checker (`webFrame` behind `window.desktop.spelling`)
- * came back empty in practice. A checker of our own is the one way to put the
- * fix under the word somebody clicked — and it is the same checker on the web,
- * in the Mac app and in a phone browser.
+ * The browser kept its suggestions in its own context menu, which a page may
+ * not open, read or add to. So the note's menu could only point at
+ * Shift-right-click, and the desktop app's route to the operating system's
+ * checker (`webFrame` behind `window.desktop.spelling`) came back empty in
+ * practice. A checker of our own is the one way to put the fix in the menu of
+ * the word somebody right-clicked — and it is the same checker on the web, in
+ * the Mac app and in a phone browser (a long press).
+ *
+ * ## No red line (Dev2, 2026-10-28)
+ *
+ * The first build drew a wavy red underline under every misspelled word and
+ * opened a card on a plain click. Notes are full of names and coined words,
+ * so the line marked almost everything and took over the page. Dev2 asked to
+ * leave the line out and keep the suggestions: nothing is drawn, a plain click
+ * is only a click, and the fixes are in the right-click menu. With no line to
+ * point at it, a card opening on a click would come out of nowhere.
  *
  * ## What this extension does
  *
- *  - **Underlines** misspelled words in the visible part of the note, with a
- *    mark decoration (`cm-misspelled`). Code, links, addresses, tags, front
- *    matter and note links are left alone — `words.ts` for what characters
- *    say, `skippedNodes` here for what the parser says. A note somebody may
- *    only read is not underlined at all: every answer to an underline is an
- *    edit.
- *  - **Leaves the word being typed alone** until the caret leaves it, as Docs
- *    does: a half-typed word is not a mistake yet.
- *  - **Opens the card** on a plain click on an underlined word, through the
- *    `spellingCard` facet — the editor host decides what a card is
- *    (`LiveEditor.web.tsx` uses its menu, which is a popover on a wide window
- *    and a sheet on a narrow one).
- *  - **Switches the browser's checker off** while ours is running, so nothing
- *    is underlined twice, and back on when ours has no dictionary (offline on
- *    a first visit), so checking never goes silent.
+ *  - **Finds the misspelled word** under a right-click (`misspellingAt`).
+ *    Code, links, addresses, tags, front matter and note links are left
+ *    alone — `words.ts` for what characters say, `SKIPPED_NODES` here for
+ *    what the parser says. A note somebody may only read gets no fixes:
+ *    every fix is an edit.
+ *  - **Loads the dictionary** the first time a note somebody can write opens.
+ *  - **Switches the browser's checker off** so it draws no line either, and
+ *    back on only when ours could not load (offline on a first visit), so
+ *    checking never goes silent.
  *  - Holds the words ignored **in this note**, until the note is closed.
  */
 
 import { syntaxTree } from "@codemirror/language";
-import { Prec, StateEffect, StateField, type EditorState, type Extension, Facet } from "@codemirror/state";
-import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
+import { Prec, StateEffect, StateField, type EditorState, type Extension } from "@codemirror/state";
+import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { frontmatterBlock } from "../livePreview/frontmatter";
 import { ensureDictionary, getSpelling, isKnownWord, subscribeSpelling, type SpellingSnapshot } from "./store";
 import { noteLinkRanges, wordsIn, type WordRange } from "./words";
@@ -43,22 +47,6 @@ import { noteLinkRanges, wordsIn, type WordRange } from "./words";
 export interface Misspelling extends WordRange {
   suggestions: string[];
 }
-
-/** Where a card for one word should open: the word's bottom-left corner, on screen. */
-export interface SpellingCardRequest {
-  misspelling: Misspelling;
-  x: number;
-  y: number;
-}
-
-/**
- * What a plain click on an underlined word does. Supplied by the editor's
- * host; absent means clicks are only clicks, and right-click still has the
- * suggestions.
- */
-export const spellingCard = Facet.define<(request: SpellingCardRequest) => void, ((request: SpellingCardRequest) => void) | null>({
-  combine: (values) => values[0] ?? null,
-});
 
 /** The parser's names for text that is not prose. */
 const SKIPPED_NODES = new Set([
@@ -107,7 +95,7 @@ export function forgetIgnoredWords(view: EditorView): void {
   view.dispatch({ effects: forgetIgnored.of(null) });
 }
 
-/** Whether our checker is the one drawing underlines right now. */
+/** Whether our checker has its dictionary and is answering right now. */
 export function checkerRunning(state: SpellingSnapshot = getSpelling()): boolean {
   return state.status === "ready";
 }
@@ -115,8 +103,8 @@ export function checkerRunning(state: SpellingSnapshot = getSpelling()): boolean
 /**
  * The misspelled word at a document position, with suggestions, or `null`.
  *
- * Shared by the click card and the right-click menu so both offer exactly
- * what the underline promised. `null` on a note somebody may only read.
+ * What the right-click menu offers on top. `null` on a note somebody may
+ * only read.
  */
 export function misspellingAt(state: EditorState, position: number | null): Misspelling | null {
   if (position === null || state.readOnly) return null;
@@ -164,145 +152,55 @@ function overlaps(ranges: readonly { from: number; to: number }[], word: { from:
   return ranges.some((range) => range.from < word.to && range.to > word.from);
 }
 
-const misspelledMark = Decoration.mark({ class: "cm-misspelled" });
-
-class Underlines {
-  decorations: DecorationSet;
-  /** True from a typed change until the caret moves by any other means. */
-  private typing = false;
+/**
+ * Keeps the dictionary loading and the browser's checker attribute current.
+ * Draws nothing.
+ */
+class Checker {
   private readonly unsubscribe: () => void;
 
   constructor(private readonly view: EditorView) {
-    this.decorations = this.build();
     this.unsubscribe = subscribeSpelling(() => {
-      // Asynchronous on purpose: a store change can arrive inside another
-      // view's update, and dispatching from there throws.
+      /*
+        Asynchronous on purpose: a store change can arrive inside another
+        view's update, and dispatching from there throws. The dispatch makes
+        CodeMirror read `browserChecker` again.
+      */
       queueMicrotask(() => {
         if (this.view.dom.isConnected) this.view.dispatch({ effects: spellingChanged.of(null) });
       });
     });
     /*
-      Only a note somebody can write needs the dictionary: a read-only note is
-      never underlined. So the homepage's visitor console, which shows notes
+      Only a note somebody can write needs the dictionary: a read-only note
+      gets no fixes. So the homepage's visitor console, which shows notes
       nobody there may edit, never downloads one.
     */
     if (!view.state.readOnly) ensureDictionary();
   }
 
   update(update: ViewUpdate): void {
-    const typed = update.transactions.some((tr) => tr.isUserEvent("input.type") || tr.isUserEvent("input.complete") || tr.isUserEvent("delete.backward"));
-    if (typed) this.typing = true;
-    else if (update.selectionSet) this.typing = false;
-    const relevant =
-      update.docChanged ||
-      update.viewportChanged ||
-      update.selectionSet ||
-      update.transactions.some((tr) => tr.effects.some((e) => e.is(spellingChanged) || e.is(ignoreWord) || e.is(forgetIgnored))) ||
-      update.startState.readOnly !== update.state.readOnly ||
-      syntaxTree(update.startState) !== syntaxTree(update.state);
     if (update.startState.readOnly && !update.state.readOnly) ensureDictionary();
-    if (relevant) this.decorations = this.build();
   }
 
   destroy(): void {
     this.unsubscribe();
   }
-
-  private build(): DecorationSet {
-    const { state } = this.view;
-    const spelling = getSpelling();
-    if (state.readOnly || !checkerRunning(spelling)) return Decoration.none;
-    const ignored = state.field(ignoredWords, false) ?? new Set<string>();
-    /*
-      The word being typed is not a mistake yet: leave the one the caret is at
-      the end of alone until the caret leaves it — but only after a typed
-      change, so a caret put down by a click after an old mistake still shows
-      the mistake.
-    */
-    const caret = this.typing && state.selection.main.empty ? state.selection.main.head : null;
-    const marks = [];
-    for (const { from, to } of this.view.visibleRanges) {
-      const skipped = skippedRanges(state, from, to);
-      for (let pos = from; pos <= to; ) {
-        const line = state.doc.lineAt(pos);
-        for (const word of wordsIn(line.text, line.from)) {
-          if (word.to === caret) continue;
-          if (overlaps(skipped, word)) continue;
-          if (ignored.has(word.word.toLowerCase()) || isKnownWord(spelling, word.word)) continue;
-          marks.push(misspelledMark.range(word.from, word.to));
-        }
-        if (line.number >= state.doc.lines) break;
-        pos = line.to + 1;
-      }
-    }
-    return Decoration.set(marks, true);
-  }
 }
 
-const underlines = ViewPlugin.fromClass(Underlines, {
-  decorations: (plugin) => plugin.decorations,
-  eventHandlers: {
-    /*
-      `click` rather than `mousedown`: by now CodeMirror has put the caret
-      where the person clicked, so the card is about the word under the caret
-      and closing it leaves them exactly where they meant to be. A drag, a
-      double-click selecting the word, or a modifier is a different gesture
-      and opens nothing.
-    */
-    click(event: MouseEvent, view: EditorView) {
-      if (event.button !== 0 || event.detail > 1) return false;
-      if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
-      const open = view.state.facet(spellingCard);
-      if (open === null || !view.state.selection.main.empty) return false;
-      let position: number | null = null;
-      try {
-        position = view.posAtCoords({ x: event.clientX, y: event.clientY });
-      } catch {
-        position = null;
-      }
-      const misspelling = misspellingAt(view.state, position);
-      if (misspelling === null) return false;
-      let corner: { left: number; bottom: number } | null = null;
-      try {
-        corner = view.coordsAtPos(misspelling.from);
-      } catch {
-        corner = null;
-      }
-      open({
-        misspelling,
-        x: corner?.left ?? event.clientX,
-        y: (corner?.bottom ?? event.clientY) + 4,
-      });
-      return false;
-    },
-  },
-});
+const checker = ViewPlugin.fromClass(Checker);
 
 /**
- * The browser's checker, off while ours runs and on while it cannot — and off
- * entirely when the person turned checking off (board 4: "Off means off").
- * Highest precedence so it wins over `editorSetup`'s plain `spellcheck: "true"`.
+ * The browser's checker, which draws a red line, so off — on only when ours
+ * could not load its dictionary, and never when the person turned checking
+ * off (board 4: "Off means off"). Off while ours is still loading too, so the
+ * line does not flash up for the moment before it arrives. Highest precedence
+ * so it wins over `editorSetup`'s plain `spellcheck: "true"`.
  */
 const browserChecker = Prec.highest(
-  EditorView.contentAttributes.of(() => {
-    const spelling = getSpelling();
-    if (spelling.status === "off") return { spellcheck: "false" };
-    return { spellcheck: checkerRunning(spelling) ? "false" : "true" };
-  }),
+  EditorView.contentAttributes.of(() => ({ spellcheck: getSpelling().status === "failed" ? "true" : "false" })),
 );
 
-const theme = EditorView.baseTheme({
-  ".cm-misspelled": {
-    textDecorationLine: "underline",
-    textDecorationStyle: "wavy",
-    textDecorationColor: "var(--cm-misspelled, #D0453A)",
-    textDecorationThickness: "1.5px",
-    textUnderlineOffset: "3px",
-    textDecorationSkipInk: "none",
-  },
-});
-
-/** Everything above, for a surface that has a store and a card to open. */
+/** Everything above, for a surface whose right-click menu offers the fixes. */
 export function spelling(): Extension {
-  return [ignoredWords, underlines, browserChecker, theme];
+  return [ignoredWords, checker, browserChecker];
 }

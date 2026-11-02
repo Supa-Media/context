@@ -104,6 +104,7 @@ import { createRoot } from "react-dom/client";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
 import { NO_MEETING } from "../features/console/aside/tabs";
 import { APPROVALS, NOTHING_WAITING } from "./approvalsFixture";
+import type { ApprovalsView } from "../features/approvals/useApprovals";
 
 /** A running meeting, in the shape `MeetingsSnapshot.live` carries. */
 function recording(state: "recording" | "paused" = "recording") {
@@ -161,7 +162,7 @@ function stranded(over: Record<string, unknown> = {}, session: Record<string, un
   return {
     session: {
       id: "m0",
-      title: "Jhon / Seyi",
+      title: "Dev2 / Seyi",
       state: "failed",
       failureReason: "the upload timed out.",
       startedAt: new Date(Date.now() - 3_600_000).toISOString(),

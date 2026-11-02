@@ -55,6 +55,7 @@
  */
 
 import { isMeetingId } from "@context/meetings/protocol";
+import { upcomingFrom } from "../core/calendar/upcoming.ts";
 import {
   BRIDGE_CHANNELS,
   MEETING_WRITE_KINDS,
@@ -82,9 +83,11 @@ import {
   type StartCaptureRequest,
   type TranscriptSegment,
   type TrayCommand,
+  type UpcomingMeetings,
 } from "@context/desktop-bridge";
 import { originOfUrl } from "../core/shell/mirror.ts";
 import { downloadFrom, filesChoiceFrom } from "../core/shell/imessageStatus.ts";
+import { localAgentAskFrom } from "../core/shell/localAgentAsk.ts";
 
 /** An `IpcMainInvokeEvent`/`IpcMainEvent`, as much of one as the guard reads. */
 export interface BridgeSenderEvent {
@@ -203,6 +206,8 @@ export interface ConsoleBridgeDeps {
    */
   localAgent: () => LocalAgentStatus;
   askLocalAgent: (request: LocalAgentAsk) => Promise<LocalAgentReply>;
+  /** Today's meetings for the menu bar (version 9), already rebuilt by `upcomingFrom`. */
+  setUpcoming: (upcoming: UpcomingMeetings) => void;
 }
 
 export interface ConsoleBridge {
@@ -571,45 +576,12 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
   );
 
   handle(BRIDGE_CHANNELS.agentStatus, () => ({ ...deps.localAgent() }));
-  /*
-    The payload is rebuilt field by field rather than forwarded.
+  // Rebuilt field by field rather than forwarded; `localAgentAskFrom` says why.
+  handle(BRIDGE_CHANNELS.agentAsk, (payload) => deps.askLocalAgent(localAgentAskFrom(payload)));
 
-    `features/agent/gateway.ts` holds the same rule for the same reason on the
-    other road: what leaves for the model is decided in one place, so a field
-    added to the page's own object for a local purpose — a cached body, a
-    draft — is not carried along by a spread. Here the reader is a subprocess
-    on this machine rather than a Worker, which changes nothing about the rule
-    and everything about who would see the mistake.
-  */
-  handle(BRIDGE_CHANNELS.agentAsk, (payload) => {
-    const source = (payload ?? {}) as { question?: unknown; place?: unknown };
-    const place = (source.place ?? {}) as {
-      context?: unknown;
-      note?: unknown;
-      meetingLive?: unknown;
-    };
-    const note = (place.note ?? null) as {
-      path?: unknown;
-      visibility?: unknown;
-      readable?: unknown;
-      unsaved?: unknown;
-    } | null;
-    return deps.askLocalAgent({
-      question: typeof source.question === "string" ? source.question : "",
-      place: {
-        context: typeof place.context === "string" ? place.context : null,
-        note:
-          note !== null && typeof note.path === "string"
-            ? {
-                path: note.path,
-                visibility: typeof note.visibility === "string" ? note.visibility : "private",
-                readable: note.readable !== false,
-                unsaved: note.unsaved === true,
-              }
-            : null,
-        meetingLive: place.meetingLive === true,
-      },
-    });
+  handle(BRIDGE_CHANNELS.calendarSetUpcoming, (payload) => {
+    deps.setUpcoming(upcomingFrom(payload));
+    return null;
   });
 
   function send(channel: string, payload: unknown): void {
@@ -690,6 +662,7 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.imessageForget,
         BRIDGE_CHANNELS.agentStatus,
         BRIDGE_CHANNELS.agentAsk,
+        BRIDGE_CHANNELS.calendarSetUpcoming,
       ]) {
         deps.ipc.removeHandler(channel);
       }

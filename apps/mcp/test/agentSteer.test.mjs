@@ -33,6 +33,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationText } from "./agentConversationFixture.mjs";
+import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-steer.test";
 const TOKEN_TEXTS = `cat_steer_texts_${"0".repeat(24)}`;
@@ -163,7 +164,8 @@ let script = [];
 const controlPlane = createControlPlaneStub();
 let bucket;
 const restore = [];
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+const tex = texStoreNamespace();
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 
 function reply(step) {
   const content = [];
@@ -234,7 +236,7 @@ before(async () => {
     });
   }
   controlPlane.serveTreesFrom(env, { s3 });
-  bucket = s3.bucketFor("tenant-steer");
+  bucket = withAgentHome(s3.bucketFor("tenant-steer"), tex, "ws_steer"); // the bookkeeping is the person's object's (`texStoreFixture.mjs`)
 });
 
 after(() => {
@@ -275,12 +277,26 @@ test("a text sent while Tex works reaches the model after its tool round, is ans
   assert.deepEqual(steerKeys(), []);
 });
 
-test("a turn with no tool round takes nothing, and what was sent is answered on its own", async () => {
+// Changed 2026-10-31 (Dev2: "slip it in"): a reply with no tool round used to take nothing, so a follow-up sent while
+// it was written waited and was answered on its own after. It is now taken before the reply goes, and answered with it.
+test("a turn with no tool round takes a text sent meanwhile before its reply goes, and answers both", async () => {
   await call("/agent/steer", { turn: TURN, id: "e2", text: "make it Friday" });
+  script = [{ text: "Sure." }, { text: "Sure, Friday it is." }];
+  const response = await call("/agent", { question: "book us a table", timeZone: "UTC", conversation: "texts", turn: TURN });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.answer, "Sure, Friday it is.");
+  assert.deepEqual(response.body.steered, ["e2"]);
+  const late = requests[1].messages.at(-1);
+  assert.equal(late.role, "user");
+  assert.match(JSON.stringify(late.content), /has NOT been sent/);
+  assert.match(JSON.stringify(late.content), /make it Friday/);
+  assert.deepEqual(steerKeys(), [], "cleared all the same");
+});
+
+test("with nothing sent meanwhile, a turn with no tool round is one model call", async () => {
   script = [{ text: "Sure." }];
   const response = await call("/agent", { question: "hi", timeZone: "UTC", conversation: "texts", turn: TURN });
   assert.equal(response.status, 200);
   assert.equal(response.body.steered, undefined);
-  assert.ok(!conversationText(bucket).includes("make it Friday"));
-  assert.deepEqual(steerKeys(), [], "cleared all the same");
+  assert.equal(requests.length, 1);
 });

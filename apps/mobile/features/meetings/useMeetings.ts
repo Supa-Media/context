@@ -358,7 +358,25 @@ export function useMeetingsSetup(
     if (snapshot.status !== "ready") return;
     meetings.requestSync();
   }, [reachability, snapshot.status, snapshot.records]);
+
+  /*
+    A meeting the desktop shell is holding is asked about again on a clock.
+
+    Nothing about such a record changes while the shell holds it, so the effect
+    above never fires for it: the page learned neither that the shell had since
+    filed it nor that it had held it past `SHELL_HOLD_LIMIT_MS`, when the window
+    saves it itself. Only while one is held, so an empty queue costs nothing.
+  */
+  const holding = snapshot.records.some((record) => record.handedOver === true && record.session.notePath === null);
+  useEffect(() => {
+    if (!holding || reachability === "offline") return;
+    const timer = setInterval(() => meetings.requestSync(), HELD_RECHECK_MS);
+    return () => clearInterval(timer);
+  }, [holding, reachability]);
 }
+
+/** How often a meeting the desktop shell is holding is asked about again. */
+const HELD_RECHECK_MS = 60_000;
 
 /**
  * The person's own name: their personal workspace's, which account setup

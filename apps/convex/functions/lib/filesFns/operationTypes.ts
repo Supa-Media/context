@@ -103,6 +103,7 @@ export type FileOperation =
       prefix?: string;
       limit?: number;
       refreshOnMiss?: boolean;
+      half?: "words" | "meaning";
     }
   | { kind: "notePaths" }
   | { kind: "workspaceGraph"; compact?: boolean }
@@ -116,7 +117,7 @@ export type FileOperation =
    * `shardIndex: false` is set by the barrier, never by a caller, for a
    * context whose search database replaces the bucket's index.
    */
-  | { kind: "indexNotes"; written: string[]; gone: string[]; moved?: string[][]; queued?: boolean; shardIndex?: false }
+  | { kind: "indexNotes"; written: string[]; gone: string[]; moved?: string[][]; queued?: boolean; retiered?: string[]; shardIndex?: false }
   | { kind: "projectIndex"; passes?: number }
   /** Remove a `ready` database's rows for notes that are gone. See `prunePass.ts`. */
   | { kind: "pruneIndex"; passes?: number }

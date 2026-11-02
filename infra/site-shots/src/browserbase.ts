@@ -4,10 +4,14 @@
  *
  * Kept to what the decision allows (`docs/decisions/texting-assistant.md`):
  *
- * - **Stateless.** No Browserbase Contexts (saved profiles), so no login
- *   outlives the session at the vendor, and `recordSession: false`. Weighed
- *   again and kept off on 2026-10-22: sign-ins carry over in the person's
- *   sealed jar (./jar.ts, `docs/decisions/texting-assistant/vault.md`).
+ * - **One saved profile per person or group chat.** A Browserbase Context
+ *   (the owner, 2026-10-29, reversing 2026-10-20/22) is made and deleted by
+ *   the control plane, which holds its id; the gateway passes it as
+ *   `profile`, and every browser of that owner opens it and saves back into
+ *   it (`persist`). It keeps what the sealed jar cannot (a Google sign-in
+ *   bound to the browser's own key). The jar (./jar.ts) is still read after
+ *   every run, as the fallback and the copy the person leaves with
+ *   (`docs/decisions/texting-assistant/vault.md`). `recordSession: false`.
  * - **One running browser per person, found by a tag, not stored.** The
  *   gateway passes `owner`, an HMAC of the person's id under its own secret;
  *   it goes on the session as `userMetadata`, and the next question finds the
@@ -53,6 +57,8 @@ export interface BrowserbaseSession {
 }
 
 export const OWNER_TAG = /^[a-f0-9]{32,64}$/;
+/** A Browserbase Context id, as the control plane hands it on. */
+export const PROFILE_ID = /^[A-Za-z0-9-]{8,64}$/;
 
 export function browserbaseConfigured(env: BrowserbaseEnv): boolean {
   return typeof env.BROWSERBASE_API_KEY === "string" && env.BROWSERBASE_API_KEY.length > 0 &&
@@ -116,7 +122,7 @@ export const REGIONS = ["us-west-2", "us-east-1", "eu-central-1", "ap-southeast-
  * drops the most expensive extra, and the last is the plain browser that
  * always worked. Captcha solving is Browserbase's default and stays on.
  */
-export function sessionRequests(env: BrowserbaseEnv, owner: string): Array<Record<string, unknown>> {
+export function sessionRequests(env: BrowserbaseEnv, owner: string, profile: string | null = null): Array<Record<string, unknown>> {
   const base = {
     projectId: env.BROWSERBASE_PROJECT_ID,
     keepAlive: true,
@@ -124,7 +130,13 @@ export function sessionRequests(env: BrowserbaseEnv, owner: string): Array<Recor
     userMetadata: { owner },
     // blockAds: Browserbase's own ad and tracker blocker, so a cluttered
     // page loads faster and reads with fewer steps (2026-10-22).
-    browserSettings: { recordSession: false, blockAds: true, viewport: { width: 1280, height: 860 } },
+    browserSettings: {
+      recordSession: false,
+      blockAds: true,
+      viewport: { width: 1280, height: 860 },
+      // The owner's saved profile, opened and saved back into when the browser ends.
+      ...(profile !== null ? { context: { id: profile, persist: true } } : {}),
+    },
   };
   const region = (REGIONS as readonly string[]).includes(env.BROWSERBASE_REGION ?? "") ? { region: env.BROWSERBASE_REGION } : {};
   const proxies = env.BROWSERBASE_PROXIES !== "off";
@@ -155,8 +167,8 @@ export function forgetRefusedTiers(): void {
   refusedTiers = 0;
 }
 
-export async function createSession(env: BrowserbaseEnv, owner: string, fetcher: typeof fetch = fetch): Promise<BrowserbaseSession> {
-  const tiers = sessionRequests(env, owner);
+export async function createSession(env: BrowserbaseEnv, owner: string, fetcher: typeof fetch = fetch, profile: string | null = null): Promise<BrowserbaseSession> {
+  const tiers = sessionRequests(env, owner, profile);
   const start = Math.min(refusedTiers, tiers.length - 1);
   for (const [i, body] of tiers.entries()) {
     if (i < start) continue;

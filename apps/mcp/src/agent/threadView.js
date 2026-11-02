@@ -46,23 +46,45 @@ function exchanges(history) {
   return pairs;
 }
 
+/** The newest kept exchange whose question or answer holds `text`'s opening words, or null. */
+function exchangeHolding(pairs, text) {
+  const probe = matchable(text).slice(0, PROBE_CHARS).trim();
+  if (probe.length < MIN_PROBE_CHARS) return null;
+  return (
+    [...pairs]
+      .reverse()
+      .find((pair) => typeof pair.question.id === "string" && (matchable(pair.question.text).includes(probe) || matchable(pair.answer?.text ?? "").includes(probe))) ?? null
+  );
+}
+
+/**
+ * The thread a text sent under an earlier one belongs to: the earlier text's
+ * thread, or its own exchange's id when it started none; null when that text
+ * is not a kept exchange. A check-in sent as a reply under an earlier text
+ * (`heartbeat.js` `continues`) is kept with it, so a reply typed in that
+ * thread is shown the check-in it answers (a tester's chat, 2026-10-29: "Want
+ * me to move Wind down to 11:15?", then their "yes" got "Yes to what?").
+ */
+export function threadOf(history, text) {
+  const root = exchangeHolding(exchanges(history), text);
+  return root === null ? null : (root.question.thread ?? root.question.id);
+}
+
 /**
  * The thread a text was typed in: `thread`, the id its exchange is kept under
  * (null when its root is not a kept exchange), and `shown`, the turns it reads.
  * `elsewhere` counts the exchanges since the root that are not in the thread.
+ * The message they replied to is always shown, kept in the thread or not.
  */
 export function threadView(history, { words = "", start = "", replied = false } = {}, turns) {
   const flat = { thread: null, shown: shownHistory(history, turns), elsewhere: 0 };
   if (!replied) return flat;
-  const probe = matchable(start || words).slice(0, PROBE_CHARS).trim();
-  if (probe.length < MIN_PROBE_CHARS) return flat;
   const pairs = exchanges(history);
-  const root = [...pairs]
-    .reverse()
-    .find((pair) => typeof pair.question.id === "string" && (matchable(pair.question.text).includes(probe) || matchable(pair.answer?.text ?? "").includes(probe)));
+  const root = exchangeHolding(pairs, start || words);
   if (!root) return flat;
   const thread = root.question.thread ?? root.question.id;
-  const inThread = (pair) => pair.question.id === thread || pair.question.thread === thread;
+  const repliedTo = start !== "" && words !== "" ? exchangeHolding(pairs, words) : null;
+  const inThread = (pair) => pair.question.id === thread || pair.question.thread === thread || pair === repliedTo;
   const at = pairs.indexOf(root);
   const since = pairs.slice(at);
   const own = shownHistory(flatten(since.filter((pair) => inThread(pair) || pair === root)), threadTurns(turns));

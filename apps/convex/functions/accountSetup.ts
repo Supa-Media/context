@@ -1,7 +1,7 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import { query } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { createWorkspaceHandler } from "./lib/workspaces/create";
 import { scheduleSignupAlert } from "./signupAlerts";

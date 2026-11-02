@@ -75,6 +75,7 @@
 import worker from "../src/index.js";
 import { isEncryptedNote, parseEncryptedNote } from "../src/encryption.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 export function makeBucket() {
   const objects = new Map();
@@ -184,7 +185,7 @@ export async function runEncryptionRotationChecks(check) {
     });
 
     const env = {
-      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "BUCKET_ROT",
       BUCKET_ROT: a.bucket,

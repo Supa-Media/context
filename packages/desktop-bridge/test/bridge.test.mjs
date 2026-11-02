@@ -124,6 +124,10 @@ function bridgeLike(overrides = {}) {
     spelling: {
       check: async () => ({ misspelled: false, suggestions: [] }),
     },
+    // Version 9. Today's meetings, pushed for the menu bar.
+    calendar: {
+      setUpcoming: () => {},
+    },
     ...overrides,
   };
 }
@@ -491,8 +495,16 @@ export function runBridgeChecks(check) {
     refusalFor(Object.freeze({ ...bridgeLike(), spelling: undefined, version: 7 })) === null,
   );
   check(
+    "A VERSION-9 SHELL WITHOUT `calendar` IS REFUSED — it promised it",
+    refusalFor(Object.freeze({ ...bridgeLike(), calendar: undefined, version: 9 })) === "surface-incomplete",
+  );
+  check(
+    "...but a VERSION-8 shell with no `calendar` is fine, and the menu bar names no meeting",
+    refusalFor(Object.freeze({ ...bridgeLike(), calendar: undefined, version: 8 })) === null,
+  );
+  check(
     "...and this bundle's own version is accepted by its own table",
-    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 8,
+    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 9,
   );
   check(
     "a version between the floor and the ceiling is still not an integer version",

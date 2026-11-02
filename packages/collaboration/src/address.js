@@ -107,10 +107,11 @@ function movableHead(head) {
  * nothing to move. A head that moved away or was deleted from the name is not a
  * live document, and stays where it is.
  */
-export async function adoptPathHead(store, path, noteId) {
+export async function adoptPathHead(store, path, noteId, pathHeadRead = null) {
   const idKey = noteHeadKey(noteId);
   const pathKey = await headKey(path);
-  const legacy = await readObject(store, pathKey);
+  // A caller that already asked for the path's head (`readHead`, `pathHeadTogether`) hands the read in.
+  const legacy = pathHeadRead === null ? await readObject(store, pathKey) : await pathHeadRead;
   if (!legacy) return null;
   let head;
   try {

@@ -421,12 +421,12 @@ export async function runServeChecks(check) {
     const teamReads = d1.requests
       .slice(beforeTeamSearch)
       .filter((request) => PROJECTION_READ.test(request.sql));
-    // Two reads, because nothing matched strictly and the relaxed second try
-    // asked again (`toRelaxedMatchExpression`); each names the team table
-    // alone.
+    // One request (`searchProjectionEach`, 2026-10-27: a miss used to cost a
+    // second round trip for the relaxed retry, which for one word now asks
+    // nothing the strict half did not); it names the team table alone.
     check(
-      "asking only the team table, strictly and then relaxed",
-      teamReads.length === 2 &&
+      "asking only the team table, in one request",
+      teamReads.length === 1 &&
         teamReads.every(
           (read) => read.sql.includes("notes_team_fts") && !read.sql.includes("notes_private_fts"),
         ),

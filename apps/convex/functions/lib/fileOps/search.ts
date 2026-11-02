@@ -70,6 +70,13 @@ export interface SearchHit {
   meaningOnly?: boolean;
   /** Has some of the words typed, not all of them (the projection's relaxed any-word pass). */
   loose?: boolean;
+  /**
+   * How close a meaning half's match is (bge-m3 cosine, 0 to 1). Only a
+   * meaning half sets it: the palette ranks those rows across workspaces by
+   * it, and hides the ones under `MEANING_EXTRA_FLOOR_WITH_WORDS` when the
+   * words found notes with every word.
+   */
+  closeness?: number;
 }
 
 export interface SearchResults {
@@ -267,6 +274,14 @@ export async function searchNotes(
      * "no matches".
      */
     refreshOnMiss?: boolean;
+    /**
+     * Half of a search (the search tune-up, Dev2's pick, 2026-10-27). The
+     * palette asks the words and the meaning separately so the words, which
+     * are the faster half, are drawn without waiting for meaning; absent asks
+     * both and merges them, which is what an AI client and the search page's
+     * later pages get.
+     */
+    half?: "words" | "meaning";
   },
   projection: ProjectionClient | null = null,
 ): Promise<SearchResults> {
@@ -312,7 +327,7 @@ export async function searchNotes(
   // rejects: a failure is `null`, which leaves the word answer as it was.
   const started = Date.now();
   let meaningMs: number | undefined;
-  const meaningPending = meaningSearchable(store)
+  const meaningPending = options.half !== "words" && meaningSearchable(store)
     ? meaningMatches(store, {
         query,
         scope: options.clearance.scope,
@@ -343,6 +358,8 @@ export async function searchNotes(
     const hits = (results as SearchResults).hits.map((hit) => (looseAt[hit.path]?.loose === true ? { ...hit, loose: true } : hit));
     return { ...(results as SearchResults), hits, timing: timed(wordsMs) };
   };
+
+  if (options.half === "meaning") return await meaningHalf(store, await meaningPending, projection, () => timed(0));
 
   /*
    * A context with a search database answers from it and nothing else, ready
@@ -438,6 +455,44 @@ export async function searchNotes(
     reducedRecallNotes: found.reducedRecallNotes ?? [],
     answeredBy: "index",
   });
+}
+
+/**
+ * The meaning half alone: the notes this question is about, each with the
+ * snippet of the passage that matched and how close it was, best first.
+ *
+ * It is `withMeaning` over no word hits, so the privacy filter, the snippet
+ * reads and their cap are the merged search's own, not a second copy. With no
+ * word hits it is "the loosest" search and reads `MEANING_SNIPPET_READS_LOOSE`
+ * notes, which is what the palette's folded line can hold. Meaning off or
+ * failed answers no hits, never an error: the words half is the answer then.
+ */
+async function meaningHalf(
+  store: FileStore,
+  matches: unknown,
+  projection: ProjectionClient | null,
+  timing: () => NonNullable<SearchResults["timing"]>,
+): Promise<SearchResults> {
+  const empty: SearchResults = {
+    hits: [],
+    matchCount: 0,
+    matchCountIsFloor: false,
+    indexIncomplete: false,
+    indexMissing: false,
+    reducedRecall: false,
+    reducedRecallNotes: [],
+    answeredBy: "none",
+  };
+  const merged = await withMeaning(store, empty, matches, {
+    keyField: "path",
+    ...(projection !== null ? { projection: { client: () => projection, filling: projection.filling === true } } : {}),
+  });
+  const evidence = (merged.evidence ?? {}) as Record<string, { meaningScore?: number | null } | undefined>;
+  const hits = (merged.hits as SearchHit[]).map((hit) => {
+    const score = evidence[hit.path]?.meaningScore;
+    return typeof score === "number" ? { ...hit, closeness: score } : hit;
+  });
+  return { ...empty, hits, matchCount: hits.length, timing: timing() };
 }
 
 /**
@@ -553,13 +608,17 @@ export async function maintainSearchIndex(
  */
 export async function indexChangedNotes(
   store: FileStore,
-  change: { written: string[]; gone: string[]; moved?: string[][]; queued?: boolean; shardIndex?: false },
+  change: { written: string[]; gone: string[]; moved?: string[][]; queued?: boolean; retiered?: string[]; shardIndex?: false },
   projection: ProjectionClient | null = null,
 ): Promise<{ pending: number; changed: boolean; complete: boolean; shed: number; oversizedShards: number }> {
   if (projection !== null && change.queued !== true) await followInProjection(store, change, projection);
   // A context with a search database keeps no index in its bucket (the
-  // barrier sets this; decided by the owner, 2026-10-17).
-  if (change.shardIndex === false) return { pending: 0, changed: false, complete: true, shed: 0, oversizedShards: 0 };
+  // barrier sets this; decided by the owner, 2026-10-17). An access change
+  // alone has nothing for the bucket's index: it filters every hit through
+  // `canSee` and holds no tier, and an empty `only` must not start a pass.
+  if (change.shardIndex === false || (change.written.length === 0 && change.gone.length === 0)) {
+    return { pending: 0, changed: false, complete: true, shed: 0, oversizedShards: 0 };
+  }
   const only = new Map<string, { version: string; uploaded: string } | null>();
   const uploaded = new Date().toISOString();
   for (const path of change.gone) only.set(path, null);
@@ -589,7 +648,7 @@ export async function indexChangedNotes(
  */
 export async function followInProjection(
   store: FileStore,
-  change: { written: string[]; gone: string[]; moved?: string[][] },
+  change: { written: string[]; gone: string[]; moved?: string[][]; retiered?: string[] },
   projection: ProjectionClient,
 ): Promise<void> {
   try {
@@ -603,6 +662,7 @@ export async function followInProjection(
       moved,
       written: change.written.filter((path) => !destinations.has(path)),
       gone: change.gone.filter((path) => !sources.has(path)),
+      retiered: change.retiered ?? [],
       visibilityOf: (path: string) => effectiveVisibility(path, state.rules, state.overrides),
     });
   } catch {

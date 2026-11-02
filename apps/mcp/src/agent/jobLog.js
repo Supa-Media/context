@@ -50,7 +50,7 @@ export async function readWithEtag(dispatch, path) {
 }
 
 /** A tool refusal's leading words ("conflict", "permission denied"): never the note text a conflict carries. */
-function refusalWords(result) {
+export function refusalWords(result) {
   const text = (Array.isArray(result?.content) ? result.content : []).map((part) => part?.text ?? "").join("\n");
   return text.split(/[:\n(]/, 1)[0].trim().slice(0, 60) || "refused";
 }

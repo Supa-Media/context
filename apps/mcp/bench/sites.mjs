@@ -60,6 +60,11 @@
  *   (`fresh: true`) the third (`apps/mcp/src/agent/captchaLadder.js`), so
  *   `captcha: 1` clears on the reload, `2` on the fresh browser, and
  *   `always` only when the person solves it through a handoff.
+ * - `invisible captcha`: a captcha that shows nothing (invisible reCAPTCHA,
+ *   the owner's registration form of 2026-10-27). The run answers
+ *   `invisibleCaptcha: true` as the screenshot Worker does, and a press of a
+ *   button that would go somewhere does nothing at all, no words and no
+ *   move, in any browser, until the person passed it through a handoff.
  *
  * The person signs in only through a handoff: once a turn handed the browser
  * over, the next text from the person comes after they signed in on that
@@ -71,6 +76,8 @@
  * which pages it reached, where it handed over, what it typed, which flags it
  * set. Nothing here sees a model or a note.
  */
+
+import { crc32, deflateSync } from "node:zlib";
 
 import { normalize, parseFront } from "./frontMatter.mjs";
 
@@ -162,7 +169,7 @@ export function parseSite(raw, label = "site") {
     const t = line.trim();
     const heading = line.match(/^## (https:\/\/\S+)\s*$/);
     if (heading) {
-      page = { url: heading[1], title: "", text: [], signedInOnly: false, elements: [], captcha: 0, popup: null };
+      page = { url: heading[1], title: "", text: [], signedInOnly: false, elements: [], captcha: 0, popup: null, invisible: false };
       site.pages.set(placeOf(heading[1]), page);
       return;
     }
@@ -170,6 +177,7 @@ export function parseSite(raw, label = "site") {
     let m;
     if ((m = t.match(/^title:\s*(.*)$/))) page.title = m[1];
     else if (t === "signed in only") page.signedInOnly = true;
+    else if (t === "invisible captcha") page.invisible = true;
     else if ((m = t.match(/^captcha:\s*(\d+|always)$/))) page.captcha = m[1] === "always" ? Infinity : Number(m[1]);
     else if ((m = t.match(/^text(?:\s+\(([^)]+)\))?:\s*(.*)$/))) page.text.push({ when: readFlags(m[1], where), line: m[2] });
     else if ((m = t.match(/^popup\s+\(([^)]+)\):\s*(.*)$/))) page.popup = { when: readFlags(m[1], where), line: m[2] };
@@ -189,6 +197,36 @@ export function parseSite(raw, label = "site") {
  * outlives a question (as Browserbase's does), who is signed in where, the
  * flags set, and what happened. `binding` is what `env.SITE_SHOTS` is set to.
  */
+/** The largest side a stand-in card is drawn at; the product draws up to 2000 by 2400. */
+const MAX_BLANK_SIDE = 2400;
+
+/**
+ * A white PNG of `width` by `height` (each kept between 1 and `MAX_BLANK_SIDE`),
+ * as base64: a real picture a model can open, standing in for a drawn card.
+ */
+export function blankPng(width, height) {
+  const side = (n) => Math.max(1, Math.min(MAX_BLANK_SIDE, Math.round(Number(n)) || 1));
+  const [w, h] = [side(width), side(height)];
+  const chunk = (type, data) => {
+    const head = Buffer.alloc(8);
+    head.writeUInt32BE(data.length, 0);
+    head.write(type, 4, "ascii");
+    const tail = Buffer.alloc(4);
+    tail.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0);
+    return Buffer.concat([head, data, tail]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(w, 0);
+  header.writeUInt32BE(h, 4);
+  header[8] = 8; // bits per sample
+  header[9] = 0; // greyscale
+  // Each row: filter byte 0, then one white byte per pixel.
+  const row = Buffer.alloc(w + 1, 0xff);
+  row[0] = 0;
+  const pixels = deflateSync(Buffer.concat(Array.from({ length: h }, () => row)));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", header), chunk("IDAT", pixels), chunk("IEND", Buffer.alloc(0))]).toString("base64");
+}
+
 export function createWeb(sites) {
   const byHost = new Map(sites.map((site) => [site.host, site]));
   const signedIn = new Set();
@@ -334,6 +372,11 @@ export function createWeb(sites) {
         }
         const short = missing(browser, page, el);
         if (short.length > 0) return { ok: true, note: `Fill in: ${short.join(", ")}.` };
+        // A hidden captcha turns the press away and says nothing.
+        if (page.invisible && (el.href || el.sets.length > 0) && !solved.has(placeOf(browser.url))) {
+          events.push(`turned away ${placeOf(browser.url)} "${el.label}"`);
+          return { ok: true };
+        }
         for (const flag of el.sets) {
           flags.add(flag);
           events.push(`set ${flag}`);
@@ -420,6 +463,8 @@ export function createWeb(sites) {
     // The screenshot Worker's answer once Browserbase's solver has had its wait; never on a handoff, which skips it.
     const captcha = body.handoff !== true && walled(browser) ? "unsolved" : null;
     if (captcha) events.push(`captcha ${placeOf(browser.url)}`);
+    const shownPage = browser.url === null ? null : pageFor(browser.url);
+    const invisibleCaptcha = body.handoff !== true && shownPage?.invisible === true && !solved.has(placeOf(browser.url));
     return {
       session: browser.session,
       ran,
@@ -427,6 +472,7 @@ export function createWeb(sites) {
       ...(liveUrl ? { liveUrl } : {}),
       ...(file ? { file } : {}),
       ...(captcha ? { captcha } : {}),
+      ...(invisibleCaptcha ? { invisibleCaptcha } : {}),
     };
   }
 
@@ -441,7 +487,6 @@ export function createWeb(sites) {
     return { status: 200, body: { page: { url: shown.url, title: shown.title, text: shown.text, links: shown.elements.filter((e) => e.href).map((e) => ({ text: e.label, href: e.href })) } } };
   }
 
-  const BLANK_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=";
   const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
   return {
@@ -455,9 +500,16 @@ export function createWeb(sites) {
         }
         if (path === "/browse") return json(200, browse(body));
         if (path === "/browse/close") return json(200, { ok: true });
+        if (path === "/browse/hold") return json(200, { held: true });
         // A card drawn (`draw_visual`): the bench has no browser to photograph it, so a blank picture
         // stands in. Without it every card failed to draw and the bench scored "the card won't draw".
-        if (path === "/render") return json(200, { png: BLANK_PNG, width: body.width ?? 600, height: body.height ?? 800, blocked: [] });
+        // It is a white picture of the size asked for: Anthropic refused the 1x1 one this used to be
+        // ("Could not process image", 2026-10-30), and every turn that drew a card fell back to GLM.
+        if (path === "/render") {
+          const width = body.width ?? 600;
+          const height = body.height ?? 800;
+          return json(200, { png: blankPng(width, height), width, height, blocked: [] });
+        }
         return json(404, { error: "not found" });
       },
     },
@@ -484,7 +536,7 @@ export function createWeb(sites) {
       handedOff = null;
       const site = siteFor(browser.url ?? "");
       if (!site) return;
-      if (walled(browser)) {
+      if (walled(browser) || pageFor(browser.url ?? "")?.invisible === true) {
         solved.add(placeOf(browser.url));
         events.push(`solved captcha ${placeOf(browser.url)}`);
       }

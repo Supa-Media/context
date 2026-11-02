@@ -14,6 +14,7 @@
  */
 
 import type { Reaction, Tapback } from "./reactions";
+import type { JobReport } from "./jobs";
 
 /** Longest text forwarded to the agent. The gateway caps a question at 8000. */
 export const MAX_INBOUND_TEXT = 4000;
@@ -64,7 +65,9 @@ export type Inbound =
        * saved (`vaultWatch.ts`). It has no words, and the gateway asks its
        * own fixed question for it. Never set from a webhook.
        */
-      event?: "vault_saved";
+      event?: "vault_saved" | "job_report";
+      /** On `event: "job_report"`: what a background job would have said, handed to this chat's own turn (`jobTexts.ts`). Never from a webhook. */
+      jobReport?: JobReport;
       /**
        * Set on arrival (`inbox.ts`, `accept`): a plain text after the chat was
        * quiet a while, so it starts a topic and its answer opens a thread under it.
@@ -79,11 +82,13 @@ export type Inbound =
       tapback?: Tapback;
       /** Tapbacks noted since their last text, told to this one's turn (`reactions.ts`). */
       reacted?: Reaction[];
+      /** Sendblue: it came as a card from our own Messages extension, and `ask` keys the ask it answers (`cardChats.ts`). */
+      viaCard?: { ask?: string };
     }
   /** Sendblue: a tapback on a text, read from its words (`reactions.ts`). */
   /** `on`: Sendblue named the message it was on rather than quoting it; its words are read before queueing (`sendblueTapbacks.ts`). */
   | { kind: "reaction"; eventId: string; chatId: string; from: string; messageId: string; reaction: Reaction; on?: string }
-  | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" | "reaction" }
+  | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" | "reaction" | "app_card" }
   | { kind: "invalid" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

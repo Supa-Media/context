@@ -13,6 +13,7 @@
  * runs; the same test holds that.
  */
 
+import { consoleWorkspaceRouting } from "../rowWatch/consoleRouting";
 import { ConvexError, type Infer } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
@@ -77,6 +78,8 @@ import { isMessagesBackupOperation, runMessagesBackupOperation } from "../messag
 import { repairLinks } from "../nodes/linkRepair";
 import { toConvexError } from "./operationErrors";
 import { afterMaintenance } from "./maintenanceFollowUps";
+import { consoleTexRouting } from "../texStore";
+import { markedIfNarrowing } from "../rowWatch/objectFirst";
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "archiveTidy", "trash"]);
@@ -179,7 +182,8 @@ export async function runFileOperationHandler(
     // (`searchNotes`), so a filling one is read too and says it is behind.
     const [target, meaningTarget] = await Promise.all([
       ctx.runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId: args.workspaceId }),
-      meaningSearchDescriptor(ctx, args.workspaceId),
+      // The words half asks no meaning index, so it reads no credential for one.
+      args.operation.half === "words" ? Promise.resolve(null) : meaningSearchDescriptor(ctx, args.workspaceId),
     ]);
     if (target !== null && (target.state === "ready" || target.state === "backfilling")) {
       const client = await clientFor(target);
@@ -408,6 +412,11 @@ export async function runFileOperationHandler(
   let store: FileStore;
   // The owner's Download of old copies reads each at the key its row names, a pinned path included, so past the id layer (`lib/oldCopies/folders.ts`).
   let keyStore: FileStore | null = null;
+  // A move landing notes under a chat's home keeps them in that chat's object, so the ticket and the store name it.
+  const landingChats: string[] =
+    args.operation.kind === "contextMoveImport"
+      ? await ctx.runQuery(internal.functions.texChatLanding.chatsOfHomes, { workspaceId: args.workspaceId, paths: args.operation.objects.map((object) => object.destination) })
+      : [];
   try {
     // One table decides which backend this workspace got — the same table
     // the gateway uses, so the console reads and writes exactly what an AI
@@ -426,20 +435,23 @@ export async function runFileOperationHandler(
     // on exactly the backends where it is not; the observed capability makes
     // `writeFile` fall back to a read-compare and say so.
     //
-    // That used to be applied here, on the next line, by hand — and only
-    // here, so the gateway's own stores claimed a guarantee they did not
-    // have. `storeForBinding` reads the binding's probed capability itself
-    // now, for every caller and every backend.
-    store = storeForBinding(credential, undefined, {
-      fetchImpl: timeoutFetch,
+    // That used to be applied here, by hand and only here, so the gateway's own stores claimed a guarantee they
+    // did not have. `storeForBinding` reads the probed capability itself now, for every caller and every backend.
+    // Note texts go to the workspace's object where they live there (`lib/rowWatch/consoleRouting.ts`).
+    const routing = await consoleWorkspaceRouting(ctx, args.workspaceId);
+    store = storeForBinding(routing.credential(credential), undefined, {
+      ...routing.options, fetchImpl: timeoutFetch,
       noteCap,
       // The cap counts the tree's rows, never the bucket (`store/noteCap.js`).
       noteCount: async () => (await servedNoteCount(ctx, args.workspaceId))?.notes ?? null,
       managedEncryption,
       idLayout,
+      // Tex's notes, through the gateway (`lib/texStore.ts`).
+      ...consoleTexRouting(ctx, args.workspaceId, landingChats.length === 0 ? {} : { ticketOwners: [`person:${args.workspaceId}`, ...landingChats.map((chat) => `chat:${chat}`)] }),
+      texChats: landingChats,
     }) as unknown as FileStore;
     if (args.operation.kind === "readOldCopies" || isMessagesBackupOperation(args.operation)) {
-      keyStore = storeForBinding(credential, undefined, { fetchImpl: timeoutFetch, managedEncryption }) as unknown as FileStore;
+      keyStore = storeForBinding(routing.credential(credential), undefined, { fetchImpl: timeoutFetch, managedEncryption, ...consoleTexRouting(ctx, args.workspaceId), ...routing.options }) as unknown as FileStore;
     }
   } catch {
     // The constructor's message can quote the endpoint the customer typed.
@@ -548,7 +560,8 @@ export async function runFileOperationHandler(
   const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
   // Where Tex's folder is before this runs: a move or trash may take it out of reach (see `routinePathsTouched`).
   const texBefore = mayRelocateRoutines(args.operation as FileOperation) ? await texFolderOf(ctx, args.workspaceId) : null;
-  const operate = () => executeOperation(
+  // An operation that may narrow tells the workspace's object first (`../rowWatch/objectFirst.ts`).
+  const operate = () => markedIfNarrowing(ctx, args, () => executeOperation(
     listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),
     operation as FileOperation,
@@ -567,11 +580,8 @@ export async function runFileOperationHandler(
       dueNotification = material;
     },
     args.workspaceId,
-  );
-  const result = await (RELOCATING_OPERATIONS.has(args.operation.kind)
-    ? asRelocation(store, operate)
-    : operate()
-  ).catch(rethrowUnreadable);
+  ));
+  const result = await (RELOCATING_OPERATIONS.has(args.operation.kind) ? asRelocation(store, operate) : operate()).catch(rethrowUnreadable);
 
   // Website rows are a derivative of bucket bytes: mark them stale after the
   // canonical write lands. Best effort; the periodic reconciler repairs a miss.

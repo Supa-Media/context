@@ -6,6 +6,7 @@ import {
   decodeServerFrame,
   pingFrame,
   CLOSE_REFUSED,
+  presenceSocketProtocols,
   presenceSocketUrl,
   syncFrame,
   type PresenceMember,
@@ -301,10 +302,10 @@ export function openPresenceRoom({
         presenceSocketUrl({
           gatewayOrigin: origin as string,
           notePath: path,
-          token,
           colorSeed: seed.current || "tab",
           ...(options.durable ? { collaborationVersion: 2 as const, documentId: options.documentId ?? undefined } : {}),
         }),
+        presenceSocketProtocols(token),
       );
     } catch {
       fail(gen, true, null);

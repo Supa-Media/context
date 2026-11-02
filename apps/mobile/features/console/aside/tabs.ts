@@ -39,18 +39,22 @@ export const DEFAULT_ASIDE_TAB: AsideTab = "meetings";
  * vault key's first use waiting for the person. With nothing waiting it is
  * absent (Dev2, 2026-10-17: the widening approvals are gone, and an empty tab
  * every day was the friction). `answered` keeps it while the person reads what
- * their last answer did, so the notice does not vanish under them.
+ * their last answer did, so the notice does not vanish under them. `failed`
+ * keeps it when the list could not be read: that is not "nothing waiting",
+ * and hiding it made a held change look like no change at all (2026-10-28).
  */
 export function visibleAsideTabs({
   approvals,
   waiting,
   answered = false,
+  failed = false,
 }: {
   approvals: boolean;
   waiting: number;
   answered?: boolean;
+  failed?: boolean;
 }): AsideTab[] {
-  const showApprovals = approvals && (waiting > 0 || answered);
+  const showApprovals = approvals && (waiting > 0 || answered || failed);
   return ASIDE_TABS.map((tab) => tab.key).filter((key) => key === "meetings" || showApprovals);
 }
 

@@ -1,4 +1,6 @@
-/** The Google Chat tool. See `tools/googleChat.js` and `tools/googleChatGate.js`. */
+/** The Google Chat tools. See `tools/googleChat.js`, `tools/googleChatGate.js` and `tools/googleChatRead.js`. */
+import { CHAT_QUOTATION, MAX_CHAT_READ } from "../googleChatRead.js";
+
 export function googleChatToolDefinitions() {
   return [
     {
@@ -21,6 +23,24 @@ export function googleChatToolDefinitions() {
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    },
+    {
+      name: "read_google_chat",
+      title: "Read a Google Chat conversation",
+      description:
+        "Read one Google Chat conversation live from the person's own connected Google account: a space by its spaces/… id " +
+        "(google_chat action spaces lists them), or the direct message with one person by their work email (to). The newest " +
+        `messages, both sides, oldest first. ${CHAT_QUOTATION}`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          space: { type: "string", description: "A space's spaces/… id." },
+          to: { type: "string", description: "The other person's work email, for your direct message with them." },
+          limit: { type: "integer", minimum: 1, maximum: MAX_CHAT_READ, description: "Default 20" },
+        },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     },
   ];
 }

@@ -1,3 +1,4 @@
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION } from "@context/shared";
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import type { FakeDesktopBridge } from "@context/desktop-bridge/fake";
@@ -198,7 +199,7 @@ export const { DESKTOP_MESSAGES } =
   require("../../features/meetings/capture/desktop") as typeof import("../../features/meetings/capture/desktop");
 export const { fakeRecorder } =
   require("../../features/meetings/capture/fake") as typeof import("../../features/meetings/capture/fake");
-export const { setTranscriber, fakeTranscriber } =
+export const { setTranscriber, setTranscriptionConsent, fakeTranscriber } =
   require("../../features/meetings/capture/transcriber") as typeof import("../../features/meetings/capture/transcriber");
 export const { MeetingsController } =
   require("../../features/meetings/controller") as typeof import("../../features/meetings/controller");
@@ -224,10 +225,12 @@ export function resetDesktop(): void {
   installBrowser();
   removeShell();
   setTranscriber(fakeTranscriber());
+  setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
 }
 
 /** The `afterEach` every file in this folder runs. */
 export function teardownDesktop(): void {
   removeShell();
   setTranscriber(null);
+  setTranscriptionConsent(null);
 }

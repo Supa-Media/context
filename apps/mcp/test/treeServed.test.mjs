@@ -201,7 +201,9 @@ for (const scope of ["private", "team"]) {
       const bucket = bucketOf(NOTES);
       const tree = treeOf(bucket, { see: scope === "private" ? () => true : teamSees });
       const actual = await callTool(name, args, served(bucket, tree), scope);
-      assert.deepEqual(actual, expected, `${name} ${JSON.stringify(args)}`);
+      // The two answers were made a moment apart, and orient's mark is the moment.
+      const unmarked = (result) => JSON.parse(JSON.stringify(result).replace(/orient_mark: [0-9TZ:.-]+/g, "orient_mark: <now>"));
+      assert.deepEqual(unmarked(actual), unmarked(expected), `${name} ${JSON.stringify(args)}`);
       assert.ok(tree.requests.length > 0, `${name} asked the tree`);
       const noteListings = bucket.listings.filter((prefix) => !prefix.startsWith("."));
       assert.deepEqual(noteListings, [], `${name} listed the bucket at ${noteListings.join(", ")}`);
@@ -380,6 +382,37 @@ test("the control-plane call spends the person's token and names no scope", asyn
   assert.deepEqual(await methods.readTreeManifest("tok", "ws_1"), { served: false });
   answer = { served: true, entries: "nope", cursor: null };
   await assert.rejects(methods.readTreeManifest("tok", "ws_1"), /malformed tree manifest/);
+});
+
+test("a tree page waits 6 seconds, or as long as a reader nobody waits on asks", async () => {
+  const { createTreeMethods, TREE_MANIFEST_TIMEOUT_MS } = await import("../src/controlPlane/tree.js");
+  const waits = [];
+  const methods = createTreeMethods({
+    post: async (path, body, options) => {
+      waits.push(options.timeoutMs);
+      return { served: true, entries: [], cursor: null };
+    },
+  });
+  await methods.readTreeManifest("tok", "ws_1");
+  await methods.readTreeManifest("tok", "ws_1", {}, { timeoutMs: 25_000 });
+  assert.deepEqual(waits, [TREE_MANIFEST_TIMEOUT_MS, 25_000]);
+});
+
+test("a check-in's question names the time it asks from, and nothing else", async () => {
+  const { createTreeMethods } = await import("../src/controlPlane/tree.js");
+  const sent = [];
+  const methods = createTreeMethods({
+    post: async (path, body) => {
+      sent.push(body);
+      return { served: true, entries: [], cursor: null };
+    },
+  });
+  await methods.readTreeManifest("tok", "ws_1", { changedSince: 1_000 });
+  await methods.readTreeManifest("tok", "ws_1", { changedSince: "yesterday" });
+  assert.deepEqual(sent, [
+    { accessToken: "tok", expectedWorkspaceId: "ws_1", changedSince: 1_000 },
+    { accessToken: "tok", expectedWorkspaceId: "ws_1" },
+  ]);
 });
 
 test("a tree answer may be larger than the 256 KB every other control-plane answer is held to", async () => {

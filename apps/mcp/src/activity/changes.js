@@ -13,6 +13,7 @@ import { frontMatterBlock } from "../notes/format.js";
 import { isEncryptedNote } from "../encryption.js";
 import { readsBetween, storageBudget } from "../live/readLog.js";
 import { readFilterFor } from "../live/storedReads.js";
+import { sealedCovers } from "../privacy/engine.js";
 
 /**
  * The changes that alter a context's file tree — something created, moved,
@@ -129,6 +130,8 @@ export async function toolListChanges(store, scope, rules, overrides, limitArg, 
     );
     for (const entry of entries) {
       if (!entry) continue;
+      // A record about a sealed path is nobody's by role, an owner's included (`privacy/engine.js` `sealedCovers`).
+      if (Array.isArray(entry.paths) && entry.paths.some((path) => typeof path === "string" && sealedCovers(path, rules))) continue;
       if (scope !== "private") {
         // Only an immutable event-time decision may expose audit paths to a
         // team connection. Legacy records without the flag fail closed.
@@ -141,7 +144,9 @@ export async function toolListChanges(store, scope, rules, overrides, limitArg, 
   const lines = visible.map((entry) => {
     const pathText = entry.paths.join(" → ");
     const count = entry.details?.count ? ` (${entry.details.count} objects)` : "";
-    return { at: entry.at, text: `${entry.at} — ${entry.action}${count} — ${pathText}` };
+    // Its own writes named as such: a texted "your last edit was 10:03" was Tex's own save (2026-10-27).
+    const mine = entry.actor_client_id != null && entry.actor_client_id === store.actor?.clientId ? " (by you, this assistant)" : "";
+    return { at: entry.at, text: `${entry.at} — ${entry.action}${count}${mine} — ${pathText}` };
   });
   // Without reads, exactly the audit's own newest-first order, as before.
   const merged = (reads ? [...lines, ...readLines.lines].sort((a, b) => String(b.at).localeCompare(String(a.at))) : lines)

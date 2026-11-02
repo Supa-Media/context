@@ -40,7 +40,7 @@ async function server(paths: string[], plain: boolean): Promise<BatchRead[]> {
     if (path === "broken.md" && !plain) {
       return { path, outcome: "error", code: "STORAGE_UNSAFE", message: "cannot be opened safely" };
     }
-    return { path, outcome: "read", note: { ...entryOf(note), text: note.text, encrypted: false } };
+    return { path, outcome: "read", note: { ...entryOf(note), etag: note.etag, text: note.text, encrypted: false } };
   });
 }
 

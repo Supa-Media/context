@@ -73,7 +73,7 @@ export function FirstRunStorageFixture({
     mode,
     session: "choosing",
     paid: mode === "settling",
-    provisionFailure: failed ? managedFailureCopy(undefined) : undefined,
+    provisionFailure: failed ? managedFailureCopy(undefined, { money: "subscribed" }) : undefined,
     slow,
     choose: () => setMode("confirm"),
     back: () => setMode("choose"),
