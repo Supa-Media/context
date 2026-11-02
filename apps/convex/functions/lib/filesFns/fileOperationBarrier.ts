@@ -413,13 +413,9 @@ export async function runFileOperationHandler(
   let store: FileStore;
   // The owner's Download of old copies reads each at the key its row names, a pinned path included, so past the id layer (`lib/oldCopies/folders.ts`).
   let keyStore: FileStore | null = null;
-  // A note under a chat's home is kept in that chat's object, so the ticket and the store name it: a move landing notes
-  // there, and a read or save of one (the app opening a group chat's history.md, 2026-11-02).
+  // A note under a chat's home is kept in that chat's object, so the ticket and the store name it (`chatHomePaths.ts`).
   const homePaths = chatHomePaths(args.operation);
-  const landingChats: string[] =
-    homePaths.length > 0
-      ? await ctx.runQuery(internal.functions.texChatLanding.chatsOfHomes, { workspaceId: args.workspaceId, paths: homePaths })
-      : [];
+  const landingChats: string[] = homePaths.length === 0 ? [] : await ctx.runQuery(internal.functions.texChatLanding.chatsOfHomes, { workspaceId: args.workspaceId, paths: homePaths });
   try {
     // One table decides which backend this workspace got — the same table
     // the gateway uses, so the console reads and writes exactly what an AI
