@@ -162,6 +162,7 @@ export const PARTS: Readonly<Record<ContextPart, Drawing>> = {
   tex_heartbeat: [heart(50, 46, 76), [[18, 54], [36, 54], [42, 42], [50, 62], [56, 50], [82, 50]]],
   tex_attention: SET["bell"],
   tex_jobs: SHARED.clipboard,
+  tex_pictures: SET["camera"],
   tex_chats: [[[12, 18], [62, 18], [62, 52], [32, 52], [20, 64], [22, 52], [12, 52], [12, 16]], [[70, 34], [88, 34], [88, 68], [80, 68], [82, 82], [66, 68], [40, 68], [40, 60]]],
   tex_groups: SET["group"],
   tex_handbacks: [[[84, 20], [84, 54], [26, 54]], [[42, 38], [26, 54], [42, 70]], [[26, 84], [74, 84]]],

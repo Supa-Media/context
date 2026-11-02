@@ -93,10 +93,9 @@ export async function handleCancel(request, store, session) {
  * reach them), its steered texts and cancel mark are cleared, and nothing is
  * kept as said. `{ cancelled: true, answer: "", asked: 0, steps }`.
  */
-export async function cancelledTurn(store, session, { ledger, steer, transcript, steps }) {
+export async function cancelledTurn(store, session, { ledger, steer, steps }) {
   await withdrawPending(store, { userId: session.actorUserId, ids: ledger.asked.map((asked) => asked.id) }).catch(() => {});
   if (steer !== null) await steer.clear();
-  if (transcript !== null) await transcript.finish({ answer: "", outcome: "cancelled" }).catch(() => {});
   return json({ cancelled: true, answer: "", asked: 0, steps });
 }
 

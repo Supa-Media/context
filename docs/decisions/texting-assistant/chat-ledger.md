@@ -29,7 +29,7 @@ One at a time, each in three steps: its last readers move to the ledger, its wri
 1. **The bucket's event log** (`.context/agent/log/<chat>/`). **Writes stopped:** `POST /agent/events` checks the events at the door (`log.js` `checkEvents`) and appends them to the chat's ledger alone, awaited, so a refused write answers an error and the Worker keeps the events and posts them again (`apps/mcp/test/agentTextingRoutes.test.mjs`). A chat with no ledger (a group grant that names no chat) is still written to the log and counted as `tex_events_to_log`, never into the person's own one-to-one ledger. Its last reader is the copy-in (`ledgerBackfill.js`), which needs only what is already there. Next: copy in every chat that has not texted since, then delete.
 2. **The texting Worker's day of it** (`apps/agent/src/events.ts`, kept for decide and handed to a turn as `recent`). Not started.
 3. **The history record** (`history.js`). Not started.
-4. **The daily transcript pages** (`transcript.js`). Not started.
+4. **The daily transcript pages** (`transcript.js`). **Writes stopped:** no turn writes one. The dream and the hand-back miner read the person's ledger instead (`ledgerDays.js`), and texted pictures are kept in `tex/pictures/` ([transcripts](./transcripts.md)). The old notes are the person's own and stay.
 5. **The Tex page's own records**. Not started.
 
 ## What a simplification would cost

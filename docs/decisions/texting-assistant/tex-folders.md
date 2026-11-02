@@ -12,7 +12,8 @@ _Part of [the texting assistant](../texting-assistant.md). Decided by the owner,
 | Everything Tex kept, as Tex sees it | `history.ledger.json` (read only; `texStore/historyView.js`) | `history.ledger.json` (the same, for the chat's own ledger) |
 | Open jobs | `jobs.md` | `jobs.md` (`chatJobs.js`, read straight from the chat's object once its key is kept) |
 | Reminders and check-ins | `routines/` | `routines/` (since 2026-11-02; a routine in the bound workspace tagged `chat:` still runs) |
-| Daily notes | `transcripts/` | `transcripts/` (to come) |
+| Daily notes | `transcripts/` (no longer written since 2026-11-02; the ledger is the record) | none |
+| Pictures they texted | `pictures/` (one note a month, `textedPictures.js`) | none |
 | What Tex learned | `skills/` | `skills/` (`chatSkills.js`: the same notes and rules; written unless the turn read something from outside the chat) |
 | Mail, calendar, tidying | `heartbeat/`, `attention/`, `dreams/`, `handbacks/`, `housekeeping/` | none: a chat has no mailbox or calendar |
 

@@ -11,7 +11,7 @@ import { AgentRefusal, agentTools, MAX_QUESTION_LENGTH, openProvider, runTurn } 
 import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
-import { openTranscript } from "./transcript.js"; import { ledgerObserver, wordsEntry } from "./ledger.js";
+import { keepTextedPictures } from "./textedPictures.js"; import { ledgerObserver, wordsEntry } from "./ledger.js";
 import { groupTimingLine, turnKind, turnReport, waitBefore } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
@@ -465,19 +465,11 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   // Their zone: a routine's own, else the one the texting Worker sent (`localNow.js`).
   const timeZone = runner ? routineTimeZone(routine.settings, body.routine.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE;
-  const chatLog = texting || group !== null ? store.ledger : null, ledgerAt = { turn: body.turn, ownSlug: session.workspaceSlug }; // the chat's one record of everything (`ledger.js`); today's transcript below reads under an egress ledger of its own
+  const chatLog = texting || group !== null ? store.ledger : null, ledgerAt = { turn: body.turn, ownSlug: session.workspaceSlug }; // the chat's one record of everything (`ledger.js`); the pictures they texted are kept below under an egress ledger of its own
   const unseen = { ...session, egress: { ...session.egress, ledger: newLedger() } };
   Object.defineProperty(unseen, "accessToken", { value: session.accessToken, enumerable: false }); // as `sessionForContext`
-  const transcript = texting
-    ? openTranscript((name, args) => callToolForSession({ name, arguments: args }, store, unseen), {
-        now: received,
-        timeZone,
-        question,
-        quoted: quoted.words,
-        attachments: fresh, // what came with this text, never a file shown again
-        routine: runner ? routine.path : null,
-      })
-    : null;
+  // The pictures they texted, kept in a note of their own (`textedPictures.js`) as the turn is saved: the daily transcripts that kept them are no longer written.
+  const keepPictures = texting && !runner ? () => keepTextedPictures((name, args) => callToolForSession({ name, arguments: args }, store, unseen), { now: received, timeZone, attachments: fresh }).catch(() => []) : () => null;
 
   const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text or a group's (`pictureMaker.js`).
   const offerRead = texted && job === null ? tex.ahead("google_offer", () => googleOfferLine(store, shown), "") : null, knowsRead = texting ? tex.ahead("tex_notes", () => deskTexts(store).then((desk) => readTexNotes(dispatch, { controlPlane, session }, desk, hot.identity))) : null; // About me and the jobs list from the person's object, with the history (`texDesk.js`)
@@ -539,7 +531,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
       ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
       localNow: { now: Date.now(), timeZone },
-      observe: ledgerObserver(chatLog, withJobSteps(job, step, transcript?.record ?? null), ledgerAt), // a job's steps also go to its chat (`background.js`), and every step to the chat's ledger
+      observe: ledgerObserver(chatLog, withJobSteps(job, step, null), ledgerAt), // a job's steps also go to its chat (`background.js`), and every step to the chat's ledger
       workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
       texting: texting || group !== null, // a group's answer is a text too, written for one
       notes: production !== null ? { prompt: production.prompt } : null,
@@ -568,11 +560,11 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     await tex.after("turn_row", logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage, meterParts(turn)));
     outcome.clean = ledger.untrusted !== true;
     // Cancelled by the Worker (`steer.js`), in a round or after the last: its asks are withdrawn, nothing is kept as said, and nothing is texted.
-    if (turn.cancelled || (steer !== null && (await tex.step("cancel_check", () => steer.endCancelled())))) return await tex.step("cancelled", () => begun.catch(() => {}).then(() => cancelledTurn(store, session, { ledger, steer, transcript, steps: turn.steps })));
+    if (turn.cancelled || (steer !== null && (await tex.step("cancel_check", () => steer.endCancelled())))) return await tex.step("cancelled", () => begun.catch(() => {}).then(() => cancelledTurn(store, session, { ledger, steer, steps: turn.steps })));
 
     if (runner) {
       const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer, { routine, runs });
-      await tex.after("transcript", () => transcript.finish({ answer: ran.text, outcome: ran.outcome })); chatLog?.write(wordsEntry("note", ran.text, { turn: body.turn, routine: routine.path, outcome: ran.outcome })); await tex.after("ledger", () => chatLog?.flush());
+      chatLog?.write(wordsEntry("note", ran.text, { turn: body.turn, routine: routine.path, outcome: ran.outcome })); await tex.after("ledger", () => chatLog?.flush());
       await tex.step("keep_run", () => keepRun(store, routine, runs, ran.outcome, ran.text));
       /*
         A routine that texts the person is a message they may answer with a bare
@@ -625,7 +617,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     */
     const handoff = opened?.browser?.handoffLine() ?? null;
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
-    if (transcript !== null) await tex.after("transcript", () => transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" })); chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), wordsEntry("reply", sent, { turn: body.turn, model: turn.model, ms: Date.now() - received, clean: ledger.untrusted !== true, ...(turn.exhausted ? { outcome: "exhausted" } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`)
+    chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), wordsEntry("reply", sent, { turn: body.turn, model: turn.model, ms: Date.now() - received, clean: ledger.untrusted !== true, ...(turn.exhausted ? { outcome: "exhausted" } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`)
     // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
     const replaced = (job !== null && steer !== null && (await tex.step("steer_pending", () => steer.pending()))) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
     if (steer !== null) await tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear()));
@@ -637,7 +629,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     const kept = { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID, ledger: false }; // addresses only (`sources.js`); the turn's steps and reply are in the ledger already
     if (saving) await tex.behind(front, "save_chat", () => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
       try {
-        const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await tex.step("transcript_kept", () => transcript?.kept())) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
+        const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await tex.step("pictures_kept", keepPictures)) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
         await tex.step("append_chat", () => appendConversation(store, conversation, saved, said, kept)); if (conversation === "texts" && group === null) await tex.step("learn_desk_keys", () => learnDeskKeys(store, session.workspaceId)); // the desk's note keys, for the next turn (`texDesk.js`)
       } catch {
         // The answer is still owed. A history that failed to save costs the next turn some context, not this one its reply.
@@ -668,7 +660,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     outcome.clean = false;
     if (steer !== null) await tex.step("steer_clear", () => begun.catch(() => {}).then(() => steer.clear()));
     if (opened !== null) await tex.after("browser_close", () => opened.close());
-    if (transcript !== null) await tex.after("transcript", () => transcript.finish({ answer: "", outcome: "the turn failed" })); await tex.after("ledger", () => chatLog?.flush());
+    await tex.after("ledger", () => chatLog?.flush());
     await tex.step("usage_failed", () => meter(null, true));
     /*
       An ask the person was never told about (the turn failed before its ask
