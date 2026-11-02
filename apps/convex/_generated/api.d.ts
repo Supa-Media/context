@@ -163,6 +163,8 @@ import type * as functions_nodeMovesAdmin from "../functions/nodeMovesAdmin.js";
 import type * as functions_nodeRowMoves from "../functions/nodeRowMoves.js";
 import type * as functions_nodesPrivacy from "../functions/nodesPrivacy.js";
 import type * as functions_nodesAccess from "../functions/nodesAccess.js";
+import type * as functions_nodesAccessFirst from "../functions/nodesAccessFirst.js";
+import type * as functions_workspaceObjectMarks from "../functions/workspaceObjectMarks.js";
 import type * as functions_nodesPurge from "../functions/nodesPurge.js";
 import type * as functions_pageCovers from "../functions/pageCovers.js";
 import type * as functions_owners from "../functions/owners.js";
@@ -413,6 +415,8 @@ declare const fullApi: ApiFromModules<{
   "functions/nodeRowMoves": typeof functions_nodeRowMoves;
   "functions/nodesPrivacy": typeof functions_nodesPrivacy;
   "functions/nodesAccess": typeof functions_nodesAccess;
+  "functions/nodesAccessFirst": typeof functions_nodesAccessFirst;
+  "functions/workspaceObjectMarks": typeof functions_workspaceObjectMarks;
   "functions/nodesPurge": typeof functions_nodesPurge;
   "functions/pageCovers": typeof functions_pageCovers;
   "functions/owners": typeof functions_owners;

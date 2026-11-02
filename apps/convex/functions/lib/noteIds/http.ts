@@ -37,6 +37,7 @@
  * caller's as for one that does not exist. A malformed body is a 400.
  */
 
+import { objectFirst } from "../rowWatch/objectFirst";
 import { objectSettled } from "../../workspaceObjectPush";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
@@ -231,8 +232,7 @@ export async function gatewayNoteIdsRemovedHandler(ctx: ActionCtx, body: Record<
   try {
     const writable = await memberWritableWorkspace(ctx, accessToken, workspaceId);
     if (writable === null) return json(NOT_SERVED);
-    const removed = await ctx.runMutation(internal.functions.noteIdsKeyed.removeKeyed, { workspaceId: writable, path, key, at });
-    await objectSettled(ctx, writable);
+    const removed = await objectFirst(ctx, writable, () => ctx.runMutation(internal.functions.noteIdsKeyed.removeKeyed, { workspaceId: writable, path, key, at }));
     return json({ ok: true, removed });
   } catch {
     return json(NOT_SERVED);

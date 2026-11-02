@@ -36,12 +36,23 @@ const BINDING_QUIET = new Set(["scaffoldQueuedAt", "leftBehind"]);
 /** Fields of a `nodes` row that only say which version of the bytes it is at: no rule changes with them. */
 const BYTES_ONLY = new Set(["etag", "size", "uploaded", "observedAt", "idCopy", "keyedFrom", "storageKey", "noteId"]);
 
+/**
+ * Fields of a `nodes` row that place it or decide who sees it: a patch naming one may narrow. Everything else on the
+ * row (its bytes' version, parsed facts, order, chaos flag) never hides anything from anyone.
+ */
+const PLACES_OR_JUDGES = new Set(["workspaceId", "path", "parentId", "name", "kind", "goneAt", "access", "sealed", "role", "archiveOf"]);
+
 /** What one workspace's writes in this mutation amount to. */
 export type WorkspaceChange = {
   /** `nodes` rows written: pushed as they stand when the push reads them, or removed if gone. */
   nodeIds: Set<Id<"nodes">>;
   /** Whether the access rules may have changed, so the push renders and sends them. */
   access: boolean;
+  /**
+   * Whether the write may narrow what someone sees: an access row written, or a row changed beyond its bytes,
+   * replaced or deleted. A new row never narrows. Such a write opens a mark in the object first (`./objectFirst.ts`).
+   */
+  narrows: boolean;
   /** Whether the storage binding may have changed, so the object's kept copy is cleared. */
   binding: boolean;
 };
@@ -70,7 +81,7 @@ function accessTableOf(db: MutationCtx["db"], id: string): AccessSource | null {
 function changeFor(changes: Map<Id<"workspaces">, WorkspaceChange>, workspaceId: Id<"workspaces">): WorkspaceChange {
   let change = changes.get(workspaceId);
   if (change === undefined) {
-    change = { nodeIds: new Set(), access: false, binding: false };
+    change = { nodeIds: new Set(), access: false, narrows: false, binding: false };
     changes.set(workspaceId, change);
   }
   return change;
@@ -103,12 +114,14 @@ function record(
   id: string,
   doc: Doc | null,
   fields: string[] | null,
+  op: "insert" | "patch" | "replace" | "delete",
 ): void {
   const workspaceId = doc?.workspaceId;
   if (typeof workspaceId !== "string") return;
   const change = changeFor(changes, workspaceId);
   if (table === "nodeAccess" || table === "nodeAccessState") {
     change.access = true;
+    change.narrows = true;
     return;
   }
   const nodeId = id as Id<"nodes">;
@@ -116,6 +129,9 @@ function record(
   // A folder whose path changed is pushed as one row; the object rewrites everything under it (`ws.rows.put`).
   // Rules are keyed by path and carry each row's own access, so anything but a bytes-only patch may change them.
   if (fields === null || fields.some((field) => !BYTES_ONLY.has(field))) change.access = true;
+  if (op === "delete" || op === "replace" || (op === "patch" && (fields === null || fields.some((field) => PLACES_OR_JUDGES.has(field))))) {
+    change.narrows = true;
+  }
 }
 
 /**
@@ -146,7 +162,7 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
   Object.assign(watched, {
     async insert(table: string, value: Doc) {
       const id = await (db.insert as (table: string, value: unknown) => Promise<GenericId<string>>)(table, value);
-      if ((WATCHED_TABLES as readonly string[]).includes(table)) record(changes, table as Watched, id, value, null);
+      if ((WATCHED_TABLES as readonly string[]).includes(table)) record(changes, table as Watched, id, value, null, "insert");
       if ((BINDING_TABLES as readonly string[]).includes(table)) recordBinding(changes, value, null);
       if ((ACCESS_TABLES as readonly string[]).includes(table)) noteAccess(table as AccessSource, String(id), value, "insert");
       return id;
@@ -161,7 +177,7 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
       if (bindingTableOf(db, id) !== null) recordBinding(changes, (await db.get(id as GenericId<BindingTable>)) as Doc | null, fields);
       const table = tableOf(db, id);
       if (table === null) return;
-      record(changes, table, id, (await db.get(id as GenericId<Watched>)) as Doc | null, fields);
+      record(changes, table, id, (await db.get(id as GenericId<Watched>)) as Doc | null, fields, "patch");
     },
     async replace(...args: unknown[]) {
       const { id } = split(args);
@@ -176,7 +192,7 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
       }
       const table = tableOf(db, id);
       if (table === null) return;
-      record(changes, table, id, (await db.get(id as GenericId<Watched>)) as Doc | null, null);
+      record(changes, table, id, (await db.get(id as GenericId<Watched>)) as Doc | null, null, "replace");
     },
     async delete(...args: unknown[]) {
       const { id } = split(args);
@@ -186,7 +202,7 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
       const bindingBefore = bindingTableOf(db, id) === null ? null : ((await db.get(id as GenericId<BindingTable>)) as Doc | null);
       await accessBefore(id, null);
       await (db.delete as (...a: unknown[]) => Promise<void>)(...args);
-      if (table !== null) record(changes, table, id, before, null);
+      if (table !== null) record(changes, table, id, before, null, "delete");
       if (bindingBefore !== null) recordBinding(changes, bindingBefore, null);
     },
     // `db.table(name)`'s writers go through the same four, so its shape is no way around them.
