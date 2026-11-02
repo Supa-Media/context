@@ -56,11 +56,12 @@ const PAGES = {
     handle: "alice",
     phone: ALICE_PHONE,
     timeZone: "America/New_York",
-    style: { tone: "friendly", length: "short" },
+    instructions: "Be friendly.\nKeep answers short.",
+    picks: [{ id: "emoji_none", label: "No emoji" }],
     routines: [{ workspaceId: "ws_alice", slug: null, path: "tex/routines/daily/brief.md", paused: false, nextRunAt: Date.now() + 3_600_000, unit: "day", every: 1 }],
-    chats: [{ key: GROUP, name: "Team Night", people: 3, peopleNames: ["You", "ada", "cy"], homeWords: null, homeWorkspaceId: null, homeSlug: null, muted: false, engagement: "attentive", style: {}, sponsor: "alice", routines: [] }],
+    chats: [{ key: GROUP, name: "Team Night", people: 3, peopleNames: ["You", "ada", "cy"], homeWords: null, homeWorkspaceId: null, homeSlug: null, muted: false, engagement: "attentive", instructions: null, sponsor: "alice", routines: [] }],
   },
-  [T.bob]: { status: "ok", userId: "user_b2y", workspaceId: "ws_bob", handle: "bob", phone: null, timeZone: null, style: {}, routines: [], chats: [{ key: BOBS_GROUP, name: "Bob Things", people: 2, peopleNames: ["You", "eve"], homeWords: null, homeSlug: null, engagement: null, style: {}, sponsor: null, routines: [] }] },
+  [T.bob]: { status: "ok", userId: "user_b2y", workspaceId: "ws_bob", handle: "bob", phone: null, timeZone: null, instructions: null, picks: [], routines: [], chats: [{ key: BOBS_GROUP, name: "Bob Things", people: 2, peopleNames: ["You", "eve"], homeWords: null, homeSlug: null, engagement: null, instructions: null, sponsor: null, routines: [] }] },
 };
 
 async function setUp() {
@@ -84,7 +85,7 @@ async function setUp() {
       if (url.endsWith("/settings")) {
         settings.push(body);
         const known = page && (body.chat === "me" || page.chats.some((chat) => chat.key === body.chat));
-        return Response.json(known ? { status: "done", style: body.values } : { status: "not_found" });
+        return Response.json(known ? { status: "done", ...(body.values.pick ? { instructions: `${body.values.pick} line.` } : {}) } : { status: "not_found" });
       }
       return Response.json(page ?? { status: "refused" });
     }
@@ -210,16 +211,20 @@ test("job page, list and acts: a stop reaches her inbox's job; settings go to th
     const stop = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "stop", job: "job2" } } });
     assert.deepEqual(stop.body, { ok: true });
     assert.deepEqual(world.texting.steered.at(-1), { chat: { phone: ALICE_PHONE }, id: "job2", stop: true });
-    const settings = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "settings", values: { tone: "candid" } } } });
+    const settings = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "settings", values: { pick: "emoji_none" } } } });
     assert.deepEqual(settings.body, { ok: true });
-    assert.deepEqual(world.settings.at(-1), { accessToken: T.alice, chat: "me", values: { tone: "candid" } });
+    assert.deepEqual(world.settings.at(-1), { accessToken: T.alice, chat: "me", values: { pick: "emoji_none" } });
     // A group's settings are not the person's.
     const crossed = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "group.settings", values: { answers: "every" } } } });
     assert.deepEqual(crossed.body, { ok: false, error: "invalid" });
     const values = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: "me", kind: "settings" } });
-    assert.equal(values.body.values.tone, "friendly");
+    // Their own words and the quick picks, no dials (Dev2, 2026-11-01).
+    assert.equal(values.body.instructions, "Be friendly.\nKeep answers short.");
+    assert.deepEqual(values.body.picks, [{ id: "emoji_none", label: "No emoji" }]);
+    assert.equal(values.body.values, undefined);
     const group = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: GROUP, kind: "settings" } });
-    assert.deepEqual(group.body.values, { answers: "named", tone: "default" });
+    assert.deepEqual(group.body.values, { answers: "named" });
+    assert.equal(group.body.instructions, "");
     assert.equal(group.body.approver, "alice");
     const jobs = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: "me", kind: "jobs" } });
     assert.deepEqual(jobs.body.items.map((item) => item.id), ["job2", "job1", "job0"]);
@@ -284,6 +289,49 @@ test("the live socket: no token is refused; alice's goes to her chat's own Tex o
     const bob = await handleTexPageLive(socket(T.bob, `handle=bob&chat=${GROUP}`), env, { slug: null, pathToken: null, origin: "https://mcp.context.test" }, deps);
     assert.equal(bob.status, 404);
     assert.equal(opened.length, 1);
+  } finally {
+    world.restore();
+  }
+});
+
+// The chat's history file (`src/http/texPage/ledger.js`; owner, 2026-11-02): the ledger raw with filters, and what Tex sees.
+test("alice reads her chat's history file raw, by kind and by day, and what Tex sees", async () => {
+  const world = await setUp();
+  try {
+    const { ledgerFor, eventEntry, toolEntry, wordsEntry } = await import("../src/agent/ledger.js");
+    const ledger = ledgerFor(world.env, { person: "ws_alice" });
+    const at = Date.UTC(2026, 9, 30, 16, 0, 0); // Oct 30, noon in New York
+    const asked = { id: `${at}-000001`, at, chat: "c", from: { kind: "person", name: "alice" }, kind: "text", text: "find me a dentist" };
+    const answered = { id: `${at + 9000}-000002`, at: at + 9000, chat: "c", from: { kind: "tex" }, kind: "text", text: "Dr Lee, Thursday 3pm.", turn: "turnAlice1", covers: [asked.id], delivered: true };
+    await ledger.append("texts", [
+      eventEntry(asked),
+      wordsEntry("thinking", "they want a dentist", { turn: "turnAlice1", at: at + 1000 }),
+      toolEntry({ name: "web_search", args: { query: "dentist" }, ok: true, ms: 40, result: "Dr Lee" }, { ownSlug: "alice", turn: "turnAlice1", at: at + 2000 }),
+      eventEntry(answered),
+      wordsEntry("reply", "Dr Lee, Thursday 3pm.", { turn: "turnAlice1", clean: true, at: at + 9500 }),
+    ]);
+    const raw = await ask(world, "/tex/page/ledger", { token: T.alice, body: { handle: "alice", chat: "me", view: "raw" } });
+    assert.equal(raw.status, 200, raw.text);
+    assert.equal(raw.body.manifest.schema, "tex-ledger");
+    assert.deepEqual(raw.body.entries.map((entry) => entry.kind), ["text", "thinking", "tool", "text", "reply"]);
+    assert.equal(raw.body.entries[2].result, "Dr Lee", "raw is everything kept");
+    const thinking = await ask(world, "/tex/page/ledger", { token: T.alice, body: { handle: "alice", chat: "me", view: "raw", kinds: ["thinking"] } });
+    assert.deepEqual(thinking.body.entries.map((entry) => entry.text), ["they want a dentist"]);
+    const otherDay = await ask(world, "/tex/page/ledger", { token: T.alice, body: { handle: "alice", chat: "me", view: "raw", day: "2026-10-31" } });
+    assert.deepEqual(otherDay.body.entries, []);
+    const thatDay = await ask(world, "/tex/page/ledger", { token: T.alice, body: { handle: "alice", chat: "me", view: "raw", day: "2026-10-30" } });
+    assert.equal(thatDay.body.entries.length, 5);
+    const sees = await ask(world, "/tex/page/ledger", { token: T.alice, body: { handle: "alice", chat: "me", view: "sees" } });
+    assert.equal(sees.status, 200, sees.text);
+    assert.match(sees.body.text, /@alice: find me a dentist/);
+    assert.match(sees.body.text, /You: Dr Lee, Thursday 3pm\.\n\s+\(used: web_search\)/);
+    assert.ok(!sees.body.text.includes("they want a dentist"), "Tex is not shown its earlier thinking");
+    assert.equal(sees.body.settings.thinking, false);
+    // Bob can't read it, and his own group's history is his group's alone.
+    const bob = await ask(world, "/tex/page/ledger", { token: T.bob, body: { handle: "bob", chat: GROUP, view: "raw" } });
+    assert.equal(bob.status, 404);
+    const bobs = await ask(world, "/tex/page/ledger", { token: T.bob, body: { handle: "bob", chat: BOBS_GROUP, view: "raw" } });
+    assert.deepEqual(bobs.body.entries, []);
   } finally {
     world.restore();
   }

@@ -6,6 +6,7 @@
  *  - `POST /tex/page/job`  `{handle, chat, id}` → `{job}`
  *  - `POST /tex/page/list` `{handle, chat, kind, cursor?}` → `{items, cursor?, ...}`
  *  - `POST /tex/page/act`  `{handle, chat, action}` → `{ok: true}` | `{ok: false, error}`
+ *  - `POST /tex/page/ledger` `{handle, chat, view, ...}` → the chat's history file (`ledger.js`)
  *
  * Who may: `page.js`. Where each thing is read and written, one way each:
  * jobs from the chat's inbox in the texting Worker (`jobs.js`); what Tex
@@ -28,13 +29,13 @@ import { pokeTexPage } from "../../texStore/pageLive.js";
 import { json } from "../responses.js";
 import { fetchPageJobs, jobDetail, jobSummary, jobsOverview, slotsOf, steerPageJob } from "./jobs.js";
 import * as notes from "./notes.js";
+import { ledgerView } from "./ledger.js";
 import { PageRefusal, chatOf, checkViewer, loadPage, pickerOf, readPageBody, startOfDay } from "./page.js";
 
-export const TEX_PAGE_PATHS = new Set(["/tex/page", "/tex/page/job", "/tex/page/list", "/tex/page/act"]);
+export const TEX_PAGE_PATHS = new Set(["/tex/page", "/tex/page/job", "/tex/page/list", "/tex/page/act", "/tex/page/ledger"]);
 const LIST_KINDS = new Set(["thinking", "jobs", "advisor", "mailcheck", "routines", "checkins", "about", "settings"]);
 const RECORD_KINDS = new Set(["thinking", "advisor", "mailcheck"]);
 const OVERVIEW_KEYS = ["chats", "chat", "status", "thinking", "thinkingToday", "minions", "earlier", "earlierWeek", "tiles", "behind"];
-const STYLE_KEYS = ["tone", "warmth", "enthusiasm", "emoji", "length", "bubbles", "humor"];
 
 /** The tool door, as this person, in the chat's notes: `context` added where the notes are not the session's own workspace. */
 function noteCaller(store, session, page) {
@@ -61,18 +62,17 @@ async function computerOf(env, session) {
   return body?.running === true ? { running: true, ...(typeof body.url === "string" ? { url: body.url.slice(0, 300) } : {}) } : { running: false };
 }
 
-function styleSummary(style) {
-  const tone = typeof style?.tone === "string" && style.tone !== "default" ? style.tone : "default";
-  const length = style?.length === "short" ? "short" : style?.length === "detailed" ? "detailed" : null;
-  const toneWord = tone === "default" ? "Default" : tone[0].toUpperCase() + tone.slice(1);
-  return length ? `${toneWord} · ${length}` : toneWord;
+/** The person's own instructions in a line (Dev2, 2026-11-01: their words are how Tex talks), or "Default". */
+function instructionsSummary(text) {
+  const first = String(text ?? "").split("\n")[0].trim();
+  return first === "" ? "Default" : first.length > 60 ? `${first.slice(0, 59)}…` : first;
 }
 
 const ANSWERS = { quiet: "named", attentive: "named", followAlong: "named", helpful: "every" };
 const answersOf = (engagement) => ANSWERS[engagement] ?? "named";
 
 function settingsSummary(chat) {
-  if (chat.kind === "me") return styleSummary(chat.style);
+  if (chat.kind === "me") return instructionsSummary(chat.instructions);
   return answersOf(chat.engagement) === "every" ? "Answers every message" : "Answers when named";
 }
 
@@ -153,14 +153,13 @@ async function list(env, page, chat, call, kind, cursor) {
     const read = await settled(() => notes.readAbout(call, chat.about), { items: [], total: 0 });
     return { items: read.items, total: read.total };
   }
-  // Settings: the person's own style, or the chat's.
-  if (chat.kind === "me") {
-    const values = Object.fromEntries(STYLE_KEYS.map((key) => [key, chat.style?.[key] ?? "default"]));
-    return { items: [], values };
-  }
+  // Settings: the person's own instructions, or the chat's, with the quick picks that add a line to them.
+  if (chat.kind === "me") return { items: [], instructions: chat.instructions, picks: chat.picks };
   return {
     items: [],
-    values: { answers: answersOf(chat.engagement), tone: chat.style?.tone ?? "default" },
+    instructions: chat.instructions,
+    picks: chat.picks,
+    values: { answers: answersOf(chat.engagement) },
     ...(chat.sponsor ? { approver: chat.sponsor } : {}),
     people: chat.peopleNames,
   };
@@ -269,6 +268,7 @@ export async function handleTexPage(request, env, store, session, { path, contro
       }
       return json({ job: jobDetail(job, slotsOf(jobs).get(job.id) ?? null) });
     }
+    if (path === "/tex/page/ledger") return json(await ledgerView(env, page, chat, body)); // the chat's history file (`ledger.js`)
     if (path === "/tex/page/list") {
       if (!LIST_KINDS.has(body.kind)) {
         outcome = "invalid";

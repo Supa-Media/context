@@ -43,6 +43,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Editing history is filed by note id](./storage-and-credentials/paths-on-read.md#editing-history-is-filed-by-note-id) (2026-10-25)
 - [Pictures and files stay in each workspace's own bucket, and pictures are kept compressed](./storage-and-credentials/files-bucket.md) (2026-11-01)
 - [Every row write reaches the workspace object](./storage-and-credentials/workspace-object-rows.md) (2026-11-01)
+- [Notes' facts live in the workspace object](./storage-and-credentials/facts-in-objects.md) (2026-11-02)
 - Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id
@@ -804,6 +805,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given
 - [The person views and drives Tex's computer at context.lc/tex/<handle>](./texting-assistant/computer.md)
+- [context.lc/tex/<handle> is the person's whole Tex page (Dev2, 2026-11-02)](./texting-assistant/tex-page.md)
 - [Tex downloads a file and emails it (2026-10-22)](./texting-assistant/computer.md#tex-downloads-a-file-and-emails-it-2026-10-22)
 - [A failed browser run is debugged from Browserbase's session log (2026-10-22)](./texting-assistant/computer.md#a-failed-browser-run-is-debugged-from-browserbases-session-log-2026-10-22)
 - [A browser waiting on the person is held fifteen minutes (2026-10-28)](./texting-assistant/computer.md#a-browser-waiting-on-the-person-is-held-fifteen-minutes-2026-10-28)

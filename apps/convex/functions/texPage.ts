@@ -20,8 +20,7 @@ import { type QueryCtx, internalQuery } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import { resolveLiveGrant } from "./lib/controlPlane/liveGrants";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
-import { readTexStyle, texStyleValidator, type TexStyle } from "./lib/texStyle";
-import { styleOf, withStyle } from "./lib/texInstructions";
+import { MAX_INSTRUCTIONS, QUICK_PICKS, type InstructionsChange } from "./lib/texInstructions";
 import { personRow, setChatSettings, setPersonSettings, setSpeaksUp, speaksUpOf } from "./lib/texChatRules";
 import type { Engagement } from "./textGroups";
 import { CONSOLE_CLIENT_ID } from "./agentGrant";
@@ -68,7 +67,8 @@ const chatValidator = v.object({
   homeSlug: v.union(v.string(), v.null()),
   muted: v.boolean(),
   engagement: engagementValidator,
-  style: texStyleValidator,
+  /** The chat's own instructions (`lib/texInstructions.ts`, Dev2, 2026-11-01), or null for none. */
+  instructions: v.union(v.string(), v.null()),
   sponsor: v.union(v.string(), v.null()),
   routines: v.array(routineValidator),
 });
@@ -81,7 +81,9 @@ export const pageValidator = v.union(
     handle: v.string(),
     phone: v.union(v.string(), v.null()),
     timeZone: v.union(v.string(), v.null()),
-    style: texStyleValidator,
+    /** The person's own instructions, or null; and the quick picks the page offers, by id and label. */
+    instructions: v.union(v.string(), v.null()),
+    picks: v.array(v.object({ id: v.string(), label: v.string() })),
     routines: v.array(routineValidator),
     chats: v.array(chatValidator),
   }),
@@ -90,7 +92,7 @@ export const pageValidator = v.union(
 
 export const settingsAnswerValidator = v.object({
   status: v.union(v.literal("done"), v.literal("refused"), v.literal("not_found"), v.literal("bad_request"), v.literal("rate_limited")),
-  style: v.optional(texStyleValidator),
+  instructions: v.optional(v.string()),
   engagement: v.optional(v.string()),
 });
 
@@ -192,8 +194,7 @@ export const pageFor = internalQuery({
 
     const phone = (await ctx.db.query("phoneLinks").withIndex("by_user", (q) => q.eq("userId", userId)).first())?.phone ?? null;
     const timeZone = (await ctx.db.query("accountTimeZones").withIndex("by_user", (q) => q.eq("userId", userId)).unique())?.timeZone ?? null;
-    // The dials the person's instructions stand for (`texInstructions.ts` `styleOf`), as the page still shows them.
-    const style = styleOf((await personRow(ctx, userId))?.instructions);
+    const instructions = (await personRow(ctx, userId))?.instructions ?? null;
 
     const slugOf = slugCache(ctx);
     const routines = await personRoutines(ctx, workspaceId, slugOf);
@@ -234,7 +235,7 @@ export const pageFor = internalQuery({
           homeSlug: homed ? pinned.slug : null,
           muted: speaksUpOf(chat) === "off",
           engagement: ((level) => (level === undefined || level === "off" ? null : level))(speaksUpOf(chat)),
-          style: styleOf(chat.instructions),
+          instructions: chat.instructions ?? null,
           sponsor,
           routines: await chatRoutines(ctx, chat.groupKey, slugOf),
         };
@@ -248,43 +249,51 @@ export const pageFor = internalQuery({
       handle: workspace.slug,
       phone,
       timeZone,
-      style,
+      instructions,
+      picks: QUICK_PICKS.map(({ id, label }) => ({ id, label })),
       routines,
       chats,
     };
   },
 });
 
-/** A settings call, read from the wire: `me` with a style, or a chat key with a style and `answers`. */
+/** A settings call, read from the wire: `me` or a chat key, with the whole text or a quick pick, and `answers` for a chat. */
 export type TexPageSettings =
-  | { kind: "me"; patch: TexStyle }
-  | { kind: "chat"; key: string; patch: TexStyle; engagement: Engagement | undefined };
+  | { kind: "me"; change: InstructionsChange | undefined }
+  | { kind: "chat"; key: string; change: InstructionsChange | undefined; engagement: Engagement | undefined };
 
 /** The engagement a page's `answers` word stands for. */
 const ANSWERS: Record<string, Engagement> = { named: "attentive", every: "helpful" };
 
+/** `{ instructions }` (the whole text) or `{ pick }` (a quick pick's id); undefined for neither, null for anything off. */
+function changeOf(values: Record<string, unknown>): InstructionsChange | undefined | null {
+  const { instructions, pick } = values;
+  if (instructions !== undefined && pick !== undefined) return null;
+  if (instructions !== undefined) return typeof instructions === "string" && instructions.length <= MAX_INSTRUCTIONS ? { replace: instructions } : null;
+  if (pick !== undefined) return typeof pick === "string" && QUICK_PICKS.some((entry) => entry.id === pick) ? { pick } : null;
+  return undefined;
+}
+
 /** Read a settings call, or null for anything that is not one. Pure, so the route and the write agree. */
 export function readTexPageSettings(chat: unknown, values: unknown): TexPageSettings | null {
   if (typeof chat !== "string" || values === null || typeof values !== "object" || Array.isArray(values)) return null;
-  if (chat === "me") {
-    const patch = readTexStyle(values);
-    return patch === null ? null : { kind: "me", patch };
-  }
+  const { answers, ...rest } = values as Record<string, unknown>;
+  if (Object.keys(rest).some((key) => key !== "instructions" && key !== "pick")) return null;
+  const change = changeOf(rest);
+  if (change === null) return null;
+  if (chat === "me") return answers === undefined && change !== undefined ? { kind: "me", change } : null;
   if (!CHAT_KEY.test(chat)) return null;
-  const { answers, ...style } = values as Record<string, unknown>;
-  const patch = readTexStyle(style);
-  if (patch === null) return null;
   let engagement: Engagement | undefined;
   if (answers !== undefined) {
     if (typeof answers !== "string" || !Object.prototype.hasOwnProperty.call(ANSWERS, answers)) return null;
     engagement = ANSWERS[answers];
   }
-  return { kind: "chat", key: chat, patch, engagement };
+  return { kind: "chat", key: chat, change, engagement };
 }
 
 /**
- * One settings change, as the person the console grant names. `me` lays the patch over their own style; a chat
- * key lays its style and "when Tex speaks up" over that chat, and only if the person is one of its people.
+ * One settings change, as the person the console grant names. `me` changes their own instructions; a chat key
+ * changes that chat's instructions and "when Tex speaks up", and only if the person is one of its people.
  * Refused whole on a bad value, and a rate limit answers `rate_limited` with nothing written.
  */
 export const applyTexPageSettings = internalMutation({
@@ -297,9 +306,8 @@ export const applyTexPageSettings = internalMutation({
     if (userId === null) return { status: "refused" as const };
     try {
       if (settings.kind === "me") {
-        const replace = withStyle((await personRow(ctx, userId))?.instructions ?? "", settings.patch);
-        const saved = await setPersonSettings(ctx, userId, { change: { replace } });
-        return "refused" in saved ? { status: "bad_request" as const } : { status: "done" as const, style: styleOf(saved.instructions) };
+        const saved = await setPersonSettings(ctx, userId, { change: settings.change });
+        return "refused" in saved ? { status: "bad_request" as const } : { status: "done" as const, ...(saved.instructions ? { instructions: saved.instructions } : {}) };
       }
       const group = await ctx.db
         .query("textGroups")
@@ -307,17 +315,17 @@ export const applyTexPageSettings = internalMutation({
         .unique();
       if (group === null || !(group.homeUsers ?? []).includes(userId)) return { status: "not_found" as const };
       const setBy = (await handleFor(ctx, userId)) || "someone here";
-      // Style first: its rate limit throws before anything is written, so a limited call changes neither setting.
-      let style = styleOf(group.instructions);
-      if (Object.keys(settings.patch).length > 0) {
-        const saved = await setChatSettings(ctx, group, { change: { replace: withStyle(group.instructions ?? "", settings.patch) } }, setBy);
+      // The text first: its rate limit throws before anything is written, so a limited call changes neither setting.
+      let instructions = group.instructions;
+      if (settings.change !== undefined) {
+        const saved = await setChatSettings(ctx, group, { change: settings.change }, setBy);
         if ("refused" in saved) return { status: "bad_request" as const };
-        style = styleOf(saved.instructions);
+        instructions = saved.instructions;
       }
       if (settings.engagement !== undefined) await setSpeaksUp(ctx, group, settings.engagement, setBy);
       return {
         status: "done" as const,
-        style,
+        ...(instructions ? { instructions } : {}),
         ...(settings.engagement !== undefined ? { engagement: settings.engagement } : {}),
       };
     } catch (error) {

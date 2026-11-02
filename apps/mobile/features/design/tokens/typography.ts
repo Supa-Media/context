@@ -115,6 +115,19 @@ export const pointerType = {
 } as const;
 
 /**
+ * The Tex page's scale (`features/tex/page`): the sizes of the mock Dev2
+ * approved on 2026-11-02 as "it must look exactly like this mock", in the
+ * page's own voice, as `siteType` is the website's. Its prose sizes are the
+ * mock's (`T`'s `size`); these are the two a stylesheet names.
+ */
+export const texPageType = {
+  /** The address bar over the small live look at Tex's browser. */
+  miniAddress: 9,
+  /** A field on the page, before `useFieldFont` raises it on a phone. */
+  field: 14,
+} as const;
+
+/**
  * The published website's scale — a different voice from the console's.
  *
  * A visitor reading somebody's site is reading, not operating an app, so the

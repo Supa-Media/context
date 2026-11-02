@@ -15,8 +15,7 @@
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
-import { R2Store } from "../../../mcp/src/store/r2.js";
-import { texBucket } from "../../../mcp/src/texStore/wire.js";
+import { texBucket, texBucketStore } from "../../../mcp/src/texStore/wire.js";
 import { hashToken } from "./crypto";
 import { GATEWAY_SECRET_ENV_VAR, randomOpaqueToken } from "./gatewayAuth";
 import { storageMoverOrigin } from "./storageMover";
@@ -43,7 +42,7 @@ export function consoleTexStore(
   options: Options = {},
 ): ((owner: string) => unknown) | null {
   const bucketFor = consoleTexBuckets(ctx, workspaceId, options);
-  return bucketFor === null ? null : (owner: string) => new R2Store(bucketFor(owner));
+  return bucketFor === null ? null : (owner: string) => texBucketStore(bucketFor(owner)); // with the chat's ledger beside the notes (`texStore/ledger.js`)
 }
 
 /**

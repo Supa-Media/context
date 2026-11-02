@@ -7,9 +7,10 @@
  * There is no store here. The chat's one log in its Tex object is the only
  * source (decided by the owner, 2026-11-02: one JSON log per chat, everything
  * else a view rebuilt from it), and these are views of it: the object answers
- * `page_list` from `objects.records` (`{list(kind, opts), waiting(), wipe()}`),
- * which the log provides. An object without it answers an empty page, so the
- * page shows nothing rather than something wrong.
+ * `page_list` from `objects.records` (`texStore/pageViews.js`), naming the
+ * chat's log: `texts` for a person's own chat, the group key for a group's.
+ * An object without a log answers an empty page, so the page shows nothing
+ * rather than something wrong.
  */
 
 import { callTexStore, texStoreStub } from "./wire.js";
@@ -26,7 +27,7 @@ export async function readPageRecords(env, owner, kind, { limit, cursor, since }
     const stub = texStoreStub(env, owner);
     if (stub === null || !KINDS.has(kind)) return { items: [], count: 0 };
     const size = Math.max(1, Math.min(MAX_PAGE_LIST, Number.isSafeInteger(limit) ? limit : 20));
-    const response = await callTexStore(stub, "page_list", { kind, limit: size, cursor: cursor ?? null, since: since ?? null });
+    const response = await callTexStore(stub, "page_list", { chat: owner?.chat ?? "texts", kind, limit: size, cursor: cursor ?? null, since: since ?? null });
     const page = await response.json();
     return Array.isArray(page?.items) ? page : { items: [], count: 0 };
   } catch {

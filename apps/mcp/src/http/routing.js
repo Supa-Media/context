@@ -207,9 +207,13 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
-  // Its facts: a move's link candidates and the chaos score's extras (`tree/facts.js`).
+  // Its facts: a move's link candidates and the chaos score's extras (`tree/facts.js`). Where the notes live in the
+  // workspace's object, their links and props are asked there first (`store/objectLookup.js` `objectFirstFacts`).
   Object.defineProperty(store, "treeFacts", {
-    value: (request) => controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request),
+    value: async (request) => {
+      const fromObject = typeof store.objectFacts === "function" ? await store.objectFacts(request) : null;
+      return fromObject ?? (await controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request));
+    },
     enumerable: false,
     writable: false,
     configurable: true,

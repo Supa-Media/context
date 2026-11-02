@@ -1,0 +1,189 @@
+/**
+ * @jest-environment jsdom
+ */
+
+/**
+ * The Tex page ON THE GLASS, on the mock's data through the same source
+ * interface the gateway answers: the mock's words, the chat picker switching
+ * the whole page, a change made somewhere else arriving live on an open page,
+ * a write from the page reaching the store and coming back, and a chat that is
+ * not the person's showing nothing of it.
+ *
+ * ## Sabotage record
+ *
+ * Applied, run, named test seen failing, reverted (2026-11-02):
+ *  1. `useTexPage` ignoring list patches → "a change made elsewhere shows up
+ *     on the open page without a reload" fails.
+ *  2. Stop wired to Tex's browser instead of the job (as first written) →
+ *     "a job's page shows why a step failed and steers the job" fails.
+ *  3. A check-in edit sending its unchanged text as well → "editing a
+ *     check-in sends the gateway's time form, and only what changed" fails.
+ */
+
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
+import { act, createElement, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { SafeAreaProvider, type Metrics } from "react-native-safe-area-context";
+
+jest.mock("expo-router", () => ({ Redirect: () => null, Stack: () => null, router: { push: () => {} }, useLocalSearchParams: () => ({}) }));
+
+import { TexPageBody, type Place } from "../features/tex/page/TexPageBody";
+import { fixtureNow, fixtureSource } from "../features/tex/page/texPageFixture";
+import type { TexPageSource } from "../features/tex/page/texPageSource";
+import type { PageAction } from "../features/tex/page/texPageTypes";
+import { useTexPage } from "../features/tex/page/useTexPage";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const METRICS: Metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } };
+
+let container: HTMLDivElement;
+let root: Root;
+beforeEach(() => {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
+
+function Harness({ source, start }: { source: TexPageSource; start: Place }) {
+  const [place, setPlace] = useState<Place>(start);
+  const page = useTexPage(source, place.chat);
+  return createElement(TexPageBody, { source, page, place, go: setPlace, computer: null, openComputer: () => {}, now: fixtureNow });
+}
+
+const tick = () =>
+  act(async () => {
+    for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
+  });
+
+async function render(source: TexPageSource, start: Place = { chat: "me" }) {
+  act(() => root.render(createElement(SafeAreaProvider, { initialMetrics: METRICS }, createElement(Harness, { source, start }))));
+  await tick();
+}
+
+const text = () => container.textContent ?? "";
+const byTestId = (id: string) => container.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+async function press(id: string) {
+  const el = byTestId(id);
+  if (el === null) throw new Error(`no ${id}`);
+  act(() => el.click());
+  await tick();
+}
+
+describe("the Tex page", () => {
+  test("draws the mock's first screen", async () => {
+    await render(fixtureSource());
+    for (const words of [
+      "Working on 2 jobs · 1 needs you",
+      "3 on · next 8:00",
+      "Tex's thinking",
+      "Not sure on my own",
+      "Show all 6 from today",
+      "Minions · 2 of 3 busy",
+      "3 steps didn't work",
+      "Needs your sign-in code",
+      "Ready for the next job",
+      "Done · 20 min ago ›",
+      "Show all 7 from this week",
+      "Helped twice today · last: what to compare on maritime.sh",
+      "Checked 3 emails today · 1 waiting for your yes",
+    ]) {
+      expect(text()).toContain(words);
+    }
+  });
+
+  test("the chat picker switches the whole page to the group", async () => {
+    await render(fixtureSource());
+    await press("tex-chat-picker");
+    await press("tex-chat-picker-option-g-team");
+    expect(text()).toContain("Tex in Team Night");
+    expect(text()).toContain("5 people · working on 1 job");
+    expect(text()).toContain("Stayed quiet");
+    expect(text()).not.toContain("maritime");
+  });
+
+  test("a chat that is not yours shows nothing of it", async () => {
+    await render(fixtureSource(), { chat: "g-someone-elses" });
+    expect(byTestId("tex-page-notice")).not.toBeNull();
+    expect(text()).not.toContain("Minions");
+  });
+
+  test("a change made elsewhere shows up on the open page without a reload", async () => {
+    const source = fixtureSource();
+    await render(source, { chat: "me", view: "routines" });
+    expect(text()).toContain("Gym nudge");
+    // Somebody else, or Tex itself, removes the routine: the page's copy is not touched.
+    await act(async () => {
+      await source.act("me", { type: "routine.remove", id: "r4" });
+    });
+    await tick();
+    expect(text()).not.toContain("Gym nudge");
+    expect(text()).toContain("Morning brief");
+  });
+
+  test("an edit to About the group by another member arrives live", async () => {
+    const source = fixtureSource();
+    await render(source, { chat: "g-team", view: "about" });
+    expect(text()).toContain("Cy doesn't eat sushi.");
+    await act(async () => {
+      await source.act("g-team", { type: "about.fix", line: "g2", text: "Cy eats sushi now." });
+    });
+    await tick();
+    expect(text()).toContain("Cy eats sushi now.");
+  });
+
+  test("switching a routine off from the page changes the store and the page", async () => {
+    const source = fixtureSource();
+    const sent: PageAction[] = [];
+    const watched: TexPageSource = { ...source, act: (chat, a) => (sent.push(a), source.act(chat, a)) };
+    await render(watched, { chat: "me", view: "routines" });
+    const toggle = container.querySelector('[role="switch"]') as HTMLElement;
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    act(() => toggle.click());
+    await tick();
+    expect(sent).toEqual([{ type: "routine.toggle", id: "r1", on: false }]);
+    const stored = await source.list("me", "routines");
+    expect(stored.kind === "ok" && stored.value.items[0]!.on).toBe(false);
+    expect((container.querySelector('[role="switch"]') as HTMLElement).getAttribute("aria-checked")).toBe("false");
+  });
+
+  test("editing a check-in sends the gateway's time form, and only what changed", async () => {
+    const source = fixtureSource();
+    const sent: PageAction[] = [];
+    await render({ ...source, act: async (chat, a) => (sent.push(a), source.act(chat, a)) }, { chat: "me", view: "checkins" });
+    const when = byTestId("tex-checkin-form-c1-when") as HTMLInputElement;
+    expect(when.value).toBe("2026-11-02 21:30");
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(when, "2026-11-02 22:00");
+      when.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await press("tex-checkin-form-c1-save");
+    expect(sent).toEqual([{ type: "checkin.edit", id: "c1", when: "2026-11-02 22:00" }]);
+  });
+
+  test("a job's page shows why a step failed and steers the job", async () => {
+    const source = fixtureSource();
+    const sent: PageAction[] = [];
+    await render({ ...source, act: async (chat, a) => (sent.push(a), source.act(chat, a)) }, { chat: "me", job: "maritime" });
+    expect(text()).toContain("Research maritime.sh for managing Tex's agents");
+    await press("tex-why-0");
+    expect(text()).toContain("the page took too long to load");
+    await press("tex-report-0");
+    expect(sent).toContainEqual({ type: "report", job: "maritime", step: 0 });
+    const input = byTestId("tex-steer-input") as HTMLInputElement;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(input, "skip the blog");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await press("tex-steer-send");
+    expect(sent).toContainEqual({ type: "steer", job: "maritime", text: "skip the blog" });
+    await press("tex-stop");
+    expect(sent).toContainEqual({ type: "stop", job: "maritime" });
+  });
+});
