@@ -95,6 +95,8 @@ export function isTransportPath(path) {
     // The live file tree's socket names every folder a member can see, and a
     // WebSocket handshake is not subject to CORS, as `/presence` above.
     path === "/presence/tree" ||
+    // The access socket names members, invitations and connected apps, and writes them: likewise.
+    path === "/presence/access" ||
     path === "/collaboration" ||
     // Authenticated and read by the console from a browser. It changes
     // nothing, but it names notes, so a page on another origin must not be
