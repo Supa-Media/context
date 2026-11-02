@@ -104,8 +104,8 @@ export const groupAnswerValidator = v.union(
   v.object({ status: v.literal("started") }),
   /** A level set by its words, a wipe made, or one undone (`done`), with nothing to undo (`none`) or too late (`expired`); `by` names who. */
   v.object({ status: v.literal("speaks_up"), level: engagementValidator, by: v.string() }),
-  v.object({ status: v.literal("forgotten"), by: v.string() }),
-  v.object({ status: v.literal("unforgotten"), outcome: v.union(v.literal("done"), v.literal("none"), v.literal("expired")) }),
+  v.object({ status: v.literal("forgotten"), by: v.string(), wipedAt: v.number() }),
+  v.object({ status: v.literal("unforgotten"), outcome: v.union(v.literal("done"), v.literal("none"), v.literal("expired")), wipedAt: v.optional(v.number()) }),
   v.object({ status: v.literal("unknown_sender"), tell: v.boolean() }),
   v.object({ status: v.literal("no_shared") }),
   /** "Tex, add everyone here to @slug" from someone who isn't an owner there, or a name no workspace has: one answer. */
@@ -152,8 +152,8 @@ export const groupAnswerValidator = v.union(
 export type GroupAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
   | { status: "speaks_up"; level: Engagement; by: string }
-  | { status: "forgotten"; by: string }
-  | { status: "unforgotten"; outcome: "done" | "none" | "expired" }
+  | { status: "forgotten"; by: string; wipedAt: number }
+  | { status: "unforgotten"; outcome: "done" | "none" | "expired"; wipedAt?: number }
   | { status: "not_allowed"; slug: string }
   | { status: "invited"; slug: string; count: number; role: string }
   | { status: "mail_shared"; address: string; narrowed: boolean }
@@ -221,10 +221,14 @@ export const applyGroupTurn = internalMutation({
       if (kind === "start") return await unmuteChat(ctx, group, setBy), { status: "started" };
       if (args.command?.kind === "speaks_up") return await setSpeaksUp(ctx, group, args.command.level, setBy), { status: "speaks_up", level: args.command.level, by };
       if (speaksUpOf(group) === "off") return { status: "muted" };
-      return await wipeChat(ctx, group, setBy, now), { status: "forgotten", by };
+      return await wipeChat(ctx, group, setBy, now), { status: "forgotten", by, wipedAt: now };
     }
     if (speaksUpOf(group) === "off") return { status: "muted" };
-    if (kind === "unforget") return { status: "unforgotten", outcome: await unwipeChat(ctx, group, now) };
+    if (kind === "unforget") {
+      const outcome = await unwipeChat(ctx, group, now);
+      const back = outcome === "done" ? (await ctx.db.get(group._id))?.wipedAt : group.wipedAt;
+      return { status: "unforgotten", outcome, ...(back !== undefined ? { wipedAt: back } : {}) };
+    }
     // A bound chat checks in on its own, as a person's Tex does; any word here arms it (`lib/textGroupLooks.ts`).
     await armChatLook(ctx, group, now);
 

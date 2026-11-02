@@ -17,7 +17,7 @@
  */
 
 import type { GatewayAttachment } from "./attachments";
-import { readTexStyle, type TexStyle } from "./texStyle";
+import { readSettings, type Settings } from "./texStyle";
 import type { Reaction, Tapback } from "./reactions";
 import type { JobReport } from "./jobs";
 import { readPictures, type OutgoingPicture } from "./outgoing";
@@ -178,8 +178,8 @@ export async function shareLinqContactCard(fetcher: Fetch, apiKey: string, chatI
 // ── Control plane ─────────────────────────────────────────────────────────
 
 /** `timeZone` is the person's own (their reminders run in it), when the control plane sent one. */
-/** `texStyle`: how their own Tex talks to them (`texStyle.ts`), only what they changed. */
-export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string; texStyle?: TexStyle } | { status: "unlinked" };
+/** `settings`: how their own Tex talks to them (`texStyle.ts`): their instructions and progress updates, only what is set. */
+export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string; settings?: Settings } | { status: "unlinked" };
 
 export async function openSession(
   fetcher: Fetch,
@@ -194,8 +194,8 @@ export async function openSession(
   const body = record(json);
   if (body.status === "linked" && typeof body.accessToken === "string" && body.accessToken) {
     const zone = typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {};
-    const texStyle = readTexStyle(body.texStyle);
-    return { status: "linked", accessToken: body.accessToken, ...zone, ...(texStyle ? { texStyle } : {}) };
+    const settings = readSettings(body);
+    return { status: "linked", accessToken: body.accessToken, ...zone, ...(Object.keys(settings).length > 0 ? { settings } : {}) };
   }
   if (body.status === "unlinked") return { status: "unlinked" };
   throw new ServiceError("control_plane", status);
@@ -294,7 +294,7 @@ export async function askAgent(
     covers,
     chat,
     told = [],
-    texStyle,
+    settings = {},
     arrivedAt,
     warm, beside,
     recent,
@@ -318,8 +318,8 @@ export async function askAgent(
     chat?: string;
     /** The fixed texts sent since the last turn, by name, for its history (`told.ts`), sent beside the events that carry them too. */
     told?: readonly string[];
-    /** How this chat asked Tex to talk (`texStyle.ts`), said to the model by the gateway. */
-    texStyle?: TexStyle;
+    /** How this chat asked Tex to talk and its progress updates (`texStyle.ts`), said to the model by the gateway. */
+    settings?: Settings;
     /** When the first text this turn answers came in (`apps/mcp/src/agent/turnLog.js` `waitBefore`). */
     arrivedAt?: number;
     /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
@@ -346,7 +346,7 @@ export async function askAgent(
     ...(jobReport ? { jobReport } : {}),
     ...(covers && covers.length > 0 && chat ? { covers, chat } : {}),
     ...(told.length > 0 ? { told } : {}),
-    ...(texStyle ? { texStyle } : {}),
+    ...settings,
     ...(arrivedAt !== undefined ? { arrivedAt } : {}),
     ...(warm ? { warm, ...(beside && beside.length > 0 ? { beside } : {}) } : {}),
     ...(recent && recent.length > 0 ? { recent } : {}),

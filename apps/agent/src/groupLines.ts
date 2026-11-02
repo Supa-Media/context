@@ -40,6 +40,9 @@ export const GROUP_LINES = {
   notOwner: (slug: string) => `Only an owner of @${slug} can add people to it. They can say "Tex add everyone here to @${slug}".`,
   stopped: `Okay, I'll stay quiet here. Say "Tex, start" when you want me back.`,
   started: "I'm back. Start a message with \"Tex\" when you need me.",
+  // "Tex, forget this chat" (Dev2, 2026-11-02): nothing is deleted, and the texts stay; only what Tex reads is cut.
+  forgotten: (by: string) => `Done: I've forgotten this chat up to now (cleared by ${by}). Anyone here can text "Tex, undo the wipe" within 24 hours to bring it back.`,
+  unforgotten: { done: "Done: I remember this chat again.", none: "There's no wipe here to undo.", expired: "That wipe can't be undone now: it's been more than 24 hours." },
   joined: "Someone joined while I was working on that, so I didn't send it. Ask me again.",
   sms: "I only answer in iMessage group chats.",
   // Given up after the workflow's retries (`groupTurnRun.ts`): it says it tried, and that it's Tex's fault, not the asker's.

@@ -16,7 +16,7 @@ A person's own (`texStylePreferences`, one row per person, 1:1 only):
 
 - `instructions`: free text, at most 1,500 characters (`MAX_INSTRUCTIONS`,
   `apps/convex/functions/lib/texInstructions.ts`). Absent is none.
-- `instructionsBefore`: the text before the last change, for "Tex, undo";
+- `instructionsBefore`: the text before the last change, for "Tex, undo the change";
   cleared by the undo.
 - `updates`: progress updates, `off` | `planOnly` | `normal`; absent is
   `normal`.
@@ -135,22 +135,35 @@ a group turn gets the group's alone, never a member's.
   "stop..."), never for a one-off ("make this one shorter"), and its answer
   carries the text now saved, which Tex confirms in its own words. In a group
   the answer tells Tex to say `tester set: "<line>". Anyone here can text
-  "Tex, undo" to put it back.` In a person's own chat it edits theirs; in a group,
+  "Tex, undo the change" to put it back.` In a person's own chat it edits theirs; in a group,
   the group's.
 - Quick-pick words are code's, no model: "Tex, no emoji", "Tex, less emoji",
   "Tex, tone efficient", "Tex, one bubble", "Tex, short answers", "Tex, more
   humor", "Tex, clear instructions". In a group Tex says `tester set: "<line>".
-  Anyone here can text "Tex, undo" to put it back.` (the setter's handle, as
+  Anyone here can text "Tex, undo the change" to put it back.` (the setter's handle, as
   "(set by tester)" was).
-- "Tex, undo" (or "undo that") swaps the text back to the one before the last
-  change, once. Anyone in a group may. "Tex, undo the wipe" is read before
-  it, so the longer phrase is never taken for the shorter.
+- "Tex, undo the change" (or "undo that change") swaps the text back to the
+  one before the last change, once. Anyone in a group may. A bare "Tex, undo"
+  is not it: people say that about an email or an event, so it goes to the
+  model. "Tex, undo the wipe" is its own command.
 - `tex_updates_set` and the menu set progress updates; `chat_engagement_set`
   and the menu set when Tex speaks up; `chat_mute` sets `off`.
 - "Tex, stop", "mute", "shush" set `off`; "Tex, be quiet" sets `quiet`; "Tex,
   start", "unmute", "come back" put back the level before `off`. All of these
   go with the group turn's command (`applyGroupTurn`), answered from the
   webhook's names, so they work while Sendblue's groups API is down (#2659).
+
+## Tex's name anywhere reaches decide
+
+Decided by Dev2, 2026-11-02. iMessage sends a native mention as the bare name,
+with no "@" and no mention data, so "can Tex tell us what 7 times 8 is?" was
+kept as chat and never reached decide. Now any group message that names Tex as
+a word ("Tex" or "Context", never "Texas" or "Tex-Mex"; `groupWords.ts`
+`namesTex`) reaches decide at every speak-up level but `off`, whose chat keeps
+nothing to decide on. It is still not addressed: its turn does not start at
+once, and decide judges it and may stay silent. The bidi isolates iMessage
+wraps a mention in (U+2066 to U+2069) are dropped first, so "@\u2068Tex\u2069"
+reads as the name. So quiet means: Tex answers when someone says "Tex".
 
 ## "Tex, settings"
 
