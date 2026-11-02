@@ -9,6 +9,8 @@
 import {
   ROUTINES_FOLDER,
   TEX_ROUTINES_FOLDER,
+  homeRoutineOf,
+  isHomeRoutinePath,
   isRoutinePath,
   nextRunAt as nextRunOf,
   routineFromPath,
@@ -109,7 +111,7 @@ export function isRoutineOutcome(value: unknown): value is RoutineOutcome {
  * this agree. Case-insensitive, like the shared module.
  */
 export function isUnderRoutines(path: string): boolean {
-  return isRoutinePath(path);
+  return isRoutinePath(path) || isHomeRoutinePath(path);
 }
 
 /**
@@ -167,6 +169,18 @@ export function scheduleFromNote(path: string, text: string): RoutineSchedule | 
     ...(settings.chat === null ? {} : { chat: settings.chat }),
     ...(settings.wake === null ? {} : { wake: settings.wake }),
   };
+}
+
+/**
+ * A chat's home routine (`tex/groups/<words>/routines/...` in the pin): read as the same path under `tex/routines/`,
+ * kept at its own path, and answering only into its home's chat, `chat`, whatever its front matter says
+ * (`homes.ts`; the owner, 2026-11-02).
+ */
+export function homeScheduleFromNote(path: string, text: string, chat: string): RoutineSchedule | null {
+  const home = homeRoutineOf(path);
+  if (home === null) return null;
+  const schedule = scheduleFromNote(home.routinePath, text);
+  return schedule === null ? null : { ...schedule, path, chat };
 }
 
 export function isTimeZone(value: unknown): value is string {

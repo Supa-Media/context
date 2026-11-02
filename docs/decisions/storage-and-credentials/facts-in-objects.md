@@ -52,17 +52,26 @@ Board's front matter, the chaos score's extras and the map's links
 whatever the object does not answer, path by path for a List, so a row whose
 push has not landed yet still shows.
 
+A website's page lists and its share checks (`lib/websites/treeFacts.ts`,
+`shareReadability.ts`, `lib/shares/readPath.ts`), routines' schedules
+(`lib/routines/sync.ts`) and a console move's link candidates
+(`lib/nodes/treeNames.ts`) do the same: the control plane's query still
+decides which notes the reader may see and where each is (`publishedRows`
+answers each note's real path, `at`), and the object answers what the note
+says, read at its current text. So a routine edited a moment ago is never
+left waiting on its props, and a website never shows a page's old front
+matter.
+
 **What has not moved yet.** The control plane still computes its copy
 ([convex-facts](../app-and-console/convex-facts.md)) for every workspace,
-because some readers still read it inside queries and mutations, where the
-object cannot be asked: a website's page lists (`publishedRows`,
-`visibleNotes`), routines' scan (`propsNow`), shares' inbox titles,
-`references`, the tree's rename checks (`candidates`), the old-copies
-classifier and Tex triage. Moving those, then stopping the control plane's
-fill for object-home workspaces and dropping its rows there, is the next
-step. The asks that are not note facts stay on the control plane: `names`
-(with note writes), `jobs` and `forwarding` (rows and the ledger), and the
-chaos score's daily history (`nodeChaosDays`).
+because a few readers read it inside queries and mutations, where the object
+cannot be asked: shares' inbox titles, `references` and `nodeLinkSources`
+(which notes hold links), a folder move's link renames (`folderLinks`), the
+old-copies classifier, the outsider check and Tex triage. Moving those, then
+stopping the control plane's fill for object-home workspaces and dropping its
+rows there, is the next step. The asks that are not note facts stay on the
+control plane: `names` (with note writes), `jobs` and `forwarding` (rows and
+the ledger), and the chaos score's daily history (`nodeChaosDays`).
 
 **What it changes about non-negotiable #1.** The control plane no longer is
 the only keeper of a note's rebuildable facts: for an object-home workspace

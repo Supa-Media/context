@@ -289,3 +289,9 @@ test("the door's rows are not served before the notes live here, and an unknown 
   const live = await seeded();
   assert.deepEqual(await live.ws.factRows({ ask: "neighbors" }), { served: false });
 });
+
+test("a move's candidates through the door are unfiltered: a private note pointing is named", { skip }, async () => {
+  const { ws } = await seeded();
+  const answer = await ws.factRows({ ask: "candidates", sources: ["projects/plan.md"], names: ["plan"] });
+  assert.deepEqual(answer.candidates.pointing.sort(), ["projects/brief.md", "projects/secret/hidden.md"]);
+});

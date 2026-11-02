@@ -20,29 +20,58 @@ import { flushAccessWrites } from "../accessHandOff/flush";
 /** The most rows one outbox entry names; a mutation that changes more is pushed whole (`all`). */
 export const OUTBOX_MAX_IDS = 2_000;
 
-/** Whether this workspace's notes are judged in its object. No row means the bucket, which needs nothing. */
-async function judgedInObject(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+/**
+ * Where this workspace's notes are judged: `object`, another home, or `null` with no row (the bucket, which needs
+ * nothing, and whose object never kept a binding: the gateway keeps one only while the notes are in the object).
+ */
+async function homeOf(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<string | null> {
   const home = await ctx.db
     .query("workspaceObjectHomes")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
-  return home?.home === "object";
+  return home?.home ?? null;
+}
+
+/** Whether a writer opened a mark in this workspace's object that has not committed yet (`./objectFirst.ts`). */
+async function markOpen(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+  const marks = await ctx.db
+    .query("workspaceObjectMarks")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  return marks.some((mark) => mark.doneAt === undefined);
 }
 
 /** One outbox entry per object-mode workspace, and its push, in the mutation's own transaction. */
 export async function flushRowChanges(
   ctx: MutationCtx,
   changes: Map<Id<"workspaces">, WorkspaceChange>,
+  source = "unknown",
 ): Promise<void> {
   for (const [workspaceId, change] of changes) {
-    if (!(await judgedInObject(ctx, workspaceId))) continue;
+    const home = await homeOf(ctx, workspaceId);
+    if (home !== "object") {
+      // No outbox here, but a binding the object kept must still go (a workspace switched back off its object).
+      if (change.binding && home !== null) await ctx.scheduler.runAfter(0, internal.functions.workspaceObjectBinding.clear, { workspaceId });
+      continue;
+    }
     const ids = [...change.nodeIds];
     const all = ids.length > OUTBOX_MAX_IDS;
+    // A write that may narrow should have told the object first. One that did not is let through as before (the
+    // gateway's behind check still covers it) and named in the log, so every such writer can be found and moved.
+    const unmarked = change.narrows && !(await markOpen(ctx, workspaceId));
+    if (unmarked) {
+      console.warn(JSON.stringify({ event: "workspace_object_unmarked_narrowing", workspaceId, source, rows: ids.length, access: change.access }));
+      await ctx.db.insert("workspaceObjectUnmarked", { workspaceId, source, rows: ids.length, access: change.access, at: Date.now() });
+    }
     await ctx.db.insert("workspaceObjectOutbox", {
       workspaceId,
       nodeIds: all ? [] : ids,
       access: change.access,
       ...(all ? { all: true } : {}),
+      ...(unmarked ? { unmarked: true } : {}),
+      // The storage binding changed: the push clears the copy the object keeps, and until then the workspace reads
+      // as behind, so no request opens a store from that copy (`apps/mcp/src/store/objectBinding.js`).
+      ...(change.binding ? { binding: true } : {}),
       at: Date.now(),
     });
     await ctx.scheduler.runAfter(0, internal.functions.workspaceObjectPush.drain, { workspaceId });
@@ -53,7 +82,16 @@ type AnyDefinition = { handler: (ctx: MutationCtx, args: never) => unknown } & R
 type Handler = (ctx: MutationCtx, args: never) => unknown;
 type WriteBehind = boolean | "authorityTaken";
 
+/** Where a mutation was defined (its module, from the stack at definition), to name an unmarked writer in the log. */
+function definedAt(): string {
+  const frames = (new Error().stack ?? "").split("\n").map((line) => line.trim());
+  // [0] "Error", [1] here, [2] `watched`, [3] the builder, [4] the module that called it.
+  const frame = frames[4] ?? frames[frames.length - 1] ?? "";
+  return frame.replace(/^at\s+/, "").slice(0, 200) || "unknown";
+}
+
 function watched<T>(definition: T, options: { writeBehind: WriteBehind } = { writeBehind: false }): T {
+  const source = definedAt();
   const def = (typeof definition === "function" ? { handler: definition as Handler } : definition) as AnyDefinition;
   const handler = def.handler;
   return {
@@ -61,7 +99,7 @@ function watched<T>(definition: T, options: { writeBehind: WriteBehind } = { wri
     handler: async (ctx: MutationCtx, args: never) => {
       const watch = watchDb(ctx.db);
       const result = await handler({ ...ctx, db: watch.db }, args);
-      await flushRowChanges(ctx, watch.changes);
+      await flushRowChanges(ctx, watch.changes, source);
       await flushAccessWrites(ctx, watch.accessWrites, options);
       return result;
     },

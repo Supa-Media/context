@@ -18,6 +18,9 @@
  *     "a job's page shows why a step failed and steers the job" fails.
  *  3. A check-in edit sending its unchanged text as well → "editing a
  *     check-in sends the gateway's time form, and only what changed" fails.
+ *  4. The chat picker's list drawn inside the header again (as first written,
+ *     painted under the tiles on the web) → "the chat picker switches the
+ *     whole page to the group" fails.
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -66,7 +69,8 @@ async function render(source: TexPageSource, start: Place = { chat: "me" }) {
 }
 
 const text = () => container.textContent ?? "";
-const byTestId = (id: string) => container.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+// A dropdown's list is drawn in a layer over the whole page (`TexSelect`), outside the page's own box.
+const byTestId = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 async function press(id: string) {
   const el = byTestId(id);
   if (el === null) throw new Error(`no ${id}`);
@@ -99,6 +103,9 @@ describe("the Tex page", () => {
   test("the chat picker switches the whole page to the group", async () => {
     await render(fixtureSource());
     await press("tex-chat-picker");
+    // The list is drawn over the whole page, not inside the header, where the tiles after it painted over it.
+    expect(byTestId("tex-chat-picker-menu")).not.toBeNull();
+    expect(container.contains(byTestId("tex-chat-picker-menu"))).toBe(false);
     await press("tex-chat-picker-option-g-team");
     expect(text()).toContain("Tex in Team Night");
     expect(text()).toContain("5 people · working on 1 job");

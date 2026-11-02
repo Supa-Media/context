@@ -197,3 +197,15 @@ describe("handing a chat routine out", () => {
     expect(saysSkip("Skip the meeting today")).toBe(false);
   });
 });
+
+describe("a routine kept in its chat's home", () => {
+  // The owner, 2026-11-02: a chat's routines live in its home in @context-lc, so its turn is told where to read it.
+  it("is read from @context-lc, and any other routine where it was", async () => {
+    const { chatRoutineQuestion } = await import("./groupRoutines");
+    expect(chatRoutineQuestion("tex/groups/orbit-lamp-river/routines/daily/shifts.md")).toContain(
+      'tex/groups/orbit-lamp-river/routines/daily/shifts.md (context: "@context-lc")',
+    );
+    expect(chatRoutineQuestion("tex/routines/daily/shifts.md")).not.toContain("@context-lc");
+    expect(chatRoutineQuestion("tex/groups/orbit-lamp-river/notes.md")).not.toContain("@context-lc");
+  });
+});

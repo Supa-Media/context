@@ -9,6 +9,7 @@
  */
 
 import { internal } from "../../../_generated/api";
+import { objectFactRows, objectPropsAt } from "../nodes/objectFacts";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import type { Clearance } from "../clearance";
@@ -68,6 +69,8 @@ export async function treeRows(
 ): Promise<Map<string, TreeRow> | null> {
   const wanted = [...new Set(paths)];
   const rows = new Map<string, TreeRow>();
+  // Where the notes live in their object, its props are read at the text it holds (`objectFacts.ts`).
+  const objectRows = await objectFactRows(ctx, workspaceId);
   for (let at = 0; at < wanted.length; at += ROWS_PER_QUERY) {
     const answer = await ctx
       .runQuery(internal.functions.nodeFacts.publishedRows, {
@@ -76,12 +79,15 @@ export async function treeRows(
       })
       .catch(() => null);
     if (answer === null) return null;
+    const held = await objectPropsAt(objectRows, answer.map((row) => row.at));
     for (const row of answer) {
+      const fresh = held?.get(row.at);
+      const sealed = fresh?.sealed ?? row.sealed;
       rows.set(row.path, {
         etag: row.etag,
         updatedAt: row.uploaded,
-        sealed: row.sealed,
-        facts: row.current && !row.sealed ? factsOf(row.props) : null,
+        sealed,
+        facts: fresh !== undefined ? (sealed ? null : factsOf(fresh.props)) : row.current && !row.sealed ? factsOf(row.props) : null,
       });
     }
   }

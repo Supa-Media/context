@@ -189,3 +189,32 @@ test("object: a saved version the bucket does not hold is kept, not pruned", { s
   assert.equal(await (await object.get(revisionKey("r-unmirrored"))).text(), "only copy");
   assert.equal(await (await routed.get(revisionKey("r-unmirrored"))).text(), "only copy");
 });
+
+const HISTORY = ".context/collaboration/v1/documents/doc1/operations/op1.json";
+
+test("dual: a conditional delete the bucket refuses keeps the object's copy too", { skip }, async () => {
+  const { bucket, object, routed } = setup("dual");
+  await routed.put(HISTORY, "op");
+  // A newer write won the race: the caller's etag no longer matches, so the bucket keeps the key.
+  assert.equal(await routed.delete(HISTORY, { onlyIf: { etagMatches: "an-older-version" } }), null);
+  assert.equal(await (await bucket.get(HISTORY)).text(), "op");
+  assert.equal(await (await object.get(HISTORY)).text(), "op");
+  // The same delete on the current version removes both.
+  const current = await routed.get(HISTORY);
+  await routed.delete(HISTORY, { onlyIf: { etagMatches: current.etag } });
+  assert.equal(await bucket.get(HISTORY), null);
+  assert.equal(await object.get(HISTORY), null);
+});
+
+test("object: a conditional delete is decided by the object, and the bucket's copy follows only when it went", { skip }, async () => {
+  const { bucket, object, routed } = setup("object", 1);
+  await routed.put(HISTORY, "op");
+  assert.equal(await routed.delete(HISTORY, { onlyIf: { etagMatches: "an-older-version" } }), null);
+  assert.equal(await (await object.get(HISTORY)).text(), "op");
+  assert.equal(await (await bucket.get(HISTORY)).text(), "op");
+  // The caller read its etag from the object; the bucket's copy has its own, and is removed all the same.
+  const current = await routed.get(HISTORY);
+  await routed.delete(HISTORY, { onlyIf: { etagMatches: current.etag } });
+  assert.equal(await object.get(HISTORY), null);
+  assert.equal(await bucket.get(HISTORY), null);
+});

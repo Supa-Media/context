@@ -7,6 +7,7 @@ import { TexHome } from "./TexHome";
 import { TexJobPage } from "./TexJobPage";
 import { AdvisorPage, JobsPage, MailcheckPage, ThinkingPage } from "./TexLists";
 import { AboutPage, CheckinsPage, RoutinesPage } from "./TexEditPages";
+import { HistoryPage } from "./TexHistoryPage";
 import { ComputerPage, GroupSettingsPage, SettingsPage } from "./TexSettingsPages";
 import type { TexPageSource } from "./texPageSource";
 import type { TexPageState } from "./useTexPage";
@@ -137,6 +138,8 @@ function SubViewPage({
       return <AdvisorPage {...props} />;
     case "mailcheck":
       return <MailcheckPage {...props} />;
+    case "history":
+      return <HistoryPage {...props} />;
   }
 }
 

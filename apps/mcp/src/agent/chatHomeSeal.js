@@ -26,3 +26,19 @@ export function inChatHome(store, path) {
   const folded = path.toLowerCase();
   return folded.startsWith(`${home}/`);
 }
+
+/**
+ * The one change a home's store reports: that a routine in it may have changed, and by whom (`activity/record.js`
+ * `announceRoutineChange`), so the control plane scans it and keeps its writer (the owner, 2026-11-02: a chat's
+ * routines live in its home; `apps/convex/functions/lib/routines/homes.ts`). Only paths inside this home are sent,
+ * and the control plane keeps a writer only if they are one of the chat's people now. Without it a routine written
+ * here would be found by the next scan with nobody to run it as.
+ */
+export function attachHomeRoutineReports(store, session, controlPlane) {
+  if (!store || typeof session?.chatHome !== "string" || typeof controlPlane?.reportRoutineChange !== "function") return;
+  store.reportRoutineChange = (paths, userId) => {
+    const inside = paths.filter((path) => inChatHome(store, path));
+    if (inside.length === 0) return Promise.resolve();
+    return controlPlane.reportRoutineChange(session.workspaceId, userId, inside).catch(() => {});
+  };
+}

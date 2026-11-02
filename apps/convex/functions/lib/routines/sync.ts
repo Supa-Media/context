@@ -10,6 +10,7 @@
  */
 
 import { internal } from "../../../_generated/api";
+import { objectFactRows, objectPropsAt } from "../nodes/objectFacts";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader } from "../../../_generated/server";
 import type { ActionCtx, MutationCtx } from "../../../_generated/server";
@@ -26,11 +27,13 @@ import {
   effectiveTimeZone,
   isUnderRoutines,
   frontMatterFromProps,
+  homeScheduleFromNote,
   nextRunFor,
   scheduleFromNote,
   type RoutineSchedule,
 } from "./model";
-import { accountTimeZone, runsRoutine, userForActorName, workspaceOwner, writingRole } from "./access";
+import { accountTimeZone, runsRoutine, userForActorName, workspaceOwner } from "./access";
+import { mayWriteRoutine } from "./homes";
 import { PROPS_AT_PATHS } from "../nodes/facts";
 import { TEX_FOLDER } from "@context/shared/src/folderRoles.cjs";
 
@@ -69,9 +72,9 @@ export async function recordRoutineSignalHandler(
   let writer: Id<"users"> | null = null;
   if (args.userId !== undefined) writer = ctx.db.normalizeId("users", args.userId);
   else if (args.actorName !== undefined) writer = await userForActorName(ctx, args.actorName);
-  if (writer !== null && (await writingRole(ctx, workspaceId, writer)) === null) writer = null;
-
-  const writers = writer === null ? [] : paths.map((path) => ({ path, userId: writer }));
+  const writers: Writer[] = [];
+  // Per path: a chat's home routine is written by its chat's people, any other by a role that writes here (`homes.ts`).
+  if (writer !== null) for (const path of paths) if (await mayWriteRoutine(ctx, workspaceId, path, writer)) writers.push({ path, userId: writer });
   await scheduleReconcile(ctx, workspaceId, writers);
   return null;
 }
@@ -209,19 +212,32 @@ export async function scanRoutines(
   // are behind its last write waits, and the props landing scan it again.
   const schedules: RoutineSchedule[] = [];
   const waiting: string[] = [];
+  // A chat's routines in its home, which the seal hides from the listing above (`homes.ts`): their times, from the tree.
+  const homes = await ctx.runQuery(internal.functions.routines.homeRoutineFiles, { workspaceId });
+  if (!homes.complete) complete = false;
+  const chatOf = new Map(homes.files.map((file) => [file.path, file.chat]));
   // Rows read the tree at the real path; a routine is named under `tex/` (`asTexPath`).
-  const candidates = files.slice(0, MAX_ROUTINES_PER_WORKSPACE).filter((path) => scheduleFromNote(asTexPath(path, tex), "") !== null);
+  const candidates = [
+    ...files.slice(0, MAX_ROUTINES_PER_WORKSPACE).filter((path) => scheduleFromNote(asTexPath(path, tex), "") !== null),
+    ...homes.files.map((file) => file.path),
+  ];
+  // Where the notes live in their object, its props are read at the text it holds, so a routine never waits on them.
+  // A home routine keeps the tree's row: its times are read through the seal there, which the object's facts do not.
+  const objectRows = await objectFactRows(ctx, workspaceId);
   for (let at = 0; at < candidates.length; at += PROPS_AT_PATHS) {
-    const rows = await ctx.runQuery(internal.functions.nodeFacts.propsNow, {
-      workspaceId,
-      paths: candidates.slice(at, at + PROPS_AT_PATHS),
-    });
-    for (const row of rows) {
+    const page = candidates.slice(at, at + PROPS_AT_PATHS);
+    const rows = await ctx.runQuery(internal.functions.nodeFacts.propsNow, { workspaceId, paths: page });
+    const held = await objectPropsAt(objectRows, page.filter((path) => !chatOf.has(path)));
+    for (const tree of rows) {
+      const chat = chatOf.get(tree.path);
+      const fresh = chat === undefined ? held?.get(tree.path) : undefined;
+      const row = fresh === undefined ? tree : { ...tree, current: true, sealed: fresh.sealed, props: fresh.props };
       if (!row.current) {
-        waiting.push(asTexPath(row.path, tex));
+        waiting.push(chat === undefined ? asTexPath(row.path, tex) : row.path);
         continue;
       }
-      const schedule = scheduleFromNote(asTexPath(row.path, tex), row.sealed ? "" : frontMatterFromProps(row.props));
+      const text = row.sealed ? "" : frontMatterFromProps(row.props);
+      const schedule = chat === undefined ? scheduleFromNote(asTexPath(row.path, tex), text) : homeScheduleFromNote(row.path, text, chat);
       if (schedule !== null) schedules.push(schedule);
     }
   }
@@ -272,11 +288,11 @@ export async function commitRoutinesHandler(
     let writer: Id<"users"> | null = null;
     let writerSource: "signal" | "fallback" = "fallback";
     const fromSignal = signalledWriter(signalled, schedule.path);
-    if (fromSignal !== undefined && (await writingRole(ctx, args.workspaceId, fromSignal)) !== null) {
+    if (fromSignal !== undefined && (await mayWriteRoutine(ctx, args.workspaceId, schedule.path, fromSignal))) {
       writer = fromSignal;
       writerSource = "signal";
     } else if (row !== undefined) {
-      writer = (await writingRole(ctx, args.workspaceId, row.writerUserId)) === null ? null : row.writerUserId;
+      writer = (await mayWriteRoutine(ctx, args.workspaceId, schedule.path, row.writerUserId)) ? row.writerUserId : null;
       writerSource = row.writerSource;
     } else {
       if (owner === undefined) owner = await workspaceOwner(ctx, args.workspaceId);
