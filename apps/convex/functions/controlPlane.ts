@@ -88,6 +88,18 @@ export const resolveGrantByAccessToken = internalQuery({
   handler: session.resolveGrantByAccessTokenHandler,
 });
 
+/**
+ * `/gateway/session`'s read: the session, and whether its grant's "last used"
+ * stamp is due. The stamp is written at most every `TOUCH_GRANT_EVERY_MS`, so
+ * on almost every request there is nothing to write, and the route no longer
+ * spends a mutation round trip learning that.
+ */
+export const resolveGatewaySession = internalQuery({
+  args: session.resolveGrantByAccessTokenArgs,
+  returns: v.object({ session: session.resolveGrantByAccessTokenReturns, touchDue: v.boolean() }),
+  handler: session.resolveGatewaySessionHandler,
+});
+
 export const startAuthorization = internalMutation({
   args: authorization.startAuthorizationArgs,
   returns: authorization.startAuthorizationReturns,
