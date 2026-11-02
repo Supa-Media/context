@@ -31,7 +31,7 @@ import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox"
 import { checkReady } from "./ready";
 import { checkGmail } from "./gmailWatch";
 import type { Message } from "./reply";
-import { runDueRoutines, textPhone, textRoutine, type PhoneTexted } from "./routines";
+import { runDueRoutines, textPhone, textRoutine } from "./routines";
 export { TexRoutines } from "./texRoutineDue";
 import { runDueDreams } from "./dreams";
 import { runDueHeartbeats } from "./heartbeats";

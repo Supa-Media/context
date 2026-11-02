@@ -21,7 +21,7 @@ of the owner's defaults on 2026-10-27.
   a guest chat sets none, nor does an invited person with no account, whose
   turn runs on the binder's grant.
 - **When it is due, the control plane asks again** (`functions/lib/routines/chats.ts`):
-  the chat must be bound to the routine's own workspace now, not muted, not in
+  the chat must reach the routine's own workspace now, not muted, not in
   guest mode, and its writer must still write there and have a phone. Else
   the slot passes with `no_chat`. The run names the chat's key and the
   writer's phone, and carries **no grant**.

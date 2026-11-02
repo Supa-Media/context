@@ -41,7 +41,7 @@ import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
 import type { Steer } from "./steer";
-import { textsFromAnswer, textsWithExact } from "./format";
+import { textsWithExact } from "./format";
 import { saveTextsStyle, textSettings, type MenuState, type SettingStep, type TexStyle } from "./texStyle";
 import { saveReviewSharing, sharingReply, sharingWords } from "./reviewSharing";
 import type { OutgoingPicture } from "./outgoing";

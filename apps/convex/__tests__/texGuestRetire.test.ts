@@ -63,7 +63,6 @@ const WORDS_A = "chair-blast-tiger";
 const WORDS_B = "lamp-river-stone";
 const FOLDER_A = `tex/chats/${WORDS_A}`;
 const FOLDER_B = `tex/chats/${WORDS_B}`;
-const HOME_A = `tex/groups/${WORDS_A}`;
 const MARKER = "zzretiremarker";
 
 function durableSql() {
