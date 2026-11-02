@@ -281,6 +281,17 @@ test("about fix changes only its line, and a stale line id is refused and writes
   assert.equal(after.items[0].line, items[0].line, "the other lines keep their ids");
 });
 
+test("a line with no source that the person fixes on their page becomes theirs; a group chat's line does not", async () => {
+  const ws = fakeWorkspace({ [`|${ABOUT}`]: ABOUT_NOTE, [`|tex/groups/g_1/about.md`]: ABOUT_NOTE });
+  const own = await readAbout(ws.call, { path: ABOUT }, NOW);
+  assert.deepEqual(await aboutFix(ws.call, { path: ABOUT }, own.items[3].line, "Likes the green mug."), { ok: true });
+  assert.match(ws.text(`|${ABOUT}`), /^- Likes the green mug\. \(you said so\)$/m, "the save then dates it (`stampAboutLines`)");
+
+  const group = await readAbout(ws.call, { path: "tex/groups/g_1/about.md" }, NOW);
+  assert.deepEqual(await aboutFix(ws.call, { path: "tex/groups/g_1/about.md" }, group.items[3].line, "Likes the green mug."), { ok: true });
+  assert.match(ws.text(`|tex/groups/g_1/about.md`), /^- Likes the green mug\.$/m, "nobody in particular said a group's line");
+});
+
 test("about remove takes out one line and refuses a stale id", async () => {
   const ws = fakeWorkspace({ [`|${ABOUT}`]: ABOUT_NOTE });
   const { items } = await readAbout(ws.call, { path: ABOUT }, NOW);

@@ -27,6 +27,7 @@ import {
   routineSettings,
   wallClock,
 } from "../../../../../packages/shared/src/routines.cjs";
+import { bodyStart, isAboutNotePath, itemOf } from "../../agent/aboutLines.js";
 
 /** Where routines live: Tex's own folder first, the older root still read and run. */
 const ROUTINE_ROOTS = Object.freeze(["tex/routines/", "routines/"]);
@@ -34,9 +35,6 @@ const ONCE_ROOTS = Object.freeze(["tex/routines/once/", "routines/once/"]);
 
 /** The person's own check-in settings (`agent/checkIns.js`). */
 const HEARTBEAT_SETTINGS_PATH = "tex/heartbeat.md";
-
-/** Their about note: the person's, or a group chat's home note (`agent/chatHome.js`). */
-const ABOUT_PATH = /^(?:tex\/about\.md|tex\/about-me\.md|tex\/groups\/[A-Za-z0-9][A-Za-z0-9_-]{0,80}\/about\.md)$/;
 
 /** At most this many routine notes are read per call, in parallel. */
 const MAX_ROUTINES_READ = 30;
@@ -151,9 +149,8 @@ export function parseId(id) {
 
 const idOf = (slug, path) => `${slug ?? ""}:${path}`;
 
-function isAboutPath(path) {
-  return typeof path === "string" && ABOUT_PATH.test(path) && !path.includes("..");
-}
+/** Their about note: the person's, or a group chat's home note (`agent/chatHome.js`, `agent/aboutLines.js`). */
+const isAboutPath = isAboutNotePath;
 
 // ── Note text ───────────────────────────────────────────────────────────────
 
@@ -457,54 +454,6 @@ export async function checkinAdd(call, { when, what } = {}) {
 
 // ── About you ───────────────────────────────────────────────────────────────
 
-const BULLET = /^\s*(?:[-*+]|\d+[.)])\s+/;
-const TRAILING = /\s*[(\[]([^()[\]]{1,160})[)\]]\s*$/;
-
-/** A trailing marker's words: a source label and a date, when it carries either. Null otherwise. */
-function markerOf(content) {
-  let source = null;
-  let at;
-  for (const raw of content.split(/[,;·|]/)) {
-    const part = raw.trim();
-    const date = /^(\d{4})-(\d{2})-(\d{2})$/.exec(part);
-    if (date) {
-      at = Date.UTC(Number(date[1]), Number(date[2]) - 1, Number(date[3]));
-    } else if (/^you said so$/i.test(part)) {
-      source = "You said so";
-    } else if (/^from your texts$/i.test(part)) {
-      source = "From your texts";
-    } else if (/^tex noticed$/i.test(part)) {
-      source = "Tex noticed";
-    } else if (/^.{1,60} said so$/i.test(part)) {
-      source = `${part.slice(0, -" said so".length).trim()} said so`;
-    }
-  }
-  return source === null && at === undefined ? null : { source: source ?? "Tex noticed", at };
-}
-
-/** The first line of the note after its front matter, where the body starts. */
-function bodyStart(lines) {
-  if (lines[0]?.trim() !== "---") return 0;
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line === "---" || line === "...") return i + 1;
-  }
-  return 0;
-}
-
-/** A line as an about item (`null` for a blank line, a heading, a comment, a rule). */
-function itemOf(raw) {
-  const trimmed = raw.trim();
-  if (trimmed === "" || /^#{1,6}(\s|$)/.test(trimmed) || /^<!--/.test(trimmed) || /^-{3,}$/.test(trimmed)) return null;
-  const bullet = BULLET.exec(raw)?.[0] ?? "";
-  const rest = raw.slice(bullet.length).trim();
-  const found = TRAILING.exec(rest);
-  const marker = found ? markerOf(found[1]) : null;
-  const text = marker ? rest.slice(0, found.index).trim() : rest;
-  if (text === "") return null;
-  return { bullet, text, marker: marker ? found[0] : "", source: marker?.source ?? "Tex noticed", at: marker?.at };
-}
-
 async function lineHash(raw) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw.trim()));
   return [...new Uint8Array(digest).slice(0, 4)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -546,7 +495,9 @@ export async function readAbout(call, { context, path } = {}, now = Date.now()) 
 export async function aboutFix(call, target = {}, line, text) {
   const clean = typeof text === "string" ? text.trim() : "";
   if (clean === "" || /[\r\n]/.test(clean) || clean.length > MAX_LINE) return fail("invalid");
-  return editAboutLine(call, target, line, (entry) => `${entry.bullet}${clean}${entry.marker}`);
+  // A line with no source that the person fixes on their own page is theirs now; the save dates it (`stampAboutLines`).
+  const own = target?.path?.startsWith("tex/groups/") ? "" : " (you said so)";
+  return editAboutLine(call, target, line, (entry) => `${entry.bullet}${clean}${entry.marker || own}`);
 }
 
 /** Remove one about line. A stale line id is refused as `changed`. */

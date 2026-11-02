@@ -95,7 +95,7 @@ export function aboutMePrompt(text, { edits, identity = null }) {
 function noteFacts(text, { edits }) {
   const body = typeof text === "string" ? text.trim() : "";
   const keep = edits
-    ? `When you learn something lasting about them (a preference, a correction, someone in their life, how they like things done), add it to ${ABOUT_ME_PATH} in their own workspace with write: fetch it first and keep the rest. One short line per fact, never more than ${MAX_ABOUT_ME_LINES} lines: when it's getting long, merge and drop what's stale.`
+    ? `When you learn something lasting about them (a preference, a correction, someone in their life, how they like things done), add it to ${ABOUT_ME_PATH} in their own workspace with write: fetch it first and keep the rest. One short line per fact, never more than ${MAX_ABOUT_ME_LINES} lines: when it's getting long, merge and drop what's stale. End a line they told you with (you said so); the date is added when it saves.`
     : "";
   if (body.length === 0) {
     return edits ? `\n\nYou keep what you learn about them in ${ABOUT_ME_PATH} in their own workspace. It doesn't exist yet. ${keep}` : "";

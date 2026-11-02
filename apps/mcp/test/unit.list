@@ -348,6 +348,8 @@ test/chatLedgerWrites.test.mjs
 test/chatLedgerReads.test.mjs
 test/chatLedgerBackfill.test.mjs
 test/texPage.test.mjs
+test/texPageComputer.test.mjs
+test/aboutLines.test.mjs
 test/texPageLive.test.mjs
 test/texPageNotes.test.mjs
 test/texPageRoutes.test.mjs

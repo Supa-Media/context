@@ -50,6 +50,7 @@ import { prepareNoteImages, storeNoteImages } from "../../notes/uploadedImages.j
 import { statusAdvice } from "./statusList.js";
 import { frontMatterChanged } from "../../activity/changes.js";
 import { aboutMeTooLong } from "../../agent/aboutMe.js";
+import { isAboutNotePath, stampAboutLines } from "../../agent/aboutLines.js";
 
 /** The `share` values that mint a link; anything else publishes nothing. */
 const SHARE_REQUESTS = new Set(["members", "anyone", "collect"]);
@@ -310,6 +311,12 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
       content = restored;
       restoredOpening = true;
     }
+  }
+  // An about line says who it came from and the day it was written, dated here, never by a model (`agent/aboutLines.js`).
+  if (isAboutNotePath(path) && !(storedBody !== null && isEncryptedNote(storedBody))) {
+    content = stampAboutLines(content, storedBody, Date.now());
+    const stampedTooLong = aboutMeTooLong(path, content);
+    if (stampedTooLong) return toolError(stampedTooLong);
   }
   // A link anyone can open is never minted over an encrypted note
   // (`docs/decisions/encryption.md`, "Sharing"). Refused here, before the

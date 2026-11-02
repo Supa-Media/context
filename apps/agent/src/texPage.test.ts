@@ -45,6 +45,16 @@ describe("pageJobsOf", () => {
     expect(JSON.stringify(job)).not.toContain(PHONE);
   });
 
+  it("names a group's people hash, which its browser is tagged by, and none for a 1:1 inbox", async () => {
+    const storage = new MemoryStorage();
+    expect((await pageJobsOf(storage, NOW)).people).toBeUndefined();
+    const full = "a".repeat(64);
+    await storage.put("gpeople", { webhook: "b".repeat(64), full });
+    expect((await pageJobsOf(storage, NOW)).people).toBe(full);
+    await storage.put("gpeople", { webhook: "b".repeat(64), full: "not a hash" });
+    expect((await pageJobsOf(storage, NOW)).people).toBeUndefined();
+  });
+
   it("keeps at most the newest forty, and prunes what has expired", async () => {
     const storage = new MemoryStorage();
     for (let index = 0; index < MAX_PAGE_JOBS + 5; index += 1) {
