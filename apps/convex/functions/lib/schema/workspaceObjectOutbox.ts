@@ -55,4 +55,16 @@ export const workspaceObjectOutboxTables = {
     workspaceId: v.id("workspaces"),
     until: v.number(),
   }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * Each workspace's last failed push: when, and a short code for why (an op and status such as `ws.apply: 422`, or
+   * an error's class), so a push that keeps failing can be read from the marks report without the deployment's logs.
+   * One row a workspace, deleted once a push lands. No path, no words.
+   */
+  workspaceObjectPushFailures: defineTable({
+    workspaceId: v.id("workspaces"),
+    reason: v.string(),
+    at: v.number(),
+    count: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
 };
