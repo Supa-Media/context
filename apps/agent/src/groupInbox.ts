@@ -494,10 +494,15 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const routine = message.routine !== undefined;
   const command = item.engagement || item.setting || routine ? null : groupCommand(message.text);
   // The app's own list too: more people only ever narrows what Tex may use. Unread where the webhook names only the sender, it's retried (`groupLine.ts`).
+  // Unread on Sendblue, a question is retried too (2026-11-02): its webhook may name someone by an email handle the answer's read
+  // then lists as a phone, a newcomer nobody was, and the control plane mints the turn's grant and spends the one-shot intro on
+  // the people it is given. A command is answered from the webhook's names, so "Tex, stop" works with the groups API down;
+  // "what can you see" waits, since it names the workspaces those people share.
   const members = await app.readMembers(chat);
   clock?.mark("members");
   if (members === null) log("members_unread");
-  if (members === null && !routine && app.senderOnlyWebhook) throw new ServiceError("whapi", null);
+  const question = command === null && !item.engagement && !item.setting;
+  if (members === null && !routine && (app.senderOnlyWebhook || question || command?.kind === "status")) throw new ServiceError(app.senderOnlyWebhook ? "whapi" : "sendblue", null);
   // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.
   if (routine && (members === null || !members.includes(message.from))) return void (await routineDone(deps, message, "no_chat"));
   const people = peopleOf(message.line, message.participants, members);

@@ -33,7 +33,8 @@ export function setup(
     controlFor?: (body: Record<string, unknown>) => Record<string, unknown> | undefined;
     agent?: (body: Record<string, unknown>) => unknown;
     hold?: boolean;
-    members?: string[][];
+    /** One list per member read, the last repeated; `null` is that read failing. */
+    members?: (string[] | null)[];
     /** What `/agent/cancel` says it did. */
     cancelled?: boolean;
     /** Decide waits for this before it answers (a slow decide). */
@@ -70,7 +71,10 @@ export function setup(
     const path = parsed.pathname;
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     // Sendblue
-    if (path.startsWith("/api/v2/groups/")) return Response.json({ data: { participants: members().map((number) => ({ number })) } });
+    if (path.startsWith("/api/v2/groups/")) {
+      const list = members();
+      return list === null ? new Response("{}", { status: 404 }) : Response.json({ data: { participants: list.map((number) => ({ number })) } });
+    }
     if (path === "/api/send-group-message") {
       texts.push(body.content ?? body.media_url);
       return Response.json({ message_handle: `h_out_${texts.length}` });
@@ -81,7 +85,10 @@ export function setup(
     }
     // Whapi
     if (parsed.host === "gate.whapi.cloud") {
-      if (path.startsWith("/groups/")) return Response.json({ participants: members().map((phone) => ({ id: `${phone.slice(1)}@s.whatsapp.net` })) });
+      if (path.startsWith("/groups/")) {
+        const list = members();
+        return list === null ? new Response("{}", { status: 404 }) : Response.json({ participants: list.map((phone) => ({ id: `${phone.slice(1)}@s.whatsapp.net` })) });
+      }
       if (path.endsWith("/reaction")) {
         reactions.push(body.emoji);
         return Response.json({ success: true });
