@@ -17,6 +17,13 @@ on:
           - staging
           - production
         default: staging
+      home:
+        description: "Which workspaces to check: those still on dual (to switch them), or those already on object (to prove they still match)."
+        type: choice
+        options:
+          - dual
+          - object
+        default: dual
       switch_clean:
         description: "Switch each workspace to object right after its own check comes back clean."
         type: boolean
@@ -42,9 +49,10 @@ jobs:
       - id: list
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          HOME_NOW: ${{ inputs.home }}
         run: |
           set -euo pipefail
-          ids=$(npx convex run functions/workspaceObjectsRows:atHome '{"home":"dual"}' 2>/dev/null | jq -c '.')
+          ids=$(npx convex run functions/workspaceObjectsRows:atHome "$(jq -cn --arg home "${HOME_NOW:-dual}" '{home: $home}')" 2>/dev/null | jq -c '.')
           echo "workspaces: $(echo "$ids" | jq 'length')"
           echo "ids=$ids" >> "$GITHUB_OUTPUT"
 
