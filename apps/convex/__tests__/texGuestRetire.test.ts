@@ -130,7 +130,9 @@ async function world(): Promise<World> {
     GATEWAY_SECRET: TEST_GATEWAY_SECRET,
     TEX_STORE: {
       idFromName: (name: string) => name,
-      get: (name: string) => {
+      // The gateway reaches each owner's store placed in eastern North America, `enam:<owner>` (`texStore/move.js`); kept here by owner.
+      get: (placed: string) => {
+        const name = placed.replace(/^enam:/, "");
         if (!objects.has(name)) objects.set(name, texObjects(durableSql()));
         const held = objects.get(name)!;
         return { fetch: (request: Request) => serveTexStore(held, request) };

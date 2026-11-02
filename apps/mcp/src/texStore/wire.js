@@ -11,6 +11,7 @@
 
 import { TexObjectRefused } from "./objects.js";
 import { objectByName } from "../objectPlace.js";
+import { OWNER_HEADER, placedName } from "./move.js";
 import { readDesk } from "./desk.js";
 import { R2Store } from "../store/r2.js";
 
@@ -18,12 +19,24 @@ const CALL = "x-tex-call";
 const META = "x-tex-meta";
 const ORIGIN = "https://tex-store.internal";
 
-/** The Durable Object a person's (`person`: their workspace id) or a group chat's (`chat`: its id) Tex notes live in. `null` without the binding. */
+/**
+ * The Durable Object a person's (`person`: their workspace id) or a group
+ * chat's (`chat`: its id) Tex notes live in: the one placed in eastern North
+ * America (`placedName`), with every call naming its owner, so the first one
+ * can copy in the store the owner had under the old name (`move.js`). `null`
+ * without the binding.
+ */
 export function texStoreStub(env, owner) {
   const namespace = env?.TEX_STORE;
   if (!namespace || typeof namespace.idFromName !== "function") return null;
   const name = ownerName(owner);
-  return objectByName(namespace, name);
+  const stub = objectByName(namespace, placedName(name));
+  return {
+    fetch(request) {
+      request.headers.set(OWNER_HEADER, name);
+      return stub.fetch(request);
+    },
+  };
 }
 
 /** The one name per owner. Exported so a test can pin that two owners never share one. */
