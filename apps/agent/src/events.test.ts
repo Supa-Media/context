@@ -13,7 +13,7 @@
  *  4. `flushEvents` marking every event written whatever the gateway said →
  *     "fixed texts are kept in order…" fails.
  *  5. `prune` keeping everything → "the buffer is bounded" fails.
- *  6. `renderTranscript` ignoring `people` → "a newcomer's transcript…" fails.
+ *  6. `renderTranscript` filtering by `people` again → "a group's transcript is its whole log…" fails.
  *  7. `oneLine` not applied (2026-10-27) → "someone's words never forge a
  *     line…" fails.
  *  8. lines without their `<id>` prefix → "renders as section 5…" fails.
@@ -386,13 +386,13 @@ describe("the event buffer", () => {
     expect(storage.alarm).toBe(2_000);
   });
 
-  it("a newcomer's transcript starts where they were there", () => {
+  it("a group's transcript is its whole log, whoever joined or left since (the owner, 2026-11-02)", () => {
     const events: TexEvent[] = [
       { id: "1", at: 1, chat: "g", from: { kind: "person", name: "Ada" }, kind: "text", text: "before Cy", people: "ab" },
       { id: "2", at: 2, chat: "g", from: { kind: "person", name: "Cy" }, kind: "text", text: "hi all", people: "abc" },
+      { id: "3", at: 3, chat: "g", from: { kind: "person", name: "Ada" }, kind: "text", text: "after Cy left", people: "ab" },
     ];
-    const shown = renderTranscript(events, { people: "abc" });
-    expect(shown).toContain("hi all");
-    expect(shown).not.toContain("before Cy");
+    const shown = renderTranscript(events);
+    for (const words of ["before Cy", "hi all", "after Cy left"]) expect(shown).toContain(words);
   });
 });

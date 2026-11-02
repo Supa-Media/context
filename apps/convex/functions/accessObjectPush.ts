@@ -29,6 +29,11 @@ import { AUTHORITY_TABLES } from "./lib/accessHandOff/record";
 const homeValidator = v.union(v.literal("convex"), v.literal("dual"), v.literal("object"));
 import { doorFor, expectedFor, writeTable } from "./accessObjects";
 import { failureOf } from "./lib/workspaceObjects/failures";
+import { inviteRow, memberRow } from "./lib/accessObjects/expected";
+import { isPending } from "./lib/invitations/forCaller";
+import { consoleWorkspaceClient } from "./lib/workspaceObjects/door";
+
+const addsValidator = v.object({ userIds: v.array(v.string()), inviteIds: v.array(v.string()) });
 
 /** Outbox entries one round takes. */
 const ENTRIES_PER_ROUND = 50;
@@ -101,7 +106,7 @@ export const ack = internalMutation({
 export const pending = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({
-    entries: v.array(v.object({ id: v.id("accessObjectOutbox"), tables: v.array(objectTableValidator) })),
+    entries: v.array(v.object({ id: v.id("accessObjectOutbox"), tables: v.array(objectTableValidator), adds: v.optional(addsValidator) })),
     homes: v.object({ workspace: homeValidator, person: homeValidator }),
   }),
   handler: async (ctx, { workspaceId }) => {
@@ -110,7 +115,7 @@ export const pending = internalQuery({
       .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId))
       .take(ENTRIES_PER_ROUND);
     return {
-      entries: entries.map((entry) => ({ id: entry._id, tables: entry.tables })),
+      entries: entries.map((entry) => ({ id: entry._id, tables: entry.tables, ...(entry.adds === undefined ? {} : { adds: entry.adds }) })),
       homes: { workspace: await accessHomeOf(ctx.db, workspaceId, "workspace"), person: await accessHomeOf(ctx.db, workspaceId, "person") },
     };
   },
@@ -131,6 +136,67 @@ export const stale = internalQuery({
   },
 });
 
+/**
+ * The rows a round of joins and invitations puts in the object, as Convex holds them now: each member still in, each
+ * invitation still open, and the invitations no longer open (`gone`). A member no longer in Convex is left alone: a
+ * removal reaches the object first, so the object already took it.
+ */
+export const addRows = internalQuery({
+  args: { workspaceId: v.id("workspaces"), userIds: v.array(v.string()), inviteIds: v.array(v.string()), now: v.number() },
+  returns: v.any(),
+  handler: async (ctx, { workspaceId, userIds, inviteIds, now }) => {
+    const workspace = await ctx.db.get(workspaceId);
+    if (workspace === null) return null;
+    const members: unknown[] = [];
+    for (const raw of userIds) {
+      const userId = ctx.db.normalizeId("users", raw);
+      if (userId === null) continue;
+      const member = await ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace_user", (q) => q.eq("workspaceId", workspaceId).eq("userId", userId))
+        .unique();
+      const row = member === null ? null : await memberRow(ctx, member, now);
+      if (row !== null) members.push(row);
+    }
+    const invites: unknown[] = [];
+    const gone: string[] = [];
+    for (const raw of inviteIds) {
+      const id = ctx.db.normalizeId("workspaceInvitations", raw);
+      const invite = id === null ? null : await ctx.db.get(id);
+      if (invite !== null && invite.workspaceId === workspaceId && isPending(invite, now)) invites.push(await inviteRow(invite, now));
+      else gone.push(raw);
+    }
+    return { workspace: { slug: workspace.slug, kind: workspace.kind }, members, invites, gone };
+  },
+});
+
+/** The calls a round of joins and invitations makes on a workspace object: the gateway's own client. */
+export interface AddsObject {
+  members: { put(rows: unknown[], extra: { workspace: { slug: string; kind: string } }): Promise<unknown> };
+  invites: { put(rows: unknown[]): Promise<unknown>; remove(ids: string[], at: number): Promise<unknown> };
+}
+export type OpenAdds = (workspaceId: Id<"workspaces">) => AddsObject | null;
+
+const refusedAnswer = (answer: unknown) => answer === null || typeof answer !== "object" || typeof (answer as { error?: unknown }).error === "string";
+
+/** Put the members who joined and the invitations that changed in the object, as Convex holds them now. */
+async function pushAdds(ctx: ActionCtx, workspaceId: Id<"workspaces">, adds: { userIds: string[]; inviteIds: string[] }, open: OpenAdds): Promise<void> {
+  const now = Date.now();
+  const rows = (await ctx.runQuery(internal.functions.accessObjectPush.addRows, { workspaceId, ...adds, now })) as {
+    workspace: { slug: string; kind: string };
+    members: unknown[];
+    invites: unknown[];
+    gone: string[];
+  } | null;
+  // The workspace is gone: its deletion took the object's rows first (`accessTakeAway.ts`).
+  if (rows === null) return;
+  const object = open(workspaceId);
+  if (object === null) throw new Error("access push: the object cannot take members yet");
+  if (rows.members.length > 0 && refusedAnswer(await object.members.put(rows.members, { workspace: rows.workspace }))) throw new Error("access push: members refused");
+  if (rows.invites.length > 0 && refusedAnswer(await object.invites.put(rows.invites))) throw new Error("access push: invites refused");
+  if (rows.gone.length > 0 && refusedAnswer(await object.invites.remove(rows.gone, now))) throw new Error("access push: invites refused");
+}
+
 export type PushDoor = (workspaceId: Id<"workspaces">, scope: AccessScope) => AccessDoor | null;
 
 const defaultDoor: (ctx: ActionCtx) => PushDoor = (ctx) => (workspaceId, scope) => {
@@ -147,6 +213,7 @@ export async function drainOnce(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   openDoor: PushDoor = defaultDoor(ctx),
+  openAdds: OpenAdds = (id) => consoleWorkspaceClient(ctx, id) as unknown as AddsObject | null,
 ): Promise<"done" | "more" | "busy" | "failed"> {
   if (!(await ctx.runMutation(internal.functions.accessObjectPush.claim, { workspaceId, now: Date.now() }))) return "busy";
   try {
@@ -162,7 +229,10 @@ export async function drainOnce(
         const home = homes[scopeOf(table)];
         return home === "dual" || (home === "object" && !AUTHORITY_TABLES.has(table));
       };
-      const tables = ([...new Set(entries.flatMap((entry) => entry.tables))].sort() as AccessTable[]).filter(sendable);
+      const adds = { userIds: [...new Set(entries.flatMap((entry) => entry.adds?.userIds ?? []))].sort(), inviteIds: [...new Set(entries.flatMap((entry) => entry.adds?.inviteIds ?? []))].sort() };
+      // Back on `dual`, the object holds a copy again: joins and invitations go as the whole tables.
+      const addTables: AccessTable[] = homes.workspace === "dual" ? [...(adds.userIds.length > 0 ? ["members" as const] : []), ...(adds.inviteIds.length > 0 ? ["invites" as const] : [])] : [];
+      const tables = ([...new Set([...entries.flatMap((entry) => entry.tables), ...addTables])].sort() as AccessTable[]).filter(sendable);
       for (const scope of ["workspace", "person"] as const) {
         const sending = tables.filter((table) => scopeOf(table) === scope);
         if (sending.length === 0) continue;
@@ -179,6 +249,8 @@ export async function drainOnce(
         if (door === null) throw new Error("access push: the object cannot take access tables yet");
         for (const table of sending) await writeTable(door, table, expected.tables[table] ?? [], epoch);
       }
+      // At `object`, joins and invitations go row by row (`lib/accessHandOff/adds.ts`); at `convex` nothing holds them.
+      if (homes.workspace === "object" && (adds.userIds.length > 0 || adds.inviteIds.length > 0)) await pushAdds(ctx, workspaceId, adds, openAdds);
       const more = await ctx.runMutation(internal.functions.accessObjectPush.ack, {
         workspaceId,
         entryIds: entries.map((entry) => entry.id),

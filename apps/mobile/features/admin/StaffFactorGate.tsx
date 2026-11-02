@@ -83,7 +83,7 @@ export function StaffFactorGate({ factor, offer = false }: { factor: StaffFactor
       <Text variant="paneTitle">{stepUp ? "Type your authenticator code" : "Set up an authenticator"}</Text>
       <Text variant="rowSub" style={styles.lede}>
         {stepUp
-          ? "Staff pages need a code from your authenticator app once per device, every twelve hours."
+          ? "Staff pages need a code from your authenticator app once every thirty days on each app or browser you sign in with."
           : "Staff pages need a second step besides your email code: a code from an authenticator app."}
       </Text>
       {enrolling ? (

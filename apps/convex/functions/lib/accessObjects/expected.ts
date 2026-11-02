@@ -26,6 +26,7 @@ import { isDesktopShellClient } from "../machineGrant";
 import { pinnedContextRow } from "../pinnedContext";
 import { pinReaderNames } from "../pinnedReaders";
 import { sharedWithUser } from "../shares/recipients";
+import { CONVEX_ONLY_CLIENTS } from "../accessHandOff/record";
 
 export type AccessTable = "members" | "invites" | "reach" | "sharedToMe" | "connections";
 export const WORKSPACE_TABLES: readonly AccessTable[] = ["members", "invites"];
@@ -37,8 +38,8 @@ export const MEMBERS_PER_PAGE = 100;
 export const ROWS_CAP = 1000;
 /** The most grant rows one person's copy walks, texting ones included: well inside one query's read limit. */
 export const GRANTS_SCANNED_CAP = 8000;
-/** Clients the person object never holds: their checks stay with the control plane (contract, `checkConnectionRow`). */
-export const TEXTING_CLIENTS: ReadonlySet<string> = new Set(["context_texts", "context_texts_group"]);
+/** Clients the person object never holds: their checks stay with the control plane (`accessHandOff/record.ts`). */
+export const TEXTING_CLIENTS: ReadonlySet<string> = CONVEX_ONLY_CLIENTS;
 
 type Row = Record<string, unknown>;
 export interface Rows {
@@ -56,7 +57,7 @@ const capped = <T>(rows: T[], what: string): T[] => {
  * The names of `userId`'s groups in `workspaceId`, sorted. Group names only:
  * the person's own handle is added when a session is built (contract).
  */
-export async function groupNames(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">): Promise<string[]> {
+export async function groupNames(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">, without?: Id<"workspaceGroups">): Promise<string[]> {
   const rows = capped(
     await ctx.db
       .query("workspaceGroupMembers")
@@ -66,7 +67,7 @@ export async function groupNames(ctx: QueryCtx, workspaceId: Id<"workspaces">, u
   );
   const names = new Set<string>();
   for (const row of rows) {
-    if (row.workspaceId !== workspaceId) continue;
+    if (row.workspaceId !== workspaceId || row.groupId === without) continue;
     const group = await ctx.db.get(row.groupId);
     if (group !== null && group.workspaceId === workspaceId) names.add(group.name);
   }
@@ -87,20 +88,37 @@ export async function membersPage(
   const rows: Row[] = [];
   let skipped = 0;
   for (const member of page.page) {
-    const personal = await personalWorkspaceOf(ctx, member.userId);
-    if (personal === null) {
-      skipped += 1;
-      continue;
-    }
-    rows.push({
-      userId: String(member.userId),
-      personalWorkspaceId: String(personal._id),
-      role: member.role,
-      groups: await groupNames(ctx, workspaceId, member.userId),
-      at: now,
-    });
+    const row = await memberRow(ctx, member, now);
+    if (row === null) skipped += 1;
+    else rows.push(row);
   }
   return { rows, skipped, next: page.isDone ? null : page.continueCursor };
+}
+
+/** One member as the workspace object keeps them (leaving out group `without`), or `null` without a personal workspace. */
+export async function memberRow(ctx: QueryCtx, member: Doc<"workspaceMembers">, now: number, without?: Id<"workspaceGroups">): Promise<Row | null> {
+  const personal = await personalWorkspaceOf(ctx, member.userId);
+  if (personal === null) return null;
+  return {
+    userId: String(member.userId),
+    personalWorkspaceId: String(personal._id),
+    role: member.role,
+    groups: await groupNames(ctx, member.workspaceId, member.userId, without),
+    at: now,
+  };
+}
+
+/** One pending invitation as the workspace object keeps it, the link token as its hash. */
+export async function inviteRow(invite: Doc<"workspaceInvitations">, now: number): Promise<Row> {
+  return {
+    id: String(invite._id),
+    [invite.inviteeKind]: invite.invitee,
+    role: invite.role,
+    invitedBy: String(invite.invitedBy),
+    expiresAt: invite.expiresAt,
+    tokenHash: await hashToken(invite.token),
+    at: now,
+  };
 }
 
 /** Every pending, unexpired invitation to `workspaceId`, the link token as its hash. */
@@ -113,18 +131,7 @@ export async function invitesOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, no
     "invites",
   );
   const rows: Row[] = [];
-  for (const invite of found) {
-    if (!isPending(invite, now)) continue;
-    rows.push({
-      id: String(invite._id),
-      [invite.inviteeKind]: invite.invitee,
-      role: invite.role,
-      invitedBy: String(invite.invitedBy),
-      expiresAt: invite.expiresAt,
-      tokenHash: await hashToken(invite.token),
-      at: now,
-    });
-  }
+  for (const invite of found) if (isPending(invite, now)) rows.push(await inviteRow(invite, now));
   return { rows, skipped: 0 };
 }
 

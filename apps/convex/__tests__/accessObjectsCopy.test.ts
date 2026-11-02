@@ -206,6 +206,15 @@ describe("pure helpers", () => {
     expect(many.calls.flatMap((call) => call.rows)).toEqual(rows);
   });
 
+  test("writeTable: connections go 25 a call, so the person object's index writes stay inside the door's call limit", async () => {
+    const door = fakeDoor();
+    const rows = Array.from({ length: 60 }, (_, index) => ({ grantId: `g${index}` }));
+    await writeTable(door.door, "connections", rows, 5);
+    expect(door.calls.map((call) => call.rows.length)).toEqual([25, 25, 10]);
+    expect(door.calls.map((call) => call.last)).toEqual([false, false, true]);
+    expect(door.calls.flatMap((call) => call.rows)).toEqual(rows);
+  });
+
   test("writeTable: the epoch is a key both objects take (members.js KEY, personRows.js 1-64 chars), never a number", async () => {
     const real = fakeDoor();
     await writeTable(real.door, "reach", [], Date.now());

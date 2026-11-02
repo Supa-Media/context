@@ -45,6 +45,14 @@ import { accessValidator, scopeValidator } from "./accessObjectsRows";
 
 /** Rows per snapshot call: half the contract's `MAX_ROWS_PER_CALL`. */
 const SNAPSHOT_CHUNK = 1000;
+/**
+ * Connections per snapshot call. The person object writes each one's refresh hashes (current and previous) into their
+ * own index objects, one call after another, before it answers (`personServe.js` `indexConnections`): a person with
+ * ~140 connections passed the door's 30-second call limit (`AbortError` on the copy, 2026-11-02), so they go 25 at a
+ * time, at most 50 index writes a call.
+ */
+export const CONNECTIONS_CHUNK = 25;
+const chunkOf = (table: AccessTable): number => (table === "connections" ? CONNECTIONS_CHUNK : SNAPSHOT_CHUNK);
 /** How long one page of a run may work before it hands back its cursor. */
 const PAGE_BUDGET_MS = 2 * 60 * 1000;
 /** How recent a clean parity check must be for a scope to be read from its object. */
@@ -105,8 +113,9 @@ export async function writeTable(door: AccessDoor, table: AccessTable, rows: rea
     await door.table(table).snapshot({ epoch, rows: [], last: true, mode: "replace" });
     return;
   }
-  for (let start = 0; start < rows.length; start += SNAPSHOT_CHUNK) {
-    await door.table(table).snapshot({ epoch, rows: rows.slice(start, start + SNAPSHOT_CHUNK), last: start + SNAPSHOT_CHUNK >= rows.length, mode: "replace" });
+  const chunk = chunkOf(table);
+  for (let start = 0; start < rows.length; start += chunk) {
+    await door.table(table).snapshot({ epoch, rows: rows.slice(start, start + chunk), last: start + chunk >= rows.length, mode: "replace" });
   }
 }
 

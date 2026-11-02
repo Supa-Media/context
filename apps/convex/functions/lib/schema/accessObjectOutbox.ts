@@ -22,6 +22,8 @@ export const accessObjectOutboxTables = {
     workspaceId: v.id("workspaces"),
     tables: v.array(objectTableValidator),
     at: v.number(),
+    /** At `object`: members who joined and invitations that changed, put in the object row by row (`accessHandOff/adds.ts`). */
+    adds: v.optional(v.object({ userIds: v.array(v.string()), inviteIds: v.array(v.string()) })),
   }).index("by_workspace_at", ["workspaceId", "at"]),
 
   /** The one push carrying a workspace's access outbox at a time, so its copies leave in the order they were read. */
@@ -40,8 +42,12 @@ export const accessObjectOutboxTables = {
      * `account` / `workspace`: a deletion. `leave`: `userId` leaves `workspaceIds` (a dropped sign-in domain). `fold`:
      * `userId`'s memberships in `workspaceIds` moved to `intoId` (one person's two accounts), already in Convex.
      */
-    kind: v.union(v.literal("account"), v.literal("workspace"), v.literal("leave"), v.literal("fold")),
+    kind: v.union(v.literal("account"), v.literal("workspace"), v.literal("leave"), v.literal("fold"), v.literal("ungroup")),
     userId: v.optional(v.id("users")),
+    /** `ungroup`: `userIds` leave `groupId` in `workspaceId`, or the whole group goes (`accessHandOff/ungroup.ts`). */
+    groupId: v.optional(v.id("workspaceGroups")),
+    userIds: v.optional(v.array(v.id("users"))),
+    wholeGroup: v.optional(v.boolean()),
     workspaceId: v.optional(v.id("workspaces")),
     workspaceIds: v.optional(v.array(v.id("workspaces"))),
     intoId: v.optional(v.id("users")),

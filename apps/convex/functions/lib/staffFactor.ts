@@ -27,8 +27,12 @@ import { requireEncryptionKey } from "./crypto";
 import { liveSessionOf } from "./emailProof";
 
 export const STAFF_SECOND_FACTOR_ENV_VAR = "STAFF_SECOND_FACTOR";
-/** How long one code opens the staff pages for one session. */
-export const STAFF_STEP_UP_MS = 12 * 60 * 60 * 1000;
+/**
+ * How long one code opens the staff pages for one session: thirty days
+ * (Dev2, 2026-11-02; it was twelve hours and asked too often). Still bounded
+ * by the session itself, so signing out ends it at once.
+ */
+export const STAFF_STEP_UP_MS = 30 * 24 * 60 * 60 * 1000;
 /** Wrong codes allowed per window before the account waits out the window. */
 export const STAFF_WRONG_TRIES = 5;
 export const STAFF_TRIES_WINDOW_MS = 15 * 60 * 1000;

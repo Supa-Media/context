@@ -1,0 +1,53 @@
+# The shape of each group chat's event log in a window of time
+# (2026-11-02; `apps/convex/functions/texGroupLogShape.ts`): counts, bytes and
+# runs by set of people, never a word, an id or a name.
+# This repository is public, and so is this job's log. Read only.
+name: Tex group log shape
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to read."
+        type: choice
+        options:
+          - staging
+          - production
+        default: production
+      from:
+        description: "Window start, UTC (e.g. 2026-11-01T21:30:00Z)."
+        required: true
+      to:
+        description: "Window end, UTC."
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  shape:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Shape
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          FROM: ${{ inputs.from }}
+          TO: ${{ inputs.to }}
+        run: |
+          set -euo pipefail
+          case "$FROM$TO" in *[!0-9TZ:.-]*) echo "window must be UTC times"; exit 1 ;; esac
+          args=$(jq -cn --arg from "$FROM" --arg to "$TO" '{from: $from, to: $to}')
+          echo "shape: $(npx convex run functions/texGroupLogShape:shape "$args" 2>/dev/null | jq -c .)"

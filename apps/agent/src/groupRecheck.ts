@@ -15,7 +15,6 @@
 
 import { recheck, type ControlDeps } from "./decide";
 import { keptEvents, renderTranscript } from "./events";
-import { eventPeople } from "./groupChat";
 import { groupStyle } from "./groupStyle";
 import type { GroupPending } from "./groupTurn";
 import type { InboxStorage } from "./inbox";
@@ -49,8 +48,8 @@ export async function recheckDraft(
       line: message.line,
       sender: message.from,
       style: (await groupStyle(storage)).style,
-      // Only what was said in front of exactly these people, as decide is shown.
-      transcript: renderTranscript(await keptEvents(storage, message.groupId), { people: await eventPeople(storage, message) }),
+      // The chat's whole log, as decide is shown.
+      transcript: renderTranscript(await keptEvents(storage, message.groupId)),
       candidates: [...covers, ...newer.map(([, item]) => item.ev!)],
       newest,
     },

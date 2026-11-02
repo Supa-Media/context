@@ -61,6 +61,23 @@ the copy, because an old access token still resolves through the control plane
 until it expires. The control plane refuses to rotate a switched person's grant
 and hands a revocation back to the gateway with the grant's id.
 
+The grants the control plane mints itself, the app's own sign-in and a phone's
+cards key, follow the same order from the action that mints them
+(`apps/convex/functions/lib/accessHandOff/objectMint.ts`): the tokens name the
+person object, the row is written behind with the mint's usual checks, the
+object keeps the connection, and if it does not the row is revoked and the
+mint fails, so no token goes out that the authority does not hold.
+
+Some grants stay decided by the control plane, never held by an object: the
+texting grants, and the ones Tex's own scheduled turns run under (a routine,
+the daytime check-in, the nightly dream, housekeeping). Each job grant is
+minted for one run after the same questions the texting grant asks (a linked
+phone that is not paused), and those answers live in the control plane. The
+set is `CONVEX_ONLY_CLIENTS` in Convex and `CONTROL_PLANE_CLIENTS` in the
+gateway, and a test holds the two equal: a client in one and not the other
+would be refused by the object and never written behind, or held by the object
+while the control plane still answers its token.
+
 ## Deleting an account or a workspace
 
 A mutation cannot call an object, so a deletion that touches any scope on
@@ -87,6 +104,22 @@ call sites in queries and mutations, which cannot call an object) keep reading
 Convex's rows, kept as a read-only copy that is written before an object's
 change reports done (`functions/accessMirror.ts`). The object stays the
 authority; nothing writes the copy except behind it.
+
+The one other way in is a change that only lets someone in. Joining and
+invitations are born deep inside Convex mutations (an accepted link, a domain
+join, a phone sign-in, a Tex group chat's invite), so at `object` they are
+still written to Convex first, and the push puts each joined member and each
+changed invitation in the object row by row, as Convex holds it when the push
+runs (`functions/lib/accessHandOff/adds.ts`, `functions/accessObjectPush.ts`).
+Nobody is let in until the object holds the row. An invitation's link is only
+ever checked against Convex's copy, so an invitation revoked, declined or
+accepted in Convex is already spent, and the object's list follows. Joining a group, and a new group nobody is in yet, count as joins. Anything
+that takes access away or changes it for someone already in (a removal, a role
+change) is still refused in Convex and goes to the object first. Leaving a
+group, deleting one, and a Tex chat guest leaving the chat's group take access
+away too, so at `object` they are queued like a deletion: the queue puts each
+leaving member's row without the group in the object, then deletes Convex's
+group rows (`functions/lib/accessHandOff/ungroup.ts`).
 
 ## What a simplification would cost
 

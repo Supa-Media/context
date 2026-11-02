@@ -28,8 +28,9 @@ import { conversationPath, readConversation } from "./conversation.js";
 import { readGroupMemory } from "./groupTurn.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { EVENT_ID, isChatKey, readEvents } from "./log.js";
-import { renderEvents, seenBy, speaker, words } from "./logRender.js";
+import { renderEvents, speaker, words } from "./logRender.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX } from "./steer.js";
+import { sentByItself, withSentByItself } from "./sentByItself.js";
 
 const MAX_COVERS = 32;
 const TURN = /^[A-Za-z0-9_-]{8,64}$/;
@@ -152,7 +153,7 @@ export async function turnHistory(store, session, body, { runner, group, dispatc
 }
 
 /** The log's history and question for a turn that names what it covers, or null for today's turn. */
-export async function loggedTurn(store, body, { group = null, timeZone = "UTC", workspace, warm = null, records } = {}) {
+export async function loggedTurn(store, body, { group = null, timeZone = "UTC", workspace, warm = null, records, record = null } = {}) {
   const covers = body?.covers;
   if (!Array.isArray(covers) || covers.length === 0 || covers.length > MAX_COVERS || !covers.every((id) => typeof id === "string" && EVENT_ID.test(id))) return null;
   if (!isChatKey(body.chat)) return null;
@@ -165,9 +166,12 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
     .map((event) => (group !== null ? `${speaker(event.from)}: ${words(event)}` : words(event)))
     .join("\n");
   if (question === "") return null;
-  const shown = seenBy(events.filter((event) => !wanted.has(event.id)), group?.members ?? null);
-  const transcript = renderEvents(shown, { timeZone, answeredBy: events });
-  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: await showsTainted(store, shown, workspace, warm, records) };
+  // A group is shown its whole log, whoever has joined or left since (the owner, 2026-11-02): no cut by the people a text was said in front of.
+  const shown = events.filter((event) => !wanted.has(event.id));
+  // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
+  const own = group === null && record !== null ? sentByItself(await record, events, { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [], tainted: false };
+  const transcript = renderEvents(withSentByItself(shown, own.shown), { timeZone, answeredBy: events });
+  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: own.tainted || (await showsTainted(store, shown, workspace, warm, records)) };
 }
 
 /**
@@ -181,5 +185,6 @@ export const JOB_HISTORY_ENTRIES = 30;
 
 /** Today's history and the chat's event log, side by side: what a turn reads before its model (`route.js`). */
 export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, records }) {
-  return Promise.all([turnHistory(store, session, body, { runner, group, dispatch, job }), runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records })]);
+  const today = turnHistory(store, session, body, { runner, group, dispatch, job });
+  return Promise.all([today, runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records, record: today.then((read) => read.history).catch(() => []) })]);
 }

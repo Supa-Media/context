@@ -36,9 +36,20 @@ export const AUTHORITY_TABLES: ReadonlySet<ObjectTable> = new Set<ObjectTable>([
 
 /**
  * Texting grants stay decided by Convex for now (thread B, 2026-11-01): their checks (a paused phone, a group chat's
- * co-viewers) live there. Their writes never reach a person object, and never trip the switch.
+ * co-viewers) live there. So do the grants Tex's own scheduled turns run under (a routine, the daytime check-in, the
+ * nightly dream, housekeeping): Convex mints each one for a single run and asks the same questions first (a linked,
+ * unpaused phone; `lib/texJobs.ts`), and their tokens are answered by Convex. Their writes never reach a person
+ * object, and never trip the switch. The gateway's `CONTROL_PLANE_CLIENTS` (`apps/mcp/src/workspaceStore/personRows.js`)
+ * is the same set; a test holds them equal.
  */
-export const CONVEX_ONLY_CLIENTS: ReadonlySet<string> = new Set(["context_texts", "context_texts_group"]);
+export const CONVEX_ONLY_CLIENTS: ReadonlySet<string> = new Set([
+  "context_texts",
+  "context_texts_group",
+  "context_routines",
+  "context_heartbeat",
+  "context_dreams",
+  "context_housekeeping",
+]);
 
 /**
  * Fields whose change alone moves nothing an object holds (`expected.ts` leaves them out of every row): a grant
@@ -46,13 +57,16 @@ export const CONVEX_ONLY_CLIENTS: ReadonlySet<string> = new Set(["context_texts"
  * minutes costs no push and is never refused.
  */
 const VOLATILE: Partial<Record<AccessSource, ReadonlySet<string>>> = {
-  oauthGrants: new Set(["lastUsedAt", "consoleInstanceId"]),
+  oauthGrants: new Set(["lastUsedAt", "consoleInstanceId", "toolsListedAt", "pathTokenSeenAt", "pathTokenRoute"]),
   workspaceMembers: new Set(["activitySeenAt", "setupRetiredAt"]),
   workspaceInvitations: new Set(["emailSentAt"]),
 };
 
-/** One recorded write: the row as it stood when it mattered (after an insert or patch, before a delete). */
-export type AccessWrite = { table: AccessSource; doc: Record<string, unknown> };
+/**
+ * One recorded write: the row as it stood when it mattered, and when that was. An insert is one `insert`; a patch or
+ * replace is a `before` and an `after` with the same id; a delete is a `before` alone.
+ */
+export type AccessWrite = { table: AccessSource; id: string; op: "insert" | "before" | "after"; doc: Record<string, unknown> };
 
 /** Whether a write to `table` naming `fields` (`null`: insert, replace or delete) could change an object. */
 export function mayMatter(table: AccessSource, fields: string[] | null): boolean {
