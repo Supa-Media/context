@@ -28,8 +28,10 @@ import { readPictures, type OutgoingPicture } from "./outgoing";
 
 /** What a turn asked to start, as the gateway wrote it. */
 export type StartedJob = { title: string; brief: string; doneWhen?: string; tainted?: true };
-/** A step a job's turn took, as the gateway told it (`withJobSteps`): tool and target, never a note's text. */
-export type JobStep = { at: number; text: string };
+/** A step a job's turn took, as the gateway told it (`withJobSteps`): tool and target, never a note's text; a failed one, with the tool's short reason. */
+export type JobStep = { at: number; text: string; failed?: true; why?: string };
+/** Whether a streamed step failed, and why (`clients.ts`). */
+export type StepHow = { failed?: true; why?: string };
 /** One line of the chat's job list, sent with every texted turn, with its steps; `verdict`/`advice`: the advisor's last check (`apps/mcp/src/agent/jobCheck.js`); `result`: a finished job's report, for the chat's turns only. */
 export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string };
 /** The advisor's call on a job's part that just ended (`apps/mcp/src/agent/jobCheck.js`). */
@@ -63,7 +65,7 @@ export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?
 /** `pictures`: the answer's pictures (a page's cover), sent before its texts and counted with them in `first`. */
 /** `asked`: who asked for the job and their words, so the chat's turn on its report can start it again (`jobTexts.ts`). */
 /** `pass`: the job's pass that sent it (`jobRun.ts` `PASS_KEY`); once one pass finished the job, no other pass's word is texted. */
-export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; vaultWatch?: string; pass?: string; asked?: { from: string; text: string } };
+export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; pass?: string; asked?: { from: string; text: string } };
 
 /** A job's answer texts at most this many pictures: a page's cover, a card or two. */
 export const MAX_JOB_PICTURES = 2;
@@ -344,11 +346,17 @@ export async function noteJobUpdate(storage: InboxStorage, update: JobUpdate, no
     state,
     ...(status ? { status } : {}),
     ...(update.verdict ? { verdict: update.verdict, advice: line(update.advice, MAX_ADVICE) } : {}),
-    ...(step ? { steps: [...(entry.steps ?? []), { at: now, text: step }].slice(-MAX_STEPS_KEPT) } : {}),
+    ...(step ? { steps: [...(entry.steps ?? []), stepOf(update, step, now)].slice(-MAX_STEPS_KEPT) } : {}),
     ...(state !== "running" ? { finishedAt: now, ...(update.pass ? { finalPass: update.pass } : {}), ...resultOf(update) } : {}),
   };
   await storage.put(entryKey(update.id), next);
   return next;
+}
+
+/** One step as the chat keeps it: a failed one marked, with its reason. */
+function stepOf(update: JobUpdate, text: string, now: number): JobStep {
+  const why = update.stepFailed ? line(update.stepWhy, 160) : "";
+  return { at: now, text, ...(update.stepFailed ? { failed: true as const } : {}), ...(why ? { why } : {}) };
 }
 
 /** A finished job's report as its entry keeps it: its words, bounded. */
@@ -366,7 +374,7 @@ export async function noteJobSent(storage: InboxStorage, id: string, sent: numbe
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, pictures, texts, first, step, vaultWatch, pass, asked, verdict, advice } = value as Record<string, unknown>;
+  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, pass, asked, verdict, advice } = value as Record<string, unknown>;
   const by = asked && typeof asked === "object" ? (asked as Record<string, unknown>) : {};
   const read = jobPictures(readPictures(pictures));
   if (typeof id !== "string" || !ID.test(id) || typeof state !== "string" || !STATES.has(state)) return null;
@@ -375,7 +383,7 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     state: state as JobState,
     ...(typeof verdict === "string" && VERDICTS.has(verdict) ? { verdict: verdict as JobVerdict, ...(typeof advice === "string" ? { advice: advice.slice(0, MAX_ADVICE) } : {}) } : {}),
     ...(typeof status === "string" ? { status } : {}),
-    ...(typeof step === "string" ? { step } : {}),
+    ...(typeof step === "string" ? { step, ...(stepFailed === true ? { stepFailed: true as const, ...(typeof stepWhy === "string" ? { stepWhy } : {}) } : {}) } : {}),
     ...(typeof vaultWatch === "string" && vaultWatch !== "" ? { vaultWatch } : {}),
     ...(typeof pass === "string" && ID.test(pass) ? { pass } : {}),
     ...(typeof by.from === "string" && /^\+[1-9]\d{6,14}$/.test(by.from) && typeof by.text === "string" ? { asked: { from: by.from, text: by.text.slice(0, MAX_ASKED) } } : {}),

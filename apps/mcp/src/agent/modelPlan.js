@@ -100,6 +100,21 @@ export function failedCall(result) {
   return result?.isError === true && result?.held !== true;
 }
 
+/**
+ * Why a call failed, in one short line, for a job's step on its chat's jobs page (Dev2, 2026-11-02:
+ * "browse (failed)" said nothing). The tool's own `why` when it set one (`browse.js`), else the first
+ * sentence of the refusal the model read, never past a line: a failed browse's text is a page reading.
+ */
+export function whyFailed(result) {
+  if (!failedCall(result)) return undefined;
+  if (typeof result.why === "string" && result.why.trim()) return result.why.replace(/\s+/g, " ").trim().slice(0, 160);
+  const text = result.content?.find?.((part) => part?.type === "text")?.text;
+  if (typeof text !== "string") return undefined;
+  const first = text.split("\n")[0].replace(/\s+/g, " ").trim();
+  const sentence = /^(.{8,160}?[.!?])(\s|$)/.exec(first)?.[1] ?? first.slice(0, 160);
+  return sentence || undefined;
+}
+
 /** Add one round's usage to the model that spent it. */
 export function addModelUsage(byModel, model, usage) {
   if (!usage) return;

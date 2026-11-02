@@ -103,4 +103,9 @@ describe("the Worker's answer", () => {
     const read = readView({ now: NOW, max: 999, jobs: [{ title: "", state: "running", startedAt: 1 }, { title: "x", state: "weird", startedAt: 1 }, { title: "ok", state: "failed", startedAt: 1, steps: [{ at: "x", text: "y" }, { at: 2, text: "z" }] }] });
     expect(read).toEqual({ now: NOW, max: 3, jobs: [{ title: "ok", state: "failed", startedAt: 1, steps: [{ at: 2, text: "z" }] }] });
   });
+
+  it("shows why a failed step failed, escaped, and drops a reason on a step that worked", () => {
+    const read = readView({ now: NOW, jobs: [{ title: "ok", state: "running", startedAt: 1, steps: [{ at: 2, text: "browse: a.example (failed)", failed: true, why: "goto step: <b>out of time</b>" }, { at: 3, text: "read: x", why: "made up" }] }] });
+    expect(read!.jobs[0]!.steps).toEqual([{ at: 2, text: "browse: a.example (failed)", failed: true, why: "goto step: <b>out of time</b>" }, { at: 3, text: "read: x" }]);
+  });
 });

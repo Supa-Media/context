@@ -50,7 +50,7 @@ import { turnPrompt } from "./turnPrompt.js";
 import { pickTier } from "./router.js";
 import { isPlainNoteWrite, settleNoteWrite, ToolTimeout, withinTime } from "./noteWriteRetry.js";
 import { isMove, MOVE_TIMED_OUT, MOVE_TIMEOUTS } from "./slowMoves.js";
-import { addModelUsage, failedCall, modelForRound, thinkRoundsFor } from "./modelPlan.js";
+import { addModelUsage, failedCall, modelForRound, thinkRoundsFor, whyFailed } from "./modelPlan.js";
 import { PROGRESS_TOOL } from "./progress.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
@@ -656,7 +656,7 @@ export async function runTurn(options) {
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
       // A failed step sends the next round to the planner; one held for the person's yes does not.
       if (failedCall(result)) escalate = true;
-      tell({ kind: "tool", name: call.name, args: call.args, ok: result?.isError !== true, ms: toolMs, held: result?.held === true });
+      tell({ kind: "tool", name: call.name, args: call.args, ok: result?.isError !== true, ms: toolMs, held: result?.held === true, reason: whyFailed(result) });
       messages.push({
         role: "tool",
         id: call.id,
