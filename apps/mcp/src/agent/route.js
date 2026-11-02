@@ -46,7 +46,7 @@ import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { withFolderFit } from "./folderFit.js"; import { withTheirNotesKept } from "./theirNotes.js";
 import { delegateSession, withDelegate } from "./delegate.js";
 import { NO_MODEL, deliverSupervision, prepareSupervision, withMailAgent } from "./supervise.js";
-import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js"; import { jobTurnFields } from "./jobCheck.js";
+import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js"; import { jobTurnFields } from "./jobCheck.js"; import { OPEN_PAGE_TIMEOUT_MS } from "./computer.js"; // each page its own minute
 import { markChatWords, markUntrusted, newLedger } from "../privacy/egress.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { sentPicturesLine } from "./outgoingPictures.js";
@@ -338,7 +338,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     is still the long turn.
   */
   const streamed = typeof progress === "function" && (session.actorClientId === TEXTS_CLIENT_ID || group !== null);
-  const channel = streamed && report === null && readUpdates(body.updates) !== "off" ? progressChannel(progress, { planOnly: readUpdates(body.updates) === "planOnly" }) : null; // progress updates off: no tool; plan only: one line (`progress.js`)
+  const channel = streamed && report === null ? progressChannel(progress, { level: readUpdates(body.updates) }) : null; // off: no tool, yet a sign-in link still goes (`say`); plan only: one line (`progress.js`)
   // Clef is metered with the turn (`meter` below).
   /*
     AN ADDRESS IS VOUCHED FOR BY THE PERSON, NEVER BY A PREVIOUS ANSWER.
@@ -555,10 +555,10 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       // A card's boxes are filled one browser call each, after the person's yes (`fillCard.js`).
       // An email or calendar change is checked by the control plane and the Mail checker before it is held (2026-10-22: three "timed out" for one email;
       // the owner: "at least 2 minutes … it's a crucial thing"). A quick group turn cuts it to its own end (`turn.js`).
-      toolTimeouts: { browse: 160_000, fill_login: 30_000, fill_card: 60_000, draw_picture: 40_000, draw_visual: 75_000, make_picture: 70_000, send_email: 120_000, save_email_draft: 120_000, calendar_event: 40_000, slack_api: 40_000, google_chat: 40_000 },
+      toolTimeouts: { open_page: OPEN_PAGE_TIMEOUT_MS, browse: 160_000, fill_login: 30_000, fill_card: 60_000, draw_picture: 40_000, draw_visual: 75_000, make_picture: 70_000, send_email: 120_000, save_email_draft: 120_000, calendar_event: 40_000, slack_api: 40_000, google_chat: 40_000 },
       // A background job is long whether or not it streams (`background.js`).
       // So is a data file to work through: Opus plans it, so a breakdown isn't guessed on the everyday model (2026-10-24).
-      planned: job !== null || carriesData(attachments), ...(streamed || job !== null ? { ...(channel !== null ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
+      planned: job !== null || carriesData(attachments), ...(streamed || job !== null ? { ...(channel?.offered ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
     }));
     const notAllowed = tex.lean ? await tex.wait("allowed", allowedRead).then(() => null, (thrown) => thrown) : null; // beside the model, its no ends the turn here: no tool ran (`allowedFirst`), nothing is kept or sent
     if (notAllowed !== null) return (opened !== null && tex.after("browser_close", () => opened.close()), steer !== null && tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear())), await tex.step("refused", () => refused(notAllowed)));

@@ -45,6 +45,8 @@ test/agentSetupDoor.test.mjs
 test/agentBugReportAsked.test.mjs
 test/groupSetupReach.test.mjs
 test/agentProgress.test.mjs
+test/agentProgressLevels.test.mjs
+test/agentPageOpen.test.mjs
 test/agentRouterWebJobs.test.mjs
 test/agentSkills.test.mjs
 test/agentThinking.test.mjs
