@@ -100,6 +100,7 @@ async function ownersSee(ctx: QueryCtx, pinned: Id<"workspaces">, chats: Doc<"te
     };
     out.push({
       role: owner.role,
+      ...(await numberTwins(ctx, owner.userId, chats)),
       inHomeUsers: chats.filter((chat) => (chat.homeUsers ?? []).includes(owner.userId)).length,
       names: names.length,
       tex: await listed("tex"),
@@ -107,4 +108,27 @@ async function ownersSee(ctx: QueryCtx, pinned: Id<"workspaces">, chats: Doc<"te
     });
   }
   return out;
+}
+
+/**
+ * Whether this account's phone number (texted to Tex, or confirmed at sign-in) is also another account's, and how many
+ * homes name that other account (2026-11-02: a person in five chats saw none from the account they sign in with).
+ * Booleans and counts only.
+ */
+async function numberTwins(ctx: QueryCtx, userId: Id<"users">, chats: Doc<"textGroups">[]) {
+  const user = await ctx.db.get(userId);
+  const linked = (await ctx.db.query("phoneLinks").withIndex("by_user", (q) => q.eq("userId", userId)).collect()).map((row) => row.phone);
+  const confirmed = user?.phone !== undefined && user.phoneVerificationTime !== undefined ? [user.phone] : [];
+  const numbers = [...new Set([...linked, ...confirmed])];
+  const others = new Set<Id<"users">>();
+  for (const phone of numbers) {
+    for (const row of await ctx.db.query("phoneLinks").withIndex("by_phone", (q) => q.eq("phone", phone)).take(5)) {
+      if (row.userId !== userId) others.add(row.userId);
+    }
+    for (const row of await ctx.db.query("users").withIndex("by_phone", (q) => q.eq("phone", phone)).take(5)) {
+      if (row._id !== userId && row.phoneVerificationTime !== undefined) others.add(row._id);
+    }
+  }
+  const twinHomes = chats.filter((chat) => (chat.homeUsers ?? []).some((id) => others.has(id))).length;
+  return { linkedNumbers: linked.length, confirmedNumber: confirmed.length === 1, numberOnOtherAccounts: others.size, homesNamingThem: twinHomes };
 }
