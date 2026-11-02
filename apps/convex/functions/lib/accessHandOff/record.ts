@@ -62,8 +62,11 @@ const VOLATILE: Partial<Record<AccessSource, ReadonlySet<string>>> = {
   workspaceInvitations: new Set(["emailSentAt"]),
 };
 
-/** One recorded write: the row as it stood when it mattered (after an insert or patch, before a delete). */
-export type AccessWrite = { table: AccessSource; doc: Record<string, unknown> };
+/**
+ * One recorded write: the row as it stood when it mattered, and when that was. An insert is one `insert`; a patch or
+ * replace is a `before` and an `after` with the same id; a delete is a `before` alone.
+ */
+export type AccessWrite = { table: AccessSource; id: string; op: "insert" | "before" | "after"; doc: Record<string, unknown> };
 
 /** Whether a write to `table` naming `fields` (`null`: insert, replace or delete) could change an object. */
 export function mayMatter(table: AccessSource, fields: string[] | null): boolean {

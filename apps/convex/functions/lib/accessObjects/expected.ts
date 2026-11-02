@@ -88,20 +88,37 @@ export async function membersPage(
   const rows: Row[] = [];
   let skipped = 0;
   for (const member of page.page) {
-    const personal = await personalWorkspaceOf(ctx, member.userId);
-    if (personal === null) {
-      skipped += 1;
-      continue;
-    }
-    rows.push({
-      userId: String(member.userId),
-      personalWorkspaceId: String(personal._id),
-      role: member.role,
-      groups: await groupNames(ctx, workspaceId, member.userId),
-      at: now,
-    });
+    const row = await memberRow(ctx, member, now);
+    if (row === null) skipped += 1;
+    else rows.push(row);
   }
   return { rows, skipped, next: page.isDone ? null : page.continueCursor };
+}
+
+/** One member as the workspace object keeps them, or `null` for an account with no personal workspace. */
+export async function memberRow(ctx: QueryCtx, member: Doc<"workspaceMembers">, now: number): Promise<Row | null> {
+  const personal = await personalWorkspaceOf(ctx, member.userId);
+  if (personal === null) return null;
+  return {
+    userId: String(member.userId),
+    personalWorkspaceId: String(personal._id),
+    role: member.role,
+    groups: await groupNames(ctx, member.workspaceId, member.userId),
+    at: now,
+  };
+}
+
+/** One pending invitation as the workspace object keeps it, the link token as its hash. */
+export async function inviteRow(invite: Doc<"workspaceInvitations">, now: number): Promise<Row> {
+  return {
+    id: String(invite._id),
+    [invite.inviteeKind]: invite.invitee,
+    role: invite.role,
+    invitedBy: String(invite.invitedBy),
+    expiresAt: invite.expiresAt,
+    tokenHash: await hashToken(invite.token),
+    at: now,
+  };
 }
 
 /** Every pending, unexpired invitation to `workspaceId`, the link token as its hash. */
@@ -114,18 +131,7 @@ export async function invitesOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, no
     "invites",
   );
   const rows: Row[] = [];
-  for (const invite of found) {
-    if (!isPending(invite, now)) continue;
-    rows.push({
-      id: String(invite._id),
-      [invite.inviteeKind]: invite.invitee,
-      role: invite.role,
-      invitedBy: String(invite.invitedBy),
-      expiresAt: invite.expiresAt,
-      tokenHash: await hashToken(invite.token),
-      at: now,
-    });
-  }
+  for (const invite of found) if (isPending(invite, now)) rows.push(await inviteRow(invite, now));
   return { rows, skipped: 0 };
 }
 

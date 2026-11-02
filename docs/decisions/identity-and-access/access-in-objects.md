@@ -105,6 +105,19 @@ Convex's rows, kept as a read-only copy that is written before an object's
 change reports done (`functions/accessMirror.ts`). The object stays the
 authority; nothing writes the copy except behind it.
 
+The one other way in is a change that only lets someone in. Joining and
+invitations are born deep inside Convex mutations (an accepted link, a domain
+join, a phone sign-in, a Tex group chat's invite), so at `object` they are
+still written to Convex first, and the push puts each joined member and each
+changed invitation in the object row by row, as Convex holds it when the push
+runs (`functions/lib/accessHandOff/adds.ts`, `functions/accessObjectPush.ts`).
+Nobody is let in until the object holds the row. An invitation's link is only
+ever checked against Convex's copy, so an invitation revoked, declined or
+accepted in Convex is already spent, and the object's list follows. Anything
+that takes access away or changes it for someone already in (a removal, a role
+change, a group change) is still refused in Convex and goes to the object
+first.
+
 ## What a simplification would cost
 
 - Keeping a second copy in Convex "for safety" is two answers to who may read,

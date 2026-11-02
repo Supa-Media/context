@@ -8,12 +8,14 @@
  *   which sends those tables whole, as Convex holds them when it runs. A write that rolls back takes its entry with it.
  * - `object`: the object decides. A write to a table it is the authority for (members, invites, connections) is
  *   refused with `workspace_switched` unless it is a write behind the object (`writeBehind`), so a Convex writer that
- *   was never moved over cannot quietly become a second answer. A copy table (reach, sharedToMe) is still pushed:
+ *   was never moved over cannot quietly become a second answer. The exception is a join or an invitation (`adds.ts`),
+ *   which only lets someone in: it is queued as `adds`, and the push puts those rows in the object. A copy table (reach, sharedToMe) is still pushed:
  *   its authority may be a workspace still on `dual`.
  */
 
 import { ConvexError } from "convex/values";
 import { foldCovers } from "./fold";
+import { addsOf } from "./adds";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
@@ -82,17 +84,24 @@ export async function flushAccessWrites(
   for (const [workspaceId, tables] of changed) {
     const homes = { workspace: await accessHomeOf(ctx.db, workspaceId, "workspace"), person: await accessHomeOf(ctx.db, workspaceId, "person") };
     const sending: ObjectTable[] = [];
+    let adds: ReturnType<typeof addsOf> | undefined;
     for (const table of tables) {
       const home = homes[scopeOf(table)];
       if (home === "convex") continue;
       if (home === "object" && AUTHORITY_TABLES.has(table)) {
         if (taken) continue;
+        // Joining and invitations are written here first and put in the object row by row (`adds.ts`).
+        if (table === "members" || table === "invites") {
+          adds ??= addsOf(own, workspaceId);
+          if (adds !== null) continue;
+        }
         throw new ConvexError({ code: WORKSPACE_SWITCHED });
       }
       sending.push(table);
     }
-    if (sending.length === 0) continue;
-    await ctx.db.insert("accessObjectOutbox", { workspaceId, tables: sending.sort(), at: Date.now() });
+    const added = adds !== undefined && adds !== null && (adds.userIds.length > 0 || adds.inviteIds.length > 0) ? adds : undefined;
+    if (sending.length === 0 && added === undefined) continue;
+    await ctx.db.insert("accessObjectOutbox", { workspaceId, tables: sending.sort(), at: Date.now(), ...(added === undefined ? {} : { adds: added }) });
     await ctx.scheduler.runAfter(0, internal.functions.accessObjectPush.drain, { workspaceId });
   }
 }

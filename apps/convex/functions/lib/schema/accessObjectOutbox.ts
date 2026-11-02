@@ -22,6 +22,8 @@ export const accessObjectOutboxTables = {
     workspaceId: v.id("workspaces"),
     tables: v.array(objectTableValidator),
     at: v.number(),
+    /** At `object`: members who joined and invitations that changed, put in the object row by row (`accessHandOff/adds.ts`). */
+    adds: v.optional(v.object({ userIds: v.array(v.string()), inviteIds: v.array(v.string()) })),
   }).index("by_workspace_at", ["workspaceId", "at"]),
 
   /** The one push carrying a workspace's access outbox at a time, so its copies leave in the order they were read. */
