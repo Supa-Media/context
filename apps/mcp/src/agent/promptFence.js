@@ -14,6 +14,11 @@
  * as nothing, so `WORD\u200b` reads as the marker to a model while matching
  * nothing. The sharing judge strips its fence out of a note's title the same
  * way (`privacy/judgeSubject.js`).
+ *
+ * A prompt that quotes in tags rather than in lines — the advisor's whole-turn
+ * brief (`advisor.js`), whose transcript holds whatever the turn read — uses
+ * `withoutTag` for the same reason: a closing tag inside the quoted words
+ * would end it early.
  */
 
 /** Characters that show as nothing, so "VOICE\u200b" reads as the marker but would not match it. */
@@ -32,4 +37,18 @@ export function withoutFence(word, text) {
     .split("\n")
     .filter((line) => !isFenceLine(word, line))
     .join("\n");
+}
+
+/**
+ * `text` with `name`'s own tags neutralized, opening and closing, so quoted
+ * content cannot close the tag it is quoted in. The words are kept and shown,
+ * in brackets rather than angle brackets, because they are what was read; only
+ * their power to end the quote goes. `name` is one of the prompt's own tag
+ * names, so it is taken as written after the characters a tag name may hold.
+ */
+export function withoutTag(name, text) {
+  const word = String(name).replace(/[^A-Za-z0-9_-]/g, "");
+  const body = String(text ?? "");
+  if (word === "") return body;
+  return body.replace(new RegExp(`<\\s*(/?)\\s*${word}\\s*>`, "gi"), (_whole, slash) => `(${slash}${word})`);
 }

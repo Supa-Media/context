@@ -164,13 +164,16 @@ test("an unreachable object keeps nothing, writes nothing to the bucket and leav
   const { lines: written } = await logged(() => keepGroupExchange(store, group(), [], "the gig is friday", "Noted."));
   assert.deepEqual(bucketKeys(), before, "nothing new in the bucket");
   assert.equal(await (await store.get(legacy)).text(), record("@ada: old"), "the old copy untouched");
-  for (const line of [...lines, ...written]) {
-    const parsed = JSON.parse(line);
-    assert.equal(parsed.event, "group_memory_not_kept");
-    assert.equal(parsed.reason, "tex_store_unavailable");
-    assert.doesNotMatch(line, /a{64}|\.context|tex\/|gig|old/, "no key, path or words");
-  }
-  assert.equal(lines.length + written.length, 2);
+  const all = [...lines, ...written];
+  for (const line of all) assert.doesNotMatch(line, /a{64}|\.context|tex\/|gig|old/, "no key, path or words");
+  // The chat has no home door, which says so once; the read, the read again just before the write
+  // (`keepGroupExchange`), and no write over a record it could not read.
+  assert.deepEqual(all.map((line) => JSON.parse(line)), [
+    { event: "group_home_unopened", reason: "no_door" },
+    { event: "group_memory_not_kept", step: "read", reason: "tex_store_unavailable" },
+    { event: "group_memory_not_kept", step: "read", reason: "tex_store_unavailable" },
+    { event: "group_exchange_not_kept", reason: "record_unreadable" },
+  ]);
 });
 
 test("a store built for another chat keeps nothing for this one and never touches its bucket copy", { skip }, async () => {
@@ -212,5 +215,5 @@ test("the control plane's door reaches a chat's state in that chat's object, as 
     );
   assert.equal((await call("put", record("@ada: hi"))).status, 200);
   assert.equal(await (await call("get")).text(), record("@ada: hi"));
-  assert.deepEqual(named, [`chat:${KEY}`, `chat:${KEY}`]);
+  assert.deepEqual(named, [`enam:chat:${KEY}`, `enam:chat:${KEY}`], "the chat's store placed in eastern North America (`texStore/move.js`)");
 });

@@ -1,0 +1,133 @@
+/**
+ * `mutation` and `internalMutation`, as every file in this deployment builds them: Convex's own, with the database
+ * watched (`./watch.ts`). Import them from here, never from `_generated/server` (a CI test holds every file to it).
+ *
+ * After the handler returns, each workspace it changed whose notes live in their object gets one outbox entry,
+ * written in the same transaction, and a push scheduled (`../../workspaceObjectPush.ts`). Any other workspace
+ * costs one indexed read.
+ */
+
+import {
+  internalMutation as convexInternalMutation,
+  mutation as convexMutation,
+  type MutationCtx,
+} from "../../../_generated/server";
+import { internal } from "../../../_generated/api";
+import type { Id } from "../../../_generated/dataModel";
+import { watchDb, type WorkspaceChange } from "./watch";
+import { flushAccessWrites } from "../accessHandOff/flush";
+
+/** The most rows one outbox entry names; a mutation that changes more is pushed whole (`all`). */
+export const OUTBOX_MAX_IDS = 2_000;
+
+/**
+ * Where this workspace's notes are judged: `object`, another home, or `null` with no row (the bucket, which needs
+ * nothing, and whose object never kept a binding: the gateway keeps one only while the notes are in the object).
+ */
+async function homeOf(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<string | null> {
+  const home = await ctx.db
+    .query("workspaceObjectHomes")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  return home?.home ?? null;
+}
+
+/** Whether a writer opened a mark in this workspace's object that has not committed yet (`./objectFirst.ts`). */
+async function markOpen(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+  const marks = await ctx.db
+    .query("workspaceObjectMarks")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  return marks.some((mark) => mark.doneAt === undefined);
+}
+
+/** One outbox entry per object-mode workspace, and its push, in the mutation's own transaction. */
+export async function flushRowChanges(
+  ctx: MutationCtx,
+  changes: Map<Id<"workspaces">, WorkspaceChange>,
+  source = "unknown",
+): Promise<void> {
+  for (const [workspaceId, change] of changes) {
+    const home = await homeOf(ctx, workspaceId);
+    if (home !== "object") {
+      // No outbox here, but a binding the object kept must still go (a workspace switched back off its object).
+      if (change.binding && home !== null) await ctx.scheduler.runAfter(0, internal.functions.workspaceObjectBinding.clear, { workspaceId });
+      continue;
+    }
+    const ids = [...change.nodeIds];
+    const all = ids.length > OUTBOX_MAX_IDS;
+    // A write that may narrow should have told the object first. One that did not is let through as before (the
+    // gateway's behind check still covers it) and named in the log, so every such writer can be found and moved.
+    const unmarked = change.narrows && !(await markOpen(ctx, workspaceId));
+    if (unmarked) {
+      console.warn(JSON.stringify({ event: "workspace_object_unmarked_narrowing", workspaceId, source, rows: ids.length, access: change.access }));
+      await ctx.db.insert("workspaceObjectUnmarked", { workspaceId, source, rows: ids.length, access: change.access, at: Date.now() });
+    }
+    await ctx.db.insert("workspaceObjectOutbox", {
+      workspaceId,
+      nodeIds: all ? [] : ids,
+      access: change.access,
+      ...(all ? { all: true } : {}),
+      ...(unmarked ? { unmarked: true } : {}),
+      // The storage binding changed: the push clears the copy the object keeps, and until then the workspace reads
+      // as behind, so no request opens a store from that copy (`apps/mcp/src/store/objectBinding.js`).
+      ...(change.binding ? { binding: true } : {}),
+      at: Date.now(),
+    });
+    await ctx.scheduler.runAfter(0, internal.functions.workspaceObjectPush.drain, { workspaceId });
+  }
+}
+
+type AnyDefinition = { handler: (ctx: MutationCtx, args: never) => unknown } & Record<string, unknown>;
+type Handler = (ctx: MutationCtx, args: never) => unknown;
+type WriteBehind = boolean | "authorityTaken";
+
+/** Where a mutation was defined (its module, from the stack at definition), to name an unmarked writer in the log. */
+function definedAt(): string {
+  const frames = (new Error().stack ?? "").split("\n").map((line) => line.trim());
+  // [0] "Error", [1] here, [2] `watched`, [3] the builder, [4] the module that called it.
+  const frame = frames[4] ?? frames[frames.length - 1] ?? "";
+  return frame.replace(/^at\s+/, "").slice(0, 200) || "unknown";
+}
+
+function watched<T>(definition: T, options: { writeBehind: WriteBehind } = { writeBehind: false }): T {
+  const source = definedAt();
+  const def = (typeof definition === "function" ? { handler: definition as Handler } : definition) as AnyDefinition;
+  const handler = def.handler;
+  return {
+    ...def,
+    handler: async (ctx: MutationCtx, args: never) => {
+      const watch = watchDb(ctx.db);
+      const result = await handler({ ...ctx, db: watch.db }, args);
+      await flushRowChanges(ctx, watch.changes, source);
+      await flushAccessWrites(ctx, watch.accessWrites, options);
+      return result;
+    },
+  } as T;
+}
+
+/** Convex's `mutation`, with its row writes told to the workspace's object. */
+export const mutation = ((definition: unknown) => convexMutation(watched(definition) as never)) as typeof convexMutation;
+
+/** Convex's `internalMutation`, with its row writes told to the workspace's object. */
+export const internalMutation = ((definition: unknown) =>
+  convexInternalMutation(watched(definition) as never)) as typeof convexInternalMutation;
+
+/**
+ * An `internalMutation` that writes Convex's access tables behind an object that already took the change (the
+ * gateway's mirror while a workspace is on `object`; the copy). Its access writes are
+ * never refused and never pushed back to the object. Tree-row writes are watched as usual.
+ */
+export const internalMutationWriteBehind = ((definition: unknown) =>
+  convexInternalMutation(watched(definition, { writeBehind: true }) as never)) as typeof convexInternalMutation;
+
+/**
+ * An `internalMutation` run after the objects already took a take-away (`functions/accessTakeAway.ts`): its writes to
+ * an authority table (members, invites, connections) of a switched scope are written behind and never refused, and
+ * every other access write is pushed to its object as usual, so the people whose copies it changes still hear of it.
+ */
+export const internalMutationAfterTakeAway = ((definition: unknown) =>
+  convexInternalMutation(watched(definition, { writeBehind: "authorityTaken" }) as never)) as typeof convexInternalMutation;
+
+// The rest of the builders and contexts, so a file that takes its mutations from here needs one import.
+export { action, internalAction, internalQuery, query, type ActionCtx, type MutationCtx, type QueryCtx } from "../../../_generated/server";

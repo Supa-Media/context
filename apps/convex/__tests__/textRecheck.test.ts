@@ -16,7 +16,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { TRANSCRIBE_WORKER_SECRET_ENV_VAR, TRANSCRIBE_WORKER_URL_ENV_VAR } from "../functions/meetings/transcribe";
-import { utcDay } from "../functions/lib/jev/meter";
 import { addMember, asUser, createUser, createWorkspace, setupTest, TEST_GATEWAY_SECRET } from "./fixtures.helpers";
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
@@ -132,7 +131,7 @@ describe("the recheck", () => {
 
   test("asks one question with the draft in the state, and never returns or logs the words", async () => {
     const t = setupTest();
-    const { studio } = await boundGroup(t);
+    const { ada } = await boundGroup(t);
     const sent = clef({ draft_fits: { type: "noul", noul: 0.2 } });
     const logs: string[] = [];
     vi.spyOn(console, "info").mockImplementation((line: unknown) => void logs.push(String(line)));
@@ -145,9 +144,9 @@ describe("the recheck", () => {
     expect(response.text).not.toContain("pineapple");
     expect(logs.join("\n")).not.toContain("pineapple");
     expect(logs.join("\n")).not.toContain("playbook");
-    // Metered as decide is, against the group's workspace.
+    // Metered as decide is: to the chat's sponsor (Ada, whose turn minted the grant; Dev2, 2026-11-01).
     const rows = await t.run((ctx) => ctx.db.query("jevUsage").collect());
-    expect(rows.map((row) => [row.feature, row.workspaceId, row.calls])).toEqual([["textDecide", studio, 1]]);
+    expect(rows.map((row) => [row.feature, row.workspaceId, row.calls])).toEqual([["textDecide", ada.workspaceId, 1]]);
   });
 
   test("held below 0.5, sent at 0.5 and above", async () => {

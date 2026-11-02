@@ -5,7 +5,7 @@
 
 import { ServiceError } from "./clients";
 import { MAX_CANDIDATES } from "./decide";
-import { addEvent, kindOf, type EventReason, type TexEvent } from "./events";
+import { addEvent, kindOf, recentEvents, type EventReason, type TexEvent } from "./events";
 import { groupLineFor, type GroupLineDeps, type GroupPlace } from "./groupLine";
 import { PICTURE_FAILED, shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
@@ -13,6 +13,8 @@ import type { Picture } from "./line";
 import type { InboxStorage } from "./inbox";
 import type { GroupMessage } from "./sendblueGroups";
 import { sha256Hex } from "./groupChat";
+import { writeTextTiming, type TimingDataset } from "./textTiming";
+import { isControlWord } from "./controlWords";
 
 /** The handles of Tex's last thirty texts in this group, so an inline reply to one wakes it. */
 export const SENT_KEY = "gsent";
@@ -60,8 +62,9 @@ export function log(outcome: string, reason?: string): void {
 }
 
 /** Where an answered group turn's time went, from its first message in to its last bubble out: milliseconds only. */
-export function logTiming({ arrivedAt, asking, answered, sent }: { arrivedAt: number; asking: number; answered: number; sent: number }): void {
+export function logTiming({ arrivedAt, asking, answered, firstSent, sent, parts }: { arrivedAt: number; asking: number; answered: number; firstSent?: number; sent: number; parts: number }, dataset?: TimingDataset): void {
   console.log(JSON.stringify({ event: "group_turn_timing", waitMs: asking - arrivedAt, gatewayMs: answered - asking, sendMs: sent - answered, totalMs: sent - arrivedAt }));
+  writeTextTiming(dataset, "group", { queueMs: asking - arrivedAt, gatewayMs: answered - asking, sendMs: sent - answered, toFirstTextMs: firstSent === undefined ? undefined : firstSent - arrivedAt, toLastTextMs: sent - arrivedAt, parts });
 }
 
 /**
@@ -127,7 +130,26 @@ export type SayMeta = { turn?: string; covers?: string[]; people?: string; syste
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex, and logged. */
 export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta = {}): Promise<void> {
+  if (isControlWord(text)) return; // a word meant for us, never a text (`controlWords.ts`)
   await once(storage, message.messageId, `text:${text}`, () => sayNow(storage, deps, message, text, meta));
+}
+
+/**
+ * A progress line into the group (`groupModelTurn.ts`), as `say` sends it but kept once per turn by its words,
+ * not its position: a retry never sends a line again, and the answer's parts keep their own positions however
+ * many lines the retry says (`interleaved-updates.md`). Nor does a redraft, a new turn over the same messages,
+ * send a line one before it sent over any of them.
+ */
+export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
+  if (isControlWord(text)) return;
+  const over = meta.covers ?? [];
+  if (over.length > 0 && (await recentEvents(storage, message.groupId)).some((event) => event.from.kind === "tex" && event.delivered === true && event.text === text && (event.covers ?? []).some((cover) => over.includes(cover)))) return;
+  const scope = sending.get(storage);
+  if (scope === undefined || !scope.under.includes(message.messageId)) return await sayNow(storage, deps, message, text, meta);
+  const key = `${PART_PREFIX}${scope.turn}:progress:${await sha256Hex(text)}`;
+  if ((await storage.get<string>(key)) !== undefined) return;
+  await sayNow(storage, deps, message, text, meta);
+  await storage.put(key, "sent");
 }
 
 async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {

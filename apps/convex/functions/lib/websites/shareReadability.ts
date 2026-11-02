@@ -5,6 +5,7 @@
  */
 
 import { internal } from "../../../_generated/api";
+import { objectFactRows, objectPropsAt, type FactRows } from "../nodes/objectFacts";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 
@@ -24,6 +25,9 @@ export async function readableSharePaths(
   paths: readonly string[],
 ): Promise<Set<string>> {
   const readable = new Set<string>();
+  // Where the notes live in their object, whether one is sealed is read at the text it holds (`objectFacts.ts`).
+  let asked: Promise<FactRows | null> | null = null;
+  const objectRows = () => (asked ??= objectFactRows(ctx, workspaceId));
   for (let at = 0; at < paths.length; at += SHARE_ROWS_PER_QUERY) {
     const rows = await ctx
       .runQuery(internal.functions.nodeFacts.publishedRows, {
@@ -32,8 +36,9 @@ export async function readableSharePaths(
       })
       .catch(() => null);
     if (rows === null) return new Set();
+    const held = await objectPropsAt(await objectRows(), rows.map((row) => row.at));
     for (const row of rows) {
-      if (!row.sealed) readable.add(row.path);
+      if (!(held?.get(row.at)?.sealed ?? row.sealed)) readable.add(row.path);
     }
   }
   return readable;

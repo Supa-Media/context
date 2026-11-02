@@ -38,7 +38,7 @@ import { test } from "node:test";
 
 import { aiGatewayConfig, resetCreditState } from "../src/agent/aiGateway.js";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { meterParts, modelForRound, thinkRoundsFor } from "../src/agent/modelPlan.js";
+import { meterParts, modelForRound, thinkRoundsFor, whyFailed } from "../src/agent/modelPlan.js";
 import { parseSetup } from "../src/agent/production.js";
 import { runTurn } from "../src/agent/turn.js";
 import { priceUsd, runPriceUsd } from "../bench/report.mjs";
@@ -133,7 +133,8 @@ test("the switch drops the planner's thinking and re-tells the model who it is",
   const planned = gw.bodies[1].messages.find((message) => message.role === "assistant");
   assert.ok(!planned.content.some((block) => block.type === "thinking"), "Haiku is not handed Opus's thinking");
   assert.ok(planned.content.some((block) => block.type === "tool_use"), "but it sees the calls Opus made");
-  const systemText = (body) => JSON.stringify(body.system);
+  // The model line and the plan's words are said in the person's turn (`turn.js`): the whole request is read, minus its `model` field.
+  const systemText = (body) => JSON.stringify({ ...body, model: undefined });
   assert.match(systemText(gw.bodies[0]), /claude-opus-5-5/);
   assert.match(systemText(gw.bodies[1]), /claude-haiku-5-5/);
   // Haiku's own thinking rides along between its own rounds, as on any turn.
@@ -258,7 +259,7 @@ test("parseSetup refuses think_rounds without a router, or that is not a whole n
 test("the planner is told to write its plan in words, and the driver that those words are its plan", async () => {
   const gw = scripted([tools(1), tools(2), answer()]);
   await turn(gw.fetchImpl, { router: router({ thinkRounds: 1 }) });
-  const systemText = (body) => JSON.stringify(body.system);
+  const systemText = (body) => JSON.stringify({ ...body, model: undefined });
   assert.match(systemText(gw.bodies[0]), /write the plan in a few short lines/, "Opus plans in words Haiku can read");
   assert.doesNotMatch(systemText(gw.bodies[0]), /its plan is in its words above/);
   assert.match(systemText(gw.bodies[1]), /its plan is in its words above/, "Haiku is told the plan is there");
@@ -268,7 +269,7 @@ test("the planner is told to write its plan in words, and the driver that those 
 test("a turn with no plan carries neither line", async () => {
   const gw = scripted([tools(1), answer()]);
   await turn(gw.fetchImpl, { router: router() });
-  for (const body of gw.bodies) assert.doesNotMatch(JSON.stringify(body.system), /write the plan|its plan is in its words/);
+  for (const body of gw.bodies) assert.doesNotMatch(JSON.stringify({ ...body, model: undefined }), /write the plan|its plan is in its words/);
 });
 
 test("a background job plans on think and drives on main without asking the router", async () => {
@@ -278,4 +279,20 @@ test("a background job plans on think and drives on main without asking the rout
   await turn(gw.fetchImpl, { router: lookup, planned: true });
   assert.deepEqual(gw.models(), [OPUS, HAIKU, HAIKU]);
   assert.equal(asked, 0);
+});
+
+test("a failed call's reason is one short line: the tool's own why, else the refusal's first sentence", () => {
+  const refusal = (text, extra = {}) => ({ content: [{ type: "text", text }], isError: true, ...extra });
+  assert.equal(whyFailed(refusal("That's more pages than one question can open. Answer with what you have.")), "That's more pages than one question can open.");
+  // A failed browse's text is a page reading: its own why is used, never the page.
+  assert.equal(whyFailed(refusal("PAGE TEXT FROM A SITE\n[1] Sign in", { why: "goto step: out of time" })), "goto step: out of time");
+  assert.equal(whyFailed({ content: [{ type: "text", text: "fine" }] }), undefined, "a call that worked has no reason");
+  assert.equal(whyFailed(refusal("held", { held: true })), undefined, "one held for their yes did not fail");
+  assert.ok(whyFailed(refusal("x".repeat(500))).length <= 160);
+});
+
+test("a failed browse's reason is its failed step, never the page it read", async () => {
+  const { whyBrowseFailed } = await import("../src/agent/pageWalls.js");
+  assert.equal(whyBrowseFailed([{ do: "goto", ok: true }, { do: "click", ok: false, reason: "no element [5]" }], false), "click step: no element [5]");
+  assert.equal(whyBrowseFailed([{ do: "read", ok: true }], true), "Not one for the person to finish");
 });

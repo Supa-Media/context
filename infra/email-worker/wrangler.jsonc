@@ -173,9 +173,28 @@
   "observability": {
     "enabled": true
   },
+
+  // The gateway's workspace objects, by script name: a workspace whose notes live in its object gets the mail it
+  // files written there (`apps/mcp/src/store/workspaceRouting.js`), never to its bucket alone.
+  "durable_objects": {
+    "bindings": [{ "name": "WORKSPACE_STORE", "class_name": "WorkspaceStore", "script_name": "context-mcp" }]
+  },
+  // Pictures are kept compressed: Cloudflare's Images binding re-encodes an
+  // attached picture to WebP before it is stored (`compressPicture` in
+  // src/ingest.ts). Self-hosting without it: delete this, and pictures are
+  // stored as they came.
+  "images": {
+    "binding": "IMAGES"
+  },
   "env": {
     "staging": {
       "name": "context-email-staging",
+      "durable_objects": {
+        "bindings": [{ "name": "WORKSPACE_STORE", "class_name": "WorkspaceStore", "script_name": "context-mcp-staging" }]
+      },
+      "images": {
+        "binding": "IMAGES"
+      },
       "vars": {
         "INGEST_DOMAIN": "staging.context.lc",
         "NATIVE_BINDINGS": "",

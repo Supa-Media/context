@@ -48,12 +48,12 @@ export const JEV_FEATURES = {
    */
   assistant: {
     label: "Texting assistant (built-in model)",
-    // Free for every plan, 100 texts a day (decided by the owner, 2026-10-17,
-    // replacing "Premium, capped" of 2026-10-06).
+    // Free for every plan (decided by the owner, 2026-10-17, replacing "Premium,
+    // capped" of 2026-10-06), 500 texts a day (raised from 100 by the owner, 2026-10-31).
     onByDefault: true,
     // A busy day of texting; a turn is at most eight model rounds.
-    dailyCallsPerWorkspace: 100,
-    dailyCallsFree: 100,
+    dailyCallsPerWorkspace: 500,
+    dailyCallsFree: 500,
     plan: "everyone",
   },
   /**

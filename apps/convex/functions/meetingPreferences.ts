@@ -11,7 +11,8 @@
 import { v } from "convex/values";
 import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
-import { mutation, query } from "../_generated/server";
+import { query } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import { consumeRateLimit } from "./lib/rateLimit";
 
 const askBefore = v.union(v.literal(60_000), v.literal(300_000), v.null());

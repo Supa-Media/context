@@ -16,6 +16,7 @@
 import { useCallback, useMemo } from "react";
 import { dataUrlFor, isRemoteImageTarget } from "../imageBytes";
 import { toFileError } from "../browser";
+import { compressPastedPicture } from "./compressPastedPicture";
 import type { FormOutcome, FormSubmission } from "../formBlock";
 import type { WriteOutcome } from "../../../offline/sync";
 import { queuedWriteSender } from "../queuedWrite";
@@ -191,17 +192,27 @@ export function useWritesAndImages(deps: WritesAndImagesDeps) {
         either way — content-addressed, so nothing is orphaned that a second
         paste would not reuse — and what is refused is the *insert*.
       */
+      /*
+        PICTURES ARE KEPT COMPRESSED, AND THAT STARTS ON THE DEVICE.
+
+        Convex cannot re-encode an image, so a paste is made a lossy WebP here,
+        the same policy the gateway applies to agent uploads. What comes back is
+        the picture as it will be stored, and it is the one cached below, so the
+        row draws the bytes that are actually in the bucket. A picture that does
+        not get smaller, or cannot be drawn here, comes back as it was pasted.
+      */
+      const picture = await compressPastedPicture({ bytes: image.bytes, contentType: image.contentType });
       const noteAtStart = selectedPathRef.current;
       try {
         const stored = await storeNoteImageAction({
           workspaceId,
-          bytes: image.bytes,
-          contentType: image.contentType,
+          bytes: picture.bytes,
+          contentType: picture.contentType,
         });
         if (selectedPathRef.current !== noteAtStart) {
           imageCache.current.set(
             `${workspaceId}|${stored.leaf}`,
-            dataUrlFor(image.bytes, image.contentType),
+            dataUrlFor(picture.bytes, picture.contentType),
           );
           return {
             error: "That note closed before the image was stored. It is in your bucket.",
@@ -209,7 +220,7 @@ export function useWritesAndImages(deps: WritesAndImagesDeps) {
         }
         imageCache.current.set(
           `${workspaceId}|${stored.leaf}`,
-          dataUrlFor(image.bytes, image.contentType),
+          dataUrlFor(picture.bytes, picture.contentType),
         );
         return { target: stored.leaf };
       } catch (error) {

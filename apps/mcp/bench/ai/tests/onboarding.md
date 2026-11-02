@@ -18,7 +18,7 @@ good_enough:
 
 A group for Tex's onboarding, asked for by Dev2 on 2026-10-17: "I feel like this should be a whole new question group just for onboarding." The cases follow the [Tex onboarding screens](https://claude.ai/artifact/PjRZHBEAiCaNNHJSYE27d3) and Dev2's decisions of 2026-10-17 and 2026-10-18: handle before Gmail (the handle and the text with the Google link are the setup state machine's and the texting Worker's, `apps/agent/src/setup.ts` and `ready.ts`, so no model case covers them), Gmail before any AI, ask whether they pay for an AI (Dev2, 2026-10-18), 50 emails, Google only, confirm the login email instead of asking permission to use a sign-in code, a shared AI account connects without private access, no morning brief offer.
 
-They run as Nia (`workspaces/people.md`): set up by text a few minutes ago, with only the five starting folders, no `tex/about-me.md`, and the ten emails Gmail's first import brought. Each case is a fresh conversation from that state. Rewritten on 2026-10-17 for the leadership meeting's weekly priority (onboard two people by text with no hiccups) from the eight first drafts, which assumed a fixture nobody had built (Maya, a workspace full of notes) and a handle step no model runs.
+They run as Nia (`workspaces/people.md`): set up by text a few minutes ago, with only the five starting folders, no `tex/about.md`, and the ten emails Gmail's first import brought. Each case is a fresh conversation from that state. Rewritten on 2026-10-17 for the leadership meeting's weekly priority (onboard two people by text with no hiccups) from the eight first drafts, which assumed a fixture nobody had built (Maya, a workspace full of notes) and a handle step no model runs.
 
 `runs: 1` keeps a screen cheap under the $20 loop cap; use 3 runs only to check a promotion. Run it with the Action's `test: onboarding`.
 
@@ -40,7 +40,7 @@ Tex reads the recent email, writes a first About me with whether they code, star
 
 - kind: task
 - drafted: Claude (2026-10-17)
-- must write: nia/tex/about-me.md
+- must write: nia/tex/about.md
 - must: say what it learned in two or three short lines: that she works on a product at Fernway, runs Lumen Studio on the side, and uses Claude and ChatGPT
 - must: ask her to confirm or correct it
 - must not: quote an email back word for word

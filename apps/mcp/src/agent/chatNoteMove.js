@@ -73,22 +73,25 @@ async function firstHeld(sources) {
  *  - "none": no old note exists, so there is nothing to do.
  */
 export async function moveChatNote({ target, sources, adapt = (text) => text, log = console.log }) {
-  const here = await readWithEtag(target.dispatch, target.path);
+  // The target and every retractable old name side by side: once moved, each turn reads them all and finds only the target.
+  const retractable = sources.filter((entry) => entry.retract === true);
+  const [here, ...olds] = await Promise.all([target, ...retractable].map((entry) => readWithEtag(entry.dispatch, entry.path)));
   // Unreadable: never write over a note that may be there.
   if (here === null) return { outcome: "kept", fallback: null };
 
   if (here.missing !== true) {
-    // The target already holds the chat's note. Only a retractable old name whose every line it holds may go.
-    for (const source of sources.filter((entry) => entry.retract === true)) {
-      const old = await readWithEtag(source.dispatch, source.path);
+    // The target already holds the chat's note (`held`, so the caller need not read it again). Only a retractable old name whose every line it holds may go.
+    const held = { etag: here.etag, body: here.body };
+    for (const [i, source] of retractable.entries()) {
+      const old = olds[i];
       if (old === null || old.missing === true) continue;
       if (!linesCovered(adapt(old.body), here.body)) {
         log(JSON.stringify({ event: "chat_note_kept", reason: "not_covered" }));
-        return { outcome: "kept", fallback: null };
+        return { outcome: "kept", fallback: null, held };
       }
-      return { outcome: (await retract(source, old.etag)) ? "moved" : "kept", fallback: null };
+      return { outcome: (await retract(source, old.etag)) ? "moved" : "kept", fallback: null, held };
     }
-    return { outcome: "kept", fallback: null };
+    return { outcome: "kept", fallback: null, held };
   }
 
   const first = await firstHeld(sources);

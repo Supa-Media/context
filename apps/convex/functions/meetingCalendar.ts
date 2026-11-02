@@ -17,7 +17,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action, internalAction, internalMutation } from "../_generated/server";
+import { action, internalAction } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { requireActor } from "./lib/googleConnect/config";
 import { personalWorkspaceOf } from "./lib/faces/people";
 import { tryConsumeRateLimit } from "./lib/rateLimit";

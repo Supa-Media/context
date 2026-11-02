@@ -19,13 +19,19 @@ import {
   captureError,
   createUser,
   createWorkspace,
+  drainScheduled,
   errorCode,
   setupTest,
 } from "./fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { managedBucketName } from "../functions/lib/managedStorage";
 
-afterEach(() => {
+/** This file's deployment, so its scheduled work (the handoff email's log line) finishes before the file does. */
+let current: ReturnType<typeof setupTest> | null = null;
+
+afterEach(async () => {
+  if (current !== null) await drainScheduled(current);
+  current = null;
   vi.unstubAllGlobals();
 });
 
@@ -38,6 +44,7 @@ async function moving(
   } = {},
 ) {
   const t = setupTest();
+  current = t;
   const owner = await createUser(t, "moving-owner@example.invalid");
   const workspaceId = await createWorkspace(t, owner, "moving");
   const encrypted = (secret: string) => encryptSecret(secret, requireKeyset(), { workspaceId });

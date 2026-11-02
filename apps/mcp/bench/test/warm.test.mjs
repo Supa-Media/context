@@ -236,3 +236,29 @@ test("by default one search reaches the other workspaces, a held-back note stays
     prepared.close();
   }
 });
+
+test("a note the model could not embed in time is tried again, and only a lasting failure loses the warm pass", async () => {
+  const { fakeAi } = await import("../models.mjs");
+  const real = fakeAi();
+  let failures = 2;
+  const flaky = {
+    async run(model, input) {
+      if (input?.text && failures > 0) {
+        failures -= 1;
+        throw new Error("workers ai status 503");
+      }
+      return real.run(model, input);
+    },
+  };
+  const waited = [];
+  const prepared = await prepareRun(bench, { today: "2026-10-08", ai: flaky, sleep: async (ms) => waited.push(ms) });
+  try {
+    assert.equal(prepared.embedded.get("maya"), 31, "every note made it in");
+    assert.equal(waited.length, 2, "two waits, one per failed try");
+  } finally {
+    prepared.close();
+  }
+
+  const down = { run: async () => { throw new Error("workers ai status 503"); } };
+  await assert.rejects(() => prepareRun(bench, { today: "2026-10-08", ai: down, sleep: async () => {} }), /search by meaning unavailable: UNAVAILABLE/);
+});

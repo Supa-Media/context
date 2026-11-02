@@ -147,6 +147,10 @@ export async function inviteEveryone(
     const account = await accountForPhone(ctx, phone);
     if (account === owner) continue;
     if (account !== null && (await getMembership(ctx, workspace._id, account)) !== null) continue;
+    // Already invited, by number or by name from Members: that invitation counts here, and a second one would only duplicate it.
+    const now = Date.now();
+    if ((await pendingPhoneInvitation(ctx, workspace._id, phone, now)) !== null) continue;
+    if (account !== null && (await pendingInvitationOf(ctx, workspace._id, account, now)) !== null) continue;
     const id = await inviteMemberWithId(ctx, owner, { workspaceId: workspace._id, invitee: phone, role }, { actorClientId: TEXTS_GROUP_CLIENT_ID });
     if (id !== null) count += 1;
   }

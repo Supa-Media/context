@@ -110,7 +110,7 @@ describe("a session stuck finalizing is not left stuck", () => {
     const gateway = fakeGateway();
     gateway.withholdNotePath(1);
     const { controller, clock } = await harness({ gateway });
-    const id = await controller.start({ title: "Jhon / Seyi" });
+    const id = await controller.start({ title: "Dev2 / Seyi" });
     controller.setNotes(id, "the bit that must not be lost");
     await controller.end();
     await settle();
@@ -133,7 +133,7 @@ describe("a session stuck finalizing is not left stuck", () => {
     const gateway = fakeGateway();
     gateway.withholdNotePath(1);
     const { controller, clock } = await harness({ gateway });
-    const id = await controller.start({ title: "Jhon / Seyi" });
+    const id = await controller.start({ title: "Dev2 / Seyi" });
     controller.setNotes(id, "the bit that must not be lost");
     await controller.end();
     await settle();

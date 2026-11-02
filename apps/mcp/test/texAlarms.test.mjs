@@ -3,6 +3,7 @@
 // and the same fetch wire the notes use.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { arrivedSql, oneAtATime } from "./texStoreFixture.mjs";
 
 import { schedule, cancel, settle, retry, due, nextAt, MAX_DUE, MAX_PAYLOAD_BYTES } from "../src/texStore/alarms.js";
 import { texObjects, TexObjectRefused } from "../src/texStore/objects.js";
@@ -37,7 +38,7 @@ const skip = DatabaseSync === null ? "node:sqlite is not in this Node" : false;
 /** A Durable Object's state: its SQLite and the one alarm the runtime keeps. */
 function stateOver(sql = durableSql()) {
   const storage = {
-    sql,
+    sql: arrivedSql(sql),
     alarm: undefined,
     armed: [],
     setAlarm(at) {
@@ -49,7 +50,7 @@ function stateOver(sql = durableSql()) {
       storage.armed.push(null);
     },
   };
-  return { storage };
+  return { storage, blockConcurrencyWhile: oneAtATime() };
 }
 
 /** A clock the test moves by hand. */

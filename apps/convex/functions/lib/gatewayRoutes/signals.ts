@@ -535,3 +535,27 @@ export async function gatewayTreeTouchHandler(
   }
   return answered();
 }
+
+/**
+ * `POST /gateway/objects/behind`: whether a workspace's object is behind, that is, a tree or access change committed
+ * here and not yet taken by the object (`workspaceObjectPush.waitingSince`, one indexed read). The gateway asks it
+ * beside each object read, so a share just taken back is answered from here until the push lands, without the whole
+ * binding (`apps/mcp/src/store/objectLookup.js`).
+ *
+ * The gateway secret alone, as `/gateway/tree/touch`: the answer is one boolean about pending work, never a row, a
+ * name or a rule. Anything that fails, a malformed id included, is `behind: true`, which only sends the reader to the
+ * control plane.
+ */
+export async function gatewayObjectBehindHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const workspaceId = stringField(body, "workspaceId");
+  if (workspaceId === null) return json({ behind: true });
+  try {
+    const behind = await ctx.runQuery(internal.functions.workspaceObjectPush.waitingSince, {
+      workspaceId: workspaceId as Id<"workspaces">,
+      at: Number.MAX_SAFE_INTEGER,
+    });
+    return json({ behind });
+  } catch {
+    return json({ behind: true });
+  }
+}

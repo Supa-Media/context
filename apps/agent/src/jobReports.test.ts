@@ -9,6 +9,9 @@
  *  2. `reply.ts` dropping the SKIP check → "a report with nothing new texts nothing".
  *  3. `steerJobs` passing the report turn's text instead of its note → "the coordinator steers a running job with its own note, and only that".
  *  4. `jobUpdate` texting an update with no ask directly → "a report from before reports carried their ask is never texted straight in".
+ *  5. `agentAnswer` ignoring `quiet` (2026-10-31) → "the gateway's quiet flag texts nothing, and a job it starts still runs".
+ *  6. `reply.ts` and `inbox.ts` both without their control-word guard (either alone holds) → "a bare control word is never texted, on any path".
+ *  7. `reply.ts` without the job_report refusal line (2026-10-31) → "a report the chat's turn was refused for still tells them".
  */
 
 import { describe, expect, it } from "vitest";
@@ -24,14 +27,14 @@ const ASK = "compare cheap models for agent work";
 
 type World = { bodies: Array<Record<string, unknown>>; sent: string[]; spawned: Array<[string, JobRun]>; steered: Array<[string, JobSteer]> };
 
-function inboxDeps(world: World, answer: Record<string, unknown>): InboxDeps {
+function inboxDeps(world: World, answer: Record<string, unknown>, status = 200): InboxDeps {
   return {
     fetch: (async (url: string, init: RequestInit) => {
       const path = new URL(url).pathname;
       if (path === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "t" });
       if (path === "/agent") {
         world.bodies.push(JSON.parse(String(init.body)));
-        return Response.json(answer);
+        return Response.json(answer, { status });
       }
       const body = init.body ? JSON.parse(String(init.body)) : {};
       const text = body?.message?.parts?.[0]?.value;
@@ -89,6 +92,19 @@ describe("a job reports to the chat's own turn", () => {
     expect(world.sent.join(" ")).not.toContain("couldn't save");
   });
 
+  it("a report the chat's turn was refused for still tells them, never silently", async () => {
+    for (const status of [409, 429]) {
+      const storage = new MemoryStorage();
+      const world: World = { bodies: [], sent: [], spawned: [], steered: [] };
+      const id = await oneJob(storage);
+      const deps = inboxDeps(world, { error: status === 429 ? "daily_limit" : "no_provider" }, status);
+      await jobUpdate(storage, deps, done(id, ["Submitted it."]));
+      await drain(storage, deps);
+      expect(world.sent.join(" ")).toMatch(/Text me and I'll catch you up/);
+      expect(world.sent.join(" ")).not.toContain("Submitted it.");
+    }
+  });
+
   it("a report with nothing new texts nothing", async () => {
     const storage = new MemoryStorage();
     const world: World = { bodies: [], sent: [], spawned: [], steered: [] };
@@ -98,6 +114,29 @@ describe("a job reports to the chat's own turn", () => {
     await drain(storage, deps);
     expect(world.bodies).toHaveLength(1);
     expect(world.sent).toEqual([]);
+  });
+
+  it("the gateway's quiet flag texts nothing, and a job it starts still runs", async () => {
+    const storage = new MemoryStorage();
+    const world: World = { bodies: [], sent: [], spawned: [], steered: [] };
+    const id = await oneJob(storage);
+    const deps = inboxDeps(world, { answer: "", quiet: true, jobs: [{ title: "Agentic benchmarks, check", brief: "Read the page back." }] });
+    await jobUpdate(storage, deps, done(id, ["Still saving."]));
+    await drain(storage, deps);
+    expect(world.sent).toEqual([]);
+    expect(world.spawned.map(([, job]) => job.title)).toEqual(["Agentic benchmarks, check"]);
+  });
+
+  it("a bare control word is never texted, on any path (self-reviews fa3f7a, a0365e)", async () => {
+    for (const answer of ["SKIP", "[SKIP]", "NOOP", "NO_REPLY"]) {
+      const storage = new MemoryStorage();
+      const world: World = { bodies: [], sent: [], spawned: [], steered: [] };
+      const id = await oneJob(storage);
+      const deps = inboxDeps(world, { answer });
+      await jobUpdate(storage, deps, done(id, ["Done."]));
+      await drain(storage, deps);
+      expect(world.sent).toEqual([]);
+    }
   });
 
   it("the coordinator can start the job again, on the person's own words", async () => {

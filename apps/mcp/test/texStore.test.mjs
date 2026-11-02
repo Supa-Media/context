@@ -138,7 +138,7 @@ test("delete removes the keys given, and wipe removes everything", { skip }, asy
   assert.equal((await store.list({})).objects.length, 0);
 });
 
-test("each person and each group chat has a Durable Object of its own", () => {
+test("each person and each group chat has a Durable Object of its own", async () => {
   assert.equal(ownerName({ person: "w1" }), "person:w1");
   assert.equal(ownerName({ chat: "w1" }), "chat:w1");
   assert.notEqual(ownerName({ person: "w1" }), ownerName({ chat: "w1" }));
@@ -146,7 +146,10 @@ test("each person and each group chat has a Durable Object of its own", () => {
   assert.throws(() => ownerName({ person: "" }));
   assert.throws(() => ownerName({}));
   const names = [];
-  const env = { TEX_STORE: { idFromName: (name) => (names.push(name), name), get: (id) => ({ id }) } };
-  assert.deepEqual(texStoreStub(env, { person: "w1" }), { id: "person:w1" });
+  const seen = [];
+  const env = { TEX_STORE: { idFromName: (name) => (names.push(name), name), get: (id) => ({ fetch: async (request) => (seen.push([id, request.headers.get("x-tex-owner")]), new Response(null)) }) } };
+  // The store placed in eastern North America, every call naming its owner (`texStore/move.js`).
+  await texStoreStub(env, { person: "w1" }).fetch(new Request("https://tex-store.internal/get"));
+  assert.deepEqual(seen, [["enam:person:w1", "person:w1"]]);
   assert.equal(texStoreStub({}, { person: "w1" }), null);
 });

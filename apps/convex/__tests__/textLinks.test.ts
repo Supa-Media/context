@@ -242,14 +242,62 @@ describe("what a text can reach", () => {
     expect(reach).not.toContain(String(bo.workspaceId));
   });
 
-  test("each session replaces the last token instead of stacking live ones", async () => {
+  // 2026-10-31: a question texted while a job started got "I can't answer right now". The job's session replaced the
+  // token the question's turn was already holding, so the turn's own count came back "no such grant". A replaced
+  // token now lives out its own lifetime, on the one grant, and dies with that grant.
+  test("each session replaces the last token, and a turn holding the old one can still finish", async () => {
     const t = setupTest();
     const { userId } = await person(t, "a@example.invalid", "ada");
     await link(t, PHONE, (await startLink(t, userId)).code);
     const first = await session(t, PHONE);
     const second = await session(t, PHONE);
+    const third = await session(t, PHONE);
+    for (const held of [first, second, third]) expect(await resolves(t, held.accessToken as string)).not.toBeNull();
+    // Still one grant: nothing stacks, and the people list shows one Tex.
+    const grants = await t.run(async (ctx) => (await ctx.db.query("oauthGrants").collect()).filter((g) => g.clientId === TEXTS_CLIENT_ID));
+    expect(grants).toHaveLength(1);
+    // The turn holding the first token may still spend the model: this was the call that failed.
+    const verdict = await gatewayPost(t, "/gateway/builtin-model", { accessToken: first.accessToken, expectedWorkspaceId: null });
+    expect((JSON.parse(await verdict.text()) as { verdict: { allowed: boolean } | null }).verdict?.allowed).toBe(true);
+  });
+
+  test("a replaced token stops at its own expiry", async () => {
+    const t = setupTest();
+    const { userId } = await person(t, "a@example.invalid", "ada");
+    await link(t, PHONE, (await startLink(t, userId)).code);
+    const first = await session(t, PHONE);
+    await session(t, PHONE);
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("textsEarlierTokens").collect()) await ctx.db.patch(row._id, { expiresAt: Date.now() - 1 });
+    });
     expect(await resolves(t, first.accessToken as string)).toBeNull();
-    expect(await resolves(t, second.accessToken as string)).not.toBeNull();
+    // And the next mint sweeps it.
+    await session(t, PHONE);
+    const left = await t.run(async (ctx) => (await ctx.db.query("textsEarlierTokens").collect()).map((row) => row.expiresAt > Date.now()));
+    expect(left).toEqual([true]);
+  });
+
+  test("unlinking stops a replaced token too", async () => {
+    const t = setupTest();
+    const { userId } = await person(t, "a@example.invalid", "ada");
+    await link(t, PHONE, (await startLink(t, userId)).code);
+    const first = await session(t, PHONE);
+    await session(t, PHONE);
+    await asUser(t, userId).mutation(api.functions.textLinks.unlinkPhone, {});
+    expect(await resolves(t, first.accessToken as string)).toBeNull();
+  });
+
+  test("a replaced token is only ever a texting grant's", async () => {
+    const t = setupTest();
+    const { userId } = await person(t, "a@example.invalid", "ada");
+    await link(t, PHONE, (await startLink(t, userId)).code);
+    const first = await session(t, PHONE);
+    await session(t, PHONE);
+    await t.run(async (ctx) => {
+      const grant = (await ctx.db.query("oauthGrants").collect())[0];
+      await ctx.db.patch(grant._id, { clientId: "some_other_client" });
+    });
+    expect(await resolves(t, first.accessToken as string)).toBeNull();
   });
 
   test("an unknown number is told unlinked and given no token", async () => {

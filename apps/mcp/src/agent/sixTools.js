@@ -26,6 +26,7 @@ import { translateV2Params } from "../tools/v2/translate.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { toolsForSession } from "../tools/advertised.js";
 import { actionArguments } from "../orient/manual.js";
+import { COMMAND_SEND_ACTIONS } from "./commandTools.js";
 
 /** The six, in the order they are listed. */
 export const SIX_TOOLS = ["orient", "search", "fetch", "write", "manage", "send"];
@@ -48,13 +49,17 @@ export const ASSISTANT_SEND_ACTIONS = {
   fill_card: { tool: "fill_card", summary: "Fill the checkout's card boxes with a saved card you never see, on the person's yes in the app.", take: own },
   progress: { tool: "text_progress", summary: "Text the person a short line while you work.", take: own },
   delegate: { tool: "delegate", summary: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.", take: own },
-  advisor: { tool: "ask_advisor", summary: "Ask your advisor, a stronger model, when an ask needs judgment or you are stuck; it answers you, never them.", take: own }, // `advisor.js`
+  advisor: { tool: "ask_advisor", summary: "Ask your advisor, a stronger model, when an ask needs judgment, before you call a task done, or when you are stuck; it sees this whole turn, so send no args, and it answers you, never them.", take: own }, // `advisor.js`
   background: { tool: "start_background_job", summary: "Hand a long task to a background job, so several things run at once.", take: own }, // `background.js`
   steer_job: { tool: "steer_background_job", summary: "Steer a background job that is still running: their text, your own note, or stop it.", take: own },
+  restart_job: { tool: "restart_background_job", summary: "Pick background jobs that stopped before finishing back up where they stopped, all in one call; never a new copy.", take: own },
+  job_status: { tool: "job_status", summary: "How a background job is going, instantly: its state, the step it is on, all its steps, your advisor's last check and advice, and a finished job's report.", take: own },
   mail_agent: { tool: "mail_agent", summary: "Mail the agent doing the job you supervise.", take: own },
   draw_visual: { tool: "draw_visual", summary: "Turn your answer into one of your designed picture cards (options, photos, a trip, a day, a plan, a board, a chart), to text them.", take: own },
   draw_picture: { tool: "draw_picture", summary: "Make a graphic from an HTML page you write, to text them. Make it first; guess what they left out.", take: own },
   make_picture: { tool: "make_picture", summary: "Generate or edit a photo with an image model, to text them. Make it first; guess what they left out.", take: own },
+  // Tex's chat commands (`commandTools.js`): offered only when the turn holds them.
+  ...Object.fromEntries(Object.entries(COMMAND_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
 };
 
 /** `fetch` ids only the assistant has: its skills (`skills.js`, `learnedSkills.js`) and the conversation's earlier texts. */

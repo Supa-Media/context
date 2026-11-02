@@ -35,12 +35,13 @@ import { sixToolsOver } from "../src/agent/sixTools.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { fullToolList } from "./fullToolList.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-dream-now.test";
 const TOKEN_OWNER = `cat_dreamnow_owner_${"0".repeat(21)}`;
 const TOKEN_EDITOR = `cat_dreamnow_editor_${"0".repeat(20)}`;
 const TOKEN_READ_ONLY = `cat_dreamnow_readonly_${"0".repeat(18)}`;
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 
 function binding(bucket) {
   return {
@@ -136,7 +137,7 @@ test("manage dream_now reaches the control plane with the connection's own token
   const answer = await manageDreamNow(TOKEN_OWNER);
   assert.equal(answer.isError, false, answer.text);
   assert.match(answer.text, /^Started/);
-  assert.match(answer.text, /tex\/about-me\.md/);
+  assert.match(answer.text, /tex\/about\.md/);
   assert.deepEqual(controlPlane.dreams.asks, [{ accessToken: TOKEN_OWNER, workspaceId: "ws_dream", userId: "user_dreamer" }]);
 });
 

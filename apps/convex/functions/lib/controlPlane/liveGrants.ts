@@ -13,16 +13,18 @@ import type { QueryCtx } from "../../../_generated/server";
 import { TOKEN_HASH_PATTERN } from "../crypto";
 import { grantedNamesFor } from "../grantedNames";
 import { getMembership } from "../workspaceAuth";
-import { pinnedContextRow } from "../pinnedContext";
+import { pinnedContextRow, pinnedContextWorkspace } from "../pinnedContext";
+import { PINNED_CONTEXT_ROLE } from "@context/shared";
+import { homeOnlyRows, homeOnlyStillShares } from "../textGroupHomeOnly";
 import { guestNamesIn, pinReaderNames } from "../pinnedReaders";
 import { CONSOLE_CLIENT_ID } from "../../agentGrant";
 import { TEXTS_GROUP_CLIENT_ID } from "../../textGroups";
+import { TEXTS_CLIENT_ID } from "../../textLinks";
 import { phoneSignInPaused } from "../emailProof";
-import { guestBinder, mayOpenToGuests } from "../textGroupGuests";
+import { mayOpenToGuests } from "../textGroupGuests";
 import { invitationsStillCount } from "../textGroupInvited";
-import { READS_AS_CHAT_NAME, chatNamesOf } from "../nodes/chatFolders";
+import { READS_AS_CHAT_NAME } from "../nodes/chatFolders";
 import { chatHomeOf } from "../textGroupHome";
-import { accessRowsOf } from "../nodes/accessRows";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
 export interface LiveGrant {
@@ -62,7 +64,26 @@ export async function resolveLiveGrant(
       q.eq("hashedAccessToken", hashedAccessToken),
     )
     .unique();
-  return grant === null ? null : await validateLiveGrantRecord(ctx, grant);
+  if (grant !== null) return await validateLiveGrantRecord(ctx, grant);
+  return await earlierTextsToken(ctx, hashedAccessToken);
+}
+
+/**
+ * A texting token a newer mint replaced (`textsEarlierTokens`), still inside
+ * its own lifetime: the turn that holds it finishes instead of being told
+ * there is no model. Only the texting client's, only while that grant is live
+ * by every check below, and never once the person paused sign-ins by phone.
+ */
+async function earlierTextsToken(ctx: QueryCtx, hashedAccessToken: string): Promise<LiveGrant | null> {
+  const earlier = await ctx.db
+    .query("textsEarlierTokens")
+    .withIndex("by_access_token", (q) => q.eq("hashedAccessToken", hashedAccessToken))
+    .first();
+  if (earlier === null || earlier.expiresAt <= Date.now()) return null;
+  const grant = await ctx.db.get(earlier.grantId);
+  if (grant === null || grant.clientId !== TEXTS_CLIENT_ID) return null;
+  if (await phoneSignInPaused(ctx, grant.userId)) return null;
+  return await validateLiveGrantRecord(ctx, grant);
 }
 
 /**
@@ -84,10 +105,23 @@ export async function validateLiveGrantRecord(
     return null;
   }
 
-  const membership = await getMembership(ctx, grant.workspaceId, grant.userId);
-  if (membership === null) return null;
-
-  const workspace = await ctx.db.get(grant.workspaceId);
+  // A home-only group grant (`lib/textGroupHomeOnly.ts`) is the pin's, and its sponsor is not a member of it: its reach
+  // is the chat's home alone, judged below. Any other grant, even one carrying the field under another client, needs
+  // the membership it always did.
+  const homeOnly = grant.clientId === TEXTS_GROUP_CLIENT_ID && grant.texGroup?.homeOnly === true;
+  let workspace: Doc<"workspaces"> | null;
+  let role: string;
+  if (homeOnly) {
+    const pinned = await pinnedContextWorkspace(ctx);
+    if (pinned === null || pinned._id !== grant.workspaceId) return null;
+    workspace = pinned;
+    role = PINNED_CONTEXT_ROLE;
+  } else {
+    const membership = await getMembership(ctx, grant.workspaceId, grant.userId);
+    if (membership === null) return null;
+    workspace = await ctx.db.get(grant.workspaceId);
+    role = membership.role;
+  }
   if (workspace === null) return null;
 
   const client = await ctx.db
@@ -98,7 +132,7 @@ export async function validateLiveGrantRecord(
 
   if (grant.clientId === TEXTS_GROUP_CLIENT_ID && !(await groupStillShares(ctx, grant))) return null;
 
-  return { grant, workspace, role: membership.role };
+  return { grant, workspace, role };
 }
 
 /**
@@ -112,13 +146,16 @@ async function groupStillShares(ctx: QueryCtx, grant: Doc<"oauthGrants">): Promi
   const texGroup = grant.texGroup;
   if (texGroup === undefined) return false;
   const group = await ctx.db.get(texGroup.groupId);
-  if (group === null || group.mutedAt !== undefined || group.workspaceId !== grant.workspaceId) return false;
+  if (group === null || group.mutedAt !== undefined) return false;
   if (await phoneSignInPaused(ctx, grant.userId)) return false;
-  // A guest chat's grant (`lib/textGroupGuests.ts`) holds while the chat is still a guest chat of the same group and
-  // the person who opened it may still: an owner or editor, texting. An ordinary chat's grant never resolves in a
-  // guest chat, nor a guest chat's in an ordinary one, so neither reads at the other's reach.
-  if ((texGroup.guestGroupId ?? null) !== (group.guestGroupId ?? null)) return false;
-  if (texGroup.guestGroupId !== undefined) return (await guestBinder(ctx, group)) !== null;
+  // A home-only grant (`lib/textGroupHomeOnly.ts`): the chat is not muted, and the sponsor who minted it still may text.
+  // Its chat is bound to nothing: the workspaces it reaches are re-checked per person, per workspace, on every request
+  // in `contextsForGrant` (`lib/textGroupReach.ts` `liveReach`), so someone removed from one drops it on the next call.
+  if (texGroup.homeOnly === true) return await homeOnlyStillShares(ctx, grant, group);
+  // Guest mode is retired (E2, 2026-10-31): a grant minted under it (`texGroup.guestGroupId`) reads nothing. Its chat is
+  // answered from its home from the next turn, so a stale guest grant never reads its workspace at the binder's tier.
+  if (texGroup.guestGroupId !== undefined || group.guestGroupId !== undefined) return false;
+  if (group.workspaceId !== grant.workspaceId) return false;
   for (const userId of texGroup.coViewerIds) {
     if ((await getMembership(ctx, grant.workspaceId, userId)) === null) return false;
     if (await phoneSignInPaused(ctx, userId)) return false;
@@ -197,6 +234,7 @@ export async function contextsForGrant(
     grantedNames?: string[];
     setupOnly?: true;
     chatHome?: string;
+    homeOnly?: true;
   }>
 > {
   const includeGrantedNames = live.grant.clientId === CONSOLE_CLIENT_ID;
@@ -215,23 +253,17 @@ export async function contextsForGrant(
   if (includeGrantedNames) {
     own.grantedNames = await grantedNamesFor(ctx, own.workspaceId, live.grant.userId);
   }
-  // A group chat's grant reaches its one workspace and nothing else: not the
+  // A group chat's grant reaches its chat's workspaces and nothing else: not the
   // tagger's other memberships, not their personal workspace. The pin comes
   // back marked `setupOnly`: the gateway never lists or addresses it, and
   // reads only Tex's own setup there (`ai/production/`), the file a 1:1 text
   // already runs on (`apps/mcp/src/agent/production.js`).
   if (live.grant.clientId === TEXTS_GROUP_CLIENT_ID) {
+    // A home-only grant reaches its chat's home in the pin, then each shared workspace every person in the chat is a live
+    // member of, at the lowest role among them (`lib/textGroupReach.ts`); nothing of its sponsor's own, no setup, and no
+    // pin reader's names (`lib/textGroupHomeOnly.ts`).
+    if (live.grant.texGroup?.homeOnly === true) return await homeOnlyRows(ctx, live.grant, live.workspace);
     const setup = await groupSetupRow(ctx, live, own.workspaceId);
-    // A guest chat's reads only what is shared with its group, as a guest reads (`lib/nodes/chatFolders.ts`).
-    const chatGroupId = live.grant.texGroup?.guestGroupId;
-    if (chatGroupId !== undefined) {
-      const chatGroup = await ctx.db.get(chatGroupId);
-      if (chatGroup === null || chatGroup.workspaceId !== own.workspaceId) return [];
-      // Never more than an editor's hand there, whoever opened it: an owner's tools (visibility, links) stay theirs.
-      const role = own.role === "owner" ? "editor" : own.role;
-      const grantedNames = chatNamesOf(chatGroupId, chatGroup.name, await accessRowsOf(ctx, own.workspaceId));
-      return [{ ...own, role, grantedNames }, ...setup];
-    }
     // An invited person's tag: the binder's grant, never past the invitation's role, and never an owner's tools.
     const invitedRole = live.grant.texGroup?.invitedTaggerRole;
     if (invitedRole !== undefined) return [{ ...own, role: own.role === "member" ? "member" : invitedRole }, ...setup];

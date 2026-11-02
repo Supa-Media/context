@@ -179,5 +179,8 @@ describe("one look", () => {
     expect(await look(Response.json({ error: "tree_unavailable", reason: "timed_out" }, { status: 503 }))).toEqual({ outcome: "failed", reason: "timed_out" });
     expect(await look(Response.json({ error: "tree_unavailable", reason: "a sentence, not a code" }, { status: 503 }))).toEqual({ outcome: "failed", reason: "tree_unavailable" });
     expect(await look(new Error("down"))).toEqual({ outcome: "failed", reason: "unreachable" });
+    // The gateway names a model failure as a fixed code (2026-11-01), digits included; out of rounds is its own.
+    expect(await look(Response.json({ error: "model_unavailable", reason: "status_429" }, { status: 502 }))).toEqual({ outcome: "failed", reason: "status_429" });
+    expect(await look(Response.json({ error: "model_unavailable", reason: "rounds_exhausted" }, { status: 502 }))).toEqual({ outcome: "failed", reason: "rounds_exhausted" });
   });
 });

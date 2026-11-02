@@ -200,6 +200,7 @@ export async function deletePersonalRows(
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
   for (const grant of grants) {
+    for (const earlier of await ctx.db.query("textsEarlierTokens").withIndex("by_grant", (q) => q.eq("grantId", grant._id)).collect()) await ctx.db.delete(earlier._id);
     await ctx.db.delete(grant._id);
   }
 

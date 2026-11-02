@@ -9,7 +9,7 @@
  *       └─▶ control plane: the outcome, as a code
  *
  * A dream texts nobody: what it read, thought and changed goes into the
- * person's own `tex/dreams/` and `tex/about-me.md`, written by the gateway.
+ * person's own `tex/dreams/` and `tex/about.md`, written by the gateway.
  * Nothing it said passes through here. Logs carry the run id, the outcome and
  * a time, never a grant or a phone.
  */

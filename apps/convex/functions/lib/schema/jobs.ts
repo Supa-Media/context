@@ -87,10 +87,18 @@ export const jobTables = {
      * `dismissContextMove` is where that argument lives.
      */
     dismissedAt: v.optional(v.number()),
+    /**
+     * A guest chat's own folder moving into that chat's own home (`lib/contextMoveChatHome.ts`, owner-approved
+     * 2026-10-31). Written only by `openChatHomeMove`, an internal mutation; no public mutation and no gateway route
+     * can set it. While it is set, every pass re-derives from the chat's row that the source, `from`, the destination
+     * and `to` are that chat's, and the role checks are replaced by that.
+     */
+    chatHome: v.optional(v.object({ groupId: v.id("textGroups") })),
   })
     .index("by_source_updatedAt", ["sourceWorkspaceId", "updatedAt"])
     .index("by_destination_updatedAt", ["destinationWorkspaceId", "updatedAt"])
-    .index("by_actor_updatedAt", ["actorUserId", "updatedAt"]),
+    .index("by_actor_updatedAt", ["actorUserId", "updatedAt"])
+    .index("by_chat_home", ["chatHome.groupId"]),
 
   /**
    * Durable gateway work, never note content.

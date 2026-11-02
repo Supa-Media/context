@@ -71,24 +71,22 @@ export function words(event) {
   }
 }
 
-/** The events a group reader may see: the latest unbroken run filed under the chat's current people. */
-export function seenBy(events, people) {
-  if (!people) return events;
-  return events.slice(events.findLastIndex((event) => event.people !== people) + 1);
-}
 
 /**
  * Render events (oldest first) as transcript lines, "" when there are none.
  * `answeredBy` is every event that may cover another (the whole log), so an
- * answer outside the rendered slice still counts.
+ * answer outside the rendered slice still counts. `tools` maps a turn to the
+ * tools it used (`ledgerHistory.js`): its names follow Tex's first line of
+ * that turn, names only.
  */
-export function renderEvents(events, { timeZone = "UTC", people = null, answeredBy = events } = {}) {
+export function renderEvents(events, { timeZone = "UTC", answeredBy = events, tools = null } = {}) {
   const day = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", month: "short", day: "numeric" });
   const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true });
   const answered = new Set(answeredBy.filter((event) => event.from?.kind === "tex" && event.delivered !== false).flatMap((event) => event.covers ?? []));
   const lines = [];
+  const named = new Set();
   let lastDay = null;
-  for (const event of seenBy(events, people)) {
+  for (const event of events) {
     const date = new Date(event.at);
     const thisDay = day.format(date);
     if (thisDay !== lastDay) {
@@ -99,6 +97,11 @@ export function renderEvents(events, { timeZone = "UTC", people = null, answered
     if (event.from?.kind === "person" && INBOUND.has(event.kind) && !answered.has(event.id)) line += "   (not answered)";
     lines.push(line);
     if (event.delivered === false) lines.push(`${NOTE_INDENT}(not delivered: ${REASON_WORDS[event.reason] ?? "it didn't go out"})`);
+    const used = event.from?.kind === "tex" && typeof event.turn === "string" && !named.has(event.turn) ? tools?.get(event.turn) : undefined;
+    if (Array.isArray(used) && used.length > 0) {
+      named.add(event.turn);
+      lines.push(`${NOTE_INDENT}(used: ${used.map((name) => oneLine(String(name)).slice(0, 64)).join(", ")})`);
+    }
   }
   return lines.join("\n");
 }

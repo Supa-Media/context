@@ -48,6 +48,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/scripts/tex-entry-check.mjs\" --hook"
+          }
+        ]
+      }
     ]
   }
 }

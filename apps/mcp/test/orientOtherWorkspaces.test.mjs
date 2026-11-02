@@ -23,11 +23,12 @@ import { GLOBAL_ORIENT_PATH } from "../src/orient/globalNote.js";
 import { ORIENT_OTHER_WORKSPACE_WAIT_MS } from "../src/orient/tool.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-orient-others.test";
 const TOKEN = `cat_orient_others_${"0".repeat(22)}`;
 const RULE = "Every agent: keep task statuses current.";
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 
 const MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +

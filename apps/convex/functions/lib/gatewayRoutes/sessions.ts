@@ -32,19 +32,23 @@ export async function gatewaySessionHandler(
   const accessToken = stringField(body, "accessToken");
   if (accessToken === null) return json({ session: null });
 
-  const session = await ctx.runQuery(
-    internal.functions.controlPlane.resolveGrantByAccessToken,
+  const { session, touchDue } = await ctx.runQuery(
+    internal.functions.controlPlane.resolveGatewaySession,
     { hashedAccessToken: await hashToken(accessToken) },
   );
   if (session === null) return json({ session: null });
 
-  try {
-    await ctx.runMutation(internal.functions.grants.touchGrant, {
-      grantId: session.grantId,
-    });
-  } catch {
-    // Deliberately swallowed. A failed bookkeeping write must not log someone
-    // out of their AI client.
+  // Only when a stamp is due (at most every five minutes per grant): the
+  // mutation wrote nothing on every other request and still cost a round trip.
+  if (touchDue) {
+    try {
+      await ctx.runMutation(internal.functions.grants.touchGrant, {
+        grantId: session.grantId,
+      });
+    } catch {
+      // Deliberately swallowed. A failed bookkeeping write must not log someone
+      // out of their AI client.
+    }
   }
   // The token came in the URL (`/t/<token>/...`): counted, so the URL form
   // can be retired once nobody depends on it (`functions/tokenTransport.ts`).

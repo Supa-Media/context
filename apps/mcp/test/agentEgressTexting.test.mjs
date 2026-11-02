@@ -15,6 +15,9 @@
  *
  *  5. `settleByText` matching "yes" inside a longer text. → `a text that is
  *     more than yes goes to the model` fails.
+ *  5a. "on" and "a" added to `ALSO_SAID` (2026-11-01). → `a reaction's line is
+ *     never a verdict, however much of a yes it quotes` fails: every other word
+ *     of the Worker's reaction line is already in that list.
  * 17. `disarmTexting` not called before a model turn. → `a yes to a later
  *     question does not release an earlier ask`.
  * 18. `withdrawPending` not called when a turn fails. → `an ask whose turn
@@ -207,6 +210,27 @@ export async function runAgentEgressTextingChecks(check) {
         approvalVerdict("already sent it") === null &&
         approvalVerdict("yes send it to Sam instead") === null &&
         approvalVerdict("not yet") === null,
+    );
+    /*
+      A LINE THAT DESCRIBES A YES IS NOT A YES (2026-11-01).
+
+      Since #2563 the texting Worker turns every reaction into a line of the chat and sends it as the message's
+      words (`apps/agent/src/reactions.ts` `reactionLine`): "👍 (yes) on Tex's message", and with the words it
+      was on quoted, "👍 (yes) on the message \"send it\"". Only the asker's held tapback releases what the
+      gateway holds, and a group's bare yes is chat either way — but these lines run through `approvalVerdict`
+      like any text, and each is one word away from `sentenceYes`: every word of them is in `ALSO_SAID`
+      ("message", "the", "it", "send", "yes", 👍) **except** "on" and "a". So the word list and the Worker's
+      line share a boundary nobody was watching, and adding "on" to `ALSO_SAID` for a "yes on it" would make
+      any person's reaction on any message a code-matched yes.
+    */
+    check(
+      "a reaction's line is never a verdict, however much of a yes it quotes",
+      approvalVerdict("👍 (yes) on a message") === null &&
+        approvalVerdict("👍 (yes) on Tex's message") === null &&
+        approvalVerdict("👍 (yes) on the message \"send it\"") === null &&
+        approvalVerdict("👍 (yes) on Tex's message \"yes please send it\"") === null &&
+        approvalVerdict("took back 👍 on Tex's message") === null &&
+        approvalVerdict("👎 (no) on Tex's message") === null,
     );
     check(
       "a Slack permission refusal is told to the person in their terms",

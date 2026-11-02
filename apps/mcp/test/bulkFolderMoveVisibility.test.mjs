@@ -54,6 +54,7 @@ import {
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-bulk-visibility.test";
 
@@ -165,7 +166,7 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     userId: "user_bulkvis_team",
   });
 
-  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
   controlPlane.serveTreesFrom(env, { s3 });
 
   const primary = s3.bucketFor("bulk-visibility");

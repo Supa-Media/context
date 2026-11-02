@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
-import { action, internalMutation, internalQuery } from "../_generated/server";
+import { action, internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { guestChatsOf, guestNote, guestPhoneHash } from "./lib/guestPhones";
 import { phoneSignInPaused } from "./lib/emailProof";
@@ -12,6 +13,9 @@ import { workspaceBySlug } from "./lib/textGroupInvited";
 import { canTextCodes, checkCode, textCode } from "./phoneCodes";
 import { newPhoneAccount, phoneHolder } from "./phoneSignIn";
 import { nameOutsider } from "./lib/textGroupGuestSync";
+import { guestBinder } from "./lib/textGroupGuests";
+import { ensureChatHome } from "./lib/textGroupHome";
+import { homeBinder } from "./lib/textGroupHomeOnly";
 import { mintPhoneSignInCode } from "./textSignIn";
 
 /**
@@ -151,8 +155,22 @@ export const enrol = internalMutation({
   args: { phone: v.string(), phoneHash: v.string() },
   returns: v.union(v.object({ status: v.literal("ok"), code: v.string() }), v.object({ status: v.literal("unavailable") })),
   handler: async (ctx, { phone, phoneHash }) => {
-    const chats = await guestChatsOf(ctx, phoneHash);
-    if (chats.length === 0) return { status: "unavailable" as const };
+    // Only chats that may still answer: `guestBinder` asks what a turn asks — the group is there, and the person who
+    // turned guest mode on is still an owner or editor of the workspace, with texting not paused. An enrolment names
+    // that person's authority on the folder (`nameOutsider` tells `setAccessRow` `role: "owner"`), so a chat whose
+    // binder has since been taken off the workspace enrols nobody rather than granting in their name.
+    const chats: Doc<"textGroups">[] = [];
+    const homes: { chat: Doc<"textGroups">; sponsor: Id<"users"> }[] = [];
+    for (const chat of await guestChatsOf(ctx, phoneHash)) {
+      if (chat.guestGroupId !== undefined) {
+        if ((await guestBinder(ctx, chat)) !== null) chats.push(chat);
+        continue;
+      }
+      // A chat answered from its home: the account is named on the home, under the sponsor who stands behind the chat.
+      const sponsor = await homeBinder(ctx, chat);
+      if (sponsor !== null) homes.push({ chat, sponsor });
+    }
+    if (chats.length === 0 && homes.length === 0) return { status: "unavailable" as const };
     // Any row carrying the number, confirmed or not, is someone's: a new account never takes a number from anyone.
     const carried = await ctx.db
       .query("users")
@@ -161,6 +179,10 @@ export const enrol = internalMutation({
     if (carried.length > 0 || (await phoneHolder(ctx, phone)) !== null) return { status: "unavailable" as const };
     const userId = await newPhoneAccount(ctx, phone, { adConversions: false });
     for (const chat of chats) await nameOutsider(ctx, chat, userId);
+    for (const { chat, sponsor } of homes) {
+      // The list the next tag would write: the accounts already named, and this one. Their way in is the home's row.
+      await ensureChatHome(ctx, (await ctx.db.get(chat._id)) ?? chat, [...(chat.homeUsers ?? []), userId], sponsor);
+    }
     // Expired passes of anyone are swept a few at a time, as accounts are made.
     for (const stale of await ctx.db
       .query("guestPasses")

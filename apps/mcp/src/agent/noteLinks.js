@@ -31,7 +31,7 @@
  *
  * A GROUP CHAT'S TURN ANSWERS WITH IT TOO (2026-10-21).
  *
- * Jhon asked Tex in a group for "a share link for the read me" and was told
+ * Dev2 asked Tex in a group for "a share link for the read me" and was told
  * none could be made there. A group turn reads only the one workspace every
  * person in the chat is a member of, at its team tier, so the app link to a
  * note it read opens for each of them and for nobody else. A share link is

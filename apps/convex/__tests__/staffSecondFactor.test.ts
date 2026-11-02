@@ -10,12 +10,13 @@
  * the session that started enrolling is shown the key"; the wrong-tries cap
  * removed fails "five wrong codes make the account wait"; deleting the
  * confirmed key on restart fails "the current key stays in force until the
- * new one is confirmed".
+ * new one is confirmed"; `STAFF_STEP_UP_MS` set back to twelve hours fails
+ * "a code keeps its session open for thirty days, and no longer".
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { convexTest } from "convex-test";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -29,6 +30,7 @@ import { withSession } from "./session.helpers";
 const ADMIN = "staff@supa.media";
 
 afterEach(() => {
+  vi.useRealTimers();
   delete process.env[ADMIN_EMAILS_ENV_VAR];
   delete process.env[STAFF_SECOND_FACTOR_ENV_VAR];
 });
@@ -102,6 +104,18 @@ describe("rollout", () => {
     const code = await currentCode(t, userId, 1);
     expect(await laptop.mutation(api.functions.staffSecondFactor.submitCode, { code })).toEqual({ ok: true });
     expect(await laptop.query(api.functions.admin.amIAdmin, {})).toBe(true);
+  });
+
+  test("a code keeps its session open for thirty days, and no longer", async () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const start = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"], now: start });
+    const { session } = await enrolled();
+    vi.setSystemTime(start + 29 * DAY);
+    expect(await session.query(api.functions.admin.amIAdmin, {})).toBe(true);
+    vi.setSystemTime(start + 30 * DAY + 60_000);
+    expect(await session.query(api.functions.admin.amIAdmin, {})).toBe(false);
+    expect(await session.query(api.functions.staffSecondFactor.myStaffFactor, {})).toMatchObject({ standing: "step_up" });
   });
 
   test("signing out takes the code with the session", async () => {

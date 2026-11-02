@@ -7,7 +7,7 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, mutation } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { requireUserId } from "./lib/managedProvisioningFns/helpers";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
 import { cancelManagedStorageHandoffHandler } from "./lib/managedProvisioningFns/migrationFail";

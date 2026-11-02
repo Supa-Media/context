@@ -100,6 +100,8 @@ export function steerFor(store, session, body) {
   return {
     taken,
     words,
+    /** Whether a text that came in while the reply was written joins it (`turn.js`). Not a job's: its next part takes it (`apps/agent/src/jobRun.ts`). */
+    late: !body.job,
     /** Whether a writing call may have started: from then on no cancel stops the turn. */
     get wrote() {
       return open > 0;

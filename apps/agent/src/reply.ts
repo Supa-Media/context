@@ -26,7 +26,7 @@
  * the product and the notes, Tex the assistant people text.
  */
 
-import { saysSkip } from "./groupRoutines";
+import { isControlWord } from "./controlWords";
 import {
   askAgent,
   askLine,
@@ -41,7 +41,7 @@ import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
 import type { Steer } from "./steer";
-import { textsFromAnswer, textsWithExact } from "./format";
+import { textsWithExact } from "./format";
 import { saveTextsStyle, textSettings, type MenuState, type SettingStep, type TexStyle } from "./texStyle";
 import { saveReviewSharing, sharingReply, sharingWords } from "./reviewSharing";
 import type { OutgoingPicture } from "./outgoing";
@@ -120,7 +120,7 @@ export type ReplyDeps = {
   /** Resolves to a line for the answer when a job Tex said it started never did (`notStartedText`). */
   onJobs?: (jobs: StartedJob[]) => Promise<string | undefined | void>;
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
-  onSteers?: (asks: JobSteerAsk[]) => Promise<void>;
+  onSteers?: (asks: JobSteerAsk[]) => Promise<string | undefined | void>;
   /**
    * "Tex, settings" (`texStyle.ts`): where the open menu is kept, and handed
    * the person's style each session so the quick tapback can follow it.
@@ -165,6 +165,7 @@ export const COPY = {
     "I can't answer right now. Please text me again in a little while.",
   dailyLimit:
     "That's all the questions I can answer for you today. Text me again tomorrow.",
+  jobReportRefused: "One of the things I was working on for you has news, but I can't put it into words right now. Text me and I'll catch you up.",
   unavailable: "Something went wrong on my side. Please try again in a minute.",
   /** A linked phone's SMS: never answered from the notes, since its sender can be faked. */
   sms: "Hi, it's Tex. That text came through as SMS, and I only open your notes over iMessage, since anyone can send an SMS that looks like it's from your number. Send it again here and I'll answer.",
@@ -275,32 +276,35 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), recent: await deps.warm?.recent(message.chatId) },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId), holdsLog: message.chatId ? await deps.warm?.holds(message.chatId) : undefined },
     );
-    if (answer.kind !== "answer") await deps.warm?.keep(undefined); // a turn that didn't answer may have written: the next one reads whole (`warm.ts`)
+    if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
     if (answer.kind === "cancelled") return [];
     if (answer.kind === "answer") {
       deps.onAnswered?.();
-      // A job it started will write to the chat by itself: the next text reads it whole.
-      await deps.warm?.keep(answer.jobs ? undefined : answer.warm);
+      // Kept when it started a job too: a job reports through the chat's own turn (never writes the chat itself), and the gateway reads notes and skills fresh while one runs (`warmCopy.js` `jobBusy`).
+      await deps.warm?.keep(answer.warm);
+      if (answer.log && message.chatId) await deps.warm?.keepLog(message.chatId, answer.log); // the chat's log, held here from now on (`events.ts` `keepLog`)
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();
       const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs) : undefined;
-      if (answer.steers) await deps.onSteers?.(answer.steers);
+      const notResumed = answer.steers ? await deps.onSteers?.(answer.steers) : undefined;
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
       if (answer.offers) deps.onOffers?.(answer.offers);
-      const after = notStarted ? [notStarted] : [];
-      // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`).
-      if (!answer.text || (message.event === "job_report" && saysSkip(answer.text) && (answer.verbatim?.length ?? 0) === 0)) return after;
+      const after = [notStarted, notResumed].filter((line): line is string => typeof line === "string" && line !== "");
+      // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`): the gateway's flag, never a word; a bare control word is never a text either.
+      if (!answer.text || answer.quiet || isControlWord(answer.text)) return after;
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only
       // what they read (`apps/mcp/src/tools/emailGate.js`).
       return [...textsWithExact(answer.text, answer.verbatim, session.texStyle?.bubbles === "one"), ...after];
     }
     if (answer.kind === "not_started" && deps.retry) throw new TryLater();
+    // A job's report the chat's turn was refused for is never lost in silence: the result waits in the job list for their next text.
+    if (message.event === "job_report" && (answer.kind === "no_model" || answer.kind === "daily_limit")) return [COPY.jobReportRefused];
     // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.
     if (message.event !== undefined) return [];
     if (answer.kind === "no_model") return COPY.noModel;

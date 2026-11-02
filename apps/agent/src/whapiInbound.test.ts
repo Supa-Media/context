@@ -225,13 +225,13 @@ describe("whapi webhook: 1:1 chats", () => {
         delivery(message({ type: "action", text: undefined, action: { type: "reaction", target: "3EB0TARGET-ABCD7777", emoji } })),
         LINE,
       )[0];
-    const on = (how: string) => ({
+    const on = (how: string, emoji?: string) => ({
       kind: "reaction",
       eventId: "whapi:3EB0ABCD-EF121234",
       chatId: `whapi:${LINE}:${PERSON}`,
       from: PERSON,
       messageId: "3EB0ABCD-EF121234",
-      reaction: { how, words: "" },
+      reaction: { how, words: "", ...(emoji ? { emoji } : {}) },
       on: "3EB0TARGET-ABCD7777",
     });
     expect(reaction("\u{1F44D}")).toEqual(on("Liked"));
@@ -243,8 +243,8 @@ describe("whapi webhook: 1:1 chats", () => {
     expect(reaction("‼️")).toEqual(on("Emphasized"));
     expect(reaction("❓")).toEqual(on("Questioned"));
     expect(reaction("❔")).toEqual(on("Questioned"));
-    expect(reaction("\u{1F525}")).toEqual(on("Reacted"));
-    expect(reaction("constructor")).toEqual(on("Reacted"));
+    expect(reaction("\u{1F525}")).toEqual(on("Reacted", "\u{1F525}"));
+    expect(reaction("constructor")).toEqual(on("Reacted", "construc"));
   });
 
   it("takes an empty emoji as a tapback taken back", () => {
@@ -370,10 +370,13 @@ describe("whapi webhook: groups", () => {
     expect(removed).toMatchObject({ reaction: { how: "Liked", words: "", removed: true }, reactionOn: "3EB0TARGET-ABCD7777" });
   });
 
-  it("ignores any other group reaction", () => {
-    expect(
-      parseWhapiWebhook(delivery(group({ type: "action", text: undefined, action: { type: "reaction", target: "3EB0TARGET-ABCD7777", emoji: "\u{1F602}" } })), LINE),
-    ).toEqual([{ kind: "ignored", reason: "reaction" }]);
+  // Since 2026-11-01 (Dev2) a group reads every reaction, not only a like or a love.
+  it("reads any other group reaction, by its emoji", () => {
+    const read = (emoji: string) =>
+      parseWhapiWebhook(delivery(group({ type: "action", text: undefined, action: { type: "reaction", target: "3EB0TARGET-ABCD7777", emoji } })), LINE)[0];
+    expect(read("\u{1F602}")).toMatchObject({ kind: "group-message", reaction: { how: "Laughed at", words: "" }, reactionOn: "3EB0TARGET-ABCD7777" });
+    expect(read("\u{1F44E}")).toMatchObject({ kind: "group-message", reaction: { how: "Disliked", words: "" } });
+    expect(read("\u{1F525}")).toMatchObject({ kind: "group-message", reaction: { how: "Reacted", words: "", emoji: "\u{1F525}" } });
   });
 
   it("ignores a group's own messages and its edits", () => {

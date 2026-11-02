@@ -14,20 +14,34 @@ import { systemPrompt } from "../src/agent/prompt.js";
 import { heartbeatCallTool } from "../src/agent/heartbeat.js";
 import { MAX_SOURCES, sourceAddress, sourcesOf } from "../src/agent/sources.js";
 
+/** A store that keeps etags and answers `onlyIf` as R2 and Tex's object do: null when the condition fails. */
 function memoryStore() {
   const objects = new Map();
+  const etags = new Map();
+  let version = 0;
   return {
     objects,
     async get(key) {
       if (!objects.has(key)) return null;
       const body = objects.get(key);
-      return { text: async () => body };
+      return { etag: etags.get(key), text: async () => body };
     },
-    async put(key, value) {
+    async put(key, value, options = {}) {
+      const onlyIf = options.onlyIf;
+      if (onlyIf?.absent === true && objects.has(key)) return null;
+      if (typeof onlyIf?.etagMatches === "string" && etags.get(key) !== onlyIf.etagMatches) return null;
+      // A turn between the read and the write: the write lands after the other writer's.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (typeof onlyIf?.etagMatches === "string" && etags.get(key) !== onlyIf.etagMatches) return null;
       objects.set(key, value);
+      etags.set(key, `e${(version += 1)}`);
+      return { etag: etags.get(key) };
     },
   };
 }
+
+const RECORD = ".context/agent/history/texts.json";
+const words = (turns) => turns.map(({ role, text }) => ({ role, text }));
 
 test("only listed names map to a path, and every path is plumbing", () => {
   assert.equal(conversationPath("texts"), ".context/agent/conversations/texts.json");
@@ -38,11 +52,14 @@ test("only listed names map to a path, and every path is plumbing", () => {
 
 test("a question and its answer round-trip", async () => {
   const store = memoryStore();
-  await appendConversation(store, "texts", [], "When is the launch?", "Friday.");
-  assert.deepEqual(await readConversation(store, "texts"), [
+  const id = await appendConversation(store, "texts", "When is the launch?", "Friday.");
+  const turns = await readConversation(store, "texts");
+  assert.deepEqual(words(turns), [
     { role: "user", text: "When is the launch?" },
     { role: "assistant", text: "Friday." },
   ]);
+  assert.equal(turns[0].id, id, "the question carries the exchange's id");
+  assert.deepEqual([...store.objects.keys()], [RECORD], "one record, nothing else");
 });
 
 test("history is bounded by turns, oldest dropped first, and always starts with a question", () => {
@@ -68,7 +85,7 @@ test("history is bounded by characters", () => {
   assert.equal(kept.at(-1).text, "a");
 });
 
-test("a corrupt or odd file reads as an empty conversation, and odd entries are dropped", async () => {
+test("a corrupt or odd old file reads as an empty conversation, and odd entries are dropped as it moves in", async () => {
   const store = memoryStore();
   store.objects.set(".context/agent/conversations/texts.json", "not json");
   assert.deepEqual(await readConversation(store, "texts"), []);
@@ -87,6 +104,8 @@ test("a corrupt or odd file reads as an empty conversation, and odd entries are 
     { role: "user", text: "hi" },
     { role: "assistant", text: "hello" },
   ]);
+  store.objects.set(RECORD, "not json");
+  assert.deepEqual(await readConversation(store, "texts"), [], "a corrupt record is an empty conversation too");
 });
 
 /*
@@ -97,7 +116,7 @@ test("a corrupt or odd file reads as an empty conversation, and odd entries are 
 */
 test("an answer keeps the names of the tools it used, and nothing else about them", async () => {
   const store = memoryStore();
-  await appendConversation(store, "texts", [], "When was Ada Lovelace born?", "1815.", {
+  await appendConversation(store, "texts", "When was Ada Lovelace born?", "1815.", {
     tools: ["browse", "browse", "search_web", "text_progress", "../privacy.md", 7, "x".repeat(80)],
   });
   const turns = await readConversation(store, "texts");
@@ -107,7 +126,7 @@ test("an answer keeps the names of the tools it used, and nothing else about the
 
 test("a history written before tools were kept reads as it did", async () => {
   const store = memoryStore();
-  await appendConversation(store, "texts", [], "Hi", "Hey.");
+  await appendConversation(store, "texts", "Hi", "Hey.");
   const turns = await readConversation(store, "texts");
   assert.equal(Object.hasOwn(turns[1], "tools"), false);
   assert.deepEqual(usedTools(turns), []);
@@ -136,7 +155,7 @@ test("the rule against unread facts counts an earlier answer's lookups, so it is
   assert.match(prompt, /an earlier answer of yours counts: its lookups happened/);
 });
 
-/* The log (`events.js`): one object per exchange, so concurrent writers keep both. */
+/* The one record (`history.js`): every writer appends with a conditional write, so concurrent writers keep both. */
 
 function listingStore() {
   const store = memoryStore();
@@ -149,35 +168,54 @@ function listingStore() {
 
 test("two writers finishing together both keep their exchange", async () => {
   const store = listingStore();
-  const history = await readConversation(store, "texts");
+  await readConversation(store, "texts");
   await Promise.all([
-    appendConversation(store, "texts", history, "A check-in", "Did the hold clear?"),
-    appendConversation(store, "texts", history, "When is the launch?", "Friday."),
+    appendConversation(store, "texts", "A check-in", "Did the hold clear?"),
+    appendConversation(store, "texts", "When is the launch?", "Friday."),
+    appendConversation(store, "texts", "A routine", "Your brief."),
   ]);
   const texts = (await readConversation(store, "texts")).map((turn) => turn.text);
-  assert.ok(texts.includes("Did the hold clear?") && texts.includes("Friday."), texts.join(" | "));
-  assert.equal(store.objects.has(".context/agent/conversations/texts.json"), false);
+  assert.ok(texts.includes("Did the hold clear?") && texts.includes("Friday.") && texts.includes("Your brief."), texts.join(" | "));
+  assert.deepEqual([...store.objects.keys()], [RECORD], "nothing but the record: no exchange files, no whole file");
 });
 
-test("the old file is read until the log starts, then copied in once as its oldest entry", async () => {
+test("the old file is moved in once, as the record's oldest turns, and never read again", async () => {
   const store = listingStore();
   const old = { version: 1, turns: [{ role: "user", text: "Old question" }, { role: "assistant", text: "Old answer" }] };
   await store.put(".context/agent/conversations/texts.json", JSON.stringify(old));
   const before = await readConversation(store, "texts");
   assert.deepEqual(before, old.turns);
-  await appendConversation(store, "texts", before, "New question", "New answer");
+  await appendConversation(store, "texts", "New question", "New answer");
   const after = await readConversation(store, "texts");
   assert.deepEqual(after.map((turn) => turn.text), ["Old question", "Old answer", "New question", "New answer"]);
   assert.ok(typeof after[2].id === "string" && Number.isFinite(after[2].at));
-  // Read with ids, a later write copies nothing again.
-  await appendConversation(store, "texts", after, "Third", "Third answer");
-  assert.equal((await readConversation(store, "texts")).filter((turn) => turn.text === "Old question").length, 1);
+  // The record is there: the old file is never read again, whatever it says now.
+  await store.put(".context/agent/conversations/texts.json", JSON.stringify({ version: 1, turns: [{ role: "user", text: "Planted" }, { role: "assistant", text: "x" }] }));
+  await appendConversation(store, "texts", "Third", "Third answer");
+  const third = (await readConversation(store, "texts")).map((turn) => turn.text);
+  assert.equal(third.filter((text) => text === "Old question").length, 1);
+  assert.equal(third.includes("Planted"), false);
 });
 
-test("the log is read newest last, and keeps the thread an exchange was typed under", async () => {
+test("the old exchange log is moved in once, newest last, and its files are never read again", async () => {
+  const { eventKey } = await import("../src/agent/events.js");
   const store = listingStore();
-  const first = await appendConversation(store, "texts", [], "Make a picnic poster", "Here is the poster for the Central Park picnic.", { at: 1_000 });
-  await appendConversation(store, "texts", [], "location central park", "Updated.", { at: 2_000, thread: first });
+  const exchange = (at, question, answer) => store.put(eventKey(at, `t${at}`), JSON.stringify({ v: 1, at, question, answer }));
+  await exchange(1_000, "first", "one");
+  await exchange(2_000, "second", "two");
+  assert.deepEqual((await readConversation(store, "texts")).map((turn) => turn.text), ["first", "one", "second", "two"]);
+  await exchange(3_000, "planted later", "never read");
+  const get = store.get.bind(store);
+  const read = [];
+  store.get = async (key) => (read.push(key), get(key));
+  assert.deepEqual((await readConversation(store, "texts")).map((turn) => turn.text), ["first", "one", "second", "two"]);
+  assert.deepEqual(read, [RECORD], "one read: the record");
+});
+
+test("the history is read newest last, and keeps the thread an exchange was typed under", async () => {
+  const store = listingStore();
+  const first = await appendConversation(store, "texts", "Make a picnic poster", "Here is the poster for the Central Park picnic.", { at: 1_000 });
+  await appendConversation(store, "texts", "location central park", "Updated.", { at: 2_000, thread: first });
   const turns = await readConversation(store, "texts");
   assert.deepEqual(turns.map((turn) => turn.text), ["Make a picnic poster", "Here is the poster for the Central Park picnic.", "location central park", "Updated."]);
   assert.equal(turns[2].thread, first);
@@ -187,23 +225,22 @@ test("a turn is shown every kept text up to the character budget, not a count", 
   // The owner, 2026-10-20: "why can't it just see everything? arbitrary cutoffs don't work".
   const { shownHistory } = await import("../src/agent/conversation.js");
   const store = listingStore();
-  for (let i = 0; i < 60; i++) await appendConversation(store, "texts", [], `question ${i}`, `answer ${i}`, { at: 1_000 + i });
+  for (let i = 0; i < 60; i++) await appendConversation(store, "texts", `question ${i}`, `answer ${i}`, { at: 1_000 + i });
   const history = await readConversation(store, "texts");
   assert.equal(history.length, 120);
   assert.equal(history[0].text, "question 0");
   assert.equal(shownHistory(history).length, 120);
 });
 
-test("the log is read a batch at a time until the character budget is spent", async () => {
+test("the history is one read, bounded by characters, the newest exchange always kept", async () => {
   const store = listingStore();
+  const long = "x".repeat(4_000);
+  for (let i = 0; i < 100; i++) await appendConversation(store, "texts", `question ${i}`, long, { at: 1_000 + i });
   const get = store.get.bind(store);
   let gets = 0;
   store.get = async (key) => ((gets += 1), get(key));
-  const long = "x".repeat(4_000);
-  for (let i = 0; i < 100; i++) await appendConversation(store, "texts", [], `question ${i}`, long, { at: 1_000 + i });
-  gets = 0;
   const history = await readConversation(store, "texts");
-  assert.ok(gets < 100, `read ${gets} of 100 entries`);
+  assert.equal(gets, 1, "the record, and nothing else");
   assert.ok(history.reduce((n, turn) => n + turn.text.length, 0) <= MAX_HISTORY_CHARS);
   assert.equal(history.at(-2).text, "question 99", "the newest exchange is always kept");
 });
@@ -211,8 +248,8 @@ test("the log is read a batch at a time until the character budget is spent", as
 test("a text typed in a thread is shown that thread, not the last texts", async () => {
   const { threadView, threadPrompt } = await import("../src/agent/threadView.js");
   const store = listingStore();
-  const poster = await appendConversation(store, "texts", [], "Make a picnic poster", "Here's the poster for Saturday's picnic in the park.", { at: 1_000 });
-  await appendConversation(store, "texts", [], "make our clothes blue", "Done, here's the photo with blue clothes.", { at: 2_000 });
+  const poster = await appendConversation(store, "texts", "Make a picnic poster", "Here's the poster for Saturday's picnic in the park.", { at: 1_000 });
+  await appendConversation(store, "texts", "make our clothes blue", "Done, here's the photo with blue clothes.", { at: 2_000 });
   const history = await readConversation(store, "texts");
 
   const inThread = threadView(history, { words: "Here's the poster for Saturday's picnic in the park", replied: true }, 12);
@@ -232,9 +269,9 @@ test("a reply that starts a thread under a plain text is shown what led up to th
   // contact Luciana" showed the model that one exchange, never the draft before it.
   const { threadView, threadPrompt } = await import("../src/agent/threadView.js");
   const store = listingStore();
-  await appendConversation(store, "texts", [], "Make a picnic poster", "Here's the poster.", { at: 1_000 });
-  await appendConversation(store, "texts", [], "email her we'd like Oct 30", "Here's the email I'd send: Hi Luciana, we'd like Oct 30.", { at: 2_000 });
-  await appendConversation(store, "texts", [], "actually don't ask about the hold", "Got it, I won't contact Luciana about the hold.", { at: 3_000 });
+  await appendConversation(store, "texts", "Make a picnic poster", "Here's the poster.", { at: 1_000 });
+  await appendConversation(store, "texts", "email her we'd like Oct 30", "Here's the email I'd send: Hi Luciana, we'd like Oct 30.", { at: 2_000 });
+  await appendConversation(store, "texts", "actually don't ask about the hold", "Got it, I won't contact Luciana about the hold.", { at: 3_000 });
   const history = await readConversation(store, "texts");
 
   const view = threadView(history, { words: "Got it, I won't contact Luciana about the hold.", replied: true }, 12);
@@ -252,12 +289,12 @@ test("a thread is shown its own texts past a setup's short history", async () =>
   // draft email ("yeah send") was cut and only the cc question and its answer were shown.
   const { threadView } = await import("../src/agent/threadView.js");
   const store = listingStore();
-  const hold = await appendConversation(store, "texts", [], "(Not a text from them. This was your own check-in.)", "Lucky Strike's courtesy hold on your Nov 6 lanes expires at 5 pm today.", { at: 1_000 });
-  await appendConversation(store, "texts", [], "make a flyer", "Here's the flyer.", { at: 2_000 });
-  await appendConversation(store, "texts", [], "email her we'd like Oct 30", "Here's the email I'd send: Hi Luciana.", { at: 3_000, thread: hold });
-  await appendConversation(store, "texts", [], "yeah send", "Which David?", { at: 4_000, thread: hold });
-  await appendConversation(store, "texts", [], "david walker", "Is this the David Walker at Fount?", { at: 5_000, thread: hold });
-  await appendConversation(store, "texts", [], "it's a kingdomcity email", "Got it, I won't contact Luciana about the hold.", { at: 6_000, thread: hold });
+  const hold = await appendConversation(store, "texts", "(Not a text from them. This was your own check-in.)", "Lucky Strike's courtesy hold on your Nov 6 lanes expires at 5 pm today.", { at: 1_000 });
+  await appendConversation(store, "texts", "make a flyer", "Here's the flyer.", { at: 2_000 });
+  await appendConversation(store, "texts", "email her we'd like Oct 30", "Here's the email I'd send: Hi Luciana.", { at: 3_000, thread: hold });
+  await appendConversation(store, "texts", "yeah send", "Which David?", { at: 4_000, thread: hold });
+  await appendConversation(store, "texts", "david walker", "Is this the David Walker at Fount?", { at: 5_000, thread: hold });
+  await appendConversation(store, "texts", "it's a kingdomcity email", "Got it, I won't contact Luciana about the hold.", { at: 6_000, thread: hold });
   const history = await readConversation(store, "texts");
 
   const view = threadView(history, { words: "Got it, I won't contact Luciana about the hold.", start: "Lucky Strike's courtesy hold on your Nov 6 lanes expires at 5 pm today.", replied: true }, 4);
@@ -272,10 +309,10 @@ test("a thread is shown its own texts past a setup's short history", async () =>
 test("a thread's lead-in never includes what was texted after the thread began", async () => {
   const { threadView } = await import("../src/agent/threadView.js");
   const store = listingStore();
-  await appendConversation(store, "texts", [], "what's on Friday", "Dinner at 7.", { at: 1_000 });
-  const poster = await appendConversation(store, "texts", [], "Make a picnic poster", "Here's the poster for Saturday's picnic in the park.", { at: 2_000 });
-  await appendConversation(store, "texts", [], "make our clothes blue", "Done, blue clothes.", { at: 3_000 });
-  await appendConversation(store, "texts", [], "location central park", "Moved it to Central Park.", { at: 4_000, thread: poster });
+  await appendConversation(store, "texts", "what's on Friday", "Dinner at 7.", { at: 1_000 });
+  const poster = await appendConversation(store, "texts", "Make a picnic poster", "Here's the poster for Saturday's picnic in the park.", { at: 2_000 });
+  await appendConversation(store, "texts", "make our clothes blue", "Done, blue clothes.", { at: 3_000 });
+  await appendConversation(store, "texts", "location central park", "Moved it to Central Park.", { at: 4_000, thread: poster });
   const history = await readConversation(store, "texts");
 
   const view = threadView(history, { words: "Here's the poster for Saturday's picnic in the park", replied: true }, 12);
@@ -304,11 +341,11 @@ test("only a text of theirs in the last ten minutes holds a check-in back; Tex's
   const { midConversation, QUIET_MS } = await import("../src/agent/heartbeat.js");
   const store = listingStore();
   const now = Date.now() + 3_600_000; // after every write the earlier tests made
-  await appendConversation(store, "texts", [], "Can we move it?", "Sure.", { at: now - QUIET_MS - 1, theirs: true });
+  await appendConversation(store, "texts", "Can we move it?", "Sure.", { at: now - QUIET_MS - 1, theirs: true });
   assert.equal(midConversation(await readConversation(store, "texts"), now), false);
-  await appendConversation(store, "texts", [], "(Not a text from them. This was your own check-in.)", "Did the hold clear?", { at: now - 120_000 });
+  await appendConversation(store, "texts", "(Not a text from them. This was your own check-in.)", "Did the hold clear?", { at: now - 120_000 });
   assert.equal(midConversation(await readConversation(store, "texts"), now), false);
-  await appendConversation(store, "texts", [], "Friday then", "Done.", { at: now - 60_000, theirs: true });
+  await appendConversation(store, "texts", "Friday then", "Done.", { at: now - 60_000, theirs: true });
   assert.equal(midConversation(await readConversation(store, "texts"), now), true);
 });
 
@@ -320,7 +357,7 @@ test("only a text of theirs in the last ten minutes holds a check-in back; Tex's
 */
 test("an answer keeps the addresses of the web pages it read, and the next turn and earlier_texts name them", async () => {
   const store = memoryStore();
-  await appendConversation(store, "texts", [], "Fill in the overview for Deut 28", "Done, from the LSB.", {
+  await appendConversation(store, "texts", "Fill in the overview for Deut 28", "Done, from the LSB.", {
     tools: ["open_page"],
     sources: ["https://www.biblegateway.com/passage/?search=Deuteronomy+28&version=LSB#en", "https://www.biblegateway.com/passage/?search=Deuteronomy+28&version=LSB", "javascript:alert(1)", 7],
   });

@@ -529,6 +529,30 @@ describe("/gateway/binding — the encryption key", () => {
  * two members. See "Rotation" in `docs/decisions/encryption.md`.
  */
 describe("/gateway/binding — workspace-key rotation", () => {
+  test("a rotation asked of a workspace with no usable binding starts nothing", async () => {
+    // The binding's reads run side by side (2026-11-02); a rotation step still
+    // waits for a usable credential first, as it did when every read was serial.
+    const { t, aliceWs } = await twoConnectedTenants();
+    await seedDataKey(t, aliceWs);
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", aliceWs))
+        .unique();
+      if (binding !== null) await ctx.db.delete(binding._id);
+    });
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+        startEncryptionRotation: true,
+      }),
+    );
+    expect(body).toEqual({ binding: null });
+    const rows = await t.run((ctx) => ctx.db.query("workspaceDataKeys").collect());
+    expect(rows).toHaveLength(1);
+  });
+
   test("starting a rotation mints a new generation and both keys open", async () => {
     const { t, aliceWs } = await twoConnectedTenants();
     const oldKey = await seedDataKey(t, aliceWs);

@@ -115,7 +115,7 @@ async function family(t: T) {
   const id = await seedGoogleConnection(t, { workspaceId: seyi.workspaceId, boundBy: seyi.userId, address: WORK });
   const encryptedAccessToken = await encryptSecret("ya29.fake-access-token", requireKeyset(), { workspaceId: seyi.workspaceId });
   await t.run((ctx) => ctx.db.patch(id, { encryptedAccessToken, accessTokenExpiresAt: Date.now() + HOUR }));
-  expect((await turn(t, SEYI, { command: { kind: "use", slug: "crystal-care" } })).status).toBe("ready");
+  expect((await turn(t, SEYI, { mint: false })).status).toBe("ready");
   return { seyi, dad, care, connectionId: id };
 }
 
@@ -180,21 +180,6 @@ describe("sharing a mailbox with the chat", () => {
     expect(await turn(t, SEYI, share(WORK))).toEqual({ status: "mail_refused" });
   });
 
-  test("a guest chat reads it too, when its owner shares it there", async () => {
-    gmail();
-    const t = setupTest();
-    const { care, dad } = await family(t);
-    // Dad leaves the workspace but not the chat: Seyi's next tag runs the chat as Seyi's guests.
-    await t.run(async (ctx) => {
-      const row = await ctx.db.query("workspaceMembers").withIndex("by_workspace_user", (q) => q.eq("workspaceId", care).eq("userId", dad.userId)).unique();
-      await ctx.db.delete(row!._id);
-    });
-    expect(await turn(t, SEYI)).toMatchObject({ status: "ready", guest: expect.anything() });
-    expect(await turn(t, SEYI, share(WORK))).toEqual({ status: "mail_shared", address: WORK, narrowed: false });
-    const asked = await turn(t, DAD);
-    expect(asked).toMatchObject({ status: "ready", guest: expect.anything(), mail: [{ handle: "seyi", address: WORK }] });
-    expect(await search(t, asked.accessToken as string, care)).toMatchObject({ ok: true, results: [expect.objectContaining({ id: "m1" })] });
-  });
 
   test("a message outside the share is not found, one inside is read", async () => {
     gmail(false);

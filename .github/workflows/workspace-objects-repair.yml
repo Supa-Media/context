@@ -1,0 +1,87 @@
+# Settle, key by key, what a workspace read from its object disagrees with its
+# bucket about (owner, 2026-11-01;
+# `docs/decisions/storage-and-credentials/workspace-objects.md`; rules in
+# `apps/convex/functions/lib/workspaceObjects/repair.ts`): a copy the object
+# lost is restored into it, an erase the bucket missed is applied to it, a
+# bucket behind the object is brought up to date, and anything the rules
+# cannot place is left alone. Only workspaces whose home is `object`, and by
+# default only those whose last parity check differed. Without `apply` it
+# reads and counts and changes nothing. Counts only, never a key, a path or a
+# body: this job's log is public.
+name: Workspace objects repair
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to settle."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      only:
+        description: "A handle: this workspace alone (empty for every object-home workspace)."
+        type: string
+        default: ""
+      apply:
+        description: "Make the fixes. Off: report what each key is, change nothing."
+        type: boolean
+        default: false
+      every_object:
+        description: "Every object-home workspace, not only those whose last parity check differed."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Settle
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          ONLY: ${{ inputs.only }}
+          APPLY: ${{ inputs.apply }}
+          EVERY_OBJECT: ${{ inputs.every_object }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          page=0
+          total='{"workspaces":0,"skipped":0,"unreachable":0,"counts":{},"shapes":{},"why":{}}'
+          while :; do
+            page=$((page + 1))
+            args=$(jq -cn --argjson apply "${APPLY:-false}" --argjson every "${EVERY_OBJECT:-false}" '{apply: $apply, everyObject: $every}')
+            if [ -n "$cursor" ]; then args=$(echo "$args" | jq -c --arg cursor "$cursor" '. + {cursor: $cursor}'); fi
+            if [ -n "$ONLY" ]; then args=$(echo "$args" | jq -c --arg only "$ONLY" '. + {only: $only}'); fi
+            answer=$(npx convex run functions/workspaceObjectsRepair:repair "$args" 2>/dev/null)
+            echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
+            total=$(jq -cn --argjson a "$total" --argjson b "$answer" '
+              def merge($x; $y): reduce ($y | keys_unsorted[]) as $k ($x; .[$k] = ((.[$k] // 0) + $y[$k]));
+              {workspaces: ($a.workspaces + $b.workspaces), skipped: ($a.skipped + $b.skipped), unreachable: ($a.unreachable + $b.unreachable),
+               counts: merge($a.counts; $b.counts), shapes: merge($a.shapes; $b.shapes), why: merge($a.why; $b.why)}')
+            if [ "$(echo "$answer" | jq -r '.refused // empty')" != "" ]; then echo "refused: $(echo "$answer" | jq -r '.refused')"; exit 1; fi
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+            if [ "$page" -ge 2000 ]; then echo "stopped after $page pages"; exit 1; fi
+          done
+          echo "total:"
+          echo "$total" | jq .
+          echo "### Workspace objects repair" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$(echo "$total" | jq -c .)\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(echo "$total" | jq -r '.unreachable + (.counts.failed // 0)')" != "0" ]; then exit 1; fi

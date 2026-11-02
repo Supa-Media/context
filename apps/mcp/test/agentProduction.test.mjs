@@ -23,6 +23,7 @@ const RETIRED_APP_PATH = "ai/production/app-assistant.md";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-production-setup.test";
 const TOKEN_TEXTS = `cat_prod_texts_${"0".repeat(25)}`;
@@ -128,7 +129,7 @@ for (const [name, raw] of REFUSED) {
 /* ---------------- the wire: what a turn is told and which model it runs ---------------- */
 
 const gatewayCalls = [];
-const base = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const base = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 const gatewayVars = {
   AI_GATEWAY_ACCOUNT_ID: GATEWAY_ACCOUNT,
   AI_GATEWAY_ID: "context-gw",
@@ -418,7 +419,7 @@ test("parseSetup reads no router when the file names none", async () => {
 
 for (const [name, front] of [
   ["a router with no thinking model", "models:\n  main: anthropic/claude-haiku-5-5\n  router: \"@cf/cloudflare/clef\""],
-  ["a thinking model with no router", "models:\n  main: anthropic/claude-haiku-5-5\n  think: anthropic/claude-opus-5-5"],
+  ["a thinking model with no router and no think_rounds", "models:\n  main: anthropic/claude-haiku-5-5\n  think: anthropic/claude-opus-5-5"],
   ["a router that is not Clef", "models:\n  main: anthropic/claude-haiku-5-5\n  router: anthropic/claude-haiku-5-5\n  think: anthropic/claude-opus-5-5"],
   ["a thinking model outside the accepted shapes", "models:\n  main: anthropic/claude-haiku-5-5\n  router: \"@cf/cloudflare/clef\"\n  think: evil/model-x"],
 ]) {
@@ -450,8 +451,8 @@ test("a text the router calls lookup stays on the main model", async () => {
   const ai = fakeAi([clefSays("lookup")]);
   await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE);
   assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-haiku-5-5");
-  // Asked which model it is, it names both it runs on, not only the one answering.
-  assert.match(gatewaySystem(), /written by the AI model anthropic\/claude-haiku-5-5\. You run on two models: anthropic\/claude-haiku-5-5 answers most texts, and harder ones and long jobs go to anthropic\/claude-opus-5-5/);
+  // Asked which model it is, it names both it runs on, not only the one answering. Said in the person's turn (`turn.js`), so the whole request is read.
+  assert.match(JSON.stringify(gatewayCalls.at(-1)?.body), /written by the AI model anthropic\/claude-haiku-5-5\. You run on two models: anthropic\/claude-haiku-5-5 answers most texts, and harder ones and long jobs go to anthropic\/claude-opus-5-5/);
   assert.equal(controlPlane.builtinReports.at(-1)?.model, "anthropic/claude-haiku-5-5");
 });
 

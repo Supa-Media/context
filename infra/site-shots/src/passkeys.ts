@@ -74,6 +74,8 @@ export const PASSKEY_STEP_SOURCE = `(() => {
     if (location.hostname !== "accounts.google.com") return false;
     if (/\\/challenge\\/(?:pk|passkey)\\b/i.test(location.pathname)) return true;
     const words = (document.body && document.body.innerText) || "";
+    // Google's list of ways names "Use your passkey" as one of them; that list is not the step.
+    if (/\\/challenge\\/selection\\b/i.test(location.pathname) || /choose how you want to sign in/i.test(words)) return false;
     return /complete sign-?in using your passkey|use your passkey/i.test(words);
   } catch { return false; }
 })()`;

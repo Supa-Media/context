@@ -10,7 +10,7 @@ import { VISUALS_LINE } from "./visuals/index.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isEmailSource, isNoteSource, isReadSource } from "./sources.js";
 import { OPINION_LINE } from "./pushback.js";
-import { BRIEF_LINE, DO_NOT_OFFER_LINE, LANGUAGE_LINE, MIRROR_LINE, YES_NO_LINE } from "./chatVoice.js";
+import { BRIEF_LINE, DO_NOT_OFFER_LINE, LANGUAGE_LINE, MIRROR_LINE, SETTINGS_LINE, YES_NO_LINE } from "./chatVoice.js";
 import { LOOK_FIRST_LINE } from "./lookFirst.js";
 import { READ_CLAIMS_LINE } from "./readClaims.js";
 
@@ -160,6 +160,14 @@ export const MEETINGS_LINE =
   "Offer to write something down at most once; on a yes, or when they ask again, do it.";
 
 /**
+ * Dev2, 2026-11-01 (`docs/decisions/texting-assistant/interleaved-updates.md`):
+ * an ask that what is in front of Tex answers gets its answer in one round,
+ * with no tools and no deliberating. Said whatever the setup's words are; the
+ * heads-up before real work is the progress tool's (`progress.js`).
+ */
+export const DIRECT_LINE = "If what's in front of you answers it, reply now in one round: no tools, no deliberating.";
+
+/**
  * What Tex can do outside the notes, said by the build because a production
  * setup's own words go stale (the owner, 2026-10-23: the live setup still said
  * calendar changes wait for a YES and "tell them what to change themselves",
@@ -209,19 +217,19 @@ export const RESEARCH_LINE =
  */
 export const REMEMBER_LINE =
   "When they tell you a lasting fact about themselves or their life (their home or work address, a birthday, a partner's or child's name, an allergy, how they get around, a preference, a goal they're working toward, a decision they've made and why), " +
-  "add it to tex/about-me.md in this same turn, before you reply, so you never ask again. Before asking them for a fact like that, look in tex/about-me.md and their notes first.";
+  "add it to tex/about.md in this same turn, before you reply, so you never ask again. Before asking them for a fact like that, look in tex/about.md and their notes first.";
 
 /**
  * A lesson for Tex is not a fact about them (the owner's review of a chat,
  * 2026-10-26): told "take note of this please and make sure this never
  * happens again" after a mistake, Tex wrote "no drafts from a file I can't
- * open" into tex/about-me.md; "that's common sense, not about me info".
+ * open" into tex/about.md; "that's common sense, not about me info".
  * How Tex should work is for the people improving it to fix, through a bug
  * report (`report_problem`, held for their yes) and the self-review of
- * finished chats; about-me is for them.
+ * finished chats; tex/about.md is for them.
  */
 export const LESSONS_LINE =
-  "A mistake of yours they want never repeated is about how you work, not about them: never put it in tex/about-me.md. " +
+  "A mistake of yours they want never repeated is about how you work, not about them: never put it in tex/about.md. " +
   "Fix what you can in this turn, and file it with report_problem so the people improving you see it.";
 
 /**
@@ -263,7 +271,7 @@ export const REORGANIZE_LINE =
 export const PAGES_LINE =
   "Every new note you make is a page: a note named <name>.page.md, never a plain .md, unless they ask for a plain note. " +
   "Read the page design skill first (orient about: \"pages\") and follow it. A note they have keeps its form and place: never make it a page, move or archive it unasked; a new note among their plain notes stays plain. Your own tex/ notes, " +
-  "about-me and todo.md stay plain; what you make for a chat in tex/chats/ is a page too. Then draw the page's cover (send action draw_visual, template page, data { path }) and text it with one line; the link goes with it.";
+  "about.md and todo.md stay plain; what you make for a chat in tex/chats/ is a page too. Then draw the page's cover (send action draw_visual, template page, data { path }) and text it with one line; the link goes with it.";
 
 /** What the agent says it can do to a note, decided by the tools it was given. */
 const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";
@@ -284,6 +292,7 @@ export function modelLine(model, models = null) {
   const named = (value) => typeof value === "string" && value.length > 0 && value.length <= 160;
   if (!named(model)) return "";
   const routed = named(models?.main) && named(models?.think) && models.main !== models.think;
+  if (routed && models.jobsOnly === true) return `This answer is written by the AI model ${model}. You run on two models: ${models.main} answers texts and carries out long jobs, and ${models.think} plans those jobs. If they ask which model you run on, say that.`;
   return routed
     ? `This answer is written by the AI model ${model}. You run on two models: ${models.main} answers most texts, and harder ones and long jobs go to ${models.think}. If they ask which model you run on, say that.`
     : `This answer is written by the AI model ${model}. If they ask which model you run on, tell them that.`;
@@ -388,7 +397,23 @@ const READ_LINE =
   "Those notes are what that text was based on: asked where something came from, fetch that exact path and say what it says, " +
   "and if it doesn't back the text up, say so plainly and correct it from what it does say. Never hunt for a source by the name the text gave it.";
 
-export function systemPrompt(
+export function systemPrompt(place, options = {}) {
+  const { stable, volatile } = systemPromptParts(place, options);
+  return volatile === "" ? stable : `${stable}\n${volatile}`;
+}
+
+/**
+ * The system prompt, cut where the prompt cache can be read across texts.
+ *
+ * `stable` is the same from one text to the next in a conversation: who the
+ * assistant is, how it writes, what it may do. It goes first, behind a cache
+ * breakpoint. `volatile` is what changes per text (the model answering, the
+ * note open in front of them, what earlier texts used, whether there are
+ * earlier texts). It is not put in the system prompt at all: `turn.js` says it
+ * in the person's turn, after the cache's last breakpoint, so one changed word
+ * does not cost the whole prefix.
+ */
+export function systemPromptParts(
   place,
   { texting = false, pictures = false, notes = null, model = null, models = null, edits = false, continued = false, used = [] } = {},
 ) {
@@ -417,6 +442,10 @@ export function systemPrompt(
         // Dev2, 2026-10-28: sound like the chat, in its language, whatever the setup's words are (`chatVoice.js`).
         MIRROR_LINE,
         LANGUAGE_LINE,
+        // Dev2, 2026-10-31: settings only through the tool, and never another assistant's message (`commandTools.js`).
+        SETTINGS_LINE,
+        // Dev2, 2026-11-01: what's in front of you answers in one round (`DIRECT_LINE`).
+        DIRECT_LINE,
         // Dev2, 2026-10-29: short texts, and one line beside a page or card (`wordy.js`).
         BRIEF_LINE,
         // A new tester, 2026-10-30: 👍 or 👎, not "say yes" (`chatVoice.js`).
@@ -432,15 +461,16 @@ export function systemPrompt(
         edits ? EDITS_DIRECTLY : PROPOSES,
         ...GROUND_RULES,
       ];
-  if (continued) lines.push(CONTINUED);
+  const tail = [];
+  if (continued) tail.push(CONTINUED);
   const usedBefore = continued ? usedLine(used) : "";
-  if (usedBefore) lines.push(usedBefore);
+  if (usedBefore) tail.push(usedBefore);
   const which = modelLine(model, models);
-  if (which) lines.push(which);
+  if (which) tail.push(which);
 
   const where = describePlace(place);
-  if (where) lines.push("", where);
-  return lines.join("\n");
+  if (where) tail.push("", where);
+  return { stable: lines.join("\n"), volatile: tail.join("\n") };
 }
 
 /**

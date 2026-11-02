@@ -106,7 +106,7 @@ function meeting(
     workspaceId: "ws1",
     session: {
       id: "m0",
-      title: "Jhon / Seyi",
+      title: "Dev2 / Seyi",
       state: "failed",
       failureReason: "the finalize did not complete.",
       startedAt: "2026-09-21T13:25:00.000Z",
@@ -192,7 +192,7 @@ describe("when it is up", () => {
     mockRecords = [meeting()];
     const bar = mount();
     expect(bar.find("stranded-bar")).not.toBeNull();
-    expect(bar.text()).toContain("Jhon / Seyi");
+    expect(bar.text()).toContain("Dev2 / Seyi");
     expect(bar.text()).toContain("not saved");
   });
 
@@ -227,7 +227,7 @@ describe("when it is up", () => {
   test("several stranded meetings are counted, not listed illegibly", () => {
     mockRecords = [meeting(), meeting({}, { id: "m1", title: "Board sync" })];
     const bar = mount();
-    expect(bar.text()).toContain("Jhon / Seyi");
+    expect(bar.text()).toContain("Dev2 / Seyi");
     expect(bar.text()).toContain("+1");
   });
 });
@@ -265,7 +265,7 @@ describe("what it offers", () => {
     mockRecords = [meeting()];
     const node = mount().find("stranded-bar")!;
     expect(node.getAttribute("role")).toBe("alert");
-    expect(node.getAttribute("aria-label")).toContain("Jhon / Seyi");
+    expect(node.getAttribute("aria-label")).toContain("Dev2 / Seyi");
     expect(node.getAttribute("aria-label")).toContain("not saved");
   });
 

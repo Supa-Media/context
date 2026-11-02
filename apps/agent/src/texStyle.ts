@@ -93,7 +93,7 @@ export function settingChoices(step: Exclude<SettingStep, "engagement">, style: 
   return `${LABEL[step]} (now ${current(style, step)}):\n\n${rows.join("\n")}\n\nReply with a number.`;
 }
 
-/** What a set says back: "Humor set to 60% (set by jhon)." */
+/** What a set says back: "Humor set to 60% (set by dev2)." */
 export function styleSet(patch: TexStyle, by?: string): string {
   const parts = Object.entries(patch).map(([key, value]) => (key === "humor" ? `Humor set to ${value}%` : `${LABEL[key as Key]} set to ${shown(key as Key, value as string)}`));
   return `${parts.join(", ")}${by ? ` (set by ${by})` : ""}.`;

@@ -19,7 +19,8 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalAction, internalMutation, internalQuery, mutation, type DatabaseReader, type MutationCtx } from "../_generated/server";
+import { internalAction, internalQuery, type DatabaseReader, type MutationCtx } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { copyRowOf, ensureCopyRow } from "./lib/noteIds/state";
 import { staffOnly } from "./nodesMigration";
 import {

@@ -28,6 +28,7 @@ import { deferSearchPass, holdSearchPasses } from "../src/search/heldPasses.js";
 import { MEANING_DIMENSIONS } from "../src/search/meaning/embed.js";
 import { attachMeaningIndex } from "../src/search/meaning/store.js";
 import { meaningMatches, withMeaning } from "../src/search/meaning/serve.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 /** A store whose `defer` records what it was handed. */
 function deferringStore(workspaceId) {
@@ -181,7 +182,7 @@ test("a Tex turn's searches start no index pass until the model has answered", a
     bucket.set("1-projects/venue.md", { body: "# Venue\n\nThe Velvet Anchor.\n", etag: "h2" });
     s3.bucketFor("tenant-other").set("gigs/venue.md", { body: "# Gig\n\nThe venue is the Velvet Anchor.\n", etag: "o1" });
 
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
     const { ctx, settle } = createWorkerCtx();
     const response = await worker.fetch(
       new Request("https://mcp.context.test/agent", {

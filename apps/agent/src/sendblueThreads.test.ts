@@ -260,9 +260,11 @@ describe("Tex answers inside iMessage threads", () => {
       const storage = new MemoryStorage();
       await accept(storage, message("mh_long", "plan my week"), 1_000);
       const calls: Call[] = [];
+      // The gate exists before drain starts: the fake clock's loop yields in real time, so drain may not have reached the gateway when it is opened.
       let finish = () => {};
+      const answered = new Promise<void>((done) => (finish = done));
       const slow = (async (url: string, init: RequestInit) => {
-        if (new URL(url).pathname === "/agent") await new Promise<void>((done) => (finish = done));
+        if (new URL(url).pathname === "/agent") await answered;
         return fake(calls)(url, init);
       }) as unknown as Fetch;
       const draining = drain(storage, deps(slow));

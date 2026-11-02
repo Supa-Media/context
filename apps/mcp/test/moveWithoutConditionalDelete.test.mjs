@@ -81,6 +81,7 @@ import {
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-move-fallback.test";
 
@@ -242,7 +243,7 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
   }
 
   const env = {
-    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace,
     GATEWAY_SECRET,
   };
   controlPlane.serveTreesFrom(env, { s3 });

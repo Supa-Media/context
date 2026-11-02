@@ -11,7 +11,8 @@
 import { ConvexError, v } from "convex/values";
 import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { query, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { normalizePath } from "./lib/fileOps/paths";
 import {
   OPEN_ROWS_PER_WORKSPACE,

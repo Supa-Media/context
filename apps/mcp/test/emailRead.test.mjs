@@ -221,7 +221,8 @@ export async function runEmailReadChecks(check) {
     model.install([{ text: "Yes, I can forward it." }]);
     const before2 = model.requests.length;
     await ask(env, TOKEN_TEXTS, "can you forward that to my lawyer?");
-    const nextSystem = JSON.stringify(model.requests.slice(before2).map((body) => body.system ?? body.messages?.filter((m) => m.role === "system")));
+    // What the earlier answers used is said in the person's turn, not the system prompt (`turn.js`), so the whole request is read.
+    const nextSystem = JSON.stringify(model.requests.slice(before2));
     check(
       "the next text is told the id of the email an earlier answer read, and to forward it rather than ask for it",
       nextSystem.includes("Emails you found: email:me@example.com/18c0ffee") && nextSystem.includes("pass it as forward"),

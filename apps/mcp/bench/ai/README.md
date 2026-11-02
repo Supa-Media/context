@@ -58,7 +58,7 @@ this folder: it is public, like the rest of the repository.
   2026-10-25, `docs/decisions/texting-assistant/pushback.md`): six cases
   where it raises a goal or trade-off once, stays quiet, makes a small change
   with the cost beside it, gives an honest take, or agrees without flattery.
-  Run it with `--test pushback`. Maya's goals are in her `tex/about-me.md`.
+  Run it with `--test pushback`. Maya's goals are in her `tex/about.md`.
 - `tests/advisor.md` (decided at the Tex Devs meeting, 2026-10-30): the
   two-agent rebuild, where Haiku answers every text and may consult Opus
   through `ask_advisor`: two hard asks that must call the advisor, two easy

@@ -65,15 +65,20 @@ export function normalizeSession(raw) {
       return normalizedName;
     });
     // A chat's home in the pin (`liveGrants.ts`): only on the setup row, and only a folder beneath the homes.
-    const chatHome = entry.setupOnly === true && typeof entry.chatHome === "string" && CHAT_HOME_PATTERN.test(entry.chatHome) ? entry.chatHome : null;
-    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind, grantedNames, setupOnly: entry.setupOnly === true, ...(chatHome ? { chatHome } : {}) };
+    // A home-only chat's grant (`liveGrants.ts`, `lib/textGroupHomeOnly.ts`) reaches its home as its one addressable row, so the
+    // row carries the home too. Honoured for the group client alone, as the setup row's is.
+    const homeOnly = entry.homeOnly === true && clientId === TEXTS_GROUP_CLIENT;
+    const chatHome =
+      (entry.setupOnly === true || homeOnly) && typeof entry.chatHome === "string" && CHAT_HOME_PATTERN.test(entry.chatHome) ? entry.chatHome : null;
+    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind, grantedNames, setupOnly: entry.setupOnly === true, ...(homeOnly ? { homeOnly: true } : {}), ...(chatHome ? { chatHome } : {}) };
   });
   if (typeof defaultWorkspaceId !== "string" || !defaultWorkspaceId) throw fail();
   // A group chat's grant carries the pin marked setup-only (`liveGrants.ts`):
   // kept apart from the set a tool or a URL may address, and honoured for no
   // other client. Only `sessionForSetup` opens it.
   const reach = normalized.filter((entry) => !entry.setupOnly).map(({ setupOnly, ...entry }) => entry);
-  const setup = clientId === TEXTS_GROUP_CLIENT ? normalized.find((entry) => entry.setupOnly) : undefined;
+  // A home-only grant's one row is its setup too: the home door (`session.js` `sessionForChatHome`) reads the chat's names from it.
+  const setup = clientId === TEXTS_GROUP_CLIENT ? normalized.find((entry) => entry.setupOnly || entry.homeOnly === true) : undefined;
   if (reach.length === 0) throw fail();
   // The chat whose Tex notes this turn may reach: from the grant alone (`liveGrants.ts` `texChatIdOf`), and only under the
   // group client. Anything else, or a malformed key, is no chat at all, so the turn reaches no chat's object.

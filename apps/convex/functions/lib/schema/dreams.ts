@@ -6,7 +6,7 @@ import { v } from "convex/values";
  * (`docs/decisions/texting-assistant/dreams.md`).
  *
  * A dream is a turn Tex takes on its own once a night, in the person's
- * personal workspace, to bring `tex/about-me.md` up to date from the day's
+ * personal workspace, to bring `tex/about.md` up to date from the day's
  * texts. What it read, thought and changed is written to `tex/dreams/` in
  * their bucket; nothing it said or changed is kept here.
  *

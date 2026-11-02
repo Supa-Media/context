@@ -10,7 +10,7 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { MOVER_TICKET_TTL_MS } from "./lib/managedProvisioningFns/constants";
 
 const pagePhase = v.union(

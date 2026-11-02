@@ -19,6 +19,7 @@
  * engine has run: a note is one batch, so the answer is final for a note.
  */
 
+import { objectSettled } from "../../workspaceObjectPush";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
@@ -69,6 +70,7 @@ export async function gatewayMoveAcrossHandler(ctx: ActionCtx, body: Record<stri
     return json({ move: { status: "failed", movedObjects: 0, skipped: [], error: messageOf(error) } });
   }
   await ctx.runAction(internal.functions.contextMoves.advanceContextMove, { moveId, passesLeft: PASSES });
+  await objectSettled(ctx, source.workspaceId as Id<"workspaces">);
   const row = await ctx.runQuery(internal.functions.contextMoves.readMove, { moveId });
   if (row === null) return json({ move: null });
   return json({

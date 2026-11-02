@@ -28,7 +28,8 @@
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { recordAudit } from "./audit";
-import { resolveLiveGrant } from "./controlPlane/liveGrants";
+import { contextsForGrant, resolveLiveGrant } from "./controlPlane/liveGrants";
+import { chatWorkspace } from "./textGroupReach";
 import { writingRole } from "./routines/access";
 import { personalWorkspaceOf } from "./faces/people";
 
@@ -75,10 +76,10 @@ async function ownGmail(ctx: QueryCtx, userId: Id<"users">, address: string): Pr
   );
 }
 
-/** The shared workspace this chat is bound to, when `userId` may share mail into it. */
+/** The chat's one workspace in reach (`chatWorkspace`: the bound one if still in reach, else the first), when `userId` may share mail into it. */
 async function sharingWorkspace(ctx: QueryCtx, group: Doc<"textGroups">, userId: Id<"users">): Promise<Doc<"workspaces"> | null> {
-  if (group.workspaceId === undefined || group.mutedAt !== undefined) return null;
-  const workspace = await ctx.db.get(group.workspaceId);
+  if (group.mutedAt !== undefined) return null;
+  const workspace = await chatWorkspace(ctx, group);
   if (workspace === null || workspace.kind !== "shared") return null;
   return (await writingRole(ctx, workspace._id, userId)) === null ? null : workspace;
 }
@@ -152,14 +153,16 @@ export async function unshareMail(ctx: MutationCtx, group: Doc<"textGroups">, us
  * Gmail they still have connected. Asked at every read, never cached.
  */
 export async function liveMailShares(ctx: QueryCtx, group: Doc<"textGroups">): Promise<LiveMailShare[]> {
-  if (group.workspaceId === undefined || group.mutedAt !== undefined) return [];
+  if (group.mutedAt !== undefined) return [];
+  const workspaceId = (await chatWorkspace(ctx, group))?._id;
+  if (workspaceId === undefined) return [];
   const rows = await ctx.db
     .query("chatMailShares")
     .withIndex("by_group", (q) => q.eq("groupKey", group.groupKey))
     .take(MAX_SHARES);
   const live: LiveMailShare[] = [];
   for (const share of rows) {
-    if (share.workspaceId !== group.workspaceId) continue;
+    if (share.workspaceId !== workspaceId) continue;
     if ((await writingRole(ctx, share.workspaceId, share.userId)) === null) continue;
     const connection = await ownGmail(ctx, share.userId, share.address);
     if (connection !== null) live.push({ share, connection });
@@ -190,9 +193,15 @@ export async function chatMailClearance(
   const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
   const chat = live?.grant.texGroup;
   if (live === null || chat === undefined) return null;
-  if (live.grant.workspaceId !== args.expectedWorkspaceId) return null;
+  // A home-only grant is the pin's, so the workspace asked about is one of the grant's own rows (its reach), never a
+  // name the caller supplies that the grant does not cover; and it is the chat's one workspace (`chatWorkspace`).
+  const covered = (await contextsForGrant(ctx, live)).some((row) => String(row.workspaceId) === args.expectedWorkspaceId && row.homeOnly !== true);
+  const bound = covered || String(live.grant.workspaceId) === args.expectedWorkspaceId;
+  if (!bound) return null;
   const group = await ctx.db.get(chat.groupId);
-  if (group === null || group.workspaceId !== live.grant.workspaceId) return null;
+  if (group === null) return null;
+  const workspace = await chatWorkspace(ctx, group);
+  if (workspace === null || String(workspace._id) !== args.expectedWorkspaceId) return null;
   return await liveMailShares(ctx, group);
 }
 
@@ -205,7 +214,8 @@ export async function chatsWatching(ctx: QueryCtx, userId: Id<"users">, address:
   for (const share of shares) {
     const group = (await ctx.db.query("textGroups").withIndex("by_key", (q) => q.eq("groupKey", share.groupKey)).first()) ?? null;
     // A guest chat reads it only when asked, never on its own, so it watches nothing for the person's check-in.
-    if (group === null || group.workspaceId !== share.workspaceId || group.mutedAt !== undefined || group.guestGroupId !== undefined) continue;
+    if (group === null || group.mutedAt !== undefined || group.guestGroupId !== undefined) continue;
+    if ((await chatWorkspace(ctx, group))?._id !== share.workspaceId) continue;
     const workspace = await ctx.db.get(share.workspaceId);
     if (workspace !== null) slugs.add(workspace.slug);
   }

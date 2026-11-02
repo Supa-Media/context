@@ -27,7 +27,7 @@ test("every texted turn is told to have a point of view, a production setup's ow
   assert.ok(systemPrompt(null, { texting: true, notes: { prompt: "You are a test assistant." } }).includes(OPINION_LINE));
   assert.ok(!systemPrompt(null).includes(OPINION_LINE), "an app's own turn keeps its short prompt");
   // The line names where the point of view comes from, and that it still does the job.
-  assert.match(OPINION_LINE, /tex\/about-me\.md/);
+  assert.match(OPINION_LINE, /tex\/about\.md/);
   assert.match(OPINION_LINE, /mission/);
   assert.match(OPINION_LINE, /still do it/);
   assert.match(OPINION_LINE, /Never flatter/);
@@ -107,7 +107,8 @@ test("a texted turn's instructions end with that reminder", async () => {
     world.model.install([{ text: "Agreed, sign-off first." }]);
     const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "i think we should hold the demo until sign-off", conversation: "texts" });
     assert.equal(asked.status, 200, JSON.stringify(asked.body));
-    const system = JSON.stringify(world.model.requests[0].system);
+    // The nudge is said in the person's turn, just before their words (`turn.js`): the whole request is read.
+    const system = JSON.stringify(world.model.requests[0]);
     assert.match(system, /Their text is an opinion or a \\"should\\"/);
   } finally {
     world.restore();

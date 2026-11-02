@@ -20,7 +20,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { TRANSCRIBE_WORKER_SECRET_ENV_VAR, TRANSCRIBE_WORKER_URL_ENV_VAR } from "../functions/meetings/transcribe";
 import { utcDay } from "../functions/lib/jev/meter";
-import { decideRequest } from "../functions/lib/gatewayRoutes/textDecide";
+import { ADDRESSED_RULE, OTHER_ASSISTANT_RULE, decideRequest, readDecideBody } from "../functions/lib/gatewayRoutes/textDecide";
+import { groupKeyOf } from "../functions/textGroups";
 import { addMember, asUser, createUser, createWorkspace, setupTest, TEST_GATEWAY_SECRET } from "./fixtures.helpers";
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
@@ -151,7 +152,9 @@ describe("the door", () => {
 describe("the decision", () => {
   test("asks typed questions over the transcript and maps the answers", async () => {
     const t = setupTest();
-    const { studio } = await boundGroup(t);
+    // Metered to the sponsor (Ada, whose turn minted the grant), not the shared workspace (Dev2, 2026-11-01).
+    const { ada } = await boundGroup(t);
+    const studio = ada.workspaceId;
     const sent = clef(ANSWER);
     const logs: string[] = [];
     vi.spyOn(console, "info").mockImplementation((line: unknown) => void logs.push(String(line)));
@@ -159,7 +162,7 @@ describe("the decision", () => {
     expect(response.json).toEqual({ ok: true, act: "answer", covers: [id(2), NEWEST], stale: [], movedOn: false, confidence: 0.83 });
     expect(sent).toHaveLength(1);
     expect(sent[0]!.state).toContain(SECRET_WORDS);
-    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "start", "moved_on", "emoji"]);
+    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "also_react", "wait_seconds", "start", "moved_on", "emoji"]);
     expect(Object.keys(sent[0]!.questions.start!.criteria)).toEqual([id(1), id(2), NEWEST]);
     // Never the transcript in the answer or the log.
     expect(response.text).not.toContain("pineapple");
@@ -205,7 +208,7 @@ describe("the decision", () => {
     });
     const response = await decide(t, { running: true, waitingAsks: asks });
     expect(response.json).toMatchObject({ ok: true, midTurn: "restart", stale: [id(20), id(22)], movedOn: true });
-    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "start", "mid_turn", "stale_0", "stale_1", "stale_2", "moved_on", "emoji"]);
+    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "also_react", "wait_seconds", "start", "mid_turn", "stale_0", "stale_1", "stale_2", "moved_on", "emoji"]);
     expect(Object.keys(sent[0]!.questions.mid_turn!.criteria)).toEqual(["fold", "queue", "restart"]);
   });
 
@@ -222,7 +225,8 @@ describe("the decision", () => {
 
   test("off and capped: ok false, and nothing is sent", async () => {
     const t = setupTest();
-    const { studio } = await boundGroup(t);
+    const { ada } = await boundGroup(t);
+    const studio = ada.workspaceId;
     const sent = clef(ANSWER);
     await t.run((ctx) => ctx.db.insert("jevSwitches", { feature: "textDecide", off: true, updatedAt: Date.now() }));
     expect((await decide(t)).json).toEqual({ ok: false, reason: "off", cause: "switched_off" });
@@ -309,9 +313,9 @@ test("every request it builds passes the inference Worker's request rules", () =
   const NAME = /^[a-z][a-z0-9_]{0,39}$/;
   const OPTION = /^[a-z0-9][a-z0-9_-]{0,59}$/;
   const ids = Array.from({ length: 3 }, (_, n) => `1761619442000-00000${n}`);
-  for (const running of [false, true]) {
+  for (const [running, addressed] of [[false, false], [true, false], [false, true]] as const) {
     for (const candidates of [ids.slice(0, 1), ids]) {
-      const { state, questions } = decideRequest({ chat: GROUP, line: LINE, style: "helpful", transcript: "x", running, waitingAsks: ids.slice(0, 2), candidates, newest: candidates.at(-1)! });
+      const { state, questions } = decideRequest({ chat: GROUP, line: LINE, style: "helpful", transcript: "x", running, waitingAsks: ids.slice(0, 2), candidates, newest: candidates.at(-1)!, ...(addressed ? { addressed: true as const } : {}) });
       expect(state.length).toBeGreaterThan(0);
       const entries = Object.entries(questions as Record<string, { type: string; instructions: string; criteria: Record<string, string> }>);
       expect(entries.length).toBeLessThanOrEqual(16);
@@ -325,4 +329,41 @@ test("every request it builds passes the inference Worker's request rules", () =
       }
     }
   }
+});
+
+// Dev2, 2026-10-31: a message for another assistant (Instinct is in Tex Devs) is not Tex's.
+test("every style tells decide a message for another assistant is silent, never a react", () => {
+  for (const style of ["quiet", "attentive", "followAlong", "helpful", "direct"] as const) {
+    const { questions } = decideRequest({ chat: GROUP, line: LINE, style, transcript: "x", running: false, waitingAsks: [], candidates: ["1761619442000-000001"], newest: "1761619442000-000001" });
+    const act = (questions as Record<string, { instructions: string }>).act!;
+    expect(act.instructions).toContain(OTHER_ASSISTANT_RULE);
+    expect(act.instructions.length).toBeLessThanOrEqual(1_000);
+  }
+});
+
+// Dev2, 2026-11-01: an addressed message's turn runs while decide judges it, so decide is told it looks addressed.
+test("decide is told when the newest message looks addressed to Tex, and only then", () => {
+  const body = { chat: GROUP, line: LINE, style: "followAlong", transcript: "x", running: false, waitingAsks: [], candidates: ["1761619442000-000001"], newest: "1761619442000-000001" };
+  const act = (read: Record<string, unknown>) => (decideRequest(readDecideBody(read)!).questions as Record<string, { instructions: string }>).act!.instructions;
+  expect(act({ ...body, addressed: true })).toContain(ADDRESSED_RULE);
+  expect(act(body)).not.toContain(ADDRESSED_RULE);
+  expect(act({ ...body, addressed: "yes" })).not.toContain(ADDRESSED_RULE);
+});
+
+// 2026-11-01: in a chat that reaches no shared workspace (home-only, like Tex Devs), every decide was refused as no_group,
+// so untagged texts and reactions were never judged. Decide is metered to the sponsor in every group, as turns are.
+test("decide is metered to the chat's sponsor, including a chat that reaches no shared workspace", async () => {
+  const t = setupTest();
+  const ada = await texter(t, "ada", ADA);
+  const groupKey = await groupKeyOf(LINE, GROUP);
+  await t.run((ctx) => ctx.db.insert("textGroups", { groupKey, sponsorId: ada.userId, lastSeenAt: Date.now() } as never));
+  clef(ANSWER);
+  expect((await decide(t)).json).toMatchObject({ ok: true });
+  vi.unstubAllGlobals();
+  await t.run(async (ctx) => {
+    const row = await ctx.db.query("textGroups").withIndex("by_key", (q) => q.eq("groupKey", groupKey)).unique();
+    await ctx.db.patch(row!._id, { sponsorId: undefined });
+  });
+  clef(ANSWER);
+  expect((await decide(t)).json).toMatchObject({ ok: false, cause: "no_group" });
 });

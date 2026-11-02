@@ -100,6 +100,7 @@
  */
 import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import { TexStore as TexStoreDurableObject } from "./texStore.js";
+import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
 import { snippetLinesFor } from "./search/visible.js";
 import { json } from "./http/responses.js";
 import { controlPlaneSettingProblems } from "./controlPlane/client.js";
@@ -163,6 +164,8 @@ export const PresenceRoom = AuthorizedPresenceRoom;
 
 /** Tex's notes, one Durable Object per person and per group chat (`texStore.js`). */
 export const TexStore = TexStoreDurableObject;
+/** Each workspace's notes, tree rows and access rules, one Durable Object per workspace (`workspaceStore.js`). */
+export const WorkspaceStore = WorkspaceStoreDurableObject;
 
 export default {
   async fetch(request, env, ctx) {

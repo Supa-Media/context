@@ -36,7 +36,8 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { action, internalAction, internalMutation } from "../_generated/server";
+import { action, internalAction } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import { decryptSecret, encryptSecret, hashToken, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";

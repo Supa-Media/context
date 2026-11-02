@@ -19,7 +19,7 @@
 export const STAGES = ["provider", "tools", "history", "web", "setup", "skills", "pictures", "ready"];
 
 /**
- * blobs: kind, outcome. doubles, in order: waitMs, then one per `STAGES`
+ * blobs: kind, outcome, the bucket calls by stage (`callsLine`). doubles, in order: waitMs, then one per `STAGES`
  * entry, then modelMs, toolMs, otherTurnMs (the turn's own time outside the
  * model and tools), afterMs, totalMs, rounds, retriedRounds, slowestRoundMs.
  */
@@ -34,7 +34,26 @@ export function turnStages(env, now = Date.now) {
   const marks = {};
   let report = null;
   let flushed = false;
+  let rounds = null;
+  const calls = {};
   return {
+    /**
+     * Count the bucket calls this turn makes, by where in the turn (b before the
+     * model, t in it, a after the answer) and by the key's first folders, ids
+     * blanked: which reads fill a stage, never a name or a word.
+     */
+    watch(store) {
+      for (const op of ["get", "head", "put", "delete", "list"]) {
+        const inner = store?.[op];
+        if (typeof inner !== "function") continue;
+        store[op] = function (key, ...rest) {
+          const where = report !== null ? "a" : marks.ready !== undefined ? "t" : "b";
+          const name = `${where}:${op}:${keyShape(op === "list" ? key?.prefix : key)}`;
+          calls[name] = (calls[name] ?? 0) + 1;
+          return inner.call(this, key, ...rest);
+        };
+      }
+    },
     /** A step before the model is done (`STAGES`); the first mark of a name counts. */
     mark(stage) {
       if (marks[stage] === undefined) marks[stage] = now();
@@ -43,27 +62,70 @@ export function turnStages(env, now = Date.now) {
     ready() {
       this.mark("ready");
     },
-    /** The turn's row (`turnReport`): its kind, outcome, model and tool times. */
-    ran(row) {
+    /** The turn's row (`turnReport`): its kind, outcome, model and tool times; `trace`, its rounds as they ran, tokens included (`turn.js`). */
+    ran(row, trace) {
       report = row;
+      rounds = Array.isArray(trace) ? trace : null;
     },
     /** The response is ready: write the point, once. */
     flush() {
       if (flushed) return null;
       flushed = true;
       const point = stagesOf({ start, marks, end: now(), report });
+      point.blobs.push(callsLine(calls));
       // The same numbers in the Worker's log, for a live tail (`wrangler tail`).
       if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "turn_stages", kind: point.blobs[0], outcome: point.blobs[1], ...Object.fromEntries(COLUMNS.map((name, i) => [name, Math.round(point.doubles[i])])) }));
-      const dataset = env?.TEX_TIMING;
-      if (!dataset || typeof dataset.writeDataPoint !== "function") return null;
-      try {
-        dataset.writeDataPoint(point);
-      } catch {
-        // Diagnostics never fail a turn.
-      }
-      return point;
+      const perCall = callPoints(point.blobs[0], rounds ?? report?.trace ?? []);
+      for (const call of perCall) if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "model_call", kind: call.blobs[0], model: call.blobs[1], ...Object.fromEntries(CALL_COLUMNS.map((name, i) => [name, call.doubles[i]])) }));
+      write(env?.TEX_CALLS, perCall);
+      return write(env?.TEX_TIMING, [point]) ? point : null;
     },
   };
+}
+
+/** Writes each point, best effort: diagnostics never fail a turn. False without the binding. */
+function write(dataset, points) {
+  if (!dataset || typeof dataset.writeDataPoint !== "function") return false;
+  for (const point of points) {
+    try {
+      dataset.writeDataPoint(point);
+    } catch {
+      return true;
+    }
+  }
+  return true;
+}
+
+/**
+ * ONE POINT PER MODEL CALL (`TEX_CALLS`, dataset `tex_model_calls`), so a slow
+ * call can be told apart from a slow turn (Dev2, 2026-10-31: Haiku calls took
+ * 7 to 11 s against about 2.5 s expected). blobs: the turn's kind, the model,
+ * "ok" or "failed". doubles, in order (`CALL_COLUMNS`): the round's number in
+ * the turn, its milliseconds, the uncached input tokens, the cache reads, the
+ * cache writes, the output tokens, the characters of words it wrote, and how
+ * many tools it called. Output tokens past what the words and calls explain
+ * are its thinking. Counts only, never a word; at most `MAX_CALL_POINTS`.
+ */
+export const CALL_COLUMNS = ["round", "ms", "input", "cacheRead", "cacheWrite", "output", "said", "calls"];
+export const MAX_CALL_POINTS = 24;
+
+export function callPoints(kind, trace) {
+  const points = [];
+  let round = 0;
+  for (const entry of trace) {
+    if (entry?.kind !== "model") continue;
+    round += 1;
+    if (points.length >= MAX_CALL_POINTS) break;
+    const usage = entry.usage ?? {};
+    const n = (value) => (Number.isFinite(value) && value > 0 ? value : 0);
+    const model = typeof entry.model === "string" ? entry.model.replace(/^[^/]*\//, "").slice(0, 64) : "unknown";
+    points.push({
+      blobs: [String(kind), model, entry.ok === false ? "failed" : "ok"],
+      doubles: [round, n(entry.ms), n(usage.input), n(usage.cacheRead), n(usage.cacheWrite), n(usage.output), n(entry.said), n(entry.calls)],
+      indexes: [String(kind)],
+    });
+  }
+  return points;
 }
 
 export function stagesOf({ start, marks, end, report }) {
@@ -100,4 +162,21 @@ export function stagesOf({ start, marks, end, report }) {
     ],
     indexes: [String(report?.kind ?? "unknown")],
   };
+}
+
+/** A key's first two folders, any part that looks like an id or a name blanked. */
+export function keyShape(key) {
+  if (typeof key !== "string") return "?";
+  return key.split("/").slice(0, 3).map((part) => (/^[.a-z-]{1,24}$/.test(part) ? part : "*")).join("/");
+}
+
+/** The busiest call shapes, most first, in at most a thousand characters (blob3). */
+export function callsLine(calls) {
+  let line = "";
+  for (const [name, count] of Object.entries(calls).sort((a, b) => b[1] - a[1])) {
+    const part = `${name}=${count}`;
+    if (line.length + part.length + 1 > 1000) break;
+    line += (line ? " " : "") + part;
+  }
+  return line;
 }

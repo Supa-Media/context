@@ -15,7 +15,8 @@
 
 import { ConvexError, v } from "convex/values";
 import { requireAuthId } from "./lib/signedIn";
-import { internalMutation, query } from "../_generated/server";
+import { query } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { CHAT_HOMES_CLIENT_ID, sealsChatHomes, touchesChatHomes } from "./lib/nodes/sealedChats";

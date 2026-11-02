@@ -19,6 +19,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The gateway is a Cloudflare Worker, not Convex
 - Credential retrieval takes two independent proofs
 - Never cache a decrypted credential across requests
+- A binding kept in its workspace's object is sealed to it
 - Scheduling is not calling
 - Credential barriers are enumerated, never inferred
 - The credential graph follows imports, and refuses what it cannot follow
@@ -41,9 +42,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A move between the owner's own buckets is a third direction, and never touches the old one
 - [The tree is parent pointers, and note files need not work outside Context](./storage-and-credentials/paths-on-read.md) (2026-10-25)
 - [Editing history is filed by note id](./storage-and-credentials/paths-on-read.md#editing-history-is-filed-by-note-id) (2026-10-25)
+- [Pictures and files stay in each workspace's own bucket, and pictures are kept compressed](./storage-and-credentials/files-bucket.md) (2026-11-01)
+- [Every row write reaches the workspace object](./storage-and-credentials/workspace-object-rows.md) (2026-11-01)
+- [Notes' facts live in the workspace object](./storage-and-credentials/facts-in-objects.md) (2026-11-02)
 - Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id
+- [A workspace's notes live in its workspace object](./storage-and-credentials/workspace-objects.md) (2026-11-01)
 - Deleting an account erases the storage we ran for it
 - Absent meant two things, and the bucket is asked which
 - A bucket born on the layout has nothing to migrate, and is not asked to
@@ -110,6 +115,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One person, several sign-in emails, and accounts are never joined
 - A shared workspace opened to an email domain
 - [Signing out ends a token at once: the session is checked on every call](./identity-and-access/session-checked-every-call.md)
+- [Who may reach what lives in the objects, one copy](./identity-and-access/access-in-objects.md)
 - [The staff console takes a second factor: an authenticator code per session](./identity-and-access/staff-second-factor.md)
 
 ## [Privacy, visibility, and sharing](./privacy-and-sharing.md)
@@ -149,6 +155,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A note shared by name through its access list is reported and blocked the same way](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-17)
 - [Sharing runs when the person's own words ask for it, read by a judge](./privacy-and-sharing/agent-egress.md) (2026-10-18)
 - [Naming people on a note](./privacy-and-sharing/agent-egress.md) (2026-10-17)
+- [A yes answers the ask made in its own chat, and only the latest](./privacy-and-sharing/agent-egress.md) (2026-11-02)
 - [In the pinned workspace, `team` means its members, and All Context users is its own grant](./privacy-and-sharing/all-context-users.md) (2026-10-19, superseding the morning's "`team` is shown as All Context users")
 - [A linked page's card is its cover, for team links too](./privacy-and-sharing/page-covers.md) (2026-10-27)
 
@@ -732,6 +739,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The texting assistant](./texting-assistant.md)
 
+- [Every Tex turn reads its setup, whoever the person is (2026-11-02)](./texting-assistant/setup-read.md)
+- [Tex answers directly, or says what it is doing as it works, never that it is done (2026-11-01)](./texting-assistant/interleaved-updates.md)
+- [Every reaction in a chat is input, a reaction on Tex's question its answer (2026-11-01)](./texting-assistant/reactions-as-input.md)
 - [Tex's front door: a text in, Haiku answers, the reply out (2026-10-31)](./texting-assistant/front-door.md)
 - [Tex's warm copy, sealed in the sender's object (2026-10-31)](./texting-assistant/warm-copy.md)
 - [Tex's notes live in Durable Objects, not the bucket (2026-10-31)](./texting-assistant/tex-durable-objects.md)
@@ -751,6 +761,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex in a group chat answers from the one shared workspace everyone in it is a member of (2026-10-20)](./texting-assistant/groups.md)
 - [A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)](./texting-assistant/group-guests.md)
 - [Group Tex keeps each chat's home in @context-lc, sealed from the people who run it (2026-10-31)](./texting-assistant/chat-homes.md)
+- [A group chat's history has one copy: the memory page in its home, kept in its Durable Object (2026-11-01)](./texting-assistant/group-memory-one-copy.md)
+- [A person's texts with Tex are one record in their Tex object, read with About me in one call (2026-11-01)](./texting-assistant/one-to-one-history.md)
+- [Each chat with Tex has one ledger, and every view is rebuilt from it (2026-11-02)](./texting-assistant/chat-ledger.md)
+- [A person's Tex folder and a group chat's home use the same names (2026-11-01)](./texting-assistant/tex-folders.md)
+- [The advisor's asks, the Mail checker's verdicts and jobs go in the chat's ledger (2026-11-02)](./texting-assistant/ledger-asks.md)
 - [A guest in a group chat opens a shared note with a texted code, and the code makes an account (2026-10-27, 2026-10-31)](./texting-assistant/guest-phone-pass.md)
 - [Tex is on WhatsApp through Whapi.Cloud, a linked-device account; iMessage stays home (2026-10-27)](./texting-assistant/whatsapp.md)
 - [A family chat counts invited numbers as members (2026-10-27)](./texting-assistant/invited-family.md)
@@ -764,6 +779,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A busy group is answered fast, and only with a reply that still fits (2026-10-30)](./texting-assistant/group-turn-workflow.md#a-busy-group-is-answered-fast-and-only-with-a-reply-that-still-fits-2026-10-30)
 - [How Tex talks: settings per person and per group (Dev2, 2026-10-28)](./texting-assistant/tex-settings.md)
 - [How Tex sounds in each chat: mirror, language, group voice note, a text not an essay (Dev2, 2026-10-28, 2026-10-29)](./texting-assistant/tex-voice.md)
+- [Tex's chat commands are tools the agent calls (2026-10-31)](./texting-assistant/command-tools.md)
+- [One conversation state per chat, and decide picks when and how Tex replies (2026-11-01)](./texting-assistant/chat-state-machine.md)
+- [Group typing: a WhatsApp experiment before any build (2026-11-01)](./texting-assistant/whapi-presence-probe.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)
 - Staging has a texts simulator, and nothing else does
@@ -788,9 +806,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given
 - [The person views and drives Tex's computer at context.lc/tex/<handle>](./texting-assistant/computer.md)
+- [context.lc/tex/<handle> is the person's whole Tex page (Dev2, 2026-11-02)](./texting-assistant/tex-page.md)
 - [Tex downloads a file and emails it (2026-10-22)](./texting-assistant/computer.md#tex-downloads-a-file-and-emails-it-2026-10-22)
 - [A failed browser run is debugged from Browserbase's session log (2026-10-22)](./texting-assistant/computer.md#a-failed-browser-run-is-debugged-from-browserbases-session-log-2026-10-22)
 - [A browser waiting on the person is held fifteen minutes (2026-10-28)](./texting-assistant/computer.md#a-browser-waiting-on-the-person-is-held-fifteen-minutes-2026-10-28)
+- [The Tex page shows each chat's Tex live, from the chat's own box (2026-11-02)](./texting-assistant/tex-page.md)
 - [Tex holds the six tools, each listing only what it was granted (2026-10-16)](./texting-assistant/tool-shelf.md)
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
@@ -822,6 +842,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex hands a whole sub-project to another agent, and a supervisor loop keeps it on track (2026-10-17)](./texting-assistant/delegation.md)
 - [A long ask runs as a background job, so Tex works on several things at once (2026-10-21)](./texting-assistant/background-jobs.md)
 - [A running job can be steered, stopped and audited from the chat (2026-10-21)](./texting-assistant/background-jobs.md)
+- [A job's turns are off the daily cap (2026-10-31)](./texting-assistant/background-jobs.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it

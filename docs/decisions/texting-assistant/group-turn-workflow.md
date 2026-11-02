@@ -112,3 +112,11 @@ beside it brings back the four-minute settings menu ("Tex, settings is
 answered while another turn runs" fails); sending without the recheck brings
 back replies to questions nobody is asking ("a draft for an older ask is held
 once…" fails).
+
+## Answered first, the workflow only retries (Dev2, 2026-10-31)
+
+Starting a workflow cost 1 to 2 seconds of every group reply (`group_reply_timing` `startMs`, 2026-10-31). Dev2 chose "reply straight away, and only use the workflow when a reply actually fails". A chosen turn is now answered in the chat's object at once (`answerFirst` in `groupTurnRun.ts`), kept alive with the object's `waitUntil`, and its workflow is started only when that answer throws. The workflow then retries it as before, so a turn gets the first answer plus the workflow's own attempts, and a part already sent is never sent again (the per-turn part record).
+
+The chat stays held while the turn runs (`gturn` with `inline`), so one turn at a time still holds, and fixed lines are still answered beside it. An alarm a minute on looks whether the object is still answering it (`answering`, in memory); an object that restarted mid-answer hands the turn to its workflow at once (`inline_lost`). The Workflows dashboard now shows only turns that failed their first answer. Without `answerFirst` (tests, a self-hosted Worker without it) every turn goes to its workflow as before.
+
+What a simplification would cost: answering here with no `gturn` lets a second turn start beside the first ("while it is being answered, the chat is held" in `groupAnswerFirst.test.ts` fails); dropping the lost-turn check leaves a chat held for two hours after a restart ("a turn lost mid-answer" fails).

@@ -16,7 +16,8 @@ import {
   type InAppMessageSpec,
 } from "@context/shared";
 import type { Id } from "../_generated/dataModel";
-import { mutation, query } from "../_generated/server";
+import { query } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import { requireWorkspaceAccess } from "./lib/workspaceAuth";
 
 /** Far above the rows one person can make; the list is bounded by the registry. */

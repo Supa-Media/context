@@ -69,3 +69,34 @@ and the answering model", "a planned setup is priced model by model, and the
 summary says the think model's share of rounds and spend", "each model round
 keeps the model that ran it, so a planned turn shows its Opus and Haiku
 rounds".
+
+## A planner without a router: jobs plan on Opus (2026-10-31)
+
+**Approved by the owner (2026-10-31)**, from the review of Tex's slowdown: the
+production setup moved to Haiku answering every text with Opus as its advisor
+and dropped the router (`haiku-advisor`), so no setup named a thinking model
+and every part of every background job ran on Haiku. A Mercor job was called
+done on a promise. The owner's split is still the rule: Opus plans, Haiku
+carries it out, about 20/80, and jobs and judgment run on Opus.
+
+A setup may now name `models.think` with `models.think_rounds` and **no**
+router (`production.js` `planner`). Then a turn already marked `planned` (a
+background job's turn, or a texted spreadsheet; `route.js`) plans on `think`
+for `think_rounds` rounds and drives on `main`, with the same escalation after
+a failed call; every other text stays on `main` with no router step, an
+opinion text included, because in this shape judgment on an ordinary text is
+the advisor's (`advisor.js`), not a whole-turn switch. `think_rounds` is
+required here: a bare `think` with no router would put whole jobs on Opus, so
+the file is refused. `turnRouter` (`modelPlan.js`) builds either a router or
+this planner (`jobsOnly`, never a decision engine) for `/agent` and Try it.
+
+**What a simplification would cost:** treating `think` without a router as a
+router again would send pushback texts to Opus and slow the replies the front
+door made fast; dropping the required `think_rounds` lets one missing line put
+every job round on Opus at about ten times Haiku's price.
+
+Tests (`apps/mcp/test/agentJobPlanner.test.mjs`): "a job's turn plans on
+think, then main drives", "an ordinary text stays on main", "an opinion text
+stays on main too: it asks the advisor, not a planner", "parseSetup reads a
+planner (think and think_rounds, no router), and refuses one without
+think_rounds".

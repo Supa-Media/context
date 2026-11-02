@@ -7,13 +7,14 @@
  * ("@maya's Tex") and a checklist, so it shows on that project's board, and
  * the next text picks it up from the first unticked step. Which jobs are open
  * is `tex/jobs.md` in the person's own workspace, one link per job, read into
- * every texted turn the way `tex/about-me.md` is (`aboutMe.js`).
+ * every texted turn the way `tex/about.md` is (`aboutMe.js`).
  *
  * Read, never written, here: the notes change only through tool calls the
  * model makes, attributed and kept in history like any other write.
  */
 
 import { readAboutMe, readTexNote } from "./aboutMe.js";
+import { VOICE_PATH } from "./personVoice.js";
 import { texterIdentity } from "./identity.js";
 
 export const JOBS_PATH = "tex/jobs.md";
@@ -22,17 +23,20 @@ export const JOBS_PATH = "tex/jobs.md";
 export const MAX_JOBS_LINES = 60;
 
 /**
- * `{ aboutMe, jobs, identity }` for a texted turn, read side by side: the two
- * notes, and who they are by their account when `account` (`{ controlPlane,
+ * `{ aboutMe, jobs, voice, identity }` for a texted turn, read side by side: the three
+ * notes (`tex/voice.md`, `personVoice.js`), and who they are by their account when `account` (`{ controlPlane,
  * session }`) is given (`identity.js`). Never throws (`readTexNote`).
  */
-export async function readTexNotes(callTool, account = null) {
-  const [aboutMe, jobs, identity] = await Promise.all([
-    readAboutMe(callTool),
-    readTexNote(callTool, JOBS_PATH),
-    account === null ? null : texterIdentity(account.controlPlane, account.session),
+export async function readTexNotes(callTool, account = null, desk = {}, identityPart = (read) => read()) {
+  // `desk`: the notes the person's object answered with the history (`texDesk.js`); one it didn't is read as a note.
+  // `identityPart`: who they are by their account, from the warm copy when it has it (`warmCopy.js`), never About me.
+  const [aboutMe, jobs, voice, identity] = await Promise.all([
+    typeof desk.about === "string" ? desk.about : readAboutMe(callTool),
+    typeof desk.jobs === "string" ? desk.jobs : readTexNote(callTool, JOBS_PATH),
+    typeof desk.voice === "string" ? desk.voice : readTexNote(callTool, VOICE_PATH),
+    account === null ? null : identityPart(() => texterIdentity(account.controlPlane, account.session)),
   ]);
-  return { aboutMe, jobs, identity };
+  return { aboutMe, jobs, voice, identity };
 }
 
 const HOW =

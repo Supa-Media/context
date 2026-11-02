@@ -62,7 +62,19 @@ type Skip = { path: string; reason: "encrypted" | "too_large" };
 /** Carry up to `batches` batches here. `skipped` is added to in place. */
 export async function carryHere(
   ctx: ActionCtx,
-  input: { row: MoveRow; source: Access; destination: Access; skipped: Skip[]; batches: number; conflictsLeft: number },
+  input: {
+    row: MoveRow;
+    source: Access;
+    destination: Access;
+    skipped: Skip[];
+    batches: number;
+    conflictsLeft: number;
+    /**
+     * The destination folder is a chat's home that already stands (`lib/contextMoveChatHome.ts`): the first batch
+     * does not ask that it be free, since the home is made before the move and its path is the one thing allowed in.
+     */
+    intoHome?: boolean;
+  },
 ): Promise<MoverPass> {
   const { row, source, destination, skipped } = input;
   const pass: MoverPass = { movedObjects: 0, movedBytes: 0, remaining: true };
@@ -128,7 +140,7 @@ export async function carryHere(
           move's own, so asking again would refuse the move halfway through
           itself.
         */
-        ...(row.movedObjects + pass.movedObjects === 0 ? { root: row.to } : {}),
+        ...(row.movedObjects + pass.movedObjects === 0 && input.intoHome !== true ? { root: row.to } : {}),
       },
     });
     if (landed.kind !== "contextMoveLanded") return { ...pass, failed: UNEXPECTED };

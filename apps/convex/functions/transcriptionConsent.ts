@@ -21,7 +21,8 @@ import {
 } from "@context/shared";
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import { internalQuery, mutation, query } from "../_generated/server";
+import { internalQuery, query } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
 import { consumeRateLimit } from "./lib/rateLimit";
 

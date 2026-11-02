@@ -35,11 +35,11 @@ jobs:
 
       - name: Start passes
         if: ${{ inputs.start }}
-        run: npx convex run functions/collaborationFiling:fileDue
+        run: npx convex run functions/collaborationFiling:fileDue 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
 
       - name: Report
-        run: npx convex run functions/collaborationFiling:report
+        run: npx convex run functions/collaborationFiling:report 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

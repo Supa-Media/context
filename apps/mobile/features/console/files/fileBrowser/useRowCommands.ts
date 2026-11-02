@@ -17,6 +17,7 @@ import { useCallback } from "react";
 import { toFileError } from "../browser";
 import { type ReadResult, archiveEntries, collectNotes, collectOldCopies, downloadNotice, pathsUnder } from "../download";
 import { collectMessages, messagesFolderFor } from "../messagesDownload";
+import { collectChatLedgers, isHistoryView } from "../ledgerDownload";
 import { buildZip, downloadName } from "../zip";
 import { saveFile } from "../saveFile";
 import { afterPaste, planPaste, put } from "../clipboard";
@@ -55,6 +56,8 @@ type RowCommandsDeps =
     | "readNotesAction"
     | "readOldCopiesAction"
     | "readMessagesLogAction"
+    | "readChatLedgerAction"
+    | "listChatLedgersAction"
     | "restoreTrashEntry"
     | "trashEntry"
     | "workspaceId"
@@ -97,7 +100,7 @@ type RowCommandsDeps =
 export function useRowCommands(deps: RowCommandsDeps) {
   const {
     archiveEntry, autosave, clipboard, copyEntry, dispatch, editorRef, drawListingMove, drawMove,
-    duplicateEntry, exportAccessAction, followRename, listOldCopiesAction, readOldCopiesAction, readMessagesLogAction, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
+    duplicateEntry, exportAccessAction, followRename, listOldCopiesAction, readOldCopiesAction, readMessagesLogAction, readChatLedgerAction, listChatLedgersAction, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
     queueRemovalOf, readNote, readNotesAction, renamingRef, restoreTrashEntry, run, select, selectedPath,
     setClipboard, setNotice, setSelectedPath, trashEntry, viaQueue, workspaceId,
     writeNote, beginOnlineMove, beginOnlineCreate, drawLocally, pendingMoveTo, pendingCreateTo, workspaceGenerationRef,
@@ -337,7 +340,8 @@ export function useRowCommands(deps: RowCommandsDeps) {
             setNotice("That folder could not be listed to the end, so nothing was downloaded.");
             return;
           }
-          const wanted = pathsUnder(listedPaths, path);
+          // The whole workspace writes the chat ledger whole below, so the Tex folder's history file (a view of it) is left out: the chat leaves once.
+          const wanted = pathsUnder(listedPaths, path).filter((p) => path !== "" || !isHistoryView(p));
           // Said before the reads start, because a folder of two hundred notes
           // is several round trips and a control that does nothing visible for
           // four seconds reads as one that did nothing.
@@ -365,12 +369,20 @@ export function useRowCommands(deps: RowCommandsDeps) {
                 messagesFolderFor(notes.entries.map((entry) => entry.path)),
               )
             : { entries: [], short: false };
-          const entries = [...archiveEntries(notes.entries, access), ...old.entries, ...texts.entries];
+          // And their chats with Tex, one record each, their group chats beside their own (`ledgerDownload.ts`).
+          const chat = path === ""
+            ? await collectChatLedgers(
+                () => listChatLedgersAction({ workspaceId }),
+                (group, after) => readChatLedgerAction({ workspaceId, ...(group === undefined ? {} : { chat: group }), ...(after === undefined ? {} : { after }) }),
+              )
+            : { entries: [], short: false };
+          const entries = [...archiveEntries(notes.entries, access), ...old.entries, ...texts.entries, ...chat.entries];
           const missed = [...notes.missed, ...old.missed];
           const saved = saveFile(downloadName(path, ".zip"), buildZip(entries), "application/zip");
           const shortLines = [
             old.short ? "Your old copies of mail and calendar could not all be listed, so they are not in it." : "",
             texts.short ? "Your Messages backup could not be read to the end, so it is not in it." : "",
+            chat.short ? "Your chats with Tex could not all be read to the end, so what could not is not in it." : "",
           ].filter(Boolean).join(" ");
           setNotice(
             !saved
@@ -384,7 +396,7 @@ export function useRowCommands(deps: RowCommandsDeps) {
         }
       })();
     },
-    [exportAccessAction, listOldCopiesAction, notePathsAction, readMessagesLogAction, readNote, readNotesAction, readOldCopiesAction, workspaceId],
+    [exportAccessAction, listChatLedgersAction, listOldCopiesAction, notePathsAction, readChatLedgerAction, readMessagesLogAction, readNote, readNotesAction, readOldCopiesAction, workspaceId],
   );
 
   const archive = useCallback(

@@ -2,7 +2,7 @@
  * TEX'S NIGHTLY DREAM, END TO END THROUGH `/agent` (owner, 2026-10-15).
  *
  * The dreams client's turn reads the transcripts written since the last
- * dream, rewrites `tex/about-me.md`, and logs what it read, thought and
+ * dream, rewrites `tex/about.md`, and logs what it read, thought and
  * changed in `tex/dreams/<day>.md`. It can write that one note and nothing
  * else, a quiet night costs no model turn, and only the dreams client dreams.
  *
@@ -45,6 +45,7 @@ import {
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-dream.test";
 const TOKEN_DREAMS = `cat_dream_dreams_${"0".repeat(22)}`;
@@ -118,7 +119,7 @@ function unitChecks(check) {
     "tex/transcripts/2026-10-15-2.md (10 bytes)",
     "tex/transcripts/2026-10-15.md (10 bytes)",
     "tex/transcripts/notes.md (10 bytes)",
-    "tex/about-me.md (10 bytes)",
+    "tex/about.md (10 bytes)",
   ].join("\n");
   check(
     "a dream reads the days since the last one, in order, parts after the first",
@@ -152,19 +153,19 @@ async function toolRefusals(check) {
   });
   const refusals = await Promise.all([
     callTool("write_note", { path: "todo.md", content: "x" }),
-    callTool("write_note", { path: "tex/about-me.md", content: "x", visibility: "team" }),
-    callTool("write_note", { path: "tex/about-me.md", content: "x", context: "@other" }),
+    callTool("write_note", { path: "tex/about.md", content: "x", visibility: "team" }),
+    callTool("write_note", { path: "tex/about.md", content: "x", context: "@other" }),
     callTool("read_note", { path: "x.md", context: "@other" }),
-    callTool("set_visibility", { path: "tex/about-me.md", visibility: "team" }),
+    callTool("set_visibility", { path: "tex/about.md", visibility: "team" }),
     callTool("search_notes", { query: "x" }),
   ]);
-  const allowed = await callTool("write_note", { path: "tex/about-me.md", content: "# About\n", expected_etag: "e1", summary: undefined });
+  const allowed = await callTool("write_note", { path: "tex/about.md", content: "# About\n", expected_etag: "e1", summary: undefined });
   check(
     "a dream's dispatcher refuses every write but the note's own text, and every other workspace",
     refusals.every((result) => result.isError === true) &&
       allowed.isError !== true &&
       calls.length === 1 &&
-      JSON.stringify(calls[0]) === JSON.stringify({ name: "write_note", args: { path: "tex/about-me.md", content: "# About\n", expected_etag: "e1" } }),
+      JSON.stringify(calls[0]) === JSON.stringify({ name: "write_note", args: { path: "tex/about.md", content: "# About\n", expected_etag: "e1" } }),
   );
 }
 
@@ -241,9 +242,9 @@ export async function runAgentDreamChecks(check) {
     const today = transcriptPath(Date.now(), "UTC");
     bucket.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "d0" });
     bucket.set("todo.md", { body: "# To do\n\n- Pay rent\n", etag: "d1" });
-    bucket.set("tex/about-me.md", { body: "# About them\n\n- Lives in Leeds\n- Likes tea\n", etag: "d2" });
+    bucket.set("tex/about.md", { body: "# About them\n\n- Lives in Leeds\n- Likes tea\n", etag: "d2" });
     bucket.set(today, { body: "# Tex\n\n**Them:** I moved to York last week, and the dog says hi\n", etag: "d3" });
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
     controlPlane.serveTreesFrom(env, { s3 });
     const log = () => bucket.get(dreamPath(Date.now(), "UTC"))?.body ?? "";
     const dream = (since = Date.now() - DAY_MS) => ({ dream: { timeZone: "UTC", since } });
@@ -262,7 +263,7 @@ export async function runAgentDreamChecks(check) {
     model.install([
       {
         thinking: "They moved, and they have a dog.",
-        toolCalls: [{ name: "read_note", args: { path: today } }, { name: "read_note", args: { path: "tex/about-me.md" } }],
+        toolCalls: [{ name: "read_note", args: { path: today } }, { name: "read_note", args: { path: "tex/about.md" } }],
       },
       (seen) => ({
         toolCalls: [
@@ -270,7 +271,7 @@ export async function runAgentDreamChecks(check) {
           {
             name: "write_note",
             args: {
-              path: "tex/about-me.md",
+              path: "tex/about.md",
               content: "# About them\n\n- Lives in York\n- Likes tea\n- Has a dog\n",
               // The etag the read before this answered with, the way the model is told to.
               expected_etag: [...seen.matchAll(/etag: ([^\\\s]+)/g)].at(-1)?.[1],
@@ -281,19 +282,20 @@ export async function runAgentDreamChecks(check) {
       { text: "They moved from Leeds to York and have a dog." },
     ]);
     const learned = await ask(env, TOKEN_DREAMS, dream());
-    const about = bucket.get("tex/about-me.md")?.body ?? "";
+    const about = bucket.get("tex/about.md")?.body ?? "";
     check(
-      "a dream rewrites tex/about-me.md from the day's texts",
+      "a dream rewrites tex/about.md from the day's texts",
       learned.status === 200 && learned.body?.outcome === "dreamed" && about.includes("- Lives in York") && about.includes("- Has a dog"),
     );
-    check("a dream can write tex/about-me.md and nothing else", bucket.get("todo.md")?.body === "# To do\n\n- Pay rent\n");
+    check("a dream can write tex/about.md and nothing else", bucket.get("todo.md")?.body === "# To do\n\n- Pay rent\n");
     const written = log();
     check(
       "the log says exactly what changed, why, and every step it took",
       written.startsWith("# Tex dreamed,") &&
         written.includes(`_Read \`${today}\``) &&
-        written.includes("- Added `- Lives in York`") &&
-        written.includes("- Added `- Has a dog`") &&
+        // The log shows each line as saved: write_note dates a new about line on save (`agent/aboutLines.js`).
+        written.includes(`- Added \`- Lives in York (Tex noticed, ${new Date().toISOString().slice(0, 10)})\``) &&
+        written.includes(`- Added \`- Has a dog (Tex noticed, ${new Date().toISOString().slice(0, 10)})\``) &&
         written.includes("- Removed `- Lives in Leeds`") &&
         !written.includes("Removed `- Likes tea`") &&
         written.includes("They moved from Leeds to York and have a dog.") &&
@@ -400,7 +402,7 @@ export async function runAgentDreamChecks(check) {
     const looks = Array.from({ length: 10 }, () => ({ toolCalls: [{ name: "list_notes", args: {} }] }));
     model.install([
       ...looks,
-      { toolCalls: [{ name: "write_note", args: { path: "tex/about-me.md", content: "# About them\n\n- Keeps a to-do list (todo.md)\n" } }] },
+      { toolCalls: [{ name: "write_note", args: { path: "tex/about.md", content: "# About them\n\n- Keeps a to-do list (todo.md)\n" } }] },
       { text: "First look: started the note from their workspace." },
     ]);
     const firstFrom = model.requests.length;
@@ -411,7 +413,7 @@ export async function runAgentDreamChecks(check) {
       looked.status === 200 &&
         looked.body?.outcome === "dreamed" &&
         firstPrompt.includes("Take a first look at their workspace") &&
-        (fresh.get("tex/about-me.md")?.body ?? "").includes("Keeps a to-do list"),
+        (fresh.get("tex/about.md")?.body ?? "").includes("Keeps a to-do list"),
     );
     check(
       "a first look gets more than the turn's default eight rounds",

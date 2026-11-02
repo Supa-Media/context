@@ -69,7 +69,7 @@ function record(over: Partial<MeetingRecord> = {}, session: Record<string, unkno
     workspaceId: "ws1",
     session: {
       id: "m1",
-      title: "Jhon / Seyi",
+      title: "Dev2 / Seyi",
       state: "complete",
       startedAt: "2026-09-21T13:25:00.000Z",
       recordedMs: 31 * 60_000,

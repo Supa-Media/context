@@ -1,5 +1,7 @@
 # The texting assistant — a conversation's history
 
+> **Where it is kept (owner, 2026-11-01):** one record in the person's Tex Durable Object, written by every writer and read with About me in one call; never the bucket, never a copy in the texting Worker. See [one-to-one-history](./one-to-one-history.md).
+
 > **Superseded in part (Dev2, 2026-10-26):** the model now reads the chat's event log rendered with times, delivery results and unanswered messages; the history below keeps being written beside it. See [Tex reads one event log and decides when to answer](./event-log.md).
 
 _Part of [the texting assistant](../texting-assistant.md)._
@@ -85,8 +87,8 @@ that answers a reply to a text it cannot see. Tests
 (`agentEgressTexting.test.mjs`): "the next turn sees the texted YES and what
 it released", "a reply to a routine's text reaches a turn that has that
 text", "a text after the ready text reaches a turn that knows Tex asked them
-to connect Google"; `told.test.ts`, `reply.test.ts`, `ready.test.ts` for the
-Worker's half.
+to connect Google"; `reply.test.ts`, `ready.test.ts` for the Worker's half
+(`told.test.ts` was deleted in #2266).
 
 ### Tex answers inside the iMessage thread it was asked in
 

@@ -9,7 +9,8 @@
 import { v } from "convex/values";
 import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
-import { mutation, query } from "../_generated/server";
+import { query } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 
 /** When the caller last opened @shared, or null (never, or signed out). */
 export const sharedSeenAt = query({

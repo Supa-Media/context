@@ -6,7 +6,8 @@
  *
  * One delivery can carry several messages (`messages: [...]`), so this
  * returns a list. Everything else Whapi can send (statuses, chats, contacts,
- * presences, Tex's own messages) reads as nothing, and the delivery is still
+ * presences, Tex's own messages) reads as nothing (a presence is only described
+ * in the logs, `logPresenceShape`), and the delivery is still
  * answered 200 so it is not retried.
  *
  * The same rules as Sendblue's (`sendblue.ts`, `sendblueGroups.ts`):
@@ -49,11 +50,6 @@ const TAPBACKS = new Map<string, Tapback>([
   ["❓", "Questioned"],
   ["❔", "Questioned"],
 ]);
-/** The only reactions a group reads: a like and a love (`thumbs.ts`). */
-const GROUP_TAPBACKS = new Map<string, Tapback>([
-  ["\u{1F44D}", "Liked"],
-  ["❤", "Loved"],
-]);
 
 function isRecord(value: unknown): value is Rec {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -65,8 +61,25 @@ function bareEmoji(emoji: string): string {
 
 /** Every message in one delivery, read; `line` is Tex's own WhatsApp number (E.164). */
 export function parseWhapiWebhook(payload: unknown, line: string): WhapiEvent[] {
+  if (isRecord(payload) && Array.isArray(payload.presences)) logPresenceShape(payload);
   if (!isRecord(payload) || !Array.isArray(payload.messages)) return [];
   return payload.messages.slice(0, READ_LIMIT).map((message) => parseMessage(message, line));
+}
+
+/**
+ * A presences delivery (typing) is only described, never acted on: its keys, each status, and whether
+ * `contact_id` names a group or a person, never the id (Dev2, 2026-11-01: build group typing only if
+ * Whapi's payload names the group; `docs/decisions/texting-assistant/whapi-presence-probe.md`).
+ */
+function logPresenceShape(payload: Record<string, unknown>): void {
+  const presences = (payload.presences as unknown[]).slice(0, READ_LIMIT);
+  for (const presence of presences) {
+    const keys = [...Object.keys(payload).filter((key) => key !== "presences"), ...(isRecord(presence) ? Object.keys(presence) : [])].sort().slice(0, 20).join(":");
+    const status = isRecord(presence) && typeof presence.status === "string" && /^[a-z_]{1,20}$/.test(presence.status) ? presence.status : "other";
+    const id = isRecord(presence) && typeof presence.contact_id === "string" ? presence.contact_id : "";
+    const idKind = id.endsWith("@g.us") ? "group" : /^\d{6,16}(?:@s\.whatsapp\.net)?$/.test(id) ? "person" : "other";
+    console.log(JSON.stringify({ event: "whapi_presence_shape", keys, status, idKind }));
+  }
 }
 
 function logShape(message: unknown): void {
@@ -188,9 +201,8 @@ function groupEvent(message: Rec, id: string, chatId: string, line: string, type
   if (action !== null) {
     if (typeof action.target !== "string" || !MESSAGE_ID.test(action.target)) return invalid(message);
     const emoji = typeof action.emoji === "string" ? action.emoji.trim() : "";
-    const reaction = groupTapbackOf(emoji);
-    if (reaction === null) return { kind: "ignored", reason: "reaction" };
-    return { ...base, text: emoji, reaction, reactionOn: action.target } satisfies GroupMessage;
+    // Every reaction is read (Dev2, 2026-11-01): a named tapback by its name, any other emoji as itself.
+    return { ...base, text: emoji, reaction: tapbackOf(emoji), reactionOn: action.target } satisfies GroupMessage;
   }
   const media = MEDIA_TYPES.has(type) ? rec(message[type]) : null;
   const text = namingTex(wordsOf(message, media), rec(message.context)?.mentions, line).trim().slice(0, MAX_INBOUND_TEXT);
@@ -239,14 +251,8 @@ export function namingTex(words: string, mentions: unknown, line: string): strin
 function tapbackOf(emoji: unknown): Reaction {
   const raw = typeof emoji === "string" ? emoji.trim() : "";
   if (raw === "") return { how: "Liked", words: "", removed: true };
-  return { how: TAPBACKS.get(bareEmoji(raw)) ?? "Reacted", words: "" };
-}
-
-/** A group's reaction, or null for one a group does not read (`ignored: reaction`). */
-function groupTapbackOf(raw: string): Reaction | null {
-  if (raw === "") return { how: "Liked", words: "", removed: true };
-  const how = GROUP_TAPBACKS.get(bareEmoji(raw));
-  return how === undefined ? null : { how, words: "" };
+  const how = TAPBACKS.get(bareEmoji(raw));
+  return how === undefined ? { how: "Reacted", words: "", emoji: [...raw].slice(0, 8).join("") } : { how, words: "" };
 }
 
 export { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT };

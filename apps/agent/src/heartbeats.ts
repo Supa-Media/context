@@ -44,12 +44,12 @@ export type DueHeartbeat = {
 
 /** What the gateway's look came to: a text to send, or an outcome with nothing to say. */
 export type Looked =
-  | { outcome: "speak"; answer: string; continues?: string }
+  | { outcome: "speak"; answer: string; continues?: string; beside?: string }
   | { outcome: Exclude<HeartbeatOutcome, "texted" | "no_chat">; reason?: string };
 
 /** Why a look failed, for the log: the gateway's own code when it gave one, else the status. Never its words. */
 function failedBecause(status: number, body: Record<string, unknown>): string {
-  const codeish = (value: unknown): value is string => typeof value === "string" && /^[a-z_]{1,40}$/.test(value);
+  const codeish = (value: unknown): value is string => typeof value === "string" && /^[a-z][a-z0-9_]{0,39}$/.test(value);
   return codeish(body.reason) ? body.reason : codeish(body.error) ? body.error : `status_${status}`;
 }
 
@@ -69,7 +69,7 @@ export type HeartbeatDeps = {
   workerSecret: string | undefined;
   gatewayOrigin: string | undefined;
   /** Text one phone, through that phone's own inbox; under the earlier text it `continues`, when the inbox finds it. */
-  textPhone: (phone: string, text: string, idempotencyKey: string, continues?: string) => Promise<PhoneTexted>;
+  textPhone: (phone: string, text: string, idempotencyKey: string, continues?: string, beside?: string) => Promise<PhoneTexted>;
   log: (entry: Record<string, unknown>) => void;
 };
 
@@ -109,7 +109,8 @@ export async function runHeartbeat(fetcher: Fetch, gatewayOrigin: string, beat: 
   if (result.status === 200) {
     if (body.outcome === "speak" && typeof body.answer === "string" && body.answer.trim() !== "") {
       const continues = typeof body.continues === "string" && body.continues.trim() !== "" ? body.continues : undefined;
-      return continues === undefined ? { outcome: "speak", answer: body.answer } : { outcome: "speak", answer: body.answer, continues };
+      // `beside`: what it wrote to their texts, sealed for the warm copy (`warm.ts` `keepBeside`).
+      return { outcome: "speak", answer: body.answer, ...(continues !== undefined ? { continues } : {}), ...(typeof body.beside === "string" ? { beside: body.beside } : {}) };
     }
     if (typeof body.outcome === "string" && SILENT.has(body.outcome)) return { outcome: body.outcome as "quiet" };
     return { outcome: "failed", reason: "unreadable" };
@@ -129,7 +130,7 @@ async function runOne(beat: DueHeartbeat, deps: HeartbeatDeps, gateway: string):
   const results: PhoneTexted[] = [];
   for (const phone of beat.phones) {
     try {
-      results.push(await deps.textPhone(phone, looked.answer, `heartbeat:${beat.runId}:${phone}`, looked.continues));
+      results.push(await deps.textPhone(phone, looked.answer, `heartbeat:${beat.runId}:${phone}`, looked.continues, looked.beside));
     } catch {
       results.push("failed");
     }

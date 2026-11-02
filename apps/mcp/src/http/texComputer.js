@@ -2,11 +2,15 @@
  * `/tex/computer` — the person's own look at, and hands on, the browser Tex
  * drives for them, for the Context app's page at `context.lc/tex/<handle>`.
  *
- *  - `POST /tex/computer`        `{ handle }` → `{ running: false }` or
+ *  - `POST /tex/computer`        `{ handle, chat? }` → `{ running: false }` or
  *    `{ running: true, url, title, width, height, scale?, frame }` (a base64
  *    JPEG; `scale` is its pixels per CSS pixel)
  *  - `POST /tex/computer/input`  `{ handle, action }` → the same, after it
  *  - `POST /tex/computer/stop`   `{ handle }` → `{ closed: true }`
+ *
+ * `chat` names a group chat's browser instead of the person's own: one the
+ * control plane says they are in now, tagged by that chat and its people
+ * (`texPage/browser.js`); any other key is answered `404 not_found`.
  *
  * **Who may.** The browser is found in `infra/site-shots` by the person's tag,
  * `browserOwner(env, userId)`: an HMAC of their user id under this gateway's
@@ -28,7 +32,8 @@
  * the route, the action's kind, the outcome, the workspace and the grant.
  */
 
-import { browserOwner } from "../agent/browserProviders.js";
+import { chatBrowserOwner } from "./texPage/browser.js";
+import { PageRefusal } from "./texPage/page.js";
 import { createControlPlane } from "../controlPlane.js";
 import { forbiddenResponse, unauthorizedResponse } from "../oauth.js";
 import { bearerToken, resolveSession, SessionRefusal } from "../session.js";
@@ -66,13 +71,17 @@ export function ownHandle(session) {
 
 /**
  * The page Tex texts when the person must take over, or null when this
- * deployment has no https app origin or the person has no handle.
+ * deployment has no https app origin or the person has no handle. It opens
+ * on the Tex page's "Tex's computer" view (`?view=computer`): since the page
+ * became the person's whole Tex page (2026-11-02), the bare address is its
+ * first screen, and a handoff should land on the browser, one tap from
+ * taking it over.
  */
 export function texViewerUrl(env, session) {
   const handle = ownHandle(session);
   const origin = typeof env?.APP_ORIGIN === "string" ? env.APP_ORIGIN : "";
   if (handle === null || !/^https:\/\/[^/]+$/.test(origin.replace(/\/$/, ""))) return null;
-  return `${origin.replace(/\/$/, "")}/tex/${handle}`;
+  return `${origin.replace(/\/$/, "")}/tex/${handle}?view=computer`;
 }
 
 /** The action, rebuilt from named fields only. The screenshot Worker bounds every value. */
@@ -160,7 +169,15 @@ export async function handleTexComputer(request, env, { path, origin }) {
     if (action === null) return json({ error: "invalid_request", error_description: "That action could not be read." }, 400);
   }
   const binding = env?.SITE_SHOTS;
-  const owner = await browserOwner(env, session.actorUserId);
+  // `chat`: a group's page shows that chat's browser, for a chat the caller is in now (`texPage/browser.js`).
+  let owner;
+  try {
+    owner = await chatBrowserOwner(env, session, body.chat);
+  } catch (error) {
+    if (!(error instanceof PageRefusal)) throw error;
+    log(error.error);
+    return error.response();
+  }
   if (typeof binding?.fetch !== "function" || owner === null) {
     log("unavailable");
     return path === "/tex/computer/stop" ? json({ closed: true }) : json({ running: false });

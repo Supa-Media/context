@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acceptGroup, addressesTex, drainGroup, GROUP_LINES, GROUP_TEXT_WAIT_MS, groupCommand, peopleOf, PICTURE_LINE, type GroupDeps } from "./groupInbox";
+import { acceptGroup, addressesTex, drainGroup, GROUP_LINES, groupCommand, peopleOf, PICTURE_LINE, type GroupDeps } from "./groupInbox";
 import { parseSendblueGroup, reactInGroup, readGroupMembers, type GroupMessage } from "./sendblueGroups";
 import { ackEmoji } from "./ackEmoji";
 import { parseSendblueInbound } from "./sendblue";
@@ -96,17 +96,29 @@ function deps(
 const world = (members: (string[] | null)[] | null = [[ADA, BO]]): World => ({ sends: [], control: [], asks: [], reactions: 0, reacted: [], members });
 
 describe("what wakes Tex in a group", () => {
-  it("its name opening or closing the message, or in a question", () => {
+  it("its name opening or closing the message", () => {
     expect(addressesTex("Tex, what's on the setlist", false)).toBe(true);
     expect(addressesTex("hey tex can you check", false)).toBe(true);
     expect(addressesTex("what do you think tex?", false)).toBe(true);
     expect(addressesTex("@Context find the setlist", false)).toBe(true);
-    expect(addressesTex("is tex going to know this?", false)).toBe(true);
     expect(addressesTex("Tex what time is load in", false)).toBe(true);
     expect(addressesTex("tex stop", false)).toBe(true);
     // Any ask, not only the words on a list (2026-10-23: this one went unanswered).
     expect(addressesTex("Tex turn this guy into a cat", false)).toBe(true);
     expect(addressesTex("Tex draw me a dog", false)).toBe(true);
+  });
+  // Dev2, 2026-11-01: its name inside a question is decide's to judge, first (the Instinct speed test).
+  it("never its name inside a question", () => {
+    expect(addressesTex("is tex going to know this?", false)).toBe(false);
+    expect(addressesTex("Instinct, can you do a speed test with Tex just like last time? can you test it?", false)).toBe(false);
+    // Opening or closing it still is.
+    expect(addressesTex("Tex, what's 15% of 80?", false)).toBe(true);
+    expect(addressesTex("can you check this, tex?", false)).toBe(true);
+    // An @-tag anywhere still addresses it (Dev2, 2026-11-01); an address with "@tex." in it does not.
+    expect(addressesTex("can @Tex check this for us?", false)).toBe(true);
+    expect(addressesTex("so @context, thoughts on the plan?", false)).toBe(true);
+    expect(addressesTex("write to bo@tex.example about it", false)).toBe(false);
+    expect(addressesTex("@texas trip was fun", false)).toBe(false);
   });
   it("never a mention in passing, Tex-Mex or Texas", () => {
     expect(addressesTex("tex got that wrong lol", false)).toBe(false);
@@ -125,15 +137,14 @@ describe("what wakes Tex in a group", () => {
   it("reads the commands after its name", () => {
     expect(groupCommand("Tex, stop")).toEqual({ kind: "stop" });
     expect(groupCommand("tex start.")).toEqual({ kind: "start" });
-    expect(groupCommand("Tex use @Band")).toEqual({ kind: "use", slug: "band" });
+    // "Tex use @slug" is gone (2026-10-31): a chat is bound to no workspace, so it is an ordinary ask.
+    expect(groupCommand("Tex use @Band")).toBeNull();
     expect(groupCommand("Tex, what can you see here?")).toEqual({ kind: "status" });
     expect(groupCommand("Tex, stop the music at 9")).toBeNull();
-    expect(groupCommand("“Tex use @supa”")).toEqual({ kind: "use", slug: "supa" });
+    expect(groupCommand("“Tex use @supa”")).toBeNull();
     expect(addressesTex("“Tex use @supa”", false)).toBe(true);
-    expect(groupCommand("supa", ["context-lc", "supa"])).toEqual({ kind: "use", slug: "supa" });
-    expect(groupCommand("Tex @supa", ["supa"])).toEqual({ kind: "use", slug: "supa" });
     expect(groupCommand("supa")).toBeNull();
-    expect(groupCommand("hello", ["supa"])).toBeNull();
+    expect(groupCommand("Tex @supa")).toBeNull();
   });
   it("reads adding everyone here, as editors unless it says members", () => {
     expect(groupCommand("Tex add everyone here to @Crystal-Care")).toEqual({ kind: "invite", slug: "crystal-care" });
@@ -169,8 +180,8 @@ describe("the group webhook", () => {
     const parsed = parseSendblueGroup(payload({ participants: [BO, "someone@example.com", 7] }));
     expect(parsed).toMatchObject({ participants: [BO, "someone@example.com", "?", ADA] });
   });
-  it("drops tapbacks, Tex's own sends and huge lists", () => {
-    expect(parseSendblueGroup(payload({ content: "Loved “hi”" }))).toEqual({ kind: "ignored", reason: "reaction" });
+  it("reads tapbacks, and drops Tex's own sends and huge lists", () => {
+    expect(parseSendblueGroup(payload({ content: "Loved “hi”" }))).toMatchObject({ kind: "group-message", reaction: { how: "Loved", words: "hi" } });
     expect(parseSendblueGroup(payload({ is_outbound: true }))).toEqual({ kind: "ignored", reason: "event_type" });
     expect(parseSendblueGroup(payload({ participants: Array.from({ length: 65 }, () => BO) }))).toEqual({ kind: "ignored", reason: "group_size" });
   });
@@ -227,7 +238,7 @@ describe("a group's queue", () => {
     expect(w.asks[1]).toMatchObject({ group: { chat: [] } });
   });
 
-  it("reads a picture sent just after the tag with it (Jhon's screenshot, 2026-10-23)", async () => {
+  it("reads a picture sent just after the tag with it (Dev2's screenshot, 2026-10-23)", async () => {
     const storage = new MemoryStorage();
     const w = world();
     // Quiet: only the tagger's own picture after their tag goes to decide with it (`followsOwnTag`).
@@ -235,7 +246,7 @@ describe("a group's queue", () => {
     await acceptGroup(storage, message("Tex, hi"), 0);
     await drainGroup(storage, deps(w, { control: quiet }));
     expect(await acceptGroup(storage, message("Tex, file this screenshot as a bug report", { messageId: "t2" }), 10)).toBe("queued");
-    expect(storage.alarms.at(-1)).toBe(10 + GROUP_TEXT_WAIT_MS);
+    expect(storage.alarms.at(-1)).toBe(10);
     // Somebody else's picture is chat, not the tagger's screenshot.
     expect(await acceptGroup(storage, message("", { from: BO, messageId: "p0", attachments: [PICTURE] }), 11)).toBe("kept");
     // Kept as chat, and put to decide with the tag it follows; decide's covers make them one turn.
@@ -403,9 +414,8 @@ describe("a group's queue", () => {
     const cases: [unknown, string, string][] = [
       [{ status: "unknown_sender", tell: true }, "Tex, hi", GROUP_LINES.unknown],
       [{ status: "no_shared" }, "Tex, hi", GROUP_LINES.noShared],
-      [{ status: "choose", slugs: ["band", "crew"] }, "Tex, hi", GROUP_LINES.choose(["band", "crew"])],
       [{ status: "stopped" }, "Tex, stop", GROUP_LINES.stopped],
-      [{ status: "ready", slug: "crew", intro: false, bound: true, timeZone: "UTC", handle: "ada", minted: false }, "Tex, use @crew", GROUP_LINES.bound("crew")],
+      [{ status: "ready", slug: "crew", reach: ["band", "crew"], intro: false, bound: false, timeZone: "UTC", handle: "ada", minted: false }, "Tex, what can you see here?", GROUP_LINES.status(["band", "crew"])],
     ];
     for (const [control, text, said] of cases) {
       const storage = new MemoryStorage();
@@ -417,18 +427,10 @@ describe("a group's queue", () => {
     }
   });
 
-  it("takes a workspace's bare name as the answer to its question, and only while it is open", async () => {
+  it("never takes a workspace's bare name as an answer: a chat is bound to none", async () => {
     const storage = new MemoryStorage();
-    const w = world();
     expect(await acceptGroup(storage, message("supa", { messageId: "h_early" }), 0)).toBe("ignored");
-    await acceptGroup(storage, message("Tex, hi"), 0);
-    await drainGroup(storage, deps(w, { control: { status: "choose", slugs: ["context-lc", "supa"] } }));
-    expect(await acceptGroup(storage, message("supa", { messageId: "h_pick" }), 0)).toBe("queued");
-    await drainGroup(storage, deps(w, { control: { status: "ready", slug: "supa", intro: false, bound: true, timeZone: "UTC", handle: "ada", minted: false } }));
-    expect(w.control[1]).toMatchObject({ command: { kind: "use", slug: "supa" } });
-    expect(w.sends.map((sent) => sent.content).at(-1)).toBe(GROUP_LINES.bound("supa"));
-    // Answered, the question is closed: the name alone is ordinary chat again, kept as what the chat said.
-    expect(await acceptGroup(storage, message("supa", { messageId: "h_later" }), 0)).toBe("kept");
+    expect(await acceptGroup(storage, message("@supa", { messageId: "h_pick" }), 0)).toBe("ignored");
   });
 
   it("is silent when muted, and tells an unknown tagger only once", async () => {
@@ -443,36 +445,35 @@ describe("a group's queue", () => {
     }
   });
 
-  it("introduces itself in the line that answers a pick, and only then", async () => {
-    const storage = new MemoryStorage();
-    const w = world();
-    await acceptGroup(storage, message("Tex, use @supa"), 0);
-    await drainGroup(storage, deps(w, { control: { status: "ready", slug: "supa", intro: true, bound: true, timeZone: "UTC", handle: "ada", minted: false } }));
-    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.bound("supa", true)]);
-    expect(GROUP_LINES.bound("supa", true)).toContain("Tex, stop");
-    expect(GROUP_LINES.bound("supa")).not.toContain("Tex, stop");
+  it("names what the chat reaches in its introduction, or its home alone", () => {
+    expect(GROUP_LINES.intro(["a", "b"])).toContain("@a and @b");
+    expect(GROUP_LINES.intro([])).toContain("own home");
+    expect(GROUP_LINES.intro(["a"])).toContain("Tex, stop");
   });
 
   it("introduces itself the first time, then answers", async () => {
     const storage = new MemoryStorage();
     const w = world();
     await acceptGroup(storage, message("Tex, hi"), 0);
-    await drainGroup(storage, deps(w, { control: { status: "ready", slug: "band", intro: true, bound: true, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" } }));
-    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.intro("band"), "The opener."]);
+    await drainGroup(storage, deps(w, { control: { status: "ready", slug: "band", intro: true, reach: ["band"], bound: false, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" } }));
+    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.intro(["band"]), "The opener."]);
     // Under the message it answers, like everything else Tex says to it.
     expect(w.sends.map((sent) => sent.reply_to)).toEqual([{ message_handle: "h_in" }, { message_handle: "h_in" }]);
   });
 
-  it("wakes on an inline reply to its own text, with that text quoted", async () => {
+  // Dev2, 2026-11-01, superseding 2026-10-27's decide-first: a reply to Tex starts its turn at once, decide beside it.
+  it("wakes on an inline reply to its own text, with that text quoted; decide's silent keeps a reply meant for the chat unsent", async () => {
     const storage = new MemoryStorage();
     const w = world();
     await acceptGroup(storage, message("Tex, when's the gig?"), 0);
     await drainGroup(storage, deps(w));
-    expect(await acceptGroup(storage, message("and load in?", { messageId: "h_in2", replyTo: "h_out_1" }), 0)).toBe("kept");
+    expect(await acceptGroup(storage, message("and load in?", { messageId: "h_in2", replyTo: "h_out_1" }), 0)).toBe("queued");
     await drainGroup(storage, deps(w));
     expect(w.asks[1]).toMatchObject({ question: "and load in?", quoted: "Friday at 6." });
-    await acceptGroup(storage, message("yea, don't use the API", { messageId: "h_in4", replyTo: "h_out_1" }), 0).then(() => drainGroup(storage, deps(w)));
-    expect(w.asks).toHaveLength(2);
+    const texted = () => w.sends.filter((sent) => sent.content !== undefined).length, before = texted();
+    await acceptGroup(storage, message("yea, don't use the API", { messageId: "h_in4", replyTo: "h_out_1" }), 0).then(() => drainGroup(storage, deps(w, { decide: () => ({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 }) })));
+    expect(w.asks).toHaveLength(3);
+    expect(texted()).toBe(before);
     expect(await acceptGroup(storage, message("and more?", { messageId: "h_in3", replyTo: "h_someone_elses" }), 0)).toBe("kept");
   });
 
@@ -490,7 +491,7 @@ describe("a group's queue", () => {
   });
 });
 
-// Regression tests from the iMessage group chat of 2026-10-21 (Dev2 and Jhon).
+// Regression tests from the iMessage group chat of 2026-10-21 (Dev2 and a teammate).
 describe("the group chat of 2026-10-21", () => {
   const ask =
     "Here's the bug report I'd send to the Context team:\n\nReplies in several bubbles leave the thread.\n\nNone of our texts go with it.\n\nLook good? Give this a 👍 or reply yes and I'll send it.";
@@ -573,16 +574,6 @@ describe("the group chat of 2026-10-21", () => {
     await drainGroup(storage, deps(w));
     expect(await acceptGroup(storage, message("yes", { eventId: "sendblue:y", messageId: "y" }), 2_000)).toBe("kept");
   });
-
-  it("says which workspaces the chat can use when it names one it can't", async () => {
-    const storage = new MemoryStorage();
-    const w = world();
-    await acceptGroup(storage, message("Tex use @softory"), 0);
-    await drainGroup(storage, deps(w, { control: { status: "not_shared", slugs: ["supa", "context-lc"] } }));
-    expect(w.sends.map((sent) => sent.content)).toEqual([
-      `That isn't a workspace everyone in this chat shares. You all share @supa, @context-lc. Say "Tex use @supa" to pick one.`,
-    ]);
-  });
 });
 
 describe("a group tapback the line refuses", () => {
@@ -598,14 +589,13 @@ describe("a group tapback the line refuses", () => {
   });
 });
 
-describe("a group chat with guests (docs/decisions/texting-assistant/group-guests.md)", () => {
-  const guest = { group: "band-chair-blast-tiger", words: "chair-blast-tiger", folder: "tex/chats/chair-blast-tiger" };
+describe("a group chat with people who aren't all here (homes, not guest mode; docs/decisions/texting-assistant/group-guests.md)", () => {
   const ready = {
     status: "ready", slug: "band", intro: false, bound: false, timeZone: "UTC", handle: "", minted: true, accessToken: "cat_group",
-    names: [{ phone: ADA, handle: "ada" }], guest, guests: [{ phone: BO, label: "guest-1a2b" }],
+    names: [{ phone: ADA, handle: "ada" }], guests: [{ phone: BO, label: "guest-1a2b" }],
   };
 
-  it("a guest's ask reaches Tex with the chat's group, the guest named by label and never offered an email", async () => {
+  it("a person with no account is named by label in the chat, never by number, and never offered an email", async () => {
     const storage = new MemoryStorage();
     const w = world();
     // A chat Tex answers in keeps what is said between tags.
@@ -617,30 +607,25 @@ describe("a group chat with guests (docs/decisions/texting-assistant/group-guest
     const group = w.asks[1]?.group as Record<string, unknown>;
     expect(group.from).toBeUndefined();
     expect(group.people).toEqual(["ada"]);
-    expect(group.guest).toEqual(guest);
+    expect(group.guest).toBeUndefined();
     expect(group.chat).toEqual([{ from: "guest-1a2b", text: "flights are pricey" }]);
     expect(JSON.stringify(w.asks[1])).not.toContain(BO);
   });
 
-  it("says what guest mode is when it's turned on, and what it can see", async () => {
+  it("says what it can see in this chat when it is turned on, and when asked", async () => {
     const storage = new MemoryStorage();
     const w = world();
-    await acceptGroup(storage, message("Tex use @band"), 0);
-    await drainGroup(storage, deps(w, { control: { ...ready, handle: "ada", bound: true } }));
     await acceptGroup(storage, message("Tex what can you see?", { eventId: "sendblue:status", messageId: "status" }), 10);
-    await drainGroup(storage, deps(w, { control: { ...ready, handle: "ada" } }));
-    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.guestBound("band", guest), GROUP_LINES.guestStatus("band", guest)]);
-    expect(GROUP_LINES.guestBound("band", guest)).toContain("tex/chats/chair-blast-tiger");
+    await drainGroup(storage, deps(w, { control: { ...ready, handle: "ada", reach: ["band"] } }));
+    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.status(["band"])]);
   });
 
-  it("says who may turn it on, and when it has stopped", async () => {
+  it("says who may turn it on, and asks nothing of the model", async () => {
     const storage = new MemoryStorage();
     const w = world();
     await acceptGroup(storage, message("Tex use @band", { from: BO }), 0);
     await drainGroup(storage, deps(w, { control: { status: "not_allowed", slug: "band" } }));
-    await acceptGroup(storage, message("Tex find flights", { eventId: "sendblue:f", messageId: "f" }), 10);
-    await drainGroup(storage, deps(w, { control: { status: "guests_off" } }));
-    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.notAllowed("band"), GROUP_LINES.guestsOff]);
+    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.notAllowed("band")]);
     expect(w.asks).toEqual([]);
   });
 });
@@ -697,4 +682,19 @@ describe("a mailbox shared with the chat (chat-mail.md)", () => {
     await drainGroup(storage, deps(w, { control: { ...ready, mail: [{ handle: "ada", address: "me@work.example" }, { handle: "bo", address: "not an address" }] } }));
     expect((w.asks[0]?.group as { mail?: unknown }).mail).toEqual([{ handle: "ada", address: "me@work.example" }]);
   });
+
+  it("hands the chat's log in once the gateway handed it back, so later turns read none from storage", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    const held = [{ id: "0000000000001-000001", at: 1, chat: GROUP, from: { kind: "person" }, kind: "text", text: "earlier" }];
+    await acceptGroup(storage, message("Tex, hi"), 0);
+    await drainGroup(storage, deps(w, { agent: { answer: "Hey.", log: held } }));
+    await acceptGroup(storage, message("Tex, and now?", { messageId: "t2" }), 10);
+    await drainGroup(storage, deps(w));
+    expect(w.asks).toHaveLength(2);
+    expect(w.asks[0].holdsLog).toBeUndefined();
+    expect(w.asks[1]).toMatchObject({ holdsLog: true, chat: GROUP });
+    expect((w.asks[1].recent as { id: string }[]).map((event) => event.id)).toContain("0000000000001-000001");
+  });
 });
+

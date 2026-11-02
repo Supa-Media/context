@@ -9,7 +9,8 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
+import { internalQuery, query } from "../_generated/server";
+import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { isAdminEmail, parseAdminEmails, requireStaffIdentity, ADMIN_EMAILS_ENV_VAR } from "./lib/admin";

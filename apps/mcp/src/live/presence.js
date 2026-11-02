@@ -6,6 +6,7 @@
  */
 
 import { personalNameFor } from "../context/identity.js";
+import { roomByName } from "../objectPlace.js";
 import { roomKey } from "../presence.js";
 
 /**
@@ -22,7 +23,7 @@ export async function announceCommittedToPresence(store, path, result, actor = n
   if (!result || typeof result.documentId !== "string" || typeof result.etag !== "string") return;
   const run = async () => {
     try {
-      const room = rooms.get(rooms.idFromName(roomKey(workspaceId, path)));
+      const room = roomByName(rooms, roomKey(workspaceId, path));
       await room.fetch("https://presence.invalid/committed", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -85,7 +86,7 @@ export async function announceMovedToPresence(store, from, to) {
   if (!rooms || typeof workspaceId !== "string" || !workspaceId) return;
   const run = async () => {
     try {
-      const room = rooms.get(rooms.idFromName(roomKey(workspaceId, from)));
+      const room = roomByName(rooms, roomKey(workspaceId, from));
       await room.fetch("https://presence.invalid/moved", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -232,7 +233,7 @@ export async function announceWriteToPresence(store, { path, content, etag, acto
 
   const run = async () => {
     try {
-      const room = rooms.get(rooms.idFromName(roomKey(workspaceId, path)));
+      const room = roomByName(rooms, roomKey(workspaceId, path));
       await room.fetch("https://presence.invalid/external", {
         method: "POST",
         headers: { "content-type": "application/json" },

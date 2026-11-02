@@ -14,7 +14,7 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { writingCostMicroUsd } from "./lib/jev/meter";

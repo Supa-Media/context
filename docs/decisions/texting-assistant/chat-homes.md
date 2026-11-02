@@ -185,13 +185,55 @@ gets no write), `apps/mcp/test/agentGroupTurn.test.mjs` ("the chat remembers as
 one"), `apps/mcp/test/agentChatVoice.test.mjs` (one voice note per chat), and
 `apps/mcp/test/chatMemoryRecord.test.mjs`.
 
+A write in a home sets no row (2026-11-02). The seal is the home's access, and the control plane refuses any access
+change a chat's grant asks for beneath it, so `write_note` there skips the row tier it sets elsewhere and refuses
+`visibility: private` before writing (`apps/mcp/src/agent/chatHomeSeal.js`; the home's door marks its store). Before
+this, every new note in a home was refused after its text went in, and no chat's history page was reported written.
+Test: `apps/mcp/test/chatHomeWrite.test.mjs`.
+
 ## Still to build
 
 Routines, dreams and a heartbeat for a chat need their jobs moved too: a
 chat's routines are still written in its bound workspace's `tex/routines/`
 with `chat:` in their front matter, its check-in is a timer on the chat's
-row, and chats have no dreams yet. Empty folders for them are not made until
-something runs from them. The workspace's playbook stays the workspace's.
+row, and chats have no dreams yet. A home holds `skills/` and `routines/` from the
+start (`HOME_FOLDERS`, 2026-11-02, the owner: the homes "still look very empty"); a home made before then gets
+them on its chat's next turn. The workspace's playbook stays the workspace's.
 Then: the chat reads every workspace everyone in it shares instead of one
 bound workspace. The chats that exist move in as above, and the one copy a
 home cannot retract is left sealed until a delete exists for homes.
+
+## Chats with people who aren't all here (2026-10-31)
+
+A chat with someone in it who has no account, or whose account isn't a member
+of the workspace the chat was bound to, is answered from its home rather than
+from a group in that workspace. This retires guest mode
+([group-guests](./group-guests.md)).
+
+- **The grant is the sponsor's.** The chat's sponsor (`textGroups.sponsorId`:
+  the person who turned Tex on in it, else whoever bound it, else the sender)
+  holds one grant on the pinned workspace for that chat, marked `homeOnly`. It
+  is minted once per chat and sponsor, and it reads the chat's home alone,
+  through the chat's name (`READS_AS_CHAT`) and the tokens of the notes shared
+  with the chat. Nothing else in any workspace.
+- **It lives only while the sponsor does.** `homeOnlyStillShares` ends the
+  grant when the sponsor is no longer the one who can text Tex, when Tex is
+  muted for the chat, or when the sponsor's account is paused. A grant held by
+  anyone but the sponsor reads nothing.
+- **Usage goes to whoever sent.** A tagger with no account is metered under
+  their number (`phone:<E.164>`), and one with an account under theirs. The
+  sponsor's grant pays.
+- **No group, no folder.** Nobody is added to a group or named on a folder for
+  being in the chat. Legacy guest groups and folders are not read. A one-off
+  is to move them into homes, and it is not written yet: the move engine refuses
+  to carry notes into a home (`chatHomesMoveRefused`).
+
+## The home is where the grant lives; the reach is beside it (the owner, 2026-10-31)
+
+Every group chat's grant is now minted on the pinned workspace for its sponsor, as a home-only grant was for a chat with people who aren't all here (above). What differs is only what sits beside the home row. When every person in the chat has an account, the grant also lists the shared workspaces they all belong to, each a row at `team` tier held at the lowest role among them (`lib/textGroupReach.ts`; [groups](./groups.md#a-chat-reaches-the-workspaces-its-people-share-the-owner-2026-10-31)). When anyone has no account, there are none, and the chat has its home alone, as before.
+
+- **The home stays the default and the memory.** A call with no `context` reaches the home; the chat's memory, notes and voice live there whatever the chat reaches, so a person joining or leaving changes what Tex can read, not what it remembers.
+- **The pin is only ever the home.** A home-only grant's row is no clearance on the pin (no website publishing, no queued job, no owner check) and may hold a note mailbox only beneath its own folder. The pinned workspace never appears in a chat's reach, even when everyone in the chat is a member of it.
+- **The sponsor must share too.** Writes in a workspace are audited as the grant's account, so a workspace stays in reach only while the sponsor is a member of it as well as everyone in the chat.
+- **The home may be read by people the reach does not include.** A chat's home names every account in it to edit, whatever workspaces they share; reach narrows what Tex may use beyond the home, never who may open the home.
+

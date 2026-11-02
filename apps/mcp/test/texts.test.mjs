@@ -53,6 +53,7 @@ import { textsCleared } from "../src/communications/messagesBackup.js";
 import { ftsQueryOf } from "../src/communications/textsRead.js";
 import { TEXTS_LOG, TEXTS_PENDING } from "../src/communications/textsIndex.js";
 import { BACKUP_READS_PREFIX } from "../../../packages/communications/src/backupReads.js";
+import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const DB_OTHER = "db-3333-3333-3333-333333333333";
 const tok = (name) => `cat_texts_${name}_`.padEnd(40, "0");
@@ -97,7 +98,7 @@ async function setUp() {
   await grant(T.sharedOwner, "ws_t_shared", "owner", all, "user_mine");
   await grant(T.other, "ws_t_other", "owner", all, "user_other");
   await grant(T.plain, "ws_t_plain", "owner", all, "user_plain");
-  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
   controlPlane.serveTreesFrom(env, { s3 });
   return {
     env,

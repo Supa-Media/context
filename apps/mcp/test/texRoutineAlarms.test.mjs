@@ -4,6 +4,7 @@
 // texting Worker, and the answer says when the routine next runs.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { arrivedSql, oneAtATime } from "./texStoreFixture.mjs";
 
 import { routineAlarmAt, syncRoutineAlarms } from "../src/texStore/routineAlarm.js";
 import { routineDispatchFor } from "../src/texStore/dispatch.js";
@@ -49,7 +50,7 @@ function clockIn(ms, zone) {
 /** A Durable Object's state: its SQLite and the one alarm the runtime keeps. */
 function stateOver() {
   const storage = {
-    sql: durableSql(),
+    sql: arrivedSql(durableSql()),
     alarm: undefined,
     setAlarm(at) {
       storage.alarm = at;
@@ -58,7 +59,7 @@ function stateOver() {
       storage.alarm = null;
     },
   };
-  return { storage };
+  return { storage, blockConcurrencyWhile: oneAtATime() };
 }
 
 /** A Tex store namespace whose objects are real `TexStore`s, one per name, each with its own clock. */
@@ -70,7 +71,8 @@ function namespaceOver(now = () => T) {
   };
   const namespace = {
     idFromName: (name) => ({ name }),
-    get: (id) => ({ fetch: (request) => object(id.name).fetch(request) }),
+    // The gateway reaches each owner's placed store (`texStore/move.js`); the test names it by owner.
+    get: (id) => ({ fetch: (request) => object(id.name.replace(/^enam:/, "")).fetch(request) }),
   };
   return { namespace, object, objects };
 }

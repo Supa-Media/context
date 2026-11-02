@@ -19,8 +19,8 @@ const PLAIN_YES = /^\s*yes(?:[\s,.!-]+(?:please|do it|go ahead|pay|pay it|fill i
  * Settle the thread's armed payment asks as the text said. `allowed` names
  * what the person said yes to (for the model), `replies` what a no dropped.
  */
-export async function settlePayByText(store, session, verdict, texted, now = Date.now()) {
-  const waiting = (await listPending(store, { userId: session.actorUserId, texting: true, now })).filter(({ record }) => record.kind === VAULT_PAY);
+export async function settlePayByText(store, session, verdict, texted, now = Date.now(), chat = null) {
+  const waiting = (await listPending(store, { userId: session.actorUserId, texting: true, chat, now })).filter(({ record }) => record.kind === VAULT_PAY);
   const allowed = [];
   const replies = [];
   if (waiting.length === 0 || verdict === null) return { allowed, replies };

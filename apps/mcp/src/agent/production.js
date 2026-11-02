@@ -23,15 +23,19 @@
  *                  model like `openai/gpt-…`, or a gateway route `dynamic/<name>`)
  *   models.router  optional, with `models.think`: the decision model that picks
  *                  a tier for each text (`router.js`; only Clef, for now)
- *   models.think   the model a `think` text runs on instead of `models.main`
+ *   models.think   the model a `think` text runs on instead of `models.main`;
+ *                  without a router, with `think_rounds`, the model a
+ *                  background job's turn plans on before `main` drives
+ *                  (`modelPlan.js`, the owner, 2026-10-31)
  *   models.route_at optional, with the router: the confidence (0 to 1) a
  *                  `think` pick needs before the text goes to `models.think`;
  *                  `router.js`'s default when absent. Lower routes more.
- *   models.think_rounds optional, with the router: 1-9, how many model rounds
- *                  of a `think` text run on `think` before `main` drives the
- *                  rest; a round after a failed call goes back to `think` once
- *                  (`modelPlan.js`, the owner, 2026-10-17). Absent: the whole
- *                  turn on `think`.
+ *   models.think_rounds 1-9, how many model rounds of a `think` text run on
+ *                  `think` before `main` drives the rest; a round after a
+ *                  failed call goes back to `think` once (`modelPlan.js`, the
+ *                  owner, 2026-10-17). With a router it is optional (absent:
+ *                  the whole turn on `think`); with `think` and no router it is
+ *                  required, and only a background job's turn plans.
  *   models.effort  optional low|medium|high|xhigh|max: how hard `main` thinks
  *                  (Claude's `output_config.effort`; the model's own default,
  *                  medium, when absent)
@@ -131,10 +135,15 @@ async function parse(raw) {
   const models = front.models;
   if (!isMap(models) || typeof models.main !== "string" || !isBuiltinModelName(models.main)) return null;
 
-  // A router without a thinking model has nowhere to send a text; a thinking
-  // model without a router would never be chosen. Either alone is a mistake.
+  // A router without a thinking model has nowhere to send a text. A thinking
+  // model without a router plans background jobs only (`modelPlan.js`, the
+  // owner, 2026-10-31), so it must say how many rounds it plans: a bare
+  // `think` would put whole jobs on it.
+  const thinkRounds = readThinkRounds(models.think_rounds);
+  if (thinkRounds === undefined) return null;
   let router = null;
-  if (models.router !== undefined || models.think !== undefined) {
+  let planner = null;
+  if (models.router !== undefined) {
     if (models.router !== ROUTER_MODEL) return null;
     if (typeof models.think !== "string" || !isBuiltinModelName(models.think)) return null;
     let routeAt = DEFAULT_ROUTE_AT;
@@ -143,13 +152,12 @@ async function parse(raw) {
       routeAt = Number(models.route_at);
     }
     // Opus plans, Haiku drives (`modelPlan.js`): absent, a routed turn stays on `think`.
-    let thinkRounds = null;
-    if (models.think_rounds !== undefined) {
-      if (typeof models.think_rounds !== "string" || !THINK_ROUNDS.test(models.think_rounds)) return null;
-      thinkRounds = Number(models.think_rounds);
-    }
     router = { model: models.router, think: models.think, routeAt, ...(thinkRounds === null ? {} : { thinkRounds }) };
-  } else if (models.route_at !== undefined || models.think_rounds !== undefined) return null;
+  } else if (models.think !== undefined) {
+    if (typeof models.think !== "string" || !isBuiltinModelName(models.think) || models.think === models.main) return null;
+    if (thinkRounds === null || models.route_at !== undefined) return null;
+    planner = { think: models.think, thinkRounds };
+  } else if (models.route_at !== undefined || thinkRounds !== null) return null;
   // The advisor is independent of the router. An effort with no advisor names
   // no model, so the loop below refuses it.
   let advisor = null;
@@ -160,7 +168,7 @@ async function parse(raw) {
   // How hard each model thinks, by model name, so the turn looks it up for
   // whichever model the router picked. A word that isn't one refuses the file.
   const efforts = {};
-  for (const [key, name] of [["effort", models.main], ["think_effort", router?.think], ["advisor_effort", advisor]]) {
+  for (const [key, name] of [["effort", models.main], ["think_effort", (router ?? planner)?.think], ["advisor_effort", advisor]]) {
     if (models[key] === undefined) continue;
     if (typeof models[key] !== "string" || !EFFORTS.has(models[key]) || typeof name !== "string") return null;
     efforts[name] = models[key];
@@ -211,6 +219,7 @@ async function parse(raw) {
     job: typeof front.job === "string" ? front.job : null,
     model: models.main,
     router,
+    planner,
     advisor,
     efforts,
     fallback,
@@ -292,6 +301,12 @@ function unquote(text) {
   return quoted ? quoted[2] : text;
 }
 
+/** `think_rounds` as a number, null when absent, undefined when it is not 1-9. */
+function readThinkRounds(value) {
+  if (value === undefined) return null;
+  return typeof value === "string" && THINK_ROUNDS.test(value) ? Number(value) : undefined;
+}
+
 function isMap(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -299,6 +314,22 @@ function isMap(value) {
 async function versionOf(raw) {
   const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw)));
   return Array.from(digest.subarray(0, 6), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * One note in `@context-lc`, shaped, or `null`. Every Tex turn reads it through Tex's own read-only door to the pin
+ * first, whoever the person is and wherever the turn runs (`session.js` `sessionForSetup`): the person's own reach
+ * there sees no staff note for a pin reader or a group chat, and Tex then ran on its built-in words without saying
+ * so (2026-10-23 to 26, and 2026-10-31 to 2026-11-02). The person's own reach is the fallback, for a caller with no
+ * door (the console) and for a door that could not be opened.
+ */
+async function readInPin(store, session, path, shape) {
+  if (typeof store.openPinnedSetup === "function") {
+    const read = await readPinnedNote({ contexts: [{ name: PINNED_CONTEXT_NAME }], openPinned: store.openPinnedSetup, here: null }, path, shape);
+    if (read !== null) return read;
+    console.log(JSON.stringify({ event: "tex_setup_door_missed", workspace: session?.workspaceId ?? null, client: session?.actorClientId ?? null }));
+  }
+  return await readPinnedNote(await pinnedReach(store, session), path, shape);
 }
 
 /**
@@ -312,12 +343,6 @@ async function pinnedReach(store, session) {
   if (current?.name === PINNED_CONTEXT_NAME) {
     const privacy = await loadPrivacyState(store);
     if (!privacy.error) here = { store, scope: session.scope, rules: privacy.rules, overrides: privacy.overrides };
-  }
-  // A group chat cannot address the pin, but reads its setup there through a
-  // read-only door that opens nothing else (`session.js` `sessionForSetup`).
-  const listed = (store.contexts || []).some((entry) => entry.name === PINNED_CONTEXT_NAME);
-  if (!listed && here === null && typeof store.openPinnedSetup === "function") {
-    return { contexts: [{ name: PINNED_CONTEXT_NAME }], openPinned: store.openPinnedSetup, here: null };
   }
   return { contexts: store.contexts, openPinned: store.openPinnedContext, here };
 }
@@ -336,10 +361,10 @@ export async function readProductionSetup(store, session, { texting, warm = null
   try {
     // With a warm copy (`warmCopy.js`), the note's text is read only when the copy hasn't it.
     if (warm !== null) {
-      const raw = await warm(async () => await readPinnedNote(await pinnedReach(store, session), PRODUCTION_TEXTING_PATH, (text) => text));
+      const raw = await warm(async () => await readInPin(store, session, PRODUCTION_TEXTING_PATH, (text) => text));
       return typeof raw === "string" ? await parseSetup(raw) : null;
     }
-    return await readPinnedNote(await pinnedReach(store, session), PRODUCTION_TEXTING_PATH, parseSetup);
+    return await readInPin(store, session, PRODUCTION_TEXTING_PATH, parseSetup);
   } catch {
     return null;
   }
@@ -358,7 +383,7 @@ export async function readProductionSetup(store, session, { texting, warm = null
  */
 export async function readJobSetup(store, session, path) {
   try {
-    return await readPinnedNote(await pinnedReach(store, session), path, parseSetup);
+    return await readInPin(store, session, path, parseSetup);
   } catch {
     return null;
   }
@@ -414,7 +439,7 @@ export function promptSections(prompt) {
 export async function readSetupAt(store, session, path) {
   if (typeof path !== "string" || !TRY_SETUP_PATH.test(path) || path.includes("..")) return null;
   try {
-    return await readPinnedNote(await pinnedReach(store, session), path, parseSetup);
+    return await readInPin(store, session, path, parseSetup);
   } catch {
     return null;
   }
@@ -430,7 +455,7 @@ const TRY_SETUP_PATH = /^ai\/(?:production|setups\/[a-z0-9-]+)\/[A-Za-z0-9_-][A-
  */
 export async function readProductionSkill(store, session, path) {
   try {
-    return await readPinnedNote(await pinnedReach(store, session), path, skillBody);
+    return await readInPin(store, session, path, skillBody);
   } catch {
     return null;
   }
@@ -445,7 +470,7 @@ export async function readProductionSkill(store, session, path) {
 export async function readHelperCallers(store, session, key) {
   if (typeof key !== "string" || !/^[a-z][a-z0-9-]{0,40}$/.test(key)) return null;
   try {
-    return await readPinnedNote(await pinnedReach(store, session), `ai/agents/${key}.md`, helperCallersOf);
+    return await readInPin(store, session, `ai/agents/${key}.md`, helperCallersOf);
   } catch {
     return null;
   }

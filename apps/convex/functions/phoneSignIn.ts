@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { action, internalMutation } from "../_generated/server";
+import { action } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";

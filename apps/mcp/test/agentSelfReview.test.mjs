@@ -95,7 +95,7 @@ const SESSION = { accessToken: "tok-fake", workspaceId: "ws-fake", actorClientId
 async function texted(store, ...pairs) {
   let history = [];
   for (const [question, answer, tools = []] of pairs) {
-    await appendConversation(store, "texts", history, question, answer, { tools });
+    await appendConversation(store, "texts", question, answer, { tools });
     history = [...history, { role: "user", text: question }, { role: "assistant", text: answer, ...(tools.length ? { tools } : {}) }];
   }
   return history;

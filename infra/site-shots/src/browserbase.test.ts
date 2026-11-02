@@ -13,7 +13,7 @@ const OTHER = "b".repeat(64);
 const PROFILE = "0b6c0e3e-7a43-4b1e-9d0a-2f5a1c9e8d71";
 
 /** A CDP socket that answers just enough for one reading of one page. */
-const socketOptions = { failSetCookies: false, uploadedSize: 9 };
+const socketOptions = { failSetCookies: false, uploadedSize: 9, google: [] as unknown[] };
 
 function fakeSocket(log: string[]) {
   const listeners: Record<string, Array<(e: { data: string }) => void>> = {};
@@ -47,7 +47,12 @@ function fakeSocket(log: string[]) {
         const expr: string = params.expression;
         // The page's own world answers a jar read with another site's data, as a page that replaced Promise could.
         const apart = params.contextId === ISOLATED;
-        if (expr.includes("localStorage.key(i)")) result = { result: { value: apart ? { origin: "https://shop.example.com", items: { token: "jwt-abc" } } : { origin: "https://bank.example", items: { forged: "1" } } } };
+        // Google's sign-in (./googleChallenge.ts): where it is, and a press that moves it on.
+        if (expr.includes("data-challengetype") && expr.includes("new RegExp(")) {
+          result = { result: { value: socketOptions.google.length > 1 ? { x: 1, y: 1 } : null } };
+          if (socketOptions.google.length > 1) socketOptions.google.shift();
+        } else if (expr.includes("data-challengetype")) result = { result: { value: socketOptions.google[0] ?? null } };
+        else if (expr.includes("localStorage.key(i)")) result = { result: { value: apart ? { origin: "https://shop.example.com", items: { token: "jwt-abc" } } : { origin: "https://bank.example", items: { forged: "1" } } } };
         else if (expr.includes("indexedDB.databases")) result = { result: { value: apart ? { origin: "https://shop.example.com", dbs: [SHOP_DB] } : { origin: "https://bank.example", dbs: [] } } };
         else if (expr.includes("location.hostname")) result = { result: { value: { href: "https://shop.example.com/", host: "shop.example.com", origin: "https://shop.example.com" } } };
         else if (expr.includes("data-tex-ref") && expr.includes("elements")) {
@@ -135,6 +140,21 @@ describe("browseOnBrowserbase", () => {
     const released = api.calls.find((c) => c.url.endsWith("/sessions/mine"));
     expect(released?.body).toMatchObject({ status: "REQUEST_RELEASE" });
     expect(api.cdp[0]).toBe("connect https://connect.example/new-1");
+  });
+
+  it("presses past Google's passkey step to the password way, and reads the page it lands on", async () => {
+    socketOptions.google = [{ step: "passkey", ways: [] }, { step: "options", ways: ["code", "password"] }, { step: "password", ways: [] }];
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }] });
+    socketOptions.google = [];
+    expect(result.status).toBe(200);
+    expect(result.api.cdp.filter((m) => m === "Input.dispatchMouseEvent")).toHaveLength(6);
+  });
+
+  it("presses nothing on Google's sign-in while the person is being handed the browser", async () => {
+    socketOptions.google = [{ step: "passkey", ways: [] }, { step: "options", ways: ["password"] }];
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], handoff: true });
+    socketOptions.google = [];
+    expect(result.api.cdp.filter((m) => m === "Input.dispatchMouseEvent")).toHaveLength(0);
   });
 
   it("names no captcha when the page shows none", async () => {

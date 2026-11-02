@@ -39,7 +39,7 @@ import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { BUILTIN_PROVIDER, canRunBuiltin, hasBuiltinModel } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { decisionEngine } from "./decide.js";
-import { meterParts } from "./modelPlan.js";
+import { meterParts, turnRouter } from "./modelPlan.js";
 import { readProductionSkill, readSetupAt } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
 import { trimHistory } from "./conversation.js";
@@ -202,10 +202,7 @@ export async function handleTryIt(request, env, store, session, controlPlane) {
   const tools = persona !== null ? [] : [...agentTools(offered).filter((tool) => tool.name !== "propose_note"), ...(skills?.tools ?? [])];
   const dispatch = tryDispatcher(tools, (name, args) => callToolForSession({ name, arguments: args }, store, reader));
   const model = canRunBuiltin(setup.model, env) ? setup.model : undefined;
-  const router =
-    model !== undefined && setup.router !== null && canRunBuiltin(setup.router.think, env)
-      ? { decide: decisionEngine(env.AI), think: setup.router.think, routeAt: setup.router.routeAt, thinkRounds: setup.router.thinkRounds }
-      : null;
+  const router = model !== undefined ? turnRouter(setup, (name) => canRunBuiltin(name, env), () => decisionEngine(env.AI)) : null;
   const fallback = model !== undefined && setup.fallback !== null && canRunBuiltin(setup.fallback, env) ? setup.fallback : null;
   const providerOptions = (client) => ({
     ai: env.AI,

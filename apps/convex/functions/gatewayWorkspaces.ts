@@ -14,7 +14,8 @@
 
 import { ConvexError, v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { internalMutation } from "./lib/rowWatch/mutations";
 import { recordAudit } from "./lib/audit";
 import { startFreeManagedHandler } from "./lib/billing/freeManaged";
 import { deploymentOffersFreeManaged } from "./lib/billing/plan";

@@ -27,9 +27,12 @@ import { LONG_NOTE_LINES, isArchived, scoreFolder, treeShape } from "./rubric.js
  * @param {string[]} keys every key in the tree, as drawn now
  * @param {Map<string, { lines: number | null, exempt: boolean, review: boolean }>} extras
  * @param {(path: string) => boolean} visibleToTeam
+ * @param {(path: string) => boolean} [visibleToOwner] what an owner reading privately may see: everything but a sealed
+ *   folder (a chat's home, `privacy/engine.js` `SEALED`), which no role opens, an owner's included. Before 2026-11-02
+ *   the owners' count took every key, so `tex` in the pin read "Only 1 thing in here" over a listing that showed none.
  */
-export function scoreKeys(keys, extras, visibleToTeam) {
-  const rows = keys.map((path) => ({ path, ...(extras.get(path) ?? {}) }));
+export function scoreKeys(keys, extras, visibleToTeam, visibleToOwner = () => true) {
+  const rows = keys.filter((path) => visibleToOwner(path)).map((path) => ({ path, ...(extras.get(path) ?? {}) }));
   const all = treeShape(rows);
   const team = treeShape(rows.filter((row) => visibleToTeam(row.path)));
   const folders = new Map();

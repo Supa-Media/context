@@ -14,6 +14,7 @@
  * retire.
  */
 
+import { objectFirst } from "../rowWatch/objectFirst";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
@@ -60,11 +61,13 @@ export function consoleIdLayoutHooks(ctx: ActionCtx, workspaceId: Id<"workspaces
         at: note.at,
       }),
     removed: async (note) =>
-      await ctx.runMutation(internal.functions.noteIdsKeyed.removeKeyed, {
-        workspaceId,
-        path: note.path,
-        key: note.key,
-        at: note.at,
-      }),
+      await objectFirst(ctx, workspaceId, () =>
+        ctx.runMutation(internal.functions.noteIdsKeyed.removeKeyed, {
+          workspaceId,
+          path: note.path,
+          key: note.key,
+          at: note.at,
+        }),
+      ),
   };
 }

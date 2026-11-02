@@ -43,25 +43,19 @@
  */
 
 import { attachmentsLine } from "./attachments.js";
-import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from "./builtin.js";
+import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError } from "./providers.js";
-import { BROWSE_TIMED_OUT, BROWSE_TOOL, webPrompt } from "./computer.js";
-import { systemPrompt } from "./prompt.js";
-import { localNowPrompt } from "./localNow.js";
-import { workspacesPrompt } from "./workspaces.js";
+import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
+import { turnPrompt } from "./turnPrompt.js";
 import { pickTier } from "./router.js";
 import { isPlainNoteWrite, settleNoteWrite, ToolTimeout, withinTime } from "./noteWriteRetry.js";
 import { isMove, MOVE_TIMED_OUT, MOVE_TIMEOUTS } from "./slowMoves.js";
-import { addModelUsage, DRIVER_PROMPT, failedCall, modelForRound, PLANNER_PROMPT, thinkRoundsFor } from "./modelPlan.js";
-import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
-import { usedTools } from "./conversation.js";
+import { addModelUsage, failedCall, modelForRound, thinkRoundsFor, whyFailed } from "./modelPlan.js";
+import { PROGRESS_TOOL } from "./progress.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
-import { aboutMePrompt, goalsIn } from "./aboutMe.js";
+import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
-import { jobsPrompt } from "./jobs.js";
-import { TRANSCRIPTS_PROMPT } from "./transcript.js";
-import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
 import { recheckNote } from "./recheck.js";
@@ -142,6 +136,9 @@ const TOOL_TIMED_OUT =
   "That call took too long and was stopped. Don't retry it. Answer with what you already have, " +
   "and say plainly what you could not check.";
 
+/** Before a text that came in while the reply above was written: that reply has not gone out. */
+export const LATE_TEXT = "(Your reply above has NOT been sent. They texted more while you wrote it, below. Write one reply that answers all of it.)";
+
 /** What the model reads for a call asked for after `TURN_TOOL_BUDGET_MS`. */
 const OUT_OF_TIME =
   "Out of time: no more tool calls this turn. Answer now with what you already have, " +
@@ -219,10 +216,11 @@ function noModel() {
  * under the daily cap). That answer also counts the turn,
  * so it is asked once, here, and never per round.
  */
-export async function openProvider(controlPlane, session, requested, env = {}) {
+export async function openProvider(controlPlane, session, requested, env = {}, { background = false } = {}) {
   if (requested !== undefined && requested !== null) throw noModel();
   if (!hasBuiltinModel(env)) throw noModel();
-  const verdict = await controlPlane.startBuiltinTurn(session.accessToken, session.workspaceId);
+  // A background job's part or report is never counted against the cap (`apps/convex/functions/builtinModel.ts`).
+  const verdict = await controlPlane.startBuiltinTurn(session.accessToken, session.workspaceId, background ? { background: true } : undefined);
   if (verdict?.allowed === true) return { provider: BUILTIN_PROVIDER };
   if (verdict?.reason === "daily_cap") {
     throw new AgentRefusal("daily_limit", "Today's questions are used up.");
@@ -253,17 +251,18 @@ export async function openProvider(controlPlane, session, requested, env = {}) {
  *   instead of `builtinModel(env)`; `route.js` checks it can be called
  * @param {number} [options.maxRounds] the most model rounds this turn may take,
  *   clamped to 1..MAX_ROUNDS
- * @param {{decide: Function|null, think: string, routeAt?: number, thinkRounds?: number}} [options.router] the setup's
+ * @param {{decide: Function|null, think: string, routeAt?: number, thinkRounds?: number, jobsOnly?: boolean}} [options.router] the setup's
  *   model router (`router.js`): the decision engine that picks a tier for this
  *   text, and the model a `think` text runs on; `route.js` checks it can be called.
- *   With `thinkRounds`, a `think` text plans on `think` and drives on `main` (`modelPlan.js`)
+ *   With `thinkRounds`, a `think` text plans on `think` and drives on `main` (`modelPlan.js`);
+ *   `jobsOnly` (a planner, no router) plans a `planned` turn and leaves every other on `main`
  * @param {() => number} [options.clock] milliseconds, for `timing`
  * @param {{write?: string[], manage?: string[], send?: string[]}|null} [options.grants]
  *   the actions a surface allows by name, where it narrows further than the
  *   tools it holds (`sixTools.js`); null allows every action they carry
  * @param {Array<{tool: object, call: Function}>} [options.local] tools this
  *   turn answers itself rather than through the MCP
- * @param {string|null} [options.aboutMe] `tex/about-me.md`'s text on a texted
+ * @param {string|null} [options.aboutMe] `tex/about.md`'s text on a texted
  *   turn (`aboutMe.js`), `""` when it doesn't exist; null says nothing about it
  * @returns {Promise<{answer: string, provider: string, model: string, steps: Array, usage: object, usageByModel: object}>}
  *   `model` is the model that wrote the final answer (on an exhausted turn, the
@@ -302,7 +301,10 @@ export async function runTurn(options) {
     local = [],
     aboutMe = null, identity = null, // who they are by their account (`identity.js`), told beside it
     jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
+    voice = null, // `tex/voice.md`'s text on a texted turn (`personVoice.js`); null says nothing about it.
     answerCheck = null, // reads a final answer, once, and may send one more round (`claimCheck.js`)
+    endsTurn = null, // `(name, result) => string|null`: a call that settles the turn, answered with its line at once (`background.js`)
+    roundNote = null, // `(round, elapsedMs) => string|null`: a line told before a round (`background.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
     // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
@@ -377,7 +379,8 @@ export async function runTurn(options) {
     came from.
   */
   const nudge = texting ? pushbackNudge(question, goalsIn(aboutMe)) : ""; // an opinion or a goal-touching ask (`pushback.js`)
-  if (router !== null) {
+  // A planner with no router (`jobsOnly`, `modelPlan.js` `turnRouter`) plans a background job and nothing else: every other text stays on `main`.
+  if (router !== null && (router.jobsOnly !== true || options.planned)) {
     const asked = clock();
     // A background job always plans on `think` and drives on `main` (`background.js`), and so does a text asking for Tex's judgment (`pushback.js`): no router call.
     const routed = options.planned || nudge !== "" ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
@@ -389,36 +392,13 @@ export async function runTurn(options) {
     // near misses. Absent when it picked another tier or did not answer.
     const confidence = routed.pick === "think" && typeof routed.confidence === "number" ? { confidence: routed.confidence } : {};
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked, ...confidence });
-    tell({ kind: "model", model, reason: routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
+    tell({ kind: "model", model, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  const systemFor = (answering) =>
-    systemPrompt(place, {
-      texting,
-      pictures,
-      notes,
-      model: answering,
-      models: router !== null ? { main: mainModel, think: router.think } : null,
-      edits: tools.some((tool) => tool.name === "write_note"),
-      continued: history.length > 0,
-      used: usedTools(history),
-    }) +
-    threadNote +
-    webPrompt(webNames) +
-    (progress ? PROGRESS_PROMPT : "") +
-    (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note"), identity })) +
-    (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
-    (observe && texting ? TRANSCRIPTS_PROMPT : "") + // a dream (`dream.js`) is told to read them
-    (observe && texting ? CHECK_IN_PROMPT : "") + // what its own check-ins do (`heartbeat.js`)
-    (observe && texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)
-    (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
-    workspacesPrompt(workspaces) +
-    (plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT) + // `modelPlan.js`
-    nudge; // said last, beside the question
-  let system = systemFor(model);
-  const messages = [
-    ...history.map(({ role, text }) => ({ role, text })),
-    { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) },
-  ];
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, voice, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
+  let prompt = promptFor(model);
+  // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
+  const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
+  const messages = [...history.map(({ role, text }) => ({ role, text })), questionMessage];
   /*
     What the turn did, by name only. The arguments a tool was called with can
     carry a path and a query — facts about what somebody is looking for in their
@@ -468,7 +448,7 @@ export async function runTurn(options) {
   */
   const switchTo = (next) => {
     model = next;
-    system = systemFor(model);
+    prompt = promptFor(model);
     for (const message of messages) if (message.content) delete message.content;
   };
   // The last round's tool calls included one that failed: the next one plans again.
@@ -480,6 +460,8 @@ export async function runTurn(options) {
   for (let round = 0; round < rounds; round += 1) {
     const notice = roundNotice(round, rounds);
     if (notice !== null && messages.at(-1)?.text !== notice) messages.push({ role: "user", text: notice });
+    const jobNudge = typeof roundNote === "function" ? roundNote(round, clock() - began) : null;
+    if (typeof jobNudge === "string" && jobNudge !== "") messages.push({ role: "user", text: jobNudge });
     if (plan !== null) {
       const next = modelForRound(plan, round, escalate);
       if (next.model !== model) {
@@ -490,9 +472,11 @@ export async function runTurn(options) {
     escalate = false;
     const asked = clock();
     let answer;
+    questionMessage.preamble = prompt.preamble;
     try {
       answer = await requestBuiltin(
-        { model, system, messages, tools: offered, effort: efforts?.[model], ...(observe ? { display: "summarized" } : {}) },
+        // `cachedThrough`: the history is the cached stretch; the question and what follows it are not (`aiGateway.js`).
+        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: history.length, ...(observe ? { display: "summarized" } : {}) },
         providerOptions.ai,
         providerOptions,
       );
@@ -548,6 +532,8 @@ export async function runTurn(options) {
       // Stopped at the output cap (`aiGateway.js`): the round's thinking and
       // answer ran out of room, which the turn log and a benchmark count.
       ...(answer.stop === "max_tokens" ? { cut: true } : {}),
+      // What the round cost in tokens, and how much of its output was words or calls (the rest is thinking): `turnStages.js` `callPoints`.
+      ...(answer.usage ? { usage: answer.usage, said: (answer.text ?? "").length, calls: answer.toolCalls.length } : {}),
     });
     if (answer.usage) {
       usage.input += answer.usage.input;
@@ -565,7 +551,14 @@ export async function runTurn(options) {
 
     if (answer.toolCalls.length === 0) {
       const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text)) ?? null : null;
-      if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace } };
+      // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
+      const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
+      if (late !== null) {
+        messages.push({ role: "assistant", text: answer.text }, { role: "user", text: `${LATE_TEXT}\n\n${late}` });
+        tell({ kind: "steered", text: steer.words.at(-1) ?? "" });
+        continue;
+      }
+      if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: { system: systemText(prompt.system), messages } }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
       messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheckNote(recheck) });
       continue;
     }
@@ -633,7 +626,7 @@ export async function runTurn(options) {
               progress && call.name === PROGRESS_TOOL
                 ? progress.call(call.args)
                 : localCalls.has(call.name)
-                ? localCalls.get(call.name)(call.args)
+                ? localCalls.get(call.name)(call.args, { system: [systemText(prompt.system), prompt.preamble].join("\n\n"), messages, tools: offered }) // the turn so far, for a tool that reads it (`advisor.js`)
                 : webNames.has(call.name)
                   ? web.call(call.name, call.args)
                   : callTool(call.name, call.args),
@@ -664,7 +657,7 @@ export async function runTurn(options) {
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
       // A failed step sends the next round to the planner; one held for the person's yes does not.
       if (failedCall(result)) escalate = true;
-      tell({ kind: "tool", name: call.name, args: call.args, ok: result?.isError !== true, ms: toolMs, held: result?.held === true });
+      tell({ kind: "tool", name: call.name, args: call.args, ok: result?.isError !== true, ms: toolMs, held: result?.held === true, reason: whyFailed(result), result: toolResultText(result) }); // the result, for the chat's ledger (`ledger.js`)
       messages.push({
         role: "tool",
         id: call.id,
@@ -676,6 +669,11 @@ export async function runTurn(options) {
         // second, different copy of the email texted beside the one held (Dev, 2026-10-19).
         isError: failedCall(result),
       });
+      // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
+      const settled = typeof endsTurn === "function" && result?.isError !== true ? endsTurn(call.name, call.args) : null;
+      if (typeof settled === "string" && settled !== "") {
+        return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: { system: systemText(prompt.system), messages } };
+      }
     }
     if (steer !== null && typeof steer.cancelled === "function" && steer.wrote !== true && (await steer.cancelled())) return { answer: "", provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, cancelled: true }; // the Worker cancelled it (`steer.js`)
     const steered = steer === null ? null : await steer.next();
@@ -695,5 +693,6 @@ export async function runTurn(options) {
     usageByModel,
     timing: { ...timing, trace },
     exhausted: true,
+    live: { system: systemText(prompt.system), messages },
   };
 }

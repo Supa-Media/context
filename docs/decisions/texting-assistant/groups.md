@@ -1,5 +1,7 @@
 # Tex in a group chat answers from the one shared workspace everyone in it is a member of (2026-10-20)
 
+> **Superseded in part (the owner, 2026-10-31):** a chat is bound to no workspace. See [A chat reaches the workspaces its people share](#a-chat-reaches-the-workspaces-its-people-share-the-owner-2026-10-31) below; "Tex, use @slug" and the question that asks a chat to pick are gone.
+
 The owner asked for Tex in iMessage group chats, like Claude in Slack, but
 "only access to workspaces that all the users in the chat have access to".
 This is how that is built, and the decisions the owner made on the way.
@@ -9,6 +11,8 @@ This is how that is built, and the decisions the owner made on the way.
 > **Superseded in part (Dev2, 2026-10-26):** what wakes Tex in a group is now the group's chosen style and a model's decision over the chat's event log, with the addressed-only test below kept as the Quiet style and the fallback, and one answer may cover several people's messages. See [Tex reads one event log and decides when to answer](./event-log.md).
 
 > **Superseded in part (Dev2, 2026-10-27):** an inline reply to one of Tex's texts is no longer addressed by itself. Tex answered replies meant for the people in the chat ("Yea, don't use the API"), so a reply that says more than thanks now always reaches decide, whatever the style, and decide judges it; with decide down, it is answered only if it is a question. Its name opening or closing a message, or in a question, still always gets an answer.
+
+> **Superseded in part (Dev2, 2026-11-01):** its bare name in a question no longer addresses Tex; an @-tag of Tex anywhere does, and an inline reply to Tex that says more than thanks does again (superseding the 2026-10-27 note above). Decide judges every message: an addressed one's turn starts at once with decide asked beside it, and decide's silent drops the answer unsent. See [chat-state-machine](./chat-state-machine.md#decide-judges-every-message-an-addressed-one-beside-its-turn-dev2-2026-11-01).
 
 Tex answers in a group only when it is addressed: its name ("Tex" or
 "Context") opening or closing the message, its name in a question, or an
@@ -22,6 +26,19 @@ Each tagged message is resolved again by the control plane
 - Everyone in the chat except the line the message came in on must be a phone
   linked to an account, with texting not paused. The list is the webhook's
   and Sendblue's members read together, so more people can only narrow it.
+  A question whose members can't be read is retried, never decided on the
+  webhook's names alone (2026-11-02): a Sendblue webhook may name someone by
+  an email handle that the read before the answer lists as a phone, which
+  held the answer for a newcomer nobody was, and the control plane mints the
+  turn's grant and spends the one-shot introduction on the people it is
+  given. A command on Sendblue is still answered from the webhook's names,
+  so "Tex, stop" works with the groups API down; "what can you see" waits
+  for the list, since it names the workspaces those people share. On
+  WhatsApp, whose webhook names only the sender, every turn waits for the
+  list, as before. Before the answer and before
+  each progress line, a failed read is tried once more at once; a list unread
+  twice still holds the answer, since a list nobody can read is not one with
+  nobody new in it (`groupModelTurn.ts`; tests in `groupMembersRead.test.ts`).
   One person who isn't on Context means no notes in that chat, until an
   owner or editor turns guest mode on
   ([group-guests](./group-guests.md), 2026-10-25).
@@ -193,8 +210,10 @@ version keeps each chat's memory as plumbing in the bound workspace,
 `.context/agent/groups/<hash>.json`, filed by the chat's key alone: one memory
 per chat, and somebody added later reads what came before them, untagged
 lines included (the owner, 2026-10-31, reversing the people-named file).
-A visible `tex/groups/` note the
-people in the chat can read and correct is the follow-up.
+The `tex/groups/` notes in workspace folders that followed were retired on
+2026-11-01: the chat's history has one copy, the memory page in its home in
+@context-lc, whose text lives in the chat's Durable Object
+([group-memory-one-copy](./group-memory-one-copy.md)).
 
 ## What Sendblue gives and doesn't
 
@@ -209,9 +228,9 @@ members read fails, the webhook's own list is used and the failure is
 logged. An answer is not sent if the members read after the turn shows
 someone new.
 
-**What a simplification would cost:** handing a turn every kept line, rather
-than those said in front of the same people, replays to a newcomer what was
-said before they joined. A group turn on the tagger's ordinary
+**What a simplification would cost:** (A group turn now reads every kept line,
+including what was said before a newcomer joined: the owner, 2026-11-02;
+[event-log](./event-log.md).) A group turn on the tagger's ordinary
 texting grant reads their personal workspace, mail and vault into a room of
 other people. A workspace set computed once at join time, rather than per
 message and per tool call, keeps answering after someone is removed. Tests:
@@ -220,7 +239,7 @@ message and per tool call, keeps answering after someone is removed. Tests:
 
 ## Delivery in a busy chat (from the group chat of 2026-10-21)
 
-Dev2 and Jhon tested Tex in a group and found answers that broke apart. What
+Dev2 and a teammate tested Tex in a group and found answers that broke apart. What
 changed, in `apps/agent/src/groupInbox.ts`:
 
 - **Every bubble of an answer threads under the message it answers**, the
@@ -258,7 +277,7 @@ model to speak as "I", never "Context will text you".
 
 ## Group Tex as capable as 1:1 Tex (the owner, 2026-10-23)
 
-Dev2 and Jhon found group Tex much weaker than 1:1 Tex on the same ask (a
+Dev2 and a teammate found group Tex much weaker than 1:1 Tex on the same ask (a
 Beacon link to research and add to the backlog). The owner asked for every
 issue to be fixed. What changed:
 
@@ -436,3 +455,20 @@ access rules are past 256 KB still opens".
 ## Who pays for a group chat's turns (the owner, 2026-10-31)
 
 The person who brought Tex into a chat is its sponsor: the first account holder whose turn mints a grant there, set once and never overwritten (a row from before this rule reads its binder, then its tagger). Every turn in the chat is metered to the sponsor's personal workspace, whoever tagged Tex, guest chats included; if the sponsor has no personal workspace or texting is paused for them, the turn falls back to today's meter, the tagger's (a guest chat's binder's). Each finished turn's cost is also recorded per day against the person who tagged Tex, so the chat can show each person's share; a guest tagger's turn is recorded as `guest` until the gateway can name the number, and the owner's decision lets guests' numbers be stored when it does. Nothing reads these shares publicly yet. Code: `functions/lib/textGroupUsage.ts`, `functions/textGroupUsage.ts`; tests: `__tests__/textGroupUsage.test.ts`.
+
+## A chat reaches the workspaces its people share (the owner, 2026-10-31)
+
+Decided by the owner in the Tex Devs meeting of 2026-10-30 and the day after: a group chat is not tied to one workspace. Binding a chat to "the one workspace" (above) made it pick, made the pick stale the moment people joined or left, and left everything in the other workspaces its people share out of reach.
+
+- **Reach is worked out on the fly.** The chat reaches every *shared* workspace that all of its people with accounts are live members of (`lib/textGroupReach.ts`, `reachOf`). It is never a personal workspace, never the pinned workspace (`@context-lc`: a chat's access to that is its home), and **empty when anyone in the chat has no account** (a guest, a number not linked by code, or texting paused). A chat with no reach has its home alone, as in [chat-homes](./chat-homes.md#chats-with-people-who-arent-all-here-2026-10-31).
+- **The grant is the home's, with the reach beside it.** It is minted on the pinned workspace for the chat's sponsor (the E1 home-only grant) and carries `texGroup.reach` and `texGroup.reachPeople`, recomputed on every turn. `contextsForGrant` returns the home row, then one row per workspace in reach: `team` tier, no granted names, never `context:private`, held at the **lowest role among the chat's people there**, so one viewer in the chat makes the whole chat read-only in that workspace and no other.
+- **Re-checked on every request, per person, per workspace.** What a request is given is `liveReach`, not the stored list: each workspace in the list is kept only while every person in the chat, and the sponsor who acts (writes are audited as them), is still a member of it and has not paused texting. Someone removed from a workspace drops it from the chat's next call, mid-turn included; the grant itself lives on with the rest. A stored list that names a personal workspace, the pin, or a workspace nobody in the chat is in serves none of them.
+- **Tool calls name a workspace with `context: "@slug"`, as for any multi-workspace grant.** A call with none reaches the chat's home. The gateway adds no rule of its own: the session lists only the grant's rows, so a `context` naming anything else is refused as a workspace that does not exist is (`session.js` `sessionForContext`). The prompt names the reach from the session, never from the Worker's body (`agent/groupTurn.js` `reachOf`).
+- **No pin, no home, one workspace.** A deployment without a pinned workspace has nowhere to put the chat's grant. There the chat is answered as before, on the one workspace in its reach (the one it was last bound to if still in reach, else the first by name), for the tagger, so a self-hosted context still works. This path asks the chat nothing.
+- **The binding flow is gone.** "Tex, use @slug", the name-alone answer to "which one?", and the `choose` and `not_shared` answers are removed from the Worker (`groupWords.ts`, `groupInbox.ts`) and the control plane. `textGroups.workspaceId` stays readable for old rows and is still set by "Tex, add everyone here to @slug" ([invited-family](./invited-family.md)), which is the one thing that names a workspace for a chat now. It is marked deprecated in the schema.
+- **Where one workspace is needed**, `chatWorkspace` answers with the bound one if it is still in reach, else the first in reach by name, and nothing if the chat reaches none (a row that never took a turn under reach keeps its bound workspace). That is how the chat's mail shares (`textGroupMail.ts`), its check-in (`textGroupLooks.ts`), its decisions' meter (`groupDecideWorkspace`) and its routines (`routines/chats.ts`: a routine runs in any workspace the chat reaches) read it. The gateway reads the playbook (`groupPlaybook.js`) from the first in reach by name; it does not know which workspace an old row was bound to.
+
+Two clearances were closed with it. A home-only grant's row (the chat's folder in the pin, an editor's) is no longer an owner or editor clearance on the pin (`gatewayOwnerClearance`, `gatewayEditorClearance`), and a note mailbox joined from it must sit under the home (`noteMail.ts`).
+
+What a simplification would cost: caching the reach on the grant and trusting it drops the "someone left" guarantee; computing it from the tagger alone gives a chat the notes of a workspace one of its people cannot open; letting a personal workspace or the pin count hands a chat someone's mail and calendar or the deployment's own notes. Tests: `apps/convex/__tests__/textGroupReach.test.ts`, `apps/mcp/test/chatReach.test.mjs`.
+
