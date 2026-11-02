@@ -45,7 +45,7 @@ export const OFF_IN_CHATS = new Set([
   "group_turn_records", // a group turn is always treated as having read from outside, so its turn records add nothing
 ]);
 
-import { splitTexKey } from "../store/texRouting.js";
+import { goesToObject } from "../store/texRouting.js";
 
 /** The kinds a person is waiting on. */
 const CHAT_KINDS = new Set(["one", "group"]);
@@ -135,7 +135,8 @@ export function texEntry(env, { who = "", now = Date.now, later = [] } = {}) {
     /**
      * Time every call the turn makes to its store, by operation and by where it
      * went: `store:get:object` for a key kept in a Durable Object (Tex's
-     * notes and chat state, `texRouting.js`), `store:get:bucket` for the
+     * notes and chat state, a person's bookkeeping, `texRouting.js`;
+     * `store:desk:object` for the desk), `store:get:bucket` for the
      * bucket. Same Worker, same turn: the two compare directly. Never a key.
      */
     watch(store) {
@@ -143,7 +144,7 @@ export function texEntry(env, { who = "", now = Date.now, later = [] } = {}) {
         const inner = store?.[op];
         if (typeof inner !== "function") continue;
         store[op] = function (key, ...rest) {
-          const where = splitTexKey(op === "list" ? key?.prefix : key) === null ? "bucket" : "object";
+          const where = goesToObject(op === "list" ? key?.prefix : key, { prefix: op === "list" }) ? "object" : "bucket";
           const at = now();
           let result;
           try {
@@ -156,6 +157,20 @@ export function texEntry(env, { who = "", now = Date.now, later = [] } = {}) {
             (value) => (recordCall(`store:${op}:${where}`, at, "ok"), value),
             (error) => {
               recordCall(`store:${op}:${where}`, at, "failed");
+              throw error;
+            },
+          );
+        };
+      }
+      // A person's texted turn's first reads, one call to their object (`texStore/desk.js`).
+      const desk = store?.texDesk;
+      if (typeof desk === "function") {
+        store.texDesk = function (...args) {
+          const at = now();
+          return Promise.resolve(desk.apply(this, args)).then(
+            (value) => (recordCall("store:desk:object", at, "ok"), value),
+            (error) => {
+              recordCall("store:desk:object", at, "failed");
               throw error;
             },
           );

@@ -117,6 +117,32 @@ test("a tool waits for the allowed check, and none runs when it says no", async 
   assert.deepEqual(ran, ["search_notes"]);
 });
 
+test("a person's own Tex bookkeeping and their desk are timed as object calls: the one-to-one reads that live in their object", async () => {
+  const TEX_ENTRY = dataset();
+  const tex = texEntry({ TEX_ENTRY }, { who: "ws_1" });
+  let desks = 0;
+  const store = {
+    get: async () => null,
+    put: async () => ({}),
+    list: async () => ({ objects: [] }),
+    texDesk: async () => ((desks += 1), { history: null, notes: {} }),
+  };
+  tex.watch(store);
+  await store.get(".context/agent/history/texts.json");
+  await store.put(".context/agent/turns/t1.json", "{}");
+  await store.list({ prefix: ".context/agent/running/" });
+  assert.deepEqual(await store.texDesk(), { history: null, notes: {} });
+  await store.get(".context/agent/settings.json");
+  assert.equal(desks, 1);
+  assert.deepEqual(TEX_ENTRY.points.map((point) => point.blobs.slice(2)), [
+    ["store:get:object", "ok"],
+    ["store:put:object", "ok"],
+    ["store:list:object", "ok"],
+    ["store:desk:object", "ok"],
+    ["store:get:bucket", "ok"],
+  ]);
+});
+
 test("each store call is timed by operation and by where it went, a Tex object or the bucket, never by key", async () => {
   const TEX_ENTRY = dataset();
   const tex = texEntry({ TEX_ENTRY }, { who: "ws_1" });
