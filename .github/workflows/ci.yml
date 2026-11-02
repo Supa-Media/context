@@ -149,6 +149,7 @@ jobs:
           - 'apps/mcp/src/moves/**'
           - 'apps/mcp/src/notes/**'
           - 'apps/mcp/src/objectPlace.js'
+          - 'apps/mcp/src/orient/**'
           - 'apps/mcp/src/plugins/**'
           - 'apps/mcp/src/presence.js'
           - 'apps/mcp/src/privacy/**'
@@ -758,6 +759,7 @@ jobs:
             apps/mcp/src/moves/**
             apps/mcp/src/notes/**
             apps/mcp/src/objectPlace.js
+            apps/mcp/src/orient/**
             apps/mcp/src/plugins/**
             apps/mcp/src/presence.js
             apps/mcp/src/privacy/**
