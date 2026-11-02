@@ -20,13 +20,16 @@ import { flushAccessWrites } from "../accessHandOff/flush";
 /** The most rows one outbox entry names; a mutation that changes more is pushed whole (`all`). */
 export const OUTBOX_MAX_IDS = 2_000;
 
-/** Whether this workspace's notes are judged in its object. No row means the bucket, which needs nothing. */
-async function judgedInObject(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+/**
+ * Where this workspace's notes are judged: `object`, another home, or `null` with no row (the bucket, which needs
+ * nothing, and whose object never kept a binding: the gateway keeps one only while the notes are in the object).
+ */
+async function homeOf(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<string | null> {
   const home = await ctx.db
     .query("workspaceObjectHomes")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
-  return home?.home === "object";
+  return home?.home ?? null;
 }
 
 /** Whether a writer opened a mark in this workspace's object that has not committed yet (`./objectFirst.ts`). */
@@ -45,7 +48,12 @@ export async function flushRowChanges(
   source = "unknown",
 ): Promise<void> {
   for (const [workspaceId, change] of changes) {
-    if (!(await judgedInObject(ctx, workspaceId))) continue;
+    const home = await homeOf(ctx, workspaceId);
+    if (home !== "object") {
+      // No outbox here, but a binding the object kept must still go (a workspace switched back off its object).
+      if (change.binding && home !== null) await ctx.scheduler.runAfter(0, internal.functions.workspaceObjectBinding.clear, { workspaceId });
+      continue;
+    }
     const ids = [...change.nodeIds];
     const all = ids.length > OUTBOX_MAX_IDS;
     // A write that may narrow should have told the object first. One that did not is let through as before (the
@@ -61,6 +69,9 @@ export async function flushRowChanges(
       access: change.access,
       ...(all ? { all: true } : {}),
       ...(unmarked ? { unmarked: true } : {}),
+      // The storage binding changed: the push clears the copy the object keeps, and until then the workspace reads
+      // as behind, so no request opens a store from that copy (`apps/mcp/src/store/objectBinding.js`).
+      ...(change.binding ? { binding: true } : {}),
       at: Date.now(),
     });
     await ctx.scheduler.runAfter(0, internal.functions.workspaceObjectPush.drain, { workspaceId });

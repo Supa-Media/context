@@ -22,7 +22,12 @@ import type { LinkTable } from "./linkTable";
 import { servedKeys } from "./manifestStore";
 
 type Ctx = ActionCtx;
-export type FactRows = (request: { ask: "props" | "links" | "chaos"; paths?: string[] }) => Promise<Record<string, unknown>>;
+export type FactRows = (request: {
+  ask: "props" | "links" | "chaos" | "candidates";
+  paths?: string[];
+  sources?: string[];
+  names?: string[];
+}) => Promise<Record<string, unknown>>;
 
 /** The object's unfiltered facts, or `null` where the workspace's notes do not live in its object. */
 export async function objectFactRows(ctx: Ctx, workspaceId: Id<"workspaces">): Promise<FactRows | null> {
@@ -84,4 +89,44 @@ export async function objectLinkTable(rows: FactRows | null, served: FileStore):
     unparsed: typeof answer.unparsed === "number" ? answer.unparsed : 0,
     read: async () => ({ paths: (await servedKeys(served)).filter(isFactNote), links }),
   };
+}
+
+/**
+ * These notes' props as the object holds them now, read at their current text: `sealed` and `props` (`propsOf` as
+ * JSON) by path. `null` where the object is not asked or does not answer; a path it does not hold is absent, and
+ * the caller keeps what the control plane's row says for it.
+ */
+export async function objectPropsAt(rows: FactRows | null, paths: readonly string[]): Promise<Map<string, { sealed: boolean; props: string | null }> | null> {
+  if (rows === null) return null;
+  const found = new Map<string, { sealed: boolean; props: string | null }>();
+  const wanted = [...new Set(paths)];
+  try {
+    for (let at = 0; at < wanted.length; at += PROPS_AT_PATHS) {
+      const answer = await rows({ ask: "props", paths: wanted.slice(at, at + PROPS_AT_PATHS) });
+      if (answer.served !== true || !Array.isArray(answer.props)) return null;
+      for (const row of answer.props as Array<{ path: string; sealed: boolean; props: string | null }>) {
+        found.set(row.path, { sealed: row.sealed === true, props: row.props ?? null });
+      }
+    }
+  } catch {
+    return null;
+  }
+  return found;
+}
+
+/**
+ * A move's link candidates from the object (`nodeFacts.candidates`' shape, unfiltered): the notes pointing at what
+ * moved, and those whose links cannot be trusted. `undefined` where the object is not asked or does not answer, and
+ * the caller asks the control plane.
+ */
+export async function objectCandidates(
+  rows: FactRows | null,
+  sources: string[],
+  names: string[],
+): Promise<{ pointing: string[]; unparsed: string[] } | null | undefined> {
+  if (rows === null) return undefined;
+  const answer = await rows({ ask: "candidates", sources, names }).catch(() => null);
+  if (answer?.served !== true) return undefined;
+  const candidates = answer.candidates as { pointing: string[]; unparsed: string[] } | null;
+  return candidates === null ? null : { pointing: candidates.pointing, unparsed: candidates.unparsed };
 }

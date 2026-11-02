@@ -10,6 +10,7 @@
  */
 
 import { internal } from "../../../_generated/api";
+import { objectFactRows, objectPropsAt } from "../nodes/objectFacts";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader } from "../../../_generated/server";
 import type { ActionCtx, MutationCtx } from "../../../_generated/server";
@@ -220,13 +221,17 @@ export async function scanRoutines(
     ...files.slice(0, MAX_ROUTINES_PER_WORKSPACE).filter((path) => scheduleFromNote(asTexPath(path, tex), "") !== null),
     ...homes.files.map((file) => file.path),
   ];
+  // Where the notes live in their object, its props are read at the text it holds, so a routine never waits on them.
+  // A home routine keeps the tree's row: its times are read through the seal there, which the object's facts do not.
+  const objectRows = await objectFactRows(ctx, workspaceId);
   for (let at = 0; at < candidates.length; at += PROPS_AT_PATHS) {
-    const rows = await ctx.runQuery(internal.functions.nodeFacts.propsNow, {
-      workspaceId,
-      paths: candidates.slice(at, at + PROPS_AT_PATHS),
-    });
-    for (const row of rows) {
-      const chat = chatOf.get(row.path);
+    const page = candidates.slice(at, at + PROPS_AT_PATHS);
+    const rows = await ctx.runQuery(internal.functions.nodeFacts.propsNow, { workspaceId, paths: page });
+    const held = await objectPropsAt(objectRows, page.filter((path) => !chatOf.has(path)));
+    for (const tree of rows) {
+      const chat = chatOf.get(tree.path);
+      const fresh = chat === undefined ? held?.get(tree.path) : undefined;
+      const row = fresh === undefined ? tree : { ...tree, current: true, sealed: fresh.sealed, props: fresh.props };
       if (!row.current) {
         waiting.push(chat === undefined ? asTexPath(row.path, tex) : row.path);
         continue;

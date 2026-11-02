@@ -342,6 +342,7 @@ test/agentGroupAskChat.test.mjs
 test/objectFacts.test.mjs
 test/chatLedger.test.mjs
 test/objectManifest.test.mjs
+test/objectBinding.test.mjs
 test/chatLedgerWrites.test.mjs
 test/chatLedgerReads.test.mjs
 test/chatLedgerBackfill.test.mjs
