@@ -423,9 +423,9 @@ export async function runAgentBackgroundRouteChecks(check) {
     const plainLines = (await plain.text()).split("\n").filter(Boolean).map((part) => JSON.parse(part));
     await settle2();
     check("an ordinary texted turn streams no steps", plainLines.length > 0 && !plainLines.some((entry) => "step" in entry));
-    // Dev2, 2026-11-01: a chat that asked for one bubble gets no progress lines, though its turn still streams.
+    // Dev2, 2026-11-01: a chat with progress updates off gets no progress lines, though its turn still streams (one bubble did this before).
     const progressed = {};
-    for (const [name, extra] of [["many", {}], ["one", { texStyle: { bubbles: "one" } }]]) {
+    for (const [name, extra] of [["many", {}], ["one", { updates: "off" }]]) {
       model.install([{ toolCalls: [{ name: "send", args: { action: "progress", args: { text: "Opening OpenTable for Friday." } } }] }, { text: "Nopa at 7." }]);
       const { ctx: ctx3, settle: settle3 } = createWorkerCtx();
       const response = await worker.fetch(
@@ -442,7 +442,7 @@ export async function runAgentBackgroundRouteChecks(check) {
       progressed[name] = { lines: out.filter((entry) => entry.progress).map((entry) => entry.progress), answer: out.at(-1)?.body?.answer };
     }
     check("a texted turn texts its progress line", JSON.stringify(progressed.many.lines) === JSON.stringify(["Opening OpenTable for Friday."]));
-    check("...and one set to one bubble texts none, and still answers", progressed.one.lines.length === 0 && progressed.one.answer === "Nopa at 7.");
+    check("...and one with progress updates off texts none, and still answers", progressed.one.lines.length === 0 && progressed.one.answer === "Nopa at 7.");
   } finally {
     restoreControlPlane();
     restoreS3();
