@@ -41,7 +41,7 @@ function deps(bodies: Record<string, unknown>[], answers: Record<string, unknown
 }
 
 describe("the warm copy", () => {
-  it("the next text hands back the copy the last answer gave, with the chat's newest events", async () => {
+  it("the next text hands back the copy the last answer gave, with the events the gateway has not taken yet", async () => {
     const storage = new MemoryStorage();
     const bodies: Record<string, unknown>[] = [];
     await accept(storage, msg("e1", "hi Tex"), 1_000);
@@ -50,9 +50,10 @@ describe("the warm copy", () => {
     await accept(storage, msg("e2", "what's up"), 2_000);
     await drain(storage, deps(bodies, [{ answer: "Not much.", warm: "tw1.sealed-two" }], () => 2_000));
     expect(bodies[1].warm).toBe("tw1.sealed-one");
-    const recent = bodies[1].recent as { text?: string; from: { kind: string } }[];
-    expect(recent.map((event) => event.text)).toEqual(expect.arrayContaining(["hi Tex", "what's up"]));
-    expect(recent.some((event) => event.from.kind === "tex")).toBe(true);
+    // The outbox only: what the last turn's flush posted is the ledger's, read there (`chatRead.ts`).
+    const recent = (bodies[1].recent ?? []) as { text?: string; from: { kind: string } }[];
+    expect(recent.map((event) => event.text)).not.toContain("hi Tex");
+    expect(recent.some((event) => event.from.kind === "tex")).toBe(false);
   });
 
   it("a turn that started a job still hands its copy to the next text", async () => {

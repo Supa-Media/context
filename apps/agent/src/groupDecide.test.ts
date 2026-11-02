@@ -38,9 +38,8 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { keptEvents } from "./events";
 import { ENGAGEMENT_QUESTION, FOLLOW_TEXTS } from "./groupStyle";
-import { ADA, answerAll, BO, CY, decidedWords, LINE, LINES, setup, silent, untaggedSilent, type Answer } from "./groupWorld.testing";
+import { ADA, answerAll, BO, CY, decidedWords, LINE, LINES, setup, silent, untaggedSilent, type Answer, chatLog } from "./groupWorld.testing";
 
 for (const { name, groupId } of LINES) {
   describe(`a group's decided turns, ${name}`, () => {
@@ -129,7 +128,7 @@ for (const { name, groupId } of LINES) {
       await acceptGroup(storage, w.message("https://reasonmachines.example/page"), 1_000);
       await drainGroup(storage, w.deps);
       // Addressed: its turn never waits on decide (the group review of 2026-10-30); decide is asked beside it, on the tag (Dev2, 2026-11-01).
-      const ids = (await keptEvents(storage, groupId)).filter((event) => event.from.kind === "person").map((event) => event.id);
+      const ids = (await chatLog(storage, w, groupId)).filter((event) => event.from.kind === "person").map((event) => event.id);
       expect(w.decided).toEqual([expect.objectContaining({ addressed: true, running: false, candidates: [ids[0]], newest: ids[0] })]);
       expect(w.asks).toHaveLength(1);
       expect(w.asks[0]).toMatchObject({ question: "Tex check this link out\nhttps://reasonmachines.example/page", covers: ids, chat: groupId });
@@ -334,7 +333,7 @@ for (const { name, groupId } of LINES) {
       const w = setup(groupId, { members: [[ADA, BO], [ADA, BO, CY]] });
       await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
       await drainGroup(storage, w.deps);
-      const outs = (await keptEvents(storage, groupId)).filter((event) => event.from.kind !== "person");
+      const outs = (await chatLog(storage, w, groupId)).filter((event) => event.from.kind !== "person");
       expect(outs.find((event) => event.text === "answer to Tex what's on tonight")).toMatchObject({ delivered: false, reason: "held_newcomer" });
       expect(w.texts).toEqual(["Someone joined while I was working on that, so I didn't send it. Ask me again."]);
     });
@@ -384,7 +383,7 @@ for (const { name, groupId } of LINES) {
       const w = setup(groupId, { agent: () => ({ answer: "Here's the email I'd send. Give it a 👍 and I'll send it.", verbatim: ["Give it a 👍 and I'll send it."], askIds: ["rec_00000001"] }) });
       await acceptGroup(storage, w.message("Tex draft the email to the venue"), 0);
       await drainGroup(storage, w.deps);
-      const ask = (await keptEvents(storage, groupId)).find((event) => event.kind === "ask");
+      const ask = (await chatLog(storage, w, groupId)).find((event) => event.kind === "ask");
       expect(ask).toMatchObject({ ask: "rec_00000001", text: "Give it a 👍 and I'll send it." });
     });
 
@@ -398,7 +397,7 @@ for (const { name, groupId } of LINES) {
       expect(await acceptGroup(storage, w.message("lol nice", { from: BO, participants: [ADA, BO, CY, LINE] }), 10)).toBe("ignored");
       w.release();
       await draining;
-      expect((await keptEvents(storage, groupId)).map((event) => event.text)).not.toContain("lol nice");
+      expect((await chatLog(storage, w, groupId)).map((event) => event.text)).not.toContain("lol nice");
       expect(w.decided.filter((body) => body.running)).toEqual([]);
     });
 
@@ -433,7 +432,7 @@ for (const { name, groupId } of LINES) {
       const w = setup(groupId, { agent: () => ({ answer: "Here it is.", pictures: [{ name: "p.png", mediaType: "image/png", data: btoa("png") }] }) });
       await acceptGroup(storage, w.message("Tex draw it"), 0);
       await drainGroup(storage, { ...w.deps, hostPicture: async () => Promise.reject(new Error("no host")) });
-      const outs = (await keptEvents(storage, groupId)).filter((event) => event.kind === "picture");
+      const outs = (await chatLog(storage, w, groupId)).filter((event) => event.kind === "picture");
       expect(outs).toEqual([expect.objectContaining({ delivered: false, reason: "upload_failed", from: { kind: "tex" } })]);
     });
   });
