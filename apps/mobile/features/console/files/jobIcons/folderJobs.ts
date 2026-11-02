@@ -80,10 +80,11 @@ export function loadedJobs(listings: JobListings): Map<string, RowRole> {
 /**
  * The drawn part of a folder or note of Tex's own (`texPartIcon`), under the
  * folder whose job is Tex wherever it is nested, or `null`. Parts sit at most
- * two below it (`routines/every-day`).
+ * two below it (`routines/every-day`), or two below a group chat's home
+ * (`groups/<words>/routines/every-day`).
  */
 export function texPartIconUnder(jobs: ReadonlyMap<string, RowRole>, path: string): string | null {
-  for (let above = parentPath(path), depth = 0; above !== "" && depth < 2; above = parentPath(above), depth += 1) {
+  for (let above = parentPath(path), depth = 0; above !== "" && depth < 4; above = parentPath(above), depth += 1) {
     if (jobs.get(above) === "tex") return texPartIcon(path.slice(above.length + 1));
   }
   return null;

@@ -11,6 +11,7 @@ import { gatewayTexCommandHandler as texCommandHandler } from "./texCommand";
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { groupKeyOf } from "../../textGroups";
+import { serviceOfGroupId } from "../../textGroupNames";
 import { badRequest, json, stringField } from "../gatewayAuth";
 import { readTexStyle } from "../texStyle";
 
@@ -46,4 +47,21 @@ export const TEX_ROUTES = [
   ["/gateway/tex/page", gatewayTexPageHandler],
   ["/gateway/tex/page/settings", gatewayTexPageSettingsHandler],
   ["/gateway/tex/chat-home", gatewayTexChatHomeHandler],
+] as const;
+
+/** `POST /agent-texts/group/name` `{ line, groupId, name }` → `{ ok }`: the chat's name for its home in the app (`textGroupNames.ts`). */
+export async function agentTextsGroupNameHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const line = stringField(body, "line");
+  const groupId = stringField(body, "groupId");
+  const name = typeof body.name === "string" ? body.name : undefined;
+  if (line === null || groupId === null || groupId.length > MAX_CHAT || (body.name !== undefined && name === undefined) || (name?.length ?? 0) > 2_000) return badRequest();
+  return json(
+    await ctx.runMutation(internal.functions.textGroupNames.setChatName, { groupKey: await groupKeyOf(line, groupId), name, service: serviceOfGroupId(groupId) }),
+  );
+}
+
+/** The texting Worker's group settings routes, registered together in `http.ts`. */
+export const AGENT_GROUP_ROUTES = [
+  ["/agent-texts/group/style", agentTextsGroupStyleHandler],
+  ["/agent-texts/group/name", agentTextsGroupNameHandler],
 ] as const;

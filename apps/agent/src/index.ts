@@ -40,7 +40,7 @@ import type { Picture } from "./line";
 import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, repliedToText, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
-import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
+import { groupNameOf, parseSendblueGroup, sendGroupName, type GroupMessage } from "./sendblueGroups";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { sha256Hex } from "./groupChat";
@@ -175,7 +175,7 @@ export default {
     }
     // A group message goes to the group's own queue, never a sender's (`groupInbox.ts`).
     const grouped = line === "sendblue" ? parseSendblueGroup(payload) : null;
-    if (grouped !== null) return groupWebhook(env, grouped, url.origin);
+    if (grouped !== null) return groupWebhook(env, grouped, url.origin, "sendblue", groupNameOf(payload));
     const inbound = line === "sendblue" ? parseSendblueInbound(payload) : parseInbound(payload);
     if (inbound.kind === "invalid") {
       logWebhook(line, "invalid");
@@ -276,7 +276,7 @@ function logWebhook(line: "linq" | "sendblue" | "whapi", outcome: "unsigned" | "
 }
 
 /** A group message: dropped, or handed to the group's own queue, keyed on the group alone. */
-async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof parseSendblueGroup>>, origin: string, line: "sendblue" | "whapi" = "sendblue"): Promise<Response> {
+async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof parseSendblueGroup>>, origin: string, line: "sendblue" | "whapi" = "sendblue", name: string | null = null): Promise<Response> {
   if (grouped.kind === "invalid") {
     logWebhook(line, "invalid");
     return new Response(null, { status: 400 });
@@ -285,6 +285,7 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
     logWebhook(line, "ignored", `group_${grouped.reason}`);
     return new Response(null, { status: 200 });
   }
+  await sendGroupName((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET, grouped, name); // its folder's name, never in the message
   const stub = inboxByName(env.SENDER_INBOX, groupInboxName(grouped.groupId));
   // The Worker's own address goes along, as for a 1:1 text: without it the group's pictures had nowhere to be
   // served from, and every answer with a card failed after its words went out (2026-10-26).
@@ -292,7 +293,6 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
   logWebhook(line, "accepted", "group");
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
-
 
 /**
  * `POST /whapi`: Tex's WhatsApp line (`whapi.ts`). One delivery can carry

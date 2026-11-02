@@ -971,7 +971,7 @@ http.route({ path: "/agent-texts/decide", method: "POST", handler: agentWorkerRo
 http.route({ path: "/agent-texts/recheck", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsRecheckHandler) }); // `textRecheck.ts`
 http.route({ path: "/agent-texts/group/engagement", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsGroupEngagementHandler) });
 http.route({ path: "/agent-texts/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsStyleHandler) });
-http.route({ path: "/agent-texts/group/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsGroupStyleHandler) });
+for (const [path, handler] of texStyleRoutes.AGENT_GROUP_ROUTES) http.route({ path, method: "POST", handler: agentWorkerRoute(handler) }); // a group's style, and its name for its home (`textGroupNames.ts`)
 /* "Tex, share my chats with the devs", or stop (`functions/texReviews.ts` `setTextsReviewSharing`). */
 http.route({ path: "/agent-texts/review-sharing", method: "POST", handler: agentWorkerRoute(texReviewSharing.agentTextsReviewSharingHandler) });
 export const agentTextsSetup = agentWorkerRoute(agentTexts.agentTextsSetupHandler);

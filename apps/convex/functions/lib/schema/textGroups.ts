@@ -80,6 +80,17 @@ export const textGroupTables = {
      */
     homeWords: v.optional(v.string()),
     homeUsers: v.optional(v.array(v.id("users"))),
+    /**
+     * The chat's iMessage name as its last message gave it (decided by the owner, 2026-11-02; `textGroupNames.ts`):
+     * shown in the app as its home's name, never handed to a model, since anyone in the chat can set it. Absent for
+     * a chat with no name, which is shown by its people.
+     */
+    chatName: v.optional(v.string()),
+    /**
+     * Which app the chat is in, as its last message came (decided by the owner, 2026-11-02: "a drawn green whatsapp
+     * logo or a drawn blue imessage logo"), so its home is drawn with that app's mark. Absent until its next message.
+     */
+    chatService: v.optional(v.union(v.literal("imessage"), v.literal("whatsapp"))),
     lastSeenAt: v.number(),
     /**
      * The chat's own check-in (`lib/textGroupLooks.ts`, decided by the owner, 2026-10-27): when the next look is
