@@ -6,6 +6,7 @@
  */
 
 import { objectFirstManifest } from "../store/objectManifest.js";
+import { attachHomeRoutineReports } from "../agent/chatHomeSeal.js";
 
 /**
  * The three link calls, attached to the store for each request.
@@ -218,6 +219,8 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // A chat home's door: a routine written there is reported, and only one inside the home (`agent/chatHomeSeal.js`).
+  attachHomeRoutineReports(store, session, controlPlane);
 }
 
 /* ----------------------------- auth & scoping ----------------------------- */
