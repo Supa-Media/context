@@ -155,6 +155,9 @@ describe("expected rows (accessObjectsExpected)", () => {
       expiresAt: 9_999,
       status: "active",
       lastUsedAt: 5,
+      createdAt: 1,
+      // Named like the desktop app but with no loopback redirect: not the shell, whatever it calls itself.
+      machine: false,
       at: NOW,
     });
     const revoked = connections.find((row) => row.grantId === String(grantRevoked))!;
@@ -169,6 +172,20 @@ describe("expected rows (accessObjectsExpected)", () => {
     expect(reach.find((row) => row.slug === "dana")).toEqual({ workspaceId: String(me.personalWorkspaceId), slug: "dana", kind: "personal", role: "owner", groups: [], pinned: false, at: NOW });
     expect(reach.find((row) => row.workspaceId === String(sharedId))).toEqual({ workspaceId: String(sharedId), slug: "shared-team", kind: "shared", role: "member", groups: [], pinned: false, at: NOW });
     for (const row of reach) expect(() => checkReachRow(row)).not.toThrow();
+  });
+
+  test("person: a connection from the Context desktop app on a loopback redirect is copied as a machine", async () => {
+    const t = convexTest(schema, modules);
+    const me = await person(t, "fay");
+    const grantId = await t.run(async (ctx) => {
+      await ctx.db.insert("oauthClients", { clientId: "client_shell", clientName: "Context on Fay's Mac", softwareId: "lc.context.desktop", redirectUris: ["http://127.0.0.1:43123/callback"], hashedClientSecret: null, createdAt: 1 } as never);
+      return await ctx.db.insert("oauthGrants", { userId: me.userId, workspaceId: me.personalWorkspaceId!, scopes: ["read"], hashedRefreshToken: hex("6"), hashedAccessToken: hex("7"), accessTokenExpiresAt: 9_999, clientId: "client_shell", status: "active", createdAt: 42 } as never);
+    });
+    const result = await t.query(internal.functions.accessObjectsExpected.person, { userId: me.userId, now: NOW });
+    const row = (result.connections.rows as Record<string, unknown>[]).find((held) => held.grantId === String(grantId))!;
+    expect(row.machine).toBe(true);
+    expect(row.createdAt).toBe(42);
+    expect(checkConnectionRow(row).machine).toBe(true);
   });
 });
 

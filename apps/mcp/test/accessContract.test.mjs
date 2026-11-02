@@ -88,6 +88,13 @@ test("rows are checked, normalized and refused in one voice", () => {
   assert.throws(() => checkInviteRow({ id: "i1", name: "kola", role: "owner", invitedBy: "u1", expiresAt: 9, at: 1 }), AccessRowRefused, "an invite never hands over a workspace");
   assert.throws(() => checkInviteRow({ id: "i1", name: "@Kola", role: "member", invitedBy: "u1", expiresAt: 9, at: 1 }), AccessRowRefused);
   assert.equal(checkConnectionRow({ ...connection, tokenHash: null }).tokenHash, null);
+  // Display-only fields for the app's connected-apps screens: null when the copy did not carry them, refused when malformed.
+  assert.equal(checkConnectionRow(connection).createdAt, null);
+  assert.equal(checkConnectionRow(connection).machine, null);
+  assert.equal(checkConnectionRow({ ...connection, createdAt: 7, machine: true }).createdAt, 7);
+  assert.equal(checkConnectionRow({ ...connection, createdAt: 7, machine: true }).machine, true);
+  assert.throws(() => checkConnectionRow({ ...connection, machine: "yes" }), AccessRowRefused);
+  assert.throws(() => checkConnectionRow({ ...connection, createdAt: "yesterday" }), AccessRowRefused);
   assert.throws(() => checkInviteRow({ id: "i1", email: "a@x.co", phone: "+15550100", role: "member", invitedBy: "u1", expiresAt: 9, at: 1 }), AccessRowRefused);
   assert.throws(() => checkInviteRow({ id: "i1", phone: "5550100", role: "member", invitedBy: "u1", expiresAt: 9, at: 1 }), AccessRowRefused);
 });

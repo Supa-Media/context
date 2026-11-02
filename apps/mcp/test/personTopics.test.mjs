@@ -162,7 +162,7 @@ test("connections are live ones, newest first, never carrying a hash, and an exp
     for (const field of ["tokenHash", "refreshHash", "previousRefreshHash", "expiresAt"]) assert.equal(field in row, false, field);
     assert.equal(JSON.stringify(row).includes("a".repeat(64)), false);
   }
-  assert.deepEqual(rows[1], { grantId: "g1", clientId: "claude-ai", clientName: "Claude", workspaceId: "wpA", scopes: ["context:read"], status: "active", lastUsedAt: 5, at: 1 });
+  assert.deepEqual(rows[1], { grantId: "g1", clientId: "claude-ai", clientName: "Claude", workspaceId: "wpA", scopes: ["context:read"], status: "active", lastUsedAt: 5, createdAt: null, machine: null, at: 1 });
 });
 
 /* --------------------------------- who is admitted --------------------------------- */
@@ -291,6 +291,17 @@ test("a revocation from the control plane's door, or a replayed refresh token, c
   assert.equal(onG3.closed, null, "a normal refresh keeps the grant's socket");
   store.person.rotate({ refreshHash: HASH("f"), next: { tokenHash: HASH("1"), refreshHash: HASH("2"), expiresAt: NOW + 1000 }, at: 31 }, NOW);
   assert.equal(onG3.closed?.code, ACCESS_CLOSE_REAUTH, "a replayed refresh token revokes the grant and closes its socket");
+});
+
+test("a refresh keeps a connection's createdAt and machine, so the app still draws it the same", { skip }, async () => {
+  const store = aliceObject();
+  store.person.put("connections", [connection("g1", { createdAt: 3, machine: true, at: 2 })]);
+  store.person.rotate({ refreshHash: HASH("d"), next: { tokenHash: HASH("7"), refreshHash: HASH("8"), expiresAt: NOW + 1000 }, at: 30 }, NOW);
+  const rows = await personAccessTopics(store, { now: () => NOW }).topics.connections.rows(reader("uAlice"));
+  const g1 = rows.find((row) => row.grantId === "g1");
+  assert.equal(g1.createdAt, 3);
+  assert.equal(g1.machine, true);
+  assert.equal(store.person.connectionByToken(HASH("7"))?.grantId, "g1", "the refresh did rotate");
 });
 
 test("a person's workspace sockets elsewhere are not this object's: the workspace side still answers by the member tables", { skip }, async () => {

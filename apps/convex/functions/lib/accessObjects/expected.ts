@@ -22,6 +22,7 @@ import type { QueryCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { personalWorkspaceOf } from "../faces/people";
 import { isPending } from "../invitations/forCaller";
+import { isDesktopShellClient } from "../machineGrant";
 import { pinnedContextRow } from "../pinnedContext";
 import { pinReaderNames } from "../pinnedReaders";
 import { sharedWithUser } from "../shares/recipients";
@@ -242,7 +243,7 @@ async function liveNodeAt(ctx: QueryCtx, workspaceId: Id<"workspaces">, path: st
  * never minted has `tokenHash: null`; one with no expiry has `expiresAt: 0`.
  */
 export async function connectionsOf(ctx: QueryCtx, userId: Id<"users">, now: number): Promise<Rows> {
-  const names = new Map<string, string | null>();
+  const names = new Map<string, { name: string | null; machine: boolean }>();
   const rows: Row[] = [];
   let skipped = 0;
   let scanned = 0;
@@ -261,12 +262,12 @@ export async function connectionsOf(ctx: QueryCtx, userId: Id<"users">, now: num
         .query("oauthClients")
         .withIndex("by_clientId", (q) => q.eq("clientId", grant.clientId))
         .first();
-      names.set(grant.clientId, client?.clientName ?? null);
+      names.set(grant.clientId, { name: client?.clientName ?? null, machine: client !== null && isDesktopShellClient(client) });
     }
     rows.push({
       grantId: String(grant._id),
       clientId: grant.clientId,
-      clientName: names.get(grant.clientId) ?? null,
+      clientName: names.get(grant.clientId)?.name ?? null,
       workspaceId: String(grant.workspaceId),
       scopes: [...grant.scopes],
       tokenHash: grant.hashedAccessToken ?? null,
@@ -275,6 +276,8 @@ export async function connectionsOf(ctx: QueryCtx, userId: Id<"users">, now: num
       expiresAt: grant.accessTokenExpiresAt ?? 0,
       status: grant.status,
       lastUsedAt: grant.lastUsedAt ?? null,
+      createdAt: grant.createdAt,
+      machine: names.get(grant.clientId)?.machine ?? false,
       at: now,
     });
   }
