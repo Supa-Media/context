@@ -134,11 +134,16 @@ export function mailcheckLine(b: Behind["mailcheck"]): string {
 }
 
 /** The five shortcut tiles' second lines. */
-export function tileLines(t: Tiles, group: boolean): Record<"routines" | "checkins" | "about" | "computer" | "settings", string> {
+export function tileLines(
+  t: Tiles,
+  group: boolean,
+  now: Date = new Date(),
+): Record<"routines" | "checkins" | "about" | "computer" | "settings", string> {
   const host = t.computer.url ? hostOf(t.computer.url) : "";
+  const words = (next: string | number) => (typeof next === "number" ? clock(next, now) : next);
   return {
-    routines: t.routines.on === 0 ? "None on" : `${t.routines.on} on${t.routines.next ? ` · ${group ? "" : "next "}${t.routines.next}` : ""}`,
-    checkins: t.checkins.next ? `Next ${t.checkins.next}` : "None set",
+    routines: t.routines.on === 0 ? "None on" : `${t.routines.on} on${t.routines.next !== undefined ? ` · ${group ? "" : "next "}${words(t.routines.next)}` : ""}`,
+    checkins: t.checkins.next !== undefined ? `Next ${words(t.checkins.next)}` : "None set",
     about:
       t.about.newToday > 0 ? `${t.about.newToday} new today` : t.about.count > 0 ? `${plural(t.about.count, "thing")}` : "Nothing yet",
     computer: !t.computer.running ? "Not running" : group && host ? `On ${host} · live` : "Live",
@@ -207,4 +212,16 @@ export function onSite(job: { title: string; now?: string; steps: { text: string
   }
   if (!host) return false;
   return [job.title, job.now ?? "", ...job.steps.map((s) => s.text)].some((t) => t.toLowerCase().includes(host));
+}
+
+/** A check-in's time as its form edits it, `2026-11-03 18:30`, in the viewer's own time: the form the gateway takes. */
+export function whenField(at: number): string {
+  const d = new Date(at);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Is this a time the gateway takes for a check-in (`YYYY-MM-DD HH:MM`). */
+export function isWhenField(v: string): boolean {
+  return /^\d{4}-\d{2}-\d{2} \d{1,2}:\d{2}$/.test(v.trim());
 }

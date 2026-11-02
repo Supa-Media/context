@@ -32,6 +32,8 @@ import {
   slotLine,
   statusLine,
   tileLines,
+  whenField,
+  isWhenField,
   turnTail,
 } from "../features/tex/page/texPageFormat";
 import { liveProtocols, liveSocketUrl, openLive, readPatch, type SocketLike } from "../features/tex/page/texPageLive";
@@ -172,6 +174,21 @@ describe("the mock's words", () => {
       true,
     );
     expect(g).toEqual({ routines: "1 on · Fri 2 pm", checkins: "None set", about: "12 things", computer: "On resy.com · live", settings: "Answers when named" });
+    // The gateway sends the instants; the page words them in the viewer's time.
+    const now = new Date(2026, 10, 2, 18, 10);
+    const read = readOverview({ tiles: { routines: { on: 2, next: new Date(2026, 10, 2, 20, 0).getTime() }, checkins: { next: new Date(2026, 10, 2, 21, 30).getTime(), count: 2 } } });
+    const n = tileLines(read!.tiles, false, now);
+    expect(n.routines).toBe("2 on · next 8:00");
+    expect(n.checkins).toBe("Next 9:30");
+  });
+
+  test("a check-in's time is edited in the form the gateway takes", () => {
+    const at = new Date(2026, 10, 3, 9, 5).getTime();
+    expect(whenField(at)).toBe("2026-11-03 09:05");
+    expect(isWhenField(whenField(at))).toBe(true);
+    expect(isWhenField("Tonight at 9:30")).toBe(false);
+    const page = readList("checkins", { items: [{ id: "c1", when: "Tonight at 9:30", what: "x", at }] });
+    expect(page.items[0]!.at).toBe(at);
   });
 
   test("a turn's actions link only what they name", () => {

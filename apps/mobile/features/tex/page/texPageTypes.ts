@@ -72,8 +72,9 @@ export interface Slot {
 }
 
 export interface Tiles {
-  routines: { on: number; next?: string };
-  checkins: { next?: string };
+  /** `next` is words ("8:00") or, as the gateway sends it, the instant. */
+  routines: { on: number; next?: string | number };
+  checkins: { next?: string | number };
   about: { count: number; newToday: number };
   computer: { running: boolean; url?: string };
   settings: { summary: string };
@@ -134,6 +135,8 @@ export interface CheckIn {
   what: string;
   done?: boolean;
   result?: string;
+  /** When it next runs, where it is set. */
+  at?: number;
 }
 
 export interface AboutLine {
@@ -179,7 +182,7 @@ export type PageAction =
   | { type: "report"; job: string; step: number }
   | { type: "routine.toggle"; id: string; on: boolean }
   | { type: "routine.remove"; id: string }
-  | { type: "checkin.edit"; id: string; when: string; what: string }
+  | { type: "checkin.edit"; id: string; when?: string; what?: string }
   | { type: "checkin.cancel"; id: string }
   | { type: "checkin.add"; when: string; what: string }
   | { type: "about.fix"; line: string; text: string }

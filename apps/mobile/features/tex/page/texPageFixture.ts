@@ -201,8 +201,8 @@ const ROUTINES: Routine[] = [
 ];
 
 const CHECKINS: CheckIn[] = [
-  { id: "c1", when: "Tonight at 9:30", what: "Ask how you slept, log it" },
-  { id: "c2", when: "Tomorrow at 1:00 pm", what: "Did Sam reply about Thursday?" },
+  { id: "c1", when: "Tonight at 9:30", what: "Ask how you slept, log it", at: at(21, 30) },
+  { id: "c2", when: "Tomorrow at 1:00 pm", what: "Did Sam reply about Thursday?", at: at(13, 0, 1) },
   { id: "c3", when: "Today at 12:00", what: "Read mail and calendar", done: true, result: "nothing worth a text" },
 ];
 
@@ -354,7 +354,9 @@ export function fixtureSource(): TexPageSource {
           push(chat, { section: "routines" });
           break;
         case "checkin.edit":
-          for (const x of checkins) if (x.id === action.id) Object.assign(x, { when: action.when, what: action.what });
+          // As the gateway does: only what was sent changes; a new time is shown as it was typed.
+          for (const x of checkins)
+            if (x.id === action.id) Object.assign(x, action.when ? { when: action.when } : {}, action.what ? { what: action.what } : {});
           push(chat, { section: "checkins" });
           break;
         case "checkin.cancel":

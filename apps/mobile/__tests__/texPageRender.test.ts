@@ -16,6 +16,8 @@
  *     on the open page without a reload" fails.
  *  2. Stop wired to Tex's browser instead of the job (as first written) →
  *     "a job's page shows why a step failed and steers the job" fails.
+ *  3. A check-in edit sending its unchanged text as well → "editing a
+ *     check-in sends the gateway's time form, and only what changed" fails.
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -147,6 +149,21 @@ describe("the Tex page", () => {
     const stored = await source.list("me", "routines");
     expect(stored.kind === "ok" && stored.value.items[0]!.on).toBe(false);
     expect((container.querySelector('[role="switch"]') as HTMLElement).getAttribute("aria-checked")).toBe("false");
+  });
+
+  test("editing a check-in sends the gateway's time form, and only what changed", async () => {
+    const source = fixtureSource();
+    const sent: PageAction[] = [];
+    await render({ ...source, act: async (chat, a) => (sent.push(a), source.act(chat, a)) }, { chat: "me", view: "checkins" });
+    const when = byTestId("tex-checkin-form-c1-when") as HTMLInputElement;
+    expect(when.value).toBe("2026-11-02 21:30");
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(when, "2026-11-02 22:00");
+      when.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await press("tex-checkin-form-c1-save");
+    expect(sent).toEqual([{ type: "checkin.edit", id: "c1", when: "2026-11-02 22:00" }]);
   });
 
   test("a job's page shows why a step failed and steers the job", async () => {

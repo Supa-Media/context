@@ -42,7 +42,7 @@ export function TexHome({
   const now = useNow();
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const lines = tileLines(overview.tiles, group !== null);
+  const lines = tileLines(overview.tiles, group !== null, new Date(now));
   const titleSize = wide ? 34 : 26;
 
   const open = (action: TurnAction) => {

@@ -4,7 +4,7 @@ import { useThemedStyles, type Colors } from "../../design/theme";
 import { useFieldFont } from "../../design/fieldFont";
 import { texPageType } from "../../design/tokens";
 import { Ghost, Hint, ListBox, ListRow, More, pageStyles, SubPage, T, useNow } from "./TexPageParts";
-import { day } from "./texPageFormat";
+import { day, isWhenField, whenField } from "./texPageFormat";
 import type { ViewProps } from "./TexPageBody";
 import { useTexList } from "./useTexPage";
 import type { AboutLine, CheckIn, Routine } from "./texPageTypes";
@@ -159,8 +159,15 @@ export function CheckinsPage({ source, page, chat, group }: ViewProps) {
   const saveEdit = async (c: CheckIn, when: string, what: string) => {
     setFailed(false);
     setOpenId(null);
-    setEdits((e) => ({ ...e, [c.id]: { when, what } }));
-    const answer = await page.act({ type: "checkin.edit", id: c.id, when, what });
+    const was = { when: c.at !== undefined ? whenField(c.at) : "", what: c.what };
+    setEdits((e) => ({ ...e, [c.id]: { when: when === was.when ? c.when : when, what } }));
+    // Only what changed: the gateway re-arms a check-in whose time is sent.
+    const answer = await page.act({
+      type: "checkin.edit",
+      id: c.id,
+      ...(when !== was.when ? { when } : {}),
+      ...(what !== was.what ? { what } : {}),
+    });
     if (!answer.ok) {
       setEdits((e) => without(e, c.id));
       setFailed(true);
@@ -220,7 +227,7 @@ export function CheckinsPage({ source, page, chat, group }: ViewProps) {
                   <CheckinForm
                     key={`edit-${c.id}`}
                     testID={`tex-checkin-form-${c.id}`}
-                    initial={{ when: c.when, what: c.what }}
+                    initial={{ when: c.at !== undefined ? whenField(c.at) : "", what: c.what }}
                     onSave={(when, what) => void saveEdit(c, when, what)}
                     onCancel={() => void cancelEdit(c)}
                   />
@@ -281,10 +288,10 @@ function CheckinForm({
   const styles = useThemedStyles(makeStyles);
   const [when, setWhen] = useState(initial?.when ?? "");
   const [what, setWhat] = useState(initial?.what ?? "");
-  const ready = when.trim() !== "" && what.trim() !== "";
+  const ready = isWhenField(when) && what.trim() !== "";
   return (
     <View style={styles.form} testID={testID}>
-      <Field label="When" value={when} onChangeText={setWhen} testID={`${testID}-when`} />
+      <Field label="When" value={when} onChangeText={setWhen} placeholder="2026-11-03 18:30" testID={`${testID}-when`} />
       <Field label="What Tex does" value={what} onChangeText={setWhat} testID={`${testID}-what`} />
       <View style={styles.fb}>
         <Ghost label="Save" disabled={!ready} onPress={() => onSave(when.trim(), what.trim())} testID={`${testID}-save`} />
@@ -294,7 +301,19 @@ function CheckinForm({
   );
 }
 
-function Field({ label, value, onChangeText, testID }: { label: string; value: string; onChangeText: (v: string) => void; testID: string }) {
+function Field({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  testID,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (v: string) => void;
+  placeholder?: string;
+  testID: string;
+}) {
   const styles = useThemedStyles(makeStyles);
   const page = useThemedStyles(pageStyles);
   const field = useFieldFont(texPageType.field);
@@ -303,7 +322,12 @@ function Field({ label, value, onChangeText, testID }: { label: string; value: s
       <T size={12} tone="muted">
         {label}
       </T>
-      <TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} style={[page.input, styles.input, field]} testID={testID} />
+      <TextInput
+        accessibilityLabel={label}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        style={[page.input, styles.input, field]} testID={testID} />
     </View>
   );
 }

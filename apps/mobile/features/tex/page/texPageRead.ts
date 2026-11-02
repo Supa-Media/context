@@ -154,9 +154,12 @@ function readTiles(v: unknown): Tiles {
   const about = rec(r.about) ?? {};
   const computer = rec(r.computer) ?? {};
   const settings = rec(r.settings) ?? {};
+  const next = (v: unknown) => str(v) ?? num(v);
+  const rNext = next(routines.next);
+  const cNext = next(checkins.next);
   return {
-    routines: { on: num(routines.on) ?? 0, ...(str(routines.next) ? { next: str(routines.next) } : {}) },
-    checkins: str(checkins.next) ? { next: str(checkins.next) } : {},
+    routines: { on: num(routines.on) ?? 0, ...(rNext !== undefined ? { next: rNext } : {}) },
+    checkins: cNext !== undefined ? { next: cNext } : {},
     about: { count: num(about.count) ?? 0, newToday: num(about.newToday) ?? 0 },
     computer: { running: computer.running === true, ...(str(computer.url) ? { url: str(computer.url) } : {}) },
     settings: { summary: str(settings.summary) ?? "" },
@@ -284,6 +287,7 @@ function readCheckIn(v: unknown): CheckIn | null {
     what: str(r.what) ?? "",
     ...(r.done === true ? { done: true } : {}),
     ...(str(r.result) ? { result: str(r.result) } : {}),
+    ...(num(r.at) !== undefined ? { at: num(r.at) } : {}),
   };
 }
 
