@@ -10,6 +10,7 @@ import {
   ACCESS_PROTOCOL,
   ACCESS_SOCKET_MAX_MS,
   ACCESS_SOCKET_PATH,
+  ACCESS_CLOSE_FORBIDDEN,
   ACCESS_CLOSE_NOT_SERVED,
   ACCESS_CLOSE_REAUTH,
   ackFrame,
@@ -411,6 +412,29 @@ test("a served topic is sent to the socket at the reader's clearance, and again 
     { userId: "u1", role: "member" },
     { userId: "u2", role: "member" },
   ]);
+});
+
+test("a push stops for a reader the object no longer admits, as a frame of theirs would", { skip }, async () => {
+  // `accept` and `message` both re-check `admitted` and close with ACCESS_CLOSE_FORBIDDEN. A pushed topic is a
+  // frame of this object's access data just the same, and the push path must not be the one place that trusts
+  // whoever removed the person to have called `lockOut`. Sabotage: drop the check in `flush` and this fails.
+  const w = accessWorld();
+  let members = new Set(["u1"]);
+  let roster = [{ userId: "u1" }];
+  w.access.provide({
+    admit: (reader) => members.has(reader.userId),
+    topics: { members: { served: () => true, rows: () => roster } },
+  });
+  const { server } = w.open({ userId: "u1" });
+  await w.access.message(server, w.frame({ t: "sub", topics: ["members"] }));
+  assert.equal(server.sent.length, 1);
+
+  members = new Set(["u2"]);
+  roster = [{ userId: "u2" }];
+  w.access.changed(["members"]);
+  await w.access.flush();
+  assert.equal(server.sent.length, 1, "a reader this object would now refuse is sent no rows");
+  assert.equal(server.closed.code, ACCESS_CLOSE_FORBIDDEN);
 });
 
 test("a write runs its handler with the stored reader and is acknowledged with its result", { skip }, async () => {
