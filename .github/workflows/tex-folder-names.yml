@@ -61,7 +61,7 @@ jobs:
             else
               args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" '{dryRun: $dry, cursor: $cursor}')
             fi
-            answer=$(npx convex run functions/texFolderNames:personal "$args")
+            answer=$(npx convex run functions/texFolderNames:personal "$args" 2>/dev/null)
             echo "personal page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
             total=$(jq -cn --argjson a "$total" --argjson b "$(echo "$answer" | jq -c '(.failed | with_entries(.key |= "failed_" + .)) + del(.cursor, .done, .failed)')" '$a + ($b | to_entries | map({key, value: (.value + ($a[.key] // 0))}) | from_entries)')
             if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
@@ -69,4 +69,4 @@ jobs:
             if [ "$page" -ge 2000 ]; then echo "stopped after $page pages"; exit 1; fi
           done
           echo "personal total: $total"
-          echo "homes: $(npx convex run functions/texFolderNames:homes "$(jq -cn --argjson dry "$DRY_RUN" '{dryRun: $dry}')" | jq -c .)"
+          echo "homes: $(npx convex run functions/texFolderNames:homes "$(jq -cn --argjson dry "$DRY_RUN" '{dryRun: $dry}')" 2>/dev/null | jq -c .)"

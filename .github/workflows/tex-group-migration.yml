@@ -50,7 +50,7 @@ jobs:
             true) args='{"dryRun":true}' ;;
             *) args='{"dryRun":false}' ;;
           esac
-          npx convex run "functions/$fn" "$args"
+          npx convex run "functions/$fn" "$args" 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           STEP: ${{ inputs.step }}

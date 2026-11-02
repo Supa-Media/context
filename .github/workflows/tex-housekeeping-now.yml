@@ -61,7 +61,7 @@ jobs:
           case "$HANDLE" in
             *[!a-z0-9-]*|"") echo "handle must be lowercase letters, digits and dashes"; exit 1 ;;
           esac
-          npx convex run functions/housekeeping:runHousekeepingNow "{\"name\":\"$HANDLE\"}"
+          npx convex run functions/housekeeping:runHousekeepingNow "{\"name\":\"$HANDLE\"}" 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           HANDLE: ${{ inputs.handle }}
@@ -71,7 +71,7 @@ jobs:
           started=$(($(date +%s) * 1000))
           for _ in $(seq 1 40); do
             sleep 15
-            answer=$(npx convex run functions/housekeeping:housekeepingNowStatus "{\"name\":\"$HANDLE\"}")
+            answer=$(npx convex run functions/housekeeping:housekeepingNowStatus "{\"name\":\"$HANDLE\"}" 2>/dev/null)
             status=$(echo "$answer" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s);console.log(a.status==="running"?"running":(a.lastRunAt??0)>=Number(process.argv[1])-120000?a.status:"no_result")})' "$started")
             if [ "$status" != "running" ]; then
               echo "outcome: $status"

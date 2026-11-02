@@ -58,7 +58,7 @@ jobs:
             args='{}'
             if [ -n "$cursor" ]; then args=$(echo "$args" | jq -c --arg cursor "$cursor" '. + {cursor: $cursor}'); fi
             if [ -n "$ONLY" ]; then args=$(echo "$args" | jq -c --arg only "$ONLY" '. + {only: $only}'); fi
-            answer=$(npx convex run functions/workspaceObjects:parity "$args")
+            answer=$(npx convex run functions/workspaceObjects:parity "$args" 2>/dev/null)
             echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
             total=$(jq -cn --argjson a "$total" --argjson b "$answer" '{workspaces: ($a.workspaces + $b.workspaces), clean: ($a.clean + $b.clean), differing: ($a.differing + $b.differing), unreachable: ($a.unreachable + $b.unreachable)}')
             if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi

@@ -48,6 +48,8 @@ jobs:
           node scripts/check-workflow-secret-order.mjs
           node scripts/check-wrangler-vars-not-secrets.mjs --self-test
           node scripts/check-wrangler-vars-not-secrets.mjs
+          node scripts/check-convex-run-stderr.mjs --self-test
+          node scripts/check-convex-run-stderr.mjs
 
       # ── THE PATH-GATE CHECKER HAS TO RUN UNGATED, AND DID NOT ─────────────
       #
