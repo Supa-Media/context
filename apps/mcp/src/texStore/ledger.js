@@ -146,7 +146,7 @@ export function texLedger(sql, { now = Date.now, guard = () => {} } = {}) {
      * before that seq, newest first. `after` reads on from a seq, `kinds`
      * keeps only those kinds. `next` is the seq to pass as `after` for more,
      * when the read stopped at `limit`. `slim` leaves out a tool call's
-     * arguments and result (what a turn's prompt reads: names only).
+     * arguments and result and a reply's words (what a turn's prompt reads).
      */
     read(chat, { after = 0, before = null, kinds = null, limit = MAX_READ, slim = false } = {}) {
       checkChat(chat);
@@ -164,6 +164,7 @@ export function texLedger(sql, { now = Date.now, guard = () => {} } = {}) {
         if (slim === true) {
           delete entry.args;
           delete entry.result;
+          if (entry.kind === "reply") delete entry.text; // its words are the chat's text events; a reader wants its turn and `clean`
         }
         return entry;
       });
