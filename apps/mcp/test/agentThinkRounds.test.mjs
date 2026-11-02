@@ -290,3 +290,9 @@ test("a failed call's reason is one short line: the tool's own why, else the ref
   assert.equal(whyFailed(refusal("held", { held: true })), undefined, "one held for their yes did not fail");
   assert.ok(whyFailed(refusal("x".repeat(500))).length <= 160);
 });
+
+test("a failed browse's reason is its failed step, never the page it read", async () => {
+  const { whyBrowseFailed } = await import("../src/agent/pageWalls.js");
+  assert.equal(whyBrowseFailed([{ do: "goto", ok: true }, { do: "click", ok: false, reason: "no element [5]" }], false), "click step: no element [5]");
+  assert.equal(whyBrowseFailed([{ do: "read", ok: true }], true), "Not one for the person to finish");
+});
