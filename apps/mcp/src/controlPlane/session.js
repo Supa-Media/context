@@ -98,12 +98,15 @@ export function createSessionMethods({ post, required, env = null, sessionObject
      * about one is not.
      *
      * @param {{start?: true, complete?: string}} [rotationRequest]
+     * @param {{setupRead?: boolean}} [options] Tex reading its setup in the pin (`session.js` `sessionForSetup`)
      * @returns {Promise<{binding: object|null, searchIndex: object|null, encryptionKey: object|null, rotation: object|null}>}
      */
-    async getStorageBinding(accessToken, expectedWorkspaceId, rotationRequest) {
+    async getStorageBinding(accessToken, expectedWorkspaceId, rotationRequest, { setupRead = false } = {}) {
       const parsed = await post("/gateway/binding", {
         accessToken,
         expectedWorkspaceId,
+        // Tex reading its setup in the pin (`session.js` `sessionForSetup`): the control plane narrows the rules.
+        ...(setupRead === true ? { setupRead: true } : {}),
         ...(rotationRequest?.start === true ? { startEncryptionRotation: true } : {}),
         ...(typeof rotationRequest?.complete === "string"
           ? { completeEncryptionRotation: rotationRequest.complete }

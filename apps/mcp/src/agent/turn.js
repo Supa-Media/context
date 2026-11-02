@@ -301,6 +301,7 @@ export async function runTurn(options) {
     local = [],
     aboutMe = null, identity = null, // who they are by their account (`identity.js`), told beside it
     jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
+    voice = null, // `tex/voice.md`'s text on a texted turn (`personVoice.js`); null says nothing about it.
     answerCheck = null, // reads a final answer, once, and may send one more round (`claimCheck.js`)
     endsTurn = null, // `(name, result) => string|null`: a call that settles the turn, answered with its line at once (`background.js`)
     roundNote = null, // `(round, elapsedMs) => string|null`: a line told before a round (`background.js`)
@@ -393,7 +394,7 @@ export async function runTurn(options) {
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked, ...confidence });
     tell({ kind: "model", model, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, voice, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };

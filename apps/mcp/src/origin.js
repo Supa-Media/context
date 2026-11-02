@@ -105,7 +105,10 @@ export function isTransportPath(path) {
     // Authenticated, reached by the console from a browser, and a POST to it
     // releases a write the egress gate held: a page on another origin that
     // could post here would be approving on the person's behalf.
-    path === "/approvals"
+    path === "/approvals" ||
+    // The Tex page (`http/texPage/`): what Tex thought and emailed, its jobs to steer, and a socket that hears them.
+    path === "/tex/page" ||
+    path.startsWith("/tex/page/")
   );
 }
 

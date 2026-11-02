@@ -5,6 +5,8 @@
  * where its order of checks can be read top to bottom.
  */
 
+import { objectFirstManifest } from "../store/objectManifest.js";
+
 /**
  * The three link calls, attached to the store for each request.
  *
@@ -195,10 +197,12 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
-  // The Convex tree, for the agent tools that list (`tree/served.js`). The
-  // control plane picks the workspace and clearance off this token's grant.
+  // The tree, for the agent tools that list (`tree/served.js`): the workspace's
+  // object where its notes live there (`store/objectManifest.js`), else the
+  // control plane, which picks the workspace and clearance off this token's grant.
+  const readControlManifest = (page, options) => controlPlane.readTreeManifest(session.accessToken, session.workspaceId, page, options);
   Object.defineProperty(store, "treeManifest", {
-    value: (page, options) => controlPlane.readTreeManifest(session.accessToken, session.workspaceId, page, options),
+    value: store.objectReading ? objectFirstManifest(readControlManifest, store.objectReading, { defer: () => store.defer }) : readControlManifest,
     enumerable: false,
     writable: false,
     configurable: true,

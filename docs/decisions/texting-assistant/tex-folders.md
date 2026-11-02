@@ -7,9 +7,9 @@ _Part of [the texting assistant](../texting-assistant.md). Decided by the owner,
 | | A person's Tex (`tex/` in their personal workspace) | A group chat's home (`tex/groups/<words>/` in `@context-lc`) |
 |---|---|---|
 | Who they are | `about.md` (was `about-me.md`) | `about.md` (was `about-us.md`) |
-| How they talk | `voice.md` (to come) | `voice.md` (was `voice-<id>.md`) |
+| How they talk | `voice.md` (`personVoice.js`, read with About me in the desk's one call) | `voice.md` (was `voice-<id>.md`) |
 | What was said | `history.md` (to come; one record today, [one-to-one-history](./one-to-one-history.md)) | `history.md` (was `chat-<id>.md`, [group-memory-one-copy](./group-memory-one-copy.md)) |
-| Open jobs | `jobs.md` | `jobs.md` (to come) |
+| Open jobs | `jobs.md` | `jobs.md` (`chatJobs.js`, read straight from the chat's object once its key is kept) |
 | Reminders and check-ins | `routines/` | `routines/` (to come; today in the bound workspace, tagged `chat:`) |
 | Daily notes | `transcripts/` | `transcripts/` (to come) |
 | What Tex learned | `skills/` | `skills/` (to come) |

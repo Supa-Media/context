@@ -16,7 +16,7 @@ export const DESK_HISTORY_KEY = "state/agent/history/texts.json";
 /** The notes a desk may name: an id key of a note kept in this object. */
 const NOTE_KEY = /^notes\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.md$/;
 /** The names of the notes a desk carries. */
-export const DESK_NOTES = ["about", "jobs"];
+export const DESK_NOTES = ["about", "jobs", "voice"];
 
 const decoder = new TextDecoder();
 

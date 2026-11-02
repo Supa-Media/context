@@ -51,6 +51,7 @@ import { mintThreadsLink, readJobSteer, readJobUpdate, serveThreads, type JobRun
 import { acceptJob, armJobNext, failJob, resumeJob, runJob, steerJob } from "./jobRun";
 import { handOverJob, startJobFlow, type JobRunParams } from "./jobWorkflow";
 import { jobUpdate } from "./jobTexts";
+import { pageJobsOf, pageSteerResponse } from "./texPage";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
 import { appCardConfig } from "./appCards";
@@ -565,6 +566,8 @@ export class SenderInbox implements DurableObject {
       if (update === null) return new Response(null, { status: 400 });
       return Response.json({ known: await jobUpdate(this.state.storage, this.deps(), update) });
     }
+    if (path === "/page-jobs") return Response.json(await pageJobsOf(this.state.storage, Date.now()));
+    if (path === "/page-steer") return await pageSteerResponse(this.state.storage, await request.json().catch(() => null), async (id, next) => (await this.deps().steerJob?.(id, next)) ?? false);
     if (path === "/react") {
       const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
       return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });

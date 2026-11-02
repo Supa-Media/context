@@ -491,7 +491,7 @@ the person must act themselves (sign in, a code, a captcha), the model asks
 for a `handoff`; the gateway adds the link to the text itself, so the model
 never holds it, and it is kept out of the saved conversation. Since
 2026-10-11 that link is the person's own page, not Browserbase's live view:
-[Tex's computer](./texting-assistant/computer.md); since 2026-11-02 [the Tex page](./texting-assistant/tex-page.md).
+[Tex's computer](./texting-assistant/computer.md). The Tex page, live from each chat's box: [Tex page](./texting-assistant/tex-page.md).
 
 A Browserbase billing refusal (402, every texted browser job from
 2026-10-13) is answered 402 by the screenshot Worker, which logs only the

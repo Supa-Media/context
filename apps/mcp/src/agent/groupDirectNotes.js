@@ -30,14 +30,14 @@ function ownKey(group, key) {
   return split !== null && typeof group?.key === "string" && split.owner === `chat:${group.key}` && split.key.startsWith("notes/");
 }
 
-/** The kept keys for this chat, or null: `{voice, about, memory}`. */
+/** The kept keys for this chat, or null: `{voice, about, memory, jobs}`. */
 function keptDirect(group, record) {
   const direct = record?.direct;
   return group?.home?.store && direct && typeof direct === "object" ? direct : null;
 }
 
 /**
- * `{etag, body}` of a kept note (`which`: "voice", "about" or "memory"), or null to read it the old way. A voice or
+ * `{etag, body}` of a kept note (`which`: "voice", "about", "jobs" or "memory"), or null to read it the old way. A voice or
  * about-us note the last lookup found missing (`false`) is an empty one, not a slow read every turn (2026-11-01).
  */
 export async function directNote(group, record, which) {
@@ -61,11 +61,11 @@ export async function directNote(group, record, which) {
  * (`moveVoice`) has run. The memory page is never kept as missing: it is written after this lookup, in the same
  * exchange, and a missing page read as empty would lose the chat's history.
  */
-export async function learnDirect(group, { voice, about, memory }, old = null) {
+export async function learnDirect(group, { voice, about, memory, jobs }, old = null) {
   const store = group?.home?.store;
   if (typeof store?.keysAt !== "function") return {};
   try {
-    const paths = { voice, about, memory };
+    const paths = { voice, about, memory, ...(typeof jobs === "string" ? { jobs } : {}) };
     const before = old ?? {};
     const keys = await store.keysAt([...Object.values(paths), ...Object.values(before)].filter((path) => typeof path === "string"));
     const own = (path) => (ownKey(group, keys?.[path]) ? keys[path] : undefined);

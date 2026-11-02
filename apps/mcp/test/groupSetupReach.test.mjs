@@ -51,14 +51,15 @@ test("a group chat's pin is kept out of everything a tool or URL can address", a
   await assert.rejects(resolveSession(TOKEN, "context-lc", controlPlane("context_texts_group")), "nor can a URL select it");
 });
 
-test("the setup door opens the pin read-only, at the pin's own names", async () => {
+test("the setup door opens the pin read-only, as Tex's setup read, with no names of the chat's", async () => {
   const session = await resolveSession(TOKEN, null, controlPlane("context_texts_group"));
   const setup = sessionForSetup(session);
   assert.equal(setup.workspaceId, "ws_pin");
   assert.deepEqual(setup.scopes, ["context:read"], "read only, whatever the grant holds");
   assert.ok(!setup.scopes.includes(SCOPE_WRITE));
   assert.equal(setup.scope, "team");
-  assert.ok(setup.grantedGroups.has("@pin-readers"));
+  assert.equal(setup.setupRead, true, "asked of the control plane as Tex's setup read (`sessionStore.js`)");
+  assert.equal(setup.grantedGroups.size, 0, "its rules are the setup read's own, never the person's or the chat's names");
   assert.equal(setup.accessToken, TOKEN, "the same proof, for the control plane's own check");
   assert.equal(sessionForSetup(setup), null, "and it opens no further door");
 });
@@ -70,6 +71,6 @@ test("read-only even where the pin row came back with a writing role", async () 
 
 test("the flag means nothing on any other client's grant", async () => {
   const session = await resolveSession(TOKEN, null, controlPlane("context_texts"));
-  assert.equal(sessionForSetup(session), null);
+  assert.equal(sessionForSetup(session), null, "a 1:1 grant with no pin row reaches no pin");
   assert.deepEqual(session.workspaces.map((entry) => entry.slug), ["studio"]);
 });
