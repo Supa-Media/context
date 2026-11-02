@@ -150,6 +150,12 @@ as before. A grant's change sends its holders' reach again (`record.ts`
 `targetsOf`: the person, the email's account, a group's members, or every
 member). A change to a person's confirmed emails is caught by the next copy.
 
+The app's live sockets (`live/treeRoute.js`, `live/accessRoute.js`) refused
+any reader holding a name that begins `@#`, meant for pin readers and Tex guest
+chats. A row token begins the same way, so they now refuse only those readers'
+markers (`live/readerNames.js`), and carry a member's row names to the object.
+A reader carries at most 1,200 names.
+
 Tests: `apps/convex/__tests__/textGroupHome.test.ts` ("a member of the pin
 named on a home holds its names"), `apps/mcp/test/personObject.test.mjs` ("the
 app's own client holds the names its grants on rows give it"),

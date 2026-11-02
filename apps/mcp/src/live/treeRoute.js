@@ -16,8 +16,13 @@
  * ## Members only, as the console's tree is
  *
  * The Convex tree asks `resolveFileAccess` for `member` at least. A grant that
- * reads by somebody else's rules (a Tex guest chat, a pinned guest: names
- * beginning `@#`) is refused here rather than judged by the members' rules.
+ * reads by somebody else's rules (a Tex guest chat, a pinned guest: their
+ * markers, `readsByOtherRules`) is refused here rather than judged by the
+ * members' rules. A row's token (`@#<noteId>`) is a member's own name for a
+ * note shared to them by name or a Tex chat home they are in, and is carried
+ * to the object (2026-11-02: refusing every `@#` name sent anyone holding one
+ * to the Convex tree, and the person object's session, which held none, hid
+ * every chat home).
  *
  * ## A socket lives at most five minutes
  *
@@ -28,6 +33,7 @@
 
 import { resolvePresentedSession } from "../http/presentedToken.js";
 import { hasScope, SCOPE_READ, SessionRefusal } from "../session.js";
+import { readsByOtherRules } from "./readerNames.js";
 import { createControlPlane } from "../controlPlane.js";
 import { forbiddenResponse, unauthorizedResponse } from "../oauth.js";
 import { json } from "../http/responses.js";
@@ -75,7 +81,7 @@ export async function handleTree(request, env, { slug, pathToken, origin }, deps
     });
   }
   const groups = [...(session.grantedGroups ?? [])];
-  if (!MEMBER_ROLES.has(session.role) || groups.some((name) => name.startsWith("@#"))) {
+  if (!MEMBER_ROLES.has(session.role) || readsByOtherRules(session)) {
     return json({ error: "forbidden" }, 403);
   }
 
