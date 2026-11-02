@@ -23,3 +23,14 @@ describe("the Tex folder rename", () => {
     expect(planRenames(renames, new Set(["h/about.md", "h/voice.md", "h/history.md"]))).toEqual({ moves: [], both: 0 });
   });
 });
+
+describe("a home's files are counted by shape, never named", () => {
+  test("the chat's own notes by name, old ones by whether they carry this chat's key", async () => {
+    const { homeFileShape } = await import("../functions/texFolderNames");
+    const key = "0123456789abcdef";
+    expect(["history.md", "voice.md", "about.md", "about-us.md"].map((name) => homeFileShape(name, key))).toEqual(["history", "voice", "about", "about_us"]);
+    expect(homeFileShape("chat-0123456789ab.md", key)).toBe("chat_key");
+    expect(homeFileShape("voice-ffffffffffff.md", key)).toBe("voice_other");
+    expect(homeFileShape("trip-plan.md", key)).toBe("other");
+  });
+});
