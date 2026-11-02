@@ -271,11 +271,14 @@ export const sharedKey = (row) => `${row.fromWorkspaceId}:${row.noteId !== undef
 
 /**
  * One AI client's grant: `{grantId, clientId, clientName, workspaceId, scopes[], tokenHash, refreshHash,
- * previousRefreshHash?, expiresAt, status, lastUsedAt, at}`. `tokenHash` is null for a grant with no access token yet
+ * previousRefreshHash?, expiresAt, status, lastUsedAt, createdAt?, machine?, at}`. `tokenHash` is null for a grant with no access token yet
  * (it resolves nothing until a refresh); `expiresAt` is 0 when none was recorded. `previousRefreshHash` is the refresh token the last
  * rotation spent: presented again, it revokes the grant. Texting clients (`context_texts`, `context_texts_group`) are
  * never held here; their checks stay with the control plane. `workspaceId` is the workspace the person connected it at, the session's default. Hashes
- * only, never a token. `clientName` is display text the client asserted and decides nothing.
+ * only, never a token. `clientName` is display text the client asserted and decides nothing. `createdAt` (when the
+ * grant was made) and `machine` (the Context desktop app on the person's computer, as the control plane's
+ * `isDesktopShellClient` decided when it copied the row) are display only, for the app's connected-apps screens, and
+ * null when not known; neither decides what the grant may do.
  */
 export function checkConnectionRow(row) {
   if (!row || typeof row !== "object") refuse("not a connection");
@@ -290,6 +293,8 @@ export function checkConnectionRow(row) {
   if (!CONNECTION_STATES.includes(row.status)) refuse("not a connection state");
   if (row.lastUsedAt !== undefined && row.lastUsedAt !== null && !clock(row.lastUsedAt)) refuse("not a time");
   if (row.previousRefreshHash !== undefined && row.previousRefreshHash !== null && !(typeof row.previousRefreshHash === "string" && TOKEN_HASH.test(row.previousRefreshHash))) refuse("not a refresh token's sha256");
+  if (row.createdAt !== undefined && row.createdAt !== null && !clock(row.createdAt)) refuse("not a time");
+  if (row.machine !== undefined && row.machine !== null && typeof row.machine !== "boolean") refuse("machine is true or false");
   if (!clock(row.at)) refuse("a row needs its writer's clock");
   return {
     grantId: row.grantId,
@@ -303,6 +308,8 @@ export function checkConnectionRow(row) {
     status: row.status,
     lastUsedAt: row.lastUsedAt ?? null,
     previousRefreshHash: row.previousRefreshHash ?? null,
+    createdAt: row.createdAt ?? null,
+    machine: row.machine ?? null,
     at: row.at,
   };
 }
