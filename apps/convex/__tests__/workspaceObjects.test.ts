@@ -362,7 +362,7 @@ describe("the switch", () => {
 describe("failure logs", () => {
   test("carry a ConvexError's code and never its message", async () => {
     const { ConvexError } = await import("convex/values");
-    const { failureOf } = await import("../functions/workspaceObjects");
+    const { failureOf } = await import("../functions/lib/workspaceObjects/failures");
     expect(failureOf(new ConvexError({ code: "KEY_UNAVAILABLE", message: "secret words" }))).toMatchObject({ error: "ConvexError", code: "KEY_UNAVAILABLE", reason: "other" });
     expect(failureOf(Object.assign(new Error("x"), { code: "WORKSPACE_MISMATCH" }))).toMatchObject({ error: "Error", code: "WORKSPACE_MISMATCH", reason: "other" });
     expect(failureOf(new Error("note body here"))).toMatchObject({ error: "Error", reason: "other" });
@@ -410,7 +410,7 @@ describe("failure logs", () => {
     await expect(parityPage(slow, bodies, { at: { side: 0, prefix: 0 }, limit: 10, recheckMs: 0, sleep: noSleep })).rejects.toThrow("Network");
     maxAfter = pending;
     expect(maxAfter).toBe(0);
-    const { reasonOf } = await import("../functions/workspaceObjects");
+    const { reasonOf } = await import("../functions/lib/workspaceObjects/failures");
     expect(reasonOf(new TypeError("Network connection lost."))).toBe("network");
     expect(reasonOf(new TypeError("x is not a function"))).toBe("type_error_not_function_x");
     expect(reasonOf(new TypeError("Cannot read properties of undefined (reading 'etag')"))).toBe("type_error_undefined_etag");
@@ -418,7 +418,7 @@ describe("failure logs", () => {
   });
 
   test("a busy bucket's listing is asked again, a refusal is not", async () => {
-    const { withRetries } = await import("../functions/workspaceObjects");
+    const { withRetries } = await import("../functions/lib/workspaceObjects/failures");
     let calls = 0;
     const flaky = {
       get: async () => null,
