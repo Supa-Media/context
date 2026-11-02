@@ -39,6 +39,7 @@ test("a texted turn keeps its thinking, each tool call with its result, and its 
     assert.equal(tool.turn, "turn-ledger-0001");
     const reply = entries.find((entry) => entry.kind === "reply");
     assert.match(reply.text, /Here's what I found/);
+    assert.equal(reply.clean, true, "the gateway says the turn stayed clean, which is what a later turn trusts it by");
     assert.ok(kinds.indexOf("thinking") < kinds.indexOf("tool") && kinds.indexOf("tool") < kinds.indexOf("reply"), "in the order it happened");
     assert.equal(entries.filter((entry) => entry.kind === "note").length, 0, "the turn's own exchange is not written a second time as a note");
   } finally {

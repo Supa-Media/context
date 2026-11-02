@@ -145,9 +145,10 @@ export function texLedger(sql, { now = Date.now, guard = () => {} } = {}) {
      * its `seq`. Oldest first; with `before`, the newest `limit` entries
      * before that seq, newest first. `after` reads on from a seq, `kinds`
      * keeps only those kinds. `next` is the seq to pass as `after` for more,
-     * when the read stopped at `limit`.
+     * when the read stopped at `limit`. `slim` leaves out a tool call's
+     * arguments and result (what a turn's prompt reads: names only).
      */
-    read(chat, { after = 0, before = null, kinds = null, limit = MAX_READ } = {}) {
+    read(chat, { after = 0, before = null, kinds = null, limit = MAX_READ, slim = false } = {}) {
       checkChat(chat);
       const size = Math.min(MAX_READ, Number.isSafeInteger(limit) && limit > 0 ? limit : MAX_READ);
       const wanted = Array.isArray(kinds) ? kinds.filter((kind) => LEDGER_KINDS.has(kind)) : null;
@@ -158,7 +159,14 @@ export function texLedger(sql, { now = Date.now, guard = () => {} } = {}) {
         ? rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq < ?${kindClause} ORDER BY seq DESC LIMIT ?`, chat, before, ...binds, size + 1))
         : rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq > ?${kindClause} ORDER BY seq LIMIT ?`, chat, Number.isSafeInteger(after) && after > 0 ? after : 0, ...binds, size + 1));
       const more = found.length > size;
-      const entries = found.slice(0, size).map((row) => ({ ...JSON.parse(row.entry), seq: Number(row.seq) }));
+      const entries = found.slice(0, size).map((row) => {
+        const entry = { ...JSON.parse(row.entry), seq: Number(row.seq) };
+        if (slim === true) {
+          delete entry.args;
+          delete entry.result;
+        }
+        return entry;
+      });
       const last = entries.at(-1)?.seq;
       return { manifest: manifestOf(chat), entries, ...(more ? (newest ? { before: last } : { next: last }) : {}) };
     },

@@ -340,3 +340,4 @@ test/agentGroupAskChat.test.mjs
 test/chatLedger.test.mjs
 test/objectManifest.test.mjs
 test/chatLedgerWrites.test.mjs
+test/chatLedgerReads.test.mjs

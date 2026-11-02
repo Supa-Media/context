@@ -12,7 +12,7 @@
 import { TexObjectRefused } from "./objects.js";
 import { objectByName } from "../objectPlace.js";
 import { OWNER_HEADER, placedName } from "./move.js";
-import { readDesk } from "./desk.js";
+import { DESK_LEDGER, readDesk } from "./desk.js";
 import { R2Store } from "../store/r2.js";
 
 const CALL = "x-tex-call";
@@ -101,7 +101,7 @@ export async function serveTexStore(objects, request, timers = null) {
       case "list":
         return Response.json(objects.list(call.options ?? {}));
       case "desk":
-        return Response.json(readDesk(objects));
+        return Response.json({ ...readDesk(objects), ...(objects.ledger ? { ledger: objects.ledger.read(DESK_LEDGER.chat, DESK_LEDGER.options) } : {}) });
       case "wipe":
         objects.wipe();
         objects.ledger?.wipe();
@@ -209,7 +209,7 @@ export function texBucket(stub) {
       const page = await (await call("list", { options })).json();
       return { ...page, objects: page.objects.map((meta) => r2Shaped(meta, undefined)) };
     },
-    /** A person's texted turn's reads, in one call (`desk.js`): `{history, notes}`. */
+    /** A person's texted turn's reads, in one call (`desk.js`): `{history, notes, ledger}`. */
     async desk() {
       return await (await call("desk")).json();
     },
