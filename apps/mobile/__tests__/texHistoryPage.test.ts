@@ -68,7 +68,8 @@ async function render(source: TexPageSource, start: Place = { chat: "me" }) {
 }
 
 const text = () => container.textContent ?? "";
-const byTestId = (id: string) => container.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+// A dropdown opens its list in a Modal, which renders on the document, not in the container (#2691).
+const byTestId = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 async function press(id: string) {
   const el = byTestId(id);
   if (el === null) throw new Error(`no ${id}`);
