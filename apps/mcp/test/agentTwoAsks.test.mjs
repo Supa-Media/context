@@ -25,7 +25,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { armForText, askedByText, createPending, listPending } from "../src/tools/approvals.js";
+import { EVERY_CHAT, armForText, askedByText, createPending, listPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const ACTOR = { workspaceId: "ws_1", userId: "user_a", clientId: "context_texts", client: "Tex" };
@@ -46,7 +46,7 @@ function texted(store, summary) {
 }
 
 const armedIds = async (store) =>
-  (await listPending(store, { userId: ACTOR.userId, texting: true })).map(({ record }) => record.id).sort();
+  (await listPending(store, { userId: ACTOR.userId, texting: true, chat: EVERY_CHAT })).map(({ record }) => record.id).sort();
 
 test("a later ask leaves no earlier one armed, so one yes answers one ask line", async () => {
   const store = createMemoryStore();
