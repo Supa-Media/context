@@ -26,12 +26,25 @@ import { removeUserGrantsIn } from "./lib/grants/removeUserGrants";
 import { personalWorkspaceOf } from "./lib/faces/people";
 import { isPending } from "./lib/invitations/forCaller";
 import { invalidateInvitationSignInCode } from "./invitationEmail";
+import { TOKEN_HASH_PATTERN } from "./lib/crypto";
+import { clampAccessTokenExpiry } from "./lib/consentScopes";
 
 export const accessChangeValidator = v.union(
   v.object({ op: v.literal("remove_member"), userId: v.string(), at: v.number(), by: v.string() }),
   v.object({ op: v.literal("set_role"), userId: v.string(), role: v.union(v.literal("editor"), v.literal("member")), at: v.number(), by: v.string() }),
   v.object({ op: v.literal("revoke_invite"), invitationId: v.string(), at: v.number(), by: v.string() }),
-  v.object({ op: v.literal("revoke_connection"), grantId: v.string(), at: v.number(), by: v.string() }),
+  // `by` is absent when the client revoked its own grant (RFC 7009): the person acted through it.
+  v.object({ op: v.literal("revoke_connection"), grantId: v.string(), at: v.number(), by: v.optional(v.string()) }),
+  // A refresh the object made: the copy takes the new pair, keeping the spent refresh token so its reuse is still named.
+  v.object({
+    op: v.literal("rotate_connection"),
+    grantId: v.string(),
+    tokenHash: v.string(),
+    refreshHash: v.string(),
+    expiresAt: v.number(),
+    scopes: v.array(v.string()),
+    at: v.number(),
+  }),
 );
 
 export type MirrorAnswer = { applied: boolean; refused?: "NOT_FOUND" | "OWNER" | "WRONG_WORKSPACE" };
@@ -40,7 +53,7 @@ export const apply = internalMutationWriteBehind({
   args: { workspaceId: v.id("workspaces"), change: accessChangeValidator },
   returns: v.object({ applied: v.boolean(), refused: v.optional(v.union(v.literal("NOT_FOUND"), v.literal("OWNER"), v.literal("WRONG_WORKSPACE"))) }),
   handler: async (ctx, { workspaceId, change }): Promise<MirrorAnswer> => {
-    const actor = ctx.db.normalizeId("users", change.by);
+    const actor = "by" in change && change.by !== undefined ? ctx.db.normalizeId("users", change.by) : null;
     const now = Date.now();
 
     if (change.op === "remove_member" || change.op === "set_role") {
@@ -97,13 +110,31 @@ export const apply = internalMutationWriteBehind({
     const personal = await personalWorkspaceOf(ctx, grant.userId);
     if (personal === null || personal._id !== workspaceId) return { applied: false, refused: "WRONG_WORKSPACE" };
     if (grant.status === "revoked") return { applied: false };
+    if (change.op === "rotate_connection") {
+      if (!TOKEN_HASH_PATTERN.test(change.tokenHash) || !TOKEN_HASH_PATTERN.test(change.refreshHash)) return { applied: false, refused: "NOT_FOUND" };
+      // Already taken: a retry, or a late copy.
+      if (grant.hashedRefreshToken === change.refreshHash || grant.previousHashedRefreshToken === change.refreshHash) return { applied: false };
+      // Narrowing only, as the object did: a copy never holds a scope the grant did not.
+      const scopes = change.scopes.filter((scope) => grant.scopes.includes(scope));
+      await ctx.db.patch(grant._id, {
+        previousHashedRefreshToken: grant.hashedRefreshToken,
+        hashedRefreshToken: change.refreshHash,
+        hashedAccessToken: change.tokenHash,
+        accessTokenExpiresAt: clampAccessTokenExpiry(change.expiresAt, now),
+        scopes: scopes.length > 0 ? scopes : grant.scopes,
+        lastUsedAt: now,
+      });
+      return { applied: true };
+    }
+    // Revoked by the person, or by their own client: either way the person acted.
+    const by = actor ?? grant.userId;
     await ctx.db.patch(grant._id, { status: "revoked", revokedAt: now });
     await recordAudit(ctx, {
       workspaceId: grant.workspaceId,
-      actorUserId: actor ?? undefined,
+      actorUserId: by,
       actorClientId: grant.clientId,
       action: "grant.revoked",
-      details: { onBehalfOfSelf: actor === grant.userId, via: "object" },
+      details: { onBehalfOfSelf: by === grant.userId, via: "object" },
     });
     return { applied: true };
   },

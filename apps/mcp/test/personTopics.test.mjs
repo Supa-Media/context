@@ -287,16 +287,16 @@ test("a revocation from the control plane's door, or a replayed refresh token, c
   assert.equal(onG1.closed?.code, ACCESS_CLOSE_REAUTH);
   assert.equal(onG3.closed, null);
   // A refresh rotates g3 onto a new pair; presenting the refresh hash it spent again means it leaked.
-  store.person.rotate({ refreshHash: HASH("f"), next: { tokenHash: HASH("7"), refreshHash: HASH("8"), expiresAt: NOW + 1000 }, at: 30 }, NOW);
+  store.person.rotate({ refreshHash: HASH("f"), clientId: "claude-ai", next: { tokenHash: HASH("7"), refreshHash: HASH("8"), expiresAt: NOW + 1000 }, at: 30 }, NOW);
   assert.equal(onG3.closed, null, "a normal refresh keeps the grant's socket");
-  store.person.rotate({ refreshHash: HASH("f"), next: { tokenHash: HASH("1"), refreshHash: HASH("2"), expiresAt: NOW + 1000 }, at: 31 }, NOW);
+  store.person.rotate({ refreshHash: HASH("f"), clientId: "claude-ai", next: { tokenHash: HASH("1"), refreshHash: HASH("2"), expiresAt: NOW + 1000 }, at: 31 }, NOW);
   assert.equal(onG3.closed?.code, ACCESS_CLOSE_REAUTH, "a replayed refresh token revokes the grant and closes its socket");
 });
 
 test("a refresh keeps a connection's createdAt and machine, so the app still draws it the same", { skip }, async () => {
   const store = aliceObject();
   store.person.put("connections", [connection("g1", { createdAt: 3, machine: true, at: 2 })]);
-  store.person.rotate({ refreshHash: HASH("d"), next: { tokenHash: HASH("7"), refreshHash: HASH("8"), expiresAt: NOW + 1000 }, at: 30 }, NOW);
+  store.person.rotate({ refreshHash: HASH("d"), clientId: "claude-ai", next: { tokenHash: HASH("7"), refreshHash: HASH("8"), expiresAt: NOW + 1000 }, at: 30 }, NOW);
   const rows = await personAccessTopics(store, { now: () => NOW }).topics.connections.rows(reader("uAlice"));
   const g1 = rows.find((row) => row.grantId === "g1");
   assert.equal(g1.createdAt, 3);

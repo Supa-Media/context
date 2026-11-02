@@ -219,7 +219,12 @@ export async function gatewayCodesConsumeHandler(
     internal.functions.controlPlane.consumeAuthorizationCode,
     { hashedCode: await hashToken(code), clientId },
   );
-  return json({ authorization });
+  if (authorization === null) return json({ authorization });
+  // Who the code is for, and whether their connections are held by their object
+  // (`apps/mcp/src/oauth/objectGrants.js`): the gateway mints that person's
+  // tokens to name it.
+  const person = await ctx.runQuery(internal.functions.accessConnections.personOf, { userId: authorization.userId });
+  return json({ authorization: { ...authorization, person } });
 }
 
 /**
@@ -256,17 +261,16 @@ export async function gatewayGrantsCreateHandler(
     return badRequest();
   }
 
+  const grant = { workspaceId, userId, clientId, scopes, hashedRefreshToken, hashedAccessToken, accessTokenExpiresAt };
   let grantId: string;
   try {
-    grantId = await ctx.runMutation(internal.functions.grants.createGrant, {
-      workspaceId,
-      userId,
-      clientId,
-      scopes,
-      hashedRefreshToken,
-      hashedAccessToken,
-      accessTokenExpiresAt,
-    });
+    // A switched person's grant is written behind their object, which the
+    // gateway then gives the connection row answered here.
+    if (body.heldBy === "object") {
+      const held = await ctx.runMutation(internal.functions.accessConnections.createHeld, grant);
+      return json(held);
+    }
+    grantId = await ctx.runMutation(internal.functions.grants.createGrant, grant);
   } catch {
     // `WORKSPACE_NOT_FOUND`, `CLIENT_NOT_REGISTERED`, and a malformed hash all
     // land here as the same refusal. Relaying which one would tell a caller
@@ -352,5 +356,7 @@ export async function gatewayGrantsRevokeHandler(
     internal.functions.controlPlane.revokeGrantByToken,
     { hashedToken: await hashToken(token), tokenType, clientId },
   );
+  // A switched person's grant is revoked in their object, then here behind it.
+  if (typeof revoked !== "boolean") return json({ revoked: false, held: revoked });
   return json({ revoked });
 }

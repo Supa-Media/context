@@ -220,6 +220,8 @@ describe("/gateway/codes/consume", () => {
       resource: "https://mcp.context.test/mcp",
       workspaceId: aliceWs,
       userId: alice,
+      // Who the code is for, so the gateway knows whether their object holds the connection (not switched here).
+      person: { personalWorkspaceId: aliceWs, access: "convex" },
     });
     // The challenge that comes back is the one the client sent, and not the
     // one a different verifier would produce — the gateway's PKCE check is
