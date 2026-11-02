@@ -44,6 +44,8 @@ const ACCESS_OPS = {
 const ACCESS_SOCKET_MAX_MS = 5 * 60_000;
 const ACCESS_CLOSE_REAUTH = 4001;
 const ACCESS_CLOSE_NOT_SERVED = 4404;
+/** The object decides this reader may not see it (not a member there): the app reads Convex and asks again later. */
+const ACCESS_CLOSE_FORBIDDEN = 4403;
 const MAX_FRAME_BYTES = 16 * 1024;
 const MAX_OP_ID = 64;
 
@@ -114,6 +116,7 @@ module.exports = {
   ACCESS_SOCKET_MAX_MS,
   ACCESS_CLOSE_REAUTH,
   ACCESS_CLOSE_NOT_SERVED,
+  ACCESS_CLOSE_FORBIDDEN,
   isSide,
   topicOk,
   opOk,
