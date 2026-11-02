@@ -4,7 +4,7 @@
  */
 
 import { ACTIVITY_KINDS, activityForCaller, agentActivityKey } from "../agentActivity.js";
-import { objectByName } from "../objectPlace.js";
+import { roomByName } from "../objectPlace.js";
 import { heartbeatPerson } from "./activityHeartbeat.js";
 import { asksForStoredReads, storedReadsAnswer } from "./storedReads.js";
 import { asksForHistory, asksForHistoryDays, historyAnswer, historyDaysAnswer } from "../history/serve.js";
@@ -177,7 +177,7 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
     documentId = requestedDocumentId;
   }
 
-  const room = objectByName(env.PRESENCE_ROOM, roomKey(session.workspaceId, notePath));
+  const room = roomByName(env.PRESENCE_ROOM, roomKey(session.workspaceId, notePath));
   // Only the two headers the room consumes cross the internal boundary. In
   // particular, the bearer/cookie and browser websocket negotiation headers
   // from the public request are not forwarded into the Durable Object.
@@ -340,7 +340,7 @@ export async function handleAgentActivity(request, env, { slug, pathToken, origi
     typeof path === "string" && !isPlumbing(path) &&
     canSee(path, session.scope, privacy.rules, privacy.overrides);
   try {
-    const room = objectByName(env.PRESENCE_ROOM, agentActivityKey(session.workspaceId));
+    const room = roomByName(env.PRESENCE_ROOM, agentActivityKey(session.workspaceId));
     const response = await room.fetch("https://presence.invalid/activity", {
       method: "GET",
       headers: person ? { "x-activity-person": JSON.stringify(person) } : {},

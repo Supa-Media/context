@@ -28,3 +28,24 @@ export function objectById(namespace: DurableObjectNamespace, id: string): Durab
   }
   return namespace.get(parsed, { locationHint: OBJECT_LOCATION });
 }
+
+/**
+ * The texting inbox named `name`, under the name placed in eastern North
+ * America (`enam:<name>`), every call naming the inbox so the first can copy
+ * in the one kept under the old name (`inboxMove.ts`).
+ */
+export function inboxByName(namespace: DurableObjectNamespace, name: string): { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> } {
+  const stub = objectByName(namespace, `enam:${name}`);
+  return {
+    fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+      if (input instanceof Request && init === undefined) {
+        const request = new Request(input);
+        request.headers.set("x-inbox-name", name);
+        return stub.fetch(request);
+      }
+      const headers = new Headers(init?.headers);
+      headers.set("x-inbox-name", name);
+      return stub.fetch(input, { ...init, headers });
+    },
+  };
+}

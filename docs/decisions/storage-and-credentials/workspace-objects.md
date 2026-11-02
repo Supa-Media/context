@@ -111,6 +111,20 @@ puts workspace ids in config and leaves two naming rules forever; dropping
 the parity check lets a cut-short copy answer as if whole. Tests:
 `apps/mcp/test/texStoreMove.test.mjs`.
 
+**Rooms and inboxes moved the same way** (2026-11-02). Cloudflare analytics
+for 2026-10-25 to 11-02: all 576 workspace objects were already in eastern
+North America; 2,177 of 4,209 live-typing rooms and 21 of 60 texting inboxes
+were not. Rooms now live under `enam:<key>` (`apps/mcp/src/objectPlace.js`
+`roomByName`) with no copy, because a room holds nothing lasting. Inboxes
+live under `enam:<name>` (`apps/agent/src/objectPlace.ts` `inboxByName`) and
+copy in from the old name (`apps/agent/src/inboxMove.ts`), but only while the
+old inbox is idle (no call, alarm or handed-on work running), since a turn
+waits on the gateway for seconds. Until then, and after any failed copy, the
+old inbox keeps answering, so a move never stops anyone's texts. The copy is
+checked by a digest the old inbox computes over every key and value, and a
+value the copy cannot carry exactly refuses the move. Tests:
+`apps/agent/src/inboxMove.test.ts`.
+
 ## Measured (production, 2026-10-31 18:00 to 2026-11-01 18:00 UTC)
 
 Tex's objects use the same storage code a workspace object will, so they are

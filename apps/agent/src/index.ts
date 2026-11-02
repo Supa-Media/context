@@ -61,7 +61,8 @@ import { noteCardDrawer } from "./noteCards";
 import { answerHanded, failHanded } from "./groupTurnRun";
 import type { GroupTurnParams } from "./groupTurnWorkflow";
 import type { TimingDataset } from "./textTiming";
-import { objectById, objectByName } from "./objectPlace";
+import { inboxByName, objectById, objectByName } from "./objectPlace";
+import { movedAlarm, placeGate, type MoveStorage } from "./inboxMove";
 export { GroupTurnWorkflow } from "./groupTurnWorkflow";
 export { JobRunWorkflow } from "./jobWorkflow";
 
@@ -195,7 +196,7 @@ export default {
         inbound.reaction = { ...inbound.reaction, words: (words ?? "").slice(0, 500) };
         delete inbound.on;
       }
-      const stub = objectByName(env.SENDER_INBOX, inbound.from);
+      const stub = inboxByName(env.SENDER_INBOX, inbound.from);
       const result = await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(inbound) });
       return new Response(null, { status: result.ok ? 200 : 503 });
     }
@@ -209,7 +210,7 @@ export default {
       if (keys !== null) Object.assign(message, await threadContext((input, init) => fetch(input, init), keys, replyTo, threadRoot, message.chatId));
     }
 
-    const stub = objectByName(env.SENDER_INBOX, inbound.from);
+    const stub = inboxByName(env.SENDER_INBOX, inbound.from);
     // The Worker's own address goes along, for pictures served back to Sendblue (`media.ts`).
     const result = await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(url.origin)}`, {
       method: "POST",
@@ -283,7 +284,7 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
     logWebhook(line, "ignored", `group_${grouped.reason}`);
     return new Response(null, { status: 200 });
   }
-  const stub = objectByName(env.SENDER_INBOX, groupInboxName(grouped.groupId));
+  const stub = inboxByName(env.SENDER_INBOX, groupInboxName(grouped.groupId));
   // The Worker's own address goes along, as for a 1:1 text: without it the group's pictures had nowhere to be
   // served from, and every answer with a card failed after its words went out (2026-10-26).
   const result = await stub.fetch(`https://inbox/group-accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(grouped) });
@@ -360,13 +361,13 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
       delete event.on;
     }
     logWebhook("whapi", "accepted", "reaction");
-    const stub = objectByName(env.SENDER_INBOX, event.from);
+    const stub = inboxByName(env.SENDER_INBOX, event.from);
     const result = await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(event) });
     return new Response(null, { status: result.ok ? 200 : 503 });
   }
   logWebhook("whapi", "accepted");
   const { replyTo: _reply, threadRoot: _root, ...message } = event;
-  const stub = objectByName(env.SENDER_INBOX, event.from);
+  const stub = inboxByName(env.SENDER_INBOX, event.from);
   const result = await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(message) });
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
@@ -416,7 +417,7 @@ async function newLine(request: Request, env: Env): Promise<Response> {
       controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
       workerSecret: env.AGENT_WORKER_SECRET,
       tellPhone: async (phone, body) => {
-        const stub = objectByName(env.SENDER_INBOX, phone);
+        const stub = inboxByName(env.SENDER_INBOX, phone);
         const response = await stub.fetch("https://inbox/new-line", { method: "POST", body: JSON.stringify(body) });
         if (!response.ok) return "failed";
         return ((await response.json()) as { told: Told }).told;
@@ -432,11 +433,11 @@ async function newLine(request: Request, env: Env): Promise<Response> {
 async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat" | "failed"> {
   const phone = run.phones[0];
   if (run.chat === undefined || phone === undefined) return "no_chat";
-  const directory = objectByName(env.SENDER_INBOX, chatDirectoryName(run.chat));
+  const directory = inboxByName(env.SENDER_INBOX, chatDirectoryName(run.chat));
   const found = await directory.fetch("https://inbox/chat-where", { method: "GET" });
   const where = found.ok ? chatWhereOf(await found.json()) : null;
   if (where === null) return "no_chat";
-  const stub = objectByName(env.SENDER_INBOX, groupInboxName(where.groupId));
+  const stub = inboxByName(env.SENDER_INBOX, groupInboxName(where.groupId));
   const body = { ...where, runId: run.runId, path: run.path, phone, timeZone: run.timeZone, ...(run.since !== undefined ? { since: run.since } : {}) };
   const response = await stub.fetch("https://inbox/group-routine", { method: "POST", body: JSON.stringify(body) });
   if (!response.ok) return "failed";
@@ -444,12 +445,32 @@ async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat
 }
 
 export class SenderInbox implements DurableObject {
-  constructor(
-    private readonly state: DurableObjectState,
-    private readonly env: Env,
-  ) {}
+  /** Calls, alarms and handed-on work running now: an inbox moves only when there are none (`inboxMove.ts`). */
+  private busy = 0;
+
+  constructor(private readonly state: DurableObjectState, private readonly env: Env) {}
 
   async fetch(request: Request): Promise<Response> {
+    const stubs = (name: string) => objectByName(this.env.SENDER_INBOX, name);
+    const gate = await placeGate(request, this.state.storage as unknown as MoveStorage, stubs, this.busy, (run) => this.state.blockConcurrencyWhile(run));
+    if ("response" in gate) return gate.response;
+    return await this.counted(() => this.serve(gate.request));
+  }
+
+  /** One call or alarm, counted as running until it ends. */
+  private async counted<T>(run: () => Promise<T>): Promise<T> {
+    this.busy += 1;
+    try {
+      return await run();
+    } finally {
+      this.busy -= 1;
+    }
+  }
+
+  /** Work that outlives a call, counted as running until it settles. */
+  private handOff = (work: Promise<unknown>): void => this.state.waitUntil(this.counted(() => Promise.resolve(work)));
+
+  private async serve(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (path.startsWith("/sim/")) {
       // The Worker routes here only while the simulator is on; checked again
@@ -563,6 +584,11 @@ export class SenderInbox implements DurableObject {
   }
 
   async alarm(): Promise<void> {
+    // A moved inbox's alarm only clears its old copy (`inboxMove.ts`).
+    if (!(await movedAlarm(this.state.storage as unknown as MoveStorage, Date.now()))) await this.counted(() => this.runAlarm());
+  }
+
+  private async runAlarm(): Promise<void> {
     // A group's object has only `gpending:` keys, a phone's only `pending:`; each drain finds the other's empty.
     // Each stage names its throw in the logs, then throws on as before, so the alarm still retries (`agentError.ts`).
     await logged("alarm_group", () => drainGroup(this.state.storage, this.deps()));
@@ -595,7 +621,7 @@ export class SenderInbox implements DurableObject {
 
   /** A job's word to the inbox it belongs to: taken once it answers 200. */
   private async reportJob(inbox: string, update: JobUpdate): Promise<boolean> {
-    const stub = objectByName(this.env.SENDER_INBOX, inbox);
+    const stub = inboxByName(this.env.SENDER_INBOX, inbox);
     const response = await stub.fetch("https://inbox/job-update", { method: "POST", body: JSON.stringify(update) });
     return response.ok;
   }
@@ -604,7 +630,7 @@ export class SenderInbox implements DurableObject {
   private async keepWhere(message: GroupMessage): Promise<void> {
     if (message.sms || (await this.state.storage.get(WHERE_KEPT_KEY)) !== undefined) return;
     const key = await sha256Hex(`${message.line}:${message.groupId}`);
-    const directory = objectByName(this.env.SENDER_INBOX, chatDirectoryName(key));
+    const directory = inboxByName(this.env.SENDER_INBOX, chatDirectoryName(key));
     const where = { line: message.line, groupId: message.groupId };
     const response = await directory.fetch("https://inbox/chat-where", { method: "POST", body: JSON.stringify(where) });
     if (response.ok) await this.state.storage.put(WHERE_KEPT_KEY, true);
@@ -621,7 +647,7 @@ export class SenderInbox implements DurableObject {
   private deps(): InboxDeps & { startTurn?: (turn: string) => Promise<void>; answerFirst?: (work: Promise<unknown>) => void } {
     const workflow = this.env.GROUP_TURN;
     return {
-      ...(workflow ? { startTurn: (turn: string) => startGroupTurn(workflow, this.state.id.toString(), turn), answerFirst: (work: Promise<unknown>) => this.state.waitUntil(work) } : {}),
+      ...(workflow ? { startTurn: (turn: string) => startGroupTurn(workflow, this.state.id.toString(), turn), answerFirst: (work: Promise<unknown>) => this.handOff(work) } : {}),
       fetch: (input, init) => fetch(input, init),
       controlPlaneOrigin: this.env.CONTROL_PLANE_ORIGIN,
       workerSecret: this.env.AGENT_WORKER_SECRET,
@@ -630,7 +656,7 @@ export class SenderInbox implements DurableObject {
       sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET),
       whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
       appCard: appCardConfig(this.env),
-      waitUntil: (promise) => this.state.waitUntil(promise),
+      waitUntil: (promise) => this.handOff(promise),
       textTiming: this.env.TEX_TEXTS,
       noteCardPicture: noteCardDrawer((input, init) => fetch(input, init), this.env.CONTROL_PLANE_ORIGIN, this.env.AGENT_WORKER_SECRET),
       hostPicture: async (picture: Picture) =>
@@ -646,12 +672,12 @@ export class SenderInbox implements DurableObject {
       images: this.env.IMAGES,
       now: () => Date.now(),
       spawnJob: async (id: string, run: JobRun) => {
-        const stub = objectByName(this.env.SENDER_INBOX, `job:${id}`);
+        const stub = inboxByName(this.env.SENDER_INBOX, `job:${id}`);
         const response = await stub.fetch("https://inbox/job-start", { method: "POST", body: JSON.stringify(run) });
         if (!response.ok) throw new Error("job not started");
       },
       steerJob: async (id: string, steer: JobSteer) => {
-        const stub = objectByName(this.env.SENDER_INBOX, `job:${id}`);
+        const stub = inboxByName(this.env.SENDER_INBOX, `job:${id}`);
         const response = await stub.fetch("https://inbox/job-steer", { method: "POST", body: JSON.stringify(steer) });
         return response.ok && ((await response.json()) as { taken?: unknown }).taken === true;
       },
