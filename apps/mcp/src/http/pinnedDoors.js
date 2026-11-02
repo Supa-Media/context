@@ -12,12 +12,18 @@
  * under different sessions, each clamped for its own purpose.
  */
 import { sessionForChatHome, sessionForSetup } from "../session.js";
+import { markChatHome } from "../agent/chatHomeSeal.js";
 
 export function attachPinnedDoors(store, session, openStore, equipDoor = () => {}) {
   const setupSession = sessionForSetup(session);
   if (setupSession !== null) store.openPinnedSetup = door(setupSession, openStore, equipDoor);
   const homeSession = sessionForChatHome(session);
-  if (homeSession !== null) store.openChatHome = door(homeSession, openStore, equipDoor);
+  if (homeSession !== null) {
+    store.openChatHome = door(homeSession, openStore, (opened, doorSession) => {
+      equipDoor(opened, doorSession);
+      markChatHome(opened, doorSession.chatHome); // the seal is its access: no row is set there (`agent/chatHomeSeal.js`)
+    });
+  }
 }
 
 /**
