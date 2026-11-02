@@ -122,6 +122,12 @@ export function backfillEntries(events, turns, { before = Number.MAX_SAFE_INTEGE
 
 /** The entry that says the whole old chat is in, kept first: once it is, nothing is copied again. */
 export const BACKFILLED = "backfilledv1";
+/**
+ * A group's own mark. Until 2026-11-02 a group's log was looked for under its group key, where it never is, so every group
+ * that texted was marked `BACKFILLED` with nothing copied; a group is done only under this mark, and its old log goes in
+ * before the first one.
+ */
+export const GROUP_BACKFILLED = "backfilledv2";
 /** The most log events one run copies: a run is a texted turn's after-work, so it stays well inside the time that has. */
 export const BACKFILL_EVENTS = 400;
 
@@ -132,20 +138,24 @@ export const BACKFILL_EVENTS = 400;
  * in already), `would` (a dry run), `copied` (this run added `entries`), `finished`
  * (this run copied the rest).
  */
-export async function backfillLedger(store, { dryRun = false, most = BACKFILL_EVENTS, group = null } = {}) {
+export async function backfillLedger(store, { dryRun = false, most = BACKFILL_EVENTS, group = null, logChat = group } = {}) {
   const ledger = typeof store?.texLedger === "function" ? store.texLedger(group) : null;
   if (ledger === null || typeof ledger.prepend !== "function") return { state: "none", entries: 0 };
-  // A group's log sits in its workspace's store beside other groups', under its own chat's prefix; it has no history record.
+  // A group's log sits in its workspace's store beside other groups', under its own chat's prefix: the chat as the Worker
+  // named it in its events (its line's group id, `logChat`), never the group key the ledger is kept under, which hashes it with the line.
+  // It has no history record.
   const chat = group ?? ONE_TO_ONE_CHAT;
+  const mark = group === null ? BACKFILLED : GROUP_BACKFILLED;
   const oldest = await ledger.oldest(chat);
-  if (oldest?.id === BACKFILLED) return { state: "done", entries: 0 };
+  if (oldest?.id === mark) return { state: "done", entries: 0 };
   const before = oldest?.at ?? Number.MAX_SAFE_INTEGER;
-  const keys = (await logKeys(store, group === null ? LOG_PREFIX : await logPrefix(group))).filter((found) => found.at < before);
+  if (group !== null && typeof logChat !== "string") return { state: "none", entries: 0 };
+  const keys = (await logKeys(store, group === null ? LOG_PREFIX : await logPrefix(logChat))).filter((found) => found.at < before);
   const earliest = keys.length <= most;
   const [events, turns] = await Promise.all([readEventsAt(store, keys.slice(-most)), group === null ? recordTurns(store) : []]);
   const entries = backfillEntries(events, turns, { before, earliest });
   if (dryRun) return { state: "would", entries: entries.length };
-  if (earliest) entries.unshift({ v: 1, id: BACKFILLED, at: Math.max(1, Math.min(before, ...entries.map((entry) => entry.at)) - 1), kind: "note", text: "(The chat before this ledger began was copied in here.)", backfill: "mark" });
+  if (earliest) entries.unshift({ v: 1, id: mark, at: Math.max(1, Math.min(before, ...entries.map((entry) => entry.at)) - 1), kind: "note", text: "(The chat before this ledger began was copied in here.)", backfill: "mark" });
   // Newest batch first, each placed before the last, so the whole reads oldest first.
   let added = 0;
   for (let end = entries.length; end > 0; end -= PREPEND_BATCH) added += (await ledger.prepend(chat, entries.slice(Math.max(0, end - PREPEND_BATCH), end))).added;
@@ -161,15 +171,16 @@ const finished = new Set();
  * whose log sits in its workspace's store. Never on a texted turn's own way to
  * its model. Logs its outcome by count only.
  */
-export function startBackfill(store, session) {
+export function startBackfill(store, session, { logChat = null } = {}) {
   const workspace = String(session?.workspaceId ?? "");
   const place = ledgerPlace(session);
   const group = place?.owner?.chat ?? null;
   const done = `${workspace}:${group ?? ONE_TO_ONE_CHAT}`;
   if (workspace === "" || place === null || finished.has(done) || typeof store?.defer !== "function") return;
+  if (group !== null && (typeof logChat !== "string" || logChat === "")) return; // a group's log is found only by the chat the Worker named
   store.defer(async () => {
     try {
-      const run = await backfillLedger(store, { group });
+      const run = await backfillLedger(store, { group, logChat: group === null ? null : logChat });
       if (run.state === "done" || run.state === "finished" || run.state === "none") finished.add(done);
       if (run.state !== "done") console.log(JSON.stringify({ event: "tex_ledger_backfill", workspace_id: workspace, group: group !== null, state: run.state, entries: run.entries }));
     } catch (error) {

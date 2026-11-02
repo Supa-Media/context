@@ -72,6 +72,7 @@ import { after, before, beforeEach, test } from "node:test";
 import worker from "../src/index.js";
 import { cancelledTurn } from "../src/agent/textingRoutes.js";
 import { logPrefix } from "../src/agent/log.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { LOG_PREFACE, TURNS_PREFIX } from "../src/agent/loggedTurn.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX, steerFor } from "../src/agent/steer.js";
 import { createPending, PENDING_PREFIX } from "../src/tools/approvals.js";
@@ -253,16 +254,44 @@ test("no token is refused the same as a bad one, on every route", async () => {
 
 /* ---------------- events ---------------- */
 
-test("events are written to the chat's log, idempotently, and refused whole on one bad event", async () => {
+test("events are written to the chat's ledger alone, idempotently, and refused whole on one bad event", async () => {
+  const texts = async () => (await ledgerFor(env, { person: "ws_troutes" }).read(ONE_TO_ONE_CHAT, { kinds: ["text"] })).entries;
+  const before = (await texts()).length;
   const first = event({ text: "hello Tex" });
   const ok = await call("/agent/events", { conversation: "texts", events: [first] });
   assert.deepEqual(ok, { status: 200, body: { written: [first.id] } });
-  assert.deepEqual(liveKeys(await logPrefix(CHAT)), [`${await logPrefix(CHAT)}${first.id}.json`]);
+  assert.deepEqual((await texts()).slice(before).map((entry) => [entry.eid, entry.text]), [[first.id, "hello Tex"]]);
+  assert.deepEqual(liveKeys(await logPrefix(CHAT)), [], "the bucket's event log is no longer written");
   assert.deepEqual((await call("/agent/events", { conversation: "texts", events: [first] })).body, { written: [first.id] });
+  assert.equal((await texts()).length, before + 1, "a retried post keeps one copy");
   const bad = await call("/agent/events", { conversation: "texts", events: [event(), event({ kind: "tool_result" })] });
   assert.deepEqual(bad, { status: 400, body: { error: "invalid_request", error_description: "events[1].kind" } });
-  assert.equal(liveKeys(await logPrefix(CHAT)).length, 1);
+  assert.equal((await texts()).length, before + 1, "nothing of a refused post is kept");
   assert.equal((await call("/agent/events", { conversation: "texts", events: Array.from({ length: 51 }, () => event()) })).status, 400);
+});
+
+test("a ledger that fails the write answers an error, so the Worker keeps the events and posts them again", async () => {
+  const failing = event({ text: "kept for later" });
+  tex.before = async (_owner, call) => {
+    if (call.op === "ledger_append") throw new Error("object unavailable");
+  };
+  try {
+    const response = await raw("/agent/events", { conversation: "texts", events: [failing] });
+    assert.ok(response.status >= 500, `a failed write is an error, not ${response.status}`);
+  } finally {
+    tex.before = undefined;
+  }
+  assert.deepEqual(liveKeys(await logPrefix(CHAT)), [], "never written to the old log instead");
+  assert.deepEqual((await call("/agent/events", { conversation: "texts", events: [failing] })).body, { written: [failing.id] }, "the retry is kept");
+});
+
+test("a group grant that names no chat is kept in the old log, never in the person's own ledger", async () => {
+  const texts = async () => (await ledgerFor(env, { person: "ws_troutes" }).read(ONE_TO_ONE_CHAT, { kinds: ["text"] })).entries;
+  const before = (await texts()).length;
+  const said = event({ text: "group words" });
+  assert.equal((await call("/agent/events", { conversation: { group: CHAT }, events: [said] }, TOKEN_GROUP)).status, 200);
+  assert.equal((await texts()).length, before, "the person's one-to-one ledger never holds a group's words");
+  assert.deepEqual(liveKeys(await logPrefix(CHAT)).filter((key) => key.endsWith(`${said.id}.json`)).length, 1);
 });
 
 test("a person's chat is the texting grant's, and a group's the group grant's", async () => {

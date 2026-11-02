@@ -112,18 +112,14 @@ test("a turn the Worker does not hold the day for reads it from the ledger, neve
   assert.match(logged.history[0].text, /@ada: my dentist is Dr Lee/);
   // As with the log: Tex's answers among the newest texts are shown, and any whose turn has no clean record taints this turn.
   assert.equal(logged.tainted, true);
-  assert.ok(!lines.some((line) => line.includes("tex_turn_day_from_log")));
+  assert.ok(!lines.some((line) => line.includes("tex_turn_day_missed")));
 });
 
-test("a ledger missing a text the turn covers leaves the turn to the bucket's log", async () => {
+test("a ledger missing a text the turn covers is counted, and the bucket's old log is never read", async () => {
   const { ledger } = weekOfChat();
   const posted = person(1_000, 7, "a text the ledger never got");
   const read = readLedger({ read: async (chat, options) => ledger.read(chat, options) }, "texts").then((entries) => ({ entries, chat: "texts" }));
-  let listed = 0;
-  const bucket = {
-    list: async () => (listed++, { objects: [{ key: `.context/agent/log/x/${posted.id}.json` }], truncated: false }),
-    get: async () => ({ text: async () => JSON.stringify(posted) }),
-  };
+  const bucket = { list: async () => assert.fail("the bucket's log is no longer written, so never read for a chat with a ledger"), get: async () => assert.fail("never read") };
   const lines = [];
   const log = console.log;
   console.log = (line) => lines.push(String(line));
@@ -133,9 +129,8 @@ test("a ledger missing a text the turn covers leaves the turn to the bucket's lo
   } finally {
     console.log = log;
   }
-  assert.equal(listed, 1);
-  assert.deepEqual(lines.filter((line) => line.includes("tex_turn_day_from_log")), ['{"event":"tex_turn_day_from_log"}'], "counted, never a word");
-  assert.equal(logged.question, "a text the ledger never got");
+  assert.deepEqual(lines.filter((line) => line.includes("tex_turn_day_missed")), ['{"event":"tex_turn_day_missed"}'], "counted, never a word");
+  assert.equal(logged, null, "the turn is today's, from the question it was sent");
 });
 
 test("dayFromLedger: the Worker's events only, checked as the log checks them, oldest first", () => {
