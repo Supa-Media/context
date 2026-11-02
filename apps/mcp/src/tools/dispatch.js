@@ -5,6 +5,8 @@
  */
 
 import { loadPrivacyState } from "../privacy/state.js";
+import { historyWriteRefusal } from "../agent/historyFile.js";
+import { toolDefinitions } from "./registry.js";
 import { toolArchiveNote } from "./moves/archive.js";
 import {
   toolCreateForm,
@@ -83,7 +85,24 @@ export const TREE_LISTING_TOOLS = new Set([
   "list_contacts",
 ]);
 
+/** The tools that change something, by their own annotations: each is held off a chat's history file. */
+let changingTools = null;
+const changes = (name) => (changingTools ??= new Set(toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint !== true).map((tool) => tool.name))).has(name);
+
+/** Every string a call names a path with, at any depth, but a note's content. */
+function pathsNamed(value, found = []) {
+  if (typeof value === "string") found.push(value);
+  else if (Array.isArray(value)) for (const item of value) pathsNamed(item, found);
+  else if (value && typeof value === "object") for (const [key, inner] of Object.entries(value)) if (key !== "content" && key !== "text") pathsNamed(inner, found);
+  return found;
+}
+
 export async function callTool(name, args, store, scope) {
+  // A chat's history file is a view of its log, read only (`agent/historyFile.js`): nothing changes it, whoever asks.
+  if (changes(name)) {
+    const refusal = pathsNamed(args ?? {}).map(historyWriteRefusal).find((words) => words !== null);
+    if (refusal !== undefined) return toolError(refusal);
+  }
   if (!TREE_LISTING_TOOLS.has(name)) return await runTool(name, args, store, scope);
   try {
     return await runTool(name, args, servedListingStore(store), scope);

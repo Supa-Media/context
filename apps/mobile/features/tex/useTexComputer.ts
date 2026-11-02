@@ -37,9 +37,12 @@ export function useTexComputer(options: {
   workspaceId: string | null;
   handle: string | null;
   endpoint: string | null;
+  /** A group chat's key to show that chat's browser; absent or "me" for the person's own. */
+  chat?: string | null;
 }): TexComputerState {
   const mint = useConsoleGrant();
   const { workspaceId, handle, endpoint } = options;
+  const chat = options.chat && options.chat !== "me" ? options.chat : null;
   const [phase, setPhase] = useState<TexComputerState["phase"]>("loading");
   const [frame, setFrame] = useState<Frame | null>(null);
   const [busy, setBusy] = useState(false);
@@ -58,7 +61,7 @@ export function useTexComputer(options: {
         const response = await fetch(url, {
           method: "POST",
           headers: { authorization: `Bearer ${grant.accessToken}`, "content-type": "application/json" },
-          body: JSON.stringify({ handle, ...extra }),
+          body: JSON.stringify({ handle, ...(chat !== null ? { chat } : {}), ...extra }),
         });
         return { token: grant.accessToken, status: response.status, body: await response.json().catch(() => null) };
       };
@@ -71,7 +74,7 @@ export function useTexComputer(options: {
         return null;
       }
     },
-    [endpoint, handle, mint, workspaceId],
+    [chat, endpoint, handle, mint, workspaceId],
   );
 
   const apply = useCallback((answer: { status: number; body: unknown } | null, mine: number) => {

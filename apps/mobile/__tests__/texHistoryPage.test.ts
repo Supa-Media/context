@@ -68,7 +68,7 @@ async function render(source: TexPageSource, start: Place = { chat: "me" }) {
 }
 
 const text = () => container.textContent ?? "";
-// A dropdown opens its list in a Modal, which renders on the document, not in the container (#2691).
+// A select's list opens over the whole page (TexSelect), outside the page's own element.
 const byTestId = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 async function press(id: string) {
   const el = byTestId(id);

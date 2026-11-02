@@ -23,6 +23,7 @@ import { chainAt, standFolders } from "./nodes/rowMove";
 import { CHAT_HOMES_CLIENT_ID } from "./nodes/sealedChats";
 import { setAccessRow } from "./nodes/setAccess";
 import { threeWords } from "./threeWords";
+import { withSameNumber } from "./textGroupAccounts";
 
 /** Names tried before a chat goes on without a home this turn. */
 const NAME_TRIES = 12;
@@ -86,7 +87,8 @@ export async function makeChatHome(
     if (words === undefined) return { refused: "no_name" };
   }
   const folder = chatHomePath(words);
-  const wanted = peopleList(people);
+  // Each person by every account that holds their number (`withSameNumber`): the chats they are in show in each.
+  const wanted = peopleList(await withSameNumber(ctx, people));
   const kept = chat.homeWords === words && sameList(chat.homeUsers ?? [], wanted);
   // A home standing, with its folders, and naming the same people is left as it is: no write on an ordinary turn.
   if (kept && (await homeStands(ctx, pinned, folder))) return { folder };
