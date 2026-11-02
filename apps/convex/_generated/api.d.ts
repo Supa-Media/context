@@ -158,6 +158,7 @@ import type * as functions_noteIdsKeyed from "../functions/noteIdsKeyed.js";
 import type * as functions_nodesFeed from "../functions/nodesFeed.js";
 import type * as functions_nodeChaos from "../functions/nodeChaos.js";
 import type * as functions_nodeFacts from "../functions/nodeFacts.js";
+import type * as functions_nodeFactsDrop from "../functions/nodeFactsDrop.js";
 import type * as functions_nodeLinkSources from "../functions/nodeLinkSources.js";
 import type * as functions_nodeMoves from "../functions/nodeMoves.js";
 import type * as functions_nodeMovesAdmin from "../functions/nodeMovesAdmin.js";
@@ -413,6 +414,7 @@ declare const fullApi: ApiFromModules<{
   "functions/nodesFeed": typeof functions_nodesFeed;
   "functions/nodeChaos": typeof functions_nodeChaos;
   "functions/nodeFacts": typeof functions_nodeFacts;
+  "functions/nodeFactsDrop": typeof functions_nodeFactsDrop;
   "functions/nodeLinkSources": typeof functions_nodeLinkSources;
   "functions/nodeMoves": typeof functions_nodeMoves;
   "functions/nodeMovesAdmin": typeof functions_nodeMovesAdmin;

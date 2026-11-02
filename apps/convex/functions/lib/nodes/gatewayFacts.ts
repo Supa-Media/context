@@ -41,6 +41,13 @@
  *   A seed they may not see answers exactly what an absent one does.
  *   `neighbors: null` until the facts have read every note once.
  *
+ * Where the workspace's notes live in its object (home `object`), `links`,
+ * `props`, `neighbors` and the chaos extras are read from the object
+ * (`objectFacts.ts`), unfiltered, and judged here by the control plane's
+ * rules, so this answers even after the control plane stops keeping its own
+ * copy of those notes' facts (`facts-in-objects.md`). The gateway asks here
+ * only when the object did not serve it, such as while the object is behind.
+ *
  */
 
 import { internal } from "../../../_generated/api";
@@ -58,6 +65,8 @@ import { logicalPath as queuedLogicalPath } from "./movePaths";
 import { namesFor } from "./gatewayNames";
 import { resolveNeighbors } from "./neighbors";
 import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
+import { factPropSource } from "./factSources";
+import { objectCandidates, objectChaosSource, objectFactRows, objectNeighborRows, objectPropSource } from "./objectFacts";
 
 const NOT_SERVED = { served: false } as const;
 
@@ -111,13 +120,21 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
     // A pin reader's guest names (`lib/pinnedReaders.ts`); none for an ordinary connection.
     const clearance = clearanceOf(reader.scope, reader.names);
     const visible = (path: string) => canSee(path, reader.scope, state.rules, state.overrides, clearance.names);
+    // Where the notes live in their object, it says what they say, read at their text; these rules say who sees it.
+    // The gateway asks here when the object is behind the control plane for this reader, so the paths are judged
+    // by the control plane's rules and never by the object's.
+    const objectRows = body.ask === "links" || body.ask === "props" || body.ask === "neighbors" || body.ask === "chaos" ? await objectFactRows(ctx, reader.workspaceId) : null;
 
     if (body.ask === "links") {
-      const found = await ctx.runQuery(internal.functions.nodeFacts.candidates, {
-        workspaceId: reader.workspaceId,
-        sources,
-        names,
-      });
+      const fromObject = await objectCandidates(objectRows, sources, names);
+      const found =
+        fromObject !== undefined
+          ? fromObject
+          : await ctx.runQuery(internal.functions.nodeFacts.candidates, {
+              workspaceId: reader.workspaceId,
+              sources,
+              names,
+            });
       if (found === null) return { served: true, candidates: null };
       return {
         served: true,
@@ -126,7 +143,7 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
     }
 
     if (body.ask === "neighbors") {
-      const rows = await ctx.runQuery(internal.functions.nodeFacts.neighbors, { workspaceId: reader.workspaceId, path: seed });
+      const rows = (await objectNeighborRows(objectRows, seed)) ?? (await ctx.runQuery(internal.functions.nodeFacts.neighbors, { workspaceId: reader.workspaceId, path: seed }));
       if (rows === null) return { served: true, neighbors: null };
       // Link rows name the keys they were read at, and a queued move shows those notes elsewhere
       // already (`moveOverlay.ts`): every key at the name the tree shows now, as the map draws it.
@@ -183,12 +200,20 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
     if (body.ask === "props") {
       // Filtered before the lookup, so a path the reader may not see is never read.
       const seen = [...new Set(paths)].filter(visible);
-      const props = seen.length === 0 ? [] : await ctx.runQuery(internal.functions.nodeFacts.propsAt, { workspaceId: reader.workspaceId, paths: seen });
+      const held = seen.length === 0 ? new Map() : await objectPropSource(objectRows, factPropSource(ctx, reader.workspaceId)).rows(seen);
+      const props = [...held].map(([path, row]) => ({ path, version: row.version, sealed: row.encrypted, props: row.props }));
       return { served: true, props };
     }
 
-    const extras = await ctx.runQuery(internal.functions.nodeChaos.extras, { workspaceId: reader.workspaceId });
-    if (extras === null) return { served: true, chaos: null };
+    const found = await objectChaosSource(objectRows, {
+      extras: async () => {
+        const rows = await ctx.runQuery(internal.functions.nodeChaos.extras, { workspaceId: reader.workspaceId });
+        return rows === null ? null : new Map(rows.map(({ path, ...extra }) => [path, extra]));
+      },
+      weekAgo: async () => null,
+    }).extras();
+    if (found === null) return { served: true, chaos: null };
+    const extras = [...found].map(([path, extra]) => ({ path, ...extra }));
     const now = Date.now();
     const history = await ctx.runQuery(internal.functions.nodeChaos.history, { workspaceId: reader.workspaceId, daysAgo: 7, now });
     const today = reader.scope === "private" ? totals(body.today) : null;
