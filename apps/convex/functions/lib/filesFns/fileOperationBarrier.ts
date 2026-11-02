@@ -79,6 +79,7 @@ import { repairLinks } from "../nodes/linkRepair";
 import { toConvexError } from "./operationErrors";
 import { afterMaintenance } from "./maintenanceFollowUps";
 import { consoleTexRouting } from "../texStore";
+import { markedIfNarrowing } from "../rowWatch/objectFirst";
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "archiveTidy", "trash"]);
@@ -559,7 +560,8 @@ export async function runFileOperationHandler(
   const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
   // Where Tex's folder is before this runs: a move or trash may take it out of reach (see `routinePathsTouched`).
   const texBefore = mayRelocateRoutines(args.operation as FileOperation) ? await texFolderOf(ctx, args.workspaceId) : null;
-  const operate = () => executeOperation(
+  // An operation that may narrow tells the workspace's object first (`../rowWatch/objectFirst.ts`).
+  const operate = () => markedIfNarrowing(ctx, args, () => executeOperation(
     listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),
     operation as FileOperation,
@@ -578,11 +580,8 @@ export async function runFileOperationHandler(
       dueNotification = material;
     },
     args.workspaceId,
-  );
-  const result = await (RELOCATING_OPERATIONS.has(args.operation.kind)
-    ? asRelocation(store, operate)
-    : operate()
-  ).catch(rethrowUnreadable);
+  ));
+  const result = await (RELOCATING_OPERATIONS.has(args.operation.kind) ? asRelocation(store, operate) : operate()).catch(rethrowUnreadable);
 
   // Website rows are a derivative of bucket bytes: mark them stale after the
   // canonical write lands. Best effort; the periodic reconciler repairs a miss.

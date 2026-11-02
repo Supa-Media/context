@@ -17,6 +17,7 @@
  * `/presence/access` route opened.
  */
 
+import { workspaceMarks } from "./workspaceStore/marks.js";
 import { texObjects } from "./texStore/objects.js";
 import { TexObjectRefused } from "./texStore/objects.js";
 import { callTexStore } from "./texStore/wire.js";
@@ -64,6 +65,8 @@ export class WorkspaceStore {
       rows,
       // What its notes say about themselves: links and props, read from the text held here (`workspaceStore/facts.js`).
       facts: workspaceFacts(sql, objects),
+      // "A change is coming" (`workspaceStore/marks.js`): left by a writer before it changes the tree in Convex.
+      marks: workspaceMarks(sql),
       // A personal workspace's object is also its person's: reach, shares to them and their connections.
       person: personRows(sql),
       sql,

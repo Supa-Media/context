@@ -18,6 +18,7 @@ import { isTokenIndexCall, serveTokenIndex } from "./tokenIndex.js";
 import { membersState, serveMembersCall } from "./serveMembers.js";
 import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.js";
 import { manifestPage } from "./manifest.js";
+import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
 
 const CALL = "x-tex-call";
 
@@ -127,6 +128,16 @@ function lookUp(rows, fields, by, members = null) {
 }
 
 /**
+ * A reader's answer, once no change is coming (`marks.js`): it waits for an open mark's push, and says
+ * `behind: true` when the push is still out, so the gateway asks the control plane instead.
+ */
+async function settledAnswer(store, answer) {
+  const behind = await waitForMarks(store.marks ?? null);
+  const settled = await answer();
+  return behind ? { ...settled, behind: true } : settled;
+}
+
+/**
  * A note facts ask (`workspaceStore/facts.js`), judged like a read: the reader's audience, scope and row tokens over
  * this object's rows and rules. Served only once the notes live here (home `object`): before that the text here may
  * be behind the bucket's, and the control plane answers.
@@ -167,8 +178,11 @@ export async function serveWorkspaceStore(store, request) {
     const membership = await serveMembersCall(store, op, fields);
     if (membership !== null) return membership;
     switch (op) {
-      case "ws.read":
-        return Response.json(await readNotes(store, fields));
+      case "ws.read": {
+        const behind = await waitForMarks(store.marks ?? null);
+        const answer = await readNotes(store, fields);
+        return Response.json(behind ? { ...answer, behind: true } : answer);
+      }
       case "ws.visible":
         return Response.json({ visible: (await readNotes(store, fields)).notes.map((note) => note.found === true || typeof note.elsewhere === "string") });
       case "ws.rows.snapshot": {
@@ -195,6 +209,9 @@ export async function serveWorkspaceStore(store, request) {
         // must land together or the moved rows are judged by the old rules in between.
         const run = typeof store.transact === "function" ? store.transact : (work) => work();
         for (const audience of Object.keys(fields.rules ?? {})) if (!AUDIENCES.has(audience)) throw new WorkspaceRowRefused("not an audience");
+        // The marks this push carries the change of: closed with its rows, never before them.
+        const closing = fields.close === undefined ? [] : markTokens(fields.close);
+        if (closing.length > 0 && !store.marks) throw new WorkspaceRowRefused("this object keeps no marks");
         const paths = [
           ...(Array.isArray(fields.rows) ? pathsTouched(rows, fields.rows.map((row) => row?.id), fields.rows) : []),
           ...(Array.isArray(fields.removed) ? pathsTouched(rows, fields.removed) : []),
@@ -204,23 +221,30 @@ export async function serveWorkspaceStore(store, request) {
           const removed = Array.isArray(fields.removed) && fields.removed.length > 0 ? rows.remove(fields.removed, fields.at).removed : 0;
           const rules = {};
           for (const [audience, held] of Object.entries(fields.rules ?? {})) rules[audience] = rows.putRules(held, audience);
-          return { kept, removed, rules };
+          const closed = closing.length > 0 ? store.marks.close(closing).closed : 0;
+          return { kept, removed, rules, ...(closing.length > 0 ? { closed } : {}) };
         });
         changed(store, { paths, rules: Object.values(answer.rules).some((rule) => rule.kept) });
         return Response.json(answer);
       }
       case "ws.rows.lookup":
-        return Response.json(lookUp(rows, fields, "path", store.members ?? null));
+        return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "path", store.members ?? null)));
       case "ws.rows.resolve":
-        return Response.json(lookUp(rows, fields, "noteId", store.members ?? null));
+        return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "noteId", store.members ?? null)));
       case "ws.facts":
-        return Response.json(answerFacts(store, fields));
+        return Response.json(await settledAnswer(store, () => answerFacts(store, fields)));
       case "ws.facts.rows":
         // The control plane's own readers, through the door: unfiltered, as its internal queries are.
         if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ROW_ASKS.has(fields.ask)) return Response.json({ served: false });
         return Response.json(store.facts.rows(fields));
       case "ws.rows.manifest":
-        return Response.json(manifestPage(rows, fields, judgeFor(rows, fields, store.members ?? null)));
+        return Response.json(await settledAnswer(store, () => manifestPage(rows, fields, judgeFor(rows, fields, store.members ?? null))));
+      case "ws.mark.open":
+        if (!store.marks) throw new WorkspaceRowRefused("this object keeps no marks");
+        return Response.json(store.marks.open(fields.token, fields.ttlMs));
+      case "ws.mark.close":
+        if (!store.marks) throw new WorkspaceRowRefused("this object keeps no marks");
+        return Response.json(store.marks.close(fields.tokens));
       case "ws.rows.get":
         return Response.json({ rows: rows.get(fields.ids) });
       case "ws.rows.list":
@@ -239,6 +263,7 @@ export async function serveWorkspaceStore(store, request) {
           encryption: rows.encryption(),
           rows: rows.count(),
           accessVersion: rows.rules()?.accessVersion ?? null,
+          ...(store.marks ? { marks: store.marks.count() } : {}),
           ...(store.person ? { access: { home: store.person.home(), person: store.person.person() } } : {}),
           members: membersState(store),
         });
@@ -252,7 +277,7 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json({ error: "unknown_op" }, { status: 400 });
     }
   } catch (error) {
-    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof FactAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
+    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
   }
 }

@@ -4,11 +4,11 @@
  * by `nodesAccess.setAccess`, which owns the rules about who may change a list.
  */
 
+import { objectFirst } from "../rowWatch/objectFirst";
 import type { ActionCtx } from "../../../_generated/server";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import { json, stringField } from "../gatewayAuth";
-import { objectSettled } from "../../workspaceObjectPush";
 
 type Role = "view" | "edit";
 /**
@@ -86,17 +86,19 @@ export async function setAccessOp(
 ): Promise<Response> {
   const args = parse(body);
   if (args === null) return json({ ok: false, code: "INVALID" });
-  const answer = await ctx.runMutation(internal.functions.nodesAccess.setAccess, {
-    workspaceId,
-    path: args.path,
-    base: args.base,
-    ...(args.grantees === undefined ? {} : { grantees: args.grantees }),
-    ...(args.expectedVersion === undefined ? {} : { expectedVersion: args.expectedVersion }),
-    ...(args.kind === undefined ? {} : { kind: args.kind }),
-    actor,
-  });
-  // A narrowed row must be narrowed in the workspace's object before anyone is told it is done.
-  await objectSettled(ctx, workspaceId);
+  // A narrowed row must be narrowed in the workspace's object before anyone is told it is done: the object hears
+  // a change is coming before Convex takes it (`lib/rowWatch/objectFirst.ts`).
+  const answer = await objectFirst(ctx, workspaceId, () =>
+    ctx.runMutation(internal.functions.nodesAccess.setAccess, {
+      workspaceId,
+      path: args.path,
+      base: args.base,
+      ...(args.grantees === undefined ? {} : { grantees: args.grantees }),
+      ...(args.expectedVersion === undefined ? {} : { expectedVersion: args.expectedVersion }),
+      ...(args.kind === undefined ? {} : { kind: args.kind }),
+      actor,
+    }),
+  );
   return json(answer);
 }
 
@@ -130,12 +132,13 @@ export async function addGranteesOp(
   }
   const entries = body.entries.map(requestOf);
   if (entries.some((entry) => entry === null)) return json({ ok: false, code: "INVALID" });
-  const answer = await ctx.runMutation(internal.functions.nodesAccess.addGrantees, {
-    workspaceId,
-    path,
-    entries: entries as { handle?: string; groupId?: string; email?: string; role: Role }[],
-    actor,
-  });
-  await objectSettled(ctx, workspaceId);
+  const answer = await objectFirst(ctx, workspaceId, () =>
+    ctx.runMutation(internal.functions.nodesAccess.addGrantees, {
+      workspaceId,
+      path,
+      entries: entries as { handle?: string; groupId?: string; email?: string; role: Role }[],
+      actor,
+    }),
+  );
   return json(answer);
 }
