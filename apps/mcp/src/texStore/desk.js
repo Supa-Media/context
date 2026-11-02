@@ -18,6 +18,13 @@ const NOTE_KEY = /^notes\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}
 /** The names of the notes a desk carries. */
 export const DESK_NOTES = ["about", "jobs", "voice"];
 
+/**
+ * The newest page of the person's one-to-one chat's ledger, slim, that the
+ * desk answers beside the record (`agent/ledgerHistory.js`): the whole chat a
+ * texted turn is shown, in the same call.
+ */
+export const DESK_LEDGER = Object.freeze({ chat: "texts", options: Object.freeze({ before: Number.MAX_SAFE_INTEGER, kinds: Object.freeze(["text", "note", "tool", "reply"]), limit: 2_000, slim: true }) });
+
 const decoder = new TextDecoder();
 
 /** One kept object as the desk answers it: `{etag, text}`, or null. */

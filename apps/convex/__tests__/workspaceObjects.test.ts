@@ -280,6 +280,22 @@ describe("rows and who can see", () => {
 });
 
 describe("the switch", () => {
+  test("a workspace a check cannot open is described by kind, storage provider and row count, never by name", async () => {
+    const t = convexTest(schema, modules);
+    const { live, gone } = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {});
+      const live = await ctx.db.insert("workspaces", { slug: "acme-secret", displayName: "Acme", createdBy: userId, kind: "shared", structureTemplate: "para", createdAt: 1, updatedAt: 1 } as never);
+      await ctx.db.insert("nodes", { workspaceId: live, path: "plan.md", name: "plan.md", kind: "file", etag: "e1", size: 3, observedAt: 1, noteId: "0199a000-0000-7000-8000-00000000000a", storageKey: A });
+      const gone = await ctx.db.insert("workspaces", { slug: "gone-one", displayName: "Gone", createdBy: userId, kind: "personal", structureTemplate: "para", createdAt: 1, updatedAt: 1 } as never);
+      await ctx.db.delete(gone);
+      return { live, gone };
+    });
+    const said = await t.query(internal.functions.workspaceObjectsRows.describeUnopened, { workspaceId: live });
+    expect(said).toBe("shared/binding=none/rows=1");
+    expect(said).not.toContain("acme");
+    expect(await t.query(internal.functions.workspaceObjectsRows.describeUnopened, { workspaceId: gone })).toBe("gone/binding=none/rows=0");
+  });
+
   test("no record is bucket; the record moves with each set; the binding names no home while bucket", async () => {
     const t = convexTest(schema, modules);
     const workspaceId = await t.run(async (ctx) => {
