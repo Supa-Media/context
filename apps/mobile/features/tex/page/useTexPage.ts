@@ -70,8 +70,9 @@ export function useTexPage(source: TexPageSource | null, chat: string): TexPageS
           jobs.current.set(job.id, job);
           bump(`job:${job.id}`);
         }
+        // The home page's job parts (status, minions, earlier) come as their own patches with values:
+        // re-reading the whole page here would cost a full read every poll while a job runs.
         bump("jobs");
-        void load();
         return;
       }
       if (LIST_KINDS.has(patch.section)) {
