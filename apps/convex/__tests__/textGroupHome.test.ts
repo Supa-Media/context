@@ -171,11 +171,11 @@ describe("a chat's home", () => {
     const adaApp = await createUser(w.t, "ada-app@example.invalid");
     await w.t.run(async (ctx) => ctx.db.patch(adaApp, { phone: ADA, phoneVerificationTime: Date.now() }));
     const folder = `tex/groups/${(await chatRow(w.t))!.homeWords}`;
-    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toEqual({ dryRun: true, homes: 1, widened: 1, added: 1, unstood: 0, refused: 0 });
+    expect(await w.t.action(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toEqual({ dryRun: true, homes: 1, widened: 1, added: 1, unstood: 0, refused: 0 });
     expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, w.bo, w.cy]));
-    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: false })).toEqual({ dryRun: false, homes: 1, widened: 1, added: 1, unstood: 0, refused: 0 });
+    expect(await w.t.action(internal.functions.texChatHomePeople.nameAgain, { dryRun: false })).toEqual({ dryRun: false, homes: 1, widened: 1, added: 1, unstood: 0, refused: 0 });
     expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, adaApp, w.bo, w.cy]));
-    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toMatchObject({ widened: 0 });
+    expect(await w.t.action(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toMatchObject({ widened: 0 });
   });
 
   test("a quiet chat's home missing folders gets them from the workflow, dry run first", async () => {
@@ -189,13 +189,13 @@ describe("a chat's home", () => {
         if (row !== null) await ctx.db.delete(row._id);
       }
     });
-    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toEqual({ dryRun: true, homes: 1, widened: 0, added: 0, unstood: 1, refused: 0 });
+    expect(await w.t.action(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toEqual({ dryRun: true, homes: 1, widened: 0, added: 0, unstood: 1, refused: 0 });
     expect(await homeRow(w, `${folder}/dreams`)).toBeNull();
-    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: false })).toMatchObject({ unstood: 1, refused: 0 });
+    expect(await w.t.action(internal.functions.texChatHomePeople.nameAgain, { dryRun: false })).toMatchObject({ unstood: 1, refused: 0 });
     for (const inner of PERSON_TEX_FOLDERS) expect((await homeRow(w, `${folder}/${inner}`))?.row.kind).toBe("folder");
     // The home's people are unchanged, and a second pass finds nothing to do.
     expect((await homeRow(w, folder))?.people).toEqual(sorted([w.ada, w.bo, w.cy]));
-    expect(await w.t.mutation(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toMatchObject({ unstood: 0, widened: 0 });
+    expect(await w.t.action(internal.functions.texChatHomePeople.nameAgain, { dryRun: true })).toMatchObject({ unstood: 0, widened: 0 });
   });
 
   test("somebody who leaves the chat is taken off, and somebody added is named", async () => {
