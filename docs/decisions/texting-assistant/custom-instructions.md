@@ -129,14 +129,14 @@ a group turn gets the group's alone, never a member's.
   it only for a clear lasting request ("from now on...", "always...",
   "stop..."), never for a one-off ("make this one shorter"), and its answer
   carries the text now saved, which Tex confirms in its own words. In a group
-  the answer tells Tex to say `tester set: "<line>". Anyone here can text
-  "Tex, undo the change" to put it back.` In a person's own chat it edits theirs; in a group,
-  the group's.
+  the answer tells Tex to say `tester set: "<the text now>". Anyone here can
+  text "Tex, undo the change" to put it back.` In a person's own chat it
+  edits theirs; in a group, the group's.
 - Quick-pick words are code's, no model: "Tex, no emoji", "Tex, less emoji",
   "Tex, tone efficient", "Tex, one bubble", "Tex, short answers", "Tex, more
-  humor", "Tex, clear instructions". In a group Tex says `tester set: "<line>".
-  Anyone here can text "Tex, undo the change" to put it back.` (the setter's handle, as
-  "(set by tester)" was).
+  humor", "Tex, clear instructions". In a group Tex says `tester set: "<the
+  line>". Anyone here can text "Tex, undo the change" to put it back.` (the
+  setter's handle, as "(set by tester)" was).
 - "Tex, undo the change" (or "undo that change") swaps the text back to the
   one before the last change, once. Anyone in a group may. A bare "Tex, undo"
   is not it: people say that about an email or an event, so it goes to the
@@ -220,9 +220,15 @@ message to thread under.
 ## What a simplification would cost
 
 - Letting a personal instruction reach a group would set one member's taste
-  for everyone and show the chat what they chose. Test: "a group turn gets
-  the group's instructions, never the tagger's own"
-  (`apps/convex/__tests__/texStyle.test.ts`).
+  for everyone and show the chat what they chose. Tests: "a group uses only
+  its own, with who set them; never a member's"
+  (`apps/convex/__tests__/texStyle.test.ts`) and "the next turn carries the
+  group's own instructions" (`apps/agent/src/texStyle.test.ts`).
 - Saying the instructions above the safety rules, or unfenced, would let a
-  member's text change what Tex may do. Test: "instructions come after the
-  built-in rules and inside the fence" (`apps/mcp/test/agentTexStyle.test.mjs`).
+  member's text change what Tex may do. Test: "a group turn is told the
+  group's instructions after the built-in rules and its own words, the safety
+  rules above them" (`apps/mcp/test/agentCustomInstructions.test.mjs`).
+- Reading the old dials once the migration ran, or dropping the mute
+  fallback before it ran, would either keep two sources of truth or let a
+  stopped chat speak. Test: "an unmigrated mute still stops Tex, and the
+  migration makes it off" (`apps/convex/__tests__/texStyle.test.ts`).
