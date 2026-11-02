@@ -659,7 +659,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       model: turn.model,
       steps: turn.steps,
       ...(await tex.step("job_fields", () => jobChecked(session, { job, steps: turn.steps?.length ?? 0, turn: body.turn }, () => jobTurnFields(job, turn, { unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true, model: [production?.advisor, router?.think, builtinUsed].find((name) => typeof name === "string" && canRunBuiltin(name, env)), efforts: production?.efforts, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }), meter })))), // a job's part is checked by the advisor against its finish line (`jobCheck.js`)
-      ...{ warm: (await tex.step("seal_warm", () => hot.seal({ turn: body.turn, clean: ledger.untrusted !== true, wrote: turn.steps.length > 0 }))) ?? undefined, log: hot.log() ?? undefined }, // the copy the Worker hands back with the next text, and the log it holds from now on (`warmCopy.js`)
+      ...{ warm: (await tex.step("seal_warm", () => hot.seal({ turn: body.turn, clean: ledger.untrusted !== true, wrote: turn.steps.length > 0 }))) ?? undefined }, // the copy the Worker hands back with the next text (`warmCopy.js`)
     });
   } catch (error) {
     outcome.clean = false;

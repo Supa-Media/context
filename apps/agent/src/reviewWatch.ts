@@ -18,7 +18,7 @@
  */
 
 import { openSession, post, ServiceError, type Fetch } from "./clients";
-import { keptEvents } from "./events";
+import { chatEvents } from "./chatRead";
 import type { InboxStorage } from "./inbox";
 import { chatBefore, eventPeople, peopleHash, peopleOf, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
@@ -161,7 +161,7 @@ async function ask(deps: ReviewDeps, accessToken: string, body: Record<string, u
 export async function failedSince(storage: InboxStorage, message: GroupMessage, now: number): Promise<{ tex: boolean; text: string }[]> {
   const upto = (await storage.get<number>(FAILED_UPTO_KEY)) ?? -1;
   const people = await eventPeople(storage, message);
-  const events = (await keptEvents(storage, message.groupId)).sort((a, b) => a.at - b.at);
+  const events = (await chatEvents(storage, message.groupId)).sort((a, b) => a.at - b.at);
   const lastAnswer = events.reduce((at, event) => (event.from.kind === "tex" && event.delivered !== false ? Math.max(at, event.at) : at), -1);
   const since = events.filter((event) => event.at > Math.max(upto, lastAnswer) && event.text);
   const failedLine = (event: (typeof since)[number]) => event.from.kind === "system" && (event.reason === "failed" || event.reason === "timed_out");

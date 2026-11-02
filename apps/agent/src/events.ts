@@ -1,17 +1,16 @@
 /**
  * The chat's event log, Worker side (docs/design/tex-event-log/CONTRACT.md,
  * sections 1, 2 and 5). Every message in and every part Tex sends out is one
- * `TexEvent`. The log itself lives in the customer's bucket, written by the
- * gateway (`POST /agent/events`); this object only buffers events until the
- * gateway has them, and keeps a short window of recent ones so the decision
- * on the next text (`decide.ts`) can be shown what was just said.
+ * `TexEvent`. The chat's one record is its ledger, written by the gateway
+ * (`POST /agent/events`); this object keeps only its outbox, the events the
+ * gateway has not taken yet, and reads the chat back from the gateway when it
+ * needs it (`chatRead.ts`; Dev, 2026-11-02: "Outbox only, read the ledger").
  *
  * What it keeps, bounded on purpose since it is customer text held outside
- * the customer's bucket:
- * - `ev:<id>` one event, its words capped at 3,000 characters, flagged once
- *   the gateway wrote it. At most `MAX_KEPT_EVENTS`, at most
- *   `MAX_KEPT_CHARS` of words in all, none older than a day: the oldest go
- *   first, written or not.
+ * the customer's storage:
+ * - `ev:<id>` one event, its words capped at 3,000 characters, until the
+ *   gateway has it. At most `MAX_KEPT_EVENTS`, at most `MAX_KEPT_CHARS` of
+ *   words in all, none older than a day: the oldest go first.
  */
 
 import { post, record, type Fetch } from "./clients";
@@ -47,7 +46,7 @@ type Kept = { e: TexEvent; w?: true };
 const PREFIX = "ev:";
 const SEQ = "evseq";
 export const MAX_EVENT_TEXT = 3000;
-/** As many as the gateway reads of a chat's log (`apps/mcp/src/agent/log.js` `READ_LIMIT`, `READ_CHARS`): this object holds the day's log, so a turn reads none of it from storage. */
+/** The most the outbox holds: a gateway that stays down this long loses the oldest (`apps/mcp/src/agent/log.js` `READ_LIMIT`, `READ_CHARS`). */
 export const MAX_KEPT_EVENTS = 400;
 export const MAX_KEPT_CHARS = 120_000;
 /** What decide is shown of the kept log, at most. */
@@ -116,50 +115,28 @@ export async function pruneEvents(storage: InboxStorage, now: number): Promise<v
   if (oldest !== undefined) await armBy(storage, oldest.e.at + KEEP_EVENTS_MS, now);
 }
 
-/** The events kept for one chat, oldest first. */
+/** This chat's outbox, the events the gateway has not taken yet, in the order kept. Readers of the chat read `chatRead.ts` `chatEvents`. */
 export async function keptEvents(storage: InboxStorage, chat: string): Promise<TexEvent[]> {
   return [...(await storage.list<Kept>({ prefix: PREFIX })).values()].map((kept) => kept.e).filter((event) => event.chat === chat);
 }
 
-/** This chat's kept events, oldest first, written or not: what a turn is handed beside the warm copy (`warm.ts`). */
+/** This chat's outbox, oldest first: what a turn is handed beside the warm copy, which the gateway adds to the ledger's day (`warm.ts`). */
 export async function recentEvents(storage: InboxStorage, chat: string): Promise<TexEvent[]> {
   return [...(await storage.list<Kept>({ prefix: PREFIX })).values()].map((kept) => kept.e).filter((event) => event.chat === chat).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-/** Marks a chat whose whole log this object holds: its log as the gateway read it was kept here (`keepLog`), and every event since went through `addEvent`. */
+/** A key this object kept before 2026-11-02, when it held a chat's whole day: dropped on the next flush. */
 const FULL = "evfull:";
 
-/** Whether this object holds the chat's whole log, so the gateway need not read it from storage. */
-export async function holdsLog(storage: InboxStorage, chat: string): Promise<boolean> {
-  return (await storage.get<number>(`${FULL}${chat}`)) !== undefined;
-}
-
-/**
- * Keep the chat's log as the gateway read it from storage (`log` on its
- * answer), each event marked written, and remember that this object now holds
- * the whole log. An event already kept is left as it is; one past the window
- * is pruned as any other.
- */
-export async function keepLog(storage: InboxStorage, chat: string, events: readonly TexEvent[], now: number): Promise<void> {
-  const kept = new Set((await storage.list<Kept>({ prefix: PREFIX })).keys());
-  for (const event of events) {
-    if (event?.chat !== chat || typeof event.id !== "string" || !/^\d{13}-\d{6}$/.test(event.id) || !Number.isFinite(event.at)) continue;
-    const key = `${PREFIX}${event.id}`;
-    if (!kept.has(key)) await storage.put<Kept>(key, { e: { ...event, ...(event.text === undefined ? {} : { text: event.text.slice(0, MAX_EVENT_TEXT) }) }, w: true });
-  }
-  await prune(storage, now);
-  await storage.put<number>(`${FULL}${chat}`, now);
-}
-
-/** Whether the gateway has written it; kept for the window either way. */
+/** The events the gateway has not taken yet. One kept before 2026-11-02 may still be marked written: it goes on the next flush. */
 export async function unwritten(storage: InboxStorage): Promise<TexEvent[]> {
   return [...(await storage.list<Kept>({ prefix: PREFIX })).values()].filter((kept) => !kept.w).map((kept) => kept.e);
 }
 
 /**
  * Send every event the gateway has not written, at most 50 a call, with the
- * chat's own access token (the one `/agent` takes). What it wrote is marked;
- * anything else waits for the next token. Never throws: the log is never the
+ * chat's own access token (the one `/agent` takes). What it wrote is
+ * forgotten here, the ledger holds it; anything else waits for the next token. Never throws: the log is never the
  * reason an answer did not go.
  */
 export async function flushEvents(
@@ -170,6 +147,7 @@ export async function flushEvents(
   chat?: string,
 ): Promise<void> {
   await prune(storage, deps.now(), SEND_WITHIN_MS);
+  await dropWritten(storage);
   const waiting = (await unwritten(storage)).filter((event) => chat === undefined || event.chat === chat);
   // Every event in one call is the same chat's.
   const batches: TexEvent[][] = [];
@@ -182,7 +160,7 @@ export async function flushEvents(
     try {
       const { status, json } = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/events`, accessToken, { conversation, events }, FLUSH_TIMEOUT_MS);
       if (status === 400) {
-        // Refused as malformed: retrying the same batch would be refused forever, so it is dropped from the queue (kept for the window).
+        // Refused as malformed: retrying the same batch would be refused forever, so it is dropped.
         const field = record(json).error_description;
         console.log(JSON.stringify({ event: "tex_events", outcome: "refused", ...(typeof field === "string" && /^[\w.\[\]-]{1,64}$/.test(field) ? { field } : {}) }));
         written = events.map((event) => event.id);
@@ -194,11 +172,14 @@ export async function flushEvents(
     } catch {
       return;
     }
-    for (const id of written) {
-      const kept = await storage.get<Kept>(`${PREFIX}${id}`);
-      if (kept !== undefined) await storage.put<Kept>(`${PREFIX}${id}`, { ...kept, w: true });
-    }
+    for (const id of written) await storage.delete(`${PREFIX}${id}`);
   }
+}
+
+/** What an older version of this object kept after the gateway had it (`w`), and its marks of a whole day held: the ledger holds them. */
+async function dropWritten(storage: InboxStorage): Promise<void> {
+  for (const [key, kept] of await storage.list<Kept>({ prefix: PREFIX })) if (kept.w) await storage.delete(key);
+  for (const key of (await storage.list<number>({ prefix: FULL })).keys()) await storage.delete(key);
 }
 
 async function prune(storage: InboxStorage, now: number, within = KEEP_EVENTS_MS): Promise<void> {
