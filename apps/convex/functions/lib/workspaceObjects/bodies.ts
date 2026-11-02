@@ -340,10 +340,12 @@ export async function parityPage(
   bucket: BodyStore,
   object: BodyStore,
   { at, limit, width = 8, recheckMs, sleep }: { at: ParityCursor; limit: number; width?: number; recheckMs: number; sleep: (ms: number) => Promise<void> },
-): Promise<{ parity: BodyParity; next: ParityCursor | null }> {
+): Promise<{ parity: BodyParity; shapes: Record<string, number>; next: ParityCursor | null }> {
   const parity = emptyBodyParity();
+  // Each counted disagreement by `<verdict>#<key shape>`: what the keys have in common, never which keys.
+  const shapes: Record<string, number> = {};
   const prefix = OBJECT_PREFIXES[at.prefix];
-  if (prefix === undefined) return { parity, next: null };
+  if (prefix === undefined) return { parity, shapes, next: null };
   const walked = at.side === 0 ? bucket : object;
   const page = await walked.list({ prefix, ...(at.cursor ? { cursor: at.cursor } : {}), limit });
   const listed = (page.objects ?? []).map((entry) => entry.key).filter(isWorkspaceObjectKey);
@@ -366,14 +368,18 @@ export async function parityPage(
       const verdict = await verdictOf(bucket, object, key);
       // Side 1 counts only what side 0 cannot see: a key the object holds and the bucket does not.
       if (at.side === 1 && verdict !== "extraInObject") continue;
-      if (verdict === "missingInObject" || verdict === "extraInObject" || verdict === "differ") parity[verdict] += 1;
+      if (verdict === "missingInObject" || verdict === "extraInObject" || verdict === "differ") {
+        parity[verdict] += 1;
+        const label = `${verdict}#${keyShape(key)}`;
+        shapes[label] = (shapes[label] ?? 0) + 1;
+      }
     }
   }
   let next: ParityCursor | null;
   if (page.truncated === true && typeof page.cursor === "string") next = { side: at.side, prefix: at.prefix, cursor: page.cursor };
   else if (at.prefix + 1 < OBJECT_PREFIXES.length) next = { side: at.side, prefix: at.prefix + 1 };
   else next = at.side === 0 ? { side: 1, prefix: 0 } : null;
-  return { parity, next };
+  return { parity, shapes, next };
 }
 
 /** The bytes a workspace's object keys take in the bucket, from listings alone, stopping once past `cap`. */
