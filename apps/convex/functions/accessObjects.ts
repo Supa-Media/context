@@ -39,7 +39,7 @@ import { consoleWorkspaceClient } from "./lib/workspaceObjects/door";
 import { accessDoor, type AccessDoor, type AccessScope } from "./lib/accessObjects/door";
 import { PERSON_TABLES, WORKSPACE_TABLES, type AccessTable } from "./lib/accessObjects/expected";
 import type { AccessHome } from "./lib/accessObjects/home";
-import { failureOf } from "./workspaceObjects";
+import { failureOf } from "./lib/workspaceObjects/failures";
 import { accessValidator, scopeValidator } from "./accessObjectsRows";
 
 /** Rows per snapshot call: half the contract's `MAX_ROWS_PER_CALL`. */
