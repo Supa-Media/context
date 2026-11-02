@@ -52,7 +52,8 @@ import {
 import { failureOf, withRetries } from "./lib/workspaceObjects/failures";
 import { addRevisionCounts, emptyRevisionCounts, revisionsPage, type RevisionCounts } from "./lib/workspaceObjects/revisions";
 import { consoleWorkspaceClient, type WorkspaceObjectClient } from "./lib/workspaceObjects/door";
-import { convexVisible, noteRows, objectRowOf, rowsDigest, samplePrincipals, type ObjectRow, type ReaderRules } from "./lib/workspaceObjects/rows";
+import { convexVisible, noteRows, objectRowOf, rowsDigest, type ObjectRow, type ReaderRules } from "./lib/workspaceObjects/rows";
+import { probesFor } from "./lib/workspaceObjects/probes";
 import type { NotesHome } from "./workspaceObjectsRows";
 
 const homeValidator = v.union(v.literal("bucket"), v.literal("dual"), v.literal("object"));
@@ -499,7 +500,7 @@ async function visibilityParity(
 ): Promise<{ principals: number; checked: number; differ: number; hidden: number; shown: number }> {
   const readerRules = (await ctx.runQuery(internal.functions.nodesPrivacy.readerRules, { workspaceId })) as ReaderRules;
   const notes = noteRows(rows);
-  const principals = samplePrincipals(readerRules);
+  const principals = await probesFor(ctx, workspaceId, readerRules);
   let checked = 0;
   let differ = 0;
   // Which way each difference goes: Convex shows it and the object does not (`hidden`: also what a body
@@ -512,7 +513,12 @@ async function visibilityParity(
     for (let start = 0; start < notes.length; start += MAX_READ_IDS) {
       const chunk = notes.slice(start, start + MAX_READ_IDS);
       // `api.js` is plain JavaScript: its defaults type `groups` as an empty tuple, so the call is shaped by hand.
-      const ask = { ids: chunk.map((row) => row.noteId as string), scope: principal.scope, groups: principal.groups } as unknown as Parameters<WorkspaceObjectClient["visible"]>[0];
+      const ask = {
+        ids: chunk.map((row) => row.noteId as string),
+        scope: principal.scope,
+        groups: principal.ask?.groups ?? principal.groups,
+        ...(principal.ask ? { userId: principal.ask.userId } : {}),
+      } as unknown as Parameters<WorkspaceObjectClient["visible"]>[0];
       const seen = (await client.visible(ask)) as boolean[];
       chunk.forEach((_, index) => {
         checked += 1;
