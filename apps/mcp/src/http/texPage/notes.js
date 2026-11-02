@@ -159,7 +159,7 @@ function isAboutPath(path) {
 
 /** A note split into its front matter lines (null when it has none) and its body. */
 function splitNote(text) {
-  const raw = String(text ?? "").replace(/^﻿/, "");
+  const raw = String(text ?? "").replace(/^\uFEFF/, "");
   const lines = raw.split("\n");
   if (lines[0]?.trim() === "---") {
     for (let i = 1; i < lines.length; i++) {
@@ -512,7 +512,7 @@ async function lineHash(raw) {
 
 /** The about items of a note, each with its stable line id (`index:hash`). */
 async function aboutItems(text, now) {
-  const lines = String(text ?? "").replace(/^﻿/, "").split("\n");
+  const lines = String(text ?? "").replace(/^\uFEFF/, "").split("\n");
   const start = bodyStart(lines);
   const items = [];
   for (let i = start; i < lines.length; i++) {
