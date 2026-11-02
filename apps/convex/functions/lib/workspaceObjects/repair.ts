@@ -116,6 +116,24 @@ export function documentOfKey(key: string): string | null {
 }
 
 const stateKey = (documentId: string) => `${HISTORY_ROOT}documents/${documentId}.json`;
+/**
+ * Which note a document was made for, written beside its records and never changed
+ * (`packages/collaboration/src/address.js`, `recordDocumentNote`). A purge removes it with the document, so a
+ * missed erase still has it in the bucket, and a move never stales it.
+ */
+const noteKey = (documentId: string) => `${HISTORY_ROOT}documents/${documentId}/note.json`;
+
+/**
+ * The note id written beside `documentId`, or `undefined` where nothing in the bucket says. A failed read is not
+ * caught: a key is never deleted on evidence the bucket could not be asked for, so the caller counts it `failed`.
+ */
+async function noteIdOfDocument(bucket: BodyStore, documentId: string): Promise<string | undefined> {
+  const object = await bucket.get(noteKey(documentId));
+  if (object === null) return undefined;
+  const value = parsed(await object.arrayBuffer());
+  if (value?.documentId !== documentId) return undefined;
+  return typeof value.noteId === "string" && value.noteId !== "" ? value.noteId : undefined;
+}
 
 /**
  * When the erase leak was fixed (#2694 live). A bucket copy written after it cannot be an erase the bucket missed:
@@ -152,17 +170,28 @@ export class Facts {
     private readonly guard: EraseGuard | null = null,
   ) {}
 
-  /** The note a document was made for, from the bucket's copy of its state: its path, `null` when unreadable. */
+  /**
+   * The note a document was made for, from the bucket: the note id written beside it, and the path its state
+   * names. `null` when neither says.
+   *
+   * Both are read, because a keyed note's history is filed by its note id, so moving or renaming it changes its
+   * row alone: `carryRowHistory` carries only a head still filed at the old name, so `renameDocument` never runs
+   * and the state goes on naming the name the document was made at. Judging such a document by that path alone
+   * reads every moved note as gone, and its history — the only copy, where the object lacks it — is deleted. The
+   * note id is the one fact a move does not stale.
+   */
   private owner(documentId: string): Promise<{ path?: string; noteId?: string } | null> {
     let found = this.owners.get(documentId);
     if (found === undefined) {
       const guard = this.guard;
       found = (async () => {
         if (guard === null) return null;
+        const noteId = await noteIdOfDocument(guard.bucket, documentId);
         const state = await guard.bucket.get(stateKey(documentId));
-        if (state === null) return null;
-        const path = parsed(await state.arrayBuffer())?.path;
-        return typeof path === "string" && path !== "" ? { path } : null;
+        const named = state === null ? undefined : parsed(await state.arrayBuffer())?.path;
+        const path = typeof named === "string" && named !== "" ? named : undefined;
+        if (noteId === undefined && path === undefined) return null;
+        return { ...(path === undefined ? {} : { path }), ...(noteId === undefined ? {} : { noteId }) };
       })();
       this.owners.set(documentId, found);
     }
@@ -171,8 +200,9 @@ export class Facts {
 
   /**
    * Whether a key of `documentId` the object lacks may be deleted from the bucket as an erase it missed. Only a copy
-   * written before the leak was fixed, whose note is known (a head's own note id and path, else the bucket state's
-   * path) and has no live row at that id or path. Anything else may be the one copy of a live note's history.
+   * written before the leak was fixed, whose note is known (a head's own note id and path, else the note id and
+   * path beside the document) and has no live row at that id or path. Anything else may be the one copy of a live
+   * note's history.
    */
   async mayBeErased(documentId: string, bucketCopy: StoredObject, bytes: ArrayBuffer, isHead: boolean): Promise<boolean> {
     if (this.guard === null) return false;

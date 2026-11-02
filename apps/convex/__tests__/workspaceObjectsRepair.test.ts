@@ -13,7 +13,8 @@
  * read (a save meanwhile is removed); let a read-only run write; class a
  * missing note text as `bucketNewer` whatever the rows say (a removed note's
  * text is brought back); drop the live-note check or the leak-fixed time from
- * `mayBeErased` (a live note's only history is deleted from the bucket).
+ * `mayBeErased`, or name a non-head key's note by the state's path alone (a
+ * moved note's only history is deleted from the bucket).
  */
 
 import { describe, expect, test } from "vitest";
@@ -26,6 +27,8 @@ const GONE = "dgone";
 const state = (id: string) => `${ROOT}documents/${id}.json`;
 const revision = (id: string, name: string) => `${ROOT}revisions/${id}/${name}.json`;
 const head = (name: string) => `${ROOT}heads/${name}.json`;
+/** Which note a document was made for, beside its records (`packages/collaboration/src/address.js`). */
+const noteOf = (id: string) => `${ROOT}documents/${id}/note.json`;
 const NOTE = "notes/0199a000-0000-7000-8000-00000000000a.md";
 
 type Entry = { bytes: Uint8Array; etag: string; uploaded: number };
@@ -233,6 +236,21 @@ describe("history only the bucket ever held is never deleted as an erase", () =>
     const { bucket, b, o } = world();
     bucket.seed(head("h-moved"), JSON.stringify({ documentId: GONE, path: "old-name.md", noteId: "n-live" }));
     expect(await settleKey(b, o, head("h-moved"), guarded(o, b, { paths: ["new-name.md"], noteIds: ["n-live"] }), true)).toEqual({ verdict: "unsure", done: null });
+    expect(bucket.writes).toEqual([]);
+  });
+
+  test("a document whose note id has a live row is left alone, though its state names the name it was made at", async () => {
+    const { bucket, b, o } = world();
+    // A keyed note's history is filed by its note id, so a move changes its row alone: `carryRowHistory` carries
+    // only a head still filed at the old name, so `renameDocument` never runs and the state keeps the name the
+    // document was made at. Only the note id beside the document says whether that note is still there.
+    bucket.seed(state(GONE), goneState({ path: "old-name.md" }));
+    bucket.seed(noteOf(GONE), JSON.stringify({ documentId: GONE, noteId: "n-live" }));
+    bucket.seed(revision(GONE, "r1"), "the words of a live note that moved");
+    const facts = guarded(o, b, { paths: ["new-name.md"], noteIds: ["n-live"] });
+    for (const key of [revision(GONE, "r1"), state(GONE), noteOf(GONE)]) {
+      expect(await settleKey(b, o, key, facts, true)).toEqual({ verdict: "unsure", done: null });
+    }
     expect(bucket.writes).toEqual([]);
   });
 
