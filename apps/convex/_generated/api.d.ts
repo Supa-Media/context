@@ -33,6 +33,7 @@ import type * as functions_texTriageWatch from "../functions/texTriageWatch.js";
 import type * as functions_accessObjects from "../functions/accessObjects.js";
 import type * as functions_accessObjectsExpected from "../functions/accessObjectsExpected.js";
 import type * as functions_accessObjectsRows from "../functions/accessObjectsRows.js";
+import type * as functions_accessReachResend from "../functions/accessReachResend.js";
 import type * as functions_accessTakeAway from "../functions/accessTakeAway.js";
 import type * as functions_accessProfiles from "../functions/accessProfiles.js";
 import type * as functions_accessConnections from "../functions/accessConnections.js";
@@ -287,6 +288,7 @@ declare const fullApi: ApiFromModules<{
   "functions/accessObjects": typeof functions_accessObjects;
   "functions/accessObjectsExpected": typeof functions_accessObjectsExpected;
   "functions/accessObjectsRows": typeof functions_accessObjectsRows;
+  "functions/accessReachResend": typeof functions_accessReachResend;
   "functions/accessProfiles": typeof functions_accessProfiles;
   "functions/accessConnections": typeof functions_accessConnections;
   "functions/accessMirror": typeof functions_accessMirror;
