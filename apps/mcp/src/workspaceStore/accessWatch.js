@@ -10,6 +10,7 @@
 
 import { createControlPlane } from "../controlPlane.js";
 import { workspaceAccessTopics } from "./accessTopics.js";
+import { personAccessTopics } from "./personTopics.js";
 
 const TOPICS = { members: ["members"], invites: ["invites"] };
 
@@ -58,4 +59,39 @@ export function watchMembers(store, access, env, deps = {}) {
     access.changed();
     return held;
   };
+}
+
+const PERSON_TOPICS = { reach: ["reach"], shared: ["shared_to_me"], connections: ["connections"] };
+
+/**
+ * The same for a person's own object (`personRows.js`, `personTopics.js`): every write through any door re-sends
+ * what changed, and a socket opened on a grant that is now revoked (by the app, the control plane, or a replayed
+ * refresh token) is closed at once, so its next frame goes back through the gateway, which refuses the grant.
+ */
+export function watchPerson(store, access, deps = {}) {
+  const person = store.person;
+  if (!person) return;
+  access.provide(personAccessTopics(store, { mirror: deps.mirror }));
+  const revokedOut = () => {
+    const revoked = new Set(person.live("connections").filter((row) => row.status === "revoked").map((row) => row.grantId));
+    if (revoked.size > 0) access.lockOutWhere((reader) => revoked.has(reader.grantId));
+  };
+  const after = (name, topicsOf) => {
+    const write = person[name].bind(person);
+    person[name] = (...args) => {
+      const result = write(...args);
+      const topics = topicsOf(...args);
+      if (topics === null || topics.includes("connections")) revokedOut();
+      access.changed(topics);
+      return result;
+    };
+  };
+  const byTable = (tbl) => PERSON_TOPICS[tbl] ?? null;
+  after("put", byTable);
+  after("remove", byTable);
+  after("snapshot", byTable);
+  after("revoke", () => ["connections"]);
+  after("rotate", () => ["connections"]);
+  after("pin", () => null);
+  after("setHome", () => null);
 }
