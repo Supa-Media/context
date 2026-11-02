@@ -126,11 +126,9 @@ export async function openWarm(env, session, sealed, now = Date.now()) {
  * and no copy is made.
  *
  * `logEligible`: a group chat's own turn from the texting Worker. It makes no
- * copy, but the chat's event log is held by the group's object just as a
- * one-to-one chat's is (`apps/agent/src/events.ts` `holdsLog`): the first turn
- * reads it from storage and hands it back as `log`, and later turns read none
- * (production, 2026-10-31: every group turn read 275 log files, 4 to 6 s,
- * before the model).
+ * copy, but the Worker's outbox (`recent`, the events it has not posted yet)
+ * goes on the chat's day from the ledger as a one-to-one chat's does (Dev,
+ * 2026-11-02: the Worker keeps its outbox only, `apps/agent/src/chatRead.ts`).
  */
 export function warmTurn(env, session, body, { eligible, logEligible = false, now = Date.now() }) {
   const opened = eligible ? openWarm(env, session, body?.warm, now) : Promise.resolve(null);
@@ -149,7 +147,7 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
     return value;
   };
   const chat = (async () => (eligible ? (await opened)?.chat : undefined))();
-  let chatRead = null, logRead = null;
+  let chatRead = null;
   return {
     /** The setup's text; the turn parses it either way. */
     setup: part("setup"),
@@ -157,20 +155,15 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
     skills: part("skills"),
     /** Who they are by their account (`identity.js`): the control plane's answer, never a note. */
     identity: part("identity"),
-    /** The chat's event log (`log.js` `readEvents`), with the Worker's newest events on top. */
+    /** The chat's day (the ledger's, `loggedTurn.js`), with the Worker's outbox on top. */
     async events(chatKey, read) {
-      // The Worker holds the chat's whole log (`apps/agent/src/events.ts` `holdsLog`): its events are all of it, nothing is read from storage.
       const logs = eligible || logEligible; // the texting Worker's own turn, one to one or a group's
-      const held = logs && body?.holdsLog === true && Array.isArray(body?.recent);
-      const warm = held ? undefined : await chat;
-      const base = held ? [] : warm?.events ?? (await read());
+      const warm = await chat;
+      const base = warm?.events ?? (await read());
       const events = mergeEvents(base, logs ? body?.recent : null, { chat: chatKey, now }); // only the texting Worker's own turn hands events in
       chatRead = { events };
-      if (logs && !held) logRead = events; // read from storage (or a copy of that read): handed to the Worker to hold from now on
       return events;
     },
-    /** The log this turn read from storage, for the Worker to hold so the next turn reads none (`apps/agent/src/events.ts` `keepLog`); null when it read none. */
-    log: () => logRead,
     /** Whether a turn record is clean, from the copy when it knows it. */
     async clean(turn, read) {
       const known = (await chat)?.clean?.[turn];
