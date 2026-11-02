@@ -11,11 +11,12 @@ import { AgentRefusal, agentTools, MAX_QUESTION_LENGTH, openProvider, runTurn } 
 import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
-import { openTranscript } from "./transcript.js";
+import { openTranscript } from "./transcript.js"; import { ledgerObserver, storeLedger, wordsEntry } from "./ledger.js";
 import { groupTimingLine, turnKind, turnReport, waitBefore } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
 import { openLearnedSkills, withLearnedSkills } from "./learnedSkills.js";
+import { openChatSkills, withChatSkills } from "./chatSkills.js";
 import { afterTextedTurn } from "./reflect.js";
 import { reviewAfterTurn } from "./selfReview.js";
 import { searchSettingsOf } from "../search/settings.js";
@@ -46,7 +47,7 @@ import { withFolderFit } from "./folderFit.js"; import { withTheirNotesKept } fr
 import { delegateSession, withDelegate } from "./delegate.js";
 import { NO_MODEL, deliverSupervision, prepareSupervision, withMailAgent } from "./supervise.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js"; import { jobTurnFields } from "./jobCheck.js";
-import { markUntrusted, newLedger } from "../privacy/egress.js";
+import { markChatWords, markUntrusted, newLedger } from "../privacy/egress.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { sentPicturesLine } from "./outgoingPictures.js";
 import { turnPictures, withDrawnImages, withPictureMaker } from "./pictureMaker.js"; import { allowedFirst, texEntry } from "./texEntryPoint.js";
@@ -62,7 +63,7 @@ import { paidLine } from "./textedPay.js";
 import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends, read for sense
 import { googleOfferLine } from "./googleOffer.js"; // offers Google once to a texter without it
 import { backgroundSession, jobOf, jobPrompt, jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, reportReply, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
-import { chatLines, checkerHistory, commandTools, consentForTurn, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange } from "./groupTurn.js";
+import { chatLines, checkerHistory, commandTools, settingsChanged, consentForTurn, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
  * more (people's own model keys were deleted, the owner, 2026-10-10): the
@@ -285,11 +286,10 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const fresh = await tex.step("keep_sent_files", async () => keepSentFiles(store, await tex.step("hear_voice", () => hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId))));
 
   const offered = await tex.wait("tools_list", offeredRead); stages?.mark("tools");
-
-  const learnedRead = tex.ahead("learned_skills", () => openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts, warm: hot.skills }), null).catch(() => null); // read beside the history, once the egress ledger is set
+  const learnedRead = tex.ahead("learned_skills", () => group !== null ? historyRead.then(() => openChatSkills(group)) : openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts, warm: hot.skills }), null).catch(() => null); // read beside the history, once the egress ledger is set
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
   const [{ conversation, history }, logged] = await tex.wait("history", historyRead); const attachments = [...fresh, ...(runner ? [] : await tex.step("kept_files_again", () => carryKeptFiles(store, history, fresh), []))]; stages?.mark("history");
-  if (group !== null || job?.tainted || report !== null) markUntrusted(ledger); // a job planned after a read from outside still carries it, and a job's report is what it read
+  if (group !== null) markChatWords(ledger); if (job?.tainted || report !== null) markUntrusted(ledger); // a chat's own words are no stranger's (`chatSkills.js`); a job planned after a read from outside still carries it, and a job's report is what it read
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger) }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
   // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
@@ -368,7 +368,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   // What of the conversation this turn is shown: the setup's `history:`, else the default; a text typed in a thread, that thread (`threadView.js`).
   const { shown, ...inThread } = threadView(history, quoted, job !== null ? 0 : production?.history ?? SHOWN_HISTORY_TURNS); // a job works from its own record, not the chat (`loggedTurn.js` `JOB_HISTORY_ENTRIES`)
   // A previous answer written after a read from outside still carries it.
-  if (historyIsTainted(shown) || logged?.tainted === true) markUntrusted(ledger); // and what the log shows of a tainted turn (`loggedTurn.js`)
+  if (historyIsTainted(shown) || logged?.tainted === true) (group !== null ? markChatWords : markUntrusted)(ledger); // and what the log shows of a tainted turn (`loggedTurn.js`)
   if (attachments.length > 0) markUntrusted(ledger); // a forwarded PDF is someone else's words, like a page
   // The rest is read on request, and carries its own mark when it is read.
   const earlier = group !== null ? [earlierChatTool(history)] : conversation === null ? [] : [earlierTextsTool(history, () => markUntrusted(ledger))];
@@ -465,7 +465,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   // Their zone: a routine's own, else the one the texting Worker sent (`localNow.js`).
   const timeZone = runner ? routineTimeZone(routine.settings, body.routine.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE;
-  // Today's transcript (`transcript.js`), under a ledger of its own: what it reads, the model never does.
+  const chatLog = texting || group !== null ? storeLedger(store, session) : null, ledgerAt = { turn: body.turn, ownSlug: session.workspaceSlug }; // the chat's one record of everything (`ledger.js`); today's transcript below reads under an egress ledger of its own
   const unseen = { ...session, egress: { ...session.egress, ledger: newLedger() } };
   Object.defineProperty(unseen, "accessToken", { value: session.accessToken, enumerable: false }); // as `sessionForContext`
   const transcript = texting
@@ -514,7 +514,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       callTool: allowedFirst(tex.lean ? allowedRead : null, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
         withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
           attachments,
-          withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), groupWriting, { store, group, question }) : textingAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }))))),
+          withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), groupWriting, { store, group, question }) : textingAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
         ))),
       ))))))),
       pictures: texted || group !== null,
@@ -535,11 +535,11 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       web: steer?.trackWeb(claims?.wrapWeb(seenWeb) ?? seenWeb) ?? claims?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
       history: logged?.history ?? shown,
       threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + offerShown + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
-      local: [...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => controlPlane.texCommand(session.accessToken, command), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
+      local: [...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
       ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
       localNow: { now: Date.now(), timeZone },
-      observe: withJobSteps(job, step, transcript?.record ?? null), // a job's steps also go to its chat (`background.js`)
+      observe: ledgerObserver(chatLog, withJobSteps(job, step, transcript?.record ?? null), ledgerAt), // a job's steps also go to its chat (`background.js`), and every step to the chat's ledger
       workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
       texting: texting || group !== null, // a group's answer is a text too, written for one
       notes: production !== null ? { prompt: production.prompt } : null,
@@ -572,7 +572,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
     if (runner) {
       const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer, { routine, runs });
-      await tex.after("transcript", () => transcript.finish({ answer: ran.text, outcome: ran.outcome }));
+      await tex.after("transcript", () => transcript.finish({ answer: ran.text, outcome: ran.outcome })); chatLog?.write(wordsEntry("note", ran.text, { turn: body.turn, routine: routine.path, outcome: ran.outcome })); await tex.after("ledger", () => chatLog?.flush());
       await tex.step("keep_run", () => keepRun(store, routine, runs, ran.outcome, ran.text));
       /*
         A routine that texts the person is a message they may answer with a bare
@@ -625,7 +625,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     */
     const handoff = opened?.browser?.handoffLine() ?? null;
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
-    if (transcript !== null) await tex.after("transcript", () => transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" }));
+    if (transcript !== null) await tex.after("transcript", () => transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" })); chatLog?.write(wordsEntry("reply", sent, { turn: body.turn, model: turn.model, ms: Date.now() - received, clean: ledger.untrusted !== true, ...(turn.exhausted ? { outcome: "exhausted" } : {}) })); await tex.after("ledger", () => chatLog?.flush()); // `clean`: what a later turn trusts it by (`ledgerHistory.js`)
     // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
     const replaced = (job !== null && steer !== null && (await tex.step("steer_pending", () => steer.pending()))) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
     if (steer !== null) await tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear()));
@@ -634,7 +634,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
     if (group !== null && job === null && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
     const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
-    const kept = { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID }; // addresses only (`sources.js`)
+    const kept = { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID, ledger: false }; // addresses only (`sources.js`); the turn's steps and reply are in the ledger already
     if (saving) await tex.behind(front, "save_chat", () => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
       try {
         const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await tex.step("transcript_kept", () => transcript?.kept())) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
@@ -668,7 +668,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     outcome.clean = false;
     if (steer !== null) await tex.step("steer_clear", () => begun.catch(() => {}).then(() => steer.clear()));
     if (opened !== null) await tex.after("browser_close", () => opened.close());
-    if (transcript !== null) await tex.after("transcript", () => transcript.finish({ answer: "", outcome: "the turn failed" }));
+    if (transcript !== null) await tex.after("transcript", () => transcript.finish({ answer: "", outcome: "the turn failed" })); await tex.after("ledger", () => chatLog?.flush());
     await tex.step("usage_failed", () => meter(null, true));
     /*
       An ask the person was never told about (the turn failed before its ask

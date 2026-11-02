@@ -45,6 +45,7 @@ import { CARRIED, ON_PAGE, carryOldNotes, mergeTurns } from "./groupMemoryCarry.
 import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
 import { addressHome, homePrompt, openChatHome, readAboutUs } from "./chatHome.js";
+import { chatJobsPath, readChatJobs } from "./chatJobs.js";
 import { directNote, learnDirect } from "./groupDirectNotes.js";
 import { homeNamesOf, readEitherName } from "./homeNames.js";
 import { readWithEtag } from "./jobLog.js";
@@ -309,11 +310,13 @@ export async function readGroupMemory(store, group, dispatch = null) {
     group.aboutPath = path;
     return readAboutUs(group.home, seen);
   })();
-  const [memory, playbook, voice, aboutUs] = await Promise.all([record, readPlaybook(inFirstReach(dispatch, group), group), voiceRead, aboutRead]);
+  // A home's open jobs, `jobs.md` as a person's Tex keeps `tex/jobs.md` (`chatJobs.js`).
+  const jobsRead = group.home ? (direct ? directNote(group, direct, "jobs") : Promise.resolve(null)).then((held) => readChatJobs(group.home, held)) : Promise.resolve(null);
+  const [memory, playbook, voice, aboutUs, jobs] = await Promise.all([record, readPlaybook(inFirstReach(dispatch, group), group), voiceRead, aboutRead, jobsRead]);
   const turns = Array.isArray(memory?.turns) ? memory.turns.filter(isTurn) : [];
   // The words, and what each answer used and wrote, as a person's own texts keep them (`conversation.js`).
   const history = trimGroupTurns(turns.map(({ role, text, tainted, tools, sources, timing }) => ({ ...keptTurn({ role, text, tainted, tools, sources }), ...timedTurn(role, timing) })));
-  Object.assign(group, { playbook, voice, aboutUs });
+  Object.assign(group, { playbook, voice, aboutUs, jobs });
   return history;
 }
 
@@ -438,7 +441,7 @@ export async function keepGroupExchange(store, group, history, question, answer,
   await openHome(store, group);
   // The keys of a home's voice and about-us notes, for next turn's direct reads (`groupDirectNotes.js`).
   const named = homeNamesOf(group, await sha256Hex(group.key), latest);
-  const direct = named ? await learnDirect(group, named.paths, named.old) : {};
+  const direct = named ? await learnDirect(group, { ...named.paths, jobs: chatJobsPath(group.home) }, named.old) : {};
   // The page under the name it holds now: the lookup's, else the one this turn read it by (`homeNames.js`).
   const memory = !named ? null : Array.isArray(direct.old) ? (direct.old.includes("memory") ? named.old.memory : named.paths.memory) : (group.pagePath ?? named.live.memory);
   const { noteEtag: _etag, direct: _direct, unreadable: _unreadable, turns: _turns, ...marks } = latest;
@@ -643,3 +646,4 @@ export function groupAwareCallTool(callTool, writeTools, { store = null, group =
 
 // Tex's chat commands as tools (`commandTools.js`), imported by `route.js` with the rest of a chat turn's pieces.
 export { commandTools, consentForTurn } from "./commandTools.js";
+export { settingsChanged } from "./pageSettings.js";

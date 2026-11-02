@@ -4,7 +4,8 @@
  * a tone, three More/Less dials, a length, one bubble or several, and a humor
  * percentage. Kept on old rows (`texStylePreferences.texStyle`,
  * `textGroups.texStyle`) and read only by the migration that wrote their lines
- * (`texSettingsMigration.ts`, `texInstructions.ts` `linesFromStyle`).
+ * (`texSettingsMigration.ts`, `texInstructions.ts` `linesFromStyle`), and by the app's Tex page, which still sets
+ * them as quick picks (`texPage.ts`, `readTexStyle`).
  * TODO: drop the fields and this validator once the migration has run everywhere.
  */
 
@@ -35,3 +36,24 @@ export const texStyleValidator = v.object({
 });
 
 export type TexStyle = Infer<typeof texStyleValidator>;
+
+const CLOSED: Record<string, readonly string[]> = {
+  tone: ["default", "professional", "friendly", "candid", "quirky", "efficient", "nerdy", "cynical"],
+  warmth: ["more", "default", "less"],
+  enthusiasm: ["more", "default", "less"],
+  emoji: ["more", "default", "less"],
+  length: ["short", "default", "detailed"],
+  bubbles: ["multiple", "one"],
+};
+const isHumor = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100 && value % 10 === 0;
+
+/** Dials as a caller gave them: only known keys from their closed sets, humor a whole ten; anything else is refused whole (null). */
+export function readTexStyle(value: unknown): TexStyle | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "humor" ? !isHumor(entry) : !(key in CLOSED) || typeof entry !== "string" || !CLOSED[key]!.includes(entry)) return null;
+    out[key] = entry;
+  }
+  return out as TexStyle;
+}

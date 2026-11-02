@@ -11,7 +11,9 @@
  *  - `warm: hot` dropped from `loggedTurn`'s call in `route.js`: "the second
  *    text reads none of it from storage" fails;
  *  - `mergeEvents` taking recent events without `checkEvent`: "events the log
- *    would refuse are left out" fails.
+ *    would refuse are left out" fails;
+ *  - `keeps` in `warmTurn` answering yes for a missing setup: "a setup that
+ *    could not be read is never kept" fails.
  */
 
 import assert from "node:assert/strict";
@@ -165,4 +167,22 @@ test("a turn record the copy knows is not read again, and an unknown one is", as
   assert.equal(await hot.clean("turn-known-01", async () => (reads += 1, true)), false, "a tainted turn stays tainted");
   assert.equal(await hot.clean("turn-other-01", async () => (reads += 1, true)), true);
   assert.equal(reads, 1);
+});
+
+test("a setup that could not be read is never kept, so the next turn reads it again", async () => {
+  const now = Date.now();
+  // A copy sealed before this rule, holding a miss: never trusted.
+  const stale = await sealWarm(env, session, { v: 1, setup: { at: now, value: null } });
+  let reads = 0;
+  const hot = warmTurn(env, session, { warm: stale }, { eligible: true, now });
+  assert.equal(await hot.setup(async () => (reads += 1, null)), null);
+  assert.equal(reads, 1, "a kept miss is read again");
+  const sealed = await hot.seal();
+  const after = warmTurn(env, session, { warm: sealed }, { eligible: true, now: now + 1 });
+  assert.equal(await after.setup(async () => (reads += 1, "---\njob: texting-assistant\n---\n")), "---\njob: texting-assistant\n---\n");
+  assert.equal(reads, 2, "and this turn's miss was not sealed either");
+  // A setup that was read is kept as before.
+  const kept = warmTurn(env, session, { warm: await after.seal() }, { eligible: true, now: now + 2 });
+  assert.equal(await kept.setup(async () => (reads += 1, "other")), "---\njob: texting-assistant\n---\n");
+  assert.equal(reads, 2);
 });

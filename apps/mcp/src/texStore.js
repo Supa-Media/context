@@ -24,6 +24,8 @@
 import { cancel, due, nextAt, retry, schedule, settle } from "./texStore/alarms.js";
 import { routineDispatchFor } from "./texStore/dispatch.js";
 import { texObjects } from "./texStore/objects.js";
+import { texLedger } from "./texStore/ledger.js";
+import { PAGE_LIVE_PATH, pageLive } from "./texStore/pageLive.js";
 import { serveTexStore } from "./texStore/wire.js";
 import { MOVE_OPS, TexMoved, arrive, clearOld, forward, logMove, moveGuard, opOf, ownerOf, placeOf, purgeOld, serveMoveOut } from "./texStore/move.js";
 
@@ -37,8 +39,9 @@ export class TexStore {
    * @param {{dispatch?: (routine: {id: string, at: number, payload: unknown}) => Promise<{next: number | null}>, now?: () => number}} [options]
    *   `dispatch` hands a due routine on and answers when it next runs, or throws to have it tried again.
    */
-  constructor(state, env, { dispatch = routineDispatchFor(env), now = Date.now } = {}) {
+  constructor(state, env, { dispatch = routineDispatchFor(env), now = Date.now, pageDeps = {} } = {}) {
     this.state = state;
+    this.pageDeps = pageDeps;
     this.env = env;
     this.dispatch = dispatch;
     this.now = now;
@@ -51,6 +54,12 @@ export class TexStore {
     if (this.objects !== null) return;
     const guard = moveGuard(this.state.storage.sql);
     this.objects = texObjects(this.state.storage.sql, { now: this.now, guard });
+    // The chat's one record of everything that happened (`texStore/ledger.js`), beside the notes.
+    this.objects.ledger = texLedger(this.state.storage.sql, { now: this.now, guard });
+    // The chat's Tex page: the open pages' sockets (`texStore/pageLive.js`). Its records are views of the chat's one log,
+    // which sets `this.objects.records` (`texStore/pageRecords.js`).
+    this.page = pageLive(this.state, this.state.storage.sql, this.env, { now: this.now, waitingMail: () => this.objects.records?.waiting?.() ?? 0, ...this.pageDeps });
+    this.live = { changed: (sections) => this.page.changed(sections) };
     this.timers = {
       schedule: (alarm) => {
         guard();
@@ -66,9 +75,11 @@ export class TexStore {
     };
   }
 
-  /** Sets the runtime alarm at the earliest routine, or clears it when there is none. */
+  /** Sets the runtime alarm at the earliest routine or open page's poll, or clears it when there is neither. */
   arm() {
-    const at = nextAt(this.state.storage.sql);
+    const routine = nextAt(this.state.storage.sql);
+    const poll = this.page?.pollAt() ?? null;
+    const at = routine === null ? poll : poll === null ? routine : Math.min(routine, poll);
     if (at === null) this.state.storage.deleteAlarm();
     else this.state.storage.setAlarm(at);
   }
@@ -104,9 +115,16 @@ export class TexStore {
       });
       if (failed) return Response.json({ error: "tex_store_moving" }, { status: 503 });
     }
+    // An open Tex page's socket, from the gateway, which has checked who is asking (`http/texPage/live.js`).
+    if (new URL(request.url).pathname === PAGE_LIVE_PATH && (request.headers.get("Upgrade") || "").toLowerCase() === "websocket") {
+      const answer = this.page.accept(request);
+      this.arm();
+      return answer;
+    }
     const fresh = () => new Request(request.url, { method: request.method, headers: request.headers, body });
     try {
-      const answer = await serveTexStore(this.objects, fresh(), this.timers);
+      const answer = await serveTexStore(this.objects, fresh(), this.timers, this.live);
+      if (op === "wipe") this.page.wipe();
       if (op === "wipe" && placeOf(sql).from !== undefined) await purgeOld(this.env, placeOf(sql).from);
       return answer;
     } catch (error) {
@@ -135,6 +153,15 @@ export class TexStore {
       return;
     }
     const started = this.now();
+    // An open page's jobs, read again when due; a failure waits for the next one and never stops a routine.
+    const pollAt = this.page.pollAt();
+    if (pollAt !== null && pollAt <= started) {
+      try {
+        await this.page.poll();
+      } catch {
+        // Polled again below, by `arm`.
+      }
+    }
     for (const routine of due(sql, started)) {
       let answer = null;
       try {
@@ -147,5 +174,22 @@ export class TexStore {
       else settle(sql, routine.id, routine.at);
     }
     this.arm();
+  }
+
+  async webSocketMessage(ws, raw) {
+    this.ready();
+    this.page.message(ws, raw);
+  }
+
+  async webSocketClose(ws) {
+    try {
+      ws.close(1000, "closed");
+    } catch {
+      // Already closed.
+    }
+  }
+
+  async webSocketError(ws) {
+    await this.webSocketClose(ws);
   }
 }

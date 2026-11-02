@@ -46,6 +46,7 @@
 
 import { audienceOfNames } from "./lib/pinnedReaders";
 import { readsAsChat } from "./lib/nodes/chatFolders";
+import { TEX_SETUP_CLIENTS } from "./lib/texSetupRead";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, internalQuery } from "../_generated/server";
@@ -177,6 +178,7 @@ export const openStorageBinding = internalAction({
   // `internal.functions.controlPlane.…`, which is an inference cycle.
   handler: async (ctx, args): Promise<OpenedGatewayBinding | null> => {
     const session: {
+      clientId: string;
       workspaceId: Id<"workspaces">;
       workspaces: Array<{ workspaceId: Id<"workspaces">; grantedNames?: string[] }>;
     } | null = await ctx.runQuery(
@@ -202,6 +204,11 @@ export const openStorageBinding = internalAction({
         : session.workspaces.find((w) => w.workspaceId === args.expectedWorkspaceId);
     if (covered === undefined) return null;
     const workspaceId = covered.workspaceId;
+    // Tex reading its setup (`lib/texSetupRead.ts`): a Tex client's token, and the pin, or nothing at all.
+    const setupRead = args.setupRead === true;
+    if (setupRead && !(TEX_SETUP_CLIENTS.has(session.clientId) && (await ctx.runQuery(internal.functions.nodesPrivacy.isPinnedWorkspace, { workspaceId })))) {
+      return null;
+    }
 
     /*
       THE BUCKET CREDENTIAL, started first. `CREDENTIAL_UNAVAILABLE` and
@@ -394,10 +401,12 @@ export const openStorageBinding = internalAction({
       rotation,
       noteCap,
       managedEncryption,
+      // Tex's setup read is judged by neither of the two below: its rules are its own (`lib/texSetupRead.ts`).
+      ...(setupRead ? { setupRead: true as const } : {}),
       // A pin reader's rules are rendered for a guest (`lib/pinnedReaders.ts`), from the names the grant resolved to.
-      ...(audienceOfNames(covered.grantedNames) === "guest" ? { audience: "guest" as const } : {}),
+      ...(!setupRead && audienceOfNames(covered.grantedNames) === "guest" ? { audience: "guest" as const } : {}),
       // A Tex guest chat's are read for it, from the same names (`lib/nodes/chatFolders.ts`).
-      ...(readsAsChat(covered.grantedNames) ? { chatNames: covered.grantedNames ?? [] } : {}),
+      ...(!setupRead && readsAsChat(covered.grantedNames) ? { chatNames: covered.grantedNames ?? [] } : {}),
     };
   },
 });

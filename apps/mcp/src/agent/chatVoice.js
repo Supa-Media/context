@@ -64,19 +64,23 @@ export function groupVoicePath(hash, folder = "tex/groups") {
   return `${folder}/voice-${String(hash).slice(0, 12)}.md`;
 }
 
+/** A voice note's bullets, bounded to a few short lines: the same for a chat's and a person's (`personVoice.js`). */
+export function boundedVoice(body) {
+  const lines = String(body ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !line.startsWith("#") && !isFenceLine(FENCE, line))
+    .slice(0, MAX_VOICE_LINES);
+  const text = lines.join("\n");
+  return text.length > MAX_VOICE_CHARS ? text.slice(0, MAX_VOICE_CHARS) : text;
+}
+
 /** The note's bullets, bounded to a few short lines; "" when there is none or it can't be read. `held` is the note already read. */
 export async function readGroupVoice(dispatch, path, held = null) {
   if (dispatch === null || path === null) return "";
   try {
     const note = held ?? (await readWithEtag(dispatch, path)); // `held`: the move just read it (`chatNoteMove.js`)
-    const body = typeof note?.body === "string" ? note.body : "";
-    const lines = body
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line !== "" && !line.startsWith("#") && !isFenceLine(FENCE, line))
-      .slice(0, MAX_VOICE_LINES);
-    const text = lines.join("\n");
-    return text.length > MAX_VOICE_CHARS ? text.slice(0, MAX_VOICE_CHARS) : text;
+    return boundedVoice(typeof note?.body === "string" ? note.body : "");
   } catch {
     return "";
   }

@@ -24,6 +24,7 @@ import { createAccessMirrorMethods } from "./accessMirror.js";
 import { createIdentityMethods } from "./identity.js";
 import { createTranscriptionMethods } from "./transcription.js";
 import { createTexCommandMethods } from "./texCommands.js";
+import { createTexPageMethods } from "./texPage.js";
 
 export { ControlPlaneError, sha256Hex, isLoopbackHost };
 
@@ -64,5 +65,6 @@ export function createControlPlane(env, options = {}) {
     ...createIdentityMethods({ post }),
     ...createTranscriptionMethods({ post }),
     ...createTexCommandMethods({ post }),
+    ...createTexPageMethods({ post }),
   };
 }

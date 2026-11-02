@@ -22,6 +22,7 @@ import { PROGRESS_PROMPT } from "./progress.js";
 import { usedTools } from "./conversation.js";
 import { aboutMePrompt } from "./aboutMe.js";
 import { jobsPrompt } from "./jobs.js";
+import { personVoicePrompt } from "./personVoice.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 
@@ -59,6 +60,7 @@ export function turnPrompt(place, answering, o) {
         (o.progress ? PROGRESS_PROMPT : "") +
         (o.aboutMe === null ? "" : aboutMePrompt(o.aboutMe, { edits, identity: o.identity })) +
         (o.jobs === null ? "" : jobsPrompt(o.jobs, { edits })) +
+        (o.voice == null ? "" : personVoicePrompt(o.voice, { edits })) + // how they talk, `tex/voice.md` (`personVoice.js`)
         (o.observe && o.texting ? TRANSCRIPTS_PROMPT : "") + // a dream (`dream.js`) is told to read them
         (o.observe && o.texting ? CHECK_IN_PROMPT : "") + // what its own check-ins do (`heartbeat.js`)
         (o.observe && o.texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)

@@ -15,7 +15,7 @@ import { folded } from "./folded.js";
 import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho, withoutWaitTalk } from "./heldEcho.js";
 import { VAULT_PAY } from "../vault/pay.js";
-import { armForText, disarmChat, disarmRecords, disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
+import { EVERY_CHAT, armForText, disarmChat, disarmRecords, disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /*
   What a texted yes to a new workspace leads to (the owner, 2026-10-20). No
@@ -258,7 +258,8 @@ export async function textedAsk(store, session, asked, told = "", { who = null, 
  */
 async function dropStale(store, session, ids) {
   const wanted = new Set(ids);
-  const waiting = (await listPending(store, { userId: session.actorUserId, texting: true })).filter(({ record }) => wanted.has(record.id));
+  // Every chat: these are named by id, and dropping one armed elsewhere is the safe direction.
+  const waiting = (await listPending(store, { userId: session.actorUserId, texting: true, chat: EVERY_CHAT })).filter(({ record }) => wanted.has(record.id));
   if (waiting.length === 0) return null;
   const stuck = await disarmRecords(store, waiting);
   console.log(JSON.stringify({ event: "ask_superseded", asks: waiting.length, stuck }));
