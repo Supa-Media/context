@@ -31,6 +31,7 @@ export {
   fonts,
   pointerType,
   siteType,
+  texPageType,
   castKeyboardType,
   type TypeScale,
   touchType,

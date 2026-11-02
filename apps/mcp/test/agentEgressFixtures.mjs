@@ -60,7 +60,7 @@ export function fakeModel() {
       // A step may be a function of the request it answers, to reply with what an earlier tool returned.
       const next = typeof step === "function" ? step(requests.at(-1)) : step;
       if (next.status) return new Response("{}", { status: next.status });
-      const content = next.text ? [{ type: "text", text: next.text }] : [];
+      const content = [...(next.thinking ? [{ type: "thinking", thinking: next.thinking, signature: "sig" }] : []), ...(next.text ? [{ type: "text", text: next.text }] : [])];
       for (const [i, call] of (next.toolCalls ?? []).entries()) {
         content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args ?? {} });
       }

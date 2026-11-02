@@ -187,9 +187,9 @@ export const DELIBERATELY_UNREACHABLE: readonly RouteReachability[] = [
     file: "app/tex/[handle].tsx",
     reachable: false,
     reason:
-      "The person's own view of the browser Tex drives for them. Tex texts " +
-      "the address when they must sign in somewhere, and the page opens only " +
-      "for the signed-in owner of that handle.",
+      "The person's Tex page: what Tex is doing for them and their groups, " +
+      "and the browser it drives. Tex texts the address when they must sign " +
+      "in somewhere, and the page opens only for the signed-in owner of that handle.",
     marker: "the page Tex texts when they have to sign in somewhere",
   },
 ];
