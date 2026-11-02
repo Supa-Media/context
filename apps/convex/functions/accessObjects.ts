@@ -93,8 +93,13 @@ export async function expectedFor(ctx: ActionCtx, workspaceId: Id<"workspaces">,
   return { tables: { members, invites: invites.rows }, skipped: skipped + invites.skipped };
 }
 
-/** Writes `rows` whole into one table: chunks under one epoch, the last marked, so rows Convex no longer has are dropped. */
-export async function writeTable(door: AccessDoor, table: AccessTable, rows: readonly unknown[], epoch: number): Promise<void> {
+/**
+ * Writes `rows` whole into one table: chunks under one epoch, the last marked, so rows Convex no longer has are dropped.
+ * The objects take the epoch as a key (`members.js`: 1-64 of `[A-Za-z0-9_-]`; `personRows.js`: a string of 1-64), never a
+ * number: a number is refused, which is what failed every scope of the first real copy.
+ */
+export async function writeTable(door: AccessDoor, table: AccessTable, rows: readonly unknown[], clock: number): Promise<void> {
+  const epoch = String(Math.trunc(clock));
   if (rows.length === 0) {
     await door.table(table).snapshot({ epoch, rows: [], last: true, mode: "replace" });
     return;

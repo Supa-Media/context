@@ -11,7 +11,8 @@
  * Sabotage, each confirmed to fail a case here: make the last snapshot chunk
  * always `last: true` (the rows after it are never dropped), let a difference
  * count without being asked again, and set a person object's switch without
- * pinning its person first.
+ * pinning its person first, and pass the copy's clock as a number for the
+ * epoch (the objects refuse it: every scope of the first real copy failed).
  */
 
 import { describe, expect, test, vi } from "vitest";
@@ -43,10 +44,10 @@ async function person(t: ReturnType<typeof convexTest>, slug: string, withPerson
 
 /** A table door that records every snapshot call and answers digests from `stored`. */
 function fakeDoor(stored: Partial<Record<string, unknown[]>> = {}) {
-  const calls: { table: string; epoch: number; rows: unknown[]; last: boolean; mode: string }[] = [];
+  const calls: { table: string; epoch: string; rows: unknown[]; last: boolean; mode: string }[] = [];
   const door = {
     table: (name: string) => ({
-      snapshot: async (input: { epoch: number; rows: unknown[]; last: boolean; mode: string }) => {
+      snapshot: async (input: { epoch: string; rows: unknown[]; last: boolean; mode: string }) => {
         calls.push({ table: name, epoch: input.epoch, rows: [...input.rows], last: input.last, mode: input.mode });
         return undefined;
       },
@@ -193,16 +194,24 @@ describe("pure helpers", () => {
   test("writeTable: no rows is one empty last snapshot; 2500 rows are three chunks under one epoch, only the last marked", async () => {
     const empty = fakeDoor();
     await writeTable(empty.door, "members", [], 7);
-    expect(empty.calls).toEqual([{ table: "members", epoch: 7, rows: [], last: true, mode: "replace" }]);
+    expect(empty.calls).toEqual([{ table: "members", epoch: "7", rows: [], last: true, mode: "replace" }]);
 
     const many = fakeDoor();
     const rows = Array.from({ length: 2500 }, (_, index) => memberRow(`u${index}`));
     await writeTable(many.door, "members", rows, 9);
     expect(many.calls.map((call) => call.rows.length)).toEqual([1000, 1000, 500]);
-    expect(many.calls.map((call) => call.epoch)).toEqual([9, 9, 9]);
+    expect(many.calls.map((call) => call.epoch)).toEqual(["9", "9", "9"]);
     expect(many.calls.map((call) => call.last)).toEqual([false, false, true]);
     expect(many.calls.every((call) => call.mode === "replace")).toBe(true);
     expect(many.calls.flatMap((call) => call.rows)).toEqual(rows);
+  });
+
+  test("writeTable: the epoch is a key both objects take (members.js KEY, personRows.js 1-64 chars), never a number", async () => {
+    const real = fakeDoor();
+    await writeTable(real.door, "reach", [], Date.now());
+    const [call] = real.calls;
+    expect(typeof call!.epoch).toBe("string");
+    expect(call!.epoch).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
   });
 });
 
