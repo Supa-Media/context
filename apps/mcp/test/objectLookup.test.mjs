@@ -1,14 +1,15 @@
 // The id layer's row questions, object first where a workspace's notes are judged in its object
-// (src/store/objectLookup.js): a note the reader sees costs one object call; everything the object does not find,
-// and every guest's or chat's reading, is the control plane's, as before.
+// (src/store/objectLookup.js): a note the reader sees costs one object call; everything the object does not find is
+// the control plane's, as before. A guest and a Tex guest chat are judged there by their own audience's rules.
 //
 // Sabotage, each confirmed to fail a case here: drop the guest-marker check (a guest is judged by member rules),
+// judge a chat as a guest (its own rendering dropped), send a chat with no names to the object,
 // ignore the binding's `notesBehind` (a share just taken back is served from the object until its push lands),
 // take a found row whose path differs from the one asked, take a non-id key, or skip the fallback for misses.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { objectFirstHooks, readsAsMember } from "../src/store/objectLookup.js";
+import { audienceOf, objectFirstHooks, readsAsMember } from "../src/store/objectLookup.js";
 
 const NOTE = "0199a000-0000-7000-8000-00000000000c";
 const KEY = `notes/${NOTE}.md`;
@@ -74,16 +75,37 @@ test("only what the object does not find is asked of the control plane, in one c
   assert.deepEqual(answer.texHomes, { "tex/new.md": "person:w1" });
 });
 
-test("a guest's or a chat's reading never goes to the object", async () => {
-  for (const marker of ["@#reads-as-guest", "@#reads-as-chat"]) {
-    const cp = control();
-    const ob = object({ "plans/a.md": seen });
-    const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: new Set([marker, "@design"]), workspaceId: "w1" });
-    await hooks.lookup(["plans/a.md"]);
-    await hooks.resolve([NOTE]);
-    assert.equal(ob.asked.length, 0, marker);
-    assert.deepEqual(cp.asked.lookup, [["plans/a.md"]]);
+test("a guest's reading goes to the object, judged by the guest rules with the guest's own names", async () => {
+  const cp = control();
+  const ob = object({ "plans/a.md": seen });
+  const names = new Set(["@#reads-as-guest", "@#0199a000-0000-7000-8000-00000000000c"]);
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names, userId: "u1", workspaceId: "w1" });
+  await hooks.lookup(["plans/a.md"]);
+  await hooks.resolve([NOTE]);
+  assert.deepEqual(cp.asked.lookup, []);
+  assert.deepEqual(ob.asked[0], { op: "lookup", paths: ["plans/a.md"], scope: "team", groups: [...names], audience: "guest" });
+  assert.equal(ob.asked[1].audience, "guest");
+  assert.equal("userId" in ob.asked[0], false, "a guest is never judged as a member here");
+});
+
+test("a chat's reading goes to the object with its own names; a chat whose names are not known stays with the control plane", async () => {
+  const cp = control();
+  const ob = object({ "plans/a.md": seen });
+  const names = new Set(["@#reads-as-chat"]);
+  const chatNames = ["@#reads-as-guest", "@#reads-as-chat", "@#home", "@#home!edit"];
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names, chatNames, userId: "u1", workspaceId: "w1" });
+  await hooks.lookup(["plans/a.md"]);
+  assert.deepEqual(ob.asked[0], { op: "lookup", paths: ["plans/a.md"], scope: "team", groups: ["@#reads-as-chat"], audience: "chat", chatNames });
+
+  for (const missing of [null, undefined, "@#home"]) {
+    const control2 = control();
+    const ob2 = object({ "plans/a.md": seen });
+    const unnamed = objectFirstHooks(control2.hooks, { client: ob2.client, home: "object", scope: "team", names, chatNames: missing, workspaceId: "w1" });
+    assert.equal(unnamed, control2.hooks);
   }
+  // A chat marker wins over a guest's: the chat is read by its own rendering, never the guest's alone.
+  assert.equal(audienceOf(["@#reads-as-guest", "@#reads-as-chat"]), "chat");
+  assert.equal(audienceOf(["@#reads-as-guest"]), "guest");
   assert.equal(readsAsMember(["@design"]), true);
   assert.equal(readsAsMember(["@#reads-as-guest"]), false);
   // A row token is a member's named grant, judged by the object with the member's rules.

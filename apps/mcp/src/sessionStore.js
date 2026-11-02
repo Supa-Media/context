@@ -158,6 +158,7 @@ async function openSessionStore(session, env, controlPlane) {
           checkBehind: behindCheck(controlPlane, session.workspaceId),
           scope: session.scope,
           names: session.grantedGroups,
+          chatNames: session.chatNames ?? null,
           workspaceId: session.workspaceId,
           userId: session.actorUserId ?? null,
           log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),

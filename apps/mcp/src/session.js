@@ -226,6 +226,7 @@ export async function resolveSession(token, slug, controlPlane, transport = null
       typeof session.clientName === "string" && session.clientName ? session.clientName : null,
     scopes,
     grantedGroups,
+    chatNames: chatNamesOf(workspace.grantedNames),
     /**
      * The grant's own scopes, before this workspace's role clamped them, and
      * the set of contexts this connection may address.
@@ -315,6 +316,7 @@ export function sessionForContext(session, name) {
     scope: visibilityTierForGrant(scopes, covered.role),
     scopes,
     grantedGroups: grantedGroupsOf(covered.grantedNames),
+    chatNames: chatNamesOf(covered.grantedNames),
   };
   Object.defineProperty(sibling, "accessToken", {
     value: session.accessToken,
@@ -346,6 +348,7 @@ export function sessionForSetup(session) {
     scope: visibilityTierForGrant(scopes, setup.role),
     scopes,
     grantedGroups: grantedGroupsOf(setup.grantedNames),
+    chatNames: chatNamesOf(setup.grantedNames),
     setupReach: null,
   };
   Object.defineProperty(sibling, "accessToken", { value: session.accessToken, enumerable: false, writable: false });
@@ -372,6 +375,7 @@ export function sessionForChatHome(session) {
     scope: visibilityTierForGrant(scopes, setup.role),
     scopes,
     grantedGroups: grantedGroupsOf(setup.grantedNames),
+    chatNames: chatNamesOf(setup.grantedNames),
     setupReach: null,
     chatHome: setup.chatHome,
   };
@@ -409,6 +413,17 @@ export function grantedGroupsOf(names) {
   const all = (names || []).map((name) => `@${name}`);
   if (!all.includes(READS_AS_CHAT)) return new Set(all);
   return new Set(all.filter((name) => name === READS_AS_CHAT || !name.startsWith("@#")));
+}
+
+/**
+ * A Tex guest chat's names as its grant holds them, each as `@name`, row tokens included, so a workspace object can
+ * render the chat's rules itself (`workspaceStore/chatRules.js`, as the control plane's `chatRules` does); `null` for
+ * every other reader. Set beside `grantedGroups` wherever a session is derived, so a sibling never keeps another
+ * workspace's chat names.
+ */
+export function chatNamesOf(names) {
+  const all = (names || []).map((name) => `@${name}`);
+  return all.includes(READS_AS_CHAT) ? all : null;
 }
 
 function selectWorkspace(session, slug) {
