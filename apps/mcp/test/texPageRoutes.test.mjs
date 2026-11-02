@@ -331,3 +331,16 @@ test("alice reads her chat's history file raw, by kind and by day, and what Tex 
     world.restore();
   }
 });
+
+test("the picker names a group's home, so the app can open its history file as that chat's history", async () => {
+  const { pickerOf } = await import("../src/http/texPage/page.js");
+  const picker = pickerOf({
+    chats: [
+      { key: GROUP, name: "Team Night", people: 3, homeWords: "blue-lake-fox", homeSlug: "team-night" },
+      { key: BOBS_GROUP, name: "No Home", people: 2, homeWords: null, homeSlug: null },
+    ],
+  });
+  assert.deepEqual(picker[0], { key: "me", name: "Just you" });
+  assert.deepEqual(picker[1], { key: GROUP, name: "Team Night", people: 3, home: { context: "@team-night", folder: "tex/groups/blue-lake-fox" } });
+  assert.deepEqual(picker[2], { key: BOBS_GROUP, name: "No Home", people: 2 });
+});

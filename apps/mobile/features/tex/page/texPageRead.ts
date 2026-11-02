@@ -42,7 +42,15 @@ export function readChat(v: unknown): ChatRef | null {
   const r = rec(v);
   const key = str(r?.key);
   if (!r || !key) return null;
-  return { key, name: str(r.name) ?? key, ...(num(r.people) !== undefined ? { people: num(r.people) } : {}) };
+  const home = rec(r.home);
+  const context = str(home?.context);
+  const folder = str(home?.folder);
+  return {
+    key,
+    name: str(r.name) ?? key,
+    ...(num(r.people) !== undefined ? { people: num(r.people) } : {}),
+    ...(context && folder ? { home: { context, folder } } : {}),
+  };
 }
 
 const ACTION_KINDS = new Set(["advisor", "job", "mailcheck", "tool"]);

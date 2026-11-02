@@ -69,9 +69,27 @@ export async function loadPage(controlPlane, session) {
   return answer;
 }
 
-/** The chats the picker offers: "Just you", then each group. */
+/**
+ * The chats the picker offers: "Just you", then each group, with its home's
+ * workspace and folder when it has one, so the app can open a home's history
+ * file as this chat's history (`tex/groups/<words>/history.ledger.json`).
+ */
 export function pickerOf(page) {
-  return [{ key: "me", name: "Just you" }, ...(page.chats ?? []).map((chat) => ({ key: chat.key, name: chat.name, people: chat.people }))];
+  return [
+    { key: "me", name: "Just you" },
+    ...(page.chats ?? []).map((chat) => ({
+      key: chat.key,
+      name: chat.name,
+      people: chat.people,
+      ...(homeOf(chat) ? { home: homeOf(chat) } : {}),
+    })),
+  ];
+}
+
+/** A group's home as `{context: "@slug", folder: "tex/groups/<words>"}`, or null when it has none. */
+function homeOf(group) {
+  const ok = typeof group.homeWords === "string" && group.homeWords && typeof group.homeSlug === "string" && group.homeSlug;
+  return ok ? { context: `@${group.homeSlug}`, folder: `tex/groups/${group.homeWords}` } : null;
 }
 
 /**
@@ -93,7 +111,7 @@ export function chatOf(page, key) {
   }
   const group = typeof key === "string" && GROUP_KEY.test(key) ? (page.chats ?? []).find((chat) => chat.key === key) : undefined;
   if (!group) throw new PageRefusal(404, "not_found", "There is no such chat.");
-  const home = typeof group.homeWords === "string" && group.homeWords && typeof group.homeSlug === "string" && group.homeSlug ? group : null;
+  const home = homeOf(group);
   return {
     kind: "group",
     key: group.key,
@@ -106,7 +124,7 @@ export function chatOf(page, key) {
     style: group.style ?? {},
     engagement: group.engagement ?? null,
     sponsor: group.sponsor ?? null,
-    about: home ? { context: `@${home.homeSlug}`, path: `tex/groups/${home.homeWords}/about.md` } : null,
+    about: home ? { context: home.context, path: `${home.folder}/about.md` } : null,
   };
 }
 
