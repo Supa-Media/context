@@ -13,8 +13,9 @@
  * What it keeps, bounded like the inbox's queue:
  * - In the chat's inbox, `job:<id>`: the job's title (Tex's words), its
  *   state, a one-line status and times, plus the chat and message it answers.
- *   Never the ask. A finished job stays two hours, so "did you finish?" has
- *   an answer, then goes.
+ *   Never the ask. A finished job is shown to every texted turn for two hours,
+ *   so "did you finish?" has an answer, and is kept seven days for the
+ *   "What Tex is working on" page, then goes.
  * - In the job's own object, `jobrun`: what it needs to run, the ask's words
  *   included, only until it ends; then it is deleted.
  *
@@ -27,7 +28,7 @@ import type { InboxStorage } from "./inbox";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 
 /** What a turn asked to start, as the gateway wrote it. */
-export type StartedJob = { title: string; brief: string; doneWhen?: string; tainted?: true };
+export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; tainted?: true };
 /** A step a job's turn took, as the gateway told it (`withJobSteps`): tool and target, never a note's text; a failed one, with the tool's short reason. */
 export type JobStep = { at: number; text: string; failed?: true; why?: string };
 /** Whether a streamed step failed, and why (`clients.ts`). */
@@ -95,8 +96,10 @@ export const MAX_JOB_ATTEMPTS = 10;
 export const JOB_LIMIT_MS = 30 * 60 * 1000;
 /** Tries at a turn that could not start (a deploy, the control plane down) before the job gives up. */
 export const MAX_JOB_TRIES = 3;
-/** How long a finished job stays in the list. */
-export const JOB_KEPT_MS = 2 * 60 * 60 * 1000;
+/** How long a finished job is kept at all: the "What Tex is working on" page reads it for this long. */
+export const JOB_KEPT_MS = 7 * 24 * 60 * 60 * 1000;
+/** How long a finished job is shown to every texted turn, and how long its run stays resumable: "did you finish?" has an answer for this long. */
+export const JOB_SHOWN_MS = 2 * 60 * 60 * 1000;
 /** A job still "running" this long after it started died with its object: it is marked stopped. */
 export const JOB_STALE_MS = JOB_LIMIT_MS + 15 * 60 * 1000 + 5 * 60 * 1000; // its last part may start just inside the limit and run fifteen minutes
 export const JOB_PREFIX = "job:";
@@ -133,10 +136,10 @@ export function readStartedJobs(value: unknown): StartedJob[] {
   if (!Array.isArray(value)) return [];
   return value.slice(0, MAX_RUNNING_JOBS).flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
-    const { title, brief, doneWhen, tainted } = entry as Record<string, unknown>;
+    const { id, title, brief, doneWhen, tainted } = entry as Record<string, unknown>;
     const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 2_000) : "", doneWhen: line(doneWhen, MAX_STATUS) };
     if (job.title === "" || job.brief === "") return [];
-    return [{ ...job, ...(tainted === true ? { tainted: true as const } : {}) }];
+    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(tainted === true ? { tainted: true as const } : {}) }];
   });
 }
 
@@ -192,8 +195,9 @@ export async function steerJobs(
 }
 
 /**
- * The chat's jobs as the next turn is shown them, running first. Finished
- * ones past `JOB_KEPT_MS` go, and a running one past `JOB_STALE_MS` is marked
+ * The chat's jobs as the next turn is shown them, running first. A finished
+ * one is shown for `JOB_SHOWN_MS` after it finished; one older than
+ * `JOB_KEPT_MS` is deleted, and a running one past `JOB_STALE_MS` is marked
  * stopped: its object is gone, so it never will say.
  */
 export async function chatJobs(storage: InboxStorage, now: number, { results = false }: { results?: boolean } = {}): Promise<RunningJob[]> {
@@ -210,7 +214,7 @@ export async function chatJobs(storage: InboxStorage, now: number, { results = f
       kept.push(stopped);
       continue;
     }
-    kept.push(entry);
+    if (entry.state === "running" || now - (entry.finishedAt ?? entry.startedAt) <= JOB_SHOWN_MS) kept.push(entry);
   }
   return kept
     .sort((a, b) => Number(b.state === "running") - Number(a.state === "running") || b.startedAt - a.startedAt)
@@ -295,7 +299,9 @@ export async function startJobs(
       log("over_limit", "");
       continue;
     }
-    const id = crypto.randomUUID();
+    // The gateway's id is used when it is well formed and no entry holds it yet; otherwise a fresh one.
+    const gatewayId = job.id !== undefined && ID.test(job.id) && (await storage.get(entryKey(job.id))) === undefined ? job.id : undefined;
+    const id = gatewayId ?? crypto.randomUUID();
     const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place };
     await storage.put(entryKey(id), entry);
     try {
