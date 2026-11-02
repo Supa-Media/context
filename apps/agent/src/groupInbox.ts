@@ -225,7 +225,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     await storage.put(seen, now);
     return "kept";
   }
-  if (await askedJustNow(storage, message, now)) {
+  if (!byCode && (await askedJustNow(storage, message, now))) { // Code's to answer, never the same ask twice: "Tex, settings" again shows the menu again (Dev2, 2026-10-29).
     await storage.put(seen, now);
     return "duplicate";
   }
