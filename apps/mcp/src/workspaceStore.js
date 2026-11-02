@@ -23,6 +23,8 @@ import { callTexStore } from "./texStore/wire.js";
 import { workspaceStub } from "./workspaceStore/api.js";
 import { workspaceMembers } from "./workspaceStore/members.js";
 import { workspaceRows } from "./workspaceStore/rows.js";
+import { personRows } from "./workspaceStore/personRows.js";
+import { tokenIndexClient } from "./workspaceStore/tokenIndex.js";
 import { serveWorkspaceStore } from "./workspaceStore/serve.js";
 import { flushReach } from "./workspaceStore/serveMembers.js";
 import { treeSockets } from "./workspaceStore/treeSockets.js";
@@ -55,6 +57,11 @@ export class WorkspaceStore {
     this.store = {
       objects: texObjects(sql),
       rows: workspaceRows(sql),
+      // A personal workspace's object is also its person's: reach, shares to them and their connections.
+      person: personRows(sql),
+      sql,
+      // Every connection it keeps is findable from an old refresh token (`workspaceStore/tokenIndex.js`).
+      indexRefresh: async (hash, personalWorkspaceId) => await tokenIndexClient(this.env, hash)?.set(personalWorkspaceId),
       members: workspaceMembers(sql),
       // A person's own object (`workspace:<personalWorkspaceId>`), told of a member change (`serveMembers.js`).
       reach: (personalWorkspaceId) => {

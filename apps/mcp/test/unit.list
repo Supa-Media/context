@@ -322,6 +322,7 @@ test/objectLookup.test.mjs
 test/agentHomeMove.test.mjs
 test/accessSockets.test.mjs
 test/accessContract.test.mjs
+test/personObject.test.mjs
 test/texFolderNames.test.mjs
 test/workspaceMembers.test.mjs
 test/workspaceMembersAccess.test.mjs

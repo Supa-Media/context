@@ -19,9 +19,12 @@
  * tombstone at its clock, the same rule as tree rows (`workspaceStore/rows.js`).
  */
 
-/** Where a person's or a workspace's access is read from. `convex` until the switch, `object` after. */
-export const ACCESS_HOMES = Object.freeze({ CONVEX: "convex", OBJECT: "object" });
-export const isAccessHome = (value) => value === ACCESS_HOMES.CONVEX || value === ACCESS_HOMES.OBJECT;
+/**
+ * Where a person's or a workspace's access is read from, as the control plane's switch record names it: `convex` until
+ * the copy, `dual` while the object holds a copy that is checked but answers nothing, `object` after the switch.
+ */
+export const ACCESS_HOMES = Object.freeze({ CONVEX: "convex", DUAL: "dual", OBJECT: "object" });
+export const isAccessHome = (value) => Object.values(ACCESS_HOMES).includes(value);
 
 /** A membership's role. Write access is never implied by read. */
 export const ROLES = Object.freeze(["owner", "editor", "member"]);

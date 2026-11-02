@@ -223,13 +223,15 @@ test("a snapshot's merge mode is an ordinary upsert and drops nothing", { skip }
   assert.notEqual(m.member("user_new"), null);
 });
 
-test("home() is convex by default, setHome(object) sticks, and any other home is refused", { skip }, () => {
+test("home() is convex by default, setHome(object) sticks, dual is the switch record's copy state, and any other home is refused", { skip }, () => {
   const m = workspaceMembers(durableSql());
   assert.equal(m.home(), "convex");
   assert.equal(m.setHome("object"), "object");
   assert.equal(m.home(), "object");
-  assert.throws(() => m.setHome("dual"), AccessRowRefused);
+  assert.throws(() => m.setHome("bucket"), AccessRowRefused);
   assert.equal(m.home(), "object");
+  // Dual (the control plane's #2609 record): the copy is held, and only object makes the object check members itself.
+  assert.equal(m.setHome("dual"), "dual");
 });
 
 test("judgedReader: null for a stranger or removed member, scope from the owner's private grant, and grant group tokens judged by the member's groups now", { skip }, () => {

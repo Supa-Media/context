@@ -37,7 +37,7 @@ export function createControlPlane(env, options = {}) {
   const { post, required } = createTransport(env, fetchImpl);
 
   return {
-    ...createSessionMethods({ post, required }),
+    ...createSessionMethods({ post, required, env, sessionObjects: options.sessionObjects }),
     ...createGrantMethods({ post, required }),
     ...createReportingMethods({ post, required }),
     ...createJobMethods({ post, required }),

@@ -5,8 +5,28 @@
  */
 import { CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS, CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
 import { TREE_RESPONSE_BYTE_CAP } from "./tree.js";
+import { sha256Hex } from "./client.js";
+import { parseToken } from "../workspaceStore/access.js";
+import { workspaceClient } from "../workspaceStore/api.js";
+import { timedAccessStep } from "../workspaceStore/personClient.js";
 
-export function createSessionMethods({ post, required }) {
+/**
+ * A token that names its person object (`workspaceStore/access.js`) is answered there, with its hash and nothing else,
+ * and never by the control plane: the object is the one copy of that connection. No answer (no object binding, a
+ * hash the object does not hold) is the same `null` every other miss is. An object that cannot be reached is a
+ * `ControlPlaneError`, which `session.js` turns into the same refusal.
+ */
+async function sessionFromObject(env, sessionObjects, parsed, accessToken) {
+  const client = (sessionObjects ?? workspaceClient)(env, parsed.personalWorkspaceId);
+  if (client === null) return null;
+  try {
+    return await timedAccessStep(env, "person.session", parsed.personalWorkspaceId, async () => await client.access.session(await sha256Hex(accessToken)));
+  } catch {
+    throw new ControlPlaneError("person object unreachable");
+  }
+}
+
+export function createSessionMethods({ post, required, env = null, sessionObjects = null }) {
   return {
     /**
      * @param {string} accessToken the bearer token exactly as presented
@@ -15,6 +35,10 @@ export function createSessionMethods({ post, required }) {
      * @returns {Promise<object|null>} the session, or null for no live grant.
      */
     async resolveSession(accessToken, transport = null) {
+      const parsed = parseToken(accessToken);
+      // A refresh token is never an access token, whichever door it came through.
+      if (parsed?.kind === "refresh") return null;
+      if (parsed?.format === "object") return await sessionFromObject(env, sessionObjects, parsed, accessToken);
       const pathRoute = transport?.kind === "path" ? { transport: "path", route: transport.route } : {};
       return required(await post("/gateway/session", { accessToken, ...pathRoute }), "session");
     },
