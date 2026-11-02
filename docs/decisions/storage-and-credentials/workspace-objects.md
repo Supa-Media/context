@@ -202,11 +202,12 @@ text and history costs about $0.20 a month in its object.
 ## Limits that bind
 
 - **10 GB per object.** Supa Media's bucket holds 13.3 GB and 78,096 objects,
-  pictures and files included; how much of it is note text and editing
-  history is not measurable with this deployment's read-only token (listing
-  the bucket is refused). The backfill counts each workspace's bodies and
-  history before it copies, and a workspace that would not fit is held back
-  and named, never cut short.
+  pictures and files included. What its object holds was measured by the
+  production copy on 2026-11-02: 11.8 MB of note text for 4,951 notes and
+  103.5 MB of editing history (32,347 keys), 115 MB in all; the other
+  13.7 GB is older saved versions, which stay in the bucket. The backfill
+  counts each workspace's bodies and history before it copies, and a
+  workspace that would not fit is held back and named, never cut short.
 - **2 MB per row.** Bodies are chunked, as Tex's are.
 - **One object is single-threaded.** A busy workspace's reads are batched
   (`read(ids)`) rather than one request per note.
