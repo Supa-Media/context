@@ -10,7 +10,7 @@ const SECRET = "a-webhook-secret-long-enough";
 function env(): { env: Env; routed: { to: string; body: Record<string, unknown> }[] } {
   const routed: { to: string; body: Record<string, unknown> }[] = [];
   const namespace = {
-    idFromName: (name: string) => ({ name }),
+    idFromName: (name: string) => ({ name: name.replace(/^enam:/, "") }), // inboxes live under `enam:<name>` (`inboxByName`); kept here by name
     get: (id: { name: string }) => ({
       fetch: async (_url: string, init?: RequestInit) => {
         routed.push({ to: id.name, body: JSON.parse(String(init?.body ?? "{}")) });
