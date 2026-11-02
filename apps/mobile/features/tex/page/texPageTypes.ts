@@ -203,7 +203,8 @@ export type SubView =
   | "jobs"
   | "advisor"
   | "mailcheck"
-  | "history";
+  | "history"
+  | "sees";
 
 export const SUB_VIEWS: readonly SubView[] = [
   "routines",
@@ -216,6 +217,7 @@ export const SUB_VIEWS: readonly SubView[] = [
   "advisor",
   "mailcheck",
   "history",
+  "sees",
 ];
 
 /**

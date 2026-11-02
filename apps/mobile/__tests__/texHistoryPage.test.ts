@@ -177,10 +177,16 @@ describe("the chat's history file", () => {
     expect(byTestId("tex-history-more")).toBeNull();
   });
 
-  test("What Tex sees shows the settings that shaped it and the chat as rendered", async () => {
+  test("History is the lines alone, with no view menu over them", async () => {
     await render(fixtureSource(), { chat: "me", view: "history" });
-    await press("tex-history-tab");
-    await press("tex-history-tab-option-sees");
+    expect(byTestId("tex-history-tab")).toBeNull();
+    expect(byTestId("tex-sees")).toBeNull();
+  });
+
+  test("What Tex sees is its own page under Behind the scenes, with the settings that shaped it and the chat as rendered", async () => {
+    await render(fixtureSource());
+    await press("tex-behind-sees");
+    expect(byTestId("tex-sees-page")).not.toBeNull();
     expect(text()).toContain("Shown tool results");
     expect(byTestId("tex-sees-setting-toolResults")?.textContent).toContain("No");
     expect(byTestId("tex-sees-setting-heldBack")?.textContent).toContain("Yes");
