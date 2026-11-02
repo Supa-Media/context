@@ -51,7 +51,7 @@ import { MESSAGES_BACKUP_LOG_ROUTE, handleMessagesBackupFileRead, handleMessages
 import { handleMessagesBackupFile } from "../communications/messagesBackupFiles.js";
 import { MESSAGES_BACKUP_ROUTE, parseFileRoute } from "../../../../packages/communications/src/backup.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
-import { handleAgentActivity, handlePresence, handleTree, TREE_SOCKET_PATH } from "../live/presenceRoute.js";
+import { ACCESS_SOCKET_PATH, handleAccess, handleAgentActivity, handlePresence, handleTree, TREE_SOCKET_PATH } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
 import { handleMcp } from "../mcp/handlers.js";
@@ -195,8 +195,8 @@ export async function route(request, env, ctx) {
     // 101 rather than JSON, and needs no queue, no usage counter and no search
     // budget — it never reads a note and never writes one.
     if (path === "/presence") return await handlePresence(request, env, { slug, pathToken, origin });
-    // The app's live file tree from the workspace object (`live/treeRoute.js`): a socket, for the same reasons.
-    if (path === TREE_SOCKET_PATH) return await handleTree(request, env, { slug, pathToken, origin });
+    // The app's live file tree and access screens from the objects (`live/treeRoute.js`, `live/accessRoute.js`): sockets, likewise.
+    if (path === TREE_SOCKET_PATH || path === ACCESS_SOCKET_PATH) return await (path === TREE_SOCKET_PATH ? handleTree : handleAccess)(request, env, { slug, pathToken, origin });
 
     // Which notes agents touched lately, for the console's file tree. Its own
     // branch for the reasons `/presence` has one: a GET that reads no note,

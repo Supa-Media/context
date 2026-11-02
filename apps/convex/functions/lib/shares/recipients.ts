@@ -139,7 +139,15 @@ export async function listSharedWithMeHandler(
   ctx: QueryCtx,
 ) {
   const userId = (await requireAuthId(ctx)) as Id<"users">;
-  const now = Date.now();
+  return await sharedWithUser(ctx, userId, Date.now());
+}
+
+/**
+ * The list itself, for `userId`. Also what the access copy compares a person
+ * object's "shared with me" against (`functions/accessObjectsRows.ts`), so the
+ * copy and the screen read one truth.
+ */
+export async function sharedWithUser(ctx: QueryCtx, userId: Id<"users">, now: number) {
 
   const identifiers = await identifiersForUser(ctx, userId);
 

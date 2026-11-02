@@ -59,7 +59,7 @@ jobs:
             else
               args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" '{dryRun: $dry, cursor: $cursor}')
             fi
-            answer=$(npx convex run functions/texGuestRetire:run "$args")
+            answer=$(npx convex run functions/texGuestRetire:run "$args" 2>/dev/null)
             echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
             if [ "$(echo "$answer" | jq -r '.finished')" = "true" ]; then break; fi
             cursor=$(echo "$answer" | jq -r '.cursor')

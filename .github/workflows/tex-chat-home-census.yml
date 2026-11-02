@@ -40,7 +40,7 @@ jobs:
             *[!0-9a-f]*) echo "match must be hex"; exit 1 ;;
             *) args="{\"match\":\"$MATCH\"}" ;;
           esac
-          npx convex run functions/texChatHomeCensus:census "$args"
+          npx convex run functions/texChatHomeCensus:census "$args" 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           MATCH: ${{ inputs.match }}

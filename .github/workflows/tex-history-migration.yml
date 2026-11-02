@@ -72,7 +72,10 @@ jobs:
             else
               args=$(jq -cn --argjson dry "$DRY_RUN" --argjson report "$report" --arg cursor "$cursor" '{dryRun: $dry, report: $report, cursor: $cursor}')
             fi
-            answer=$(npx convex run functions/texHistoryMigration:run "$args")
+            # stderr is dropped: `convex run` prints the function's own log lines there, and a failure logs a
+            # workspace id, which is the very thing the sealed report exists to keep out of this public log
+            # (`scripts/check-convex-run-stderr.mjs`). The detail is in the Convex dashboard, which is private.
+            answer=$(npx convex run functions/texHistoryMigration:run "$args" 2>/dev/null)
             # Who failed is never printed in the clear: only sealed to the caller's key (a fresh AES key, wrapped by RSA-OAEP).
             if [ "$report" = true ] && [ "$(echo "$answer" | jq '.failures // [] | length')" != "0" ]; then
               secret=$(openssl rand -hex 32)

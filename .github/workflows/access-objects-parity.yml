@@ -1,0 +1,87 @@
+# Compare every scope that is not read from Convex alone with its access in
+# the workspace object (owner, 2026-11-01; the access-in-objects plan, "Access
+# lives in the objects"; see `apps/convex/functions/accessObjects.ts`): each
+# table's digest on both sides, for members, invites, reach, "shared with me"
+# and connections. Each difference is asked again before it counts, so a
+# change in flight is not one. Counts only, never an id, a handle, an address
+# or a hash: this job's log is public. The result per scope is kept on its
+# record, and a scope is read from its object only after a clean check within
+# the hour (`accessObjects.ts` `setAccess`).
+name: Access objects parity
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to check."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      only:
+        description: "A handle: this workspace alone (empty for every workspace)."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Compare
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          page=0
+          refused=""
+          total='{"scopes":0,"clean":0,"differing":0,"notReady":0,"unreachable":0,"tablesDiffer":{"members":0,"invites":0,"reach":0,"sharedToMe":0,"connections":0}}'
+          while :; do
+            page=$((page + 1))
+            args='{}'
+            if [ -n "$cursor" ]; then args=$(echo "$args" | jq -c --arg cursor "$cursor" '. + {cursor: $cursor}'); fi
+            if [ -n "$ONLY" ]; then args=$(echo "$args" | jq -c --arg only "$ONLY" '. + {only: $only}'); fi
+            answer=$(npx convex run functions/accessObjects:parity "$args" 2>/dev/null)
+            echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
+            if [ -n "$(echo "$answer" | jq -r '.refused // empty')" ]; then refused="$(echo "$answer" | jq -r '.refused')"; fi
+            total=$(jq -cn --argjson a "$total" --argjson b "$answer" '{
+              scopes: ($a.scopes + $b.scopes),
+              clean: ($a.clean + $b.clean),
+              differing: ($a.differing + $b.differing),
+              notReady: ($a.notReady + $b.notReady),
+              unreachable: ($a.unreachable + $b.unreachable),
+              tablesDiffer: {
+                members: ($a.tablesDiffer.members + $b.tablesDiffer.members),
+                invites: ($a.tablesDiffer.invites + $b.tablesDiffer.invites),
+                reach: ($a.tablesDiffer.reach + $b.tablesDiffer.reach),
+                sharedToMe: ($a.tablesDiffer.sharedToMe + $b.tablesDiffer.sharedToMe),
+                connections: ($a.tablesDiffer.connections + $b.tablesDiffer.connections)
+              }
+            }')
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+            if [ "$page" -ge 2000 ]; then echo "stopped after $page pages"; exit 1; fi
+          done
+          echo "total: $total"
+          echo "### Access objects parity" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$total\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$refused" ]; then echo "refused: $refused" >> "$GITHUB_STEP_SUMMARY"; echo "refused: $refused"; exit 1; fi
+          if [ "$(echo "$total" | jq -r '.differing + .unreachable + .notReady')" != "0" ]; then exit 1; fi

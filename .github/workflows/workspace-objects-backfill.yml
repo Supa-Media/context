@@ -73,7 +73,7 @@ jobs:
             args=$(jq -cn --arg step "$STEP" --argjson dry "$DRY_RUN" '{step: $step, dryRun: $dry}')
             if [ -n "$cursor" ]; then args=$(echo "$args" | jq -c --arg cursor "$cursor" '. + {cursor: $cursor}'); fi
             if [ -n "$ONLY" ]; then args=$(echo "$args" | jq -c --arg only "$ONLY" '. + {only: $only}'); fi
-            answer=$(npx convex run functions/workspaceObjects:backfill "$args")
+            answer=$(npx convex run functions/workspaceObjects:backfill "$args" 2>/dev/null)
             echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
             if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
             cursor=$(echo "$answer" | jq -r '.cursor')

@@ -1,0 +1,78 @@
+# Choose where one workspace's access is decided (owner, 2026-11-01; the
+# access-in-objects plan, "Access lives in the objects"; see
+# `apps/convex/functions/accessObjects.ts`): `dual` (Convex decides, every
+# change is mirrored into the object) or `object` (the object decides).
+# `dual` is always allowed and is the rollback: the object stops deciding and
+# Convex, written behind meanwhile, decides again. `object` is refused unless
+# the scope's last parity check, within the hour, matched every table; `force`
+# skips that check and is for a staging drill only. The answer carries counts
+# or a reason, never an id, a handle, an address or a hash: this job's log is
+# public.
+name: Access objects switch
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      handle:
+        description: "The workspace's handle."
+        type: string
+        required: true
+      scope:
+        description: "workspace: members and invites. person: reach, shared with me and connections (personal workspaces)."
+        type: choice
+        options:
+          - workspace
+          - person
+        default: workspace
+      home:
+        description: "Where its access is decided. dual is the rollback."
+        type: choice
+        options:
+          - dual
+          - object
+        default: dual
+      force:
+        description: "Skip the parity check (staging drills only)."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  switch:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Set access home
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          HANDLE: ${{ inputs.handle }}
+          SCOPE: ${{ inputs.scope }}
+          HOME_TO: ${{ inputs.home }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          args=$(jq -cn --arg slug "$HANDLE" --arg scope "$SCOPE" --arg home "$HOME_TO" --argjson force "$FORCE" '{slug: $slug, scope: $scope, home: $home, force: $force}')
+          answer=$(npx convex run functions/accessObjects:setAccessBySlug "$args" 2>/dev/null)
+          echo "$answer"
+          if [ "$(echo "$answer" | jq -r '.ok')" != "true" ]; then exit 1; fi
