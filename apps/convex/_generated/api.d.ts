@@ -201,6 +201,7 @@ import type * as functions_texCommands from "../functions/texCommands.js";
 import type * as functions_spelling from "../functions/spelling.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_textGroupUsage from "../functions/textGroupUsage.js";
+import type * as functions_textGroupsMarked from "../functions/textGroupsMarked.js";
 import type * as functions_textPhones from "../functions/textPhones.js";
 import type * as functions_textSetup from "../functions/textSetup.js";
 import type * as functions_textSignIn from "../functions/textSignIn.js";
@@ -458,6 +459,7 @@ declare const fullApi: ApiFromModules<{
   "functions/spelling": typeof functions_spelling;
   "functions/textLinks": typeof functions_textLinks;
   "functions/textGroupUsage": typeof functions_textGroupUsage;
+  "functions/textGroupsMarked": typeof functions_textGroupsMarked;
   "functions/textPhones": typeof functions_textPhones;
   "functions/textSetup": typeof functions_textSetup;
   "functions/textSignIn": typeof functions_textSignIn;

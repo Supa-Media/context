@@ -12,6 +12,10 @@
  * recorded as unmarked), run the erasure's claims outside `objectFirst` (the rows are gone before the mark opens),
  * page the watchdog's move straight from the mutation again (the page is unmarked), and drop the drain's cover for
  * unmarked entries (the object serves the old share with no behind while the push fails).
+ *
+ * The report after that deploy named one more `nodeRowMoves.rowMove`: a keyed move (`nodesMoveStart`,
+ * `nodesMoveBatch`) returned from the barrier before the marked path, so it never opened its mark although its kind
+ * is in `NARROWING_OPERATIONS`. Sabotage: run it unwrapped again, and the folder-move case records it as unmarked.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -19,6 +23,8 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { asUser, drainScheduled, seedStorageBinding, seedTreeRows, type TestConvex } from "./fixtures.helpers";
 import { drain, outbox, setFolder, setHome, world } from "./workspaceObjectWorld.helpers";
+import { idKeyFor } from "../functions/lib/nodes/noteIds";
+import { ensureCopyRow } from "../functions/lib/noteIds/state";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -110,6 +116,65 @@ describe("background writers tell the object first", () => {
     await t.mutation(internal.functions.nodeRowMoves.continueRowMove, { id });
     await drainScheduled(t);
     expect(await liveAt(t, workspaceId, "moved/a.md")).toBe(true);
+    expect(ops().slice(before)).toContain("ws.mark.open");
+    expect(await unmarked(t)).toEqual([]);
+  });
+
+  test("a new note brings back a gone row and clears a bare tombstone folder without a narrowing", async () => {
+    const { t, workspaceId } = await inObject();
+    // A keyed workspace: the switch at `keys` and the flip begun.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1, updatedBy: "test" });
+      await ctx.db.patch((await ensureCopyRow(ctx, workspaceId))._id, { keyedAt: 1 });
+    });
+    const note = (n: string) => `0190a000-0000-7000-8000-00000000000${n}`;
+    const adopt = (path: string, noteId: string, at: number) =>
+      t.mutation(internal.functions.noteIdsKeyed.adoptKeyed, { workspaceId, path, noteId, key: idKeyFor(noteId, path), etag: `k-${noteId}`, at });
+    const remove = (path: string, noteId: string, at: number) =>
+      t.mutation(internal.functions.noteIdsKeyed.removeKeyed, { workspaceId, path, key: idKeyFor(noteId, path), at });
+    // Two notes removed: each leaves a gone file row, and its emptied folders retired.
+    expect(await adopt("drafts/one/x.md", note("a"), 100)).toEqual({ adopted: true });
+    expect(await adopt("old/inner/y.md", note("b"), 100)).toEqual({ adopted: true });
+    expect(await remove("drafts/one/x.md", note("a"), 200)).toBe(true);
+    expect(await remove("old/inner/y.md", note("b"), 200)).toBe(true);
+    expect(await liveAt(t, workspaceId, "drafts/one")).toBe(false);
+    // A removal hides, and the gateway marks it; this case is about what comes after.
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("workspaceObjectUnmarked").collect()) await ctx.db.delete(row._id);
+    });
+
+    // The same name again: the gone file row and its folders come back. A note at a retired folder's name: the bare
+    // tombstone is removed so the note can have the name.
+    expect(await adopt("drafts/one/x.md", note("c"), 300)).toEqual({ adopted: true });
+    expect(await adopt("old/inner", note("d"), 300)).toEqual({ adopted: true });
+    expect(await liveAt(t, workspaceId, "drafts/one/x.md")).toBe(true);
+    expect(await liveAt(t, workspaceId, "drafts/one")).toBe(true);
+    const inner = await t.run(async (ctx) => await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "old/inner")).collect());
+    expect(inner.map((row) => [row.kind, row.goneAt])).toEqual([["file", undefined]]);
+    expect(await unmarked(t)).toEqual([]);
+  });
+
+  test("a keyed folder move opens a mark before its rows move", async () => {
+    const { t, workspaceId, ops } = await inObject();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1, updatedBy: "test" });
+      await ctx.db.patch((await ensureCopyRow(ctx, workspaceId))._id, { keyedAt: 1 });
+    });
+    const noteId = "0190a000-0000-7000-8000-00000000000e";
+    const path = "drafts/one/x.md";
+    expect(await t.mutation(internal.functions.noteIdsKeyed.adoptKeyed, { workspaceId, path, noteId, key: idKeyFor(noteId, path), etag: "k-e", at: 100 })).toEqual({ adopted: true });
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("workspaceObjectUnmarked").collect()) await ctx.db.delete(row._id);
+    });
+    const before = ops().length;
+    const answer = await t.action(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      grantedNames: [],
+      operation: { kind: "nodesMoveStart", from: "drafts", to: "plans/drafts" },
+    });
+    expect(answer).toMatchObject({ kind: "moveQueued" });
+    expect(await liveAt(t, workspaceId, "plans/drafts/one/x.md")).toBe(true);
     expect(ops().slice(before)).toContain("ws.mark.open");
     expect(await unmarked(t)).toEqual([]);
   });

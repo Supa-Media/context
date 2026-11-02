@@ -480,7 +480,8 @@ export async function runFileOperationHandler(
   attachSmallData(ctx, args.workspaceId, store);
 
   if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
-  if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store, projection);
+  const move = isMoveOperation(args.operation) ? { ...args, operation: args.operation } : null;
+  if (move !== null) return await markedIfNarrowing(ctx, args, () => runMoveOperation(ctx, move, store, projection));
   if (args.operation.kind === "pruneIndex") {
     // Its census decides which rows are gone, so it reads the tree's names too: a bucket listing of uuid keys would delete every keyed row.
     attachTreeListing(ctx, args.workspaceId, store);

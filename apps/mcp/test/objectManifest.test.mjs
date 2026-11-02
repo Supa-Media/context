@@ -201,17 +201,14 @@ test("a workspace whose notes are not at home in its object, or that is behind, 
   }
 });
 
-test("a share taken back and not yet pushed: the behind check sends the listing to the control plane", async () => {
+test("a share taken back and not yet pushed: the object's own behind sends the listing to the control plane", async () => {
   const cp = controlRead();
-  const ob = objectClient(OBJECT_PAGE);
+  const ob = objectClient({ ...OBJECT_PAGE, behind: true });
   const logged = [];
-  const manifest = objectFirstManifest(cp.read, reading(ob.client, { checkBehind: async () => true, log: (event) => logged.push(event) }));
+  const manifest = objectFirstManifest(cp.read, reading(ob.client, { log: (event) => logged.push(event) }));
   assert.deepEqual(paths(await manifest({})), ["from/control.md"]);
   assert.equal(cp.asked.length, 1);
   assert.ok(logged.includes("workspace_object_behind"));
-  // A behind check that fails counts as behind.
-  const failing = objectFirstManifest(cp.read, reading(ob.client, { checkBehind: async () => { throw new Error("down"); } }));
-  assert.deepEqual(paths(await failing({})), ["from/control.md"]);
 });
 
 test("a check-in's changed-since listing, an object failure and an unserved answer all go to the control plane", async () => {
@@ -223,7 +220,7 @@ test("a check-in's changed-since listing, an object failure and an unserved answ
   ]) {
     const cp = controlRead();
     const ob = objectClient(answer);
-    const manifest = objectFirstManifest(cp.read, reading(ob.client, { checkBehind: async () => false }));
+    const manifest = objectFirstManifest(cp.read, reading(ob.client));
     assert.deepEqual(paths(await manifest(page, { timeoutMs: 9 })), ["from/control.md"]);
     assert.deepEqual(cp.asked, [{ page, options: { timeoutMs: 9 } }]);
     if (page.changedSince !== undefined) assert.deepEqual(ob.asked, [], "a changed-since listing never asks the object");
@@ -235,7 +232,7 @@ test("behind the response, the control plane's page is compared to the object's,
   const ob = objectClient({ served: true, entries: [{ path: "a.md", etag: "1" }, { path: "from/object.md", etag: "o" }, { path: "b.md", etag: "2" }], cursor: null });
   const deferred = [];
   const lines = [];
-  const manifest = objectFirstManifest(cp.read, reading(ob.client, { checkBehind: async () => false, log: (event, fields) => lines.push({ event, ...fields }) }), {
+  const manifest = objectFirstManifest(cp.read, reading(ob.client, { log: (event, fields) => lines.push({ event, ...fields }) }), {
     defer: () => (work) => deferred.push(work),
   });
   await manifest({});
@@ -260,7 +257,7 @@ test("a control-plane failure behind the response is logged by its fixed phrase 
   const lines = [];
   const deferred = [];
   for (const error of [Object.assign(new Error("timed out"), { name: "ControlPlaneError" }), Object.assign(new Error("Note at 1-projects/x.md"), { name: "ControlPlaneError" })]) {
-    const manifest = objectFirstManifest(async () => { throw error; }, reading(objectClient(OBJECT_PAGE).client, { checkBehind: async () => false, log: (event, fields) => lines.push({ event, ...fields }) }), {
+    const manifest = objectFirstManifest(async () => { throw error; }, reading(objectClient(OBJECT_PAGE).client, { log: (event, fields) => lines.push({ event, ...fields }) }), {
       defer: () => (work) => deferred.push(work),
     });
     await manifest({});
