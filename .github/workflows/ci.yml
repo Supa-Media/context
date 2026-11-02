@@ -128,7 +128,9 @@ jobs:
           - 'apps/mcp/src/agent/events.js'
           - 'apps/mcp/src/agent/history.js'
           - 'apps/mcp/src/agent/ledger.js'
+          - 'apps/mcp/src/agent/ledgerBackfill.js'
           - 'apps/mcp/src/agent/ledgerConversation.js'
+          - 'apps/mcp/src/agent/log.js'
           - 'apps/mcp/src/agent/logRender.js'
           - 'apps/mcp/src/agent/sources.js'
           - 'apps/mcp/src/chaos/**'
@@ -144,6 +146,7 @@ jobs:
           - 'apps/mcp/src/forwarding.js'
           - 'apps/mcp/src/history/**'
           - 'apps/mcp/src/http/**'
+          - 'apps/mcp/src/ingestion/inbox.js'
           - 'apps/mcp/src/links.js'
           - 'apps/mcp/src/lists.js'
           - 'apps/mcp/src/lists/**'
@@ -742,7 +745,9 @@ jobs:
             apps/mcp/src/agent/events.js
             apps/mcp/src/agent/history.js
             apps/mcp/src/agent/ledger.js
+            apps/mcp/src/agent/ledgerBackfill.js
             apps/mcp/src/agent/ledgerConversation.js
+            apps/mcp/src/agent/log.js
             apps/mcp/src/agent/logRender.js
             apps/mcp/src/agent/sources.js
             apps/mcp/src/chaos/**
@@ -758,6 +763,7 @@ jobs:
             apps/mcp/src/forwarding.js
             apps/mcp/src/history/**
             apps/mcp/src/http/**
+            apps/mcp/src/ingestion/inbox.js
             apps/mcp/src/links.js
             apps/mcp/src/lists.js
             apps/mcp/src/lists/**
