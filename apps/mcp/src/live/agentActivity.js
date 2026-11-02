@@ -1,7 +1,7 @@
 /** Which tool calls show as agent activity on a note, and recording them. Moved out of `src/index.js`. */
 
 import { AGENT_ACTIVITY_MAX_ENTRIES_PER_CALL, agentActivityKey } from "../agentActivity.js";
-import { objectByName } from "../objectPlace.js";
+import { roomByName } from "../objectPlace.js";
 import { isConsoleActor, presenceActor, presenceClientKey } from "./presence.js";
 
 /**
@@ -62,7 +62,7 @@ export function recordAgentActivity(store, entries) {
         owner: await presenceClientKey(`person:${userId}`),
       };
       if (!actor.id) return;
-      const room = objectByName(rooms, agentActivityKey(workspaceId));
+      const room = roomByName(rooms, agentActivityKey(workspaceId));
       await room.fetch("https://presence.invalid/activity", {
         method: "POST",
         headers: { "content-type": "application/json" },

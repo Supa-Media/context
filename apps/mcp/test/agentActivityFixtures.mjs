@@ -99,7 +99,9 @@ export function createLiveNamespace() {
   return {
     calls,
     runtimes,
-    idFromName(name) {
+    // Rooms are named `enam:<key>`, placed in eastern North America (`objectPlace.js` `roomByName`); kept here by key.
+    idFromName(placed) {
+      const name = placed.replace(/^enam:/, "");
       return { name, toString: () => name };
     },
     get(id) {

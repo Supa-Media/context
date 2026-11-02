@@ -26,3 +26,17 @@ export function objectByName(namespace, name) {
 export function objectIdOf(namespace, name) {
   return String(namespace.idFromName(name));
 }
+
+/**
+ * The live-typing room or activity room keyed `key`, under a name placed in
+ * eastern North America (`enam:<key>`). Rooms made before the hint existed
+ * were placed near their first caller, about half of them in Europe and Asia
+ * (Cloudflare analytics, 2026-10-25 to 11-02), and a room keeps its place
+ * forever under the same name. A room holds nothing lasting (it is never the
+ * only copy, and it empties when its last person leaves), so a new name moves
+ * it with no copy: someone already connected at a deploy stays in the old room
+ * until they reconnect, and the note merges both.
+ */
+export function roomByName(namespace, key) {
+  return objectByName(namespace, `enam:${key}`);
+}

@@ -227,3 +227,12 @@ test("one owner's move never reads another's old store", async () => {
   assert.equal(await bucket.get("notes/secret.md"), null);
   assert.equal(placeOf(other.state.storage.sql).movedTo, undefined, "the other store is untouched");
 });
+
+test("live-typing and activity rooms live under names placed in eastern North America", async () => {
+  const { roomByName } = await import("../src/objectPlace.js");
+  const asked = [];
+  const namespace = { idFromName: (name) => name, get: (id, options) => (asked.push([id, options?.locationHint]), {}) };
+  roomByName(namespace, "ws_1/notes%2Fa.md");
+  roomByName(namespace, "activity:ws_1");
+  assert.deepEqual(asked, [["enam:ws_1/notes%2Fa.md", "enam"], ["enam:activity:ws_1", "enam"]]);
+});
