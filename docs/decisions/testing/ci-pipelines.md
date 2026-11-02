@@ -71,6 +71,41 @@ a minute. A suite that reads the shared fixture (`call`, `contextStore`,
 read an unseeded fixture and fail, which is the signal. Sabotage: a suite in a
 shard that throws fails `run.mjs integration` with a non-zero exit.
 
+## The gateway's unit files run in three slices
+
+_Decided 2026-11-02, from the owner's ask that CI for a Tex change be "super
+super quick"._ After the split above, `Test Gateway units` was the longest
+check on every gateway pull request: about 110 seconds of `node --test` over
+358 files on one four-core runner, against 65 for `Test Gateway`. It now runs
+as `Test Gateway units (1/3)` to `(3/3)`, each `pnpm test:unit INDEX/3`
+(`node --test --test-shard`, which splits by file), about 40 seconds of tests
+each; one job still named `Test Gateway units` is red unless every slice
+passed. `pnpm test` and `pnpm test:unit` with no slice still run everything.
+
+Dropping to one runner costs every gateway pull request about a minute.
+`check-ci-path-gates.mjs` (`assertUnitSlices`) fails when the matrix is not
+1 to N, when the run or the name does not say `/N`, or when the summary job
+stops waiting for the slices, because any of those runs some files nowhere.
+
+## A Worker's secrets go up in one request
+
+_Decided 2026-11-02, from the same ask._ The production gateway deploy spent
+about 24 of its 70 seconds in ten `wrangler secret put` calls, each its own
+Wrangler start and its own new Worker version. The gateway, its screenshot
+Worker and Tex's texting Worker, on staging and production, now send theirs as
+one `wrangler secret bulk`, fed by `scripts/worker-secrets.mjs` (`NAME`
+required, `?NAME` optional, `!NAME` optional with a warning, `TARGET=SOURCE`
+renamed). Values go through the environment and a pipe, never argv or a log.
+`deploy-plan.mjs` counts that script as an input of those components.
+
+The secrets are sent on every deploy, not only when they change (the owner
+asked, 2026-11-02): Cloudflare returns secret names, never values, so finding
+out whether anything changed costs a call as long as sending them (about three
+seconds), and skipping would leave a secret changed or lost in Cloudflare
+wrong until the next change here. `check-workflow-secret-order.mjs` treats
+`secret bulk` as a push, and `check-wrangler-vars-not-secrets.mjs` reads the
+names off the `worker-secrets.mjs` line; each self-test has a case for it.
+
 ## Per push, a real browser tests only the note editor
 
 _Decided by Dev2, 2026-10-07: "we don't need the browser to test settings

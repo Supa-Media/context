@@ -44,7 +44,20 @@ const MODES = {
 };
 const mode = process.argv[2];
 if (mode !== undefined && !MODES[mode]) throw new Error(`run.mjs takes no argument, "unit" or "integration", not ${JSON.stringify(mode)}`);
-const only = mode ? ENTRIES.filter(MODES[mode]) : ENTRIES;
+// `run.mjs unit 2/3` runs the second of three slices of the unit files
+// (`node --test --test-shard`, which splits by file), so CI can run them on
+// three runners at once (2026-11-02): on one, they took 110 seconds, the
+// longest job on every gateway pull request.
+const shard = process.argv[3];
+if (shard !== undefined) {
+  const [index, total] = shard.split("/").map(Number);
+  if (mode !== "unit" || !/^\d+\/\d+$/.test(shard) || index < 1 || index > total) {
+    throw new Error(`only "unit" takes a shard, as INDEX/TOTAL with 1 <= INDEX <= TOTAL, not ${JSON.stringify(shard)}`);
+  }
+}
+const only = (mode ? ENTRIES.filter(MODES[mode]) : ENTRIES).map(([name, args]) =>
+  shard && name === "node --test" ? [`${name} ${shard}`, ["--test", `--test-shard=${shard}`, ...args.slice(1)]] : [name, args],
+);
 
 function run([name, args]) {
   return new Promise((resolve) => {
