@@ -46,16 +46,23 @@ const FENCE = "ABOUT_US";
  * grant, or it could not be opened. A home that can't be opened is the old
  * note in the bound workspace, never a failed answer.
  */
-export async function openChatHome(store) {
-  if (typeof store?.openChatHome !== "function") return null;
+export async function openChatHome(store, { log = console.log } = {}) {
+  // Each way a home stays shut says so, by a fixed code: a turn without its home keeps the chat's history in the record,
+  // and nothing else would show why (2026-11-02: no home held its page, though chats had been answered).
+  const shut = (reason) => {
+    log(JSON.stringify({ event: "group_home_unopened", reason }));
+    return null;
+  };
+  if (typeof store?.openChatHome !== "function") return shut("no_door");
   try {
     const opened = await store.openChatHome();
     const session = opened?.session;
-    if (!opened?.store || typeof session?.chatHome !== "string") return null;
+    if (!opened?.store) return shut("no_store");
+    if (typeof session?.chatHome !== "string") return shut("no_folder");
     opened.store.actor = actorFor(session);
     return { folder: session.chatHome, session, store: opened.store, dispatch: (name, args) => callToolForSession({ name, arguments: args }, opened.store, session) };
-  } catch {
-    return null;
+  } catch (error) {
+    return shut(`open_failed:${String(error?.name ?? "error").slice(0, 40)}`);
   }
 }
 
