@@ -11,7 +11,7 @@ import { AgentRefusal, agentTools, MAX_QUESTION_LENGTH, openProvider, runTurn } 
 import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
-import { keepTextedPictures } from "./textedPictures.js"; import { ledgerObserver, wordsEntry } from "./ledger.js";
+import { keepTextedPictures } from "./textedPictures.js"; import { ledgerObserver, wordsEntry } from "./ledger.js"; import { exchangeEntries } from "./ledgerConversation.js";
 import { groupTimingLine, turnKind, turnReport, waitBefore } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
@@ -208,6 +208,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`); a guest's is nobody's (`groupGuests.js`).
   const front = env.TEX_FRONT_DOOR !== "off" && (await tex.wait("setup", setupRead))?.frontDoor !== false; // Haiku as the front door (`frontDoor.js`): only a yes or no is matched before it, and no reply checks after
   const ownConversation = group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null, askChat = group?.key ?? null; // an ask, and the yes to it, belong to the chat it was made in (`approvals.js` `chatOfAsk`)
+  if (store.ledger === null && ownConversation !== null) store.ledger = chatLedger(store, session); // any caller that keeps the person's texts keeps them in their chat's one record (`ledgerConversation.js`)
   if (front && (session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true && !mayAnswerAsk(group !== null ? withoutTexName(question) : question, quoted, sent.length > 0)) ({ setAside = [], dropped = [] } = (await tex.step("waiting_asks", () => waitingAsks(store, session, { conversation: ownConversation, told: body.told, now: received, chat: askChat }), null)) ?? {});
   else if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true) {
     thumbsUp = await tex.step("thumbs_up", () => thumbsUpIsYes(store, session, quoted, { who: group?.from || null, chat: askChat })); // a 👍 on the ask is that yes
@@ -465,7 +466,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   // Their zone: a routine's own, else the one the texting Worker sent (`localNow.js`).
   const timeZone = runner ? routineTimeZone(routine.settings, body.routine.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE;
-  const chatLog = texting || group !== null ? store.ledger : null, ledgerAt = { turn: body.turn, ownSlug: session.workspaceSlug }; // the chat's one record of everything (`ledger.js`); the pictures they texted are kept below under an egress ledger of its own
+  const chatLog = texting || group !== null || ownConversation !== null ? store.ledger : null, ledgerTurn = typeof body.turn === "string" && body.turn !== "" ? body.turn : `gw${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`, ledgerAt = { turn: ledgerTurn, ownSlug: session.workspaceSlug }; // a turn the Worker named none for gets one, so its steps and reply are its own (`ledgerConversation.js`) // the chat's one record of everything (`ledger.js`); the pictures they texted are kept below under an egress ledger of its own
   const unseen = { ...session, egress: { ...session.egress, ledger: newLedger() } };
   Object.defineProperty(unseen, "accessToken", { value: session.accessToken, enumerable: false }); // as `sessionForContext`
   // The pictures they texted, kept in a note of their own (`textedPictures.js`) as the turn is saved: the daily transcripts that kept them are no longer written.
@@ -564,7 +565,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
     if (runner) {
       const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer, { routine, runs });
-      chatLog?.write(wordsEntry("note", ran.text, { turn: body.turn, routine: routine.path, outcome: ran.outcome })); await tex.after("ledger", () => chatLog?.flush());
+      chatLog?.write(wordsEntry("note", ran.text, { turn: ledgerTurn, routine: routine.path, outcome: ran.outcome, ...(ledger.untrusted === true ? { tainted: true } : {}), ...(Array.isArray(routine.settings?.to) && routine.settings.to.length > 0 ? { others: true } : {}) })); await tex.after("ledger", () => chatLog?.flush());
       await tex.step("keep_run", () => keepRun(store, routine, runs, ran.outcome, ran.text));
       /*
         A routine that texts the person is a message they may answer with a bare
@@ -617,7 +618,9 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     */
     const handoff = opened?.browser?.handoffLine() ?? null;
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
-    chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), wordsEntry("reply", sent, { turn: body.turn, model: turn.model, ms: Date.now() - received, clean: ledger.untrusted !== true, ...(turn.exhausted ? { outcome: "exhausted" } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`)
+    // What the person's chat rebuilt from the ledger shows beside this answer (`ledgerConversation.js`): the files they sent and where a picture is kept, the pages it read, the thread it was typed in.
+    const attached = attachmentsLine(attachments, attachments.length > 0 ? ((await tex.step("pictures_kept", keepPictures)) ?? []) : []), sources = turn.steps.flatMap((step) => step.sources ?? []);
+    chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), wordsEntry("reply", sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, clean: ledger.untrusted !== true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`)
     // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
     const replaced = (job !== null && steer !== null && (await tex.step("steer_pending", () => steer.pending()))) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
     if (steer !== null) await tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear()));
@@ -626,11 +629,13 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
     if (group !== null && job === null && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
     const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
-    const kept = { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID, ledger: false }; // addresses only (`sources.js`); the turn's steps and reply are in the ledger already
+    const kept = { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources, thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID, ledger: false }; // addresses only (`sources.js`); the turn's steps and reply are in the ledger already
     if (saving) await tex.behind(front, "save_chat", () => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
       try {
-        const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await tex.step("pictures_kept", keepPictures)) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
-        await tex.step("append_chat", () => appendConversation(store, conversation, saved, said, kept)); if (conversation === "texts" && group === null) await tex.step("learn_desk_keys", () => learnDeskKeys(store, session.workspaceId)); // the desk's note keys, for the next turn (`texDesk.js`)
+        const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attached, steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
+        await tex.step("append_chat", () => appendConversation(store, conversation, saved, said, kept));
+        // A caller other than the texting Worker (which posts every text both ways itself, `/agent/events`) keeps its exchange in the ledger, in the gateway's words.
+        if (session.actorClientId !== TEXTS_CLIENT_ID) { chatLog?.write(exchangeEntries([reactedLine(reacted), tapbackLine(quoted) || question, steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"), said, { turn: ledgerTurn, asked: received })); await tex.step("ledger_texts", () => chatLog?.flush()); } if (conversation === "texts" && group === null) await tex.step("learn_desk_keys", () => learnDeskKeys(store, session.workspaceId)); // the desk's note keys, for the next turn (`texDesk.js`)
       } catch {
         // The answer is still owed. A history that failed to save costs the next turn some context, not this one its reply.
       }

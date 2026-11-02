@@ -135,6 +135,8 @@ export function ledgerWriter(ledger, chat) {
 
 const GROUP_KEY = /^[0-9a-f]{64}$/;
 const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
+/** The entry that says a person's whole old chat is copied in, kept first: once it is, nothing is copied again (`ledgerBackfill.js`). */
+export const BACKFILLED = "backfilledv1";
 /** A person's one-to-one chat with Tex is one ledger, whichever line they text on, as their history record is. */
 export const ONE_TO_ONE_CHAT = "texts";
 

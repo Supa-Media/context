@@ -356,3 +356,4 @@ test/texPageRoutes.test.mjs
 test/workspaceMarks.test.mjs
 test/texPageViews.test.mjs
 test/ledgerWorkEntries.test.mjs
+test/ledgerConversation.test.mjs

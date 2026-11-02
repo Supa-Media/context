@@ -2,6 +2,8 @@
 
 _Part of [the texting assistant](../texting-assistant.md). Decided by the owner, 2026-11-01, repeated many times: "ONE copy only, in the durable object, for 1:1 AND groups", no expiry, no second copy anywhere, and a texted turn never reads its history or About me from storage. The group side is [group-memory-one-copy](./group-memory-one-copy.md)._
 
+**Since 2026-11-02 every reader reads the chat's ledger instead** ([chat-ledger](./chat-ledger.md), "Retiring the old copies", step 3); the record below is still written until its writes stop.
+
 ## What holds
 
 - **The history is one record.** A person's one-to-one texts with Tex are one JSON record, `.context/agent/history/texts.json` (`agent/history.js`), bounded by the same characters and turns as before (`conversation.js`). The store's routing keeps it in the workspace's own Tex Durable Object, `person:<workspaceId>`, at `state/agent/history/texts.json` (`store/texRouting.js`, `isAgentHomeKey`), never in the bucket, and fails closed when the object can't be reached.
