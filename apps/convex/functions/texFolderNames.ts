@@ -126,7 +126,7 @@ export const homes = internalAction({
   args: { dryRun: v.boolean() },
   returns: v.object({ chats: v.number(), homes: v.number(), shapes: v.record(v.string(), v.number()), ...countsValidator }),
   handler: async (ctx, { dryRun }): Promise<HomeCounts> => {
-    const found: { chats: number; homes: { groupKey: string; workspaceId: Id<"workspaces">; folder: string; noteId: string }[] } = await ctx.runQuery(internal.functions.texFolderNamesRows.homes, {});
+    const found: { chats: number; homes: { groupKey: string; workspaceId: Id<"workspaces">; folder: string; noteId: string; lastSeenAt: number }[] } = await ctx.runQuery(internal.functions.texFolderNamesRows.homes, {});
     const totals = { chats: found.chats, homes: found.homes.length, wouldRename: 0, renamed: 0, both: 0, failed: {} as Record<string, number>, shapes: {} as Record<string, number> };
     for (const home of found.homes) {
       try {
@@ -168,24 +168,31 @@ async function chatRecord(ctx: ActionCtx, pin: Id<"workspaces">, groupKey: strin
   return record !== null && typeof record === "object" && !Array.isArray(record) ? (record as Record<string, unknown>) : null;
 }
 
+/** When turns began moving a home's history onto its page (#2569 live in production, 2026-11-01). */
+export const ON_PAGE_SINCE = Date.parse("2026-11-01T14:30:00Z");
+
 /**
  * Where each homed chat's history page is, by the key its record keeps for it (`direct.memory`), as fixed codes: the
  * record (`no_record`, `on_page` or not), the key (`no_key`), and the row that key's note id names (`no_row`, or the
- * shape of its name, `homeFileShape`). Read only; reads each chat's record from its object.
+ * shape of its name, `homeFileShape`), whether a record off its page has carried the old notes in, and whether the chat
+ * has spoken since turns began moving history onto pages. Read only; reads each chat's record from its object.
  */
 export const pages = internalAction({
   args: {},
   returns: v.object({ homes: v.number(), codes: v.record(v.string(), v.number()) }),
   handler: async (ctx): Promise<{ homes: number; codes: Record<string, number> }> => {
-    const found: { homes: { groupKey: string; workspaceId: Id<"workspaces">; folder: string; noteId: string }[] } = await ctx.runQuery(internal.functions.texFolderNamesRows.homes, {});
+    const found: { homes: { groupKey: string; workspaceId: Id<"workspaces">; folder: string; noteId: string; lastSeenAt: number }[] } = await ctx.runQuery(internal.functions.texFolderNamesRows.homes, {});
     const codes: Record<string, number> = {};
     for (const home of found.homes) {
+      // Whether the chat has spoken since a turn could move its history onto its page (`ON_PAGE_SINCE`).
+      count(codes, home.lastSeenAt >= ON_PAGE_SINCE ? "seen_since_page_move" : "not_seen_since_page_move");
       try {
         const record = await chatRecord(ctx, home.workspaceId, home.groupKey);
         if (record === null) {
           count(codes, "no_record");
           continue;
         }
+        if (record.onPage !== 1) count(codes, record.carried === 1 ? "carried" : "not_carried");
         count(codes, record.onPage === 1 ? "on_page" : "not_on_page");
         if (Array.isArray(record.turns)) count(codes, `record_turns_${record.turns.length > 0 ? "some" : "none"}`);
         const key = (record.direct as { memory?: unknown } | undefined)?.memory;
