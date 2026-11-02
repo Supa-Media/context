@@ -1,5 +1,5 @@
 /**
- * Deletions run objects first (`lib/accessHandOff/takeAway.ts` has the why).
+ * Deletions, dropped-domain leaves and folds run objects first (`lib/accessHandOff/takeAway.ts` and `fold.ts` have the why).
  * `run` takes one queued deletion: it removes the members and invites and
  * revokes the connections in each object the deletion touches, then deletes
  * Convex's rows behind them in one transaction (`finish`). An object that does
@@ -12,7 +12,9 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, internalQuery, type ActionCtx } from "../_generated/server";
 import { internalMutationAfterTakeAway } from "./lib/rowWatch/mutations";
-import { takeAwaySteps, type TakeAwayStep } from "./lib/accessHandOff/takeAway";
+import { takeAwaySteps, type TakeAwayStep, type TakeAwayTarget } from "./lib/accessHandOff/takeAway";
+import { foldSteps } from "./lib/accessHandOff/fold";
+import { leaveDroppedDomains } from "./lib/domainMembership";
 import { consoleWorkspaceClient } from "./lib/workspaceObjects/door";
 import { deleteAccountFor, deleteWorkspaceCascade } from "./account";
 
@@ -25,7 +27,7 @@ const backoffMs = (attempt: number) => Math.min(30_000 * 2 ** attempt, 6 * 60 * 
 
 /** The calls a take-away makes on one object: the gateway's own client (`apps/mcp/src/workspaceStore/api.js`). */
 export interface TakeAwayObject {
-  members: { remove(userIds: string[], at: number): Promise<unknown> };
+  members: { remove(userIds: string[], at: number): Promise<unknown>; put(rows: unknown[], extra: { workspace: { slug: string; kind: string } }): Promise<unknown> };
   invites: { remove(ids: string[], at: number): Promise<unknown> };
   access: { connections: { revoke(grantId: string, at: number): Promise<unknown> } };
 }
@@ -38,7 +40,13 @@ export const planOf = internalQuery({
   handler: async (ctx, { id }) => {
     const job = await ctx.db.get(id);
     if (job === null) return null;
-    const target = job.kind === "account" ? { kind: "account" as const, userId: job.userId! } : { kind: "workspace" as const, workspaceId: job.workspaceId! };
+    if (job.kind === "fold") return { at: job.at, attempt: job.attempt, steps: await foldSteps(ctx, job) };
+    const target: TakeAwayTarget =
+      job.kind === "account"
+        ? { kind: "account", userId: job.userId! }
+        : job.kind === "leave"
+          ? { kind: "leave", userId: job.userId!, workspaceIds: job.workspaceIds ?? [] }
+          : { kind: "workspace", workspaceId: job.workspaceId! };
     return { at: job.at, attempt: job.attempt, steps: await takeAwaySteps(ctx, target) };
   },
 });
@@ -55,6 +63,8 @@ async function applyStep(open: OpenObject, step: TakeAwayStep, at: number): Prom
   const object = open(step.workspaceId);
   if (object === null) throw new Error("take-away: object unreachable");
   if (step.scope === "workspace") {
+    // A fold puts the account it moved into; its row carries the workspace's name, as a first put must.
+    if (step.put !== undefined && failed(await object.members.put([step.put.row], { workspace: step.put.workspace }))) throw new Error("take-away: member put refused");
     for (const userIds of chunks(step.userIds)) if (failed(await object.members.remove(userIds, at))) throw new Error("take-away: members refused");
     for (const ids of chunks(step.inviteIds)) if (failed(await object.invites.remove(ids, at))) throw new Error("take-away: invites refused");
     return;
@@ -117,7 +127,11 @@ export const finish = internalMutationAfterTakeAway({
     const job = await ctx.db.get(id);
     if (job === null) return null;
     await ctx.db.delete(id);
-    if (job.kind === "account" && job.userId !== undefined) {
+    // A fold is already in Convex: the objects were all that was owed.
+    if (job.kind === "fold") return null;
+    if (job.kind === "leave" && job.userId !== undefined) {
+      await leaveDroppedDomains(ctx, job.userId, job.workspaceIds ?? []);
+    } else if (job.kind === "account" && job.userId !== undefined) {
       if ((await ctx.db.get(job.userId)) !== null) await deleteAccountFor(ctx, job.userId);
     } else if (job.workspaceId !== undefined && (await ctx.db.get(job.workspaceId)) !== null) {
       await deleteWorkspaceCascade(ctx, job.workspaceId);

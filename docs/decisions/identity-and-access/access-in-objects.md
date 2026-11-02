@@ -71,6 +71,15 @@ transaction (`functions/accessTakeAway.ts`). An object that does not answer is
 retried with backoff and the deletion stays queued: Convex never says someone
 is gone before their objects do.
 
+A member who leaves because their sign-in domain was dropped goes through the
+same queue. A fold (one person's two accounts made one, inside the sign-in
+flow that proved it) is the one change written to Convex first, because the
+flow goes on using its result: both sides of it are the same person, so an
+object briefly holding the old account, or not yet the new one, lets nobody in
+who was not already in. Only that fold's own membership rows pass the guard;
+the queue then puts and removes them in each object
+(`functions/lib/accessHandOff/fold.ts`).
+
 ## Convex keeps a read-only copy of membership
 
 Decided by the owner, 2026-11-02: Convex's own membership checks (about 160

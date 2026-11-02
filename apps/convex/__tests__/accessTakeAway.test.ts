@@ -36,7 +36,10 @@ function fakeObjects() {
     return mode === "refuse" ? { error: "refused" } : ok;
   };
   const open: OpenObject = (workspaceId) => ({
-    members: { remove: async (userIds) => answer(workspaceId, "members.remove", userIds, { removed: userIds.length }) },
+    members: {
+      remove: async (userIds) => answer(workspaceId, "members.remove", userIds, { removed: userIds.length }),
+      put: async (rows: unknown[]) => answer(workspaceId, "members.put", rows.map((row: unknown) => String((row as { userId: string }).userId)), { kept: rows.length }),
+    },
     invites: { remove: async (ids) => answer(workspaceId, "invites.remove", ids, { removed: ids.length }) },
     access: {
       connections: { revoke: async (grantId) => answer(workspaceId, "connections.revoke", [grantId], { revoked: true }) },

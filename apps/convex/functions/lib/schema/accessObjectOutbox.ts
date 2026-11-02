@@ -36,12 +36,19 @@ export const accessObjectOutboxTables = {
    * and only then deletes Convex's rows behind. Ids only.
    */
   accessTakeAways: defineTable({
-    kind: v.union(v.literal("account"), v.literal("workspace")),
+    /**
+     * `account` / `workspace`: a deletion. `leave`: `userId` leaves `workspaceIds` (a dropped sign-in domain). `fold`:
+     * `userId`'s memberships in `workspaceIds` moved to `intoId` (one person's two accounts), already in Convex.
+     */
+    kind: v.union(v.literal("account"), v.literal("workspace"), v.literal("leave"), v.literal("fold")),
     userId: v.optional(v.id("users")),
     workspaceId: v.optional(v.id("workspaces")),
+    workspaceIds: v.optional(v.array(v.id("workspaces"))),
+    intoId: v.optional(v.id("users")),
     at: v.number(),
     attempt: v.number(),
   })
     .index("by_user", ["userId"])
+    .index("by_into", ["intoId"])
     .index("by_workspace", ["workspaceId"]),
 };
