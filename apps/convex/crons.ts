@@ -153,6 +153,12 @@ crons.interval("grant founding Premium", { hours: 1 }, internal.functions.foundi
  */
 crons.interval("push waiting rows to workspace objects", { minutes: 1 }, internal.functions.workspaceObjectPush.sweep, {});
 
+/**
+ * Access changes still waiting for an object on `dual` (`functions/accessObjectPush.ts`): a lost scheduled push, or
+ * an object that was down.
+ */
+crons.interval("push waiting access changes to objects", { minutes: 1 }, internal.functions.accessObjectPush.sweep, {});
+
 crons.interval(
   "re-read routine folders",
   { hours: 6 },
