@@ -64,11 +64,6 @@ export function holdsAsAnswer(reaction: Reaction): boolean {
   return holdsAsYes(reaction) || holdsAsNo(reaction);
 }
 
-/** Whether a taken-back tapback could be one being held. */
-export function takesBackYes(reaction: Reaction): boolean {
-  return reaction.removed === true && ASK.test(reaction.words);
-}
-
 type Held<T> = { item: T; words: string; at: number };
 
 /*

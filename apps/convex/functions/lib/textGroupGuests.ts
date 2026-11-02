@@ -7,8 +7,9 @@
  *
  *  - `mayOpenToGuests`: an owner or editor, which invited family and a guest's home still need;
  *  - `guestLabel`: how a person with no account is named in a turn, by a hash of the chat and their number;
- *  - `clearGuests` and `ensureChatFolderGrant`: the legacy guest group and folder, for the one-off that moves them
- *    (`functions/texGuestRetire.ts`, not yet written) and for the guest phone pass's legacy chats (`guestPass.ts`).
+ *  - `guestBinder`, `clearGuests` and `ensureChatFolderGrant`: the legacy guest group and folder. The guest phone
+ *    pass asks `guestBinder` whether a legacy chat may still answer (`guestPass.ts`); `clearGuests` is used by the
+ *    one-off that moves them (`functions/texGuestRetire.ts`) and by `textGroups.ts`.
  */
 
 import type { Doc, Id } from "../../_generated/dataModel";
