@@ -32,9 +32,18 @@ and Tex says who did.
 
 **Kept as code, never the model:** only the asker's yes, given after Tex last
 showed what is held, releases it; a guest's yes never does; a decision can
-end a waiting ask sooner, never extend it; `canSee` on every path; a newcomer
-never sees what was said before they joined; people's edits to the group
+end a waiting ask sooner, never extend it; `canSee` on every path; people's edits to the group
 memory note win.
+
+**A group turn reads the chat's whole log** (decided by the owner,
+2026-11-02: "when it reads a group it should read ALL history, even when
+people are added or removed"), reversing "a newcomer never sees what was said
+before they joined". The cut by the people a text was filed under had read a
+day of 322 events as its last 10: the filed set flipped back and forth eight
+times in one day without anyone joining (measured by the `Tex group log shape`
+workflow). Events still carry `people`; nothing reads them to cut the
+transcript. Tests: `agentEventLog.test.mjs` "a group is shown its whole log",
+`events.test.ts` and `groupDecide.test.ts` (whole log for decide).
 
 **This reverses**, each by Dev2 on 2026-10-26: groups answering only when
 addressed with no model ([groups](./groups.md)); two people's texts always

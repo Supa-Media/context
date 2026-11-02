@@ -71,24 +71,19 @@ export function words(event) {
   }
 }
 
-/** The events a group reader may see: the latest unbroken run filed under the chat's current people. */
-export function seenBy(events, people) {
-  if (!people) return events;
-  return events.slice(events.findLastIndex((event) => event.people !== people) + 1);
-}
 
 /**
  * Render events (oldest first) as transcript lines, "" when there are none.
  * `answeredBy` is every event that may cover another (the whole log), so an
  * answer outside the rendered slice still counts.
  */
-export function renderEvents(events, { timeZone = "UTC", people = null, answeredBy = events } = {}) {
+export function renderEvents(events, { timeZone = "UTC", answeredBy = events } = {}) {
   const day = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", month: "short", day: "numeric" });
   const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true });
   const answered = new Set(answeredBy.filter((event) => event.from?.kind === "tex" && event.delivered !== false).flatMap((event) => event.covers ?? []));
   const lines = [];
   let lastDay = null;
-  for (const event of seenBy(events, people)) {
+  for (const event of events) {
     const date = new Date(event.at);
     const thisDay = day.format(date);
     if (thisDay !== lastDay) {

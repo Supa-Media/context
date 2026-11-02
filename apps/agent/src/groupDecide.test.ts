@@ -23,8 +23,8 @@
  *  7. `chooseStyle` not re-queueing the held message → same test fails.
  *  8. the newcomer hold not logging `held_newcomer` → "an answer held for a
  *     newcomer…" fails.
- *  9. `ask` in `groupTurn.ts` rendering without `people` → "decide never
- *     shows a newcomer…" fails.
+ *  9. `ask` in `groupTurn.ts` cutting the transcript by `people` again → "decide is
+ *     shown the chat's whole log…" fails.
  * 10. `isAsker` true for anyone → "a guest's yes never releases…" fails.
  * 14. `acceptGroup` without the unbound check before logging mid-turn (W20)
  *     → "an untagged message during a turn in a chat that is not bound…"
@@ -336,7 +336,7 @@ for (const { name, groupId } of LINES) {
       expect(w.texts).toEqual(["Someone joined while I was working on that, so I didn't send it. Ask me again."]);
     });
 
-    it("decide never shows a newcomer what was said before they joined", async () => {
+    it("decide is shown the chat's whole log, from before a newcomer joined too (the owner, 2026-11-02)", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { decide: silent, control: { engagement: "helpful", engagementChosen: true } });
       await acceptGroup(storage, w.message("Tex hi"), 0);
@@ -350,7 +350,7 @@ for (const { name, groupId } of LINES) {
       await drainGroup(storage, w.deps);
       const last = w.decided.at(-1)!;
       expect(last.transcript).toContain("hi all");
-      expect(last.transcript).not.toContain("secret plan");
+      expect(last.transcript).toContain("secret plan");
     });
 
     it("a guest's yes never releases the asker's ask, decided or not; the asker's yes is code's, never decide's", async () => {

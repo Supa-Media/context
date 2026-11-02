@@ -18,7 +18,7 @@
  *  5. `appendEvents` overwriting an id already kept → "appending is idempotent by id".
  *  6. `renderEvents` ignoring `delivered: false` on answers → "an answer that
  *     wasn't delivered leaves its question not answered".
- *  7. `seenBy` returning every event → "a newcomer's view starts where they joined".
+ *  7. A group turn cut to the reader's people again → "a group is shown its whole log".
  *  8. `oneLine` passing words through (drop the `BREAKS` replace) → "a message
  *     can never forge a line of its own".
  *  9. `checkEvent` taking any string as `from.name` (drop the `NAME` test) →
@@ -30,9 +30,6 @@
  *     its turn's clean record".
  * 13. `checkEvent` taking `told` on any `from.kind` → "a fixed Worker text is
  *     only ever a system event".
- * 14. `seenBy` starting at the first event under the reader's set (today's
- *     `findIndex`) → "a reader who left and rejoined sees only the latest
- *     run of their set".
  * 15. `checkEvent` not refusing a reserved speaker name (drop the `RESERVED`
  *     test) → "a display name may not pose as Tex, Context or the system".
  *     Dropping "them" from `RESERVED` → the same test (run 2026-10-27).
@@ -62,7 +59,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { appendEvents, checkEvent, EventRefusal, logPrefix, MAX_EVENT_TEXT, MAX_EVENTS_PER_CALL, readEvents } from "../src/agent/log.js";
-import { renderEvents, seenBy } from "../src/agent/logRender.js";
+import { renderEvents } from "../src/agent/logRender.js";
 import { LOG_PREFACE, loggedTurn, pruneTurns, recordTurn, TURNS_PREFIX } from "../src/agent/loggedTurn.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX } from "../src/agent/steer.js";
 import { TOLD } from "../src/agent/conversation.js";
@@ -217,28 +214,19 @@ test("an answer that wasn't delivered says why, and leaves its question not answ
   assert.equal(lines[3], "           (not delivered: the picture didn't reach them)");
 });
 
-test("a newcomer's view starts where they joined", () => {
-  const before = event({ text: "before you came", people: OTHER_PEOPLE });
-  const after = event({ at: NOW + 60_000, text: "welcome", people: HEX });
-  const shown = renderEvents([before, after], { timeZone: NY, people: HEX });
-  assert.ok(!shown.includes("before you came"));
-  assert.match(shown, /welcome/);
-  assert.equal(renderEvents([before], { timeZone: NY, people: HEX }), "", "no event of theirs, nothing shown");
-});
-
-test("a reader who left and rejoined sees only the latest run of their set", () => {
-  const A = OTHER_PEOPLE;
-  const B = HEX;
-  const runs = [
-    event({ text: "a-one", people: A }),
-    event({ at: NOW + 1_000, text: "b-one", people: B }),
-    event({ at: NOW + 2_000, text: "a-two", people: A }),
-    event({ at: NOW + 3_000, text: "b-two", people: B }),
-    event({ at: NOW + 4_000, text: "b-three", people: B }),
+test("a group is shown its whole log, whoever joined or left since (the owner, 2026-11-02)", async () => {
+  const store = memoryStore();
+  // The people a text was filed under flipped back and forth eight times in a day (2026-11-01), and a turn saw the last ten of 322.
+  const events = [
+    event({ text: "a-one", people: OTHER_PEOPLE }),
+    event({ at: NOW + 1_000, text: "b-one", people: HEX }),
+    event({ at: NOW + 2_000, text: "a-two", people: OTHER_PEOPLE }),
+    event({ at: NOW + 3_000, text: "unfiled" }),
   ];
-  assert.deepEqual(seenBy(runs, B).map((e) => e.text), ["b-two", "b-three"]);
-  assert.deepEqual(seenBy([...runs, event({ at: NOW + 5_000, text: "a-three", people: A })], B), [], "the set changed again: nothing");
-  assert.deepEqual(seenBy([event({ text: "unfiled" }), event({ at: NOW + 1_000, text: "b", people: B })], B).map((e) => e.text), ["b"], "an event with no set is a break too");
+  const fresh = event({ at: NOW + 4_000, text: "summarise today", people: HEX });
+  await appendEvents(store, CHAT, [...events, fresh], { now: NOW });
+  const logged = await loggedTurn(store, { chat: CHAT, covers: [fresh.id] }, { timeZone: NY, group: { members: HEX } });
+  for (const words of ["a-one", "b-one", "a-two", "unfiled"]) assert.match(logged.history[0].text, new RegExp(words));
 });
 
 test("a fixed Worker text is shown in the gateway's words for it", () => {

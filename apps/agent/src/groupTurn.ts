@@ -89,8 +89,8 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       line: newest.line,
       sender: newest.from,
       style,
-      // Only what was said in front of exactly these people: a newcomer's starts where they joined.
-      transcript: renderTranscript(await keptEvents(storage, newest.groupId), { people: await eventPeople(storage, newest) }),
+      // The chat's whole log, whoever has joined or left since (the owner, 2026-11-02).
+      transcript: renderTranscript(await keptEvents(storage, newest.groupId)),
       candidates,
       running,
       // Only the sender's own asks: nobody else's "nah forget it" can end somebody's ask.
