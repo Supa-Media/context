@@ -13,7 +13,7 @@
  * object's access tables (threads B and C) register them as `providers`:
  *   topics[name] = { served(): boolean, rows(reader): any | Promise<any> }
  *   ops[name]    = async (reader, args) => result      (throw {code} to refuse)
- *   admit(reader) => boolean                           (false: this reader may not see this object)
+ *   admit(reader) => boolean                           (false: this reader may not see this object; every provider's must pass)
  * A topic or write with no provider, or whose provider is not served yet, is
  * `not_served`, and the app keeps reading Convex. Switching back is the
  * rollback, as on the tree.
@@ -104,7 +104,7 @@ export function accessSockets(state, sql, deps = {}) {
     return [made[0], made[1]];
   });
   const upgraded = deps.upgraded ?? ((client) => new Response(null, { status: 101, webSocket: client }));
-  const providers = { topics: {}, ops: {}, admit: null };
+  const providers = { topics: {}, ops: {}, admits: [] };
   let pending = null;
 
   const socketId = (ws) => {
@@ -140,11 +140,22 @@ export function accessSockets(state, sql, deps = {}) {
     }
   };
 
-  /** Whether the object still lets this reader in; a provider that throws lets nobody in. */
+  /** Close every socket whose reader `match` picks: they reconnect through the gateway, which decides again. */
+  const lockOutWhere = (match) => {
+    for (const ws of openSockets()) {
+      const id = socketId(ws);
+      if (id === null) continue;
+      const reader = readerFor(id);
+      if (reader !== null && !match(reader)) continue;
+      forget(id);
+      close(ws, ACCESS_CLOSE_REAUTH, "reauthorize");
+    }
+  };
+
+  /** Whether the object still lets this reader in: every provider must; one that throws lets nobody in. */
   const admitted = (reader) => {
-    if (providers.admit === null) return true;
     try {
-      return providers.admit(reader) === true;
+      return providers.admits.every((admit) => admit(reader) === true);
     } catch {
       return false;
     }
@@ -207,7 +218,7 @@ export function accessSockets(state, sql, deps = {}) {
     provide({ topics = {}, ops = {}, admit } = {}) {
       Object.assign(providers.topics, topics);
       Object.assign(providers.ops, ops);
-      if (typeof admit === "function") providers.admit = admit;
+      if (typeof admit === "function") providers.admits.push(admit);
       this.changed();
     },
 
@@ -279,15 +290,11 @@ export function accessSockets(state, sql, deps = {}) {
 
     /** Close every socket this person holds here, at once: they reconnect through the gateway, which decides again. */
     lockOut(userId) {
-      for (const ws of openSockets()) {
-        const id = socketId(ws);
-        if (id === null) continue;
-        const reader = readerFor(id);
-        if (reader !== null && reader.userId !== userId) continue;
-        forget(id);
-        close(ws, ACCESS_CLOSE_REAUTH, "reauthorize");
-      }
+      lockOutWhere((reader) => reader.userId === userId);
     },
+
+    /** Close every socket whose reader `match` picks (opened on a grant since revoked, say), the same way. */
+    lockOutWhere,
 
     /** The people holding a socket here now. */
     readers() {
