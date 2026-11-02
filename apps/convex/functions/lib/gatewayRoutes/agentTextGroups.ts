@@ -22,8 +22,6 @@ type Command =
   | { kind: "stop" }
   | { kind: "start" }
   | { kind: "speaks_up"; level: Engagement }
-  | { kind: "forget" }
-  | { kind: "unforget" }
   | { kind: "invite"; slug: string; role?: "editor" | "member" }
   | { kind: "share_mail"; address: string; query?: string }
   | { kind: "unshare_mail"; address?: string };
@@ -32,7 +30,7 @@ function readCommand(value: unknown): Command | null | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const kind = (value as { kind?: unknown }).kind;
-  if (kind === "stop" || kind === "start" || kind === "forget" || kind === "unforget") return { kind };
+  if (kind === "stop" || kind === "start") return { kind };
   if (kind === "speaks_up") {
     const level = (value as { level?: unknown }).level;
     return (ENGAGEMENT_STYLES as readonly unknown[]).includes(level) ? { kind, level: level as Engagement } : null;

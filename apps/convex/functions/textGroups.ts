@@ -15,7 +15,7 @@ import { homeOnlyTurn } from "./lib/textGroupHomeOnly";
 import { inviteEveryone, invitedChat, type InvitedChat } from "./lib/textGroupInvited";
 import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
 import { armChatLook } from "./lib/textGroupLooks";
-import { muteChat, setSpeaksUp, speaksUpOf, unmuteChat, unwipeChat, wipeChat } from "./lib/texChatRules";
+import { muteChat, setSpeaksUp, speaksUpOf, unmuteChat } from "./lib/texChatRules";
 import { ensureGroupClient } from "./lib/textGroupClient";
 import { ensureChatHome } from "./lib/textGroupHome";
 import { sponsorOf } from "./lib/textGroupUsage";
@@ -66,12 +66,12 @@ export const ENGAGEMENT_STYLES = ["quiet", "attentive", "followAlong", "helpful"
 export type Engagement = (typeof ENGAGEMENT_STYLES)[number];
 const engagementValidator = v.union(v.literal("quiet"), v.literal("attentive"), v.literal("followAlong"), v.literal("helpful"));
 
-type ChatSettings = { engagement?: Engagement; engagementChosen: boolean; instructions?: string; updates?: TexUpdates; wipedAt?: number };
+type ChatSettings = { engagement?: Engagement; engagementChosen: boolean; instructions?: string; updates?: TexUpdates };
 
 /**
  * What the Worker is told about how Tex acts in a chat (`lib/texChatRules.ts`, custom-instructions.md): when it speaks
- * up (`engagement`, never `off`, which answers `muted`) and whether anyone chose it, the chat's own instructions and
- * progress updates, and the forget point.
+ * up (`engagement`, never `off`, which answers `muted`) and whether anyone chose it, and the chat's own instructions and
+ * progress updates.
  */
 function engagementOf(chat: Doc<"textGroups">): ChatSettings {
   const level = speaksUpOf(chat);
@@ -80,7 +80,6 @@ function engagementOf(chat: Doc<"textGroups">): ChatSettings {
     
     ...(chat.instructions ? { instructions: chat.instructions } : {}),
     ...(chat.updates ? { updates: chat.updates } : {}),
-    ...(chat.wipedAt !== undefined ? { wipedAt: chat.wipedAt } : {}),
   };
 }
 
@@ -89,9 +88,6 @@ const commandValidator = v.union(
   v.object({ kind: v.literal("start") }),
   /** "Tex, be quiet" (Dev2, 2026-11-01): a level, not off. */
   v.object({ kind: v.literal("speaks_up"), level: engagementValidator }),
-  /** "Tex, forget this chat" and "Tex, undo the wipe" (Dev2, 2026-11-02). */
-  v.object({ kind: v.literal("forget") }),
-  v.object({ kind: v.literal("unforget") }),
   v.object({ kind: v.literal("invite"), slug: v.string(), role: v.optional(v.union(v.literal("editor"), v.literal("member"))) }),
   v.object({ kind: v.literal("share_mail"), address: v.string(), query: v.optional(v.string()) }),
   v.object({ kind: v.literal("unshare_mail"), address: v.optional(v.string()) }),
@@ -102,10 +98,8 @@ export const groupAnswerValidator = v.union(
   v.object({ status: v.literal("muted") }),
   v.object({ status: v.literal("stopped") }),
   v.object({ status: v.literal("started") }),
-  /** A level set by its words, a wipe made, or one undone (`done`), with nothing to undo (`none`) or too late (`expired`); `by` names who. */
+  /** A level set by its words ("Tex, be quiet"); `by` names who. */
   v.object({ status: v.literal("speaks_up"), level: engagementValidator, by: v.string() }),
-  v.object({ status: v.literal("forgotten"), by: v.string(), wipedAt: v.number() }),
-  v.object({ status: v.literal("unforgotten"), outcome: v.union(v.literal("done"), v.literal("none"), v.literal("expired")), wipedAt: v.optional(v.number()) }),
   v.object({ status: v.literal("unknown_sender"), tell: v.boolean() }),
   v.object({ status: v.literal("no_shared") }),
   /** "Tex, add everyone here to @slug" from someone who isn't an owner there, or a name no workspace has: one answer. */
@@ -138,12 +132,11 @@ export const groupAnswerValidator = v.union(
      */
     guests: v.optional(v.array(v.object({ phone: v.string(), label: v.string() }))),
     guestTagger: v.optional(v.string()),
-    /** When Tex speaks up here, absent until someone in it chose (`engagementChosen` false); the chat's own instructions, updates and forget point. */
+    /** When Tex speaks up here, absent until someone in it chose (`engagementChosen` false); the chat's own instructions and updates. */
     engagement: v.optional(engagementValidator),
     engagementChosen: v.boolean(),
     instructions: v.optional(v.string()),
     updates: v.optional(texUpdatesValidator),
-    wipedAt: v.optional(v.number()),
     /** Mailboxes shared with this chat, by whose and which address, for the turn to be told (`lib/textGroupMail.ts`). */
     mail: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
   }),
@@ -152,8 +145,6 @@ export const groupAnswerValidator = v.union(
 export type GroupAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
   | { status: "speaks_up"; level: Engagement; by: string }
-  | { status: "forgotten"; by: string; wipedAt: number }
-  | { status: "unforgotten"; outcome: "done" | "none" | "expired"; wipedAt?: number }
   | { status: "not_allowed"; slug: string }
   | { status: "invited"; slug: string; count: number; role: string }
   | { status: "mail_shared"; address: string; narrowed: boolean }
@@ -213,22 +204,15 @@ export const applyGroupTurn = internalMutation({
     const senderUser = await linkedUser(ctx, args.sender);
 
     // Anyone in the chat may stop Tex, start it again, or name a level: it cannot leave a group. Who, as `setGroupEngagement` keeps it.
-    const kind = args.command?.kind;
-    if (kind === "stop" || kind === "start" || kind === "speaks_up" || kind === "forget") {
+    const command = args.command;
+    if (command?.kind === "stop" || command?.kind === "start" || command?.kind === "speaks_up") {
       const by = (senderUser !== null ? await handleOf(ctx, senderUser) : "") || "someone here";
       const setBy = senderUser !== null && by !== "someone here" ? by : await hashToken(`${args.groupKey}:${args.sender}`);
-      if (kind === "stop") return await muteChat(ctx, group, setBy), { status: "stopped" };
-      if (kind === "start") return await unmuteChat(ctx, group, setBy), { status: "started" };
-      if (args.command?.kind === "speaks_up") return await setSpeaksUp(ctx, group, args.command.level, setBy), { status: "speaks_up", level: args.command.level, by };
-      if (speaksUpOf(group) === "off") return { status: "muted" };
-      return await wipeChat(ctx, group, setBy, now), { status: "forgotten", by, wipedAt: now };
+      if (command.kind === "stop") return await muteChat(ctx, group, setBy), { status: "stopped" };
+      if (command.kind === "start") return await unmuteChat(ctx, group, setBy), { status: "started" };
+      return await setSpeaksUp(ctx, group, command.level, setBy), { status: "speaks_up", level: command.level, by };
     }
     if (speaksUpOf(group) === "off") return { status: "muted" };
-    if (kind === "unforget") {
-      const outcome = await unwipeChat(ctx, group, now);
-      const back = outcome === "done" ? (await ctx.db.get(group._id))?.wipedAt : group.wipedAt;
-      return { status: "unforgotten", outcome, ...(back !== undefined ? { wipedAt: back } : {}) };
-    }
     // A bound chat checks in on its own, as a person's Tex does; any word here arms it (`lib/textGroupLooks.ts`).
     await armChatLook(ctx, group, now);
 

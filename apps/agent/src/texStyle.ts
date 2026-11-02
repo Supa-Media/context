@@ -24,7 +24,7 @@ export type Updates = "off" | "planOnly" | "normal";
 export type Settings = { instructions?: string; updates?: Updates };
 /** One change: a quick pick by id, the text cleared or put back as it was, and or a progress updates level. */
 export type Ask = { pick?: string; clear?: true; undo?: true; updates?: Updates };
-export type SettingStep = "engagement" | "updates" | "picks" | "clear" | "forget";
+export type SettingStep = "engagement" | "updates" | "picks" | "clear";
 
 const UPDATES: { value: Updates; label: string }[] = [
   { value: "off", label: "Off" },
@@ -48,7 +48,7 @@ export function readSettings(value: unknown): Settings {
   return { ...(instructions ? { instructions } : {}), ...(updates ? { updates } : {}) };
 }
 
-/** The menu, numbered once per kind of chat: a group has when Tex speaks up and forgetting. */
+/** The menu, numbered once per kind of chat: a group has when Tex speaks up. */
 const menuOf = (group: boolean): { step: SettingStep; label: string }[] =>
   group
     ? [
@@ -56,7 +56,6 @@ const menuOf = (group: boolean): { step: SettingStep; label: string }[] =>
         { step: "updates", label: "Progress updates" },
         { step: "picks", label: "Quick picks" },
         { step: "clear", label: "Clear instructions" },
-        { step: "forget", label: "Forget this chat" },
       ]
     : [
         { step: "updates", label: "Progress updates" },
@@ -111,8 +110,8 @@ export async function closeMenu(storage: InboxStorage): Promise<void> {
   await storage.delete(MENU_KEY);
 }
 
-/** A reply the open menu reads: a list to open, a change to save, or (in a group) forgetting the chat. */
-export type SettingReply = { kind: "menu"; step: "engagement" | "updates" | "picks" } | { kind: "set"; ask: Ask } | { kind: "forget" };
+/** A reply the open menu reads: a list to open, or a change to save. */
+export type SettingReply = { kind: "menu"; step: "engagement" | "updates" | "picks" } | { kind: "set"; ask: Ask };
 
 const bare = (text: string) =>
   text
@@ -132,7 +131,6 @@ export function menuReply(text: string, state: MenuState, group: boolean): Setti
     const picked = nth(menu) ?? menu.find(({ label }) => label.toLowerCase() === words);
     if (picked === undefined) return null;
     if (picked.step === "clear") return { kind: "set", ask: { clear: true } };
-    if (picked.step === "forget") return { kind: "forget" };
     return { kind: "menu", step: picked.step };
   }
   if (state.step === "updates") {
@@ -151,7 +149,7 @@ const DIAL = /^(more|less|fewer|no)\s+(warmth|warm|enthusiasm|enthusiastic|emoji
 
 /**
  * Plain words for a quick pick, an undo or a clear, the whole text: "no emoji", "less emoji", "tone efficient",
- * "one bubble", "short answers", "more humor", "undo the change", "clear instructions". Never "undo the wipe" (`groupWords.ts`).
+ * "one bubble", "short answers", "more humor", "undo the change", "clear instructions".
  */
 export function styleWords(text: string): Ask | null {
   const words = bare(text);

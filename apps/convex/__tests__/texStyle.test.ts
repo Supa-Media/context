@@ -1,8 +1,7 @@
 /**
  * HOW TEX TALKS (`functions/texStyle.ts`, `lib/texInstructions.ts`, Dev2,
  * 2026-11-01; `docs/decisions/texting-assistant/custom-instructions.md`):
- * a person's own instructions and a group chat's, two switches, and
- * forgetting a chat (Dev2, 2026-11-02).
+ * a person's own instructions and a group chat's, and two switches.
  *
  *  1. A quick pick writes its line and replaces only its own family's line;
  *     a text past its limit, or a pick nobody made, is refused whole.
@@ -13,15 +12,12 @@
  *  4. Every old dial becomes its line, and mute and style become `speaksUp`.
  *  5. "Tex, stop" is off, "be quiet" is quiet, "start" puts back the level;
  *     off answers nothing but those, and its grant stops resolving.
- *  6. "Tex, forget this chat" sets the forget point; "undo the wipe" puts the
- *     one before back, once, within a day.
  *
  * ## Sabotage record
  *
  *   a pick that keeps its family's other line        1 failed (a pick replaces only its own family)
  *   the ready answer leaving out the chat's own text 2 failed (a group uses only its own; the migration)
  *   `speaksUpOf` ignoring the old mute               1 failed (an unmigrated mute still stops Tex)
- *   undo allowed past 24 h                           1 failed (forget and undo)
  */
 
 import { describe, expect, test } from "vitest";
@@ -153,7 +149,6 @@ describe("when Tex speaks up", () => {
     expect((await said(t, { kind: "stop" })).json).toEqual({ status: "stopped" });
     expect(await groupRow(t)).toMatchObject({ speaksUp: "off", speaksUpBefore: "helpful", speaksUpSetBy: "ada" });
     expect((await tag(t)).json).toEqual({ status: "muted" });
-    expect((await said(t, { kind: "forget" })).json).toEqual({ status: "muted" });
     expect((await said(t, { kind: "start" })).json).toEqual({ status: "started" });
     expect((await tag(t)).json).toMatchObject({ status: "ready", engagement: "helpful", engagementChosen: true });
     expect((await said(t, { kind: "speaks_up", level: "quiet" })).json).toMatchObject({ status: "speaks_up", level: "quiet" });
@@ -183,25 +178,5 @@ describe("when Tex speaks up", () => {
     await t.run((ctx) => ctx.db.insert("texStylePreferences", { userId: ada.userId, texStyle: { tone: "nerdy", humor: 100 }, updatedAt: 1 }));
     expect(await t.mutation(internal.functions.texSettingsMigration.moveToInstructions, { dryRun: false })).toEqual({ people: 1, peopleMoved: 1, groups: 0, groupsMoved: 0 });
     expect((await agentPost(t, "/agent-texts/session", { phone: ADA })).json).toMatchObject({ instructions: `${line("nerdy")}\n${line("humor_more")}` });
-  });
-});
-
-describe("forgetting a chat", () => {
-  test("forget and undo: the point before comes back, once, within a day", async () => {
-    const t = setupTest();
-    await chat(t);
-    await tag(t);
-    const wiped = (await said(t, { kind: "forget" })).json;
-    const first = (await groupRow(t)).wipedAt!;
-    expect(wiped).toEqual({ status: "forgotten", by: "ada", wipedAt: first });
-    expect((await tag(t)).json).toMatchObject({ status: "ready", wipedAt: first });
-    await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("textGroups").collect())[0]!._id, { wipedAt: first - 1000 }));
-    expect((await said(t, { kind: "forget" })).json).toMatchObject({ status: "forgotten", by: "ada" });
-    expect((await said(t, { kind: "unforget" })).json).toEqual({ status: "unforgotten", outcome: "done", wipedAt: first - 1000 });
-    expect((await groupRow(t)).wipedAt).toBe(first - 1000);
-    expect((await said(t, { kind: "unforget" })).json).toEqual({ status: "unforgotten", outcome: "none", wipedAt: first - 1000 });
-    expect((await said(t, { kind: "forget" })).json).toMatchObject({ status: "forgotten" });
-    await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("textGroups").collect())[0]!._id, { wipedAt: Date.now() - 25 * 3_600_000 }));
-    expect((await said(t, { kind: "unforget" })).json).toMatchObject({ status: "unforgotten", outcome: "expired" });
   });
 });

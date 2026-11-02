@@ -1,6 +1,7 @@
-# How Tex talks: custom instructions, two switches, and forgetting a chat
+# How Tex talks: custom instructions and two switches
 
-Decided by Dev2, 2026-11-01 (settings) and 2026-11-02 (forgetting a chat).
+Decided by Dev2, 2026-11-01, with 2026-11-02 additions (Tex's name anywhere
+reaches decide; forgetting a chat held, below).
 Replaces the seven style dials of [tex-settings](./tex-settings.md).
 
 Seven dials (tone, warmth, enthusiasm, emoji, length, bubbles, humor) were
@@ -34,12 +35,6 @@ A group's own (`textGroups`):
   as before. `off` is what mute was: nothing but "Tex, start" (or a level
   named) is answered. `speaksUpBefore` keeps the level `off` replaced, so
   "Tex, start" puts it back (`followAlong` when there was none).
-- `wipedAt`: the forget point, which is also when the wipe was made. Tex
-  reads nothing of the chat from before it, except a reply-back thread
-  (below). Absent: no wipe. `wipedBy`: who made it (as `instructionsSetBy`).
-  `wipePrior`: the forget point it replaced, for "Tex, undo the wipe", which
-  works until `wipedAt` + 24 h.
-
 Old fields stay on the rows, unread, each with a TODO to clean up:
 `texStylePreferences.texStyle`, `textGroups.texStyle`, `texStyleSetBy`,
 `texStyleSetAt`, `engagement`, `engagementSetBy`, `engagementSetAt`,
@@ -145,7 +140,7 @@ a group turn gets the group's alone, never a member's.
 - "Tex, undo the change" (or "undo that change") swaps the text back to the
   one before the last change, once. Anyone in a group may. A bare "Tex, undo"
   is not it: people say that about an email or an event, so it goes to the
-  model. "Tex, undo the wipe" is its own command.
+  model.
 - `tex_updates_set` and the menu set progress updates; `chat_engagement_set`
   and the menu set when Tex speaks up; `chat_mute` sets `off`.
 - "Tex, stop", "mute", "shush" set `off`; "Tex, be quiet" sets `quiet`; "Tex,
@@ -183,10 +178,10 @@ Reply with a number, or tell me "from now on ..." to change how I talk.
 ```
 
 Group: `1 When I speak up (...)`, `2 Progress updates (...)`, `3 Quick picks`,
-`4 Clear instructions`, `5 Forget this chat`, then "How I talk here (anyone
+`4 Clear instructions`, then "How I talk here (anyone
 here can change it):" and the full text, then "Personal instructions don't
 apply in groups." A number opens a list (the speak-up question, the three
-update levels, the quick picks by number) or acts (clear, forget).
+update levels, the quick picks by number) or acts (clear).
 `tex_settings_get` returns the same switches and the full text.
 
 ## What code stops doing
@@ -207,39 +202,20 @@ update levels, the quick picks by number) or acts (clear, forget).
   line exactly; other wording ("give me long answers") does not relax it.
 - Humor is no longer a percentage.
 
-## Forgetting a chat
+## Forgetting a chat: held
 
-- "Tex, forget this chat" (also "forget everything here", "wipe your
-  memory", or the settings pick) by any member sets `wipedAt` to now. Tex
-  says `Done: I've forgotten this chat up to now (cleared by tester). Anyone
-  here can text "Tex, undo the wipe" within 24 hours to bring it back.`
-- Tex stops reading what came before it: the group log (`loggedTurn.js`
-  shows only events at or after `wipedAt`), the chat's memory and
-  `earlier_chat` (turns kept before it are left out: each kept answer now
-  carries its time, on a hidden `<!-- tex at: ... -->` line on the memory
-  page, and one with none predates every wipe), the Worker's waiting chat
-  lines (`groupChat.ts` `chatBefore`) and decide's transcript
-  (`groupTurn.ts`). Each is filtered by the forget point, never deleted, so
-  an undo brings all of it back. Instructions and settings stay.
-- Nothing is deleted. The log, the memory page and the record keep every
-  word, read no longer. TODO: a retention rule for all group history (the
-  log has no expiry in code today) is a separate decision.
-- "Tex, undo the wipe" by any member within 24 h of the wipe puts `wipedAt`
-  back to what it was before (`wipePrior`), once. Later: `That wipe can't be undone
-  now: it's been more than 24 hours.`
-- A reply-back brings a thread back, at any time: when a message Tex answers
-  is a swipe-reply (iMessage) or a quote (WhatsApp) of an older message, the
-  log shows that thread even before `wipedAt`. iMessage: the root and every
-  line threaded under it, people's replies and Tex's threaded answers.
-  WhatsApp: the chain of quoted messages, upward only. Never the lines around
-  it. Each event carries `ref`, a hash of its own platform message id, and
-  `replyRef`, a hash of the one it replies to or is threaded under
-  (`apps/agent/src/events.ts`, `apps/mcp/src/agent/log.js`). Tex's answers are
-  threaded under the message they answer (`groupSay.ts`); heartbeats, check-ins
-  and routines have no message to thread under, so they are never in a thread.
-  The thread is found in the newest 400 events the log is read by; an older
-  one is not (the ceiling of `READ_LIMIT`). Decide's transcript in the Worker
-  is cut at the forget point with no thread: it reads only the day it holds.
+Dev2 decided on 2026-11-02 that any member may make Tex forget a group up to
+now ("Tex, forget this chat", undone by any member within 24 hours, nothing
+deleted, a reply-back thread brought back), then the same day held it: Tex's
+chat history is being unified into one versioned file in the chat's Durable
+Object, and the wipe is built on that once it lands. Until then nothing here
+touches how history is stored or read (the event log, the memory page,
+`earlier_chat`). The design kept for then: a forget point on the chat's row
+that every history read starts from, an undo that puts the one before back,
+and each message's app id kept hashed so a swipe-reply (iMessage: the root
+and everything threaded under it) or a quote chain (WhatsApp) brings that
+thread back, never the lines around it; heartbeats and routines have no
+message to thread under.
 
 ## What a simplification would cost
 
@@ -250,6 +226,3 @@ update levels, the quick picks by number) or acts (clear, forget).
 - Saying the instructions above the safety rules, or unfenced, would let a
   member's text change what Tex may do. Test: "instructions come after the
   built-in rules and inside the fence" (`apps/mcp/test/agentTexStyle.test.mjs`).
-- Reading the old log past a wipe brings back what the chat asked Tex to
-  forget. Test: "a wiped chat shows nothing before the wipe but a reply-back
-  thread" (`apps/mcp/test/agentWipe.test.mjs`).

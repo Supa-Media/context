@@ -13,9 +13,6 @@ export type Command =
   | { kind: "stop" }
   | { kind: "start" }
   | { kind: "speaks_up"; level: GroupStyle }
-  /** "Tex, forget this chat" and "Tex, undo the wipe" (Dev2, 2026-11-02). */
-  | { kind: "forget" }
-  | { kind: "unforget" }
   | { kind: "invite"; slug: string; role?: "editor" | "member" }
   | { kind: "share_mail"; address: string; query?: string }
   | { kind: "unshare_mail"; address?: string }
@@ -113,9 +110,6 @@ export function groupCommand(text: string): Command | null {
   if (/^(?:stop|mute|shush|shh+)$/.test(rest)) return { kind: "stop" };
   if (/^be quiet$/.test(rest)) return { kind: "speaks_up", level: "quiet" };
   if (/^(?:start|unmute|come back)$/.test(rest)) return { kind: "start" };
-  // Read before the settings' words, so "undo the wipe" is never taken for another undo.
-  if (/^(?:undo the wipe|unforget(?: this chat)?|bring back (?:the|this) chat)$/.test(rest)) return { kind: "unforget" };
-  if (/^(?:forget (?:this chat|everything here|this group|what we said)|wipe your memory(?: here)?|clear your memory(?: here)?)$/.test(rest)) return { kind: "forget" };
   if (/^what (?:can you see|do you see|can you read)(?: here)?\??$/.test(rest)) return { kind: "status" };
   const invite = /^(?:add|invite) (?:everyone|everybody|all of us|us all|the group|this chat|this group)(?: (?:here|in here|in this chat|in this group))? (?:to|into) @?([a-z0-9][a-z0-9-]{0,63})(?: as (?:an? )?(editors?|members?))?$/.exec(rest);
   if (invite) return { kind: "invite", slug: invite[1], ...(invite[2] ? { role: invite[2].startsWith("member") ? "member" : "editor" } : {}) };

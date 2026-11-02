@@ -29,12 +29,6 @@ export type TexEvent = {
   kind: EventKind;
   text?: string;
   replyTo?: string;
-  /**
-   * A hash of this message's own id on its app, and of the one it replies to or is threaded under (Dev2, 2026-11-02),
-   * so a reply-back finds its thread in the log past a forget point (`apps/mcp/src/agent/replyThread.js`).
-   */
-  ref?: string;
-  replyRef?: string;
   delivered?: boolean;
   reason?: EventReason;
   turn?: string;

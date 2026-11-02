@@ -16,11 +16,6 @@
  * Each line carries a hash of who was in the chat when it was said, and a turn
  * is handed only the lines said in front of exactly the people it answers:
  * somebody added later never gets what was said before they joined.
- *
- * `gwipe` is the chat's forget point as the control plane last said it
- * ("Tex, forget this chat", Dev2, 2026-11-02): a line said before it is never
- * handed to a turn, nor shown to decide (`groupTurn.ts`), and is not deleted,
- * so "Tex, undo the wipe" brings it back.
  */
 
 import type { InboxStorage } from "./inbox";
@@ -36,20 +31,6 @@ const CHAT_SEQ = "gchatseq";
 const BOUND_KEY = "gbound";
 export const MAX_CHAT_LINES = 400;
 export const CHAT_FOR_MS = 7 * 24 * 60 * 60 * 1000;
-
-const WIPE_KEY = "gwipe";
-
-/** The forget point the control plane named (`ControlAnswer` `wipedAt`); none, nothing is cut. */
-export async function keepWipe(storage: InboxStorage, at: number | undefined): Promise<void> {
-  if (at === undefined) await storage.delete(WIPE_KEY);
-  else await storage.put(WIPE_KEY, at);
-}
-export const wipedAt = async (storage: InboxStorage): Promise<number> => (await storage.get<number>(WIPE_KEY)) ?? 0;
-
-/** A message's own id and the one it replies to or is threaded under, hashed (`events.ts` `ref`, `replyRef`); none without one. */
-export async function threadRefs(messageId: string, replyTo?: string): Promise<{ ref?: string; replyRef?: string }> {
-  return { ...(messageId ? { ref: await sha256Hex(messageId) } : {}), ...(replyTo ? { replyRef: await sha256Hex(replyTo) } : {}) };
-}
 
 const chatKey = (seq: number) => `${CHAT_PREFIX}${String(seq).padStart(12, "0")}`;
 
@@ -120,12 +101,10 @@ export async function keepChatLine(storage: InboxStorage, message: GroupMessage,
 /** The lines kept before `before`, said in front of the same people as `message`, oldest first, with their keys. */
 export async function chatBefore(storage: InboxStorage, message: GroupMessage, before: number, now: number): Promise<{ keys: string[]; lines: ChatLine[] }> {
   const people = await peopleKey(message);
-  const since = await wipedAt(storage);
   const keys: string[] = [];
   const lines: ChatLine[] = [];
   for (const [key, line] of await storage.list<ChatLine>({ prefix: CHAT_PREFIX })) {
-    // Said before the forget point: kept for an undo, never handed on, so never dropped as handed either.
-    if (line.at > before || line.at < since) continue;
+    if (line.at > before) continue;
     keys.push(key);
     if (line.people === people && now - line.at <= CHAT_FOR_MS) lines.push(line);
   }

@@ -65,7 +65,7 @@ import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import { groupLineFor } from "./groupLine";
 import type { NoteCardDrawer } from "./noteCards";
-import { isBound, keepChatLine, keepWipe, peopleOf, setChatBound, sha256Hex } from "./groupChat";
+import { isBound, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchFailed } from "./reviewWatch";
 import { addressesTex, groupCommand, namesTex, unquoted, type Command } from "./groupWords";
@@ -494,8 +494,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (message.sms) return void (await say(storage, deps, message, GROUP_LINES.sms, { system: true }));
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
-  // Forgetting the chat from the menu goes as the command does: anyone may, answered from the webhook's names.
-  const command = item.engagement || routine ? null : item.setting?.kind === "forget" ? ({ kind: "forget" } as const) : item.setting ? null : groupCommand(message.text);
+  const command = item.engagement || item.setting || routine ? null : groupCommand(message.text);
   // The app's own list too: more people only ever narrows what Tex may use. Unread where the webhook names only the sender, it's retried (`groupLine.ts`).
   // Unread on Sendblue, a question is retried too (2026-11-02): its webhook may name someone by an email handle the answer's read
   // then lists as a phone, a newcomer nobody was, and the control plane mints the turn's grant and spends the one-shot intro on
@@ -535,9 +534,6 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (status === "stopped") return void (await fixed(GROUP_LINES.stopped));
   if (status === "started") return void (await fixed(GROUP_LINES.started));
   if (status === "speaks_up") return await keepStyle(storage, asked.level, true), void (await fixed(engagementSet(asked.level, asked.by)));
-  // The forget point now, so decide and the chat's lines are cut at once (`groupChat.ts`), as every ready answer keeps it.
-  if (status === "forgotten") return await keepWipe(storage, asked.wipedAt), void (await fixed(GROUP_LINES.forgotten(asked.by)));
-  if (status === "unforgotten") return await keepWipe(storage, asked.wipedAt), void (await fixed(GROUP_LINES.unforgotten[asked.outcome]));
   if (status !== "ready") throw new ServiceError("control_plane", null);
   // A routine's run carries no webhook people list (`chatRoutineMessage`): binding to it would bind the chat to nobody,
   // and every untagged text after it would be dropped as said in front of other people.
@@ -545,7 +541,6 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
     await setChatBound(storage, message);
   }
   await keepNames(storage, asked.names ?? []);
-  await keepWipe(storage, asked.wipedAt);
   if (asked.engagement !== undefined || asked.engagementChosen !== undefined) await keepStyle(storage, asked.engagement ?? "followAlong", asked.engagementChosen !== false);
   if (command?.kind === "status") return void (await fixed(GROUP_LINES.status(asked.reach ?? [asked.slug])));
   // "Tex, settings", a reply to its menu, or "Tex, less emoji" (`groupSettings.ts`).

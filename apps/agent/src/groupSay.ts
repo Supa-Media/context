@@ -12,7 +12,7 @@ import type { ImagesLike } from "./attachments";
 import type { Picture } from "./line";
 import type { InboxStorage } from "./inbox";
 import type { GroupMessage } from "./sendblueGroups";
-import { sha256Hex, threadRefs } from "./groupChat";
+import { sha256Hex } from "./groupChat";
 import { writeTextTiming, type TimingDataset } from "./textTiming";
 import { isControlWord } from "./controlWords";
 
@@ -155,14 +155,13 @@ export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, mes
 async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
   const place: GroupPlace = { line: message.line, groupId: message.groupId };
   const handle = await groupLineFor(deps, message.groupId).sendText(place, text, message.messageId);
-  // Threaded under the message it answers (none for a routine's, which has no id): its thread, past a wipe (`events.ts`).
-  await logOut(storage, deps, message.groupId, { kind: kindOf(text), text, delivered: true, ...(await threadRefs(handle ?? "", message.messageId)) }, meta);
+  await logOut(storage, deps, message.groupId, { kind: kindOf(text), text, delivered: true }, meta);
   if (handle === undefined) return;
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   await storage.put(SENT_KEY, [...sent.filter((entry) => entry !== handle), handle].slice(-MAX_SENT));
 }
 
-export async function logOut(storage: InboxStorage, deps: GroupSayDeps, chat: string, part: Pick<TexEvent, "kind" | "text" | "delivered" | "reason" | "ref" | "replyRef">, meta: SayMeta): Promise<void> {
+export async function logOut(storage: InboxStorage, deps: GroupSayDeps, chat: string, part: Pick<TexEvent, "kind" | "text" | "delivered" | "reason">, meta: SayMeta): Promise<void> {
   // Only a turn's own words are Tex's; anything else Tex sends is the system's.
   const turn = meta.system ? undefined : meta.turn;
   await addEvent(storage, {
@@ -188,7 +187,7 @@ async function sendPictureNow(storage: InboxStorage, deps: GroupSayDeps, message
     url = "url" in picture ? picture.url : deps.hostPicture ? await deps.hostPicture(await shrinkPicture(deps.images, picture)) : null;
     if (url === null) throw new ServiceError("sendblue", 400);
     await groupLineFor(deps, message.groupId).sendMedia({ line: message.line, groupId: message.groupId }, url, message.messageId);
-    await logOut(storage, deps, message.groupId, { kind: "picture", text: url, delivered: true, ...(await threadRefs("", message.messageId)) }, meta);
+    await logOut(storage, deps, message.groupId, { kind: "picture", text: url, delivered: true }, meta);
   } catch (error) {
     // The words already went: throwing would answer the whole turn again (three "Here's the one-pager"s and
     // then "I couldn't answer that one", 2026-10-26), so a picture that won't send is said once, never retried.

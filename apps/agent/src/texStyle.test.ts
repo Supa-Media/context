@@ -9,8 +9,7 @@
  *     undo, and the next turn carries the group's own instructions.
  *  4. One bubble is an instruction line, not a switch, and emoji no longer
  *     gates the quick tapback.
- *  5. "Tex, stop" is off, "Tex, be quiet" quiet; "forget this chat" and "undo
- *     the wipe" go as commands, the longer phrase never read as the shorter.
+ *  5. "Tex, stop" is off, "Tex, be quiet" quiet.
  *
  * Sabotage (temporary local edits, reverted):
  *  - `settingsMenu` leaving out the group line: "the menu shows the switches and the full text" and the group walk fail;
@@ -33,8 +32,8 @@ describe("the words", () => {
     expect(menuReply("3", open, false)).toEqual({ kind: "set", ask: { clear: true } });
     expect(menuReply("4", open, false)).toBeNull();
     expect(menuReply("1", open, true)).toEqual({ kind: "menu", step: "engagement" });
-    expect(menuReply("5", open, true)).toEqual({ kind: "forget" });
-    expect(menuReply("forget this chat", open, true)).toEqual({ kind: "forget" });
+    expect(menuReply("4", open, true)).toEqual({ kind: "set", ask: { clear: true } });
+    expect(menuReply("5", open, true)).toBeNull();
     expect(menuReply("2", { at: 0, step: "updates" }, true)).toEqual({ kind: "set", ask: { updates: "planOnly" } });
     expect(menuReply("off", { at: 0, step: "updates" }, true)).toEqual({ kind: "set", ask: { updates: "off" } });
     expect(menuReply("14", { at: 0, step: "picks" }, true)).toEqual({ kind: "set", ask: { pick: "emoji_none" } });
@@ -55,13 +54,11 @@ describe("the words", () => {
     for (const text of ["Tex, undo", "undo that", "Tex, no warmth", "less emoji in the invite please", "Tex what's the plan", "tone sarcastic", "Tex, humor 60%"]) expect(styleWords(text), text).toBeNull();
   });
 
-  it("the commands: stop is off, be quiet is a level, forget and undo the wipe", () => {
+  it("the commands: stop is off, be quiet is a level", () => {
     expect(groupCommand("Tex, stop")).toEqual({ kind: "stop" });
     expect(groupCommand("Tex, mute")).toEqual({ kind: "stop" });
     expect(groupCommand("Tex, be quiet")).toEqual({ kind: "speaks_up", level: "quiet" });
     expect(groupCommand("Tex, come back")).toEqual({ kind: "start" });
-    expect(groupCommand("Tex, forget this chat")).toEqual({ kind: "forget" });
-    expect(groupCommand("Tex, undo the wipe")).toEqual({ kind: "unforget" });
     expect(groupCommand("Tex, undo the change")).toEqual({ kind: "style", ask: { undo: true } });
     expect(groupCommand("Tex, no emoji")).toEqual({ kind: "style", ask: { pick: "emoji_none" } });
   });
@@ -76,7 +73,7 @@ describe("the words", () => {
   it("the menu shows the switches and the full text", () => {
     const group = settingsMenu({ instructions: "Use no emoji.\nCall us the crew.", updates: "planOnly" }, "Helpful");
     expect(group).toBe(
-      "My settings in this chat:\n\n1 When I speak up (Helpful)\n2 Progress updates (Plan only)\n3 Quick picks\n4 Clear instructions\n5 Forget this chat\n\n" +
+      "My settings in this chat:\n\n1 When I speak up (Helpful)\n2 Progress updates (Plan only)\n3 Quick picks\n4 Clear instructions\n\n" +
         "How I talk here (anyone here can change it):\nUse no emoji.\nCall us the crew.\n\nPersonal instructions don't apply in groups.\n\nReply with a number.",
     );
     const own = settingsMenu({});

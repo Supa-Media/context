@@ -3,9 +3,9 @@
  * member's reply to it, or plain words ("Tex, no emoji"). Any member may
  * change the group's instructions or progress updates, as they may when Tex
  * speaks up (`groupChoose.ts`), and Tex says who did so anyone can undo it.
- * Choice 1 is the speak-up question itself (`groupStyle.ts`); forgetting the
- * chat goes as a command (`groupInbox.ts`). A yes or no to sharing chats with
- * the devs is answered here too, as the sender's own (`reviewSharing.ts`).
+ * Choice 1 is the speak-up question itself (`groupStyle.ts`). A yes or no to
+ * sharing chats with the devs is answered here too, as the sender's own
+ * (`reviewSharing.ts`).
  */
 
 import { ServiceError } from "./clients";

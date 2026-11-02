@@ -14,9 +14,9 @@
 import { chatEvent } from "./chatState";
 import type { SettingReply } from "./texStyle";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
-import { addEvent, keptEvents, kindOf, markStale, renderTranscript, waitingAsks, type TexEvent } from "./events";
+import { addEvent, keptEvents, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
 import { decide, GROUP_DECIDE_MS, MAX_CANDIDATES, RUNNING_DECIDE_MS, type ControlDeps, type Decision, type GroupStyle } from "./decide";
-import { eventPeople, sha256Hex, threadRefs, wipedAt } from "./groupChat";
+import { eventPeople, sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
 import { burstStillTyped, decideDownAnswer } from "./groupPolicy";
@@ -79,15 +79,7 @@ export async function logGroupInbound(storage: InboxStorage, message: GroupMessa
     kind: message.reaction ? "reaction" : kindOf(message.text, message.attachments),
     text: message.text,
     people: await eventPeople(storage, message),
-    // Which message this is, and the one it replies to, so a reply-back finds its thread past a wipe (`events.ts`).
-    ...(message.reaction === undefined ? await threadRefs(message.messageId, message.replyTo) : {}),
   });
-}
-
-/** The chat's kept events from its forget point on. */
-async function keptSince(storage: InboxStorage, chat: string): Promise<TexEvent[]> {
-  const since = await wipedAt(storage);
-  return (await keptEvents(storage, chat)).filter((event) => event.at >= since);
 }
 
 async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: GroupMessage, candidates: string[], running: boolean, addressed = false): Promise<Decision> {
@@ -99,8 +91,8 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       line: newest.line,
       sender: newest.from,
       style,
-      // The chat's whole log, whoever has joined or left since (the owner, 2026-11-02), from its forget point on (`groupChat.ts`).
-      transcript: renderTranscript(await keptSince(storage, newest.groupId)),
+      // The chat's whole log, whoever has joined or left since (the owner, 2026-11-02).
+      transcript: renderTranscript(await keptEvents(storage, newest.groupId)),
       candidates,
       running,
       // Only the sender's own asks: nobody else's "nah forget it" can end somebody's ask.

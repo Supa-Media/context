@@ -80,14 +80,6 @@ export const textGroupTables = {
     instructionsSetAt: v.optional(v.number()),
     /** Progress updates (`lib/texInstructions.ts`): absent is normal. */
     updates: v.optional(texUpdatesValidator),
-    /**
-     * "Tex, forget this chat" (Dev2, 2026-11-02): Tex reads nothing of the chat from before `wipedAt`, but a reply-back
-     * thread. Nothing is deleted. `wipedBy` as `speaksUpSetBy`; `wipePrior` the forget point it replaced, put back by
-     * "Tex, undo the wipe" until `wipedAt` + 24 h.
-     */
-    wipedAt: v.optional(v.number()),
-    wipedBy: v.optional(v.string()),
-    wipePrior: v.optional(v.number()),
     /** Unread since 2026-11-01: when Tex spoke up, now `speaksUp`, and the old style dials, now `instructions`. TODO: drop after the migration. */
     engagement: v.optional(v.union(v.literal("quiet"), v.literal("attentive"), v.literal("followAlong"), v.literal("helpful"))),
     engagementSetBy: v.optional(v.string()),

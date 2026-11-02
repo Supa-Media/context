@@ -1,8 +1,8 @@
 /**
  * The one executor for what a chat's people may change about Tex (Dev2,
  * 2026-10-31; `docs/decisions/texting-assistant/command-tools.md`), and since
- * 2026-11-01 its instructions, when it speaks up, progress updates and what it
- * forgets (`custom-instructions.md`).
+ * 2026-11-01 its instructions, when it speaks up and progress updates
+ * (`custom-instructions.md`).
  *
  * Two doors reach it. The texting Worker's exact short commands ("Tex, stop",
  * the settings menu) come through `/agent-texts/*` behind its secret, keyed by
@@ -20,8 +20,6 @@ import { applyInstructionsChange, type InstructionsChange, type SpeaksUp, type T
 /** Generous for someone trying every option, small for a client stuck in a loop. */
 export const TEX_STYLE_WRITES_PER_HOUR = 120;
 export const TEX_STYLE_WINDOW_MS = 60 * 60 * 1000;
-/** How long any member may undo a wipe (Dev2, 2026-11-02). */
-export const WIPE_UNDO_MS = 24 * 60 * 60 * 1000;
 
 /**
  * When Tex speaks up here. A row the migration has not reached yet (`texSettingsMigration.ts`) is read through its old
@@ -99,17 +97,4 @@ export async function personRow(ctx: { db: QueryCtx["db"] }, userId: Id<"users">
 /** Only what is set: an empty object is no instructions and normal updates. */
 export function settingsOf(kept: { instructions?: string; updates?: TexUpdates }): Settings {
   return { ...(kept.instructions ? { instructions: kept.instructions } : {}), ...(kept.updates ? { updates: kept.updates } : {}) };
-}
-
-/** "Tex, forget this chat": nothing before now is read again, nothing is deleted. */
-export async function wipeChat(ctx: MutationCtx, group: Doc<"textGroups">, setBy: string, now: number): Promise<void> {
-  await ctx.db.patch(group._id, { wipedAt: now, wipedBy: setBy, wipePrior: group.wipedAt });
-}
-
-/** "Tex, undo the wipe", once and within a day: the forget point it replaced. Why not, otherwise. */
-export async function unwipeChat(ctx: MutationCtx, group: Doc<"textGroups">, now: number): Promise<"done" | "none" | "expired"> {
-  if (group.wipedAt === undefined || group.wipedBy === undefined) return "none";
-  if (now - group.wipedAt > WIPE_UNDO_MS) return "expired";
-  await ctx.db.patch(group._id, { wipedAt: group.wipePrior, wipedBy: undefined, wipePrior: undefined });
-  return "done";
 }

@@ -67,8 +67,6 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     people: [...new Set(handles.values())].filter(Boolean),
     // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
-    // The chat's forget point: the gateway reads its log and memory from here on, but a reply-back thread.
-    ...(asked.wipedAt !== undefined ? { wipedAt: asked.wipedAt } : {}),
   };
   // The chat's next events are filed under the people this turn named the gateway (`eventPeople`).
   await notePeople(storage, message, group.members);
