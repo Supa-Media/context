@@ -25,7 +25,7 @@ import { internal } from "../_generated/api";
 import { internalAction, internalQuery } from "../_generated/server";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { copyGroupPageIn, groupPageCopied } from "../../mcp/src/agent/groupPageCopy.js";
-import { parseGroupNote } from "../../mcp/src/agent/groupMemoryNote.js";
+import { parseGroupNote } from "../../mcp/src/agent/groupPageFormat.js";
 import { ensureHistoryFile } from "../../mcp/src/agent/historyFile.js";
 import type { FileStore } from "./lib/fileOps/store";
 import { privateClearance } from "./lib/clearance";

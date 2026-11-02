@@ -19,7 +19,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { keepGroupExchange, readGroupMemory, checkerHistory } from "../src/agent/groupTurn.js";
-import { GROUP_PAGE_COPIED, copyGroupPageIn, groupQuestion, pageEntries } from "../src/agent/groupPageCopy.js";
+import { GROUP_PAGE_COPIED, copyGroupPageIn, pageEntries } from "../src/agent/groupPageCopy.js";
+import { groupQuestion } from "../src/agent/groupLedgerHistory.js";
 import { GROUP_BACKFILLED } from "../src/agent/ledgerBackfill.js";
 import { texLedger } from "../src/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";

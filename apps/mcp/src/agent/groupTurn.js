@@ -41,7 +41,8 @@
 
 import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.js";
 import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupPage, timedTurn, updateGroupPage } from "./groupMemoryNote.js";
-import { copyGroupPageIn, groupPageCopied, readGroupLedgerConversation } from "./groupPageCopy.js";
+import { copyGroupPageIn, groupPageCopied } from "./groupPageCopy.js";
+import { readGroupLedgerConversation } from "./groupLedgerHistory.js";
 import { CARRIED, ON_PAGE, carryOldNotes, mergeTurns } from "./groupMemoryCarry.js";
 import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
