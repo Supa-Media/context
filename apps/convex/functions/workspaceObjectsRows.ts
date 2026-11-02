@@ -50,6 +50,29 @@ export const homeOf = internalQuery({
   handler: async (ctx, { workspaceId }) => (await recordOf(ctx.db, workspaceId))?.home ?? "bucket",
 });
 
+/**
+ * A workspace a check could not open, in closed words and counts only (the answer is public): its kind, or `gone`
+ * once deleted; whether it has a storage row and of which provider; and how many tree rows it still has.
+ */
+export const describeUnopened = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.string(),
+  handler: async (ctx, { workspaceId }) => {
+    const workspace = await ctx.db.get(workspaceId);
+    const kind = workspace === null ? "gone" : workspace.kind === "personal" ? "personal" : "shared";
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .first();
+    const provider = binding === null ? "none" : /^[a-z0-9_-]{1,20}$/.test(String(binding.provider)) ? String(binding.provider) : "other";
+    const rows = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
+      .take(1001);
+    return `${kind}/binding=${provider}/rows=${rows.length > 1000 ? ">1000" : rows.length}`;
+  },
+});
+
 /** The whole record, for a run to decide what is left to do. */
 export const recordFor = internalQuery({
   args: { workspaceId: v.id("workspaces") },

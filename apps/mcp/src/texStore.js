@@ -24,7 +24,9 @@
 import { cancel, due, nextAt, retry, schedule, settle } from "./texStore/alarms.js";
 import { routineDispatchFor } from "./texStore/dispatch.js";
 import { texObjects } from "./texStore/objects.js";
+import { texLedger } from "./texStore/ledger.js";
 import { PAGE_LIVE_PATH, pageLive } from "./texStore/pageLive.js";
+import { logChatOf, pageViews, sectionsForKinds } from "./texStore/pageViews.js";
 import { serveTexStore } from "./texStore/wire.js";
 import { MOVE_OPS, TexMoved, arrive, clearOld, forward, logMove, moveGuard, opOf, ownerOf, placeOf, purgeOld, serveMoveOut } from "./texStore/move.js";
 
@@ -53,10 +55,14 @@ export class TexStore {
     if (this.objects !== null) return;
     const guard = moveGuard(this.state.storage.sql);
     this.objects = texObjects(this.state.storage.sql, { now: this.now, guard });
-    // The chat's Tex page: the open pages' sockets (`texStore/pageLive.js`). Its records are views of the chat's one log,
-    // which sets `this.objects.records` (`texStore/pageRecords.js`).
-    this.page = pageLive(this.state, this.state.storage.sql, this.env, { now: this.now, waitingMail: () => this.objects.records?.waiting?.() ?? 0, ...this.pageDeps });
+    // The chat's one record of everything that happened (`texStore/ledger.js`), beside the notes.
+    this.objects.ledger = texLedger(this.state.storage.sql, { now: this.now, guard });
+    // The chat's Tex page: the open pages' sockets (`texStore/pageLive.js`), and its records as views of the chat's one log
+    // (`texStore/pageViews.js`), which pushes what changed to an open page on every append.
+    this.objects.records = pageViews(() => this.objects.ledger);
+    this.page = pageLive(this.state, this.state.storage.sql, this.env, { now: this.now, waitingMail: (chat) => this.objects.records.waiting(logChatOf(chat)), ...this.pageDeps });
     this.live = { changed: (sections) => this.page.changed(sections) };
+    this.objects.ledgerChanged = (kinds) => this.live.changed(sectionsForKinds(kinds));
     this.timers = {
       schedule: (alarm) => {
         guard();

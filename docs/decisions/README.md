@@ -43,6 +43,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Editing history is filed by note id](./storage-and-credentials/paths-on-read.md#editing-history-is-filed-by-note-id) (2026-10-25)
 - [Pictures and files stay in each workspace's own bucket, and pictures are kept compressed](./storage-and-credentials/files-bucket.md) (2026-11-01)
 - [Every row write reaches the workspace object](./storage-and-credentials/workspace-object-rows.md) (2026-11-01)
+- [Notes' facts live in the workspace object](./storage-and-credentials/facts-in-objects.md) (2026-11-02)
 - Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id
@@ -761,6 +762,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Group Tex keeps each chat's home in @context-lc, sealed from the people who run it (2026-10-31)](./texting-assistant/chat-homes.md)
 - [A group chat's history has one copy: the memory page in its home, kept in its Durable Object (2026-11-01)](./texting-assistant/group-memory-one-copy.md)
 - [A person's texts with Tex are one record in their Tex object, read with About me in one call (2026-11-01)](./texting-assistant/one-to-one-history.md)
+- [Each chat with Tex has one ledger, and every view is rebuilt from it (2026-11-02)](./texting-assistant/chat-ledger.md)
 - [A person's Tex folder and a group chat's home use the same names (2026-11-01)](./texting-assistant/tex-folders.md)
 - [A guest in a group chat opens a shared note with a texted code, and the code makes an account (2026-10-27, 2026-10-31)](./texting-assistant/guest-phone-pass.md)
 - [Tex is on WhatsApp through Whapi.Cloud, a linked-device account; iMessage stays home (2026-10-27)](./texting-assistant/whatsapp.md)

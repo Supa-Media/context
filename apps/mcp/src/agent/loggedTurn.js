@@ -27,10 +27,14 @@
 import { conversationPath, readConversation } from "./conversation.js";
 import { readGroupMemory } from "./groupTurn.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
-import { EVENT_ID, isChatKey, readEvents } from "./log.js";
+import { EVENT_ID, isChatKey, READ_CHARS, readEvents } from "./log.js";
 import { renderEvents, speaker, words } from "./logRender.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX } from "./steer.js";
 import { sentByItself, withSentByItself } from "./sentByItself.js";
+import { earlierFromLedger, readLedger } from "./ledgerHistory.js";
+import { ledgerPlace } from "./ledger.js";
+import { deskLedger } from "./history.js";
+import { DESK_LEDGER } from "../texStore/desk.js";
 
 const MAX_COVERS = 32;
 const TURN = /^[A-Za-z0-9_-]{8,64}$/;
@@ -153,11 +157,11 @@ export async function turnHistory(store, session, body, { runner, group, dispatc
 }
 
 /** The log's history and question for a turn that names what it covers, or null for today's turn. */
-export async function loggedTurn(store, body, { group = null, timeZone = "UTC", workspace, warm = null, records, record = null } = {}) {
+export async function loggedTurn(store, body, { group = null, timeZone = "UTC", workspace, warm = null, records, record = null, ledger = null } = {}) {
   const covers = body?.covers;
   if (!Array.isArray(covers) || covers.length === 0 || covers.length > MAX_COVERS || !covers.every((id) => typeof id === "string" && EVENT_ID.test(id))) return null;
   if (!isChatKey(body.chat)) return null;
-  const events = warm === null ? await readEvents(store, body.chat) : await warm.events(body.chat, () => readEvents(store, body.chat));
+  const [events, read] = await Promise.all([warm === null ? readEvents(store, body.chat) : warm.events(body.chat, () => readEvents(store, body.chat)), ledger]);
   const wanted = new Set(covers);
   const covered = events.filter((event) => wanted.has(event.id));
   if (covered.length !== wanted.size) return null;
@@ -168,9 +172,11 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   if (question === "") return null;
   // A group is shown its whole log, whoever has joined or left since (the owner, 2026-11-02): no cut by the people a text was said in front of.
   const shown = events.filter((event) => !wanted.has(event.id));
+  // Everything before the day the turn holds, from the chat's ledger (`ledgerHistory.js`), proven clean or held back.
+  const earlier = Array.isArray(read?.entries) ? earlierFromLedger(read.entries, read.chat, { before: events.length > 0 ? events[0].at : Number.MAX_SAFE_INTEGER, chars: Math.max(0, READ_CHARS - shown.reduce((sum, event) => sum + String(event.text ?? "").length, 0)), known: new Set(events.map((event) => event.id)), untrusted: group !== null }) : { events: [], tools: new Map() };
   // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
-  const own = group === null && record !== null ? sentByItself(await record, events, { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [], tainted: false };
-  const transcript = renderEvents(withSentByItself(shown, own.shown), { timeZone, answeredBy: events });
+  const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [], tainted: false };
+  const transcript = renderEvents(withSentByItself([...earlier.events, ...shown], own.shown), { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools });
   return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: own.tainted || (await showsTainted(store, shown, workspace, warm, records)) };
 }
 
@@ -186,5 +192,14 @@ export const JOB_HISTORY_ENTRIES = 30;
 /** Today's history and the chat's event log, side by side: what a turn reads before its model (`route.js`). */
 export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, records }) {
   const today = turnHistory(store, session, body, { runner, group, dispatch, job });
-  return Promise.all([today, runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records, record: today.then((read) => read.history).catch(() => []) })]);
+  return Promise.all([today, runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records, record: today.then((read) => read.history).catch(() => []), ledger: job ? null : chatLedger(store, session) })]);
+}
+
+/** The chat's ledger as a turn reads it (`ledgerHistory.js`), started now, or null when the session keeps none. */
+function chatLedger(store, session) {
+  const place = ledgerPlace(session);
+  const ledger = place !== null && typeof store?.texLedger === "function" ? store.texLedger(place.owner.chat ?? null) : null;
+  if (ledger === null) return null;
+  const first = place.chat === DESK_LEDGER.chat && place.owner.person ? deskLedger(store) : Promise.resolve(null); // a person's: the desk's page, read with their record
+  return first.then((page) => readLedger(ledger, place.chat, { first: page })).then((entries) => ({ entries, chat: place.chat }));
 }

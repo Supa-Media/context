@@ -82,7 +82,7 @@ export function patchFrame(section, value) {
  * @param {{acceptWebSocket: Function, getWebSockets: Function}} state the Durable Object's state
  * @param {{exec: Function}} sql
  * @param {object} env the Worker's bindings (`TEXTING`)
- * @param {{now?: () => number, pair?: () => [WebSocket, WebSocket], upgraded?: (client: WebSocket) => Response, waitingMail?: () => number}} [deps]
+ * @param {{now?: () => number, pair?: () => [WebSocket, WebSocket], upgraded?: (client: WebSocket) => Response, waitingMail?: (chat: object | null) => number}} [deps]
  */
 export function pageLive(state, sql, env, deps = {}) {
   for (const statement of SCHEMA) sql.exec(statement);
@@ -216,7 +216,7 @@ export function pageLive(state, sql, env, deps = {}) {
         return null;
       }
       const { now: at, jobs } = await fetchPageJobs(env, meta("chat"), now());
-      const parts = jobsOverview(jobs, at, { timeZone: meta("timeZone"), waitingMail: deps.waitingMail?.() ?? 0 });
+      const parts = jobsOverview(jobs, at, { timeZone: meta("timeZone"), waitingMail: deps.waitingMail?.(meta("chat")) ?? 0 });
       const frames = [];
       for (const [section, value] of Object.entries(parts)) {
         const text = JSON.stringify(value);

@@ -6,6 +6,7 @@
  *  - `POST /tex/page/job`  `{handle, chat, id}` → `{job}`
  *  - `POST /tex/page/list` `{handle, chat, kind, cursor?}` → `{items, cursor?, ...}`
  *  - `POST /tex/page/act`  `{handle, chat, action}` → `{ok: true}` | `{ok: false, error}`
+ *  - `POST /tex/page/ledger` `{handle, chat, view, ...}` → the chat's history file (`ledger.js`)
  *
  * Who may: `page.js`. Where each thing is read and written, one way each:
  * jobs from the chat's inbox in the texting Worker (`jobs.js`); what Tex
@@ -28,9 +29,10 @@ import { pokeTexPage } from "../../texStore/pageLive.js";
 import { json } from "../responses.js";
 import { fetchPageJobs, jobDetail, jobSummary, jobsOverview, slotsOf, steerPageJob } from "./jobs.js";
 import * as notes from "./notes.js";
+import { ledgerView } from "./ledger.js";
 import { PageRefusal, chatOf, checkViewer, loadPage, pickerOf, readPageBody, startOfDay } from "./page.js";
 
-export const TEX_PAGE_PATHS = new Set(["/tex/page", "/tex/page/job", "/tex/page/list", "/tex/page/act"]);
+export const TEX_PAGE_PATHS = new Set(["/tex/page", "/tex/page/job", "/tex/page/list", "/tex/page/act", "/tex/page/ledger"]);
 const LIST_KINDS = new Set(["thinking", "jobs", "advisor", "mailcheck", "routines", "checkins", "about", "settings"]);
 const RECORD_KINDS = new Set(["thinking", "advisor", "mailcheck"]);
 const OVERVIEW_KEYS = ["chats", "chat", "status", "thinking", "thinkingToday", "minions", "earlier", "earlierWeek", "tiles", "behind"];
@@ -269,6 +271,7 @@ export async function handleTexPage(request, env, store, session, { path, contro
       }
       return json({ job: jobDetail(job, slotsOf(jobs).get(job.id) ?? null) });
     }
+    if (path === "/tex/page/ledger") return json(await ledgerView(env, page, chat, body)); // the chat's history file (`ledger.js`)
     if (path === "/tex/page/list") {
       if (!LIST_KINDS.has(body.kind)) {
         outcome = "invalid";
