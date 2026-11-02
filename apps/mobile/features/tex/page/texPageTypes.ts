@@ -200,7 +200,8 @@ export type SubView =
   | "thinking"
   | "jobs"
   | "advisor"
-  | "mailcheck";
+  | "mailcheck"
+  | "history";
 
 export const SUB_VIEWS: readonly SubView[] = [
   "routines",
@@ -212,7 +213,57 @@ export const SUB_VIEWS: readonly SubView[] = [
   "jobs",
   "advisor",
   "mailcheck",
+  "history",
 ];
+
+/**
+ * The chat's history file: its one ledger, as `POST /tex/page/ledger` answers
+ * it (`apps/mcp/src/http/texPage/ledger.js`; decided by the owner,
+ * 2026-11-02, `docs/decisions/texting-assistant/chat-ledger.md`).
+ */
+export const LEDGER_KINDS = ["text", "thinking", "said", "tool", "reply", "advisor", "mail_check", "job", "note"] as const;
+export type LedgerKind = (typeof LEDGER_KINDS)[number];
+
+/** One entry as kept: `{v, id, at, kind, seq}` and the kind's own fields, shown raw. */
+export interface LedgerEntry {
+  id: string;
+  at: number;
+  kind: string;
+  seq?: number;
+  [field: string]: unknown;
+}
+
+export interface LedgerManifest {
+  schema: string;
+  version: number;
+  count: number;
+  created: number | null;
+  updated: number | null;
+}
+
+/** A `before` past every entry: the newest page. */
+export const LATEST = Number.MAX_SAFE_INTEGER;
+
+export interface LedgerQuery {
+  kinds?: LedgerKind[];
+  /** `YYYY-MM-DD`, in the person's own time zone. */
+  day?: string;
+  /** The newest entries before this `seq`, newest first (`LATEST` for the newest of all). */
+  before?: number;
+}
+
+export interface LedgerPage {
+  manifest: LedgerManifest | null;
+  entries: LedgerEntry[];
+  /** The `seq` to read older entries before; absent once the oldest is shown. */
+  older?: number;
+}
+
+/** What the next texted turn is shown of the chat, and the settings that shaped it. */
+export interface LedgerSees {
+  settings: Record<string, string | number | boolean>;
+  text: string;
+}
 
 /** Which Tex the page draws: calm #, busy, stuck tugging at its yarn, wild, resting. */
 export type Mood = "calm" | "busy" | "stuck" | "wild" | "rest";
