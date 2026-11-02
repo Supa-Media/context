@@ -38,9 +38,11 @@ const BYTES_ONLY = new Set(["etag", "size", "uploaded", "observedAt", "idCopy", 
 
 /**
  * Fields of a `nodes` row that place it or decide who sees it: a patch naming one may narrow. Everything else on the
- * row (its bytes' version, parsed facts, order, chaos flag) never hides anything from anyone.
+ * row (its bytes' version, parsed facts, order, chaos flag) never hides anything from anyone. `sealed` is a parsed
+ * fact too (the note's text could not be read, so it keeps no props or links: `lib/nodes/facts.ts` `writeFacts`), not
+ * the sealed chat homes, which are a rule (`lib/nodes/sealedChats.ts`); the object's row does not carry it.
  */
-const PLACES_OR_JUDGES = new Set(["workspaceId", "path", "parentId", "name", "kind", "goneAt", "access", "sealed", "role", "archiveOf"]);
+const PLACES_OR_JUDGES = new Set(["workspaceId", "path", "parentId", "name", "kind", "goneAt", "access", "role", "archiveOf"]);
 
 /** What one workspace's writes in this mutation amount to. */
 export type WorkspaceChange = {

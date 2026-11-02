@@ -15,9 +15,8 @@
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-import { randomOpaqueToken } from "../gatewayAuth";
 import { objectDoor } from "./objectDoor";
-import { MARK_TTL_MS } from "./markRules";
+import { MARK_TTL_MS, markToken } from "./markRules";
 import { objectSettled } from "./drain";
 
 type Options = Parameters<typeof objectDoor>[2];
@@ -25,9 +24,11 @@ type Options = Parameters<typeof objectDoor>[2];
 /**
  * File operations (`lib/filesFns/operationValidators.ts`) that may take something away from someone who could see
  * it: a move (into a private folder), a trash, a delete, a visibility change, a hide. The file-operation barrier runs
- * these inside `objectFirst`, after its own checks. One that only adds (a write, a copy, a new folder, a restore) never narrows, and its
- * row reaches the object by the ordinary push. A narrowing write this list misses is logged by the row watch
- * (`workspace_object_unmarked_narrowing`).
+ * these inside `objectFirst`, after its own checks. One that only adds (a write, a copy, a new folder) never narrows,
+ * and its row reaches the object by the ordinary push. A restore is here although it only brings a note back: in a
+ * keyed workspace it is a row move out of the trash (`lib/nodes/rowTrash.ts` `restoreRowTrash`), and a row move is a
+ * change of place the row watch cannot tell from one that hides. A narrowing write this list misses is logged by the
+ * row watch (`workspace_object_unmarked_narrowing`).
  */
 export const NARROWING_OPERATIONS: ReadonlySet<string> = new Set([
   "move",
@@ -52,12 +53,8 @@ export const NARROWING_OPERATIONS: ReadonlySet<string> = new Set([
   "emojiRemove",
   "emojiRename",
   "migrateStorage",
+  "restoreTrash",
 ]);
-
-/** A mark's token: random, URL-safe, and nothing else (`marks.js` takes 8 to 128 of `[A-Za-z0-9_-]`). */
-function markToken(): string {
-  return `m${randomOpaqueToken().replace(/[^A-Za-z0-9_-]/g, "").slice(0, 63)}`;
-}
 
 /**
  * Run `write` (the action's mutation or mutations for this workspace) with a mark open in the workspace's object

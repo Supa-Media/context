@@ -47,6 +47,16 @@ through (the gateway's `notesBehind`/`checkBehind` keeps covering it) and record
 mutation (`workspaceObjectUnmarked`, reported by the "Workspace object marks" workflow). Once that report stays empty
 in production, the gateway's Convex behind check can go.
 
+Writers with no request behind them go first too (2026-11-02, from the report's first 72 hours): the trash's erasure
+(`lib/trash/erase.ts`), a stalled chunked move's pages, which the watchdog now runs from an action
+(`nodeRowMovesMarked.ts`), the folder-numbers nudge, the Tex group migration's trashing, a restore out of the trash
+(`restoreTrash` is in `NARROWING_OPERATIONS`), and sharing a Tex bug report or review with the team (`bugNotes.ts`). A
+fact fill is not a narrowing: a row's `sealed` is a parsed fact (its text could not be read), not a rule, and the
+object's row does not carry it. A narrowing that still skips the object is covered by its push: the drain opens a mark
+before the round that carries an unmarked entry and closes it with those rows, so a push that fails leaves the object
+saying behind instead of serving the old rows (`lib/rowWatch/drain.ts` `coverUnmarked`). That cover starts after the
+commit, not before it, which is why the report, not the cover, decides when the behind check goes.
+
 **What a simplification would cost.** Closing a mark before its push lands, or letting a write go on when the object
 refused its mark, puts back the window where a share taken back is served from the object's older rows.
 `__tests__/workspaceObjectFirst.test.ts` holds the push off and proves the object says behind until it lands, that the

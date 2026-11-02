@@ -9,6 +9,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { objectDoor } from "./objectDoor";
+import { MARK_TTL_MS, markToken } from "./markRules";
 import type { objectRowOf } from "../workspaceObjects/rows";
 
 /** Rows per object call: the object's `MAX_ROWS_PER_PUT`. */
@@ -70,6 +71,21 @@ async function pushRound(
 }
 
 /**
+ * A mark for changes that may narrow and opened none (`./mutations.ts` records them as unmarked), opened before the
+ * round that carries them. It cannot go before their commit, as a writer's does, but it holds the object to "behind"
+ * from here until the rows land: closed with them in the same call, or, when the push fails, by the next round that
+ * reads the rows after it (its control-plane record already says done). `null` for a workspace no longer judged in
+ * its object, which needs none.
+ */
+async function coverUnmarked(ctx: ActionCtx, call: Call, workspaceId: Id<"workspaces">): Promise<string | null> {
+  const token = markToken();
+  if (!(await ctx.runMutation(internal.functions.workspaceObjectMarks.open, { workspaceId, token, now: Date.now() }))) return null;
+  await ctx.runMutation(internal.functions.workspaceObjectMarks.done, { token, at: Date.now() });
+  await call("ws.mark.open", { token, ttlMs: MARK_TTL_MS });
+  return token;
+}
+
+/**
  * Carry the workspace's waiting changes to its object, now. What an action that narrows access awaits before it
  * answers, so nothing reports success while the object could still show what was taken away. `"busy"`: another
  * drain holds the workspace and will carry them; `"done"`: none wait.
@@ -86,6 +102,10 @@ export async function drainWorkspace(
       const next = await ctx.runQuery(internal.functions.workspaceObjectPush.pending, { workspaceId });
       // An entry that only changed the binding carries no rows or rules: it clears the object's kept copy, nothing more.
       const rowsOrRules = next.all || next.access || next.rows.length > 0 || next.removed.length > 0;
+      if (next.unmarked && rowsOrRules) {
+        const cover = await coverUnmarked(ctx, call, workspaceId);
+        if (cover !== null) next.close = [...next.close, cover];
+      }
       if ((next.entryIds.length > 0 && (rowsOrRules || !next.binding)) || next.close.length > 0) await pushRound(ctx, call, workspaceId, next);
       // The kept binding is cleared before the entry is acked, so the workspace reads as behind until it is gone.
       if (next.binding) await call("ws.binding.clear");
