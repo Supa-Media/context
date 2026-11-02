@@ -63,7 +63,9 @@ seen by nobody and a folder is gone only while nothing live is under it, so the 
 a narrowing (`lib/rowWatch/watch.ts` `bringsBackOrClears`). A tombstone that carries a rule still judges, and its
 removal still counts. A legacy guest chat's turn may take its people off the chat's folder (`clearGuests`), so the
 gateway route asks which workspace such a chat touches and runs the turn inside `objectFirst`
-(`textGroupsMarked.ts`); every other chat's turn writes no rule and runs with no mark.
+(`textGroupsMarked.ts`); every other chat's turn writes no rule and runs with no mark. The same report named one more
+`nodeRowMoves.rowMove`: a keyed move (`nodesMoveStart`, `nodesMoveBatch`) was run by the barrier before its marked
+path, so it never opened the mark its kind is listed for; it now runs inside `markedIfNarrowing` too.
 
 **The per-read behind check is gone (2026-11-02).** With the report empty after the background writers moved, the
 gateway stopped asking Convex `/gateway/objects/behind` beside every object lookup, resolve, manifest and facts call:

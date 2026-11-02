@@ -12,6 +12,10 @@
  * recorded as unmarked), run the erasure's claims outside `objectFirst` (the rows are gone before the mark opens),
  * page the watchdog's move straight from the mutation again (the page is unmarked), and drop the drain's cover for
  * unmarked entries (the object serves the old share with no behind while the push fails).
+ *
+ * The report after that deploy named one more `nodeRowMoves.rowMove`: a keyed move (`nodesMoveStart`,
+ * `nodesMoveBatch`) returned from the barrier before the marked path, so it never opened its mark although its kind
+ * is in `NARROWING_OPERATIONS`. Sabotage: run it unwrapped again, and the folder-move case records it as unmarked.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -147,6 +151,31 @@ describe("background writers tell the object first", () => {
     expect(await liveAt(t, workspaceId, "drafts/one")).toBe(true);
     const inner = await t.run(async (ctx) => await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "old/inner")).collect());
     expect(inner.map((row) => [row.kind, row.goneAt])).toEqual([["file", undefined]]);
+    expect(await unmarked(t)).toEqual([]);
+  });
+
+  test("a keyed folder move opens a mark before its rows move", async () => {
+    const { t, workspaceId, ops } = await inObject();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1, updatedBy: "test" });
+      await ctx.db.patch((await ensureCopyRow(ctx, workspaceId))._id, { keyedAt: 1 });
+    });
+    const noteId = "0190a000-0000-7000-8000-00000000000e";
+    const path = "drafts/one/x.md";
+    expect(await t.mutation(internal.functions.noteIdsKeyed.adoptKeyed, { workspaceId, path, noteId, key: idKeyFor(noteId, path), etag: "k-e", at: 100 })).toEqual({ adopted: true });
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("workspaceObjectUnmarked").collect()) await ctx.db.delete(row._id);
+    });
+    const before = ops().length;
+    const answer = await t.action(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      grantedNames: [],
+      operation: { kind: "nodesMoveStart", from: "drafts", to: "plans/drafts" },
+    });
+    expect(answer).toMatchObject({ kind: "moveQueued" });
+    expect(await liveAt(t, workspaceId, "plans/drafts/one/x.md")).toBe(true);
+    expect(ops().slice(before)).toContain("ws.mark.open");
     expect(await unmarked(t)).toEqual([]);
   });
 
