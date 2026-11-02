@@ -37,6 +37,7 @@ import {
 import { liveProtocols, liveSocketUrl, openLive, readPatch, type SocketLike } from "../features/tex/page/texPageLive";
 import { gatewaySource, readAnswer, texPageUrl } from "../features/tex/page/texPageSource";
 import { placeParams, readPlace } from "../features/tex/page/texPlace";
+import { onSite } from "../features/tex/page/texPageFormat";
 import type { JobSummary } from "../features/tex/page/texPageTypes";
 
 const job = (over: Partial<JobSummary> = {}): JobSummary => ({ id: "j", title: "T", state: "running", startedAt: 0, failedSteps: 0, ...over });
@@ -186,6 +187,15 @@ describe("the mock's words", () => {
     const now = new Date(2026, 10, 1, 18, 10);
     expect(clock(new Date(2026, 10, 1, 18, 5).getTime(), now)).toBe("6:05");
     expect(clock(new Date(2026, 10, 1, 9, 20).getTime(), now)).toBe("9:20 am");
+  });
+});
+
+describe("the job page's look at Tex's browser", () => {
+  test("shows only on the job that is on that site", () => {
+    const job = { title: "Book dinner", steps: [{ at: 0, text: "Opened resy.com to book" }] };
+    expect(onSite(job, "https://www.resy.com/x")).toBe(true);
+    expect(onSite(job, "https://maritime.sh/docs")).toBe(false);
+    expect(onSite(job, "not a url")).toBe(false);
   });
 });
 

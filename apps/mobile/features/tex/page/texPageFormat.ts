@@ -196,3 +196,15 @@ export function turnTail(turn: Turn): string[] {
 }
 
 export const VERDICT_LABEL = { sent: "Sent", waiting: "Waiting for your yes", stopped: "Stopped" } as const;
+
+/** Whether a job's own words name the site the browser is on, so its page never shows another job's browser. */
+export function onSite(job: { title: string; now?: string; steps: { text: string }[] }, url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).host.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!host) return false;
+  return [job.title, job.now ?? "", ...job.steps.map((s) => s.text)].some((t) => t.toLowerCase().includes(host));
+}

@@ -3,6 +3,7 @@ import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, Text as RNTex
 import { router } from "expo-router";
 import { fonts, texPageType } from "../../design/tokens";
 import { useFieldFont } from "../../design/fieldFont";
+import { onSite } from "./texPageFormat";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { Frame } from "../texComputer";
 import { MAX_TYPED } from "../texComputer";
@@ -88,7 +89,9 @@ export function TexJobPage(props: TexJobPageProps) {
 
   const job: JobDetail = read.value;
   const live = job.state === "running" || job.state === "waiting";
-  const watching = live ? liveFrame(computer?.frame) : null;
+  // Tex has one browser and several jobs: show it on this job's page only when this job is on that site.
+  const frame = live ? liveFrame(computer?.frame) : null;
+  const watching = frame !== null && onSite(job, frame.url) ? frame : null;
   const lastIndex = job.steps.length - 1;
   const lastStep: JobStep | undefined = job.steps[lastIndex];
 

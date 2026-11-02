@@ -89,7 +89,7 @@ export function TexPageScreen() {
   );
 }
 
-function signInHref(fallback: string, raw: string | undefined, place: Place): string {
+function signInHref(fallback: string, raw: string | null | undefined, place: Place): string {
   const query = new URLSearchParams(placeParams(place)).toString();
   const handle = normalizeHandle(raw);
   return query && handle ? loginHref(`${texHref(handle)}?${query}`) : fallback;
