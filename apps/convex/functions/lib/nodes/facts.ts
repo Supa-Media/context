@@ -137,6 +137,10 @@ export function logReaches(state: FactState, now: number): boolean {
  */
 export async function factsDue(db: DatabaseReader, workspaceId: Id<"workspaces">, now: number): Promise<boolean> {
   const row = await factStateRow(db, workspaceId);
+  // Where the notes live in their object, the control plane keeps no copy: a pass is due only to drop one still
+  // here (`functions/nodeFactsDrop.ts`), never to start one.
+  const home = await db.query("workspaceObjectHomes").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).unique();
+  if (home?.home === "object") return row !== null && (row.leaseAt === undefined || now - row.leaseAt >= FACT_LEASE_MS);
   if (row === null) return true;
   if (row.leaseAt !== undefined && now - row.leaseAt < FACT_LEASE_MS) return false;
   if (!row.ready || (row.retry?.length ?? 0) > 0 || row.propsVersion !== PROPS_VERSION) return true;

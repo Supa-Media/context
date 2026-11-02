@@ -76,21 +76,26 @@ the signed-in person and asks only about the notes it may title (a share's as
 app names. The rows wait up to two seconds for those titles, so a title does
 not flick from a file name to a heading.
 
-**What has not moved yet.** Nothing reads the control plane's copy of an
-object-home workspace's facts that the object cannot answer. The trash and a
-move's follow-ups (`dropLinks`, `followMovedFiles`, `folderLinks`) only keep
-that copy in step with its rows; they read nothing for anyone. Stopping the
-control plane's fill for object-home workspaces and dropping its rows there
-is the next step; until then it still computes its copy
-([convex-facts](../app-and-console/convex-facts.md)) for every workspace, as
-every reader's fallback. The asks that are not note facts stay on the
+**The control plane stops keeping them.** Once a workspace's `home` is
+`object`, the control plane's facts fill (`lib/nodes/factFill.ts`) no longer
+reads its notes: its first pass there drops what the control plane kept
+(`functions/nodeFactsDrop.ts`: the `nodeLinks` rows, then each row's
+`parsed`, `props`, `sealed` and `chaosNote`, a page at a time, and last the
+fill's own state), and the cron's backstop (`factsDue`) owes such a workspace
+no pass after that. The gateway's fallback when the object is behind
+(`/gateway/tree/facts`) still answers: the control plane asks the object for
+its unfiltered rows (`neighborRows`, `candidates`, `props`, `chaos`) and
+judges them with its own rules, so nothing it serves comes from a copy it no
+longer has. A workspace still on `bucket` or `dual` keeps the control plane's
+copy and fill as before. The asks that are not note facts stay on the
 control plane: `names` (with note writes), `jobs` and `forwarding` (rows and
 the ledger), and the chaos score's daily history (`nodeChaosDays`).
 
 **What it changes about non-negotiable #1.** The control plane no longer is
 the only keeper of a note's rebuildable facts: for an object-home workspace
-the object holds them, as derivatives of the text beside them. Nothing here is
-the only copy of anything, and the exit never reads it.
+the object holds them, as derivatives of the text beside them, and the control
+plane keeps none. Nothing here is the only copy of anything, and the exit
+never reads it.
 
 **Simplifying it** back to the control plane's copy for the gateway puts a
 Convex round trip (and a fill that lags the text) in front of every List, move
@@ -101,6 +106,8 @@ moved note's links; skipping `sees` names private notes to a team reader.
 `apps/convex/__tests__/nodes/objectFacts.test.ts`,
 `apps/convex/__tests__/oldCopies/oldCopiesObject.test.ts`,
 `apps/convex/__tests__/sharedTitles.test.ts`,
+`apps/convex/__tests__/nodes/factsDrop.test.ts`, the "where the notes live
+in their object" cases of `apps/convex/__tests__/nodes/gatewayFacts.test.ts`,
 `apps/mobile/__tests__/useSharedWithMe.test.ts` and the "where the
 notes live in their object" cases of
 `apps/convex/__tests__/controlPlane/texTriage.test.ts`.
