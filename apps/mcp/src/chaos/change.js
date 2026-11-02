@@ -227,8 +227,9 @@ export async function changeChaos(store, touch) {
     const filed = facts.extras;
     const extrasAfter = extrasAfterMoves(filed, moves);
     for (const [path, extra] of rewritten) extrasAfter.set(path, extra);
-    const before = scoreKeys(keys, filed, visibleToTeam);
-    const after = scoreKeys(keysAfterChange(keys, touch), extrasAfter, visibleToTeam);
+    const visibleToOwner = (path) => canSee(path, "private", state.rules, state.overrides);
+    const before = scoreKeys(keys, filed, visibleToTeam, visibleToOwner);
+    const after = scoreKeys(keysAfterChange(keys, touch), extrasAfter, visibleToTeam, visibleToOwner);
     const named = [];
     for (const value of [...(touch.paths ?? []), ...(touch.files ?? []), ...moves.flat()]) {
       const path = clean(value);
