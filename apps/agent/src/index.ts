@@ -56,7 +56,7 @@ import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } fro
 import { SIMULATOR_PAGE } from "./simulatorPage";
 import { appCardConfig } from "./appCards";
 import { phoneOfJid, readWhapiMessage, verifyWhapiSecret, watchGroupPresenceDaily, whapiKeys, type WhapiKeys } from "./whapi";
-import { parseWhapiWebhook } from "./whapiInbound";
+import { parseWhapiWebhook, whapiGroupNames } from "./whapiInbound";
 import { groupLineFor } from "./groupLine";
 import { noteCardDrawer } from "./noteCards";
 import { answerHanded, failHanded } from "./groupTurnRun";
@@ -325,14 +325,14 @@ async function whapiWebhook(request: Request, env: Env, origin: string): Promise
   }
   let failed = false;
   for (const event of parseWhapiWebhook(payload, keys.line)) {
-    const response = await whapiEvent(env, keys, event, origin);
+    const response = await whapiEvent(env, keys, event, origin, whapiGroupNames(payload)); // names beside, never in, messages
     if (response.status >= 500) failed = true;
   }
   // A queue that could not take one asks Whapi to deliver again; the inbox and the group queue drop what they already have.
   return new Response(null, { status: failed ? 503 : 200 });
 }
 
-async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof parseWhapiWebhook>[number], origin: string): Promise<Response> {
+async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof parseWhapiWebhook>[number], origin: string, names: Map<string, string>): Promise<Response> {
   if (event.kind === "group-message") {
     if (event.reactionOn !== undefined && event.reaction !== undefined) {
       // Every reaction is read (Dev2, 2026-11-01); the words come only from a text Tex sent in this same group, so a
@@ -343,9 +343,9 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
       );
       const reaction = { ...event.reaction, words: (words ?? "").slice(0, 500), ...(words === null ? { onOther: true as const } : { onTex: true as const }) };
       const { reactionOn: _on, ...message } = event;
-      return groupWebhook(env, { ...message, reaction }, origin, "whapi");
+      return groupWebhook(env, { ...message, reaction }, origin, "whapi", names.get(event.groupId) ?? null);
     }
-    return groupWebhook(env, event, origin, "whapi");
+    return groupWebhook(env, event, origin, "whapi", names.get(event.groupId) ?? null);
   }
   // One message that can't be read, or is not one we answer, leaves the rest of the delivery to be read.
   if (event.kind === "invalid" || event.kind === "ignored") {

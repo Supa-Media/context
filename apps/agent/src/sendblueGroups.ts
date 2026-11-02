@@ -225,9 +225,14 @@ export const MAX_GROUP_NAME = 120;
  * `docs/decisions/texting-assistant/chat-homes.md`).
  */
 export function groupNameOf(payload: unknown): string | null {
-  if (!isRecord(payload) || typeof payload.group_display_name !== "string") return null;
+  return isRecord(payload) ? cleanGroupName(payload.group_display_name) : null;
+}
+
+/** A chat's name as one plain line of at most `MAX_GROUP_NAME` characters; null for anything not a string. */
+export function cleanGroupName(name: unknown): string | null {
+  if (typeof name !== "string") return null;
   // Control and bidi-override characters out, whitespace to single spaces.
-  const plain = payload.group_display_name
+  const plain = name
     .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, " ")
     .replace(/\s+/g, " ")
     .trim();

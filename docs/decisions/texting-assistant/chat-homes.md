@@ -209,7 +209,10 @@ workspace (`textGroupNames.homeTitles`).
 
 The home's icon is the app the chat is in (the owner, 2026-11-02: "a drawn green whatsapp logo or a drawn blue
 imessage logo, that way its easy to see whats imessge and whats whatsapp"): a blue tile with a bubble for iMessage, a
-green bubble with a handset for WhatsApp, drawn by us (`ChatServiceMark.tsx`). The Worker reports the chat with every
+green bubble with a handset for WhatsApp, drawn in the built-in folders' brush like Tex's own parts
+(`ChatServiceMark.tsx`; the owner, of a first cut with the apps' flat logos: "these were supposed to be drawn icons in
+the context/tex style"). A WhatsApp group's name comes from its messages' `chat_name` (Whapi), read the same way as
+Sendblue's, beside the message and never in it (`whapiInbound.ts` `whapiGroupNames`). The Worker reports the chat with every
 message, name or not, and the control plane tells the app by the chat's id (`whapi:<jid>` is WhatsApp;
 `textGroups.chatService`). A chat shows its mark after its next message. The folders inside a home draw the same
 icons as a person's own Tex folders (`texPartIcon`, the owner: "please update the folder icons to be the proper
