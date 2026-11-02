@@ -19,6 +19,15 @@ export const LEDGER_PATH = ".context/tex/ledger/texts.json";
 export const groupLedgerPath = (key: string) => `.context/tex/ledger/groups/${key}.json`;
 const GROUP_KEY = /^[0-9a-f]{64}$/;
 
+/**
+ * The read-only history file in a Tex folder (`tex/history.ledger.json`, and a
+ * chat home's), a view of the same ledger this archive writes whole
+ * (`apps/mcp/src/texStore/historyView.js`). A whole-workspace download leaves it
+ * out so the chat leaves once, whole, never a second, cut copy beside it.
+ */
+const HISTORY_VIEW = /^tex\/(?:groups\/[^/]+\/)?history\.ledger\.json$/;
+export const isHistoryView = (path: string) => HISTORY_VIEW.test(path);
+
 /** Pages read at most: fifty entries each, far past any chat. A longer one is said to be short, never left out unsaid. */
 export const MOST_LEDGER_PAGES = 20_000;
 

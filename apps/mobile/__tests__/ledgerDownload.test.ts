@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { collectChatLedger, collectChatLedgers, groupLedgerPath, LEDGER_PATH, type LedgerPage } from "../features/console/files/ledgerDownload";
+import { collectChatLedger, collectChatLedgers, groupLedgerPath, isHistoryView, LEDGER_PATH, type LedgerPage } from "../features/console/files/ledgerDownload";
 
 const manifest = JSON.stringify({ schema: "tex-ledger", version: 1, chat: "texts", count: 3 });
 const entry = (seq: number) => JSON.stringify({ v: 1, id: `e${seq}`, kind: "text", at: 1_700_000_000_000 + seq, text: `text ${seq}`, seq });
@@ -77,5 +77,13 @@ describe("collectChatLedgers", () => {
     const outcome = await collectChatLedgers(async () => { throw new Error("down"); }, async () => one("texts"));
     expect(outcome).toMatchObject({ short: true });
     expect(outcome.entries.map((e) => e.path)).toEqual([LEDGER_PATH]);
+  });
+});
+
+describe("the Tex folder's history file", () => {
+  test("is the one row a whole-workspace download leaves out, as the ledger is written whole", () => {
+    expect(isHistoryView("tex/history.ledger.json")).toBe(true);
+    expect(isHistoryView("tex/groups/blue-lake-fox/history.ledger.json")).toBe(true);
+    for (const kept of ["tex/about.md", "projects/history.ledger.json", "tex/history.ledger.json.md", "tex/groups/a/b/history.ledger.json"]) expect(isHistoryView(kept)).toBe(false);
   });
 });

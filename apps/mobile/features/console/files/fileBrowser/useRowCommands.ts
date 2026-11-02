@@ -17,7 +17,7 @@ import { useCallback } from "react";
 import { toFileError } from "../browser";
 import { type ReadResult, archiveEntries, collectNotes, collectOldCopies, downloadNotice, pathsUnder } from "../download";
 import { collectMessages, messagesFolderFor } from "../messagesDownload";
-import { collectChatLedgers } from "../ledgerDownload";
+import { collectChatLedgers, isHistoryView } from "../ledgerDownload";
 import { buildZip, downloadName } from "../zip";
 import { saveFile } from "../saveFile";
 import { afterPaste, planPaste, put } from "../clipboard";
@@ -340,7 +340,8 @@ export function useRowCommands(deps: RowCommandsDeps) {
             setNotice("That folder could not be listed to the end, so nothing was downloaded.");
             return;
           }
-          const wanted = pathsUnder(listedPaths, path);
+          // The whole workspace writes the chat ledger whole below, so the Tex folder's history file (a view of it) is left out: the chat leaves once.
+          const wanted = pathsUnder(listedPaths, path).filter((p) => path !== "" || !isHistoryView(p));
           // Said before the reads start, because a folder of two hundred notes
           // is several round trips and a control that does nothing visible for
           // four seconds reads as one that did nothing.
