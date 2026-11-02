@@ -317,6 +317,7 @@ test/pictureCompressionUnit.test.mjs
 test/readNoteCalls.test.mjs
 test/workspaceStore.test.mjs
 test/workspaceRouting.test.mjs
+test/mcpEntryPoint.test.mjs
 test/texEntryPoint.test.mjs
 test/workspaceTree.test.mjs
 test/objectLookup.test.mjs
