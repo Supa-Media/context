@@ -73,6 +73,6 @@ jobs:
         run: |
           set -euo pipefail
           args=$(jq -cn --arg slug "$HANDLE" --arg scope "$SCOPE" --arg home "$HOME_TO" --argjson force "$FORCE" '{slug: $slug, scope: $scope, home: $home, force: $force}')
-          answer=$(npx convex run functions/accessObjects:setAccessBySlug "$args")
+          answer=$(npx convex run functions/accessObjects:setAccessBySlug "$args" 2>/dev/null)
           echo "$answer"
           if [ "$(echo "$answer" | jq -r '.ok')" != "true" ]; then exit 1; fi
