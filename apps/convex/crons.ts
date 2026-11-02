@@ -92,7 +92,7 @@ crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dream
 
 /**
  * And a first look, now, for anyone Tex texts with who still has no
- * `tex/about-me.md` (`functions/lib/dreams/firstLook.ts`): once each, and only
+ * `tex/about.md` (`functions/lib/dreams/firstLook.ts`): once each, and only
  * a schedule row.
  */
 crons.interval("give Tex's people a first look", { hours: 1 }, internal.functions.dreams.armFirstLooks, {});
@@ -152,6 +152,12 @@ crons.interval("grant founding Premium", { hours: 1 }, internal.functions.foundi
  * Nothing is waiting in a workspace whose notes are not judged in its object.
  */
 crons.interval("push waiting rows to workspace objects", { minutes: 1 }, internal.functions.workspaceObjectPush.sweep, {});
+
+/**
+ * Access changes still waiting for an object on `dual` (`functions/accessObjectPush.ts`): a lost scheduled push, or
+ * an object that was down.
+ */
+crons.interval("push waiting access changes to objects", { minutes: 1 }, internal.functions.accessObjectPush.sweep, {});
 
 crons.interval(
   "re-read routine folders",

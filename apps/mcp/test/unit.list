@@ -33,6 +33,7 @@ test/agentOtherRoutes.test.mjs
 test/agentInstructions.test.mjs
 test/agentJobPlanner.test.mjs
 test/agentJobs.test.mjs
+test/contextOpenOnce.test.mjs
 test/jobLogAppend.test.mjs
 test/agentLocalNow.test.mjs
 test/agentPromptCache.test.mjs
@@ -262,6 +263,7 @@ test/agentGroupRoutines.test.mjs
 test/agentGroupMail.test.mjs
 test/agentGroupPlaybook.test.mjs
 test/agentEventLog.test.mjs
+test/agentSentByItself.test.mjs
 test/agentTextingRoutes.test.mjs
 test/agentDistance.test.mjs
 test/agentMapCard.test.mjs
@@ -301,6 +303,7 @@ test/agentWarmCopy.test.mjs
 test/texHistoryOneCopy.test.mjs
 test/agentHeldLog.test.mjs
 test/texStore.test.mjs
+test/texStoreMove.test.mjs
 test/texRouting.test.mjs
 test/texAlarms.test.mjs
 test/texRoutineAlarms.test.mjs
@@ -314,7 +317,18 @@ test/pictureCompressionUnit.test.mjs
 test/readNoteCalls.test.mjs
 test/workspaceStore.test.mjs
 test/workspaceRouting.test.mjs
+test/mcpEntryPoint.test.mjs
 test/texEntryPoint.test.mjs
 test/workspaceTree.test.mjs
 test/objectLookup.test.mjs
 test/agentHomeMove.test.mjs
+test/accessSockets.test.mjs
+test/accessContract.test.mjs
+test/personObject.test.mjs
+test/texFolderNames.test.mjs
+test/workspaceMembers.test.mjs
+test/workspaceMembersAccess.test.mjs
+test/accessTopics.test.mjs
+test/accessMirror.test.mjs
+test/objectGrants.test.mjs
+test/personTopics.test.mjs

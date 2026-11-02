@@ -7,6 +7,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { TexStore } from "../src/texStore.js";
+import { PLACED_PREFIX, placeOf } from "../src/texStore/move.js";
 
 /** `node:sqlite` in the Durable Object's `sql.exec(...).toArray()` shape. */
 export function durableSql() {
@@ -25,6 +26,7 @@ export function durableSql() {
 }
 
 function stateOver() {
+  let gate = Promise.resolve();
   const storage = {
     sql: durableSql(),
     alarm: undefined,
@@ -35,18 +37,70 @@ function stateOver() {
       storage.alarm = null;
     },
   };
-  return { storage };
+  // One callback at a time, as the runtime holds every other event while it runs.
+  const blockConcurrencyWhile = (run) => {
+    const turn = gate.then(() => run());
+    gate = turn.catch(() => {});
+    return turn;
+  };
+  return { storage, blockConcurrencyWhile };
 }
 
+/** A Durable Object state's SQLite marked as a store already in its placed object (`move.js`): what every test not about the move starts from. */
+export function arrivedSql(sql) {
+  placeOf(sql);
+  sql.exec("INSERT INTO place (k, v) VALUES ('arrivedAt', '0') ON CONFLICT(k) DO NOTHING");
+  return sql;
+}
+
+function arrived(store) {
+  store.ready();
+  arrivedSql(store.state.storage.sql);
+  return store;
+}
+
+/** The runtime's `blockConcurrencyWhile`: one callback at a time. */
+export function oneAtATime() {
+  let gate = Promise.resolve();
+  return (run) => {
+    const turn = gate.then(() => run());
+    gate = turn.catch(() => {});
+    return turn;
+  };
+}
+
+/**
+ * `objects` holds each owner's placed store by the owner's name
+ * (`person:<id>`), already arrived; `old` holds stores under the old, bare
+ * names, which only a move reaches (`texStore/move.js`). `calls` records the
+ * gateway's calls by owner name, never the objects' own calls to each other.
+ */
 export function texStoreNamespace() {
   const objects = new Map();
+  const old = new Map();
   const calls = [];
+  const make = () => new TexStore(stateOver(), { TEX_STORE: inner }, { dispatch: async () => ({ next: null }) });
   const object = (name) => {
-    if (!objects.has(name)) objects.set(name, new TexStore(stateOver(), {}, { dispatch: async () => ({ next: null }) }));
+    if (!objects.has(name)) objects.set(name, arrived(make()));
     return objects.get(name);
   };
+  const oldObject = (name) => {
+    if (!old.has(name)) old.set(name, make());
+    return old.get(name);
+  };
+  const byName = (name) => (name.startsWith(PLACED_PREFIX) ? object(name.slice(PLACED_PREFIX.length)) : oldObject(name));
+  const inner = {
+    idFromName: (name) => ({ name, toString: () => `id-${name}` }),
+    get: (id) => ({
+      fetch: async (request) => {
+        // A test's hook on the objects' own calls to each other (a move's): throw to fail one.
+        if (typeof api.beforeInner === "function") await api.beforeInner(id.name, request.headers.get("x-tex-call"));
+        return await byName(id.name).fetch(request);
+      },
+    }),
+  };
   const namespace = {
-    idFromName: (name) => ({ name }),
+    idFromName: (name) => ({ name, toString: () => `id-${name}` }),
     get: (id) => ({
       fetch: async (request) => {
         let call = null;
@@ -56,10 +110,11 @@ export function texStoreNamespace() {
           call = null;
         }
         const op = call?.op ?? "?";
-        calls.push({ name: id.name, op, ...(typeof call?.key === "string" ? { key: call.key } : {}) });
+        const owner = id.name.startsWith(PLACED_PREFIX) ? id.name.slice(PLACED_PREFIX.length) : id.name;
+        calls.push({ name: owner, op, ...(typeof call?.key === "string" ? { key: call.key } : {}) });
         // A test's hook, run before the object answers: a slow write, say.
-        if (typeof api.before === "function") await api.before(id.name, call ?? {});
-        return await object(id.name).fetch(request);
+        if (typeof api.before === "function") await api.before(owner, call ?? {});
+        return await byName(id.name).fetch(request);
       },
     }),
   };
@@ -78,7 +133,7 @@ export function texStoreNamespace() {
     const found = held.objects.get(key);
     return found?.body ? new TextDecoder().decode(found.body) : null;
   };
-  const api = { namespace, calls, objects, object, keysIn, textIn, before: null };
+  const api = { namespace, inner, calls, objects, object, old, oldObject, keysIn, textIn, before: null, beforeInner: null };
   return api;
 }
 

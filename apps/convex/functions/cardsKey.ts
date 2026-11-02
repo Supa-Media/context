@@ -1,7 +1,10 @@
 import { getAuthUserId } from "./lib/signedIn";
 import { ConvexError, v } from "convex/values";
 import { action, type MutationCtx } from "../_generated/server";
-import { internalMutation } from "./lib/rowWatch/mutations";
+import { internalMutation, internalMutationWriteBehind } from "./lib/rowWatch/mutations";
+import type { ObjectType } from "convex/values";
+import { keepConnection, objectPair, switchedPerson } from "./lib/accessHandOff/objectMint";
+import { requireSwitched } from "./accessConnections";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
@@ -54,36 +57,63 @@ export const mintCardsKey = action({
     expiresAt: v.number(),
     scopes: v.array(v.string()),
   }),
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ clientId: string; accessToken: string; refreshToken: string; expiresAt: number; scopes: string[] }> => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
     if (!DEVICE_ID.test(args.deviceId)) throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Invalid device." });
-    const accessToken = `cat_${randomOpaqueToken(32)}`;
-    const refreshToken = `crt_${randomOpaqueToken(32)}`;
+    // A person whose connections live in their object gets a pair naming it (`lib/accessHandOff/objectMint.ts`).
+    const personal = await switchedPerson(ctx, userId as Id<"users">);
+    const { accessToken, refreshToken } =
+      personal === null ? { accessToken: `cat_${randomOpaqueToken(32)}`, refreshToken: `crt_${randomOpaqueToken(32)}` } : objectPair(personal);
     const expiresAt = Date.now() + CARDS_KEY_TTL_MS;
-    const scopes: string[] = await ctx.runMutation(internal.functions.cardsKey.applyCardsKey, {
+    const key = {
       actorUserId: userId as Id<"users">,
       workspaceId: args.workspaceId,
       deviceId: args.deviceId,
       hashedAccessToken: await hashToken(accessToken),
       hashedRefreshToken: await hashToken(refreshToken),
       expiresAt,
-    });
+    };
+    if (personal !== null) {
+      const { granted, grantId } = await ctx.runMutation(internal.functions.cardsKey.applyCardsKeyBehind, key);
+      await keepConnection(ctx, personal, grantId, userId as Id<"users">);
+      return { clientId: CARDS_CLIENT_ID, accessToken, refreshToken, expiresAt, scopes: granted };
+    }
+    const scopes: string[] = await ctx.runMutation(internal.functions.cardsKey.applyCardsKey, key);
     return { clientId: CARDS_CLIENT_ID, accessToken, refreshToken, expiresAt, scopes };
   },
 });
 
+const applyCardsKeyArgs = {
+  actorUserId: v.id("users"),
+  workspaceId: v.id("workspaces"),
+  deviceId: v.string(),
+  hashedAccessToken: v.string(),
+  hashedRefreshToken: v.string(),
+  expiresAt: v.number(),
+};
+
 export const applyCardsKey = internalMutation({
-  args: {
-    actorUserId: v.id("users"),
-    workspaceId: v.id("workspaces"),
-    deviceId: v.string(),
-    hashedAccessToken: v.string(),
-    hashedRefreshToken: v.string(),
-    expiresAt: v.number(),
-  },
+  args: applyCardsKeyArgs,
   returns: v.array(v.string()),
+  handler: async (ctx, args) => (await applyCardsKeyWork(ctx, args)).granted,
+});
+
+/** `applyCardsKey` written behind a switched person's object (`lib/accessHandOff/objectMint.ts`). */
+export const applyCardsKeyBehind = internalMutationWriteBehind({
+  args: applyCardsKeyArgs,
+  returns: v.object({ granted: v.array(v.string()), grantId: v.id("oauthGrants") }),
   handler: async (ctx, args) => {
+    await requireSwitched(ctx, args.actorUserId);
+    return await applyCardsKeyWork(ctx, args);
+  },
+});
+
+async function applyCardsKeyWork(
+  ctx: MutationCtx,
+  args: ObjectType<typeof applyCardsKeyArgs>,
+): Promise<{ granted: string[]; grantId: Id<"oauthGrants"> }> {
+  {
     await consumeRateLimit(ctx, {
       key: `cards.key:${args.actorUserId}`,
       limit: CARDS_MINT_LIMIT,
@@ -112,8 +142,9 @@ export const applyCardsKey = internalMutation({
     const reusable = existing.find(
       (grant) => grant.clientId === CARDS_CLIENT_ID && grant.status === "active" && grant.consoleInstanceId === device,
     );
+    let grantId: Id<"oauthGrants">;
     if (reusable === undefined) {
-      await ctx.db.insert("oauthGrants", {
+      grantId = await ctx.db.insert("oauthGrants", {
         workspaceId: args.workspaceId,
         userId: args.actorUserId,
         clientId: CARDS_CLIENT_ID,
@@ -126,6 +157,7 @@ export const applyCardsKey = internalMutation({
         createdAt: Date.now(),
       });
     } else {
+      grantId = reusable._id;
       await ctx.db.patch(reusable._id, {
         scopes: granted,
         hashedRefreshToken: args.hashedRefreshToken,
@@ -140,9 +172,9 @@ export const applyCardsKey = internalMutation({
       action: reusable === undefined ? "cards.key.issued" : "cards.key.renewed",
       details: { scopes: granted.join(" ") },
     });
-    return granted;
-  },
-});
+    return { granted, grantId };
+  }
+}
 
 /** Public, no secret, refresh only: the extension never performs a redirect flow. */
 async function ensureCardsClient(ctx: MutationCtx): Promise<void> {

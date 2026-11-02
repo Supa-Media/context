@@ -922,8 +922,7 @@ export const gatewayLinksRevoke = gatewayRoute(links.gatewayLinksRevokeHandler);
 
 http.route({ path: "/gateway/links/revoke", method: "POST", handler: gatewayLinksRevoke });
 
-/* Setting a workspace up through an agent: create, lay out, connect Google. */
-export const gatewayWorkspacesCreate = gatewayRoute(workspaceRoutes.gatewayWorkspacesCreateHandler);
+export const gatewayWorkspacesCreate = gatewayRoute(workspaceRoutes.gatewayWorkspacesCreateHandler); // setting a workspace up through an agent: create, lay out, connect Google
 export const gatewayWorkspacesLayout = gatewayRoute(workspaceRoutes.gatewayWorkspacesLayoutHandler);
 export const gatewayWorkspacesConnectGoogle = gatewayRoute(workspaceRoutes.gatewayWorkspacesConnectGoogleHandler);
 export const gatewayWorkspacesInvite = gatewayRoute(workspaceRoutes.gatewayWorkspacesInviteHandler);
@@ -931,6 +930,8 @@ http.route({ path: "/gateway/workspaces/create", method: "POST", handler: gatewa
 http.route({ path: "/gateway/workspaces/layout", method: "POST", handler: gatewayWorkspacesLayout });
 http.route({ path: "/gateway/workspaces/connect-google", method: "POST", handler: gatewayWorkspacesConnectGoogle });
 http.route({ path: "/gateway/workspaces/invite", method: "POST", handler: gatewayWorkspacesInvite });
+http.route({ path: "/gateway/access/profiles", method: "POST", handler: gatewayRoute(workspaceRoutes.gatewayAccessProfilesHandler) }); // names for a workspace object's members (`functions/accessProfiles.ts`)
+http.route({ path: "/gateway/access/mirror", method: "POST", handler: gatewayRoute(workspaceRoutes.gatewayAccessMirrorHandler) }); // Convex written behind an object's access write (`functions/accessMirror.ts`)
 /* Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`). */
 export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler);
 http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });

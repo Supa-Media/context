@@ -131,3 +131,15 @@ export function nextAt(sql) {
   const row = rows(sql.exec("SELECT MIN(at) AS at FROM alarms"))[0];
   return row && row.at !== null && row.at !== undefined ? Number(row.at) : null;
 }
+
+/** Every alarm, earliest first: what a move copies (`move.js`). */
+export function everyAlarm(sql) {
+  init(sql);
+  return rows(sql.exec("SELECT id, at, payload FROM alarms ORDER BY at, id")).map((row) => ({ id: row.id, at: Number(row.at), payload: JSON.parse(row.payload) }));
+}
+
+/** Every alarm removed: a move's copy starting over, or the old copy cleared. */
+export function clearAlarms(sql) {
+  init(sql);
+  sql.exec("DELETE FROM alarms");
+}

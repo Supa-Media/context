@@ -15,6 +15,7 @@ import {
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import { watchDb, type WorkspaceChange } from "./watch";
+import { flushAccessWrites } from "../accessHandOff/flush";
 
 /** The most rows one outbox entry names; a mutation that changes more is pushed whole (`all`). */
 export const OUTBOX_MAX_IDS = 2_000;
@@ -50,8 +51,9 @@ export async function flushRowChanges(
 
 type AnyDefinition = { handler: (ctx: MutationCtx, args: never) => unknown } & Record<string, unknown>;
 type Handler = (ctx: MutationCtx, args: never) => unknown;
+type WriteBehind = boolean | "authorityTaken";
 
-function watched<T>(definition: T): T {
+function watched<T>(definition: T, options: { writeBehind: WriteBehind } = { writeBehind: false }): T {
   const def = (typeof definition === "function" ? { handler: definition as Handler } : definition) as AnyDefinition;
   const handler = def.handler;
   return {
@@ -60,6 +62,7 @@ function watched<T>(definition: T): T {
       const watch = watchDb(ctx.db);
       const result = await handler({ ...ctx, db: watch.db }, args);
       await flushRowChanges(ctx, watch.changes);
+      await flushAccessWrites(ctx, watch.accessWrites, options);
       return result;
     },
   } as T;
@@ -71,6 +74,22 @@ export const mutation = ((definition: unknown) => convexMutation(watched(definit
 /** Convex's `internalMutation`, with its row writes told to the workspace's object. */
 export const internalMutation = ((definition: unknown) =>
   convexInternalMutation(watched(definition) as never)) as typeof convexInternalMutation;
+
+/**
+ * An `internalMutation` that writes Convex's access tables behind an object that already took the change (the
+ * gateway's mirror while a workspace is on `object`; the copy). Its access writes are
+ * never refused and never pushed back to the object. Tree-row writes are watched as usual.
+ */
+export const internalMutationWriteBehind = ((definition: unknown) =>
+  convexInternalMutation(watched(definition, { writeBehind: true }) as never)) as typeof convexInternalMutation;
+
+/**
+ * An `internalMutation` run after the objects already took a take-away (`functions/accessTakeAway.ts`): its writes to
+ * an authority table (members, invites, connections) of a switched scope are written behind and never refused, and
+ * every other access write is pushed to its object as usual, so the people whose copies it changes still hear of it.
+ */
+export const internalMutationAfterTakeAway = ((definition: unknown) =>
+  convexInternalMutation(watched(definition, { writeBehind: "authorityTaken" }) as never)) as typeof convexInternalMutation;
 
 // The rest of the builders and contexts, so a file that takes its mutations from here needs one import.
 export { action, internalAction, internalQuery, query, type ActionCtx, type MutationCtx, type QueryCtx } from "../../../_generated/server";

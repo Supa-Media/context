@@ -21,6 +21,7 @@ import {
 import { recordAudit } from "../audit";
 import { noteAgentUse } from "../agentUse";
 import { getMembership } from "../workspaceAuth";
+import { objectHolding } from "../accessHandOff/heldGrants";
 
 /**
  * An S256 PKCE challenge is the base64url of a SHA-256 digest: 43 characters,
@@ -232,7 +233,8 @@ export async function rotateGrantHandler(
         q.eq("previousHashedRefreshToken", args.hashedRefreshToken),
       )
       .unique();
-    if (reused !== null && reused.status === "active") {
+    // A switched person's grant is rotated in their object, which spots reuse itself; Convex is written behind it.
+    if (reused !== null && reused.status === "active" && (await objectHolding(ctx, reused)) === null) {
       await ctx.db.patch(reused._id, {
         status: "revoked",
         revokedAt: Date.now(),
@@ -253,6 +255,9 @@ export async function rotateGrantHandler(
   if (grant.status !== "active") return null;
   // A client may only refresh its own grant.
   if (grant.clientId !== args.clientId) return null;
+  // A switched person's connection is rotated in their object (`apps/mcp/src/oauth/objectGrants.js`), which the
+  // gateway finds through the token's index; one that reaches here is refused rather than forked from its authority.
+  if ((await objectHolding(ctx, grant)) !== null) return null;
   // Membership is re-checked here too: someone removed from a shared context
   // must not be able to refresh their way back in.
   const membership = await getMembership(ctx, grant.workspaceId, grant.userId);
@@ -299,7 +304,18 @@ export const revokeGrantByTokenArgs = {
   clientId: v.string(),
 };
 
-export const revokeGrantByTokenReturns = v.boolean();
+/**
+ * `true` or `false`, or — for a switched person's grant, which their object
+ * decides — the grant and the personal workspace whose object revokes it. The
+ * gateway revokes it there, then writes this copy behind
+ * (`apps/mcp/src/oauth/objectGrants.js`). Only reached by a token the gateway
+ * could not place itself: an old access token (`cat_…`), which still resolves
+ * here until it expires.
+ */
+export const revokeGrantByTokenReturns = v.union(
+  v.boolean(),
+  v.object({ grantId: v.id("oauthGrants"), personalWorkspaceId: v.id("workspaces") }),
+);
 
 /**
  * RFC 7009 revocation — the per-client "unplug this one" lever.
@@ -336,6 +352,8 @@ export async function revokeGrantByTokenHandler(
   if (grant === null) return false;
   if (grant.clientId !== args.clientId) return false;
   if (grant.status !== "active") return false;
+  const holder = await objectHolding(ctx, grant);
+  if (holder !== null) return { grantId: grant._id, personalWorkspaceId: holder };
 
   await ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() });
   await recordAudit(ctx, {

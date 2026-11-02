@@ -44,8 +44,10 @@ import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupPage, timed
 import { CARRIED, ON_PAGE, carryOldNotes, mergeTurns } from "./groupMemoryCarry.js";
 import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
-import { aboutUsPath, addressHome, homePrompt, openChatHome, readAboutUs } from "./chatHome.js";
+import { addressHome, homePrompt, openChatHome, readAboutUs } from "./chatHome.js";
 import { directNote, learnDirect } from "./groupDirectNotes.js";
+import { homeNamesOf, readEitherName } from "./homeNames.js";
+import { readWithEtag } from "./jobLog.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { GUEST_NOTE_TOOLS, guestAwareCallTool, guestPrompt, isGuestChat } from "./groupGuests.js";
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
@@ -260,14 +262,18 @@ export async function readGroupMemory(store, group, dispatch = null) {
   // Every read below is its own note, so they run side by side: one after another they took 3 to 5 s of each group reply (2026-10-31).
   const names = await chatNames(group);
   const [kept] = await Promise.all([readRecord(store, group), openHome(store, group)]);
-  const pagePath = group.home ? groupNotePath(names.key, group.home.folder) : null;
+  // A home's notes by their names now, or the old ones the last lookup found them under (`homeNames.js`).
+  const named = homeNamesOf(group, names.key, kept);
+  const readHome = (path, old) => readEitherName((at) => readGroupPage(group.home.dispatch, at), path, old);
+  let pagePath = named?.live.memory ?? null;
   const record = (async () => {
     if (pagePath !== null && kept.onPage === ON_PAGE) {
       // Straight from the chat's object when the record kept the page's key (`groupDirectNotes.js`), else through the tool.
       const held = await directNote(group, kept, "memory");
       const turns = held === null ? null : parseGroupNote(held.body);
       if (turns !== null) return { turns };
-      const page = await readGroupPage(group.home.dispatch, pagePath);
+      const { seen: page, path } = await readHome(pagePath, named.old.memory);
+      group.pagePath = path;
       if (page === null || page.turns === null) console.log(JSON.stringify({ event: "group_memory_page_unread", reason: page === null ? "unreadable" : "not_a_memory_page" }));
       return { turns: page?.turns ?? [] };
     }
@@ -276,22 +282,33 @@ export async function readGroupMemory(store, group, dispatch = null) {
       console.log(JSON.stringify({ event: "group_memory_page_unread", reason: "no_home" }));
       return { turns: [] };
     }
-    const page = pagePath === null ? null : await readGroupPage(group.home.dispatch, pagePath);
+    const found = pagePath === null ? { seen: null, path: null } : await readHome(pagePath, named.old.memory);
+    pagePath = group.pagePath = found.path;
+    const page = found.seen;
     return await moveOntoPage(store, group, kept, page, pagePath, dispatch, names);
   })();
   // In a home, its voice and about-us notes straight from the chat's object when the record kept their keys (`groupDirectNotes.js`).
   const direct = group.home ? kept : null;
   // How this group talks, beside its memory note and by the same name (`chatVoice.js`), and in a home what it is about.
   const voiceFolder = group.home ? group.home.folder : chatFolder(names.key);
-  group.voicePath = voiceFolder ? groupVoicePath(names.key, voiceFolder) : null;
+  group.voicePath = named ? named.live.voice : voiceFolder ? groupVoicePath(names.key, voiceFolder) : null;
+  group.aboutPath = named?.live.about ?? null;
   const voiceRead = (async () => {
     const held = direct ? await directNote(group, direct, "voice") : null;
     if (held !== null) return readGroupVoice(group.home.dispatch, group.voicePath, held);
+    const old = named ? await readEitherName((at) => readWithEtag(group.home.dispatch, at), group.voicePath, named.old.voice) : null;
+    if (old !== null && old.path !== group.voicePath) return readGroupVoice(group.home.dispatch, (group.voicePath = old.path), old.seen);
     const moved = group.voicePath !== null && dispatch !== null ? await moveVoice(group, dispatch, names) : null;
     return readGroupVoice(group.home ? group.home.dispatch : dispatch, group.voicePath, moved?.held);
   })();
   // The workspace's playbook rides on the chat, for `groupPrompt` (`groupPlaybook.js`).
-  const aboutRead = (direct ? directNote(group, direct, "about") : Promise.resolve(null)).then((held) => readAboutUs(group.home, held));
+  const aboutRead = (async () => {
+    const held = direct ? await directNote(group, direct, "about") : null;
+    if (held !== null || !named) return readAboutUs(group.home, held);
+    const { seen, path } = await readEitherName((at) => readWithEtag(group.home.dispatch, at), group.aboutPath, named.old.about);
+    group.aboutPath = path;
+    return readAboutUs(group.home, seen);
+  })();
   const [memory, playbook, voice, aboutUs] = await Promise.all([record, readPlaybook(inFirstReach(dispatch, group), group), voiceRead, aboutRead]);
   const turns = Array.isArray(memory?.turns) ? memory.turns.filter(isTurn) : [];
   // The words, and what each answer used and wrote, as a person's own texts keep them (`conversation.js`).
@@ -312,14 +329,23 @@ async function moveOntoPage(store, group, kept, page, pagePath, dispatch, names)
   const pageTurns = page?.turns ?? null;
   const turns = pageTurns === null ? held : mergeTurns(held, pageTurns);
   if (!writes) return { turns };
-  const { changed: _changed, turns: _turns, ...marks } = carried;
+  const { changed: _changed, turns: _turns, pageRefused: lastRefused, ...marks } = carried;
   const movable = pagePath !== null && pageTurns !== null && carried.carried === CARRIED;
-  if (movable && (await updateGroupPage(group.home.dispatch, pagePath, (now) => trimGroupTurns(mergeTurns(turns, now))))) {
+  // The refusal's code is kept on the record as a mark (`pageRefused`), so a read-only probe can say why a page was
+  // never written after the gateway's own log has gone (`apps/convex/functions/texFolderNames.ts` `pages`).
+  let refused = null;
+  const onRefused = (code) => (refused = code);
+  if (movable && (await updateGroupPage(group.home.dispatch, pagePath, (now) => trimGroupTurns(mergeTurns(turns, now)), { onRefused }))) {
     await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ ...marks, version: 1, onPage: ON_PAGE })).catch(() => false);
     console.log(JSON.stringify({ event: "group_memory_on_page", turns: turns.length }));
     return { turns };
   }
-  if (carried.changed === true) await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ ...marks, turns: held })).catch(() => false);
+  // Why the history stays in the record this turn, by a fixed code (a failed write logs its own, `updateGroupPage`).
+  if (!movable) console.log(JSON.stringify({ event: "group_memory_not_moved", reason: pagePath === null ? "no_home" : pageTurns === null ? "page_unread" : "not_carried" }));
+  const mark = refused ?? lastRefused;
+  if (carried.changed === true || mark !== lastRefused) {
+    await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ ...marks, ...(mark === undefined ? {} : { pageRefused: mark }), turns: held })).catch(() => false);
+  }
   return { turns };
 }
 
@@ -411,8 +437,10 @@ export async function keepGroupExchange(store, group, history, question, answer,
   ];
   await openHome(store, group);
   // The keys of a home's voice and about-us notes, for next turn's direct reads (`groupDirectNotes.js`).
-  const memory = group.home ? groupNotePath(await sha256Hex(group.key), group.home.folder) : null;
-  const direct = group.home ? await learnDirect(group, { voice: group.voicePath, about: aboutUsPath(group.home), memory }) : {};
+  const named = homeNamesOf(group, await sha256Hex(group.key), latest);
+  const direct = named ? await learnDirect(group, named.paths, named.old) : {};
+  // The page under the name it holds now: the lookup's, else the one this turn read it by (`homeNames.js`).
+  const memory = !named ? null : Array.isArray(direct.old) ? (direct.old.includes("memory") ? named.old.memory : named.paths.memory) : (group.pagePath ?? named.live.memory);
   const { noteEtag: _etag, direct: _direct, unreadable: _unreadable, turns: _turns, ...marks } = latest;
   const withDirect = Object.keys(direct).length > 0 ? { direct } : {};
   if (latest.onPage === ON_PAGE && !group.home) {

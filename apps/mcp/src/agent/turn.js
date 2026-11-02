@@ -262,7 +262,7 @@ export async function openProvider(controlPlane, session, requested, env = {}, {
  *   tools it holds (`sixTools.js`); null allows every action they carry
  * @param {Array<{tool: object, call: Function}>} [options.local] tools this
  *   turn answers itself rather than through the MCP
- * @param {string|null} [options.aboutMe] `tex/about-me.md`'s text on a texted
+ * @param {string|null} [options.aboutMe] `tex/about.md`'s text on a texted
  *   turn (`aboutMe.js`), `""` when it doesn't exist; null says nothing about it
  * @returns {Promise<{answer: string, provider: string, model: string, steps: Array, usage: object, usageByModel: object}>}
  *   `model` is the model that wrote the final answer (on an exhausted turn, the

@@ -35,7 +35,7 @@ import { deskEligible, learnDeskKeys } from "../src/agent/texDesk.js";
 import { HISTORY_KEY } from "../src/agent/history.js";
 import { isAgentHomeKey, TexStoreUnavailable, withTexRouting } from "../src/store/texRouting.js";
 import { R2Store } from "../src/store/r2.js";
-import { texBucket } from "../src/texStore/wire.js";
+import { texStoreStub, texBucket } from "../src/texStore/wire.js";
 
 const CHAT = "sendblue:line:+15555550100";
 const PERSON = "person:ws_egress";
@@ -69,7 +69,7 @@ async function watched(world, run) {
 }
 
 /** The person's object, as the gateway reaches it. */
-const personObject = (world) => new R2Store(texBucket(world.env.TEX_STORE.get(world.env.TEX_STORE.idFromName(PERSON))));
+const personObject = (world) => new R2Store(texBucket(texStoreStub(world.env, { person: PERSON.slice("person:".length) })));
 
 async function record(world) {
   const held = await personObject(world).get("state/agent/history/texts.json");

@@ -32,6 +32,7 @@ import type { ConsoleAuditEvent } from "../features/console/advanced/advanced";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
+  jest.useRealTimers();
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
 });
@@ -61,6 +62,16 @@ const plain = (text: string | null | undefined) => (text ?? "").replace(/[\u2066
 
 describe("the activity panel", () => {
   test("routine sign-ins are hidden until asked for, then fold into one row", () => {
+    // "today" is the panel's own clock: pinned to midday, so a run just after midnight (the events reach three
+    // minutes back) never puts some of them on yesterday. Only the clock is faked; timers stay real.
+    jest.useFakeTimers({
+      now: new Date(2026, 9, 15, 12, 0, 0),
+      doNotFake: [
+        "nextTick", "setImmediate", "clearImmediate", "setTimeout", "clearTimeout", "setInterval", "clearInterval",
+        "queueMicrotask", "requestAnimationFrame", "cancelAnimationFrame", "requestIdleCallback", "cancelIdleCallback",
+        "hrtime", "performance",
+      ],
+    });
     const now = Date.now();
     const renewal = (id: string, ago: number): ConsoleAuditEvent => ({
       eventId: id,

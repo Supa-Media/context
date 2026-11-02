@@ -172,6 +172,15 @@ dataset = "tex_model_calls"
 binding = "TEX_ENTRY"
 dataset = "tex_entry"
 
+# One point per named step of an MCP request (`src/mcp/mcpEntryPoint.js`):
+# the call (`tools/call:orient`, `initialize`, ...), the step or the
+# control-plane route or store operation it timed, its state, its
+# milliseconds and when it started, indexed by workspace. Names, routes and
+# times only, never a path or a word. Optional: without it nothing is written.
+[[analytics_engine_datasets]]
+binding = "MCP_ENTRY"
+dataset = "mcp_entry"
+
 # `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
 # which photographs a published website page with Browser Rendering. Reached
 # only through this binding, so it has no address and holds no secret. It must
@@ -295,6 +304,10 @@ dataset = "tex_model_calls_staging"
 [[env.staging.analytics_engine_datasets]]
 binding = "TEX_ENTRY"
 dataset = "tex_entry_staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "MCP_ENTRY"
+dataset = "mcp_entry_staging"
 
 [[env.staging.services]]
 binding = "SITE_SHOTS"

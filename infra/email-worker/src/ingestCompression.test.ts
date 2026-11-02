@@ -75,4 +75,46 @@ describe("a stored picture", () => {
     expect(decision.note).toContain(`![shot.png](${write.key})`);
   });
 
+  it("never stores an attachment whose bytes are not the picture its headers claim", async () => {
+    // The allowlist exists because bytes outside it have no way back out of the
+    // bucket, and `compressPicture`'s type must be what the bytes sniffed as,
+    // never what a caller declared. A sender writes the Content-Type, so an
+    // attachment that lies is a stranger's arbitrary bytes stored in the
+    // customer's storage and handed to a model as a PNG. Sabotage: take the
+    // extension from `attachment.contentType` again, and this fails.
+    const lying = new TextEncoder().encode(
+      [
+        `Authentication-Results: ${AUTHSERV}; dmarc=pass header.from=example.com`,
+        "From: alice@example.com",
+        "Message-ID: <lie@example.com>",
+        'Content-Type: multipart/mixed; boundary="b"',
+        "",
+        "--b",
+        "Content-Type: text/plain",
+        "",
+        "see attached",
+        "--b",
+        "Content-Type: image/png",
+        'Content-Disposition: attachment; filename="shot.png"',
+        "Content-Transfer-Encoding: base64",
+        "",
+        // Not a picture at all: `<html>hello</html>`.
+        "PGh0bWw+aGVsbG88L2h0bWw+",
+        "--b--",
+        "",
+      ].join("\r\n"),
+    );
+    const asked: string[] = [];
+    const decision = await decide(lying, {
+      attachmentPolicy: "store",
+      compressPicture: async (bytes, type) => {
+        asked.push(type.contentType);
+        return { bytes, contentType: type.contentType, extension: type.extension };
+      },
+    });
+    if (decision.kind !== "capture") throw new Error("expected a capture");
+    expect(asked).toEqual([]);
+    expect(decision.attachments).toEqual([]);
+    expect(decision.note).not.toContain(".png)");
+  });
 });

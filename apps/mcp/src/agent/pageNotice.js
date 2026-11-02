@@ -30,7 +30,7 @@ const ASKS_PLAIN = /\b(?:(?:plain|regular|normal|simple|ordinary|markdown|md) (?
  * with guests may write, so what Tex makes for that chat lands there and is a
  * page like any other (2026-10-28: the research for a WhatsApp guest chat was
  * saved plain twice, and never sent back, because the folder sits under tex/).
- * Only the chat's own memory note there, `chat-<id>.md`, stays plain.
+ * The chat's own notes in its home (`history.md`, `voice.md`, `about.md`) stay plain: they are under tex/.
  */
 const NOT_A_PAGE = /(?:^|\/)(?:todo|about-me|index|about|chat-[0-9a-f]+)\.md$|^(?:@[^/]+\/)?(?:tex(?!\/chats\/[^/]+\/)|inbox|\.context|routines)\//i;
 

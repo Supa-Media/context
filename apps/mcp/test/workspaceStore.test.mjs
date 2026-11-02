@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 
 import { texObjects } from "../src/texStore/objects.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
+import { workspaceMembers } from "../src/workspaceStore/members.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { isWorkspaceObjectKey, workspaceClient, workspaceObjectName, HOMES } from "../src/workspaceStore/api.js";
 
@@ -45,7 +46,7 @@ function namespace() {
       hints.push(options?.locationHint ?? null);
       if (!objects.has(id.name)) {
         const sql = durableSql();
-        const store = { objects: texObjects(sql), rows: workspaceRows(sql) };
+        const store = { objects: texObjects(sql), rows: workspaceRows(sql), members: workspaceMembers(sql) };
         objects.set(id.name, { fetch: (request) => serveWorkspaceStore(store, request) });
       }
       return objects.get(id.name);
@@ -152,7 +153,7 @@ test("home starts at the bucket and moves only to a known home; backfill is stam
   assert.equal((await ws.state()).home, HOMES.BUCKET);
   await ws.setHome(HOMES.OBJECT);
   await ws.markBackfilled(123);
-  assert.deepEqual(await ws.state(), { home: "object", backfilledAt: 123, rows: 4, accessVersion: 1 });
+  assert.deepEqual(await ws.state(), { home: "object", backfilledAt: 123, rows: 4, accessVersion: 1, members: { home: "convex", members: 0, invites: 0, reachPending: 0 } });
   await assert.rejects(() => ws.setHome("elsewhere"));
 });
 

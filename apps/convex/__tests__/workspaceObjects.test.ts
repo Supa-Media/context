@@ -200,6 +200,22 @@ describe("comparing bodies", () => {
     return total;
   }
 
+  test("each disagreement is described by its key's shape, never its key", async () => {
+    const bucket = bucketWith({ [A]: "same", [B]: "bucket", [HISTORY]: "u1" });
+    const { bodies } = objectFor();
+    await bodies.put(A, new TextEncoder().encode("same"), { contentType: MARKDOWN });
+    await bodies.put(B, new TextEncoder().encode("object"), { contentType: MARKDOWN });
+    const shapes: Record<string, number> = {};
+    let at: Parameters<typeof parityPage>[2]["at"] | null = { side: 0, prefix: 0 };
+    while (at !== null) {
+      const page = await parityPage(bucket as unknown as BodyStore, bodies, { at, limit: 10, recheckMs: 0, sleep: noSleep });
+      for (const [label, n] of Object.entries(page.shapes)) shapes[label] = (shapes[label] ?? 0) + n;
+      at = page.next;
+    }
+    expect(Object.keys(shapes).sort()).toEqual([`differ#notes/<64/plain`, "missingInObject#other/<256/plain"].sort());
+    expect(JSON.stringify(shapes)).not.toContain(B.slice(6, 14));
+  });
+
   test("a missing, a changed and an extra key are each counted once", async () => {
     const bucket = bucketWith({ [A]: "same", [B]: "bucket", [HISTORY]: "u1" });
     const { bodies } = objectFor();
@@ -362,12 +378,126 @@ describe("the switch", () => {
 describe("failure logs", () => {
   test("carry a ConvexError's code and never its message", async () => {
     const { ConvexError } = await import("convex/values");
-    const { failureOf } = await import("../functions/workspaceObjects");
-    expect(failureOf(new ConvexError({ code: "KEY_UNAVAILABLE", message: "secret words" }))).toEqual({ error: "ConvexError", code: "KEY_UNAVAILABLE" });
-    expect(failureOf(Object.assign(new Error("x"), { code: "WORKSPACE_MISMATCH" }))).toEqual({ error: "Error", code: "WORKSPACE_MISMATCH" });
-    expect(failureOf(new Error("note body here"))).toEqual({ error: "Error" });
-    expect(failureOf(new ConvexError({ code: "has spaces and is long enough to be text" }))).toEqual({ error: "ConvexError" });
+    const { failureOf } = await import("../functions/lib/workspaceObjects/failures");
+    expect(failureOf(new ConvexError({ code: "KEY_UNAVAILABLE", message: "secret words" }))).toMatchObject({ error: "ConvexError", code: "KEY_UNAVAILABLE", reason: "other" });
+    expect(failureOf(Object.assign(new Error("x"), { code: "WORKSPACE_MISMATCH" }))).toMatchObject({ error: "Error", code: "WORKSPACE_MISMATCH", reason: "other" });
+    expect(failureOf(new Error("note body here"))).toMatchObject({ error: "Error", reason: "other" });
+    expect(failureOf(new ConvexError({ code: "has spaces and is long enough to be text" }))).toMatchObject({ error: "ConvexError", reason: "other" });
+    const listed = failureOf(new Error("S3 LIST notes/Secret Plans.md failed with 503: SlowDown"));
+    expect(listed).toMatchObject({ error: "Error", reason: "storage_list_503" });
+    expect(JSON.stringify(listed)).not.toContain("Secret");
+    expect(failureOf(new Error("S3 GET response exceeds 10 bytes")).reason).toBe("storage_get_too_large");
+    expect(failureOf(new Error("logical-delete prefix listing made no progress")).reason).toBe("listing_no_progress");
     expect(JSON.stringify(failureOf(new ConvexError({ code: "X", message: "secret words" })))).not.toContain("secret");
+    const thrown = new TypeError("Cannot read properties of undefined (reading 'body') for notes/Secret.md");
+    thrown.stack = "TypeError: Cannot read properties of undefined (reading 'body') for notes/Secret.md\n    at verdictOf (/repo/apps/convex/functions/lib/workspaceObjects/bodies.ts:180:12)\n    at async parityPage (file:///repo/bodies.ts:210:3)";
+    const where = failureOf(thrown);
+    expect(where.at).toBe("verdictOf@bodies.ts:180 < parityPage@bodies.ts:210");
+    expect(JSON.stringify(where)).not.toContain("Secret");
+  });
+
+  test("a key that will not copy hands its error to the caller, and the page goes on", async () => {
+    const bucket = bucketWith({ [A]: "# A", [B]: "# B" });
+    const { bodies } = objectFor();
+    const broken = { ...bucket, list: bucket.list.bind(bucket), get: async (key: string) => { if (key === A) throw new Error("S3 GET x failed with 500"); return bucket.get(key); } } as unknown as BodyStore;
+    const seen: unknown[] = [];
+    const page = await copyPage(broken, bodies, { at: { prefix: 0 }, limit: 10, dryRun: false, onFailure: (error) => seen.push(error) });
+    expect(page.counts.failed).toBe(1);
+    expect(page.counts.copied).toBe(1);
+    expect(seen).toHaveLength(1);
+  });
+
+  test("a failed key carries its shape, never its name, and an unknown TypeError keeps only listed words", async () => {
+    const { failureOf, messageWords } = await import("../functions/lib/workspaceObjects/failures");
+    const odd = ".context/collaboration/v1/heads/Plans Ünïcode.json";
+    const bucket = bucketWith({ [odd]: "# odd", [B]: "# B" });
+    const { bodies } = objectFor();
+    const broken = {
+      list: bodies.list.bind(bodies),
+      put: bodies.put.bind(bodies),
+      delete: bodies.delete.bind(bodies),
+      get: async (key: string) => {
+        if (key === odd) throw new TypeError(`Invalid header value for ${key}`);
+        return bodies.get(key);
+      },
+    } as unknown as BodyStore;
+    const seen: unknown[] = [];
+    const page = await copyPage(bucket as unknown as BodyStore, broken, { at: { prefix: 1 }, limit: 10, dryRun: false, onFailure: (error) => seen.push(error) });
+    expect(page.counts.failed).toBe(1);
+    const failure = failureOf(seen[0]);
+    expect(failure).toMatchObject({ error: "TypeError", reason: "type_error_invalid_header_value", shape: "heads/<64/nonascii" });
+    expect(JSON.stringify(failure)).not.toMatch(/Plans|code/);
+    // Parity marks the same failure with the same shape.
+    await expect(parityPage(bucket as unknown as BodyStore, broken, { at: { side: 0, prefix: 1 }, limit: 10, recheckMs: 0, sleep: async () => {} })).rejects.toMatchObject({ keyShape: "heads/<64/nonascii" });
+    expect(messageWords("Secret Plans: invalid URL in request body")).toEqual(["invalid", "url", "request", "body"]);
+  });
+
+  test("one read failing in a parity wave waits for the others before it is thrown", async () => {
+    const bucket = bucketWith({ [A]: "# A", [B]: "# B", [C]: "# C" });
+    const { bodies } = objectFor();
+    let pending = 0;
+    let maxAfter = -1;
+    const slow = {
+      ...bucket,
+      list: bucket.list.bind(bucket),
+      get: async (key: string) => {
+        if (key === A) throw new TypeError("Network connection lost.");
+        pending += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        pending -= 1;
+        return bucket.get(key);
+      },
+    } as unknown as BodyStore;
+    await expect(parityPage(slow, bodies, { at: { side: 0, prefix: 0 }, limit: 10, recheckMs: 0, sleep: noSleep })).rejects.toThrow("Network");
+    maxAfter = pending;
+    expect(maxAfter).toBe(0);
+    const { reasonOf } = await import("../functions/lib/workspaceObjects/failures");
+    expect(reasonOf(new TypeError("Network connection lost."))).toBe("network");
+    expect(reasonOf(new TypeError("x is not a function"))).toBe("type_error_not_function_x");
+    expect(reasonOf(new TypeError("Cannot read properties of undefined (reading 'etag')"))).toBe("type_error_undefined_etag");
+    expect(reasonOf(new TypeError("Something 'notes/Secret.md' odd"))).toBe("type_error");
+  });
+
+  test("a dropped connection to the workspace object is a network failure, and a read is asked again", async () => {
+    const { reasonOf, withRetries } = await import("../functions/lib/workspaceObjects/failures");
+    const dropped = () => new TypeError("error sending request for url (https://gateway.example.test/internal/workspace-store)");
+    expect(reasonOf(dropped())).toBe("network");
+    let calls = 0;
+    const store = {
+      get: async () => {
+        calls += 1;
+        if (calls < 3) throw dropped();
+        return null;
+      },
+      put: async () => null,
+      delete: async () => undefined,
+      list: async () => ({ objects: [], truncated: false }),
+    } as unknown as BodyStore;
+    const waits: number[] = [];
+    expect(await withRetries(store, async (ms) => void waits.push(ms)).get("notes/x.md")).toBeNull();
+    expect(waits).toEqual([1000, 3000]);
+  });
+
+  test("a busy bucket's listing is asked again, a refusal is not", async () => {
+    const { withRetries } = await import("../functions/lib/workspaceObjects/failures");
+    let calls = 0;
+    const flaky = {
+      get: async () => null,
+      put: async () => null,
+      delete: async () => undefined,
+      list: async () => {
+        calls += 1;
+        if (calls < 3) throw new Error("S3 LIST notes/ failed with 503");
+        return { objects: [], truncated: false };
+      },
+    } as unknown as BodyStore;
+    const waits: number[] = [];
+    expect(await withRetries(flaky, async (ms) => void waits.push(ms)).list({ prefix: "notes/" })).toEqual({ objects: [], truncated: false });
+    expect(waits).toEqual([1000, 3000]);
+    const refused = { ...flaky, list: async () => { calls += 1; throw new Error("S3 LIST notes/ failed with 403"); } } as unknown as BodyStore;
+    calls = 0;
+    await expect(withRetries(refused, async () => {}).list({})).rejects.toThrow("403");
+    expect(calls).toBe(1);
   });
 });
 

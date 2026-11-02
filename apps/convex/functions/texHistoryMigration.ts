@@ -27,6 +27,9 @@ import { consoleWorkspaceRouting } from "./lib/rowWatch/consoleRouting";
 
 const WORKSPACES_PER_CALL = 20;
 
+/** One failed workspace, returned only to a workflow that encrypts it before printing (`report`). */
+type Failure = { workspaceId: string; slug: string; kind: string; owners: string[]; provider: string; bucket: string; message: string };
+
 type Counts = {
   workspaces: number;
   noBinding: number;
@@ -38,6 +41,8 @@ type Counts = {
   turnsKept: number;
   turnsWould: number;
   failed: number;
+  failedCodes: Record<string, number>;
+  failures?: Failure[];
   cursor: string;
   done: boolean;
 };
@@ -51,9 +56,26 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise
   return storeForBinding(routing.credential(credential), undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId, { ticketOwners: [`person:${workspaceId}`] }), ...routing.options });
 }
 
+async function describeFailure(ctx: ActionCtx, workspaceId: Id<"workspaces">, error: unknown): Promise<Failure> {
+  const who = await ctx.runQuery(internal.functions.texHistoryMigrationRows.describe, { workspaceId });
+  const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
+  // The provider and bucket name only: never a key or secret of the credential.
+  return { workspaceId, ...who, provider: String(credential?.provider ?? "none"), bucket: String(credential?.bucket ?? ""), message: String((error as { message?: unknown } | null)?.message ?? error).slice(0, 500) };
+}
+
+/** A failure as a fixed code: the error's own code or name when it is a plain word, never its message. */
+export function failureCode(error: unknown): string {
+  const named = error as { code?: unknown; name?: unknown; message?: unknown } | null;
+  // A bucket's refusal (`apps/mcp/src/store/s3.js` `s3Error`): its operation and status, never the key it names.
+  const s3 = typeof named?.message === "string" ? /^S3 ([A-Za-z]{1,24}) .* failed with (\d{3})\b/s.exec(named.message) : null;
+  if (s3) return `S3_${s3[1]}_${s3[2]}`;
+  for (const value of [named?.code, named?.name]) if (typeof value === "string" && /^[A-Za-z][A-Za-z0-9_]{0,47}$/.test(value)) return value;
+  return "unknown";
+}
+
 /** One page: up to `WORKSPACES_PER_CALL` workspaces. `only` names one workspace by id. */
 export const run = internalAction({
-  args: { dryRun: v.boolean(), cursor: v.optional(v.string()), only: v.optional(v.id("workspaces")) },
+  args: { dryRun: v.boolean(), cursor: v.optional(v.string()), only: v.optional(v.id("workspaces")), report: v.optional(v.boolean()) },
   returns: v.object({
     workspaces: v.number(),
     noBinding: v.number(),
@@ -65,11 +87,13 @@ export const run = internalAction({
     turnsKept: v.number(),
     turnsWould: v.number(),
     failed: v.number(),
+    failedCodes: v.record(v.string(), v.number()),
+    failures: v.optional(v.array(v.object({ workspaceId: v.string(), slug: v.string(), kind: v.string(), owners: v.array(v.string()), provider: v.string(), bucket: v.string(), message: v.string() }))),
     cursor: v.string(),
     done: v.boolean(),
   }),
   handler: async (ctx, args): Promise<Counts> => {
-    const counts: Counts = { workspaces: 0, noBinding: 0, historyMoved: 0, historyAlready: 0, historyNone: 0, historyWould: 0, turnsCopied: 0, turnsKept: 0, turnsWould: 0, failed: 0, cursor: "", done: false };
+    const counts: Counts = { workspaces: 0, noBinding: 0, historyMoved: 0, historyAlready: 0, historyNone: 0, historyWould: 0, turnsCopied: 0, turnsKept: 0, turnsWould: 0, failed: 0, failedCodes: {}, cursor: "", done: false };
     const page: { workspaceIds: Id<"workspaces">[]; cursor: string; done: boolean } =
       args.only !== undefined
         ? { workspaceIds: [args.only], cursor: "", done: true }
@@ -90,9 +114,14 @@ export const run = internalAction({
         counts.turnsCopied += moved.turns.copied;
         counts.turnsKept += moved.turns.kept;
         counts.turnsWould += moved.turns.would;
-      } catch {
-        // Counted, never named: the workflow's log is public. A failed workspace's first text moves its history itself.
+      } catch (error) {
+        // Counted by a fixed code, never named: the workflow's log is public. A failed workspace's first text moves its history itself.
+        const code = failureCode(error);
         counts.failed += 1;
+        counts.failedCodes[code] = (counts.failedCodes[code] ?? 0) + 1;
+        console.error(JSON.stringify({ event: "tex_history_migration_failed", workspaceId, code }));
+        // `report`: who it is and what the bucket said, for a workflow that prints it only encrypted to a key of its caller's.
+        if (args.report === true) (counts.failures ??= []).push(await describeFailure(ctx, workspaceId, error));
       }
     }
     return { ...counts, cursor: page.cursor, done: page.done };

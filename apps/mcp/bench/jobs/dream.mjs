@@ -6,7 +6,7 @@
  * (`ai/production/dream.md` in the pinned `@context-lc`) and the case's notes
  * (a day's transcript, an about-me) in their workspace. One `/agent` dream
  * call, through the real `dream.js`, its tools and its one-note guard; the
- * output checked is `tex/about-me.md` afterwards.
+ * output checked is `tex/about.md` afterwards.
  */
 
 import { ABOUT_ME_PATH } from "../../src/agent/aboutMe.js";

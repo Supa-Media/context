@@ -14,12 +14,18 @@
  * runtime alarm, armed at the earliest of them. When it fires, each due routine
  * is handed to `dispatch`, which resolves `true` once the routine has run; one
  * that did not is kept and tried again after `RETRY_MS`.
+ *
+ * Every store lives under a name placed in eastern North America, and the
+ * first call to one copies in what the owner's store under the old name held
+ * (`texStore/move.js`). The old one then passes every call on, and clears its
+ * copy after three days.
  */
 
 import { cancel, due, nextAt, retry, schedule, settle } from "./texStore/alarms.js";
 import { routineDispatchFor } from "./texStore/dispatch.js";
 import { texObjects } from "./texStore/objects.js";
 import { serveTexStore } from "./texStore/wire.js";
+import { MOVE_OPS, TexMoved, arrive, clearOld, forward, logMove, moveGuard, opOf, ownerOf, placeOf, purgeOld, serveMoveOut } from "./texStore/move.js";
 
 /** How long a routine that could not be handed on waits before it is tried again. */
 export const RETRY_MS = 60 * 1000;
@@ -43,14 +49,17 @@ export class TexStore {
   /** The object's notes and alarms, built on first use. */
   ready() {
     if (this.objects !== null) return;
-    this.objects = texObjects(this.state.storage.sql);
+    const guard = moveGuard(this.state.storage.sql);
+    this.objects = texObjects(this.state.storage.sql, { now: this.now, guard });
     this.timers = {
       schedule: (alarm) => {
+        guard();
         const set = schedule(this.state.storage.sql, alarm ?? {});
         this.arm();
         return set;
       },
       cancel: (id) => {
+        guard();
         cancel(this.state.storage.sql, id);
         this.arm();
       },
@@ -66,7 +75,44 @@ export class TexStore {
 
   async fetch(request) {
     this.ready();
-    return await serveTexStore(this.objects, request, this.timers);
+    const sql = this.state.storage.sql;
+    const op = opOf(request);
+    const setAlarm = (at) => this.state.storage.setAlarm(at);
+    // Only a store copying in reaches an old one with these, never a call through the gateway's stub, which always names its owner (`wire.js`).
+    if (MOVE_OPS.has(op) && ownerOf(request) !== null) return Response.json({ error: "unknown_op" }, { status: 400 });
+    if (MOVE_OPS.has(op)) return serveMoveOut(request, { sql, objects: this.objects, now: this.now, setAlarm });
+    // Read once, so a write stopped by the move can still be passed on whole.
+    const body = await request.arrayBuffer();
+    const place = placeOf(sql);
+    if (place.movedTo !== undefined) return await forward(this.env, place, request, body);
+    if (place.arrivedAt === undefined) {
+      const owner = ownerOf(request);
+      // Nothing is answered from a store that has not copied its old one in, and only a call naming its owner can start that.
+      if (owner === null) return Response.json({ error: "not_arrived" }, { status: 503 });
+      // A throw inside `blockConcurrencyWhile` resets the object, so a failed copy is caught in here and answered as one.
+      const failed = await this.state.blockConcurrencyWhile(async () => {
+        if (placeOf(sql).arrivedAt !== undefined) return false;
+        try {
+          const moved = await arrive({ sql, objects: this.objects, env: this.env, owner, now: this.now });
+          this.arm();
+          logMove(this.env, owner, "ok", moved);
+          return false;
+        } catch (error) {
+          logMove(this.env, owner, "failed", { oldId: error?.oldId, ms: 0 });
+          return true;
+        }
+      });
+      if (failed) return Response.json({ error: "tex_store_moving" }, { status: 503 });
+    }
+    const fresh = () => new Request(request.url, { method: request.method, headers: request.headers, body });
+    try {
+      const answer = await serveTexStore(this.objects, fresh(), this.timers);
+      if (op === "wipe" && placeOf(sql).from !== undefined) await purgeOld(this.env, placeOf(sql).from);
+      return answer;
+    } catch (error) {
+      if (error instanceof TexMoved) return await forward(this.env, placeOf(sql), request, body);
+      throw error;
+    }
   }
 
   /**
@@ -79,6 +125,15 @@ export class TexStore {
   async alarm() {
     this.ready();
     const sql = this.state.storage.sql;
+    // A store that has moved runs no routine: its alarm is only for clearing the old copy.
+    const place = placeOf(sql);
+    if (place.movedTo !== undefined) {
+      if (this.now() >= place.purgeAt) {
+        if (place.purgedAt === undefined) clearOld(sql);
+        this.state.storage.deleteAlarm();
+      } else this.state.storage.setAlarm(place.purgeAt);
+      return;
+    }
     const started = this.now();
     for (const routine of due(sql, started)) {
       let answer = null;

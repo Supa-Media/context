@@ -33,6 +33,7 @@ import { lineFor, type LineDeps } from "./line";
 import { record } from "./simulator";
 import { rememberText, threadUnder } from "./threads";
 import { keepBeside } from "./warm";
+import { inboxByName } from "./objectPlace";
 
 /** Runs worked on at once in one tick. */
 export const ROUTINE_CONCURRENCY = 4;
@@ -143,7 +144,7 @@ export async function textPhone(
   continues?: string,
   beside?: string,
 ): Promise<PhoneTexted> {
-  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
+  const stub = inboxByName(env.SENDER_INBOX, phone);
   const response = await stub.fetch(ROUTINE_TEXT_URL, {
     method: "POST",
     body: JSON.stringify({ text, idempotencyKey, ...(continues !== undefined ? { continues } : {}), ...(beside !== undefined ? { beside } : {}) }),

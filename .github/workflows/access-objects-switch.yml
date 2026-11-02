@@ -1,0 +1,103 @@
+# Choose where one workspace's access is decided (owner, 2026-11-01; the
+# access-in-objects plan, "Access lives in the objects"; see
+# `apps/convex/functions/accessObjects.ts`): `dual` (Convex decides, every
+# change is mirrored into the object) or `object` (the object decides).
+# `dual` is always allowed and is the rollback: the object stops deciding and
+# Convex, written behind meanwhile, decides again. `object` is refused unless
+# the scope's last parity check, within the hour, matched every table; `force`
+# skips that check and is for a staging drill only. With no handle, every
+# workspace's scopes are switched (`setAccessEvery`, paged, `scope` limiting it
+# to one kind, `dry_run` counting only), so the whole switch puts no handle in
+# this log; `force` never applies there. The answer carries counts
+# or a reason, never an id, a handle, an address or a hash: this job's log is
+# public.
+name: Access objects switch
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      handle:
+        description: "The workspace's handle. Empty: every workspace (counts only)."
+        type: string
+        default: ""
+      dry_run:
+        description: "Every workspace only: count what would switch; change nothing."
+        type: boolean
+        default: true
+      scope:
+        description: "workspace: members and invites. person: reach, shared with me and connections (personal workspaces)."
+        type: choice
+        options:
+          - workspace
+          - person
+        default: workspace
+      home:
+        description: "Where its access is decided. dual is the rollback."
+        type: choice
+        options:
+          - dual
+          - object
+        default: dual
+      force:
+        description: "Skip the parity check (staging drills only)."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  switch:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Set access home
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          HANDLE: ${{ inputs.handle }}
+          SCOPE: ${{ inputs.scope }}
+          HOME_TO: ${{ inputs.home }}
+          FORCE: ${{ inputs.force }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HANDLE" ]; then
+            cursor=""
+            page=0
+            failed=0
+            while :; do
+              page=$((page + 1))
+              args=$(jq -cn --arg home "$HOME_TO" --arg scope "$SCOPE" --argjson dry "$DRY_RUN" '{home: $home, scope: $scope, dryRun: $dry}')
+              if [ -n "$cursor" ]; then args=$(echo "$args" | jq -c --arg cursor "$cursor" '. + {cursor: $cursor}'); fi
+              answer=$(npx convex run functions/accessObjects:setAccessEvery "$args" 2>/dev/null)
+              echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
+              if [ "$(echo "$answer" | jq -r '.refused | length')" != "0" ]; then failed=1; fi
+              if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+              cursor=$(echo "$answer" | jq -r '.cursor')
+              if [ "$page" -ge 200 ]; then echo "stopped after $page pages"; exit 1; fi
+            done
+            exit "$failed"
+          fi
+          args=$(jq -cn --arg slug "$HANDLE" --arg scope "$SCOPE" --arg home "$HOME_TO" --argjson force "$FORCE" '{slug: $slug, scope: $scope, home: $home, force: $force}')
+          answer=$(npx convex run functions/accessObjects:setAccessBySlug "$args" 2>/dev/null)
+          echo "$answer"
+          if [ "$(echo "$answer" | jq -r '.ok')" != "true" ]; then exit 1; fi

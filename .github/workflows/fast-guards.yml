@@ -48,6 +48,8 @@ jobs:
           node scripts/check-workflow-secret-order.mjs
           node scripts/check-wrangler-vars-not-secrets.mjs --self-test
           node scripts/check-wrangler-vars-not-secrets.mjs
+          node scripts/check-convex-run-stderr.mjs --self-test
+          node scripts/check-convex-run-stderr.mjs
 
       # ── THE PATH-GATE CHECKER HAS TO RUN UNGATED, AND DID NOT ─────────────
       #
@@ -93,6 +95,15 @@ jobs:
         run: |
           node scripts/check-worker-fetch-options.mjs --self-test
           node scripts/check-worker-fetch-options.mjs
+
+      # Every Durable Object is placed in eastern North America (decided by the
+      # owner, 2026-11-01). An object is placed once, near its first caller,
+      # and never moves: Tex's objects had no hint and six of them were placed
+      # in London and Amsterdam beside a gateway in Virginia.
+      - name: Every Durable Object stub names the eastern North America hint
+        run: |
+          node scripts/check-durable-object-location.mjs --self-test
+          node scripts/check-durable-object-location.mjs
 
       # ── AND THE JOBS THIS REPOSITORY NEVER TURNED ON ─────────────────────
       #

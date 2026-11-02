@@ -61,14 +61,25 @@ export async function directNote(group, record, which) {
  * (`moveVoice`) has run. The memory page is never kept as missing: it is written after this lookup, in the same
  * exchange, and a missing page read as empty would lose the chat's history.
  */
-export async function learnDirect(group, { voice, about, memory }) {
+export async function learnDirect(group, { voice, about, memory }, old = null) {
   const store = group?.home?.store;
   if (typeof store?.keysAt !== "function") return {};
   try {
-    const keys = await store.keysAt([voice, about, memory].filter((path) => typeof path === "string"));
+    const paths = { voice, about, memory };
+    const before = old ?? {};
+    const keys = await store.keysAt([...Object.values(paths), ...Object.values(before)].filter((path) => typeof path === "string"));
     const own = (path) => (ownKey(group, keys?.[path]) ? keys[path] : undefined);
     const missing = (path) => (keys?.[path] === false ? false : undefined);
-    const direct = { voice: own(voice) ?? missing(voice), about: own(about) ?? missing(about), memory: own(memory) };
+    const direct = {};
+    const stillOld = [];
+    for (const [which, path] of Object.entries(paths)) {
+      // A note found only under its name before the 2026-11-01 rename lives there until the rename runs (`homeNames.js`).
+      const was = before[which];
+      const live = keys?.[path] === false && typeof was === "string" && typeof keys?.[was] === "string" ? was : path;
+      if (live !== path) stillOld.push(which);
+      direct[which] = own(live) ?? (which === "memory" ? undefined : missing(live));
+    }
+    if (old !== null) direct.old = stillOld;
     return Object.fromEntries(Object.entries(direct).filter(([, value]) => value !== undefined));
   } catch {
     return {};

@@ -215,9 +215,9 @@ members read fails, the webhook's own list is used and the failure is
 logged. An answer is not sent if the members read after the turn shows
 someone new.
 
-**What a simplification would cost:** handing a turn every kept line, rather
-than those said in front of the same people, replays to a newcomer what was
-said before they joined. A group turn on the tagger's ordinary
+**What a simplification would cost:** (A group turn now reads every kept line,
+including what was said before a newcomer joined: the owner, 2026-11-02;
+[event-log](./event-log.md).) A group turn on the tagger's ordinary
 texting grant reads their personal workspace, mail and vault into a room of
 other people. A workspace set computed once at join time, rather than per
 message and per tool call, keeps answering after someone is removed. Tests:

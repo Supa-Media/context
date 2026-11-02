@@ -23,22 +23,43 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const BEGIN = "// TEX ENTRY POINT: begin";
-const END = "// TEX ENTRY POINT: end";
-/** Where entry-point regions may live; every file here is scanned. */
-const SCANNED = ["apps/mcp/src/agent", "apps/agent/src"];
-/** Each file that must hold a region: the reply path cannot quietly lose its markers. */
-// The texting Worker's side (`apps/agent/src`) is timed per text by `textTiming.ts` (`tex_text_timing`);
-// a region there is checked the same way once one is added, and joins this list then.
-const REQUIRED = ["apps/mcp/src/agent/route.js"];
-
-const TIMED = /^await\s+tex\.(step|wait|ahead|after|behind)\(/;
-const STEP = /\btex\.(step|wait|ahead|after)\(/g;
+/**
+ * Each entry point: its markers, where its regions may live (every file there
+ * is scanned), the files that must hold one (a path cannot quietly lose its
+ * markers), and what a timed await looks like. The MCP entry point
+ * (`apps/mcp/src/mcp/mcpEntryPoint.js`, Dev2 2026-11-02) is held to the same rule.
+ */
+export const ENTRY_POINTS = [
+  {
+    label: "Tex",
+    begin: "// TEX ENTRY POINT: begin",
+    end: "// TEX ENTRY POINT: end",
+    scanned: ["apps/mcp/src/agent", "apps/agent/src"],
+    // The texting Worker's side (`apps/agent/src`) is timed per text by `textTiming.ts` (`tex_text_timing`);
+    // a region there is checked the same way once one is added, and joins this list then.
+    required: ["apps/mcp/src/agent/route.js"],
+    timed: /^await\s+tex\.(step|wait|ahead|after|behind)\(/,
+    step: /\btex\.(step|wait|ahead|after)\(/g,
+    fix: 'wrap it as `await tex.step("what_it_does", () => ...)` (texEntryPoint)',
+  },
+  {
+    label: "MCP",
+    begin: "// MCP ENTRY POINT: begin",
+    end: "// MCP ENTRY POINT: end",
+    scanned: ["apps/mcp/src/http", "apps/mcp/src/mcp"],
+    required: ["apps/mcp/src/http/mcpRoute.js"],
+    timed: /^await\s+mcp\.step\(/,
+    step: /\bmcp\.step\(/g,
+    fix: 'wrap it as `await mcp.step("what_it_does", () => ...)` (mcpEntryPoint)',
+  },
+];
+const [TEX] = ENTRY_POINTS;
 /** A step's name: a snake_case string, or a choice of two (`group !== null ? "a" : "b"`). */
 const NAME = /^(?:"[a-z0-9_:]+"|[a-z]+ !== null \? "[a-z0-9_:]+" : "[a-z0-9_:]+")$/;
 
 /** The problems in one file's text, as `line: message`, and how many regions it has. */
-export function checkSource(source) {
+export function checkSource(source, point = TEX) {
+  const { begin: BEGIN, end: END } = point;
   const problems = [];
   const lines = source.split("\n");
   let inside = false;
@@ -59,9 +80,9 @@ export function checkSource(source) {
     if (!inside) continue;
     const code = masked(line);
     for (const match of code.matchAll(/\bawait\b/g)) {
-      if (!TIMED.test(code.slice(match.index))) problems.push(`${at}: an untimed await; wrap it as \`await tex.step("what_it_does", () => ...)\` (texEntryPoint)`);
+      if (!point.timed.test(code.slice(match.index))) problems.push(`${at}: an untimed await; ${point.fix}`);
     }
-    for (const match of code.matchAll(STEP)) {
+    for (const match of code.matchAll(point.step)) {
       const from = match.index + match[0].length;
       const stop = code.slice(from).search(/[,)]/);
       const name = line.slice(from, stop === -1 ? undefined : from + stop).trim();
@@ -107,18 +128,21 @@ function filesUnder(dir) {
 
 export function checkRepository(root = ROOT) {
   const problems = [];
-  for (const dir of SCANNED) {
-    for (const path of filesUnder(join(root, dir))) {
-      const { problems: found, regions } = checkSource(readFileSync(path, "utf8"));
-      const name = relative(root, path);
-      for (const problem of found) problems.push(`${name}:${problem}`);
-      if (REQUIRED.includes(name) && regions === 0) problems.push(`${name}: the reply path lost its "${BEGIN}" marker`);
+  for (const point of ENTRY_POINTS) {
+    for (const dir of point.scanned) {
+      for (const path of filesUnder(join(root, dir))) {
+        const { problems: found, regions } = checkSource(readFileSync(path, "utf8"), point);
+        const name = relative(root, path);
+        for (const problem of found) problems.push(`${name}:${problem}`);
+        if (point.required.includes(name) && regions === 0) problems.push(`${name}: the ${point.label} path lost its "${point.begin}" marker`);
+      }
     }
   }
   return problems;
 }
 
 function selfTest() {
+  const { begin: BEGIN, end: END } = TEX;
   const ok = checkSource(`x\n${BEGIN}\nconst a = await tex.step("read", () => r());\nconst b = await tex.wait("read", p); // await in a comment\nconst c = "await in a string";\nconst d = tex.ahead(group !== null ? "group_read" : "read", () => r());\n${END}\nawait free();\n`);
   if (ok.problems.length !== 0 || ok.regions !== 1) throw new Error(`self-test: a timed region was refused: ${ok.problems.join("; ")}`);
   const bare = checkSource(`${BEGIN}\nconst a = await read();\n${END}\n`);
@@ -129,6 +153,11 @@ function selfTest() {
   if (open.problems.length !== 1) throw new Error("self-test: a region that never ends passed");
   const nested = checkSource(`${BEGIN}\nconst a = await tex.step("outer", async () => keep(await hear()));\n${END}\n`);
   if (nested.problems.length !== 1) throw new Error("self-test: an untimed await inside a step passed");
+  const MCP = ENTRY_POINTS[1];
+  const mcpOk = checkSource(`${MCP.begin}\nconst s = await mcp.step("session", () => r());\n${MCP.end}\n`, MCP);
+  if (mcpOk.problems.length !== 0 || mcpOk.regions !== 1) throw new Error(`self-test: a timed MCP region was refused: ${mcpOk.problems.join("; ")}`);
+  const mcpBare = checkSource(`${MCP.begin}\nconst s = await resolve();\nconst t = await tex.step("x", () => r());\n${MCP.end}\n`, MCP);
+  if (mcpBare.problems.length !== 2) throw new Error("self-test: an untimed await on the MCP path passed");
   console.log("tex-entry-check: self-test passed");
 }
 
@@ -144,18 +173,21 @@ async function hook() {
   }
   if (typeof path !== "string" || !/\.(js|ts|mjs)$/.test(path)) return;
   const name = relative(ROOT, resolve(path));
-  if (!SCANNED.some((dir) => name.startsWith(`${dir}/`))) return;
+  const points = ENTRY_POINTS.filter((point) => point.scanned.some((dir) => name.startsWith(`${dir}/`)));
+  if (points.length === 0) return;
   let source;
   try {
     source = readFileSync(resolve(path), "utf8");
   } catch {
     return;
   }
-  const { problems, regions } = checkSource(source);
-  if (REQUIRED.includes(name) && regions === 0) problems.push(`the reply path lost its "${BEGIN}" marker`);
-  if (problems.length === 0) return;
-  process.stderr.write(`Tex entry point: every step on the reply path is timed by name (scripts/tex-entry-check.mjs).\n${problems.map((p) => `${name}:${p}`).join("\n")}\n`);
-  process.exit(2);
+  for (const point of points) {
+    const { problems, regions } = checkSource(source, point);
+    if (point.required.includes(name) && regions === 0) problems.push(`the ${point.label} path lost its "${point.begin}" marker`);
+    if (problems.length === 0) continue;
+    process.stderr.write(`${point.label} entry point: every step on its path is timed by name (scripts/tex-entry-check.mjs).\n${problems.map((p) => `${name}:${p}`).join("\n")}\n`);
+    process.exit(2);
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -164,9 +196,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   else {
     const problems = checkRepository();
     if (problems.length > 0) {
-      console.error(`tex-entry-check: ${problems.length} untimed step(s) on Tex's reply path:\n${problems.join("\n")}`);
+      console.error(`tex-entry-check: ${problems.length} untimed step(s) on an entry point's path:\n${problems.join("\n")}`);
       process.exit(1);
     }
-    console.log("tex-entry-check: every step on Tex's reply path is timed");
+    console.log("tex-entry-check: every step on Tex's and MCP's paths is timed");
   }
 }

@@ -40,6 +40,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { requireAuthId } from "./lib/signedIn";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
 import { buildGroupName, describeRejection, groupLabelOf } from "./lib/names";
+import { keepInGroup, ungroupFirst } from "./lib/accessHandOff/ungroup";
 
 /**
  * How many groups one workspace may hold.
@@ -237,7 +238,11 @@ export const addGroupMember = mutation({
       .query("workspaceGroupMembers")
       .withIndex("by_group_user", (q) => q.eq("groupId", args.groupId).eq("userId", args.userId))
       .unique();
-    if (already !== null) return null;
+    if (already !== null) {
+      // Still named because a queued leave has not finished: the add wins.
+      await keepInGroup(ctx, args.workspaceId, args.groupId, [args.userId]);
+      return null;
+    }
 
     const named = await ctx.db
       .query("workspaceGroupMembers")
@@ -272,7 +277,10 @@ export const removeGroupMember = mutation({
       .query("workspaceGroupMembers")
       .withIndex("by_group_user", (q) => q.eq("groupId", args.groupId).eq("userId", args.userId))
       .unique();
-    if (row !== null) await ctx.db.delete(row._id);
+    if (row === null) return null;
+    // Leaving a group can take access away: where the object decides, it hears it first (`accessHandOff/ungroup.ts`).
+    if (await ungroupFirst(ctx, { workspaceId: args.workspaceId, groupId: args.groupId, userIds: [args.userId] })) return null;
+    await ctx.db.delete(row._id);
     return null;
   },
 });
@@ -304,6 +312,7 @@ export const deleteGroup = mutation({
       .query("workspaceGroupMembers")
       .withIndex("by_group", (q) => q.eq("groupId", args.groupId))
       .take(MAX_MEMBERS_PER_GROUP);
+    if (await ungroupFirst(ctx, { workspaceId: args.workspaceId, groupId: args.groupId, userIds: named.map((row) => row.userId), wholeGroup: true })) return null;
     for (const row of named) await ctx.db.delete(row._id);
 
     const claim = await ctx.db

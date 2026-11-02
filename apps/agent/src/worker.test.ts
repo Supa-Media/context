@@ -23,7 +23,7 @@ async function signedRequest(body: string, opts: { id?: string; key?: Uint8Array
 function env(): { env: Env; routedTo: string[] } {
   const routedTo: string[] = [];
   const namespace = {
-    idFromName: (name: string) => ({ name }),
+    idFromName: (name: string) => ({ name: name.replace(/^enam:/, "") }), // inboxes live under `enam:<name>` (`inboxByName`); kept here by name
     get: (id: { name: string }) => ({
       fetch: async () => {
         routedTo.push(id.name);
@@ -102,7 +102,7 @@ describe("worker", () => {
       const queued: Record<string, unknown>[] = [];
       made.env.SENDBLUE_WEBHOOK_SECRET = SB_SECRET;
       made.env.SENDER_INBOX = {
-        idFromName: (name: string) => ({ name }),
+        idFromName: (name: string) => ({ name: name.replace(/^enam:/, "") }), // inboxes live under `enam:<name>` (`inboxByName`); kept here by name
         get: (id: { name: string }) => ({
           fetch: async (url: string, init?: RequestInit) => {
             made.routedTo.push(id.name);
@@ -340,7 +340,7 @@ describe("worker", () => {
       const reported: unknown[] = [];
       const { env: e } = env();
       e.SENDER_INBOX = {
-        idFromName: (name: string) => ({ name }),
+        idFromName: (name: string) => ({ name: name.replace(/^enam:/, "") }), // inboxes live under `enam:<name>` (`inboxByName`); kept here by name
         get: (id: { name: string }) => ({
           fetch: async (url: string, init: RequestInit) => {
             inboxCalls.push({ name: id.name, url, body: JSON.parse(String(init.body)) });
@@ -376,7 +376,7 @@ describe("worker", () => {
       const reported: unknown[] = [];
       const { env: e } = env();
       e.SENDER_INBOX = {
-        idFromName: (name: string) => ({ name }),
+        idFromName: (name: string) => ({ name: name.replace(/^enam:/, "") }), // inboxes live under `enam:<name>` (`inboxByName`); kept here by name
         get: (id: { name: string }) => ({
           fetch: async (url: string, init: RequestInit) => {
             inboxCalls.push({ name: id.name, url, body: JSON.parse(String(init.body)) });

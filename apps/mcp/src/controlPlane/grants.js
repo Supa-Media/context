@@ -5,6 +5,21 @@
 import { ControlPlaneError } from "./client.js";
 
 export function createGrantMethods({ post, required }) {
+  /**
+   * `{revoked, held}`: `held` is `{grantId, personalWorkspaceId}` when the grant is a switched person's, which the
+   * control plane leaves to their object (`oauth/objectGrants.js` revokes it there, then writes the copy behind).
+   */
+  async function revokeGrantAnswer(token, tokenType, clientId) {
+    const parsed = await post("/gateway/grants/revoke", { token, tokenType, clientId });
+    const revoked = required(parsed, "revoked");
+    const held = parsed.held;
+    if (held !== undefined && held !== null) {
+      if (typeof held.grantId !== "string" || typeof held.personalWorkspaceId !== "string") throw new ControlPlaneError("malformed held grant");
+      return { revoked: false, held: { grantId: held.grantId, personalWorkspaceId: held.personalWorkspaceId } };
+    }
+    return { revoked: revoked === true, held: null };
+  }
+
   return {
     async registerClient(registration) {
       const parsed = await post("/gateway/clients/register", registration);
@@ -38,6 +53,20 @@ export function createGrantMethods({ post, required }) {
       return grantId;
     },
 
+    /**
+     * A grant for a switched person, written behind their object (`oauth/objectGrants.js`): the control plane makes the
+     * row, as `createGrant` does, and answers the connection row the object is to keep.
+     */
+    async createHeldGrant(grant) {
+      const parsed = await post("/gateway/grants/create", { ...grant, heldBy: "object" });
+      const grantId = required(parsed, "grantId");
+      const connection = required(parsed, "connection");
+      if (typeof grantId !== "string" || !grantId || connection === null || typeof connection !== "object" || connection.grantId !== grantId) {
+        throw new ControlPlaneError("malformed held grant");
+      }
+      return { grantId, connection };
+    },
+
     async rotateGrant(rotation) {
       return required(await post("/gateway/grants/rotate", rotation), "grant");
     },
@@ -52,10 +81,9 @@ export function createGrantMethods({ post, required }) {
     },
 
     async revokeGrant(token, tokenType, clientId) {
-      return required(
-        await post("/gateway/grants/revoke", { token, tokenType, clientId }),
-        "revoked"
-      );
+      return (await revokeGrantAnswer(token, tokenType, clientId)).revoked;
     },
+
+    revokeGrantAnswer,
   };
 }

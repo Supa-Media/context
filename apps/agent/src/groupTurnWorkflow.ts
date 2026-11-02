@@ -14,6 +14,7 @@
 import { logged } from "./agentError";
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import type { Env } from "./index";
+import { objectById } from "./objectPlace";
 
 export type GroupTurnParams = { inbox: string; turn: string };
 export const ANSWER_RETRIES = { limit: 3, delay: "10 seconds", backoff: "exponential" } as const;
@@ -43,7 +44,8 @@ export async function runGroupTurn(params: GroupTurnParams, step: Pick<WorkflowS
 
 export class GroupTurnWorkflow extends WorkflowEntrypoint<Env, GroupTurnParams> {
   async run(event: Readonly<WorkflowEvent<GroupTurnParams>>, step: WorkflowStep): Promise<string> {
-    const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromString(event.payload.inbox));
+    const stub = objectById(this.env.SENDER_INBOX, event.payload.inbox);
+    if (stub === null) throw new TypeError("not an inbox id");
     return await runGroupTurn(event.payload, step, (path, turn) => stub.fetch(`https://inbox${path}`, { method: "POST", body: JSON.stringify({ turn }) }));
   }
 }

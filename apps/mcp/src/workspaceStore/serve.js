@@ -9,7 +9,12 @@
 import { canSee, PrivacyOverrides } from "../privacy/engine.js";
 import { serveTexStore } from "../texStore/wire.js";
 import { isWorkspaceObjectKey, MAX_READ_IDS } from "./api.js";
+import { ACCESS_HOMES, AccessRowRefused } from "./access.js";
+import { judgedReader } from "./members.js";
 import { AUDIENCES, WorkspaceRowRefused } from "./rows.js";
+import { isPersonCall, servePersonCall } from "./personServe.js";
+import { isTokenIndexCall, serveTokenIndex } from "./tokenIndex.js";
+import { membersState, serveMembersCall } from "./serveMembers.js";
 
 const CALL = "x-tex-call";
 
@@ -44,9 +49,9 @@ export function parsedRules(rules) {
  * refused note and a missing one answer alike, after the same storage read.
  * No rules held means nothing is shown: the object fails closed.
  */
-export async function readNotes({ rows, objects }, { ids, scope, groups, audience = "member" }) {
+export async function readNotes({ rows, objects, members = null }, { ids, scope, groups, audience = "member", userId = null }) {
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_READ_IDS) throw new WorkspaceRowRefused(`a read names 1 to ${MAX_READ_IDS} notes`);
-  const judge = judgeFor(rows, { scope, groups, audience });
+  const judge = judgeFor(rows, { scope, groups, audience, userId }, members);
   const notes = [];
   for (const id of ids) {
     const row = typeof id === "string" ? rows.byNoteId(id) : null;
@@ -76,23 +81,29 @@ export async function readNotes({ rows, objects }, { ids, scope, groups, audienc
  * The check every answer about a note goes through: the audience's rules (fail closed when none are held) and
  * `canSee` over the row's path, with the grant's scope and row tokens.
  */
-function judgeFor(rows, { scope, groups, audience = "member" }) {
+function judgeFor(rows, { scope, groups, audience = "member", userId = null }, members = null) {
   if (!SCOPES.has(scope)) throw new WorkspaceRowRefused("a read needs its scope");
   if (!AUDIENCES.has(audience)) throw new WorkspaceRowRefused("not an audience");
-  const tokens = new Set(Array.isArray(groups) ? groups.filter((group) => typeof group === "string") : []);
+  let reader = { scope, tokens: new Set(Array.isArray(groups) ? groups.filter((group) => typeof group === "string") : []) };
+  // Where this object decides access, who the reader is here comes from its own members (`members.js`
+  // `judgedReader`): a read that names nobody, or somebody who is not a member, sees nothing. Only a member's own
+  // reading is judged here, so a guest audience read in this mode is refused too.
+  if (members !== null && members.home() === ACCESS_HOMES.OBJECT) {
+    reader = audience === "member" && typeof userId === "string" ? judgedReader(members, { userId, scope, groups }) : null;
+  }
   const held = rows.rules(audience);
-  const parsed = held === null ? null : parsedRules(held);
+  const parsed = held === null || reader === null ? null : parsedRules(held);
   return {
     accessVersion: held?.accessVersion ?? null,
-    sees: (row) => row !== null && parsed !== null && canSee(row.path, scope, parsed.rules, parsed.overrides, tokens),
+    sees: (row) => row !== null && parsed !== null && canSee(row.path, reader.scope, parsed.rules, parsed.overrides, reader.tokens),
   };
 }
 
 /** Rows by path or by note id, as the gateway's note-id lookup and resolve answer them; one it may not see is absent. */
-function lookUp(rows, fields, by) {
+function lookUp(rows, fields, by, members = null) {
   const asked = Array.isArray(fields[by === "path" ? "paths" : "noteIds"]) ? fields[by === "path" ? "paths" : "noteIds"] : null;
   if (asked === null || asked.length === 0 || asked.length > MAX_READ_IDS) throw new WorkspaceRowRefused(`a lookup names 1 to ${MAX_READ_IDS}`);
-  const judge = judgeFor(rows, fields);
+  const judge = judgeFor(rows, fields, members);
   return {
     accessVersion: judge.accessVersion,
     rows: asked.map((value) => {
@@ -115,7 +126,7 @@ function pathsTouched(rows, ids, incoming = []) {
  */
 export async function serveWorkspaceStore(store, request) {
   const op = opOf(request);
-  if (typeof op !== "string" || !op.startsWith("ws.")) return await serveTexStore(store.objects, request);
+  if (typeof op !== "string" || !(op.startsWith("ws.") || isPersonCall(op) || isTokenIndexCall(op))) return await serveTexStore(store.objects, request);
   let fields;
   try {
     fields = JSON.parse((await request.text()) || "{}");
@@ -123,8 +134,14 @@ export async function serveWorkspaceStore(store, request) {
     return Response.json({ error: "bad_call" }, { status: 400 });
   }
   const { rows } = store;
+  // An old refresh token's index object (`workspaceStore/tokenIndex.js`): never a workspace, so it pins none.
+  if (isTokenIndexCall(op) && store.sql) return serveTokenIndex(store.sql, op, fields);
+  // A person object's calls (`workspaceStore/access.js`): the personal workspace's reach, shares and connections.
+  if (isPersonCall(op) && store.person) return await servePersonCall(store, op, fields);
   try {
     rows.pinWorkspace(fields.workspaceId);
+    const membership = await serveMembersCall(store, op, fields);
+    if (membership !== null) return membership;
     switch (op) {
       case "ws.read":
         return Response.json(await readNotes(store, fields));
@@ -169,9 +186,9 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(answer);
       }
       case "ws.rows.lookup":
-        return Response.json(lookUp(rows, fields, "path"));
+        return Response.json(lookUp(rows, fields, "path", store.members ?? null));
       case "ws.rows.resolve":
-        return Response.json(lookUp(rows, fields, "noteId"));
+        return Response.json(lookUp(rows, fields, "noteId", store.members ?? null));
       case "ws.rows.get":
         return Response.json({ rows: rows.get(fields.ids) });
       case "ws.rows.list":
@@ -189,6 +206,8 @@ export async function serveWorkspaceStore(store, request) {
           backfilledAt: rows.backfilledAt(),
           rows: rows.count(),
           accessVersion: rows.rules()?.accessVersion ?? null,
+          ...(store.person ? { access: { home: store.person.home(), person: store.person.person() } } : {}),
+          members: membersState(store),
         });
       case "ws.home":
         return Response.json({ home: rows.setHome(fields.home) });
@@ -198,7 +217,7 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json({ error: "unknown_op" }, { status: 400 });
     }
   } catch (error) {
-    if (error instanceof WorkspaceRowRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
+    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
   }
 }

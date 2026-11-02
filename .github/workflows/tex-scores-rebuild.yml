@@ -56,10 +56,10 @@ jobs:
             done
             dry=true
             [ "$DRY_RUN" = "true" ] || dry=false
-            npx convex run functions/texReviewScoresRebuild:dropRepeatScores "{\"day\":\"$DAY\",\"kind\":\"group\",\"minutes\":[$list],\"dryRun\":$dry}"
+            npx convex run functions/texReviewScoresRebuild:dropRepeatScores "{\"day\":\"$DAY\",\"kind\":\"group\",\"minutes\":[$list],\"dryRun\":$dry}" 2>/dev/null
             [ "$dry" = "true" ] && exit 0
           fi
-          npx convex run functions/texReviewScoresRebuild:rebuildScoresNote "{\"day\":\"$DAY\"}"
+          npx convex run functions/texReviewScoresRebuild:rebuildScoresNote "{\"day\":\"$DAY\"}" 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           DAY: ${{ inputs.day }}

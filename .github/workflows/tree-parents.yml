@@ -35,11 +35,11 @@ jobs:
 
       - name: Start checks
         if: ${{ inputs.start }}
-        run: npx convex run functions/treeParents:checkDue
+        run: npx convex run functions/treeParents:checkDue 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
 
       - name: Report
-        run: npx convex run functions/treeParents:report
+        run: npx convex run functions/treeParents:report 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

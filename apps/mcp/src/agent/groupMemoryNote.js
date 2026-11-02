@@ -167,7 +167,7 @@ export const PAGE_TRIES = 3;
  * (somebody's own words may be on it). Whether it was written; a refusal is one structured line with the tool's
  * leading words, never the page's.
  */
-export async function updateGroupPage(dispatch, path, change, { log = console.log } = {}) {
+export async function updateGroupPage(dispatch, path, change, { log = console.log, onRefused = null } = {}) {
   let reason = "unreadable";
   for (let attempt = 0; attempt < PAGE_TRIES; attempt += 1) {
     const page = await readGroupPage(dispatch, path);
@@ -187,6 +187,17 @@ export async function updateGroupPage(dispatch, path, change, { log = console.lo
       break;
     }
   }
-  log(JSON.stringify({ event: "group_memory_page_not_written", reason }));
+  const code = reasonCode(reason);
+  log(JSON.stringify({ event: "group_memory_page_not_written", reason: code }));
+  if (typeof onRefused === "function") onRefused(code);
   return false;
+}
+
+/**
+ * A refusal's leading words as a code a public log keeps (`.github/workflows/agent-logs.yml` prints anything else as
+ * `other`): "permission denied" is `permission_denied`. Only the words before the first `:`, newline or `(`, as
+ * `refusalWords` already cuts them, and never more than 40 characters.
+ */
+export function reasonCode(words) {
+  return String(words ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40).replace(/_+$/, "") || "refused";
 }

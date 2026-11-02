@@ -19,6 +19,8 @@ import { createWorkspaceMethods } from "./workspaces.js";
 import { createDreamMethods } from "./dreams.js";
 import { createAttentionMethods } from "./attention.js";
 import { createMailHealthMethods } from "./mailHealth.js";
+import { createAccessProfileMethods } from "./accessProfiles.js";
+import { createAccessMirrorMethods } from "./accessMirror.js";
 import { createIdentityMethods } from "./identity.js";
 import { createTranscriptionMethods } from "./transcription.js";
 import { createTexCommandMethods } from "./texCommands.js";
@@ -37,7 +39,7 @@ export function createControlPlane(env, options = {}) {
   const { post, required } = createTransport(env, fetchImpl);
 
   return {
-    ...createSessionMethods({ post, required }),
+    ...createSessionMethods({ post, required, env, sessionObjects: options.sessionObjects }),
     ...createGrantMethods({ post, required }),
     ...createReportingMethods({ post, required }),
     ...createJobMethods({ post, required }),
@@ -57,6 +59,8 @@ export function createControlPlane(env, options = {}) {
     ...createDreamMethods({ post }),
     ...createAttentionMethods({ post }),
     ...createMailHealthMethods({ post }),
+    ...createAccessProfileMethods({ post }),
+    ...createAccessMirrorMethods({ post }),
     ...createIdentityMethods({ post }),
     ...createTranscriptionMethods({ post }),
     ...createTexCommandMethods({ post }),

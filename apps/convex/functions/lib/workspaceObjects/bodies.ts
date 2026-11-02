@@ -86,7 +86,7 @@ async function filterInWaves<T>(items: T[], width: number, test: (item: T) => Pr
   const kept: T[] = [];
   for (let start = 0; start < items.length; start += width) {
     const slice = items.slice(start, start + width);
-    const answers = await Promise.all(slice.map(test));
+    const answers = await settled(slice.map(test));
     slice.forEach((item, index) => {
       if (answers[index]) kept.push(item);
     });
@@ -166,11 +166,59 @@ async function present(store: BodyStore, key: string): Promise<boolean> {
 
 /** Runs `work` over `items`, `width` at a time. */
 async function inWaves<T>(items: T[], width: number, work: (item: T) => Promise<void>): Promise<void> {
-  for (let start = 0; start < items.length; start += width) await Promise.all(items.slice(start, start + width).map(work));
+  for (let start = 0; start < items.length; start += width) await settled(items.slice(start, start + width).map(work));
+}
+
+/** Every promise run to its end before the first failure is thrown: none left in flight behind a rejection. */
+async function settled<T>(promises: Promise<T>[]): Promise<T[]> {
+  const results = await Promise.allSettled(promises);
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failed) throw failed.reason;
+  return results.map((result) => (result as PromiseFulfilledResult<T>).value);
+}
+
+/**
+ * A key described without saying it: which part it is in, how long it is and
+ * what kind of characters it holds. A failure that only some keys hit carries
+ * this, so the public log can tell what those keys have in common.
+ */
+export function keyShape(key: string): string {
+  const part = key.startsWith("notes/") ? "notes" : (historyPart(key) ?? "elsewhere");
+  const length = key.length < 64 ? "<64" : key.length < 256 ? "<256" : key.length < 1024 ? "<1024" : ">=1024";
+  const chars = /^[A-Za-z0-9._/-]*$/.test(key)
+    ? "plain"
+    : /[^\x00-\x7f]/.test(key)
+      ? "nonascii"
+      : /[\x00-\x1f\x7f]/.test(key)
+        ? "control"
+        : /^[A-Za-z0-9._/ -]*$/.test(key)
+          ? "spaces"
+          : "symbols";
+  return `${part}/${length}/${chars}`;
+}
+
+/** `work`, with any failure it throws marked with the shape of the key it was about. */
+async function aboutKey<T>(key: string, work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error !== null && typeof error === "object" && !("keyShape" in error)) {
+      try {
+        (error as { keyShape?: string }).keyShape = keyShape(key);
+      } catch {
+        // A frozen error keeps no shape; its reason still says what failed.
+      }
+    }
+    throw error;
+  }
 }
 
 /** One key copied from the bucket into the object, by the rule in the header. */
-export async function copyKey(bucket: BodyStore, object: BodyStore, key: string, dryRun: boolean): Promise<keyof CopyCounts> {
+export function copyKey(bucket: BodyStore, object: BodyStore, key: string, dryRun: boolean): Promise<keyof CopyCounts> {
+  return aboutKey(key, () => copyOne(bucket, object, key, dryRun));
+}
+
+async function copyOne(bucket: BodyStore, object: BodyStore, key: string, dryRun: boolean): Promise<keyof CopyCounts> {
   // The object's state BEFORE the bucket is read: the condition the write is made on.
   const before = await object.get(key);
   const source = await bucket.get(key);
@@ -198,7 +246,13 @@ export async function copyKey(bucket: BodyStore, object: BodyStore, key: string,
 export async function copyPage(
   bucket: BodyStore,
   object: BodyStore,
-  { at, limit, width = 8, dryRun }: { at: WalkCursor; limit: number; width?: number; dryRun: boolean },
+  {
+    at,
+    limit,
+    width = 8,
+    dryRun,
+    onFailure,
+  }: { at: WalkCursor; limit: number; width?: number; dryRun: boolean; onFailure?: (error: unknown) => void },
 ): Promise<{ counts: CopyCounts; next: WalkCursor | null }> {
   const counts = emptyCopyCounts();
   const prefix = OBJECT_PREFIXES[at.prefix];
@@ -221,8 +275,9 @@ export async function copyPage(
           if (held === null) return;
           await object.delete(key, typeof held.etag === "string" ? { onlyIf: { etagMatches: held.etag } } : {});
           counts.removedOlder += 1;
-        } catch {
+        } catch (error) {
           counts.failed += 1;
+          onFailure?.(error);
         }
       },
     );
@@ -230,8 +285,9 @@ export async function copyPage(
   await inWaves(keys, width, async (key) => {
     try {
       counts[await copyKey(bucket, object, key, dryRun)] += 1;
-    } catch {
+    } catch (error) {
       counts.failed += 1;
+      onFailure?.(error);
     }
   });
   const next: WalkCursor | null =
@@ -262,8 +318,12 @@ export interface ParityCursor {
 
 type Verdict = "same" | "missingInObject" | "extraInObject" | "differ" | "neither";
 
-async function verdictOf(bucket: BodyStore, object: BodyStore, key: string): Promise<Verdict> {
-  const [left, right] = await Promise.all([bucket.get(key), object.get(key)]);
+function verdictOf(bucket: BodyStore, object: BodyStore, key: string): Promise<Verdict> {
+  return aboutKey(key, () => compareOne(bucket, object, key));
+}
+
+async function compareOne(bucket: BodyStore, object: BodyStore, key: string): Promise<Verdict> {
+  const [left, right] = await settled([bucket.get(key), object.get(key)]);
   if (left === null && right === null) return "neither";
   if (right === null) return "missingInObject";
   if (left === null) return "extraInObject";
@@ -280,10 +340,12 @@ export async function parityPage(
   bucket: BodyStore,
   object: BodyStore,
   { at, limit, width = 8, recheckMs, sleep }: { at: ParityCursor; limit: number; width?: number; recheckMs: number; sleep: (ms: number) => Promise<void> },
-): Promise<{ parity: BodyParity; next: ParityCursor | null }> {
+): Promise<{ parity: BodyParity; shapes: Record<string, number>; next: ParityCursor | null }> {
   const parity = emptyBodyParity();
+  // Each counted disagreement by `<verdict>#<key shape>`: what the keys have in common, never which keys.
+  const shapes: Record<string, number> = {};
   const prefix = OBJECT_PREFIXES[at.prefix];
-  if (prefix === undefined) return { parity, next: null };
+  if (prefix === undefined) return { parity, shapes, next: null };
   const walked = at.side === 0 ? bucket : object;
   const page = await walked.list({ prefix, ...(at.cursor ? { cursor: at.cursor } : {}), limit });
   const listed = (page.objects ?? []).map((entry) => entry.key).filter(isWorkspaceObjectKey);
@@ -306,14 +368,18 @@ export async function parityPage(
       const verdict = await verdictOf(bucket, object, key);
       // Side 1 counts only what side 0 cannot see: a key the object holds and the bucket does not.
       if (at.side === 1 && verdict !== "extraInObject") continue;
-      if (verdict === "missingInObject" || verdict === "extraInObject" || verdict === "differ") parity[verdict] += 1;
+      if (verdict === "missingInObject" || verdict === "extraInObject" || verdict === "differ") {
+        parity[verdict] += 1;
+        const label = `${verdict}#${keyShape(key)}`;
+        shapes[label] = (shapes[label] ?? 0) + 1;
+      }
     }
   }
   let next: ParityCursor | null;
   if (page.truncated === true && typeof page.cursor === "string") next = { side: at.side, prefix: at.prefix, cursor: page.cursor };
   else if (at.prefix + 1 < OBJECT_PREFIXES.length) next = { side: at.side, prefix: at.prefix + 1 };
   else next = at.side === 0 ? { side: 1, prefix: 0 } : null;
-  return { parity, next };
+  return { parity, shapes, next };
 }
 
 /** The bytes a workspace's object keys take in the bucket, from listings alone, stopping once past `cap`. */

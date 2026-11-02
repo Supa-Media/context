@@ -88,6 +88,18 @@ export const resolveGrantByAccessToken = internalQuery({
   handler: session.resolveGrantByAccessTokenHandler,
 });
 
+/**
+ * `/gateway/session`'s read: the session, and whether its grant's "last used"
+ * stamp is due. The stamp is written at most every `TOUCH_GRANT_EVERY_MS`, so
+ * on almost every request there is nothing to write, and the route no longer
+ * spends a mutation round trip learning that.
+ */
+export const resolveGatewaySession = internalQuery({
+  args: session.resolveGrantByAccessTokenArgs,
+  returns: v.object({ session: session.resolveGrantByAccessTokenReturns, touchDue: v.boolean() }),
+  handler: session.resolveGatewaySessionHandler,
+});
+
 export const startAuthorization = internalMutation({
   args: authorization.startAuthorizationArgs,
   returns: authorization.startAuthorizationReturns,
@@ -191,103 +203,28 @@ export const openStorageBinding = internalAction({
     if (covered === undefined) return null;
     const workspaceId = covered.workspaceId;
 
-    let credential;
-    try {
-      credential = await ctx.runAction(
-        internal.functions.storage.getBindingForGateway,
-        { workspaceId },
-      );
-    } catch {
-      // `CREDENTIAL_UNAVAILABLE` and anything else alike. The operator sees it
-      // in the deployment's own logs; the gateway sees "no binding", because
-      // an error here would distinguish "bound but unopenable" from "not
-      // bound" for anyone holding the gateway secret and one valid token.
-      return null;
-    }
-    if (credential === null) return null;
-    if (!isUsable(credential.status as BindingStatus)) return null;
-
     /*
-      THE INDEX CREDENTIAL, FOR THE SAME WORKSPACE AND NOBODY ELSE'S.
-
-      `workspaceId` here is `covered.workspaceId` — the id read off the row the
-      grant resolved to, several lines above, which is the only id in this
-      handler that a caller cannot choose. Passing anything else, in particular
-      `args.expectedWorkspaceId`, would hand the gateway a way to name whose
-      index it gets, and `structure.test.ts` fails the build if that argument is
-      ever used to select rather than to compare.
-
-      Absent is the ordinary answer and never an error. A context that never
-      opted in, one that opted out, one still provisioning, one whose provision
-      failed, and a deployment with no D1 token configured at all are one
-      outcome: no `searchIndex` key, and a binding that works exactly as it did
-      before this existed. "Off is a working state, not a degraded one"
-      (`docs/decisions/search.md`).
-
-      Two `runAction`s rather than a shared helper, and the duplication is
-      deliberate: `structure.test.ts` attributes a module-level helper's calls to
-      every export in the file, so a `configFor()` sitting outside this handler
-      would make every function in `controlPlane.ts` read as decrypt-capable and
-      hide this edge in a crowd. The one call that matters is visible here.
+      THE BUCKET CREDENTIAL, started first. `CREDENTIAL_UNAVAILABLE` and
+      anything else alike answer "no binding": an error here would distinguish
+      "bound but unopenable" from "not bound" for anyone holding the gateway
+      secret and one valid token. The operator sees it in the deployment's own
+      logs.
     */
-    let searchIndex: GatewaySearchIndex | undefined;
-    // Search by meaning's sibling, on the same credential, the same workspace
-    // and the same "absent is ordinary" terms. Its own query failing costs
-    // only it, never fast search's descriptor.
-    let meaningIndex: GatewayMeaningIndex | undefined;
-    try {
-      const [target, meaning] = await Promise.all([
-        ctx.runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId }),
-        ctx
-          .runQuery(internal.functions.meaningSearch.writeTargetForWorkspace, { workspaceId })
-          .catch(() => null),
-      ]);
-      if (target !== null || meaning !== null) {
-        const apiToken = await ctx.runAction(
-          internal.functions.admin.readIntegrationSecret,
-          { name: D1_TOKEN_SECRET },
-        );
-        const accountId = await ctx.runAction(
-          internal.functions.admin.readIntegrationSecret,
-          { name: D1_ACCOUNT_SECRET },
-        );
-        // Both or neither, matching `fastSearchProvision.configFor`: half a
-        // configuration reads exactly like none, because there is one cure.
-        if (
-          typeof apiToken === "string" &&
-          apiToken.length > 0 &&
-          typeof accountId === "string" &&
-          accountId.length > 0
-        ) {
-          if (target !== null) {
-            searchIndex = {
-              databaseId: target.databaseId,
-              accountId,
-              apiToken,
-              state: target.state,
-            };
-          }
-          if (meaning !== null) {
-            meaningIndex = { indexName: meaning.indexName, accountId, apiToken, state: meaning.state };
-          }
-        }
-      }
-    } catch {
-      /*
-        Swallowed, and it must be. The binding is what a person's tool call is
-        waiting on; the projection is an accelerator behind it. A failed
-        keyset, an unreadable envelope or a deployment mid-rotation must cost
-        the search its fast path, never cost somebody their notes.
-
-        Nothing about the failure is reported, for the same reason as the
-        `getBindingForGateway` catch above: a caller holding the gateway secret
-        must not be able to tell "no index" from "an index we could not open".
-        The token cannot appear here either — this catch names no error.
-      */
-      searchIndex = undefined;
-      meaningIndex = undefined;
+    const credentialRead = ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId }).then(
+      (value) => ({ ok: true as const, value }),
+      () => ({ ok: false as const }),
+    );
+    const usable = (read: Awaited<typeof credentialRead>) =>
+      read.ok && read.value !== null && isUsable(read.value.status as BindingStatus);
+    /*
+      A rotation step is asked for only by `rotate_encryption_keys`, and then,
+      as before 2026-11-02, only once the credential has been found usable,
+      and before the key read below, so that read holds a generation minted
+      here. Both flags are absent on every ordinary request.
+    */
+    if (args.startEncryptionRotation === true || typeof args.completeEncryptionRotation === "string") {
+      if (!usable(await credentialRead)) return null;
     }
-
     /*
       A ROTATION THE GATEWAY ASKED TO START OR COMPLETE, FOR THE SAME
       WORKSPACE AND NOBODY ELSE'S.
@@ -330,97 +267,104 @@ export const openStorageBinding = internalAction({
     }
 
     /*
-      THE ENCRYPTION KEY, FOR THE SAME WORKSPACE AND NOBODY ELSE'S.
-
-      `workspaceId` again — the id read off the row the grant resolved to, the
-      only id in this handler a caller cannot choose. Same rule as the index
-      credential above, and `structure.test.ts` fails the build if
-      `args.expectedWorkspaceId` is ever used to select rather than to compare.
-
-      `create` is deliberately absent, which means false. A read must never be
-      the thing that brings a key into existence: a context that has never
-      encrypted a note has no row, holds no key, and is one less thing for this
-      control plane to be holding on somebody's behalf. The row is written when
-      an owner turns encryption on, and not before.
-
-      Absent is therefore the ordinary answer, and a failure is answered the
-      same way for the same reason as the two catches above: a caller holding
-      the gateway secret must not be able to tell "this context has no key" from
-      "we could not open the key it has". The gateway degrades to refusing to
-      decrypt, which is a note that reads as locked rather than a note that
-      reads as gone.
-
-      A separate `runAction` rather than a shared helper, matching the index
-      credential immediately above and for the same stated reason: a
-      module-level helper would attribute its calls to every export in this
-      file and hide this edge in a crowd.
-
-      Read AFTER a requested rotation start, deliberately: `openWorkspaceDataKey`
-      decrypts every live row, so a generation minted a few lines above is
-      already among `keys` by the time this runs, and the gateway that asked
-      to start a rotation gets the new generation's material in the very same
-      response rather than needing a second round trip for it.
+      EVERY OTHER READ, SIDE BY SIDE. Each needs only `workspaceId` (the id
+      read off the row the grant resolved to, never `args.expectedWorkspaceId`,
+      which `structure.test.ts` holds to comparison only) and none needs
+      another's answer, so they run at once rather than one after another:
+      before 2026-11-02 they were nine serial round trips inside this action.
+      Each keeps its own failure rule, written beside it.
     */
-    let encryptionKey: GatewayEncryptionKey | undefined;
-    try {
-      const opened = await ctx.runAction(
-        internal.functions.encryptionKeys.openWorkspaceDataKey,
-        { workspaceId },
-      );
-      encryptionKey = opened === null ? undefined : opened;
-    } catch {
-      encryptionKey = undefined;
-    }
-
-    /*
-      ROTATION STATUS, FOR THE SAME WORKSPACE. A plain query, no decrypt — safe
-      to run on every request, not only one that asked to start or complete
-      one, so a gateway that only ever reads can still see a walk outstanding.
-    */
-    let rotation: GatewayKeyRotation | undefined;
-    try {
-      const active = await ctx.runQuery(
-        internal.functions.encryptionKeys.getActiveWorkspaceKeyRotation,
-        { workspaceId },
-      );
-      rotation =
-        active === null ? undefined : { fromGeneration: active.fromGeneration, toGeneration: active.toGeneration };
-    } catch {
-      rotation = undefined;
-    }
-
-    /*
-      THE NOTE CAP, FOR THE SAME WORKSPACE. A plain query, no decrypt. Absent
-      for every context not on the free managed tier, and absent on a failed
-      read too: a billing lookup must never cost somebody their notes, and the
-      worst an absent cap costs is a free context briefly holding more.
-    */
-    let noteCap: number | undefined;
-    try {
-      const cap = await ctx.runQuery(internal.functions.billing.noteCap, { workspaceId });
-      noteCap = cap === null ? undefined : cap;
-    } catch {
-      noteCap = undefined;
-    }
-
-    /*
-      MANAGED-STORAGE ENCRYPTION, FOR THE SAME WORKSPACE. A plain query, no
-      decrypt: the key itself is `encryptionKey` above, which the walk created
-      before the first object was sealed.
-
-      Unlike the siblings above, a failed read is NOT answered as absent.
-      Absent means "build a plain store", and a plain store over a sealed
-      bucket serves sealed bytes as note text and lets somebody save over
-      them. So a failure here is no binding at all, the same answer as an
-      unopenable credential.
-    */
-    let managedEncryption: { mode: "migrating" | "encrypted" | "decrypting" } | undefined;
-    try {
-      const mode = await ctx.runQuery(internal.functions.managedEncryption.gatewayMode, { workspaceId });
-      managedEncryption = mode === null ? undefined : { mode };
-    } catch {
-      return null;
-    }
+    const [credentialAnswer, indexes, keyRead, rotationRead, capRead, encryptionRead] = await Promise.all([
+      credentialRead,
+      /*
+        THE INDEX CREDENTIAL, FOR THE SAME WORKSPACE AND NOBODY ELSE'S. Absent
+        is the ordinary answer and never an error: a context that never opted
+        in, opted out, is provisioning, failed to provision, and a deployment
+        with no D1 token are one outcome, no `searchIndex` key ("Off is a
+        working state, not a degraded one", `docs/decisions/search.md`).
+        Search by meaning's sibling rides the same credential on the same
+        terms; its own query failing costs only it. Any failure is swallowed
+        and unreported: the binding is what a tool call waits on, the
+        projection an accelerator behind it, and a caller holding the gateway
+        secret must not tell "no index" from "an index we could not open".
+      */
+      (async (): Promise<{ searchIndex?: GatewaySearchIndex; meaningIndex?: GatewayMeaningIndex }> => {
+        try {
+          const [target, meaning] = await Promise.all([
+            ctx.runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId }),
+            ctx
+              .runQuery(internal.functions.meaningSearch.writeTargetForWorkspace, { workspaceId })
+              .catch(() => null),
+          ]);
+          if (target === null && meaning === null) return {};
+          const [apiToken, accountId] = await Promise.all([
+            ctx.runAction(internal.functions.admin.readIntegrationSecret, { name: D1_TOKEN_SECRET }),
+            ctx.runAction(internal.functions.admin.readIntegrationSecret, { name: D1_ACCOUNT_SECRET }),
+          ]);
+          // Both or neither, matching `fastSearchProvision.configFor`: half a
+          // configuration reads exactly like none, because there is one cure.
+          if (typeof apiToken !== "string" || apiToken.length === 0) return {};
+          if (typeof accountId !== "string" || accountId.length === 0) return {};
+          return {
+            ...(target === null
+              ? {}
+              : { searchIndex: { databaseId: target.databaseId, accountId, apiToken, state: target.state } }),
+            ...(meaning === null
+              ? {}
+              : { meaningIndex: { indexName: meaning.indexName, accountId, apiToken, state: meaning.state } }),
+          };
+        } catch {
+          return {};
+        }
+      })(),
+      /*
+        THE ENCRYPTION KEY, FOR THE SAME WORKSPACE AND NOBODY ELSE'S. `create`
+        is deliberately absent (false): a read must never bring a key into
+        existence. Absent is the ordinary answer, and a failure is answered the
+        same way, so a caller cannot tell "no key" from "a key we could not
+        open"; the gateway then shows a locked note rather than a missing one.
+        Read after a requested rotation start (above), so a generation minted
+        there is already among `keys` in this same response.
+      */
+      ctx.runAction(internal.functions.encryptionKeys.openWorkspaceDataKey, { workspaceId }).then(
+        (opened): GatewayEncryptionKey | undefined => (opened === null ? undefined : opened),
+        () => undefined,
+      ),
+      /* ROTATION STATUS: a plain query, no decrypt, so a gateway that only reads still sees a walk outstanding. */
+      ctx.runQuery(internal.functions.encryptionKeys.getActiveWorkspaceKeyRotation, { workspaceId }).then(
+        (active): GatewayKeyRotation | undefined =>
+          active === null ? undefined : { fromGeneration: active.fromGeneration, toGeneration: active.toGeneration },
+        () => undefined,
+      ),
+      /*
+        THE NOTE CAP: absent for every context not on the free managed tier,
+        and absent on a failed read too; a billing lookup must never cost
+        somebody their notes.
+      */
+      ctx.runQuery(internal.functions.billing.noteCap, { workspaceId }).then(
+        (cap): number | undefined => (cap === null ? undefined : cap),
+        () => undefined,
+      ),
+      /*
+        MANAGED-STORAGE ENCRYPTION. Unlike the siblings, a failed read is NOT
+        absent: absent builds a plain store, and a plain store over a sealed
+        bucket serves sealed bytes as note text. So a failure is no binding.
+      */
+      ctx.runQuery(internal.functions.managedEncryption.gatewayMode, { workspaceId }).then(
+        (mode) => ({ ok: true as const, value: mode === null ? undefined : { mode } }),
+        () => ({ ok: false as const }),
+      ),
+    ]);
+    if (!credentialAnswer.ok) return null;
+    const credential = credentialAnswer.value;
+    if (credential === null) return null;
+    if (!isUsable(credential.status as BindingStatus)) return null;
+    if (!encryptionRead.ok) return null;
+    const { searchIndex, meaningIndex } = indexes;
+    const encryptionKey = keyRead;
+    const rotation = rotationRead;
+    const noteCap = capRead;
+    const managedEncryption: { mode: "migrating" | "encrypted" | "decrypting" } | undefined = encryptionRead.value;
 
     return {
       binding: {
