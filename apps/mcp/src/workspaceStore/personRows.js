@@ -34,9 +34,18 @@ const SCHEMA = [
 
 /**
  * Clients whose sessions carry checks only the control plane runs today (a texting number's pause, a group chat's
- * members): their connections are never held here, so their tokens are always answered by the control plane.
+ * members), and the grants Tex's own scheduled turns run under, minted by the control plane for one run each: their
+ * connections are never held here, so their tokens are always answered by the control plane. Convex's
+ * `CONVEX_ONLY_CLIENTS` is the same set; a test holds them equal.
  */
-export const CONTROL_PLANE_CLIENTS = new Set(["context_texts", "context_texts_group"]);
+export const CONTROL_PLANE_CLIENTS = new Set([
+  "context_texts",
+  "context_texts_group",
+  "context_routines",
+  "context_heartbeat",
+  "context_dreams",
+  "context_housekeeping",
+]);
 /** The app's own client: its sessions carry the names the person answers to in every workspace. */
 const CONSOLE_CLIENT_ID = "context_console";
 /** The most workspaces one session carries, as the control plane's `MAX_SESSION_CONTEXTS`; the pin is added after. */
@@ -49,7 +58,7 @@ function checkReach(row) {
 }
 function checkConnection(row) {
   const checked = checkConnectionRow(row);
-  if (CONTROL_PLANE_CLIENTS.has(checked.clientId)) throw new AccessRowRefused("a texting client's connection stays with the control plane");
+  if (CONTROL_PLANE_CLIENTS.has(checked.clientId)) throw new AccessRowRefused("a control-plane client's connection stays with the control plane");
   return checked;
 }
 const CHECKS = { reach: checkReach, shared: checkSharedRow, connections: checkConnection };

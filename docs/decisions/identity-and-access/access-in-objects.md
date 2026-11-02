@@ -61,6 +61,23 @@ the copy, because an old access token still resolves through the control plane
 until it expires. The control plane refuses to rotate a switched person's grant
 and hands a revocation back to the gateway with the grant's id.
 
+The grants the control plane mints itself, the app's own sign-in and a phone's
+cards key, follow the same order from the action that mints them
+(`apps/convex/functions/lib/accessHandOff/objectMint.ts`): the tokens name the
+person object, the row is written behind with the mint's usual checks, the
+object keeps the connection, and if it does not the row is revoked and the
+mint fails, so no token goes out that the authority does not hold.
+
+Some grants stay decided by the control plane, never held by an object: the
+texting grants, and the ones Tex's own scheduled turns run under (a routine,
+the daytime check-in, the nightly dream, housekeeping). Each job grant is
+minted for one run after the same questions the texting grant asks (a linked
+phone that is not paused), and those answers live in the control plane. The
+set is `CONVEX_ONLY_CLIENTS` in Convex and `CONTROL_PLANE_CLIENTS` in the
+gateway, and a test holds the two equal: a client in one and not the other
+would be refused by the object and never written behind, or held by the object
+while the control plane still answers its token.
+
 ## Deleting an account or a workspace
 
 A mutation cannot call an object, so a deletion that touches any scope on

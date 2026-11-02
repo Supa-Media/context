@@ -36,9 +36,20 @@ export const AUTHORITY_TABLES: ReadonlySet<ObjectTable> = new Set<ObjectTable>([
 
 /**
  * Texting grants stay decided by Convex for now (thread B, 2026-11-01): their checks (a paused phone, a group chat's
- * co-viewers) live there. Their writes never reach a person object, and never trip the switch.
+ * co-viewers) live there. So do the grants Tex's own scheduled turns run under (a routine, the daytime check-in, the
+ * nightly dream, housekeeping): Convex mints each one for a single run and asks the same questions first (a linked,
+ * unpaused phone; `lib/texJobs.ts`), and their tokens are answered by Convex. Their writes never reach a person
+ * object, and never trip the switch. The gateway's `CONTROL_PLANE_CLIENTS` (`apps/mcp/src/workspaceStore/personRows.js`)
+ * is the same set; a test holds them equal.
  */
-export const CONVEX_ONLY_CLIENTS: ReadonlySet<string> = new Set(["context_texts", "context_texts_group"]);
+export const CONVEX_ONLY_CLIENTS: ReadonlySet<string> = new Set([
+  "context_texts",
+  "context_texts_group",
+  "context_routines",
+  "context_heartbeat",
+  "context_dreams",
+  "context_housekeeping",
+]);
 
 /**
  * Fields whose change alone moves nothing an object holds (`expected.ts` leaves them out of every row): a grant
