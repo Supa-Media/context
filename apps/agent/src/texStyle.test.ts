@@ -135,6 +135,16 @@ for (const { name, groupId } of LINES) {
       expect(w.asks[0]).not.toHaveProperty("texStyle");
     });
 
+    // iMessage answers a command from the webhook's names with the groups API down (#2659); WhatsApp's webhook names only the sender.
+    it("\"Tex, be quiet\" sets quiet with the group's turn", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { ...(name.startsWith("iMessage") ? { members: [null] } : {}), controlFor: (body) => ((body.command as { kind?: string } | undefined)?.kind === "speaks_up" ? { status: "speaks_up", level: "quiet", by: "bo" } : undefined) });
+      await acceptGroup(storage, w.message("Tex, be quiet", { from: BO }), 0);
+      await drainGroup(storage, w.deps);
+      expect(w.control.at(-1)!.command).toEqual({ kind: "speaks_up", level: "quiet" });
+      expect(w.texts).toEqual(['Got it, Quiet (set by bo). To change it later, text "Tex, settings".']);
+    });
+
     it("no switch in code: an emoji line keeps the tapback, a one-bubble line sends what the model wrote", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { control: { instructions: "Use no emoji.\nSend each answer as one text, with no blank lines." }, agent: () => ({ answer: "One.\n\nTwo.\n\nThree." }) });
