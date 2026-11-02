@@ -60,6 +60,16 @@ function openDesk(store) {
   return desks.get(store);
 }
 
+/** The newest page of the one-to-one chat's ledger the desk read with the record (`texStore/desk.js` `DESK_LEDGER`), or null. */
+export async function deskLedger(store) {
+  try {
+    const page = (await openDesk(store))?.ledger;
+    return Array.isArray(page?.entries) ? page : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The notes the desk read with the record, by name (`about`, `jobs`):
  * `{etag, text}`, false for a note the record says is missing, absent when it

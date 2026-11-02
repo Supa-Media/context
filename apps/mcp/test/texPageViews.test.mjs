@@ -138,11 +138,13 @@ test("in the Tex object: an append to the chat's log reaches an open page, and p
     },
   });
   store.ready();
-  store.objects.ledger = fakeLedger({ texts: oneToOne() });
+
   await store.fetch(new Request(`https://tex-store.internal${PAGE_LIVE_PATH}`, { headers: { Upgrade: "websocket", "x-tex-owner": "person:ws_v", [PAGE_VIEWER_HEADER]: JSON.stringify({ deadline: Date.now() + 60_000, chat: null }) } }));
-  // What the log's append calls on every entry kept (`wire.js` `ledger_append`).
-  store.objects.ledgerChanged(["thinking", "reply"]);
-  assert.deepEqual(sockets[0].sent.map((frame) => frame.section), ["thinking", "behind", "tiles"]);
+  // The chat's real log, appended through the object as the gateway's writer does (`wire.js` `ledger_append`).
+  const now = Date.now();
+  const entries = oneToOne().map((entry, index) => ({ ...entry, at: now - 1000 + index }));
+  await store.fetch(new Request("https://tex-store.internal/ledger_append", { method: "POST", headers: { "x-tex-owner": "person:ws_v", "x-tex-call": encodeURIComponent(JSON.stringify({ op: "ledger_append", chat: "texts" })) }, body: JSON.stringify(entries) }));
+  assert.deepEqual(sockets[0].sent.map((frame) => frame.section).sort(), ["advisor", "behind", "mailcheck", "thinking", "tiles"]);
   const answer = await store.fetch(new Request("https://tex-store.internal/page_list", { method: "POST", headers: { "x-tex-owner": "person:ws_v", "x-tex-call": encodeURIComponent(JSON.stringify({ op: "page_list", chat: "texts", kind: "mailcheck", limit: 5 })) } }));
   const page = await answer.json();
   assert.deepEqual(page.items.map((item) => item.id), ["mc1"]);
