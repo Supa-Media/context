@@ -255,3 +255,18 @@ test("the difference counts names on one side only and versions that differ", ()
   const b = { entries: [{ path: "x", etag: "1" }, { path: "y", etag: "3", noteId: "n" }, { path: "z" }], cursor: "z" };
   assert.deepEqual(manifestDifference(a, b), { objectOnly: 0, controlOnly: 1, changed: 1, cursorSame: false });
 });
+
+test("a control-plane failure behind the response is logged by its fixed phrase and time, never by anything else it carries", async () => {
+  const lines = [];
+  const deferred = [];
+  for (const error of [Object.assign(new Error("timed out"), { name: "ControlPlaneError" }), Object.assign(new Error("Note at 1-projects/x.md"), { name: "ControlPlaneError" })]) {
+    const manifest = objectFirstManifest(async () => { throw error; }, reading(objectClient(OBJECT_PAGE).client, { checkBehind: async () => false, log: (event, fields) => lines.push({ event, ...fields }) }), {
+      defer: () => (work) => deferred.push(work),
+    });
+    await manifest({});
+  }
+  for (const work of deferred) await work();
+  const failed = lines.filter((line) => line.event === "tree_manifest_parity").map((line) => line.controlFailed);
+  assert.deepEqual(failed, ["timed out", "ControlPlaneError"]);
+  assert.ok(lines.every((line) => line.event !== "tree_manifest_parity" || Number.isFinite(line.controlMs)));
+});
