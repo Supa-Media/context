@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { ListBox, ListRow, SubPage, T } from "./TexPageParts";
-import { TexSelect } from "./TexSelect";
 import { SETTING_LABEL, settingValue } from "./texPageLedger";
 import { TexHistoryLines } from "../history/TexHistoryLines";
 import type { ViewProps } from "./TexPageBody";
@@ -11,31 +10,26 @@ import type { LedgerSees } from "./texPageTypes";
 
 /**
  * The chat's history file: its one ledger, everything said and done in the
- * chat, one line a message with filters (`TexHistoryLines`), and "What Tex
- * sees", the chat as the next
+ * chat, one line a message with filters (`TexHistoryLines`), and, on a page
+ * of its own, "What Tex sees", the chat as the next
  * texted turn is shown it with the settings that shaped it (decided by the
  * owner, 2026-11-02; `docs/decisions/texting-assistant/chat-ledger.md`).
  * Newest day first. Both are read from the gateway each time; nothing here keeps
  * a copy.
  */
 
-const TABS = [
-  { key: "raw", label: "History" },
-  { key: "sees", label: "What Tex sees" },
-] as const;
-
 export function HistoryPage({ source, chat, group }: ViewProps) {
-  const [tab, setTab] = useState<"raw" | "sees">("raw");
   return (
     <SubPage title={group ? `History · ${group}` : "History"} testID="tex-history">
-      <TexSelect
-        options={TABS}
-        selected={tab}
-        onPick={(k) => setTab(k === "sees" ? "sees" : "raw")}
-        label="Which view of the history"
-        testID="tex-history-tab"
-      />
-      {tab === "raw" ? <TexHistoryLines source={source} chat={chat} group={group !== null} /> : <WhatTexSees source={source} chat={chat} />}
+      <TexHistoryLines source={source} chat={chat} group={group !== null} />
+    </SubPage>
+  );
+}
+
+export function SeesPage({ source, chat, group }: ViewProps) {
+  return (
+    <SubPage title={group ? `What Tex sees · ${group}` : "What Tex sees"} testID="tex-sees-page">
+      <WhatTexSees source={source} chat={chat} />
     </SubPage>
   );
 }
