@@ -17,7 +17,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { workspaceClient } from "../../../../mcp/src/workspaceStore/api.js";
-import { TEX_STORE_TICKET_TTL_MS } from "../../texStoreTickets";
+import { TEX_STORE_TICKET_TTL_MS } from "../texStoreTicketTtl";
 import { hashToken } from "../crypto";
 import { GATEWAY_SECRET_ENV_VAR, randomOpaqueToken } from "../gatewayAuth";
 import { storageMoverOrigin } from "../storageMover";

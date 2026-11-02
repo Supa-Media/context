@@ -69,6 +69,26 @@ function isRoutinePath(path) {
   return ROUTINE_ROOTS.some((root) => normalized.startsWith(root) || root.startsWith(`${normalized}/`));
 }
 
+/**
+ * A group chat's routines live in its home, `tex/groups/<words>/routines/`, as a person's live in `tex/routines/`
+ * (the owner, 2026-11-02; `docs/decisions/texting-assistant/chat-routines.md`). `{ words, routinePath }` for a path
+ * at or under a home's routines folder, `routinePath` the same path under `tex/routines/` so every rule a routine's
+ * path carries reads it as one; null for anything else.
+ */
+const HOME_ROUTINES = /^tex\/groups\/([a-z][a-z0-9-]{0,62})\/routines(?:\/(.*))?$/;
+
+function homeRoutineOf(path) {
+  if (typeof path !== "string") return null;
+  const match = HOME_ROUTINES.exec(path.replace(/^\/+|\/+$/g, "").toLowerCase());
+  if (!match) return null;
+  return { words: match[1], routinePath: match[2] === undefined ? TEX_ROUTINES_FOLDER.slice(0, -1) : `${TEX_ROUTINES_FOLDER}${match[2]}` };
+}
+
+/** Whether a change at `path` can change a chat's routines: its home's routines folder or anything under it. */
+function isHomeRoutinePath(path) {
+  return homeRoutineOf(path) !== null;
+}
+
 /** When a daily-or-slower routine runs if its file names no time. */
 const DEFAULT_AT = Object.freeze({ hour: 8, minute: 0 });
 
@@ -615,6 +635,8 @@ module.exports = {
   routineFromPath,
   routineRootOf,
   isRoutinePath,
+  homeRoutineOf,
+  isHomeRoutinePath,
   frontMatter,
   parseTime,
   parseWeekdays,

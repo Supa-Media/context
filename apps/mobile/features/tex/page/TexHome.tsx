@@ -191,6 +191,13 @@ export function TexHome({
             wide={wide}
             onPress={() => go({ view: "mailcheck" })}
           />
+          <BehindCard
+            testID="tex-behind-history"
+            title="History"
+            line="Everything said and done here, and what Tex sees"
+            wide={wide}
+            onPress={() => go({ view: "history" })}
+          />
         </View>
       </View>
     </>

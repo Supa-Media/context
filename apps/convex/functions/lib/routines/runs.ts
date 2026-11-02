@@ -13,7 +13,10 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { SCOPE_PRIVATE, SCOPE_READ, SCOPE_WRITE, clampScopes, hasOperationScope } from "../consentScopes";
-import { accountTimeZone, routineRecipients, runsRoutine, writingRole } from "./access";
+import { accountTimeZone, routineRecipients, runsRoutine, writerPhones, writingRole } from "./access";
+import { homeRoutineChat } from "./homes";
+import { homeRoutineOf } from "@context/shared/src/routines.cjs";
+import { sealsChatHomes } from "../nodes/sealedChats";
 import { routineChat } from "./chats";
 import { claimChatLooks, finishChatLook } from "../textGroupLooks";
 import {
@@ -118,7 +121,9 @@ export async function claimDueRoutinesHandler(
       await ctx.db.delete(row._id);
       continue;
     }
-    const role = await writingRole(ctx, row.workspaceId, row.writerUserId);
+    // A chat's home routine is its chat's people's, never a role in the pin (`homes.ts`): asked again below, with the chat.
+    const home = homeRoutineOf(row.path) !== null && (await sealsChatHomes(ctx, row.workspaceId));
+    const role = home ? "editor" : await writingRole(ctx, row.workspaceId, row.writerUserId);
     if (role === null) {
       // Asked now, not when the row was written: a writer who left, was made a
       // member, or deleted their account no longer runs anything here.
@@ -135,8 +140,8 @@ export async function claimDueRoutinesHandler(
     }
     if (workspace.kind !== "personal") {
       // A chat routine: into its chat, as its writer's tag there, or nowhere.
-      const chat = await routineChat(ctx, row.workspaceId, row.chat ?? "");
-      const phones = chat === null ? [] : await routineRecipients(ctx, { ...row, send: "text" });
+      const chat = home ? await homeRoutineChat(ctx.db, row) : await routineChat(ctx, row.workspaceId, row.chat ?? "");
+      const phones = chat === null ? [] : home ? await writerPhones(ctx.db, row.writerUserId) : await routineRecipients(ctx, { ...row, send: "text" });
       const zone = effectiveTimeZone(row.timeZone, await accountTimeZone(ctx, row.writerUserId));
       if (chat === null || phones.length === 0) {
         await ctx.db.patch(row._id, { lastOutcome: "no_chat", lastRunAt: now, nextRunAt: nextRunFor(row, zone, now), updatedAt: now });

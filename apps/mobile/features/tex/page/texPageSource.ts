@@ -12,7 +12,10 @@
 
 import { readJobDetail, readList, readOverview } from "./texPageRead";
 import { openLive, type Live, type PatchFrame } from "./texPageLive";
-import type { JobDetail, ListKind, ListPage, Overview, PageAction } from "./texPageTypes";
+import { readLedgerPage, readLedgerSees } from "./texPageLedger";
+import type { JobDetail, LedgerPage, LedgerQuery, LedgerSees, ListKind, ListPage, Overview, PageAction } from "./texPageTypes";
+
+type Route = "" | "job" | "list" | "act" | "ledger";
 
 export type Read<T> = { kind: "ok"; value: T } | { kind: "notYours" } | { kind: "failed" };
 
@@ -21,11 +24,15 @@ export interface TexPageSource {
   job(chat: string, id: string): Promise<Read<JobDetail>>;
   list<K extends ListKind>(chat: string, kind: K, cursor?: string): Promise<Read<ListPage<K>>>;
   act(chat: string, action: PageAction): Promise<{ ok: boolean; error?: string }>;
+  /** The chat's history file, raw, filtered. */
+  ledger(chat: string, query: LedgerQuery): Promise<Read<LedgerPage>>;
+  /** The chat as the next texted turn is shown it. */
+  sees(chat: string): Promise<Read<LedgerSees>>;
   /** The live feed for one chat; null where there is none. */
   live(chat: string, onPatch: (patch: PatchFrame) => void, onLive: (live: boolean) => void): Live | null;
 }
 
-export function texPageUrl(mcpEndpoint: string, route: "" | "job" | "list" | "act"): string | null {
+export function texPageUrl(mcpEndpoint: string, route: Route): string | null {
   let parsed: URL;
   try {
     parsed = new URL(mcpEndpoint);
@@ -56,7 +63,7 @@ export interface GatewaySourceOptions {
 
 export function gatewaySource(options: GatewaySourceOptions): TexPageSource {
   const doFetch = options.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
-  const post = async (route: "" | "job" | "list" | "act", body: Record<string, unknown>) => {
+  const post = async (route: Route, body: Record<string, unknown>) => {
     const url = texPageUrl(options.endpoint, route);
     if (url === null) return null;
     const call = async (refresh: boolean | { rejected: string }) => {
@@ -104,6 +111,14 @@ export function gatewaySource(options: GatewaySourceOptions): TexPageSource {
       return a.status === 200 && body?.ok !== false
         ? { ok: true }
         : { ok: false, error: typeof body?.error === "string" ? body.error : `status_${a.status}` };
+    },
+    async ledger(chat, query) {
+      const a = await post("ledger", { chat, view: "raw", ...query });
+      return a === null ? { kind: "failed" } : readAnswer(a.status, a.body, readLedgerPage);
+    },
+    async sees(chat) {
+      const a = await post("ledger", { chat, view: "sees" });
+      return a === null ? { kind: "failed" } : readAnswer(a.status, a.body, readLedgerSees);
     },
     live(chat, onPatch, onLive) {
       if (origin === null || typeof WebSocket === "undefined") return null;

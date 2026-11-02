@@ -17,6 +17,7 @@ import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import { asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 import { hashToken } from "../functions/lib/crypto";
+import { groupName } from "../functions/texPage";
 
 const ADA_CHAT = "ab".repeat(32);
 const BO_CHAT = "cd".repeat(32);
@@ -74,7 +75,7 @@ describe("the Tex page's data", () => {
     const chats = page.chats as Array<Record<string, unknown>>;
     expect(chats.map((chat) => chat.key)).toEqual([ADA_CHAT]);
     expect(chats[0]).toMatchObject({
-      name: "Team Night Owls",
+      name: "@bo",
       people: 2,
       peopleNames: ["You", "bo"],
       homeWords: "team-night-owls",
@@ -220,5 +221,14 @@ describe("the Tex page's settings", () => {
     expect(await post(t, "/gateway/tex/page/settings", { accessToken: "cat_nobody", chat: "me", values: { pick: "candid" } })).toEqual({
       status: "refused",
     });
+  });
+});
+
+describe("a group chat's name on the page", () => {
+  test("is the people in it, never the chat home's random folder words", () => {
+    expect(groupName(["You", "bo"])).toBe("@bo");
+    expect(groupName(["You", "bo", "cy"])).toBe("@bo, @cy");
+    expect(groupName(["You", "bo", "cy", "dee", "Someone"])).toBe("@bo, @cy +2");
+    expect(groupName(["You"])).toBe("Group chat");
   });
 });

@@ -152,11 +152,15 @@ export const workspaceBySlug = internalQuery({
 export const atHome = internalQuery({
   args: { home: homeValidator },
   returns: v.array(v.id("workspaces")),
-  handler: async (ctx, { home }) =>
-    (await ctx.db
+  handler: async (ctx, { home }) => {
+    const records = await ctx.db
       .query("workspaceObjectHomes")
       .withIndex("by_home", (q) => q.eq("home", home))
-      .collect()).map((record) => record.workspaceId),
+      .collect();
+    // A deleted workspace's record is left behind with nothing to check or switch: it is not listed.
+    const live = await Promise.all(records.map(async (record) => ((await ctx.db.get(record.workspaceId)) === null ? null : record.workspaceId)));
+    return live.filter((id): id is Id<"workspaces"> => id !== null);
+  },
 });
 
 /** Sets the record's home. Only `workspaceObjects.setHome` calls it, after the object took the same home. */

@@ -25,6 +25,7 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { internal } from "../../../_generated/api";
+import { objectCandidates, objectFactRows } from "./objectFacts";
 import type { FileStore } from "../fileOps/store";
 import type { TreeNames } from "../fileOps/treeChecks";
 import { notServed, servedStoreOrNotServed } from "./treeGate";
@@ -49,7 +50,12 @@ export function attachTreeListing(ctx: ActionCtx, workspaceId: Id<"workspaces">,
     },
     jobs: async () => await ctx.runQuery(internal.functions.nodesGateway.folderJobs, { workspaceId }),
     // A move's link rewrite reads only the notes these name (`fileOps/references.ts`).
-    links: async ({ sources, names }) => await ctx.runQuery(internal.functions.nodeFacts.candidates, { workspaceId, sources, names }),
+    // Where the notes live in their object, it answers from the text it holds (`objectFacts.ts`).
+    links: async ({ sources, names }) => {
+      const fromObject = await objectCandidates(await objectFactRows(ctx, workspaceId), [...sources], [...names]);
+      if (fromObject !== undefined) return fromObject;
+      return await ctx.runQuery(internal.functions.nodeFacts.candidates, { workspaceId, sources, names });
+    },
     linking: async (paths) => await ctx.runQuery(internal.functions.nodeLinkSources.linking, { workspaceId, paths }),
   };
   Object.defineProperty(store, "treeListing", { value: listing, enumerable: false, configurable: true });

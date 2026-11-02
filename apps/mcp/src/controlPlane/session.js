@@ -123,29 +123,7 @@ export function createSessionMethods({ post, required, env = null, sessionObject
       // out of the binding instead of off the response is the bug that left
       // fast search dead in production for a year, so all four are read here,
       // beside each other, where the shape is visible.
-      return {
-        binding: required(parsed, "binding"),
-        searchIndex: parsed.searchIndex ?? null,
-        // Search by meaning's index, `searchIndex`'s terms: absent until it takes writes.
-        meaningIndex: parsed.meaningIndex ?? null,
-        encryptionKey: parsed.encryptionKey ?? null,
-        rotation: parsed.rotation ?? null,
-        // The free managed tier's note cap, a fifth sibling and absent for
-        // every context without one. Only a positive integer means a cap.
-        noteCap: Number.isInteger(parsed.noteCap) && parsed.noteCap > 0 ? parsed.noteCap : null,
-        // Managed-storage encryption, a sixth sibling: `{mode}` for a managed
-        // bucket being encrypted or already encrypted, absent otherwise.
-        managedEncryption: parsed.managedEncryption ?? null,
-        // An eighth sibling: the access rules the rows render for this reader (`store/privacyAuthority.js`).
-        privacy: parsed.privacy ?? null,
-        // `"keys"`: notes live only at their id keys (`store/idLayout.js`). Every
-        // workspace is keyed; anything else is a control plane that cannot say
-        // where notes are, and the session store refuses it.
-        idLayout: parsed.idLayout === "keys" ? "keys" : null,
-        // The staff console's feature switches (`functions/featureSwitches.ts`):
-        // only a literal `true` turns one on, so a missing or odd value is off.
-        features: { vaultKeyUse: parsed.features?.vaultKeyUse === true },
-      };
+      return bindingAnswerOf(parsed, required);
     },
 
     /**
@@ -278,5 +256,35 @@ export function createSessionMethods({ post, required, env = null, sessionObject
         ms,
       });
     },
+  };
+}
+
+/**
+ * `/gateway/binding`'s answer as the session store reads it, from the parsed body. Also how a binding kept in the
+ * workspace's object is read (`store/objectBinding.js`), so both arrive in one shape.
+ */
+export function bindingAnswerOf(parsed, required) {
+  return {
+    binding: required(parsed, "binding"),
+    searchIndex: parsed.searchIndex ?? null,
+    // Search by meaning's index, `searchIndex`'s terms: absent until it takes writes.
+    meaningIndex: parsed.meaningIndex ?? null,
+    encryptionKey: parsed.encryptionKey ?? null,
+    rotation: parsed.rotation ?? null,
+    // The free managed tier's note cap, a fifth sibling and absent for
+    // every context without one. Only a positive integer means a cap.
+    noteCap: Number.isInteger(parsed.noteCap) && parsed.noteCap > 0 ? parsed.noteCap : null,
+    // Managed-storage encryption, a sixth sibling: `{mode}` for a managed
+    // bucket being encrypted or already encrypted, absent otherwise.
+    managedEncryption: parsed.managedEncryption ?? null,
+    // An eighth sibling: the access rules the rows render for this reader (`store/privacyAuthority.js`).
+    privacy: parsed.privacy ?? null,
+    // `"keys"`: notes live only at their id keys (`store/idLayout.js`). Every
+    // workspace is keyed; anything else is a control plane that cannot say
+    // where notes are, and the session store refuses it.
+    idLayout: parsed.idLayout === "keys" ? "keys" : null,
+    // The staff console's feature switches (`functions/featureSwitches.ts`):
+    // only a literal `true` turns one on, so a missing or odd value is off.
+    features: { vaultKeyUse: parsed.features?.vaultKeyUse === true },
   };
 }

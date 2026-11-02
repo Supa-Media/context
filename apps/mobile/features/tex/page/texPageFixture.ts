@@ -15,6 +15,7 @@ import type {
   AdvisorAsk,
   CheckIn,
   JobDetail,
+  LedgerEntry,
   ListKind,
   ListPage,
   MailCheck,
@@ -311,6 +312,20 @@ function groupCopy(key: string, name: string): Copy {
   };
 }
 
+/** The chat's history file, as the gateway keeps it: a few of the morning's entries. */
+function ledgerOf(chat: string): LedgerEntry[] {
+  const turn = `${chat}-t1`;
+  const from = chat === "me" ? { kind: "person" } : { kind: "person", name: "Ada" };
+  return [
+    { v: 1, seq: 1, id: `${chat}-e1`, at: at(9, 2), kind: "text", from, text: "what's on my calendar today?" },
+    { v: 1, seq: 2, id: `${chat}-e2`, at: at(9, 2), kind: "thinking", turn, text: "Look at today's calendar, then answer in a line." },
+    { v: 1, seq: 3, id: `${chat}-e3`, at: at(9, 2), kind: "tool", turn, name: "calendar_events", args: { day: "today" }, ok: true, ms: 420, result: "2 events" },
+    { v: 1, seq: 4, id: `${chat}-e4`, at: at(9, 3), kind: "tool", turn, name: "read_note", args: { context: "@elsewhere" }, ok: true, ms: 180, withheld: "other_workspace" },
+    { v: 1, seq: 5, id: `${chat}-e5`, at: at(9, 3), kind: "reply", turn, text: "Standup at 10 and the dentist at 3.", ms: 2100, clean: true },
+    { v: 1, seq: 6, id: `${chat}-e6`, at: at(9, 3), kind: "text", from: { kind: "tex" }, turn, text: "Standup at 10 and the dentist at 3.", delivered: true },
+  ];
+}
+
 /** An in-memory gateway with the mock's data; actions change it and patch every open feed. */
 export function fixtureSource(): TexPageSource {
   const copies = new Map<string, Copy>([
@@ -338,6 +353,21 @@ export function fixtureSource(): TexPageSource {
       const c = copies.get(chat);
       if (!c) return { kind: "notYours" };
       return ok((c.lists[kind] ?? { items: [] }) as ListPage<typeof kind>);
+    },
+    async ledger(chat, query) {
+      if (!copies.has(chat)) return { kind: "notYours" };
+      const entries = ledgerOf(chat).filter((e) => (!query.kinds || query.kinds.includes(e.kind as never)) && (!query.day || query.day === "2026-11-02"));
+      // As the gateway reads with `before`: newest first.
+      const before = query.before ?? Number.MAX_SAFE_INTEGER;
+      return ok({ manifest: { schema: "tex-ledger", version: 1, count: 6, created: at(9, 2), updated: at(9, 3) }, entries: entries.filter((e) => (e.seq ?? 0) < before).reverse() });
+    },
+    async sees(chat) {
+      if (!copies.has(chat)) return { kind: "notYours" };
+      const group = chat !== "me";
+      return ok({
+        settings: { thinking: false, toolNames: true, toolResults: false, heldBack: !group, budgetChars: 48000, lastDayFrom: "texting Worker", before: "ledger" },
+        text: `[9:02 AM] ${group ? "Ada" : "You"}: what's on my calendar today?\n[9:03 AM] Tex: Standup at 10 and the dentist at 3.\n  (used: calendar_events, read_note)`,
+      });
     },
     async act(chat, action: PageAction) {
       const c = copies.get(chat);

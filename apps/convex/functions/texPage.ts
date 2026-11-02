@@ -110,15 +110,17 @@ async function handleFor(ctx: QueryCtx, userId: Id<"users">): Promise<string> {
   return personal === null ? "" : ((await ctx.db.get(personal))?.slug ?? "");
 }
 
-/** `team-night-owls` or `team night owls` → `Team Night Owls`. */
-export function chatName(words: string | undefined): string {
-  if (words === undefined) return "Group chat";
-  const title = words
-    .split(/[-\s]+/)
-    .filter((word) => word.length > 0)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-  return title.length > 0 ? title : "Group chat";
+/**
+ * A group chat as the page names it: by the people in it (`@bo, @cy +2`). A
+ * chat keeps no name of its own: the iMessage group's display name is never
+ * read, since anyone in the chat can set it, and the chat home's folder words
+ * are random, so they would name nothing the person knows.
+ */
+export function groupName(peopleNames: readonly string[]): string {
+  const others = peopleNames.filter((name) => name !== "You").map((name) => (name === "Someone" ? name : `@${name}`));
+  if (others.length === 0) return "Group chat";
+  const rest = others.length - 2;
+  return `${others.slice(0, 2).join(", ")}${rest > 0 ? ` +${rest}` : ""}`;
 }
 
 type Routine = typeof routineValidator.type;
@@ -227,7 +229,7 @@ export const pageFor = internalQuery({
         const homed = chat.homeWords !== undefined && pinned !== null;
         return {
           key: chat.groupKey,
-          name: chatName(chat.homeWords),
+          name: groupName(peopleNames),
           people: Math.max(1, homeUsers.length),
           peopleNames: homeUsers.length > 0 ? peopleNames : ["You"],
           homeWords: chat.homeWords ?? null,

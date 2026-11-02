@@ -22,11 +22,57 @@ bucket keys are retrievable in bulk. **A change that lets the gateway name its
 own workspace would look like a cleanup and would be a catastrophe.** There is
 a test asserting `expectedWorkspaceId` is never used as a lookup key.
 
+Since 2026-11-02 a member's request may instead open the binding its own
+workspace's object keeps sealed, with no control-plane call: see "A binding
+kept in its workspace's object is sealed to it" below for what replaces the
+second proof there.
+
 ### Never cache a decrypted credential across requests
 
 Workers reuse isolates across tenants. A cache keyed even slightly wrong is a
 cross-tenant leak. This costs roughly 20–60ms per call and that is the right
 trade. Per-request caching is fine; anything that outlives a request is not.
+
+### A binding kept in its workspace's object is sealed to it
+
+Decided by the owner, 2026-11-02, for speed: `/gateway/binding` was about 260 ms
+of every tool call, and the workspace's object already decides who is a member
+and holds the rules every read is judged by. So the gateway keeps a copy of the
+binding (bucket credential, index tokens, note cap, deployment switches) **in
+that workspace's own object**, and a request opens its store from one call to
+it (`store/objectBinding.js`, `workspaceStore/bindingRows.js`).
+
+What keeps this from being the bulk credential store the two-proof rule exists
+to prevent:
+
+- **Sealed, never plain.** AES-GCM under a key derived from the gateway secret
+  (`workspaceStore/bindingSeal.js`); the object holds text it cannot read, and
+  the control plane never puts one there. It is opened per request and dies
+  with it, so the rule above (no decrypted credential across requests) holds.
+- **Bound to one workspace.** `workspace:<id>` is the seal's additional data,
+  and the opened binding must name the request's workspace: a copy moved into
+  another workspace's object does not open.
+- **Only for a live member, where the object decides access.** The object
+  answers the sealed copy only to a member it holds (`accessHome: "object"`),
+  only where it holds the notes, and only where it knows the workspace has no
+  data key. Guests, Tex chats, Tex's setup read, keyed or managed-encrypted
+  workspaces and rotations always ask the control plane.
+- **Never stale past a change.** Every write to the tables a binding is made of
+  (`storageBindings`, `managedEncryptionWorkspaces`, `workspaceObjectHomes`) is
+  watched like a row write (`lib/rowWatch/watch.ts` `BINDING_TABLES`): the
+  workspace reads as behind until the push clears the copy, and a clear moves an
+  epoch on so an answer read before it can never be put back. A copy is used for
+  at most `FRESH_MS` (4 minutes), under the 5-minute margin before a temporary
+  bucket credential expires.
+- **A kill switch.** `BINDING_FROM_OBJECT=off` on the gateway sends every
+  request to the control plane again.
+
+What is given up, said plainly: the second proof. On this path the person's
+token is checked when the session is resolved and membership by the object;
+the control plane does not re-derive the workspace from the grant per call.
+Reversing this means deleting the object path and going back to one
+`/gateway/binding` per request; `test/objectBinding.test.mjs` and
+`__tests__/workspaceObjectBindingClear.test.ts` fail if any guard above goes.
 
 ### Scheduling is not calling
 
