@@ -11,7 +11,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
@@ -104,5 +104,36 @@ describe("the app's note writes in a workspace read from its object", { timeout:
     expect(saved.kind).toBe("written");
     const scratch = await keyAtPath(f.bucket, "1-projects/scratch.md");
     expect(f.inObject(scratch!)).toBe("# scratch\n\nTyped in the app.\n");
+  });
+});
+
+describe("putting back notes written to the bucket alone", { timeout: 60_000 }, () => {
+  test("a recent note the object lacks is restored from the bucket by the recent-writes repair", async () => {
+    const f = await objectHomeWorkspace();
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.workspaceId as Id<"workspaces">, { slug: "example-handle" });
+      // Backfilled, as the workspace was: a note the object lacks is never fetched from the bucket on a read.
+      const held = await ctx.db.query("workspaceObjectHomes").withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId as Id<"workspaces">)).unique();
+      await ctx.db.patch(held!._id, { backfilledAt: Date.now() });
+    });
+    const since = Date.now() - 1;
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/daniel-2.md",
+      text: "# daniel-2\n\n",
+    });
+    const key = (await keyAtPath(f.bucket, "1-projects/daniel-2.md"))!;
+    // As every app write in such a workspace did before the fix: the bucket holds it, the object does not.
+    f.stores.get(`workspace:${f.workspaceId}`)!.objects.delete(key);
+    expect(f.inObject(key)).toBeNull();
+
+    const dry = await f.t.action(internal.functions.workspaceObjectsRepair.repairRecent, { only: "example-handle", since });
+    expect(dry.counts.bucketNewer).toBe(1);
+    expect(f.inObject(key)).toBeNull();
+
+    const applied = await f.t.action(internal.functions.workspaceObjectsRepair.repairRecent, { only: "example-handle", since, apply: true });
+    expect(applied.counts.restored).toBe(1);
+    expect(applied.complete).toBe(true);
+    expect(f.inObject(key)).toBe("# daniel-2\n\n");
   });
 });

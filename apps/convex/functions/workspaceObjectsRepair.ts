@@ -14,10 +14,11 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { failureOf, withRetries } from "./lib/workspaceObjects/failures";
 import { consoleWorkspaceClient } from "./lib/workspaceObjects/door";
-import { emptyRepairCounts, Facts, repairPage, type RepairCounts } from "./lib/workspaceObjects/repair";
+import { emptyRepairCounts, Facts, repairPage, settleKey, type RepairCounts } from "./lib/workspaceObjects/repair";
 import type { BodyStore } from "./lib/workspaceObjects/bodies";
 import { nextWorkspace, openBucket, sleep, startState } from "./workspaceObjects";
 
@@ -138,5 +139,57 @@ export const repair = internalAction({
       finishWorkspace();
     }
     return { ...answer, cursor: JSON.stringify(state), done: false };
+  },
+});
+
+/** Keys a recent-writes repair settles in one call, at most. */
+const RECENT_KEYS = 2000;
+
+/**
+ * The same rules over only the notes one workspace wrote after `since` (ms), read from the tree's `observedAt`
+ * index rather than by walking the bucket: a run that finishes in seconds where the whole walk takes many minutes.
+ * Written for 2026-11-02, when the app's writes in an object-home workspace reached its bucket alone; the whole walk
+ * remains the check that nothing else differs. Counts only.
+ */
+export const repairRecent = internalAction({
+  args: { only: v.string(), since: v.number(), apply: v.optional(v.boolean()) },
+  returns: v.object({
+    keys: v.number(),
+    complete: v.boolean(),
+    counts: repairCountsValidator,
+    why: v.record(v.string(), v.number()),
+    refused: v.optional(v.string()),
+  }),
+  handler: async (ctx, { only, since, apply }): Promise<{ keys: number; complete: boolean; counts: RepairCounts; why: Record<string, number>; refused?: string }> => {
+    const counts = emptyRepairCounts() as RepairCounts;
+    const why: Record<string, number> = {};
+    const workspaceId: Id<"workspaces"> | null = await ctx.runQuery(internal.functions.workspaceObjectsRows.workspaceBySlug, { slug: only });
+    if (workspaceId === null) return { keys: 0, complete: true, counts, why, refused: "NO_WORKSPACE" };
+    const record = await ctx.runQuery(internal.functions.workspaceObjectsRows.recordFor, { workspaceId });
+    if ((record as { home?: string } | null)?.home !== "object") return { keys: 0, complete: true, counts, why, refused: "NOT_OBJECT_HOME" };
+    const bucket = await openBucket(ctx, workspaceId);
+    const client = consoleWorkspaceClient(ctx, workspaceId);
+    if (bucket === null || client === null) return { keys: 0, complete: true, counts, why, refused: "UNREACHABLE" };
+    const object = withRetries(client.bodies as unknown as BodyStore, sleep);
+    const { keys, complete }: { keys: string[]; complete: boolean } = await ctx.runQuery(internal.functions.workspaceObjectsRows.keysWrittenSince, { workspaceId, since, limit: RECENT_KEYS });
+    const facts = new Facts(object, async (key: string): Promise<boolean> => await ctx.runQuery(internal.functions.workspaceObjectsRows.rowReadsKey, { workspaceId, key }));
+    for (let start = 0; start < keys.length; start += 8) {
+      await Promise.all(
+        keys.slice(start, start + 8).map(async (key) => {
+          counts.listed += 1;
+          try {
+            const { verdict, done } = await settleKey(bucket, object, key, facts, apply === true);
+            counts[verdict] += 1;
+            if (done !== null) counts[done] += 1;
+          } catch (error) {
+            counts.failed += 1;
+            const failure = failureOf(error);
+            const label = `key:${failure.error}:${failure.reason}`;
+            why[label] = (why[label] ?? 0) + 1;
+          }
+        }),
+      );
+    }
+    return { keys: keys.length, complete, counts, why };
   },
 });
