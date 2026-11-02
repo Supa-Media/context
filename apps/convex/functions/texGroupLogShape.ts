@@ -1,6 +1,6 @@
 /**
  * The shape of each group chat's event log in a window of time (2026-11-02): how many events, how many bytes, and
- * the runs of events filed under one set of people. A group turn is shown only the latest unbroken run filed under
+ * the runs of events filed under one set of people, and which senders (by letter) each run holds. A group turn is shown only the latest unbroken run filed under
  * the chat's current people (`apps/mcp/src/agent/logRender.js` `seenBy`), and at most 400 events or 120,000
  * characters of the log (`log.js` `readEvents`); a person asked for the day's summary and Tex saw one joke.
  *
@@ -25,7 +25,7 @@ const LOG = ".context/agent/log/";
 
 type Listed = { objects?: { key: string }[]; truncated?: boolean; cursor?: string; delimitedPrefixes?: string[] };
 type Store = { list(options: { prefix: string; cursor?: string; delimiter?: string }): Promise<Listed>; get(key: string): Promise<{ text(): Promise<string> } | null> };
-type Event = { id?: unknown; at?: unknown; people?: unknown; from?: { kind?: unknown }; kind?: unknown };
+type Event = { id?: unknown; at?: unknown; people?: unknown; from?: { kind?: unknown; name?: unknown; handle?: unknown }; kind?: unknown };
 
 async function openWorkspaceStore(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<Store | null> {
   const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
@@ -97,18 +97,25 @@ export const shape = internalAction({
         if (events.length === 0) continue;
         events.sort((a, b) => String(a.id).localeCompare(String(b.id)));
         const letters = new Map<string, string>();
-        const runs: { p: string; n: number; person: number; tex: number; fromMin: number; toMin: number }[] = [];
+        const senders = new Map<string, string>();
+        const runs: { p: string; n: number; person: number; tex: number; fromMin: number; toMin: number; by: string }[] = [];
         for (const event of events) {
           const people = typeof event.people === "string" ? event.people : "none";
           if (!letters.has(people)) letters.set(people, people === "none" ? "_" : String.fromCharCode(65 + letters.size));
           const p = letters.get(people)!;
           const min = typeof event.at === "number" ? Math.round((event.at - start) / 60_000) : -1;
           const last = runs[runs.length - 1];
-          const run = last && last.p === p ? last : { p, n: 0, person: 0, tex: 0, fromMin: min, toMin: min };
+          const run = last && last.p === p ? last : { p, n: 0, person: 0, tex: 0, fromMin: min, toMin: min, by: "" };
           if (run !== last) runs.push(run);
           run.n += 1;
           run.toMin = min;
-          if (event.from?.kind === "person") run.person += 1;
+          if (event.from?.kind === "person") {
+            run.person += 1;
+            // Who sent it, as a letter in order of first appearance: never a name (lowercase, beside the people's capitals).
+            const who = String(event.from.handle ?? event.from.name ?? "?");
+            if (!senders.has(who)) senders.set(who, String.fromCharCode(97 + (senders.size % 26)));
+            if (!run.by.includes(senders.get(who)!)) run.by += senders.get(who)!;
+          }
           if (event.from?.kind === "tex") run.tex += 1;
         }
         out.push({
