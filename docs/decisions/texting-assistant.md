@@ -213,6 +213,8 @@ own action: [the vault](./texting-assistant/vault.md).
 
 Tex's own jobs, each with its record:
 
+- [The chat ledger](./texting-assistant/chat-ledger.md): one versioned record per
+  chat, everything kept but another workspace's contents; every view rebuilt from it.
 - [Transcripts](./texting-assistant/transcripts.md): each person's texts,
   thinking and tool calls, daily in their own `tex/transcripts/`.
 - [Dreams](./texting-assistant/dreams.md): nightly, brings `tex/about-me.md`

@@ -24,6 +24,7 @@
 import { cancel, due, nextAt, retry, schedule, settle } from "./texStore/alarms.js";
 import { routineDispatchFor } from "./texStore/dispatch.js";
 import { texObjects } from "./texStore/objects.js";
+import { texLedger } from "./texStore/ledger.js";
 import { serveTexStore } from "./texStore/wire.js";
 import { MOVE_OPS, TexMoved, arrive, clearOld, forward, logMove, moveGuard, opOf, ownerOf, placeOf, purgeOld, serveMoveOut } from "./texStore/move.js";
 
@@ -51,6 +52,8 @@ export class TexStore {
     if (this.objects !== null) return;
     const guard = moveGuard(this.state.storage.sql);
     this.objects = texObjects(this.state.storage.sql, { now: this.now, guard });
+    // The chat's one record of everything that happened (`texStore/ledger.js`), beside the notes.
+    this.objects.ledger = texLedger(this.state.storage.sql, { now: this.now, guard });
     this.timers = {
       schedule: (alarm) => {
         guard();

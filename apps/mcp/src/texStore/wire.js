@@ -104,7 +104,27 @@ export async function serveTexStore(objects, request, timers = null) {
         return Response.json(readDesk(objects));
       case "wipe":
         objects.wipe();
+        objects.ledger?.wipe();
         return Response.json({ ok: true });
+      case "ledger_append": {
+        if (!objects.ledger) return unknownOp();
+        // The entries ride in the body, so a long tool result never has to fit a header.
+        let entries;
+        try {
+          entries = JSON.parse(await request.text());
+        } catch {
+          throw new TexObjectRefused("not ledger entries");
+        }
+        const added = objects.ledger.append(call.chat, entries);
+        if (added.added > 0) objects.ledgerChanged?.(added.kinds);
+        return Response.json(added);
+      }
+      case "ledger_read":
+        if (!objects.ledger) return unknownOp();
+        return Response.json(objects.ledger.read(call.chat, call.options ?? {}));
+      case "ledger_chats":
+        if (!objects.ledger) return unknownOp();
+        return Response.json({ chats: objects.ledger.chats() });
       default:
         return unknownOp();
     }
@@ -193,6 +213,18 @@ export function texBucket(stub) {
     async desk() {
       return await (await call("desk")).json();
     },
+    /** Add entries to a chat's ledger (`ledger.js`): `{added, seq, kinds}`. */
+    async ledgerAppend(chat, entries) {
+      return await (await call("ledger_append", { chat }, new TextEncoder().encode(JSON.stringify(entries)))).json();
+    },
+    /** A chat's ledger as one document, `{manifest, entries, next?|before?}` (`ledger.js` `read`). */
+    async ledgerRead(chat, options = {}) {
+      return await (await call("ledger_read", { chat, options })).json();
+    },
+    /** The chats this object keeps a ledger for, each a manifest. */
+    async ledgerChats() {
+      return (await (await call("ledger_chats")).json()).chats;
+    },
     /** Everything in this Durable Object removed: an account, a phone link or a group chat ending. */
     async wipe() {
       await call("wipe");
@@ -242,6 +274,6 @@ export function gatewayTexStore(env) {
     if (stub === null) return null;
     const bucket = texBucket(stub);
     // The store, and the desk beside it: one call for what a texted turn reads first (`desk.js`).
-    return Object.assign(new R2Store(bucket), { desk: () => bucket.desk() });
+    return Object.assign(new R2Store(bucket), { desk: () => bucket.desk(), ledger: { append: (chat, entries) => bucket.ledgerAppend(chat, entries), read: (chat, options) => bucket.ledgerRead(chat, options), chats: () => bucket.ledgerChats() } });
   };
 }
