@@ -15,6 +15,8 @@
 
 import { texObjects } from "./texStore/objects.js";
 import { workspaceRows } from "./workspaceStore/rows.js";
+import { personRows } from "./workspaceStore/personRows.js";
+import { tokenIndexClient } from "./workspaceStore/tokenIndex.js";
 import { serveWorkspaceStore } from "./workspaceStore/serve.js";
 import { treeSockets } from "./workspaceStore/treeSockets.js";
 
@@ -42,6 +44,11 @@ export class WorkspaceStore {
     this.store = {
       objects: texObjects(sql),
       rows: workspaceRows(sql),
+      // A personal workspace's object is also its person's: reach, shares to them and their connections.
+      person: personRows(sql),
+      sql,
+      // Every connection it keeps is findable from an old refresh token (`workspaceStore/tokenIndex.js`).
+      indexRefresh: async (hash, personalWorkspaceId) => await tokenIndexClient(this.env, hash)?.set(personalWorkspaceId),
       // One storage transaction for `ws.apply`: all of a change lands, or none of it.
       transact: (work) => this.state.storage.transactionSync(work),
     };

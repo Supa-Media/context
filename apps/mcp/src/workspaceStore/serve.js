@@ -10,6 +10,8 @@ import { canSee, PrivacyOverrides } from "../privacy/engine.js";
 import { serveTexStore } from "../texStore/wire.js";
 import { isWorkspaceObjectKey, MAX_READ_IDS } from "./api.js";
 import { AUDIENCES, WorkspaceRowRefused } from "./rows.js";
+import { isPersonCall, servePersonCall } from "./personServe.js";
+import { isTokenIndexCall, serveTokenIndex } from "./tokenIndex.js";
 
 const CALL = "x-tex-call";
 
@@ -115,7 +117,7 @@ function pathsTouched(rows, ids, incoming = []) {
  */
 export async function serveWorkspaceStore(store, request) {
   const op = opOf(request);
-  if (typeof op !== "string" || !op.startsWith("ws.")) return await serveTexStore(store.objects, request);
+  if (typeof op !== "string" || !(op.startsWith("ws.") || isPersonCall(op) || isTokenIndexCall(op))) return await serveTexStore(store.objects, request);
   let fields;
   try {
     fields = JSON.parse((await request.text()) || "{}");
@@ -123,6 +125,10 @@ export async function serveWorkspaceStore(store, request) {
     return Response.json({ error: "bad_call" }, { status: 400 });
   }
   const { rows } = store;
+  // An old refresh token's index object (`workspaceStore/tokenIndex.js`): never a workspace, so it pins none.
+  if (isTokenIndexCall(op) && store.sql) return serveTokenIndex(store.sql, op, fields);
+  // A person object's calls (`workspaceStore/access.js`): the personal workspace's reach, shares and connections.
+  if (isPersonCall(op) && store.person) return await servePersonCall(store, op, fields);
   try {
     rows.pinWorkspace(fields.workspaceId);
     switch (op) {
@@ -189,6 +195,7 @@ export async function serveWorkspaceStore(store, request) {
           backfilledAt: rows.backfilledAt(),
           rows: rows.count(),
           accessVersion: rows.rules()?.accessVersion ?? null,
+          ...(store.person ? { access: { home: store.person.home(), person: store.person.person() } } : {}),
         });
       case "ws.home":
         return Response.json({ home: rows.setHome(fields.home) });

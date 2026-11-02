@@ -37,6 +37,7 @@
 import { R2Store } from "../store/r2.js";
 import { objectByName } from "../objectPlace.js";
 import { callTexStore, texBucket } from "../texStore/wire.js";
+import { personAccessClient } from "./personClient.js";
 
 /** Where a workspace's note bodies are read from. */
 export const HOMES = Object.freeze({ BUCKET: "bucket", DUAL: "dual", OBJECT: "object" });
@@ -121,5 +122,7 @@ export function workspaceClient(env, workspaceId) {
     state: async () => await ask("ws.state"),
     setHome: async (home) => await ask("ws.home", { home }),
     markBackfilled: async (at) => await ask("ws.backfilled", { at }),
+    // A personal workspace's object is its person's too (`workspaceStore/access.js`).
+    access: personAccessClient(ask, workspaceId),
   };
 }
