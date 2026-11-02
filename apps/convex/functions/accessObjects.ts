@@ -381,3 +381,64 @@ export const setAccessBySlug = internalAction({
     return await setAccessFor(ctx, workspaceId, scope, home, force === true);
   },
 });
+
+const everyCounts = v.object({
+  scopes: v.number(),
+  switched: v.number(),
+  /** Already at the asked home. */
+  already: v.number(),
+  /** Why scopes were not switched, by reason word (`setAccessFor`), never an id. */
+  refused: v.array(v.object({ reason: v.string(), count: v.number() })),
+  cursor: v.string(),
+  done: v.boolean(),
+});
+
+/**
+ * One page of switching every scope (or every scope of one kind) to `home`, for the "Access objects switch" workflow
+ * when no handle is given: a handle typed into a dispatch lands in its public log, so the whole switch takes none.
+ * Each scope goes through `setAccessFor`, object first, and `object` still needs that scope's clean, fresh parity
+ * check. Counts and reason words only.
+ */
+export const setAccessEvery = internalAction({
+  args: { home: accessValidator, scope: v.optional(scopeValidator), dryRun: v.boolean(), cursor: v.optional(v.string()) },
+  returns: everyCounts,
+  handler: async (ctx, { home, scope: only, dryRun, cursor }) => {
+    const counts = { scopes: 0, switched: 0, already: 0, refused: [] as { reason: string; count: number }[] };
+    const refuse = (reason: string) => {
+      const held = counts.refused.find((entry) => entry.reason === reason);
+      if (held) held.count += 1;
+      else counts.refused.push({ reason, count: 1 });
+    };
+    const state = (await startState(ctx, cursor, undefined)) as RunCursor;
+    const started = Date.now();
+    while (Date.now() - started < PAGE_BUDGET_MS) {
+      const workspaceId = await nextWorkspace(ctx, state);
+      if (workspaceId === null) return { ...counts, cursor: "", done: true };
+      const found = await scopesOf(ctx, workspaceId).catch(() => null);
+      if (found === null) continue;
+      for (const scope of found.scopes) {
+        if (only !== undefined && scope !== only) continue;
+        counts.scopes += 1;
+        try {
+          const record = await ctx.runQuery(internal.functions.accessObjectsRows.accessRecordFor, { workspaceId, scope });
+          if (record.home === home) {
+            counts.already += 1;
+            continue;
+          }
+          if (dryRun) {
+            const refusal = home === "object" ? objectRefusal(record, scope, Date.now()) : null;
+            if (refusal === null) counts.switched += 1;
+            else refuse(refusal);
+            continue;
+          }
+          const result = await setAccessFor(ctx, workspaceId, scope, home, false);
+          if (result.ok) counts.switched += 1;
+          else refuse(result.reason ?? "REFUSED");
+        } catch (error) {
+          refuse(accessFailureKind(error));
+        }
+      }
+    }
+    return { ...counts, cursor: JSON.stringify(state), done: false };
+  },
+});

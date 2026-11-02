@@ -76,3 +76,37 @@ describe("access switch record", () => {
     expect(await t.query(internal.functions.accessObjectsRows.workspaceFacts, { workspaceId })).toEqual({ personal: true, personId: userId });
   });
 });
+
+describe("switching every workspace", () => {
+  test("a dry run counts what may go to object and why the rest may not; a run that cannot reach the object switches nothing", async () => {
+    const t = convexTest(schema, modules);
+    const ready = await workspace(t);
+    const unchecked = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {} as never);
+      return await ctx.db.insert("workspaces", { slug: "beta", displayName: "Beta", createdBy: userId, kind: "shared", structureTemplate: "para", createdAt: 1, updatedAt: 1 } as never);
+    });
+    const now = Date.now();
+    for (const workspaceId of [ready, unchecked]) {
+      await t.mutation(internal.functions.accessObjectsRows.recordAccess, { workspaceId, scope: "workspace", home: "dual", now });
+      await t.mutation(internal.functions.accessObjectsRows.recordAccessCopy, { workspaceId, scope: "workspace", at: now });
+    }
+    await t.mutation(internal.functions.accessObjectsRows.recordAccessParity, {
+      workspaceId: ready,
+      scope: "workspace",
+      parity: { at: now, tables: [{ table: "members", convex: 1, object: 1, match: true }, { table: "invites", convex: 0, object: 0, match: true }] },
+    });
+
+    const dry = await t.action(internal.functions.accessObjects.setAccessEvery, { home: "object", scope: "workspace", dryRun: true });
+    expect(dry).toMatchObject({ scopes: 2, switched: 1, already: 0, refused: [{ reason: "PARITY_STALE", count: 1 }], done: true });
+
+    const again = await t.action(internal.functions.accessObjects.setAccessEvery, { home: "dual", scope: "workspace", dryRun: true });
+    expect(again).toMatchObject({ scopes: 2, switched: 0, already: 2, refused: [] });
+
+    // No gateway in this deployment: the object cannot take the switch, so the record stays where it was.
+    const real = await t.action(internal.functions.accessObjects.setAccessEvery, { home: "object", scope: "workspace", dryRun: false });
+    expect(real).toMatchObject({ switched: 0, refused: [{ reason: "OBJECT_UNREACHABLE", count: 2 }] });
+    for (const workspaceId of [ready, unchecked]) {
+      expect(await t.query(internal.functions.accessObjectsRows.accessOf, { workspaceId, scope: "workspace" })).toBe("dual");
+    }
+  });
+});
