@@ -221,7 +221,8 @@ export function storeForBinding(binding, env, options = {}) {
         client: options.workspaceStore(binding.workspaceId),
         known: { home: binding.notesHome, backfilledAt: binding.notesBackfilledAt ?? null },
         defer: options.defer ?? null,
-        log: options.log ?? (() => {}),
+        // A failed mirror must be seen: a caller that passes no log still gets the structured line (ids only).
+        log: options.log ?? ((event, fields) => console.log(JSON.stringify({ event, ...fields }))),
       })
     : texRouted;
   return withNoteCap(withNoteLayout(routed, options.idLayout), options.noteCap, options.noteCount ?? null);
