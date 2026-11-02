@@ -12,7 +12,9 @@
 # `texLedgerBackfill:run`), `groups` (each group chat's old log,
 # `texLedgerBackfillGroups:run`), or `transcripts` (the old daily transcript
 # folders moved to the trash once their chat is whole in its ledger,
-# restorable for 30 days; `texTranscriptsTrash:run`).
+# restorable for 30 days; `texTranscriptsTrash:run`), or `group_pages` (each
+# group chat's memory page copied into its ledger, its history file made, and
+# the page moved to the trash once the ledger holds it; `texGroupPagesRetire:run`).
 name: Tex chats into their ledger
 
 on:
@@ -32,6 +34,7 @@ on:
           - chats
           - groups
           - transcripts
+          - group_pages
         default: chats
       dry_run:
         description: "Count only; change nothing."
@@ -69,6 +72,7 @@ jobs:
             chats) fn=functions/texLedgerBackfill:run ;;
             groups) fn=functions/texLedgerBackfillGroups:run ;;
             transcripts) fn=functions/texTranscriptsTrash:run ;;
+            group_pages) fn=functions/texGroupPagesRetire:run ;;
             *) echo "unknown scope"; exit 1 ;;
           esac
           cursor=""

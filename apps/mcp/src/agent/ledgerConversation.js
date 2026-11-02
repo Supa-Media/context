@@ -45,7 +45,7 @@ const routineLine = (path) => `(Not a text from them. Your routine ${path} ran o
 const bySeq = (a, b) => (a.seq ?? 0) - (b.seq ?? 0);
 
 /** The turns of a ledger's entries (any order), oldest first, unbounded: `keep` bounds them. */
-export function conversationFromLedger(entries) {
+export function conversationFromLedger(entries, { question: asQuestion = null } = {}) {
   const list = (Array.isArray(entries) ? entries : []).filter((entry) => entry !== null && typeof entry === "object").sort(bySeq);
   const replies = new Map();
   const tools = new Map();
@@ -68,10 +68,13 @@ export function conversationFromLedger(entries) {
   const question = (fallback, extra = {}) => {
     const texts = asked;
     asked = [];
-    const said = texts.map((entry) => words({ ...entry, kind: entry.event })).filter((text) => text.trim() !== "");
+    const pairs = texts.map((entry) => [entry, words({ ...entry, kind: entry.event })]).filter(([, text]) => text.trim() !== "");
+    const said = pairs.map(([, text]) => text);
     if (said.length === 0) return fallback === null ? null : { role: "user", text: fallback, ...extra };
     const [first, last] = [texts[0], texts.at(-1)];
-    return { role: "user", text: said.join("\n"), ...(typeof first.eid === "string" ? { id: first.eid } : {}), ...(Number.isSafeInteger(last.at) ? { at: last.at } : {}), theirs: true, ...extra };
+    // A group's question names who said each text (`groupPageCopy.js` `groupQuestion`); a person's own is their words.
+    const text = typeof asQuestion === "function" ? asQuestion(pairs.map(([entry]) => entry), said) : said.join("\n");
+    return { role: "user", text, ...(typeof first.eid === "string" ? { id: first.eid } : {}), ...(Number.isSafeInteger(last.at) ? { at: last.at } : {}), theirs: true, ...extra };
   };
   const flush = () => {
     if (answering === null) return;
