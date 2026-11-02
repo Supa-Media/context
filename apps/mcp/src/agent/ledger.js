@@ -70,7 +70,7 @@ export function readsOtherWorkspace(args, ownSlug) {
 }
 
 /** A tool call's entry. `result` is the text the model was shown. */
-export function toolEntry({ name, args, ok, ms, held = false, reason = null, result = null }, { ownSlug, turn = null, at = Date.now() } = {}) {
+export function toolEntry({ name, args, ok, ms, held = false, reason = null, result = null, thinking = null }, { ownSlug, turn = null, at = Date.now() } = {}) {
   const entry = { v: 1, id: newId(), at, kind: "tool", ...(turn ? { turn } : {}), name: String(name ?? "").slice(0, 64), args: keptArgs(args ?? {}), ok: ok === true, ms: Number.isFinite(ms) ? Math.round(ms) : 0 };
   if (held) entry.held = true;
   if (typeof reason === "string" && reason !== "") entry.reason = reason.slice(0, 400);
@@ -80,6 +80,8 @@ export function toolEntry({ name, args, ok, ms, held = false, reason = null, res
     entry.result = kept.text;
     if (kept.cut !== undefined) entry.cut = kept.cut;
   }
+  // The advisor's thinking, beside its answer (`advisor.js`): what the tool thought, never Tex's own.
+  if (typeof thinking === "string" && thinking.trim() !== "" && entry.withheld === undefined) entry.thinking = cutText(thinking, MAX_WORDS_CHARS).text;
   return entry;
 }
 
@@ -170,6 +172,22 @@ export function storeLedger(store, session) {
   const place = ledgerPlace(session);
   if (place === null || typeof store?.texLedger !== "function") return null;
   return ledgerWriter(store.texLedger(place.owner.chat ?? null), place.chat);
+}
+
+/**
+ * A writer that marks every entry with the background job whose turn wrote it
+ * (`jobId`, `jobTitle`), so the chat's one record says which work was a job's
+ * (the owner, 2026-11-02: sub-agent work "in the chat's history, tagged").
+ * `job` entries keep their own `job` field; this never replaces it.
+ */
+export function jobTagged(writer, job) {
+  if (writer === null || !job || typeof job.id !== "string") return writer;
+  const tag = { jobId: job.id, ...(typeof job.title === "string" && job.title ? { jobTitle: job.title } : {}) };
+  return {
+    ...writer,
+    write: (entries) => writer.write((Array.isArray(entries) ? entries : [entries]).filter(Boolean).map((entry) => ({ ...entry, ...tag }))),
+    flush: () => writer.flush(),
+  };
 }
 
 /**

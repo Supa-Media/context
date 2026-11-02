@@ -254,6 +254,10 @@ export interface LedgerQuery {
   day?: string;
   /** The newest entries before this `seq`, newest first (`LATEST` for the newest of all). */
   before?: number;
+  /** Only this job's work (its page). */
+  job?: string;
+  /** `false`: none of any job's work (the Jobs filter off). */
+  jobs?: false;
 }
 
 export interface LedgerPage {

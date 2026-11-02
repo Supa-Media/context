@@ -13,6 +13,7 @@ import type { ViewProps } from "./TexPageBody";
 import { clock, moodOf, took } from "./texPageFormat";
 import type { JobDetail, JobStep } from "./texPageTypes";
 import { useTexJob } from "./useTexPage";
+import { TexHistoryLines } from "../history/TexHistoryLines";
 
 type LiveFrame = Extract<Frame, { running: true }>;
 
@@ -238,6 +239,14 @@ export function TexJobPage(props: TexJobPageProps) {
             ) : null}
           </T>
         ) : null}
+
+        {/* What the job did, from the chat's one history: its own lines only (decided by the owner, 2026-11-02: "In the chat's history, tagged"). */}
+        <View style={styles.work} testID="tex-job-work">
+          <T size={15} weight="600">
+            What it did
+          </T>
+          <TexHistoryLines source={source} chat={chat} group={props.group !== null} job={id} />
+        </View>
       </View>
     </View>
   );
@@ -248,6 +257,7 @@ const makeStyles = (colors: Colors) =>
     center: { paddingVertical: 24, alignItems: "center" },
     head: { flexDirection: "column", gap: 14 },
     detail: { gap: 14 },
+    work: { gap: 8, marginTop: 12 },
     mini: {
       flexDirection: "row",
       gap: 12,

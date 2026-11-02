@@ -13,7 +13,7 @@ import { LATEST, type LedgerEntry, type LedgerPage } from "../page/texPageTypes"
  * A chat's history, one line a message: time, who, words, left-aligned and
  * grouped by day and turn (decided by the owner, 2026-11-02, from the
  * artboard he approved: "go back to the ltr, 1 line slack style"). One row of
- * filters: which day, and Texts, Tool calls, Thinking and Background, thinking off
+ * filters: which day, and Texts, Tool calls, Thinking, Background and Jobs, thinking and jobs off
  * until asked for. A line opens to its entry exactly as kept. Read from the
  * gateway each time, a page at a time; nothing here keeps a copy.
  *
@@ -23,7 +23,7 @@ import { LATEST, type LedgerEntry, type LedgerPage } from "../page/texPageTypes"
 
 const DAY_OPTIONS = (["today", "yesterday", "all", "pick"] as const).map((key) => ({ key, label: DAY_LABEL[key] }));
 
-export function TexHistoryLines({ source, chat, group }: { source: TexPageSource; chat: string; group: boolean }) {
+export function TexHistoryLines({ source, chat, group, job }: { source: TexPageSource; chat: string; group: boolean; /** One job's work only: its page. */ job?: string }) {
   const styles = useThemedStyles(makeStyles);
   const page = useThemedStyles(pageStyles);
   const field = useFieldFont(texPageType.field);
@@ -40,7 +40,11 @@ export function TexHistoryLines({ source, chat, group }: { source: TexPageSource
   const kindsKey = kinds.join(",");
   // Nothing is asked while a day is still being typed, or with every kind off.
   const waiting = (day === "pick" && asked === undefined) || kinds.length === 0;
-  const query = useMemo(() => ({ kinds: kindsKey.split(",").filter(Boolean) as typeof kinds, ...(asked ? { day: asked } : {}) }), [kindsKey, asked]);
+  const jobsShown = shown.jobs;
+  const query = useMemo(
+    () => ({ kinds: kindsKey.split(",").filter(Boolean) as typeof kinds, ...(asked ? { day: asked } : {}), ...(job !== undefined ? { job } : jobsShown ? {} : { jobs: false as const }) }),
+    [kindsKey, asked, job, jobsShown],
+  );
 
   // A "Show older" still reading when a filter changes is dropped, never added to the new list.
   const asking = useRef(query);
@@ -73,7 +77,7 @@ export function TexHistoryLines({ source, chat, group }: { source: TexPageSource
     setEntries((was) => [...was, ...r.value.entries]);
   };
 
-  const days = historyDays(entries, now, { group });
+  const days = historyDays(entries, now, { group, thinking: shown.thinking });
 
   return (
     <View style={{ gap: 12 }} testID="tex-history-lines">
@@ -86,7 +90,7 @@ export function TexHistoryLines({ source, chat, group }: { source: TexPageSource
           look="pick"
           testID="tex-history-day-choice"
         />
-        {SHOWS.map((s) => (
+        {SHOWS.filter((s) => !(job !== undefined && s === "jobs")).map((s) => (
           <Pressable
             key={s}
             accessibilityRole="button"
@@ -130,7 +134,7 @@ export function TexHistoryLines({ source, chat, group }: { source: TexPageSource
             {d.turns.map((turn) => (
               <View key={turn.id} style={styles.turn}>
                 {turn.lines.map((line) => (
-                  <Line key={line.id} line={line} open={open === line.id} onPress={() => setOpen((was) => (was === line.id ? null : line.id))} />
+                  <Line key={line.id} line={job !== undefined ? { ...line, job: undefined } : line} open={open === line.id} onPress={() => setOpen((was) => (was === line.id ? null : line.id))} />
                 ))}
               </View>
             ))}
@@ -166,6 +170,7 @@ function Line({ line, open, onPress }: { line: HistoryLine; open: boolean; onPre
             </T>
           ) : null}
           <T size={quiet ? 13 : 15} line={1.5} tone={quiet ? "muted" : "text"} style={line.tone === "thinking" ? styles.thinking : null}>
+            {line.job ? `${line.job} · ` : ""}
             {line.calls ? `${open ? "▾" : "▸"} ${line.text}` : line.text}
           </T>
           {line.reactions ? (
