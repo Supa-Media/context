@@ -62,7 +62,13 @@ const SNAPSHOT_CHUNK = 1000;
 /** How long one page of a run may work before it hands back its cursor. */
 const PAGE_BUDGET_MS = 2 * 60 * 1000;
 /** Bucket keys listed per body page: small enough that one page never runs far past the budget. */
-const KEYS_PER_PAGE = 100;
+const KEYS_PER_PAGE = 400;
+/**
+ * Keys read at once within a body page. At 8, @supa's ~59,000 keys took about
+ * 75 minutes to copy and 50 to check, nearly all of it waiting on one read at
+ * a time; reads that come back busy are asked again (`withRetries`).
+ */
+const KEYS_AT_ONCE = 32;
 /** How recent a clean parity check must be for a workspace to be read from its object. */
 const PARITY_FRESH_MS = 60 * 60 * 1000;
 /** A difference is asked again after this long: a save in flight is mirrored by then. */
@@ -408,6 +414,7 @@ export const backfill = internalAction({
         const page = await copyPage(bucket, withRetries(client.bodies as unknown as BodyStore, sleep), {
           at: state.at,
           limit: KEYS_PER_PAGE,
+          width: KEYS_AT_ONCE,
           dryRun,
           onFailure: (error) => {
             const failure = failureOf(error);
@@ -642,6 +649,7 @@ export const parity = internalAction({
         const page = await parityPage(bucket, withRetries(client.bodies as unknown as BodyStore, sleep), {
           at: state.check ?? { side: 0, prefix: 0 },
           limit: KEYS_PER_PAGE,
+          width: KEYS_AT_ONCE,
           recheckMs: RECHECK_MS,
           sleep,
         });
