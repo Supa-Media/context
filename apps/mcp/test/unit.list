@@ -339,3 +339,4 @@ test/personTopics.test.mjs
 test/agentGroupAskChat.test.mjs
 test/chatLedger.test.mjs
 test/objectManifest.test.mjs
+test/chatLedgerWrites.test.mjs

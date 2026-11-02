@@ -93,12 +93,12 @@ export function wordsEntry(kind, text, { turn = null, at = Date.now(), ...extra 
 export function eventEntry(event) {
   const { id, at, chat: _chat, kind: eventKind, text, ...rest } = event ?? {};
   const kept = cutText(text ?? "", MAX_WORDS_CHARS);
-  return { v: 1, id: `ev${String(id).replace(/[^0-9A-Za-z]/g, "")}`, at, kind: "text", event: eventKind, ...rest, text: kept.text, ...(kept.cut !== undefined ? { cut: kept.cut } : {}) };
+  return { v: 1, id: `ev${String(id).replace(/[^0-9A-Za-z]/g, "")}`, eid: id, at, kind: "text", event: eventKind, ...rest, text: kept.text, ...(kept.cut !== undefined ? { cut: kept.cut } : {}) };
 }
 
 /**
  * The ledgers in one owner's Tex object (`{person: workspaceId}` or `{chat:
- * groupKey}`, as `pageWork.js` `pageOwner` names it), or null without the
+ * groupKey}`, as `ledgerPlace` names it), or null without the
  * binding: `{append(chat, entries), read(chat, options), chats()}`.
  */
 export function ledgerFor(env, owner) {
@@ -154,4 +154,31 @@ export function sessionLedger(env, session) {
   const place = ledgerPlace(session);
   if (place === null) return null;
   return ledgerWriter(ledgerFor(env, place.owner), place.chat);
+}
+
+/**
+ * The writer for the ledger of the chat a session's turn is in, through the
+ * turn's own store (`store/texRouting.js` `texLedger`), or null when the
+ * session keeps none (the app, a shared workspace's own connection).
+ */
+export function storeLedger(store, session) {
+  const place = ledgerPlace(session);
+  if (place === null || typeof store?.texLedger !== "function") return null;
+  return ledgerWriter(store.texLedger(place.owner.chat ?? null), place.chat);
+}
+
+/**
+ * A turn's steps (`turn.js` `tell`) written to its chat's ledger, beside
+ * whatever else watches them (`then`): thinking, the words between tools, and
+ * every tool call with its result.
+ */
+export function ledgerObserver(writer, then = null, { turn = null, ownSlug = null } = {}) {
+  if (writer === null) return then;
+  const at = { turn: typeof turn === "string" && turn !== "" ? turn : null };
+  return (event) => {
+    if (typeof then === "function") then(event);
+    if (event?.kind === "thinking" && typeof event.text === "string" && event.text.trim() !== "") writer.write(wordsEntry("thinking", event.text, at));
+    else if (event?.kind === "say" && typeof event.text === "string" && event.text.trim() !== "") writer.write(wordsEntry("said", event.text, at));
+    else if (event?.kind === "tool") writer.write(toolEntry(event, { ownSlug, turn: at.turn }));
+  };
 }

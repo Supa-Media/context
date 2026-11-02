@@ -26,6 +26,7 @@
 
 import { eventKey, idOfKey, newExchange } from "./events.js";
 import { appendHistory, readHistory } from "./history.js";
+import { ONE_TO_ONE_CHAT, ledgerWriter, wordsEntry } from "./ledger.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isNoteSource, isReadSource, sourcesOf } from "./sources.js";
 
 /** The conversations a caller may name. A name is never a path. */
@@ -236,7 +237,7 @@ export function historyIsTainted(history) {
  * are the exchange's time and id when the caller chose them (`events.js`
  * `newExchange`). Answers the exchange's id. Throws when it can't be kept.
  */
-export async function appendConversation(store, name, question, answer, { tainted = false, tools = [], sources = [], thread = null, at = Date.now(), tag = null, id: chosen = null, theirs = false } = {}) {
+export async function appendConversation(store, name, question, answer, { tainted = false, tools = [], sources = [], thread = null, at = Date.now(), tag = null, id: chosen = null, theirs = false, ledger = true } = {}) {
   if (conversationPath(name) === null) return null;
   const exchange = typeof chosen === "string" ? { at, id: chosen } : tag !== null ? { at, id: idOfKey(eventKey(at, tag)) } : newExchange(at);
   const id = exchange.id;
@@ -248,6 +249,9 @@ export async function appendConversation(store, name, question, answer, { tainte
     ],
     HISTORY,
   );
+  // A text Tex sent outside a chat turn (a check-in, a ping, a job's update, a settled yes) into the chat's one record too
+  // (`ledger.js`); a chat turn writes its own steps and reply there, and passes `ledger: false`.
+  if (ledger && name === "texts") await ledgerWriter(typeof store?.texLedger === "function" ? store.texLedger() : null, ONE_TO_ONE_CHAT)?.write(wordsEntry("note", answer, { at: exchange.at, about: String(question ?? "").slice(0, 2_000), ...(tainted ? { tainted: true } : {}) }));
   return id;
 }
 
@@ -306,7 +310,7 @@ export async function appendTold(store, name, told) {
   try {
     const at = Date.now();
     for (const [index, key] of told.entries()) {
-      await appendConversation(store, name, TOLD_QUESTION, TOLD[key], { at: at + index });
+      await appendConversation(store, name, TOLD_QUESTION, TOLD[key], { at: at + index, ledger: false }); // the Worker's own `told` event is the ledger's copy
     }
   } catch {
     // See above.
@@ -324,7 +328,7 @@ export async function rememberRoutineText(store, routine, text, tainted) {
   if (Array.isArray(routine.settings.to) && routine.settings.to.length > 0) return;
   const line = `(Not a text from them. Your routine ${routine.path} ran on its schedule and you texted them what follows.)`;
   try {
-    await appendConversation(store, "texts", line, text, { tainted });
+    await appendConversation(store, "texts", line, text, { tainted, ledger: false }); // the routine turn wrote its own note (`route.js`)
   } catch {
     // See above.
   }
