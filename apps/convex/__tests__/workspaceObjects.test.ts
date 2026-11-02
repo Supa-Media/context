@@ -294,6 +294,10 @@ describe("the switch", () => {
     expect(said).toBe("shared/binding=none/rows=1");
     expect(said).not.toContain("acme");
     expect(await t.query(internal.functions.workspaceObjectsRows.describeUnopened, { workspaceId: gone })).toBe("gone/binding=none/rows=0");
+    await t.mutation(internal.functions.workspaceObjectsRows.recordHome, { workspaceId: live, home: "dual", now: 1 });
+    await t.mutation(internal.functions.workspaceObjectsRows.recordHome, { workspaceId: gone, home: "dual", now: 1 });
+    // The deleted one's record stays behind, but is never listed for a check or a switch.
+    expect(await t.query(internal.functions.workspaceObjectsRows.atHome, { home: "dual" })).toEqual([live]);
   });
 
   test("no record is bucket; the record moves with each set; the binding names no home while bucket", async () => {
