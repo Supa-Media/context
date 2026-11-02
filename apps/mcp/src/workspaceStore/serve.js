@@ -17,6 +17,7 @@ import { isPersonCall, servePersonCall } from "./personServe.js";
 import { isTokenIndexCall, serveTokenIndex } from "./tokenIndex.js";
 import { membersState, serveMembersCall } from "./serveMembers.js";
 import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.js";
+import { manifestPage } from "./manifest.js";
 
 const CALL = "x-tex-call";
 
@@ -87,7 +88,7 @@ const READERS = new Set([...AUDIENCES, "chat"]);
  * `canSee` over the row's path, with the grant's scope and row tokens. A chat reads by the guest rules as its own
  * names render them (`chatRules.js`); a chat with no names given sees nothing.
  */
-function judgeFor(rows, { scope, groups, audience = "member", userId = null, chatNames = null }, members = null) {
+export function judgeFor(rows, { scope, groups, audience = "member", userId = null, chatNames = null }, members = null) {
   if (!SCOPES.has(scope)) throw new WorkspaceRowRefused("a read needs its scope");
   if (!READERS.has(audience)) throw new WorkspaceRowRefused("not an audience");
   let reader = { scope, tokens: new Set(Array.isArray(groups) ? groups.filter((group) => typeof group === "string") : []) };
@@ -103,6 +104,9 @@ function judgeFor(rows, { scope, groups, audience = "member", userId = null, cha
   const parsed = held === null || reader === null ? null : parsedRules(held);
   return {
     accessVersion: held?.accessVersion ?? null,
+    /** The reader's scope and row tokens, and the rules as `canSee` takes them; `null` where nothing may be seen. */
+    clearance: parsed === null ? null : { scope: reader.scope, names: reader.tokens },
+    parsed,
     sees: (row) => row !== null && parsed !== null && canSee(row.path, reader.scope, parsed.rules, parsed.overrides, reader.tokens),
   };
 }
@@ -215,6 +219,8 @@ export async function serveWorkspaceStore(store, request) {
         // The control plane's own readers, through the door: unfiltered, as its internal queries are.
         if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ROW_ASKS.has(fields.ask)) return Response.json({ served: false });
         return Response.json(store.facts.rows(fields));
+      case "ws.rows.manifest":
+        return Response.json(manifestPage(rows, fields, judgeFor(rows, fields, store.members ?? null)));
       case "ws.rows.get":
         return Response.json({ rows: rows.get(fields.ids) });
       case "ws.rows.list":

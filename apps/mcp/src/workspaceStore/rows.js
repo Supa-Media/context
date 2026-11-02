@@ -218,6 +218,18 @@ export function workspaceRows(sql) {
       const value = meta(`rules:${audience}`);
       return value === null ? null : JSON.parse(value);
     },
+    /**
+     * Every live file row under `prefix` (`""`: the whole tree) whose path sorts after `after`, for a listing
+     * (`manifest.js`). The range is on the path index; the caller judges and orders them.
+     */
+    filesUnder(prefix = "", after = null) {
+      const from = typeof after === "string" && after > prefix ? after : prefix;
+      const inclusive = from === prefix;
+      // `prefix` ends in "/", so every path under it sorts before the same prefix ending in "0" (the byte after "/").
+      const end = prefix === "" ? null : `${prefix.slice(0, -1)}0`;
+      const query = `SELECT * FROM ws_rows WHERE gone = 0 AND kind = 'file' AND path ${inclusive ? ">=" : ">"} ?${end === null ? "" : " AND path < ?"}`;
+      return all(end === null ? sql.exec(query, from) : sql.exec(query, from, end)).map(rowOut);
+    },
     /** The live row at a path, or null. */
     byPath(path) {
       const row = all(sql.exec("SELECT * FROM ws_rows WHERE path = ? AND gone = 0 ORDER BY at DESC LIMIT 1", path))[0];

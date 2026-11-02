@@ -317,6 +317,22 @@ async function versionOf(raw) {
 }
 
 /**
+ * One note in `@context-lc`, shaped, or `null`. Every Tex turn reads it through Tex's own read-only door to the pin
+ * first, whoever the person is and wherever the turn runs (`session.js` `sessionForSetup`): the person's own reach
+ * there sees no staff note for a pin reader or a group chat, and Tex then ran on its built-in words without saying
+ * so (2026-10-23 to 26, and 2026-10-31 to 2026-11-02). The person's own reach is the fallback, for a caller with no
+ * door (the console) and for a door that could not be opened.
+ */
+async function readInPin(store, session, path, shape) {
+  if (typeof store.openPinnedSetup === "function") {
+    const read = await readPinnedNote({ contexts: [{ name: PINNED_CONTEXT_NAME }], openPinned: store.openPinnedSetup, here: null }, path, shape);
+    if (read !== null) return read;
+    console.log(JSON.stringify({ event: "tex_setup_door_missed", workspace: session?.workspaceId ?? null, client: session?.actorClientId ?? null }));
+  }
+  return await readPinnedNote(await pinnedReach(store, session), path, shape);
+}
+
+/**
  * The reach a note in `@context-lc` is read with, for this caller: its own
  * store and clearance when the turn runs inside the pinned workspace, otherwise
  * the hop `openPinnedContext` makes.
@@ -327,12 +343,6 @@ async function pinnedReach(store, session) {
   if (current?.name === PINNED_CONTEXT_NAME) {
     const privacy = await loadPrivacyState(store);
     if (!privacy.error) here = { store, scope: session.scope, rules: privacy.rules, overrides: privacy.overrides };
-  }
-  // A group chat cannot address the pin, but reads its setup there through a
-  // read-only door that opens nothing else (`session.js` `sessionForSetup`).
-  const listed = (store.contexts || []).some((entry) => entry.name === PINNED_CONTEXT_NAME);
-  if (!listed && here === null && typeof store.openPinnedSetup === "function") {
-    return { contexts: [{ name: PINNED_CONTEXT_NAME }], openPinned: store.openPinnedSetup, here: null };
   }
   return { contexts: store.contexts, openPinned: store.openPinnedContext, here };
 }
@@ -351,10 +361,10 @@ export async function readProductionSetup(store, session, { texting, warm = null
   try {
     // With a warm copy (`warmCopy.js`), the note's text is read only when the copy hasn't it.
     if (warm !== null) {
-      const raw = await warm(async () => await readPinnedNote(await pinnedReach(store, session), PRODUCTION_TEXTING_PATH, (text) => text));
+      const raw = await warm(async () => await readInPin(store, session, PRODUCTION_TEXTING_PATH, (text) => text));
       return typeof raw === "string" ? await parseSetup(raw) : null;
     }
-    return await readPinnedNote(await pinnedReach(store, session), PRODUCTION_TEXTING_PATH, parseSetup);
+    return await readInPin(store, session, PRODUCTION_TEXTING_PATH, parseSetup);
   } catch {
     return null;
   }
@@ -373,7 +383,7 @@ export async function readProductionSetup(store, session, { texting, warm = null
  */
 export async function readJobSetup(store, session, path) {
   try {
-    return await readPinnedNote(await pinnedReach(store, session), path, parseSetup);
+    return await readInPin(store, session, path, parseSetup);
   } catch {
     return null;
   }
@@ -429,7 +439,7 @@ export function promptSections(prompt) {
 export async function readSetupAt(store, session, path) {
   if (typeof path !== "string" || !TRY_SETUP_PATH.test(path) || path.includes("..")) return null;
   try {
-    return await readPinnedNote(await pinnedReach(store, session), path, parseSetup);
+    return await readInPin(store, session, path, parseSetup);
   } catch {
     return null;
   }
@@ -445,7 +455,7 @@ const TRY_SETUP_PATH = /^ai\/(?:production|setups\/[a-z0-9-]+)\/[A-Za-z0-9_-][A-
  */
 export async function readProductionSkill(store, session, path) {
   try {
-    return await readPinnedNote(await pinnedReach(store, session), path, skillBody);
+    return await readInPin(store, session, path, skillBody);
   } catch {
     return null;
   }
@@ -460,7 +470,7 @@ export async function readProductionSkill(store, session, path) {
 export async function readHelperCallers(store, session, key) {
   if (typeof key !== "string" || !/^[a-z][a-z0-9-]{0,40}$/.test(key)) return null;
   try {
-    return await readPinnedNote(await pinnedReach(store, session), `ai/agents/${key}.md`, helperCallersOf);
+    return await readInPin(store, session, `ai/agents/${key}.md`, helperCallersOf);
   } catch {
     return null;
   }

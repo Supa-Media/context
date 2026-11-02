@@ -183,6 +183,8 @@ export interface OpenedGatewayBinding {
   audience?: "guest";
   /** A Tex guest chat's names, whose rules are the guest rules read for it (`lib/nodes/chatFolders.ts`). Absent otherwise. */
   chatNames?: string[];
+  /** Tex's setup read (`lib/texSetupRead.ts`): rules narrowed to the setup's folders. Absent otherwise. */
+  setupRead?: true;
 }
 
 /**

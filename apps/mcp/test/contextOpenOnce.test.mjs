@@ -162,6 +162,7 @@ test("attachPinnedDoors opens each door once, and only when the grant carries it
   // chat-reads grant and a home, so both doors exist.
   const session = {
     workspaceId: "ws_mine",
+    actorClientId: "context_texts_group",
     grantScopes: ["context:read", "context:write"],
     workspaces: [],
     setupReach: { workspaceId: "ws_pinned", slug: "context-lc", kind: "shared", role: "owner", grantedNames: ["#reads-as-chat"], chatHome: "tex/groups/example.md" },
@@ -185,7 +186,7 @@ test("attachPinnedDoors opens each door once, and only when the grant carries it
   // Two doors, each opened once: two opens in total.
   assert.deepEqual(opened, ["ws_pinned", "ws_pinned"]);
 
-  // Without a setup reach, neither door is attached.
+  // Without a setup reach (and no pin among its workspaces), neither door is attached.
   const bare = {};
   attachPinnedDoors(bare, { ...session, setupReach: null }, openStore);
   assert.equal(bare.openPinnedSetup, undefined);
@@ -215,6 +216,10 @@ test("a chat's home lists its own folder: the door's store asks the control plan
   const listed = await servedListingStore(home.store).list({ prefix: "tex/groups/example/" });
   assert.deepEqual(listed.objects.map((object) => object.key), ["tex/groups/example/history.md"]);
   assert.deepEqual(asked, [{ token: TOKEN, workspaceId: "ws_pinned", folder: "tex/groups/example" }], "asked as the home, with the chat's token");
+  // And its store knows it is the home, so a write there sets no row the seal would refuse (`chatHomeWrite.test.mjs`).
+  assert.equal(home.store.chatHome, "tex/groups/example");
+  assert.ok(!Object.keys(home.store).includes("chatHome"), "not enumerable");
+  if (typeof store.openPinnedSetup === "function") assert.equal((await store.openPinnedSetup()).store.chatHome, undefined, "the setup door is not the home");
 });
 
 test("a held store reads the turn's search settings and held passes as they are now", async () => {

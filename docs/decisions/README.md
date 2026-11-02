@@ -738,6 +738,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The texting assistant](./texting-assistant.md)
 
+- [Every Tex turn reads its setup, whoever the person is (2026-11-02)](./texting-assistant/setup-read.md)
 - [Tex answers directly, or says what it is doing as it works, never that it is done (2026-11-01)](./texting-assistant/interleaved-updates.md)
 - [Every reaction in a chat is input, a reaction on Tex's question its answer (2026-11-01)](./texting-assistant/reactions-as-input.md)
 - [Tex's front door: a text in, Haiku answers, the reply out (2026-10-31)](./texting-assistant/front-door.md)
@@ -805,6 +806,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex downloads a file and emails it (2026-10-22)](./texting-assistant/computer.md#tex-downloads-a-file-and-emails-it-2026-10-22)
 - [A failed browser run is debugged from Browserbase's session log (2026-10-22)](./texting-assistant/computer.md#a-failed-browser-run-is-debugged-from-browserbases-session-log-2026-10-22)
 - [A browser waiting on the person is held fifteen minutes (2026-10-28)](./texting-assistant/computer.md#a-browser-waiting-on-the-person-is-held-fifteen-minutes-2026-10-28)
+- [The Tex page shows each chat's Tex live, from the chat's own box (2026-11-02)](./texting-assistant/tex-page.md)
 - [Tex holds the six tools, each listing only what it was granted (2026-10-16)](./texting-assistant/tool-shelf.md)
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)

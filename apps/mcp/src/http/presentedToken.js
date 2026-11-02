@@ -29,6 +29,9 @@ import { TREE_PROTOCOL, TREE_SOCKET_PATH } from "../../../../packages/shared/src
 import { ACCESS_PROTOCOL, ACCESS_SOCKET_PATH } from "../../../../packages/shared/src/accessFrames.cjs";
 
 export const PRESENCE_PROTOCOL = "context.presence";
+/** The Tex page's socket (`http/texPage/live.js`), which offers its token the same way. */
+export const TEX_PAGE_SOCKET_PATH = "/tex/page/live";
+export const TEX_PAGE_PROTOCOL = "context.tex-page";
 const TOKEN_PROTOCOL_PREFIX = "context.token.";
 
 /** The live file tree's socket (`live/treeRoute.js`), which offers its token the same way. */
@@ -94,7 +97,9 @@ export function presentedToken(request, pathToken, path) {
         ? subprotocolToken(request, TREE_PROTOCOL)
         : path === ACCESS_SOCKET_PATH
           ? subprotocolToken(request, ACCESS_PROTOCOL)
-          : null;
+          : path === TEX_PAGE_SOCKET_PATH
+            ? subprotocolToken(request, TEX_PAGE_PROTOCOL)
+            : null;
   if (offered) return { token: offered, transport: { kind: "subprotocol" } };
   const header = bearerToken(request);
   return { token: header, transport: header ? { kind: "header" } : null };

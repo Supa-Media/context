@@ -1,8 +1,10 @@
 /**
- * The two doors a group chat's turn has into the pin it may not otherwise
- * address (`session.js`): `openPinnedSetup`, to read Tex's setup
- * (`agent/production.js`), and `openChatHome`, to keep the chat's memory in
- * its home there and nowhere else (`agent/chatHome.js`). Each answers
+ * The two doors a Tex turn has into the pin it may not otherwise address
+ * (`session.js`): `openPinnedSetup`, for every Tex turn, to read Tex's setup
+ * through the control plane's setup read (`agent/production.js`,
+ * docs/decisions/texting-assistant/setup-read.md), and `openChatHome`, for a
+ * group chat, to keep the chat's memory in its home there and nowhere else
+ * (`agent/chatHome.js`). Each answers
  * `{ session, store }`, and is attached only when the grant carries it.
  *
  * Each door opens at most once per request (a turn reads its setup and home
@@ -10,12 +12,18 @@
  * under different sessions, each clamped for its own purpose.
  */
 import { sessionForChatHome, sessionForSetup } from "../session.js";
+import { markChatHome } from "../agent/chatHomeSeal.js";
 
 export function attachPinnedDoors(store, session, openStore, equipDoor = () => {}) {
   const setupSession = sessionForSetup(session);
   if (setupSession !== null) store.openPinnedSetup = door(setupSession, openStore, equipDoor);
   const homeSession = sessionForChatHome(session);
-  if (homeSession !== null) store.openChatHome = door(homeSession, openStore, equipDoor);
+  if (homeSession !== null) {
+    store.openChatHome = door(homeSession, openStore, (opened, doorSession) => {
+      equipDoor(opened, doorSession);
+      markChatHome(opened, doorSession.chatHome); // the seal is its access: no row is set there (`agent/chatHomeSeal.js`)
+    });
+  }
 }
 
 /**

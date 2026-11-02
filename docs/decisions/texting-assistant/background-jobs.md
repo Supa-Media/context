@@ -28,7 +28,10 @@ working on this?" got no status, and every other ask waited behind it.
   line) and times, never the ask. Every texted turn is shown the list, so
   "are you working on this?" and "how's it going?" are answered from it, one
   line per job, with the rest a `job_status` call away (below). A finished
-  job stays two hours, so "did you finish?" has an answer.
+  job is shown for two hours (`JOB_SHOWN_MS`), so "did you finish?" has an
+  answer, and kept seven days (`JOB_KEPT_MS`, 2026-11-02) for the "What Tex is
+  working on" page. The gateway picks each job's id (`background.js`), so a
+  turn's record can point at the job the Worker runs.
 - **No duplicate jobs.** An ask whose title matches a running job (most of the
   shorter title's words in the other) is refused at the tool with the job's
   status, which the model relays instead. The Worker holds to the same by
@@ -66,7 +69,7 @@ working on this?" got no status, and every other ask waited behind it.
 - **Kept outside the bucket, bounded:** the ask's words sit in the job's own
   object only while it runs, and two hours after it ended unfinished, so it
   can be picked back up (below); the chat's list holds no ask, and drops a job
-  two hours after it ends, or marks one stopped whose object died.
+  seven days after it ends, or marks one stopped whose object died.
 
 **What a simplification would cost:** running the job inside the texting
 turn (as before) makes every other text wait and cuts a long ask at eight

@@ -89,6 +89,8 @@ export function workspaceStub(env, workspaceId) {
  * - `rows.lookup({paths, scope, groups, audience})`, `rows.resolve({noteIds, ...})` → `{rows: [{found, path, noteId, key, etag, kind, collaborates}], accessVersion}`
  * - `read({ids, scope, groups, audience})` → `{notes: Array<{id, found: true, path, etag, contentType, text}|{id, found: false}>, accessVersion}`
  * - `visible({ids, scope, groups})` → booleans, the same check (for the parity checker)
+ * - `rows.manifest({folder, cursor, scope, groups, audience})` → `{served: true, entries: [{path, etag, size, updatedAt, noteId}], cursor}`
+ *   or `{served: false}`: the agent tools' listing, judged the same way (`workspaceStore/manifest.js`)
  * - `rows.put(rows)`, `rows.remove(ids, at)`, `rows.get(ids)`, `rows.list({after, limit})`
  * - `rows.snapshot({epoch, rows, last, mode})`: a whole copy in pages; `replace` swaps on the last page, `merge` upserts
  * - `rows.digest()` → `{rows, sha256}` over the live rows in id order (fields: id, noteId, path, kind, storageKey, etag, size, collaborates, uploaded, role, order, archiveOf)
@@ -118,6 +120,8 @@ export function workspaceClient(env, workspaceId) {
       lookup: async ({ paths, scope, groups = [], audience = "member", userId = null, chatNames = null }) => await ask("ws.rows.lookup", { paths, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
       resolve: async ({ noteIds, scope, groups = [], audience = "member", userId = null, chatNames = null }) => await ask("ws.rows.resolve", { noteIds, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
       list: async ({ after = null, limit = 1000 } = {}) => await ask("ws.rows.list", { after, limit }),
+      manifest: async ({ folder = "", cursor = null, scope, groups = [], audience = "member", userId = null, chatNames = null }) =>
+        await ask("ws.rows.manifest", { folder, ...(cursor ? { cursor } : {}), scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
       snapshot: async ({ epoch, rows, last = false, mode = "replace" }) => await ask("ws.rows.snapshot", { epoch, rows, last, mode }),
       digest: async () => await ask("ws.rows.digest"),
     },

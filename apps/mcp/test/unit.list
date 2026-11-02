@@ -34,11 +34,14 @@ test/agentInstructions.test.mjs
 test/agentJobPlanner.test.mjs
 test/agentJobs.test.mjs
 test/contextOpenOnce.test.mjs
+test/chatHomeWrite.test.mjs
+test/chatSkills.test.mjs
 test/jobLogAppend.test.mjs
 test/agentLocalNow.test.mjs
 test/agentPromptCache.test.mjs
 test/agentOpenWebBrowse.test.mjs
 test/agentProduction.test.mjs
+test/agentSetupDoor.test.mjs
 test/agentBugReportAsked.test.mjs
 test/groupSetupReach.test.mjs
 test/agentProgress.test.mjs
@@ -336,3 +339,8 @@ test/objectGrants.test.mjs
 test/personTopics.test.mjs
 test/agentGroupAskChat.test.mjs
 test/objectFacts.test.mjs
+test/objectManifest.test.mjs
+test/texPage.test.mjs
+test/texPageLive.test.mjs
+test/texPageNotes.test.mjs
+test/texPageRoutes.test.mjs

@@ -48,13 +48,13 @@ function entryOf(row) {
 }
 
 /**
- * How one session reads its workspace's object, or `null` where it may not: no object, notes not living there, a
- * scope the object does not judge, a chat whose names are unknown, or the object behind the control plane. Shared by
- * the row hooks and the facts below, so both decide alike.
+ * Whether this session's row questions may go to its object, and how: `null` where they may not (no object, notes not
+ * at home there, an unknown scope, a chat whose names are not known, or a change the object has not taken yet, which
+ * the binding's `notesBehind` says), else the reader as the object judges it and the per-call behind check.
  *
- * @param {{client: object|null, home?: string|null, behind?: boolean, checkBehind?: () => Promise<boolean>, scope: string, names: Iterable<string>, chatNames?: string[]|null, workspaceId: string, userId?: string|null, log?: (event: string, fields: object) => void}} options
+ * @param {{client: object|null, home?: string|null, behind?: boolean, checkBehind?: (() => Promise<boolean>)|null, scope: string, names: Iterable<string>, chatNames?: string[]|null, workspaceId?: string, userId?: string|null, log?: (event: string, fields: object) => void}} options
  */
-function objectReader({ client, home, behind = false, checkBehind = null, scope, names, chatNames = null, workspaceId, userId = null, log = () => {} }) {
+export function objectReader({ client, home, behind = false, checkBehind = null, scope, names, chatNames = null, workspaceId, userId = null, log = () => {} }) {
   const groups = [...(names ?? [])];
   const audience = audienceOf(groups);
   if (!client || home !== HOMES.OBJECT || (scope !== "private" && scope !== "team")) return null;
@@ -130,8 +130,7 @@ export function objectFirstFacts(options) {
 export function objectFirstHooks(hooks, options) {
   const reader = objectReader(options);
   if (reader === null) return hooks;
-  const { client, workspaceId, log } = reader;
-  const { judged, askBehind, settledBehind } = reader;
+  const { client, workspaceId, log, judged, askBehind, settledBehind } = reader;
 
   const lookup = async (paths) => {
     const pending = askBehind();

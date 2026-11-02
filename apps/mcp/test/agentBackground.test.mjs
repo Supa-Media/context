@@ -130,9 +130,10 @@ test("an ask for a job already running is refused with its status", async () => 
   assert.match(words(fresh), /\[card threads\] on its own line/, "a started job offers the live view of what is running");
   const twice = await background.call({ title: "Lisbon trip plan", brief: "Same again" });
   assert.match(words(twice), /Already working on that/, "the same turn can't start it twice either");
-  assert.deepEqual(startedJobs(background, false), {
-    jobs: [{ title: "Plan the Lisbon trip", brief: "Flights and a hotel for May", doneWhen: "a note in 1-projects/trips" }],
-  });
+  const { jobs: [{ id, ...asked }] } = startedJobs(background, false);
+  assert.deepEqual(asked, { title: "Plan the Lisbon trip", brief: "Flights and a hotel for May", doneWhen: "a note in 1-projects/trips" });
+  assert.match(id, /^[0-9a-f-]{36}$/, "the gateway picks the job's id, so Tex's page can point at it (`pageWork.js`)");
+  assert.equal(startedJobs(background, false).jobs[0].id, id, "the same id every time it is read");
   assert.equal(startedJobs(background, true).jobs[0].tainted, true, "a job planned after a read from outside says so");
 });
 

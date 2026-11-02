@@ -97,7 +97,9 @@ async function openSessionStore(session, env, controlPlane) {
   try {
     opened = await controlPlane.getStorageBinding(
       session.accessToken,
-      session.workspaceId
+      session.workspaceId,
+      // Tex's own read of its setup in the pin (`session.js` `sessionForSetup`): asked as that, never as the person.
+      ...(session.setupRead === true ? [undefined, { setupRead: true }] : [])
     );
   } catch (error) {
     if (error instanceof ControlPlaneError) throw new StorageUnavailable(`control plane ${error.status ?? error.reason}`);
@@ -147,6 +149,7 @@ async function openSessionStore(session, env, controlPlane) {
       : null;
   // Where the workspace's notes are judged in its object, its row questions go there first (`store/objectLookup.js`).
   const controlHooks = idLayoutHooks(opened.idLayout, session, controlPlane);
+  // Who reads, as the workspace's object judges them: its row questions and the agent tools' listing go there first.
   const objectReading = {
     client: workspaceClient(env, session.workspaceId),
     home: binding.notesHome ?? null,
@@ -183,6 +186,9 @@ async function openSessionStore(session, env, controlPlane) {
   // credential and never an endpoint, and no code branches on it: the whole
   // point of `storeForBinding` is that one `provider` check builds the store
   // and nothing above it asks again.
+  // For the agent tools' listing (`http/routing.js` `treeManifest`, `store/objectManifest.js`). Non-enumerable: it holds
+  // the object's client, which nothing that spreads or logs a store should carry.
+  Object.defineProperty(store, "objectReading", { value: objectReading, enumerable: false, writable: false, configurable: true });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
   // Notes' links and props from the object that holds their text, before the control plane (`http/routing.js` `treeFacts`).
   Object.defineProperty(store, "objectFacts", {

@@ -35,7 +35,7 @@ import { FILL_CARD_TOOL } from "../src/agent/fillCard.js";
 import { newEntryId, readMeta, writeEntry } from "../src/vault/entries.js";
 import { normalizeCard } from "../src/vault/card.js";
 import { handleApprovals } from "../src/http/approvals.js";
-import { PENDING_PREFIX } from "../src/tools/approvals.js";
+import { EVERY_CHAT, PENDING_PREFIX } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 import { listPending } from "../src/tools/approvals.js";
 import { approvalVerdict, textedAsk } from "../src/agent/textedApprovals.js";
@@ -378,7 +378,7 @@ describe("Tex asks by text", () => {
     assert.equal(leaks(ask), false);
     assert.equal(fills(computer).length, 0);
     // Armed for no longer than the ask's own ten minutes.
-    const [{ record }] = await listPending(store, { userId: "user_a", texting: true });
+    const [{ record }] = await listPending(store, { userId: "user_a", texting: true, chat: EVERY_CHAT });
     assert.ok(record.texting_until - record.created_at <= 10 * 60 * 1000);
   });
 
@@ -403,7 +403,7 @@ describe("Tex asks by text", () => {
       const verdict = approvalVerdict(answer);
       const pay = await settlePayByText(store, SESSION, verdict, answer);
       assert.equal(pay.allowed.length, 0, answer);
-      assert.equal((await listPending(store, { userId: "user_a", texting: true })).length, 0, `${answer} leaves nothing a later yes can reach`);
+      assert.equal((await listPending(store, { userId: "user_a", texting: true, chat: EVERY_CHAT })).length, 0, `${answer} leaves nothing a later yes can reach`);
       const again = await web.call(FILL_CARD_TOOL, { entry: id, ...PAY });
       assert.equal(again.isError, true);
       assert.equal(fills(computer).length, 0);
@@ -422,7 +422,7 @@ describe("Tex asks by text", () => {
     const { store, id, ledger, web } = await texted();
     await web.call(FILL_CARD_TOOL, { entry: id, ...PAY });
     await textedAsk(store, SESSION, ledger.asked);
-    const held = (await listPending(store, { userId: "user_a", texting: true })).map(({ key }) => key);
+    const held = (await listPending(store, { userId: "user_a", texting: true, chat: EVERY_CHAT })).map(({ key }) => key);
     assert.equal(held.length, 1);
     // The store refuses to clear that one record, the way a concurrent touch
     // of it does: the delete fails and the conditional put does not apply.
@@ -433,7 +433,7 @@ describe("Tex asks by text", () => {
 
     const pay = await settlePayByText(store, SESSION, approvalVerdict("ok"), "ok");
     assert.equal(pay.allowed.length, 0, "an ok still pays for nothing");
-    assert.equal((await listPending(store, { userId: "user_a", texting: true })).length, 1, "the ask is still armed, which is the premise");
+    assert.equal((await listPending(store, { userId: "user_a", texting: true, chat: EVERY_CHAT })).length, 1, "the ask is still armed, which is the premise");
     assert.equal(pay.replies.length, 1, "and the person is told, rather than left to find out by paying");
     assert.match(pay.replies[0], /still open/i);
     assert.match(pay.replies[0], /yes/i);

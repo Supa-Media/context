@@ -14,13 +14,14 @@
  *  8. `chatJobs` giving the advice without `results` → "keeps the advisor's call and the report for the chat's turns, never the live view".
  *  9. `noteJobUpdate` keeping an earlier part's verdict on a finished job → the same test.
  * 10. `outcomeOf` mapping `daily_limit`/`no_model` to a silent stop (2026-10-31) → "a part the gateway refused ends waiting and says why".
+ * 11. `chatJobs` showing a finished job past `JOB_SHOWN_MS` (2026-11-02) → "shows a finished job to a turn for two hours, and keeps it a week for the page".
  */
 
 import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
 import { acceptJob, runJob, type JobDeps } from "./jobRun";
-import { chatJobs, JOB_KEPT_MS, JOB_LIMIT_MS, JOB_LINES, JOB_STALE_MS, noteJobUpdate, MAX_JOB_ATTEMPTS, MAX_RUNNING_JOBS, notStartedText, readStartedJobs, RUN_KEY, startJobs, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
+import { chatJobs, JOB_KEPT_MS, JOB_LIMIT_MS, JOB_LINES, JOB_SHOWN_MS, JOB_STALE_MS, noteJobUpdate, MAX_JOB_ATTEMPTS, MAX_RUNNING_JOBS, notStartedText, readStartedJobs, RUN_KEY, startJobs, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
 import { jobUpdate } from "./jobTexts";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
@@ -129,6 +130,51 @@ describe("background jobs", () => {
       ["dead-run-1", "failed"],
     ]);
     expect(storage.data.has("job:done-old-1")).toBe(false);
+  });
+
+  it("shows a finished job to a turn for two hours, and keeps it a week for the page", async () => {
+    const storage = new MemoryStorage();
+    const day = 24 * 60 * 60 * 1000;
+    const entry = (id: string, finishedAt: number): JobEntry => ({ id, title: id, state: "done", startedAt: finishedAt - 60_000, finishedAt });
+    await storage.put("job:done-3h-1", entry("done-3h-1", NOW - 3 * 60 * 60 * 1000));
+    await storage.put("job:done-6d-1", entry("done-6d-1", NOW - 6 * day));
+    await storage.put("job:done-8d-1", entry("done-8d-1", NOW - 8 * day));
+    await storage.put("job:done-1h-1", entry("done-1h-1", NOW - 60 * 60 * 1000));
+    expect((await chatJobs(storage, NOW)).map((job) => job.id)).toEqual(["done-1h-1"]);
+    expect(storage.data.has("job:done-3h-1")).toBe(true);
+    expect(storage.data.has("job:done-6d-1")).toBe(true);
+    expect(storage.data.has("job:done-8d-1")).toBe(false);
+    expect(JOB_KEPT_MS).toBe(7 * day);
+    expect(JOB_SHOWN_MS).toBe(2 * 60 * 60 * 1000);
+  });
+
+  it("uses the gateway's job id when it is well formed and free, and a fresh one when it is taken", async () => {
+    const storage = new MemoryStorage();
+    const spawned: string[] = [];
+    const context = {
+      now: NOW,
+      inbox: PHONE,
+      origin: { kind: "phone" as const, phone: PHONE, question: "q" },
+      place: { chatId: "chat_1", messageId: "m1" },
+      spawn: async (id: string) => void spawned.push(id),
+    };
+    await startJobs(storage, [{ id: "gateway-job-1", title: "Trip plan", brief: "b" }], context);
+    expect(spawned).toEqual(["gateway-job-1"]);
+    expect(await storage.get("job:gateway-job-1")).toMatchObject({ title: "Trip plan", state: "running" });
+
+    // The same id again, for another job, is not taken over: the first entry is left as it was.
+    await startJobs(storage, [{ id: "gateway-job-1", title: "Gift ideas", brief: "b" }], context);
+    expect(spawned).toHaveLength(2);
+    expect(spawned[1]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(await storage.get("job:gateway-job-1")).toMatchObject({ title: "Trip plan" });
+    expect(await storage.get(`job:${spawned[1]}`)).toMatchObject({ title: "Gift ideas" });
+  });
+
+  it("keeps a gateway job id only when it is well formed", () => {
+    expect(readStartedJobs([{ id: "gateway-job-1", title: "Trip", brief: "b" }])[0]).toMatchObject({ id: "gateway-job-1", title: "Trip" });
+    expect(readStartedJobs([{ id: "bad id!", title: "Trip", brief: "b" }])[0]).not.toHaveProperty("id");
+    expect(readStartedJobs([{ id: "short", title: "Trip", brief: "b" }])[0]).not.toHaveProperty("id");
+    expect(readStartedJobs([{ id: 42, title: "Trip", brief: "b" }])[0]).not.toHaveProperty("id");
   });
 
   it("runs a phone job on the person's own words and reports the answer", async () => {

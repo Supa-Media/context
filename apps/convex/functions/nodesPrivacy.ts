@@ -19,6 +19,8 @@ import type { Audience } from "./lib/nodes/rowAccess";
 import { INDEX_KEY } from "./lib/scaffold/store";
 import { nodeAt } from "./lib/nodes/paths";
 import { chatRules } from "./lib/nodes/chatFolders";
+import { setupRules } from "./lib/texSetupRead";
+import { pinnedContextWorkspace } from "./lib/pinnedContext";
 
 const folders = v.array(v.object({ prefix: v.string(), visibility: v.string() }));
 const notes = v.array(v.object({ path: v.string(), visibility: v.string() }));
@@ -34,11 +36,13 @@ async function heldFor(
   workspaceId: Id<"workspaces">,
   audience: Audience,
   chatNames?: readonly string[],
+  setupOnly = false,
 ) {
-  const guest = await rulesForReaders(ctx, workspaceId, chatNames === undefined ? audience : "guest");
+  const guest = await rulesForReaders(ctx, workspaceId, setupOnly ? "member" : chatNames === undefined ? audience : "guest");
   // A Tex guest chat holds the guest rules read for it: its rows `team`, the rest `private` (`chatFolders.ts`).
-  const chat = chatNames === undefined ? null : chatRules(guest, chatNames);
-  const rendered = chat ?? guest;
+  const chat = setupOnly || chatNames === undefined ? null : chatRules(guest, chatNames);
+  // Tex's own read of its setup: a member's rules, narrowed to the setup's folders (`lib/texSetupRead.ts`).
+  const rendered = setupOnly ? setupRules(guest) : chat ?? guest;
   return {
     etag: await privacyEtagOf(ctx, workspaceId),
     folders: rendered.rules.map((rule) => ({ prefix: rule.prefix, visibility: rule.vis })),
@@ -50,9 +54,23 @@ async function heldFor(
 
 /** The rules the gateway holds for a workspace, rendered for an audience. */
 export const authority = internalQuery({
-  args: { workspaceId: v.id("workspaces"), audience: v.optional(audienceValidator), chatNames: v.optional(v.array(v.string())) },
+  args: {
+    workspaceId: v.id("workspaces"),
+    audience: v.optional(audienceValidator),
+    chatNames: v.optional(v.array(v.string())),
+    /** Tex's setup read (`lib/texSetupRead.ts`): a member's rules narrowed to the setup's folders. */
+    setupOnly: v.optional(v.literal(true)),
+  },
   returns: heldValidator,
-  handler: async (ctx, { workspaceId, audience, chatNames }) => await heldFor(ctx, workspaceId, audience ?? "member", chatNames),
+  handler: async (ctx, { workspaceId, audience, chatNames, setupOnly }) =>
+    await heldFor(ctx, workspaceId, audience ?? "member", chatNames, setupOnly === true),
+});
+
+/** Whether this is the deployment's pinned workspace (`lib/pinnedContext.ts`), the only one a setup read opens. */
+export const isPinnedWorkspace = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId }) => (await pinnedContextWorkspace(ctx))?._id === workspaceId,
 });
 
 /** The rules Convex readers judge by (`lib/nodes/readerRules.ts`), as plain values a query can return. */

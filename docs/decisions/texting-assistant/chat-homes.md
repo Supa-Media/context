@@ -185,13 +185,20 @@ gets no write), `apps/mcp/test/agentGroupTurn.test.mjs` ("the chat remembers as
 one"), `apps/mcp/test/agentChatVoice.test.mjs` (one voice note per chat), and
 `apps/mcp/test/chatMemoryRecord.test.mjs`.
 
+A write in a home sets no row (2026-11-02). The seal is the home's access, and the control plane refuses any access
+change a chat's grant asks for beneath it, so `write_note` there skips the row tier it sets elsewhere and refuses
+`visibility: private` before writing (`apps/mcp/src/agent/chatHomeSeal.js`; the home's door marks its store). Before
+this, every new note in a home was refused after its text went in, and no chat's history page was reported written.
+Test: `apps/mcp/test/chatHomeWrite.test.mjs`.
+
 ## Still to build
 
 Routines, dreams and a heartbeat for a chat need their jobs moved too: a
 chat's routines are still written in its bound workspace's `tex/routines/`
 with `chat:` in their front matter, its check-in is a timer on the chat's
-row, and chats have no dreams yet. Empty folders for them are not made until
-something runs from them. The workspace's playbook stays the workspace's.
+row, and chats have no dreams yet. A home holds `skills/` and `routines/` from the
+start (`HOME_FOLDERS`, 2026-11-02, the owner: the homes "still look very empty"); a home made before then gets
+them on its chat's next turn. The workspace's playbook stays the workspace's.
 Then: the chat reads every workspace everyone in it shares instead of one
 bound workspace. The chats that exist move in as above, and the one copy a
 home cannot retract is left sealed until a delete exists for homes.

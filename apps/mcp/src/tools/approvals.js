@@ -102,12 +102,24 @@ function expired(record, now) {
 }
 
 /**
+ * Every texted listing says which chat it is for: `EVERY_CHAT` reaches them
+ * all, which is what the sweeping disarms want and what no path that settles
+ * an ask may ask for. Leaving `chat` out used to reach them all silently, so
+ * the filter guarded only the call sites that remembered it; it is now a
+ * TypeError, because the cost of forgetting is a yes said in one chat
+ * answering an ask held in another.
+ */
+export const EVERY_CHAT = Symbol("every chat");
+
+/**
  * The pending approvals raised for this person, newest first; expired ones
  * are dropped. `texting: true` narrows to the ones asked on the texting
- * thread, which are the only ones a texted yes may settle; with `chat` too
- * (a group's key, or null for their own texts), to the ones asked there.
+ * thread, which are the only ones a texted yes may settle; `chat` (a group's
+ * key, null for their own texts, or `EVERY_CHAT`) is then required, and
+ * narrows to the ones asked there.
  */
 export async function listPending(store, { userId, texting = false, chat, now = Date.now(), ids = null }) {
+  if (texting && chat === undefined) throw new TypeError("a texted listing names its chat, or EVERY_CHAT");
   const all = await readAll(store, PENDING_PREFIX, ids);
   await Promise.all(all.filter(({ record }) => expired(record, now)).map(({ key }) => deleteWithLegacyFallback(store, key).catch(() => {})));
   const live = [];
@@ -117,7 +129,7 @@ export async function listPending(store, { userId, texting = false, chat, now = 
     // A texted yes reaches only what the thread asked, lately, and has not
     // since moved on from (`disarmTexting`).
     if (texting && (record.texting !== true || (record.texting_until ?? record.expires_at) <= now)) continue;
-    if (texting && chat !== undefined && chatOfAsk(record) !== chat) continue;
+    if (texting && chat !== EVERY_CHAT && chatOfAsk(record) !== chat) continue;
     live.push({ key, etag, record });
   }
   return live.sort((a, b) => b.record.created_at - a.record.created_at);
@@ -220,7 +232,7 @@ export async function rearmForText(store, { key, record }, texting, now = Date.n
  * cannot be dropped is disarmed, which is the other safe direction.
  */
 export async function disarmTexting(store, { userId, now = Date.now() }) {
-  return disarmRecords(store, await listPending(store, { userId, texting: true, now }));
+  return disarmRecords(store, await listPending(store, { userId, texting: true, chat: EVERY_CHAT, now }));
 }
 
 /**
@@ -291,7 +303,7 @@ export async function armForText(store, { userId, ids, chat = null, now = Date.n
     The earlier ask is still theirs to answer in the app; it just stops being
     a thing a bare yes reaches, which is the rule their own next text applies.
   */
-  const stale = (await listPending(store, { userId, texting: true, now })).filter(({ record }) => !wanted.has(record.id));
+  const stale = (await listPending(store, { userId, texting: true, chat: EVERY_CHAT, now })).filter(({ record }) => !wanted.has(record.id));
   if (stale.length > 0 && (await disarmRecords(store, stale)) > 0) throw new Error("an earlier ask could not be cleared");
   for (const entry of found) await rearmForText(store, entry, true, now, chat);
 }
