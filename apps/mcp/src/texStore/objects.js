@@ -21,8 +21,8 @@ export const MAX_OBJECT_BYTES = 25 * 1024 * 1024;
 /** The most keys one listing page returns, as R2's own cap. */
 export const MAX_LIST = 1000;
 
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS objects (
+const schemaFor = ({ objects, chunks }) => [
+  `CREATE TABLE IF NOT EXISTS ${objects} (
     key TEXT PRIMARY KEY,
     etag TEXT NOT NULL,
     size INTEGER NOT NULL,
@@ -31,13 +31,19 @@ const SCHEMA = [
     custom TEXT,
     chunks INTEGER NOT NULL
   )`,
-  `CREATE TABLE IF NOT EXISTS chunks (
+  `CREATE TABLE IF NOT EXISTS ${chunks} (
     key TEXT NOT NULL,
     n INTEGER NOT NULL,
     data BLOB NOT NULL,
     PRIMARY KEY (key, n)
   )`,
 ];
+
+/** The tables a Tex store's own object keeps its notes in. */
+export const DEFAULT_TABLES = Object.freeze({ objects: "objects", chunks: "chunks" });
+/** The tables a workspace object keeps its person's Tex notes in, apart from its own notes (`objects`, `chunks`). */
+export const TEX_TABLES = Object.freeze({ objects: "tex_objects", chunks: "tex_chunks" });
+const TABLE = /^[a-z][a-z_]{0,31}$/;
 
 /** A store write the object refuses: too large, or a key it would not keep. */
 export class TexObjectRefused extends Error {
@@ -100,17 +106,22 @@ function passes(meta, onlyIf) {
  * The objects over one Durable Object's `sql`.
  *
  * @param {{exec: (query: string, ...binds: unknown[]) => {toArray(): object[]}}} sql
- * @param {{now?: () => number, guard?: () => void}} [options] `guard` runs
+ * @param {{now?: () => number, guard?: () => void, tables?: {objects: string, chunks: string}}} [options] `guard` runs
  *   synchronously right before every write, and throws to stop it: an object
- *   that has moved (`move.js`) keeps no write.
+ *   that has moved (`move.js`) keeps no write. `tables` names the two tables,
+ *   so a workspace object can keep its person's Tex notes (`TEX_TABLES`) apart
+ *   from its own notes in the same SQLite (`workspaceStore/texHost.js`).
  */
-export function texObjects(sql, { now = Date.now, guard = () => {} } = {}) {
-  for (const statement of SCHEMA) sql.exec(statement);
+export function texObjects(sql, { now = Date.now, guard = () => {}, tables = DEFAULT_TABLES } = {}) {
+  if (!TABLE.test(tables?.objects ?? "") || !TABLE.test(tables?.chunks ?? "") || tables.objects === tables.chunks) throw new TypeError("not a pair of table names");
+  for (const statement of schemaFor(tables)) sql.exec(statement);
+  const O = tables.objects;
+  const C = tables.chunks;
 
-  const metaRow = (key) => rows(sql.exec("SELECT * FROM objects WHERE key = ?", key))[0] ?? null;
+  const metaRow = (key) => rows(sql.exec(`SELECT * FROM ${O} WHERE key = ?`, key))[0] ?? null;
 
   function bodyOf(row, range) {
-    const parts = rows(sql.exec("SELECT data FROM chunks WHERE key = ? ORDER BY n", row.key)).map((part) => bytesOf(part.data));
+    const parts = rows(sql.exec(`SELECT data FROM ${C} WHERE key = ? ORDER BY n`, row.key)).map((part) => bytesOf(part.data));
     const whole = new Uint8Array(Number(row.size));
     let at = 0;
     for (const part of parts) {
@@ -126,8 +137,8 @@ export function texObjects(sql, { now = Date.now, guard = () => {} } = {}) {
   }
 
   function remove(key) {
-    sql.exec("DELETE FROM chunks WHERE key = ?", key);
-    sql.exec("DELETE FROM objects WHERE key = ?", key);
+    sql.exec(`DELETE FROM ${C} WHERE key = ?`, key);
+    sql.exec(`DELETE FROM ${O} WHERE key = ?`, key);
   }
 
   return {
@@ -166,11 +177,11 @@ export function texObjects(sql, { now = Date.now, guard = () => {} } = {}) {
       guard();
       remove(key);
       for (let n = 0; n < count; n += 1) {
-        sql.exec("INSERT INTO chunks (key, n, data) VALUES (?, ?, ?)", key, n, bytes.subarray(n * CHUNK_BYTES, (n + 1) * CHUNK_BYTES));
+        sql.exec(`INSERT INTO ${C} (key, n, data) VALUES (?, ?, ?)`, key, n, bytes.subarray(n * CHUNK_BYTES, (n + 1) * CHUNK_BYTES));
       }
       const uploaded = now();
       sql.exec(
-        "INSERT INTO objects (key, etag, size, uploaded, content_type, custom, chunks) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        `INSERT INTO ${O} (key, etag, size, uploaded, content_type, custom, chunks) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         key,
         etag,
         bytes.byteLength,
@@ -203,7 +214,7 @@ export function texObjects(sql, { now = Date.now, guard = () => {} } = {}) {
       for (;;) {
         const batch = rows(
           sql.exec(
-            "SELECT * FROM objects WHERE key > ? AND substr(key, 1, ?) = ? ORDER BY key LIMIT ?",
+            `SELECT * FROM ${O} WHERE key > ? AND substr(key, 1, ?) = ? ORDER BY key LIMIT ?`,
             last,
             prefix.length,
             prefix,
@@ -235,8 +246,8 @@ export function texObjects(sql, { now = Date.now, guard = () => {} } = {}) {
     /** Everything this object keeps, removed. */
     wipe() {
       guard();
-      sql.exec("DELETE FROM chunks");
-      sql.exec("DELETE FROM objects");
+      sql.exec(`DELETE FROM ${C}`);
+      sql.exec(`DELETE FROM ${O}`);
     },
 
     /**
@@ -252,12 +263,12 @@ export function texObjects(sql, { now = Date.now, guard = () => {} } = {}) {
       const count = Math.ceil(bytes.byteLength / CHUNK_BYTES);
       remove(key);
       for (let n = 0; n < count; n += 1) {
-        sql.exec("INSERT INTO chunks (key, n, data) VALUES (?, ?, ?)", key, n, bytes.subarray(n * CHUNK_BYTES, (n + 1) * CHUNK_BYTES));
+        sql.exec(`INSERT INTO ${C} (key, n, data) VALUES (?, ?, ?)`, key, n, bytes.subarray(n * CHUNK_BYTES, (n + 1) * CHUNK_BYTES));
       }
       const contentType = meta.httpMetadata?.contentType ?? null;
       const custom = meta.customMetadata && Object.keys(meta.customMetadata).length > 0 ? JSON.stringify(meta.customMetadata) : null;
       sql.exec(
-        "INSERT INTO objects (key, etag, size, uploaded, content_type, custom, chunks) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        `INSERT INTO ${O} (key, etag, size, uploaded, content_type, custom, chunks) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         key,
         meta.etag,
         bytes.byteLength,

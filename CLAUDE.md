@@ -59,10 +59,11 @@ breaking one, stop and say so rather than working around it.
    `tex/groups/`, sealed so no role there opens it, an owner's included, only
    the chat's people (decided by the owner, 2026-10-31;
    [chat-homes](./docs/decisions/texting-assistant/chat-homes.md)). Tex's
-   own notes are the third: each keeps its tree row, marked as living in a
-   Tex Durable Object (one per person, one per group chat) that holds its text,
-   read, searched and exported like any note (decided by the owner,
-   2026-10-31;
+   own notes are the third: each keeps its tree row, marked as living in
+   Tex's store, which holds its text, read, searched and exported like any
+   note: a person's in their personal workspace's own object, in tables of
+   its own, and a group chat's in a Tex Durable Object of its own (decided by
+   the owner, 2026-10-31 and 2026-11-02;
    [tex-durable-objects](./docs/decisions/texting-assistant/tex-durable-objects.md)). A
    workspace's storage binding and data key are the fourth: its own workspace object keeps
    them sealed with a key only the gateway derives, bound to that workspace and
