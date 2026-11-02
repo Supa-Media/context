@@ -5,6 +5,7 @@
  * (`readTexStyle`): anything else is refused whole.
  */
 
+import { gatewayTexChatHomeHandler } from "./texChatHome";
 import { gatewayTexPageHandler, gatewayTexPageSettingsHandler } from "./texPage";
 import { gatewayTexCommandHandler as texCommandHandler } from "./texCommand";
 import { internal } from "../../../_generated/api";
@@ -44,4 +45,5 @@ export const TEX_ROUTES = [
   ["/gateway/tex/command", texCommandHandler],
   ["/gateway/tex/page", gatewayTexPageHandler],
   ["/gateway/tex/page/settings", gatewayTexPageSettingsHandler],
+  ["/gateway/tex/chat-home", gatewayTexChatHomeHandler],
 ] as const;
