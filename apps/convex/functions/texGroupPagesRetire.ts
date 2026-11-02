@@ -35,6 +35,7 @@ import { objectFirst } from "./lib/rowWatch/objectFirst";
 import { consoleWorkspaceRouting } from "./lib/rowWatch/consoleRouting";
 import type { GatewayCredential } from "./lib/storage/shapes";
 import { consoleTexRouting } from "./lib/texStore";
+import { consoleIdLayoutHooks } from "./lib/noteIds/consoleLayer";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { chatHomePath } from "./lib/textGroupHome";
 import { failureCode } from "./texHistoryMigration";
@@ -73,6 +74,8 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">, chats: s
   const routing = await consoleWorkspaceRouting(ctx, workspaceId);
   return storeForBinding(routing.credential(credential), undefined, {
     managedEncryption,
+    // The id layer, as the gateway's group turn has it: `keysAt` and a new note's row (the history file's) come from it.
+    idLayout: consoleIdLayoutHooks(ctx, workspaceId),
     ...consoleTexRouting(ctx, workspaceId, { ticketOwners: chats.map((chat) => `chat:${chat}`) }),
     texChats: chats,
     ...routing.options,
@@ -128,6 +131,7 @@ export const run = internalAction({
         const ledger = store.texLedger(chat.groupKey);
         const page = `${chat.folder}/history.md`;
         const history = `${chat.folder}/history.ledger.json`;
+        if (typeof store.keysAt !== "function") throw Object.assign(new Error("the store has no id layer"), { code: "NoIdLayer" });
         const keys = await store.keysAt([page, history]);
         // The history file the chat's next text would make (`historyFile.js`): made now, never written over.
         if (keys?.[history] === false) {
