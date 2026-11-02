@@ -60,7 +60,7 @@ function routineRootOf(path) {
  * anything under one (scheduled or not), or a folder a root sits in (`tex`,
  * whose move or deletion takes `tex/routines/` with it). What a write is
  * reported for, and what makes the control plane re-read the roots. A note
- * beside the root, like `tex/about-me.md`, is not one.
+ * beside the root, like `tex/about.md`, is not one.
  */
 function isRoutinePath(path) {
   if (typeof path !== "string") return false;

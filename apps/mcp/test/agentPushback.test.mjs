@@ -27,7 +27,7 @@ test("every texted turn is told to have a point of view, a production setup's ow
   assert.ok(systemPrompt(null, { texting: true, notes: { prompt: "You are a test assistant." } }).includes(OPINION_LINE));
   assert.ok(!systemPrompt(null).includes(OPINION_LINE), "an app's own turn keeps its short prompt");
   // The line names where the point of view comes from, and that it still does the job.
-  assert.match(OPINION_LINE, /tex\/about-me\.md/);
+  assert.match(OPINION_LINE, /tex\/about\.md/);
   assert.match(OPINION_LINE, /mission/);
   assert.match(OPINION_LINE, /still do it/);
   assert.match(OPINION_LINE, /Never flatter/);

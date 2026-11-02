@@ -1,5 +1,5 @@
 /**
- * A first look for everyone Tex texts with who still has no `tex/about-me.md`
+ * A first look for everyone Tex texts with who still has no `tex/about.md`
  * (`docs/decisions/texting-assistant/dreams.md`, "A first look").
  *
  * The owner (Dev2), 2026-10-17: "some users do not have an about me and a
@@ -23,7 +23,10 @@ import { personalWorkspaceOf } from "../../textLinks";
 import { nodeAt } from "../nodes/paths";
 
 /** Tex's note about the person (`apps/mcp/src/agent/aboutMe.js`). */
-export const ABOUT_ME_PATH = "tex/about-me.md";
+export const ABOUT_ME_PATH = "tex/about.md";
+
+/** Its name until 2026-11-01's rename (`texFolderNames.ts`), counted until that has run everywhere. */
+export const OLD_ABOUT_ME_PATH = "tex/about-me.md";
 
 /**
  * A phone linked this recently is left to onboarding, which writes the note
@@ -32,10 +35,13 @@ export const ABOUT_ME_PATH = "tex/about-me.md";
  */
 export const FIRST_LOOK_AFTER_LINK_MS = 24 * 60 * 60 * 1000;
 
-/** Whether the workspace's tree has a live `tex/about-me.md`. */
+/** Whether the workspace's tree has a live `tex/about.md`, under its new name or its old. */
 async function hasAboutMe(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
-  const node = await nodeAt(ctx.db, workspaceId, ABOUT_ME_PATH);
-  return node !== null && node.goneAt === undefined;
+  for (const path of [ABOUT_ME_PATH, OLD_ABOUT_ME_PATH]) {
+    const node = await nodeAt(ctx.db, workspaceId, path);
+    if (node !== null && node.goneAt === undefined) return true;
+  }
+  return false;
 }
 
 /**

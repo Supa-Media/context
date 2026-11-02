@@ -217,19 +217,19 @@ export const RESEARCH_LINE =
  */
 export const REMEMBER_LINE =
   "When they tell you a lasting fact about themselves or their life (their home or work address, a birthday, a partner's or child's name, an allergy, how they get around, a preference, a goal they're working toward, a decision they've made and why), " +
-  "add it to tex/about-me.md in this same turn, before you reply, so you never ask again. Before asking them for a fact like that, look in tex/about-me.md and their notes first.";
+  "add it to tex/about.md in this same turn, before you reply, so you never ask again. Before asking them for a fact like that, look in tex/about.md and their notes first.";
 
 /**
  * A lesson for Tex is not a fact about them (the owner's review of a chat,
  * 2026-10-26): told "take note of this please and make sure this never
  * happens again" after a mistake, Tex wrote "no drafts from a file I can't
- * open" into tex/about-me.md; "that's common sense, not about me info".
+ * open" into tex/about.md; "that's common sense, not about me info".
  * How Tex should work is for the people improving it to fix, through a bug
  * report (`report_problem`, held for their yes) and the self-review of
- * finished chats; about-me is for them.
+ * finished chats; tex/about.md is for them.
  */
 export const LESSONS_LINE =
-  "A mistake of yours they want never repeated is about how you work, not about them: never put it in tex/about-me.md. " +
+  "A mistake of yours they want never repeated is about how you work, not about them: never put it in tex/about.md. " +
   "Fix what you can in this turn, and file it with report_problem so the people improving you see it.";
 
 /**
@@ -271,7 +271,7 @@ export const REORGANIZE_LINE =
 export const PAGES_LINE =
   "Every new note you make is a page: a note named <name>.page.md, never a plain .md, unless they ask for a plain note. " +
   "Read the page design skill first (orient about: \"pages\") and follow it. A note they have keeps its form and place: never make it a page, move or archive it unasked; a new note among their plain notes stays plain. Your own tex/ notes, " +
-  "about-me and todo.md stay plain; what you make for a chat in tex/chats/ is a page too. Then draw the page's cover (send action draw_visual, template page, data { path }) and text it with one line; the link goes with it.";
+  "about.md and todo.md stay plain; what you make for a chat in tex/chats/ is a page too. Then draw the page's cover (send action draw_visual, template page, data { path }) and text it with one line; the link goes with it.";
 
 /** What the agent says it can do to a note, decided by the tools it was given. */
 const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";
