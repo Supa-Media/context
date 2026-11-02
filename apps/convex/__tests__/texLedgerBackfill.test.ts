@@ -62,3 +62,57 @@ describe("a quiet chat is copied into its ledger by the sweep", () => {
     expect(await copyChatIn({}, { dryRun: false })).toEqual({ state: "none", entries: 0 });
   });
 });
+
+describe("a quiet group chat's old log is found and copied into its ledger", () => {
+  const LINE = "+15555550199";
+  const OTHER = "+15555550198";
+  const GROUP_ID = "group-1";
+
+  /** A shared workspace's store holding one group's log, a person's chat folder, and a ledger per chat key. */
+  async function sharedStore() {
+    const { groupKeyOf } = await import("../functions/textGroups");
+    const { sha256Hex } = await import("../../mcp/src/ingestion/inbox.js");
+    const groupFolder = await sha256Hex(GROUP_ID);
+    const otherFolder = await sha256Hex("someone-else");
+    const at = Date.UTC(2026, 9, 1);
+    const events = new Map<string, string>();
+    for (let n = 0; n < 3; n += 1) {
+      const id = `${String(at + n * 1000).padStart(13, "0")}-${String(n).padStart(6, "0")}`;
+      events.set(`.context/agent/log/${groupFolder}/${id}.json`, JSON.stringify({ id, at: at + n * 1000, chat: GROUP_ID, from: { kind: "person" }, kind: "text", text: `group text ${n}` }));
+    }
+    const lone = `${String(at).padStart(13, "0")}-000000`;
+    events.set(`.context/agent/log/${otherFolder}/${lone}.json`, JSON.stringify({ id: lone, at, chat: "someone-else", from: { kind: "person" }, kind: "text", text: "not a group" }));
+    const ledgers = new Map<string, Entry[]>();
+    const store = {
+      list: async ({ prefix }: { prefix: string }) => ({ objects: [...events.keys()].filter((key) => key.startsWith(prefix)).map((key) => ({ key })), truncated: false }),
+      get: async (key: string) => (events.has(key) ? { text: async () => events.get(key)! } : null),
+      texLedger: (chat: string | null) => {
+        if (chat === null) return null;
+        const ledger = ledgers.get(chat) ?? [];
+        ledgers.set(chat, ledger);
+        return {
+          oldest: async () => (ledger.length === 0 ? null : ledger[0]),
+          prepend: async (_chat: string, entries: Entry[]) => (ledger.unshift(...entries), { added: entries.length }),
+          read: async () => ({ entries: ledger }),
+        };
+      },
+    };
+    return { store, ledgers, groupKey: await groupKeyOf(LINE, GROUP_ID) };
+  }
+
+  test("its folder is matched to its chat by Tex's line, and the person's folder is left alone", async () => {
+    const { groupsInStore } = await import("../functions/texLedgerBackfillGroups");
+    const { store, groupKey } = await sharedStore();
+    expect(await groupsInStore(store, [OTHER, LINE], new Set([groupKey]))).toEqual({ found: [{ groupKey, logChat: GROUP_ID }], unmatched: 1 });
+    expect(await groupsInStore(store, [OTHER], new Set([groupKey]))).toEqual({ found: [], unmatched: 2 });
+  });
+
+  test("its log goes into its own ledger under the group's mark, once", async () => {
+    const { store, ledgers, groupKey } = await sharedStore();
+    expect(await copyChatIn(store, { dryRun: false, group: groupKey, logChat: GROUP_ID })).toMatchObject({ state: "finished" });
+    const ledger = ledgers.get(groupKey)!;
+    expect(ledger[0].id).toBe("backfilledv2");
+    expect(ledger.filter((entry) => entry.kind === "text").length).toBe(3);
+    expect(await copyChatIn(store, { dryRun: false, group: groupKey, logChat: GROUP_ID })).toEqual({ state: "done", entries: 0 });
+  });
+});

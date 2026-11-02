@@ -167,6 +167,11 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       // `apps/mcp/src/agent/ledgerBackfill.js`), run by hand from its workflow. internalAction, reached only from that
       // workflow's deploy key; it answers counts and fixed codes only, and deletes nothing.
       "functions.texLedgerBackfill.run",
+      // Copies each quiet group chat's old log into its ledger (`texLedgerBackfillGroups.ts`), and moves each person's
+      // old transcript folder to the trash once their chat is whole in its ledger (`texTranscriptsTrash.ts`), run by
+      // hand from the same workflow. internalActions reached only from its deploy key; counts and fixed codes only.
+      "functions.texLedgerBackfillGroups.run",
+      "functions.texTranscriptsTrash.run",
       // Reads each group chat's event log in a window and answers counts, bytes and runs by set of people
       // (`texGroupLogShape.ts`), run by hand from its workflow. internalAction, reached only from that workflow's deploy
       // key; it answers fixed codes and counts, never a word, and writes nothing.

@@ -7,6 +7,12 @@
 # answers with counts and a cursor, never a path, a key or a word: this
 # repository is public, and so is this job's log. Running it again copies
 # nothing already in, and nothing in a bucket is deleted.
+#
+# `scope` picks what runs: `chats` (each person's one-to-one chat,
+# `texLedgerBackfill:run`), `groups` (each group chat's old log,
+# `texLedgerBackfillGroups:run`), or `transcripts` (the old daily transcript
+# folders moved to the trash once their chat is whole in its ledger,
+# restorable for 30 days; `texTranscriptsTrash:run`).
 name: Tex chats into their ledger
 
 on:
@@ -19,8 +25,16 @@ on:
           - staging
           - production
         default: staging
+      scope:
+        description: "What to run."
+        type: choice
+        options:
+          - chats
+          - groups
+          - transcripts
+        default: chats
       dry_run:
-        description: "Count only; copy nothing."
+        description: "Count only; change nothing."
         type: boolean
         default: true
 
@@ -48,8 +62,15 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           DRY_RUN: ${{ inputs.dry_run }}
+          SCOPE: ${{ inputs.scope }}
         run: |
           set -euo pipefail
+          case "$SCOPE" in
+            chats) fn=functions/texLedgerBackfill:run ;;
+            groups) fn=functions/texLedgerBackfillGroups:run ;;
+            transcripts) fn=functions/texTranscriptsTrash:run ;;
+            *) echo "unknown scope"; exit 1 ;;
+          esac
           cursor=""
           page=0
           total='{}'
@@ -62,10 +83,10 @@ jobs:
             fi
             # stderr is dropped: `convex run` prints the function's own log lines there, and a failure logs a
             # workspace id, which this public log must not show (`scripts/check-convex-run-stderr.mjs`).
-            answer=$(npx convex run functions/texLedgerBackfill:run "$args" 2>/dev/null)
+            answer=$(npx convex run "$fn" "$args" 2>/dev/null)
             echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
             total=$(jq -cn --argjson a "$total" --argjson b "$(echo "$answer" | jq -c '(.failedCodes // {} | with_entries(.key |= "failed_" + .)) + del(.cursor, .done, .failedCodes)')" '$a + ($b | to_entries | map({key, value: (.value + ($a[.key] // 0))}) | from_entries)')
-            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            if [ "$(echo "$answer" | jq -r '.done // true')" = "true" ]; then break; fi
             cursor=$(echo "$answer" | jq -r '.cursor')
             if [ "$page" -ge 4000 ]; then echo "stopped after $page pages"; exit 1; fi
           done
