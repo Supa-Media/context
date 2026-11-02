@@ -23,7 +23,7 @@ import { servedKeys } from "./manifestStore";
 
 type Ctx = ActionCtx;
 export type FactRows = (request: {
-  ask: "props" | "links" | "chaos" | "candidates";
+  ask: "props" | "links" | "chaos" | "candidates" | "linking";
   paths?: string[];
   sources?: string[];
   names?: string[];
@@ -129,4 +129,16 @@ export async function objectCandidates(
   if (answer?.served !== true) return undefined;
   const candidates = answer.candidates as { pointing: string[]; unparsed: string[] } | null;
   return candidates === null ? null : { pointing: candidates.pointing, unparsed: candidates.unparsed };
+}
+
+/**
+ * Which of `paths` hold links of their own, from the object (`nodeLinkSources.linking`'s answer, unfiltered), with
+ * every note it cannot vouch for counted as linking. `undefined` where the object is not asked or does not answer,
+ * and the caller asks the control plane.
+ */
+export async function objectLinking(rows: FactRows | null, paths: readonly string[]): Promise<string[] | undefined> {
+  if (rows === null) return undefined;
+  const answer = await rows({ ask: "linking", paths: [...paths] }).catch(() => null);
+  if (answer?.served !== true || !Array.isArray(answer.linking)) return undefined;
+  return answer.linking.filter((path): path is string => typeof path === "string");
 }

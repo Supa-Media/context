@@ -178,11 +178,14 @@ export function workspaceFacts(sql, objects) {
      * - `links`: `{links: [[source, kind, target]], unparsed}`, every link of every live note, at their paths now.
      * - `chaos`: `{extras: [{path, lines, exempt, review}]}`, the notes the score needs more than a key for.
      * - `candidates` with `sources` and `names`: a move's link candidates, as the `links` ask answers them, unfiltered.
+     * - `linking` with `paths`: `{linking: [path]}`, the named notes that hold links of their own (the control plane's
+     *   `nodeLinkSources.linking`), and every named note whose facts cannot be trusted, so a move still reads it.
      * `{served: false}` when more changed than one ask reads.
      */
     rows(fields) {
       if (fields.ask === "props") return { served: true, ...this.props({ paths: fields.paths }, () => true) };
       if (fields.ask === "candidates") return this.links({ sources: fields.sources, names: fields.names }, () => true);
+      if (fields.ask === "linking") return { served: true, linking: this.linking({ paths: fields.paths }) };
       const byPath = current();
       if (byPath === null) return NOT_SERVED;
       if (fields.ask === "links") {
@@ -225,6 +228,24 @@ export function workspaceFacts(sql, objects) {
         props.push({ path, version: note.etag, sealed: Number(row.sealed) === 1, props: row.props ?? null });
       }
       return { served: true, props };
+    },
+
+    /**
+     * Which of `paths` hold links of their own, read at their current text: what a move's rewrite asks of the notes
+     * it moved, whose relative links change with them. A named note whose facts cannot be trusted (its text is
+     * elsewhere, or it holds more than one note keeps) is answered as linking, so it is read rather than skipped.
+     * Unfiltered: only the control plane's readers ask it, and they judge every path.
+     */
+    linking({ paths }) {
+      const asked = pathList(paths, LINK_ASK_NAMES);
+      const found = [];
+      for (const path of asked) {
+        const note = notes("AND r.path = ?", path).get(path);
+        if (!note) continue;
+        if (stale(note)) read(note);
+        if (!parsed(note) || all(sql.exec("SELECT 1 AS one FROM ws_links WHERE key = ? LIMIT 1", note.key)).length > 0) found.push(path);
+      }
+      return found;
     },
 
     /**
@@ -278,7 +299,8 @@ export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors"]);
 
 /**
  * The asks the control plane's own readers make through the door (`ws.facts.rows`): unfiltered, like the control
- * plane's internal queries they stand in for (`nodeFacts.propsAt`, `nodeFacts.page`, `nodeChaos.extras`), because
+ * plane's internal queries they stand in for (`nodeFacts.propsAt`, `nodeFacts.page`, `nodeChaos.extras`,
+ * `nodeLinkSources.linking`), because
  * every caller judges each path itself. Never sent on a person's behalf by the gateway.
  */
-export const OBJECT_FACT_ROW_ASKS = new Set(["props", "links", "chaos", "candidates"]);
+export const OBJECT_FACT_ROW_ASKS = new Set(["props", "links", "chaos", "candidates", "linking"]);

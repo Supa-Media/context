@@ -54,22 +54,31 @@ push has not landed yet still shows.
 
 A website's page lists and its share checks (`lib/websites/treeFacts.ts`,
 `shareReadability.ts`, `lib/shares/readPath.ts`), routines' schedules
-(`lib/routines/sync.ts`) and a console move's link candidates
-(`lib/nodes/treeNames.ts`) do the same: the control plane's query still
+(`lib/routines/sync.ts`), a console move's link candidates and which moved
+notes hold links of their own (`lib/nodes/treeNames.ts`, the `linking` ask),
+the old-copies classifier (`lib/oldCopies/hiding.ts`) and Tex's triage desk
+and its watch (`lib/adminFns/texTriageFacts.ts`) do the same: the control plane's query still
 decides which notes the reader may see and where each is (`publishedRows`
 answers each note's real path, `at`), and the object answers what the note
 says, read at its current text. So a routine edited a moment ago is never
 left waiting on its props, and a website never shows a page's old front
 matter.
 
+A screen that lives on a query keeps the query only to hear that its rows
+changed, and asks an action for what the notes say: the triage desk
+(`triageNow`, `apps/mobile/features/tex/dashboard/useTriageDesk.ts`) is read
+again when its rows change and once a minute, and shows the query's own
+answer until the action's arrives.
+
 **What has not moved yet.** The control plane still computes its copy
 ([convex-facts](../app-and-console/convex-facts.md)) for every workspace,
-because a few readers read it inside queries and mutations, where the object
-cannot be asked: shares' inbox titles, `references` and `nodeLinkSources`
-(which notes hold links), a folder move's link renames (`folderLinks`), the
-old-copies classifier, the outsider check and Tex triage. Moving those, then
-stopping the control plane's fill for object-home workspaces and dropping its
-rows there, is the next step. The asks that are not note facts stay on the
+because one reader reads it inside a query, where the object cannot be asked:
+Shared with me's titles (shares' and grants', `lib/shares/inboxTitle.ts`,
+`grantedInbox.ts`). The trash and a move's follow-ups (`dropLinks`,
+`followMovedFiles`, `folderLinks`) only keep the control plane's copy in step
+with its rows; they read nothing for anyone. Moving the titles, then stopping
+the control plane's fill for object-home workspaces and dropping its rows
+there, is the next step. The asks that are not note facts stay on the
 control plane: `names` (with note writes), `jobs` and `forwarding` (rows and
 the ledger), and the chaos score's daily history (`nodeChaosDays`).
 
@@ -83,5 +92,8 @@ Convex round trip (and a fill that lags the text) in front of every List, move
 and `related_notes` on a workspace whose text is one call away. Skipping the
 etag check serves an edited note's old props; keying links by path loses a
 moved note's links; skipping `sees` names private notes to a team reader.
-**The tests that fail:** `apps/mcp/test/objectFacts.test.mjs` and
-`apps/convex/__tests__/nodes/objectFacts.test.ts`.
+**The tests that fail:** `apps/mcp/test/objectFacts.test.mjs`,
+`apps/convex/__tests__/nodes/objectFacts.test.ts`,
+`apps/convex/__tests__/oldCopies/oldCopiesObject.test.ts` and the "where the
+notes live in their object" cases of
+`apps/convex/__tests__/controlPlane/texTriage.test.ts`.
