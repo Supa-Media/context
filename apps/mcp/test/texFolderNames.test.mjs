@@ -125,3 +125,24 @@ async function sha256(text) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
+
+test("a page write the home refuses leaves its code on the record, and the history in it", async () => {
+  const store = createMemoryStore();
+  const refusing = async (name) =>
+    name === "write_note" ? { isError: true, content: [{ type: "text", text: "permission denied: not yours" }] } : { isError: true, content: [{ type: "text", text: "not found" }] };
+  const group = { key: KEY, members: "b".repeat(64), from: "ada", chat: [], people: [], home: { folder: HOME, dispatch: refusing } };
+  const path = await groupMemoryPath(group);
+  await store.put(path, JSON.stringify({ version: 1, carried: 1, turns: [{ role: "user", text: "@ada: hi" }, { role: "assistant", text: "Hello." }] }));
+  await quiet(() => readGroupMemory(store, group, refusing));
+  const record = JSON.parse(await (await store.get(path)).text());
+  assert.equal(record.pageRefused, "permission_denied");
+  assert.equal(record.turns.length, 2, "the history stays where it was");
+  assert.equal(record.onPage, undefined);
+  // Once the page takes it, the mark goes.
+  const notes = new Map();
+  const tool = notesTool(notes);
+  await quiet(() => readGroupMemory(store, { ...group, home: { folder: HOME, dispatch: tool.dispatch } }, tool.dispatch));
+  const moved = JSON.parse(await (await store.get(path)).text());
+  assert.equal(moved.onPage, ON_PAGE);
+  assert.equal(moved.pageRefused, undefined);
+});

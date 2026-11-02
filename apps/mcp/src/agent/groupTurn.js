@@ -329,16 +329,23 @@ async function moveOntoPage(store, group, kept, page, pagePath, dispatch, names)
   const pageTurns = page?.turns ?? null;
   const turns = pageTurns === null ? held : mergeTurns(held, pageTurns);
   if (!writes) return { turns };
-  const { changed: _changed, turns: _turns, ...marks } = carried;
+  const { changed: _changed, turns: _turns, pageRefused: lastRefused, ...marks } = carried;
   const movable = pagePath !== null && pageTurns !== null && carried.carried === CARRIED;
-  if (movable && (await updateGroupPage(group.home.dispatch, pagePath, (now) => trimGroupTurns(mergeTurns(turns, now))))) {
+  // The refusal's code is kept on the record as a mark (`pageRefused`), so a read-only probe can say why a page was
+  // never written after the gateway's own log has gone (`apps/convex/functions/texFolderNames.ts` `pages`).
+  let refused = null;
+  const onRefused = (code) => (refused = code);
+  if (movable && (await updateGroupPage(group.home.dispatch, pagePath, (now) => trimGroupTurns(mergeTurns(turns, now)), { onRefused }))) {
     await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ ...marks, version: 1, onPage: ON_PAGE })).catch(() => false);
     console.log(JSON.stringify({ event: "group_memory_on_page", turns: turns.length }));
     return { turns };
   }
   // Why the history stays in the record this turn, by a fixed code (a failed write logs its own, `updateGroupPage`).
   if (!movable) console.log(JSON.stringify({ event: "group_memory_not_moved", reason: pagePath === null ? "no_home" : pageTurns === null ? "page_unread" : "not_carried" }));
-  if (carried.changed === true) await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ ...marks, turns: held })).catch(() => false);
+  const mark = refused ?? lastRefused;
+  if (carried.changed === true || mark !== lastRefused) {
+    await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ ...marks, ...(mark === undefined ? {} : { pageRefused: mark }), turns: held })).catch(() => false);
+  }
   return { turns };
 }
 
