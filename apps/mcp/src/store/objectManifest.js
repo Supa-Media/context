@@ -89,7 +89,9 @@ export function objectFirstManifest(readControl, options, { defer = null } = {})
           }
           log("tree_manifest_parity", { workspaceId, entries: result.entries.length, controlMs: Date.now() - startedControl, ...manifestDifference(result, other) });
         } catch (error) {
-          log("tree_manifest_parity", { workspaceId, controlFailed: String(error?.name ?? "error") });
+          // A control-plane failure's message is one of its fixed phrases ("timed out", "status 500"); anything else is its name.
+          const message = typeof error?.message === "string" && /^[a-z]+( [a-z0-9]+){0,3}$/.test(error.message) ? error.message : String(error?.name ?? "error");
+          log("tree_manifest_parity", { workspaceId, controlFailed: message, controlMs: Date.now() - startedControl });
         }
       });
     }
