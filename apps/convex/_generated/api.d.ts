@@ -39,6 +39,7 @@ import type * as functions_accessConnections from "../functions/accessConnection
 import type * as functions_accessMirror from "../functions/accessMirror.js";
 import type * as functions_accessObjectPush from "../functions/accessObjectPush.js";
 import type * as functions_workspaceObjects from "../functions/workspaceObjects.js";
+import type * as functions_workspaceObjectsRepair from "../functions/workspaceObjectsRepair.js";
 import type * as functions_workspaceObjectsRows from "../functions/workspaceObjectsRows.js";
 import type * as functions_jev from "../functions/jev.js";
 import type * as functions_billingStripe from "../functions/billingStripe.js";
@@ -291,6 +292,7 @@ declare const fullApi: ApiFromModules<{
   "functions/accessTakeAway": typeof functions_accessTakeAway;
   "functions/accessObjectPush": typeof functions_accessObjectPush;
   "functions/workspaceObjects": typeof functions_workspaceObjects;
+  "functions/workspaceObjectsRepair": typeof functions_workspaceObjectsRepair;
   "functions/workspaceObjectsRows": typeof functions_workspaceObjectsRows;
   "functions/jev": typeof functions_jev;
   "functions/billingStripe": typeof functions_billingStripe;
