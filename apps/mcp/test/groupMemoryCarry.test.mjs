@@ -140,7 +140,7 @@ test("the page is written at the version just read: a write another turn won is 
   const lines = [];
   const refusing = folder({}, { refuse: "permission denied: the gig is friday" });
   assert.equal(await updateGroupPage(refusing.dispatch, homeNote(), () => OLD, { log: (line) => lines.push(line) }), false);
-  assert.deepEqual(lines.map((line) => JSON.parse(line)), [{ event: "group_memory_page_not_written", reason: "permission denied" }], "said once, with no words of the page");
+  assert.deepEqual(lines.map((line) => JSON.parse(line)), [{ event: "group_memory_page_not_written", reason: "permission_denied" }], "said once, as a code, with no words of the page");
 });
 
 test("a page Tex cannot read is never written over", async () => {
@@ -304,4 +304,13 @@ test("a record that cannot be read is never written over with less", async () =>
     await keepGroupExchange(failing, { ...GROUP }, [], "load-in is at 6", "Load-in at 6.");
     assert.equal(await (await store.get(await groupMemoryPath(GROUP))).text(), kept, "the record is as it was");
   });
+});
+
+test("a refusal's words become a code a public log keeps", async () => {
+  const { reasonCode } = await import("../src/agent/groupMemoryNote.js");
+  assert.equal(reasonCode("permission denied"), "permission_denied");
+  assert.equal(reasonCode("this workspace's file list could not be read just now; try again in a moment."), "this_workspace_s_file_list_could_not_be");
+  assert.equal(reasonCode(""), "refused");
+  assert.match(reasonCode("Ü".repeat(80)), /^refused$/);
+  for (const words of ["conflict", "a b", "x".repeat(90)]) assert.match(reasonCode(words), /^[a-z][a-z0-9_:-]{0,39}$/);
 });

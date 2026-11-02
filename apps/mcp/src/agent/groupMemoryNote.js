@@ -187,6 +187,15 @@ export async function updateGroupPage(dispatch, path, change, { log = console.lo
       break;
     }
   }
-  log(JSON.stringify({ event: "group_memory_page_not_written", reason }));
+  log(JSON.stringify({ event: "group_memory_page_not_written", reason: reasonCode(reason) }));
   return false;
+}
+
+/**
+ * A refusal's leading words as a code a public log keeps (`.github/workflows/agent-logs.yml` prints anything else as
+ * `other`): "permission denied" is `permission_denied`. Only the words before the first `:`, newline or `(`, as
+ * `refusalWords` already cuts them, and never more than 40 characters.
+ */
+export function reasonCode(words) {
+  return String(words ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40).replace(/_+$/, "") || "refused";
 }
