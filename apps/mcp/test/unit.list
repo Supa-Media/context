@@ -342,6 +342,7 @@ test/chatLedger.test.mjs
 test/objectManifest.test.mjs
 test/chatLedgerWrites.test.mjs
 test/chatLedgerReads.test.mjs
+test/chatLedgerBackfill.test.mjs
 test/texPage.test.mjs
 test/texPageLive.test.mjs
 test/texPageNotes.test.mjs

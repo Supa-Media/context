@@ -124,7 +124,8 @@ export async function serveTexStore(objects, request, timers = null, live = null
         objects.wipe();
         objects.ledger?.wipe();
         return Response.json({ ok: true });
-      case "ledger_append": {
+      case "ledger_append":
+      case "ledger_prepend": {
         if (!objects.ledger) return unknownOp();
         // The entries ride in the body, so a long tool result never has to fit a header.
         let entries;
@@ -133,13 +134,16 @@ export async function serveTexStore(objects, request, timers = null, live = null
         } catch {
           throw new TexObjectRefused("not ledger entries");
         }
-        const added = objects.ledger.append(call.chat, entries);
+        const added = call.op === "ledger_prepend" ? objects.ledger.prepend(call.chat, entries) : objects.ledger.append(call.chat, entries);
         if (added.added > 0) objects.ledgerChanged?.(added.kinds);
         return Response.json(added);
       }
       case "ledger_read":
         if (!objects.ledger) return unknownOp();
         return Response.json(objects.ledger.read(call.chat, call.options ?? {}));
+      case "ledger_oldest":
+        if (!objects.ledger) return unknownOp();
+        return Response.json({ oldest: objects.ledger.oldest(call.chat) });
       case "ledger_chats":
         if (!objects.ledger) return unknownOp();
         return Response.json({ chats: objects.ledger.chats() });
@@ -235,6 +239,14 @@ export function texBucket(stub) {
     async ledgerAppend(chat, entries) {
       return await (await call("ledger_append", { chat }, new TextEncoder().encode(JSON.stringify(entries)))).json();
     },
+    /** Entries put before everything a chat's ledger holds (`ledger.js` `prepend`): `{added, kinds}`. */
+    async ledgerPrepend(chat, entries) {
+      return await (await call("ledger_prepend", { chat }, new TextEncoder().encode(JSON.stringify(entries)))).json();
+    },
+    /** A chat's oldest ledger entry, `{id, at}`, or null. */
+    async ledgerOldest(chat) {
+      return (await (await call("ledger_oldest", { chat })).json()).oldest;
+    },
     /** A chat's ledger as one document, `{manifest, entries, next?|before?}` (`ledger.js` `read`). */
     async ledgerRead(chat, options = {}) {
       return await (await call("ledger_read", { chat, options })).json();
@@ -279,6 +291,14 @@ export function texTimers(stub) {
   };
 }
 
+/** A Tex object's store over its bucket-shaped client: notes as R2, and the desk and the chat ledgers beside them. */
+export function texBucketStore(bucket) {
+  return Object.assign(new R2Store(bucket), {
+    desk: () => bucket.desk(),
+    ledger: { append: (chat, entries) => bucket.ledgerAppend(chat, entries), read: (chat, options) => bucket.ledgerRead(chat, options), chats: () => bucket.ledgerChats(), prepend: (chat, entries) => bucket.ledgerPrepend(chat, entries), oldest: (chat) => bucket.ledgerOldest(chat) },
+  });
+}
+
 /**
  * The store over an owner's object, from inside the gateway: `owner` is
  * `person:<workspaceId>` or `chat:<chatId>`, as a Tex key names it
@@ -292,6 +312,6 @@ export function gatewayTexStore(env) {
     if (stub === null) return null;
     const bucket = texBucket(stub);
     // The store, and the desk beside it: one call for what a texted turn reads first (`desk.js`).
-    return Object.assign(new R2Store(bucket), { desk: () => bucket.desk(), ledger: { append: (chat, entries) => bucket.ledgerAppend(chat, entries), read: (chat, options) => bucket.ledgerRead(chat, options), chats: () => bucket.ledgerChats() } });
+    return texBucketStore(bucket);
   };
 }
