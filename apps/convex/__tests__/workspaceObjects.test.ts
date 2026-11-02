@@ -442,6 +442,26 @@ describe("failure logs", () => {
     expect(reasonOf(new TypeError("Something 'notes/Secret.md' odd"))).toBe("type_error");
   });
 
+  test("a dropped connection to the workspace object is a network failure, and a read is asked again", async () => {
+    const { reasonOf, withRetries } = await import("../functions/lib/workspaceObjects/failures");
+    const dropped = () => new TypeError("error sending request for url (https://gateway.example.test/internal/workspace-store)");
+    expect(reasonOf(dropped())).toBe("network");
+    let calls = 0;
+    const store = {
+      get: async () => {
+        calls += 1;
+        if (calls < 3) throw dropped();
+        return null;
+      },
+      put: async () => null,
+      delete: async () => undefined,
+      list: async () => ({ objects: [], truncated: false }),
+    } as unknown as BodyStore;
+    const waits: number[] = [];
+    expect(await withRetries(store, async (ms) => void waits.push(ms)).get("notes/x.md")).toBeNull();
+    expect(waits).toEqual([1000, 3000]);
+  });
+
   test("a busy bucket's listing is asked again, a refusal is not", async () => {
     const { withRetries } = await import("../functions/lib/workspaceObjects/failures");
     let calls = 0;

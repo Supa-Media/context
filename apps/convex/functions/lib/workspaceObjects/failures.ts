@@ -56,7 +56,8 @@ export function reasonOf(error: unknown): string {
   const name = (error as { name?: unknown } | null)?.name;
   if (name === "ManagedEncryptionError") return "sealed";
   if (name === "TypeError") {
-    if (/fetch|network|connection|socket|reset|abort|internal error|disconnect/i.test(message)) return "network";
+    // "error sending request for url (…)" is how the Convex runtime's own fetch reports a dropped connection.
+    if (/fetch|network|connection|socket|reset|abort|internal error|disconnect|sending request/i.test(message)) return "network";
     // A code fault: the property or function it tripped on is a name from this repository, never data.
     const read = /^Cannot read propert(?:y|ies) of (undefined|null) \(reading '([A-Za-z_$][\w$]{0,40})'\)/.exec(message);
     if (read) return `type_error_${read[1]}_${read[2]}`;
