@@ -13,9 +13,15 @@ import { json } from "../http/responses.js";
 import { carriesGatewaySecret } from "../moves/mover.js";
 import { workspaceStub } from "./api.js";
 import { mcpEntry } from "../mcp/mcpEntryPoint.js";
+import { BINDING_OPS } from "./bindingRows.js";
 
 export const WORKSPACE_STORE_PATH = "/internal/workspace-store";
 const CALL = "x-tex-call";
+/**
+ * The gateway's own calls, never the control plane's: `ws.open` answers a member's rules and the sealed binding,
+ * and `ws.binding.put` keeps one (`bindingRows.js`). The control plane only ever clears it.
+ */
+const GATEWAY_ONLY = new Set([BINDING_OPS.OPEN, BINDING_OPS.PUT]);
 
 function opOf(call) {
   try {
@@ -44,6 +50,7 @@ async function serveDoor(request, env, { controlPlane = null } = {}, door) {
   const call = request.headers.get(CALL);
   const op = call ? opOf(call) : null;
   if (ticket === "" || ticket.length > 256 || typeof op !== "string") return json({ error: "bad_request" }, 400);
+  if (GATEWAY_ONLY.has(op)) return json({ error: "forbidden" }, 403);
   door.call = op.replace(/[^A-Za-z0-9_.:-]/g, "");
   let opened;
   try {

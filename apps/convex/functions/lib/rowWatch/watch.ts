@@ -23,6 +23,16 @@ import { ACCESS_TABLES, mayMatter, type AccessSource, type AccessWrite } from ".
 export const WATCHED_TABLES = ["nodes", "nodeAccess", "nodeAccessState"] as const;
 type Watched = (typeof WATCHED_TABLES)[number];
 
+/**
+ * The tables a workspace's storage binding is made of: the bucket and its credential, managed encryption, and where
+ * the notes live. A write to one clears the binding the workspace's object keeps (`apps/mcp/src/workspaceStore/
+ * bindingRows.js`), so a request never opens a store from a binding older than the change.
+ */
+export const BINDING_TABLES = ["storageBindings", "managedEncryptionWorkspaces", "workspaceObjectHomes"] as const;
+type BindingTable = (typeof BINDING_TABLES)[number];
+/** Fields of a binding row that no request's store is built from. */
+const BINDING_QUIET = new Set(["scaffoldQueuedAt", "leftBehind"]);
+
 /** Fields of a `nodes` row that only say which version of the bytes it is at: no rule changes with them. */
 const BYTES_ONLY = new Set(["etag", "size", "uploaded", "observedAt", "idCopy", "keyedFrom", "storageKey", "noteId"]);
 
@@ -43,6 +53,8 @@ export type WorkspaceChange = {
    * replaced or deleted. A new row never narrows. Such a write opens a mark in the object first (`./objectFirst.ts`).
    */
   narrows: boolean;
+  /** Whether the storage binding may have changed, so the object's kept copy is cleared. */
+  binding: boolean;
 };
 
 export type RowWatch = {
@@ -69,13 +81,28 @@ function accessTableOf(db: MutationCtx["db"], id: string): AccessSource | null {
 function changeFor(changes: Map<Id<"workspaces">, WorkspaceChange>, workspaceId: Id<"workspaces">): WorkspaceChange {
   let change = changes.get(workspaceId);
   if (change === undefined) {
-    change = { nodeIds: new Set(), access: false, narrows: false };
+    change = { nodeIds: new Set(), access: false, narrows: false, binding: false };
     changes.set(workspaceId, change);
   }
   return change;
 }
 
 type Doc = Record<string, unknown> & { workspaceId?: Id<"workspaces"> };
+
+function bindingTableOf(db: MutationCtx["db"], id: string): BindingTable | null {
+  for (const table of BINDING_TABLES) {
+    if (db.normalizeId(table, id) !== null) return table;
+  }
+  return null;
+}
+
+/** Record a write to a binding table; `fields` as `record` takes them. */
+function recordBinding(changes: Map<Id<"workspaces">, WorkspaceChange>, doc: Doc | null, fields: string[] | null): void {
+  const workspaceId = doc?.workspaceId;
+  if (typeof workspaceId !== "string") return;
+  if (fields !== null && fields.every((field) => BINDING_QUIET.has(field))) return;
+  changeFor(changes, workspaceId).binding = true;
+}
 
 /**
  * Record one write. `fields` is what a patch named (`null` for an insert, a replace or a delete, which may change
@@ -136,6 +163,7 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
     async insert(table: string, value: Doc) {
       const id = await (db.insert as (table: string, value: unknown) => Promise<GenericId<string>>)(table, value);
       if ((WATCHED_TABLES as readonly string[]).includes(table)) record(changes, table as Watched, id, value, null, "insert");
+      if ((BINDING_TABLES as readonly string[]).includes(table)) recordBinding(changes, value, null);
       if ((ACCESS_TABLES as readonly string[]).includes(table)) noteAccess(table as AccessSource, String(id), value, "insert");
       return id;
     },
@@ -146,6 +174,7 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
       const access = await accessBefore(id, fields);
       await (db.patch as (...a: unknown[]) => Promise<void>)(...args);
       if (access !== null) noteAccess(access, id, await db.get(id as GenericId<AccessSource>), "after");
+      if (bindingTableOf(db, id) !== null) recordBinding(changes, (await db.get(id as GenericId<BindingTable>)) as Doc | null, fields);
       const table = tableOf(db, id);
       if (table === null) return;
       record(changes, table, id, (await db.get(id as GenericId<Watched>)) as Doc | null, fields, "patch");
@@ -153,8 +182,14 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
     async replace(...args: unknown[]) {
       const { id } = split(args);
       const access = await accessBefore(id, null);
+      const bindingBefore = bindingTableOf(db, id) === null ? null : ((await db.get(id as GenericId<BindingTable>)) as Doc | null);
       await (db.replace as (...a: unknown[]) => Promise<void>)(...args);
       if (access !== null) noteAccess(access, id, await db.get(id as GenericId<AccessSource>), "after");
+      // Before and after: a replace that moves a binding to another workspace changes both.
+      if (bindingBefore !== null) {
+        recordBinding(changes, bindingBefore, null);
+        recordBinding(changes, (await db.get(id as GenericId<BindingTable>)) as Doc | null, null);
+      }
       const table = tableOf(db, id);
       if (table === null) return;
       record(changes, table, id, (await db.get(id as GenericId<Watched>)) as Doc | null, null, "replace");
@@ -164,9 +199,11 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
       const table = tableOf(db, id);
       // Read before it goes: the workspace, and the access row's note, are on the row.
       const before = table === null ? null : ((await db.get(id as GenericId<Watched>)) as Doc | null);
+      const bindingBefore = bindingTableOf(db, id) === null ? null : ((await db.get(id as GenericId<BindingTable>)) as Doc | null);
       await accessBefore(id, null);
       await (db.delete as (...a: unknown[]) => Promise<void>)(...args);
       if (table !== null) record(changes, table, id, before, null, "delete");
+      if (bindingBefore !== null) recordBinding(changes, bindingBefore, null);
     },
     // `db.table(name)`'s writers go through the same four, so its shape is no way around them.
     table(name: string) {

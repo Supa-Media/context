@@ -84,7 +84,11 @@ export async function drainWorkspace(
   try {
     for (let round = 0; round < ROUNDS_PER_DRAIN; round += 1) {
       const next = await ctx.runQuery(internal.functions.workspaceObjectPush.pending, { workspaceId });
-      if (next.entryIds.length > 0 || next.close.length > 0) await pushRound(ctx, call, workspaceId, next);
+      // An entry that only changed the binding carries no rows or rules: it clears the object's kept copy, nothing more.
+      const rowsOrRules = next.all || next.access || next.rows.length > 0 || next.removed.length > 0;
+      if ((next.entryIds.length > 0 && (rowsOrRules || !next.binding)) || next.close.length > 0) await pushRound(ctx, call, workspaceId, next);
+      // The kept binding is cleared before the entry is acked, so the workspace reads as behind until it is gone.
+      if (next.binding) await call("ws.binding.clear");
       if (next.close.length > 0) await ctx.runMutation(internal.functions.workspaceObjectMarks.drop, { tokens: next.close });
       const more = await ctx.runMutation(internal.functions.workspaceObjectPush.ack, {
         workspaceId,

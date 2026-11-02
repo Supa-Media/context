@@ -62,7 +62,11 @@ breaking one, stop and say so rather than working around it.
    Tex Durable Object (one per person, one per group chat) that holds its text,
    read, searched and exported like any note (decided by the owner,
    2026-10-31;
-   [tex-durable-objects](./docs/decisions/texting-assistant/tex-durable-objects.md)). See
+   [tex-durable-objects](./docs/decisions/texting-assistant/tex-durable-objects.md)). A
+   workspace's storage binding is the fourth: its own workspace object keeps
+   it sealed with a key only the gateway derives, bound to that workspace and
+   handed only to its live members (decided by the owner, 2026-11-02;
+   [credential-basics](./docs/decisions/storage-and-credentials/credential-basics.md)). See
    [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
 2. **Tenancy is object-level and bucket-level, never prefix-level.** One
    workspace has one workspace object, named `workspace:<workspaceId>` from

@@ -102,6 +102,7 @@ export const pending = internalQuery({
       .take(ENTRIES_PER_ROUND);
     const entryIds = entries.map((entry) => entry._id);
     const access = entries.some((entry) => entry.access);
+    const binding = entries.some((entry) => entry.binding === true);
     // Marks whose writer committed well before this read, when this round takes every entry still waiting: the rows
     // read here carry their change, so they close with them. A round that leaves entries behind closes none.
     const takesAll = entries.length < ENTRIES_PER_ROUND;
@@ -110,7 +111,7 @@ export const pending = internalQuery({
           .filter((mark) => mark.doneAt !== undefined && mark.doneAt <= readAt - MARK_CLOCK_MARGIN_MS)
           .map((mark) => mark.token)
       : [];
-    if (entries.some((entry) => entry.all === true)) return { entryIds, all: true as const, access, readAt, rows: [], removed: [], close };
+    if (entries.some((entry) => entry.all === true)) return { entryIds, all: true as const, access, readAt, rows: [], removed: [], close, binding };
     const ids = [...new Set(entries.flatMap((entry) => entry.nodeIds))];
     const paths = await nodePaths(ctx.db, workspaceId);
     const rows: ObjectRow[] = [];
@@ -123,7 +124,7 @@ export const pending = internalQuery({
       if (row === null) removed.push(id);
       else rows.push(row);
     }
-    return { entryIds, all: false as const, access, readAt, rows, removed, close };
+    return { entryIds, all: false as const, access, readAt, rows, removed, close, binding };
   },
 });
 

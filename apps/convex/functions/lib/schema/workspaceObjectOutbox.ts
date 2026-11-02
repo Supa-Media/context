@@ -19,6 +19,8 @@ export const workspaceObjectOutboxTables = {
     all: v.optional(v.boolean()),
     /** A change that may narrow, written with no mark open in the object (`lib/rowWatch/objectFirst.ts`): logged. */
     unmarked: v.optional(v.boolean()),
+    /** The storage binding may have changed: clear the copy the object keeps (`workspaceObjectBinding.ts`). */
+    binding: v.optional(v.boolean()),
     at: v.number(),
   }).index("by_workspace_at", ["workspaceId", "at"]),
 
