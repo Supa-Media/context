@@ -42,6 +42,12 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-11-03",
     text:
+      "Proposals are gone: write action propose, manage action review_proposal, fetch \"proposals:\" and the tools propose_note, " +
+      "list_proposals, read_proposal and review_proposal no longer exist. Where you cannot write a folder, tell the person.",
+  },
+  {
+    date: "2026-11-03",
+    text:
       'write action "save_many" saves up to 100 notes in one call: args `{ notes: [{ path, content, expected_etag? }] }`. Each note is ' +
       "saved exactly as save saves it, and the answer has one `outcome:` line per note, in order; one refused never undoes the others. " +
       'fetch "notes:" now reads up to 100 notes, not 25. Saves, moves and archives no longer end with a `chaos:` line; orient shows the score.',
@@ -378,7 +384,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "dfb18474";
+export const TOOL_SHAPE = "ad5e3487";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

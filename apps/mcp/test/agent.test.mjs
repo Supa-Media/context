@@ -22,8 +22,9 @@
  * private note must be invisible to an agent running on a `team`-tier grant,
  * for the same reason and by the same code as it is to that grant's client.
  *
- * **Writes are proposals.** `write_note` is never offered, however wide the
- * grant, and a model that names it anyway is refused *at the dispatch* — not by
+ * **Writes belong to the app and to texts.** Outside those two clients
+ * (`context_console`, `context_texts`), `write_note` is never offered, however
+ * wide the grant, and a model that names it anyway is refused *at the dispatch* — not by
  * the list it was shown, which it can always ignore, and not by the tool layer,
  * which on an owner's own grant would have carried the write out. The first
  * draft of this file asserted only the offering and said this sentence anyway;
@@ -37,14 +38,6 @@
  *     gets what the client gets", which is the tempting simplification.
  *     → **2 fail**: `a write tool is never offered, however wide the grant` and
  *     `agentTools only ever narrows`.
- *
- *     The draft of this entry named the second one wrongly, as `the agent is
- *     offered the proposal tool and no other write` — which *passes* under this
- *     sabotage, because an unfiltered list still contains `propose_note`. A
- *     check that reads as though it covers a rule and passes when the rule is
- *     gone is worth knowing about: that one asserts the proposal tool is
- *     present and the *other* asserts nothing else is, and only together do
- *     they say what the sentence says.
  *  2. The route dispatching through the raw `callTool(name, args, store,
  *     "private")` instead of `callToolForSession(..., session)` — the agent
  *     reaching past the connection's clamp.
@@ -95,6 +88,7 @@ import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 const S3_ENDPOINT = "https://s3.example-agent.test";
 const TOKEN_OWNER = `cat_agent_owner_${"0".repeat(24)}`;
 const TOKEN_TEAM = `cat_agent_team_${"0".repeat(25)}`;
+const TOKEN_CONSOLE = `cat_agent_console_${"0".repeat(22)}`;
 const TOKEN_READONLY = `cat_agent_read_${"0".repeat(25)}`;
 
 const PRIVACY_MANIFEST =
@@ -242,6 +236,15 @@ export async function runAgentChecks(check) {
       clientId: "mcp_client_agent_readonly",
       userId: "user_agent",
     });
+    // The app's own assistant (`context_console`), which edits directly since proposals were removed (2026-11-03).
+    await controlPlane.addGrant({
+      accessToken: TOKEN_CONSOLE,
+      workspaceId: "ws_agent",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "context_console",
+      userId: "user_agent",
+    });
 
     controlPlane.setBuiltinVerdict("ws_agent", BUILTIN_ALLOWED);
 
@@ -316,9 +319,9 @@ export async function runAgentChecks(check) {
         !offeredNames.includes("manage"),
     );
     check(
-      "the agent is offered the proposal action and no other write",
+      "outside the app and texts, the agent's only write action is report_problem",
       // report_problem goes to Context's builders, never into the notes.
-      offeredNames.filter((name) => name.startsWith("write.")).join() === "write.propose,write.report_problem",
+      offeredNames.filter((name) => name.startsWith("write.")).join() === "write.report_problem",
     );
     check("the read tools are offered", offeredNames.includes("search") && offeredNames.includes("fetch"));
 
@@ -328,7 +331,7 @@ export async function runAgentChecks(check) {
       The owner removed `export_encryption_keys` from the MCP on 2026-10-08:
       leaving the product already hands back every note in plain text, and a
       tool that returned the key in the clear let any AI app pull it into a
-      chat, or, with `propose_note`, into the bucket beside the notes it opens.
+      chat.
       Asked of the owner's own client, the widest grant there is, so a tool that
       came back under that name would fail here before it reached a model.
     */
@@ -351,8 +354,21 @@ export async function runAgentChecks(check) {
     await ask(env, TOKEN_READONLY, { question: "anything?" });
     const readonlyTools = shown(model.requests[model.requests.length - 1].body.tools);
     check(
-      "a read-only connection's agent is not offered the proposal action either",
-      !readonlyTools.has("write.save") && !readonlyTools.has("write.propose") && readonlyTools.has("fetch"),
+      "a read-only connection's agent is offered no write either",
+      !readonlyTools.has("write.save") && readonlyTools.has("fetch"),
+    );
+
+    /*
+      The app's own assistant edits directly, the way a text does (the owner,
+      2026-11-03, "Edit directly, like texting"): proposals were removed, and
+      their queue had no screen in the app.
+    */
+    model.install([{ text: "Done." }]);
+    await ask(env, TOKEN_CONSOLE, { question: "add milk to my list" });
+    const consoleTools = shown(model.requests[model.requests.length - 1].body.tools);
+    check(
+      "the app's own assistant is offered the same writes a text is",
+      consoleTools.has("write.save") && consoleTools.has("manage.move") && !consoleTools.has("write.propose"),
     );
 
     /* ---------------------- 4. the clamp is the connection's --------------- */
@@ -390,7 +406,7 @@ export async function runAgentChecks(check) {
       offered. The claim was false. `agentTools` decided what the model is
       *told about*; the name in its reply went straight to `callToolForSession`,
       which is the client's whole dispatcher and holds this connection's whole
-      authority. So "writes are proposals" was a property of the prompt.
+      authority. So "only what was offered" was a property of the prompt.
 
       Which matters because the model's reply is not only the model's. A
       personal context takes email into `0-inbox/`, so a sentence in a note the
@@ -598,7 +614,7 @@ export async function runAgentChecks(check) {
     );
     check(
       "the system prompt tells the model it cannot edit",
-      systemPrompt(null).includes("write with action propose"),
+      systemPrompt(null).includes("You cannot edit their notes here"),
     );
     check(
       "the app's agent still cites note paths, and is not told it is texting",
@@ -608,15 +624,15 @@ export async function runAgentChecks(check) {
       "a texted answer is told to write without Markdown or note paths, and still cannot edit",
       systemPrompt(null, { texting: true }).includes("No Markdown") &&
         !systemPrompt(null, { texting: true }).includes("Cite the note path") &&
-        systemPrompt(null, { texting: true }).includes("write with action propose"),
+        systemPrompt(null, { texting: true }).includes("You cannot edit their notes here"),
     );
     check(
       "agentTools only ever narrows",
       agentTools([
         { name: "read_note", annotations: { readOnlyHint: true } },
         { name: "write_note", annotations: { readOnlyHint: false } },
-        { name: "propose_note", annotations: { readOnlyHint: false } },
-      ]).map((tool) => tool.name).join(",") === "read_note,propose_note",
+        { name: "move_note", annotations: { readOnlyHint: false } },
+      ]).map((tool) => tool.name).join(",") === "read_note",
     );
     check(
       "agentTools cannot invent a tool that was not offered",

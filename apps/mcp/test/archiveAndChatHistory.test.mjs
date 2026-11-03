@@ -1,11 +1,9 @@
 import {
   check,
   call,
-  lacks,
   succeeded,
   objects,
   storedText,
-  setConcurrentCreateOnAbsent,
   setEnforceOneUseBodies,
   controlPlane,
   contextStore,
@@ -13,7 +11,7 @@ import {
 } from "./harness.mjs";
 import { isLogicalDeleteMarker, withLogicalDelete } from "../src/store/logicalDelete.js";
 
-export async function runProposalsAndArchiveChecks() {
+export async function runArchiveAndChatHistoryChecks() {
   // The tree holds live notes, as the control plane's copy does: a delete leaves a marker in the bucket, which it never holds.
   controlPlane.serveTree(WORKSPACE_ID, withLogicalDelete(contextStore));
   // -- archive
@@ -47,73 +45,11 @@ export async function runProposalsAndArchiveChecks() {
       isLogicalDeleteMarker(storedText("1-projects/togather/probe.md"))
   );
 
-  // -- private-approval proposal queue
-  const proposal = await call("pub-token", "propose_note", {
-    path: "2-areas/private/apps/example.md",
-    content: "# Proposed app note",
-    reason: "Apps belong in the apps area",
-    agent: "Claude Code",
-  });
-  const proposalText = proposal.content[0].text;
-  const proposalId = proposalText.match(/proposal queued: ([0-9a-f-]+)/i)?.[1];
-  check(
-    "team connection can queue a private-destination proposal without filing it",
-    !proposal.isError && proposalId && !objects.has("2-areas/private/apps/example.md")
-  );
-  const publicProposalList = await call("pub-token", "list_proposals");
-  check("team connection cannot inspect proposal queue", publicProposalList.isError);
-  const privateProposalList = (await call("priv-token", "list_proposals"))?.content?.[0]?.text;
-  check(
-    "private connection lists proposal metadata",
-    privateProposalList?.includes(proposalId) &&
-      privateProposalList?.includes("2-areas/private/apps/example.md") &&
-      lacks(privateProposalList, "# Proposed app note")
-  );
-  const privateProposalRead = (await call("priv-token", "read_proposal", { id: proposalId }))?.content?.[0]?.text;
-  check("private connection reads proposal content", privateProposalRead?.includes("# Proposed app note"));
-  const approveProposal = await call("priv-token", "review_proposal", {
-    id: proposalId,
-    action: "approve",
-  });
-  check(
-    "private approval files proposal and clears pending queue",
-    !approveProposal.isError && objects.has("2-areas/private/apps/example.md") &&
-      (await call("priv-token", "list_proposals"))?.content?.[0]?.text.includes("no pending")
-  );
-  const racedProposal = await call("pub-token", "propose_note", {
-    path: "2-areas/private/apps/raced-approval.md",
-    content: "# Proposed content that must not overwrite",
-    reason: "Exercise the approval destination create race",
-    agent: "Claude Code",
-  });
-  const racedProposalId = racedProposal.content[0].text.match(/proposal queued: ([0-9a-f-]+)/i)?.[1];
-  setConcurrentCreateOnAbsent({
-    key: "2-areas/private/apps/raced-approval.md",
-    text: "# Human-created winner",
-  });
-  const racedApproval = await call("priv-token", "review_proposal", {
-    id: racedProposalId,
-    action: "approve",
-  });
-  check(
-    "proposal approval never overwrites a note created after its preflight",
-    racedApproval.isError &&
-      storedText("2-areas/private/apps/raced-approval.md") === "# Human-created winner",
-  );
-  check(
-    "a proposal whose destination raced remains pending for another review",
-    (await call("priv-token", "list_proposals"))?.content?.[0]?.text.includes(racedProposalId),
-  );
-  await call("priv-token", "review_proposal", { id: racedProposalId, action: "reject" });
-  const rejectedProposal = await call("pub-token", "propose_note", {
-    path: "2-areas/private/apps/rejected.md",
-    content: "reject me",
-    reason: "testing rejection",
-    agent: "Claude Code",
-  });
-  const rejectedId = rejectedProposal.content[0].text.match(/proposal queued: ([0-9a-f-]+)/i)?.[1];
-  const rejectReview = await call("priv-token", "review_proposal", { id: rejectedId, action: "reject" });
-  check("private rejection preserves no destination note", !rejectReview.isError && !objects.has("2-areas/private/apps/rejected.md"));
+  // -- proposals were removed (the owner, 2026-11-03): no tool files, lists, reads or approves one
+  for (const tool of ["propose_note", "list_proposals", "read_proposal", "review_proposal"]) {
+    const gone = await call("priv-token", tool, { path: "2-areas/private/apps/example.md", content: "x", reason: "x", id: "x", action: "approve" });
+    check(`${tool} is no longer a tool`, gone.isError && !objects.has("2-areas/private/apps/example.md"));
+  }
 
   // -- privacy-aware chat history archives
   const privateChatArchive = await call("priv-token", "save_context", {
@@ -164,34 +100,20 @@ export async function runProposalsAndArchiveChecks() {
 
   const publicPrivateChat = await call("pub-token", "save_context", {
     platform: "claude",
-    history: "## User\nMake this one private.\n\n## Assistant\nQueued privately.",
+    history: "## User\nMake this one private.\n\n## Assistant\nIt cannot be.",
     visibility: "private",
     completeness: "full-visible-transcript",
   });
-  const privateChatProposalId = publicPrivateChat.content[0].text.match(/proposal queued: ([0-9a-f-]+)/i)?.[1];
-  const privateChatIntendedPath = publicPrivateChat.content[0].text.match(/intended path: (\S+)/)?.[1];
   check(
-    "team connection explicitly requesting private chat history creates a hidden proposal",
-    !publicPrivateChat.isError &&
-      privateChatProposalId &&
-      privateChatIntendedPath?.startsWith("4-archive/chat-history/claude/") &&
-      !objects.has(privateChatIntendedPath)
-  );
-  const approvePrivateChat = await call("priv-token", "review_proposal", {
-    id: privateChatProposalId,
-    action: "approve",
-  });
-  check(
-    "personal reviewer can approve a team client's private chat archive",
-    !approvePrivateChat.isError &&
-      objects.has(privateChatIntendedPath) &&
-      (await call("pub-token", "read_note", { path: privateChatIntendedPath }))?.isError
+    "a team connection asking for a private chat archive is refused, and nothing is filed or queued",
+    publicPrivateChat.isError &&
+      publicPrivateChat.content[0].text.startsWith("permission denied:") &&
+      ![...objects.keys()].some((key) => key.startsWith(".context/proposals/"))
   );
 
   // archive_chat must respect the folder default the way write_note does. Make
   // one platform's archive folder private and check that a team connection can no
-  // longer plant a team-visible note in it — while the sanctioned route into a
-  // private destination, a proposal for the owner to review, still works.
+  // longer plant a team-visible note in it.
   const notionFolderDry = await call("priv-token", "set_folder_visibility", {
     path: "4-archive/chat-history/notion",
     visibility: "private",
@@ -223,16 +145,6 @@ export async function runProposalsAndArchiveChecks() {
     teamArchiveIntoPrivateFolder.content[0].text.startsWith("permission denied:") &&
       !teamArchiveIntoPrivateFolder.content[0].text.includes("4-archive/chat-history") &&
       !teamArchiveIntoPrivateFolder.content[0].text.includes("notion")
-  );
-  const teamProposalIntoPrivateFolder = await call("pub-token", "save_context", {
-    platform: "notion",
-    history: "## User\nQueue it instead.\n\n## Assistant\nQueued.",
-    visibility: "private",
-  });
-  check(
-    "a team connection can still queue a private archive there for owner review",
-    !teamProposalIntoPrivateFolder.isError &&
-      /proposal queued: [0-9a-f-]+/i.test(teamProposalIntoPrivateFolder.content[0].text)
   );
   const personalArchiveIntoPrivateFolder = await call("priv-token", "save_context", {
     platform: "notion",

@@ -14,10 +14,8 @@ import { describeStatusList, governingFolderOf, readStatusList } from "../tools/
 import { canSee, visibilityOf, effectiveVisibility } from "../privacy/engine.js";
 import { formatCapturedLine, ORIENT_SIBLING_INDEX_CHAR_CAP, reducedRecallNotesFor, relativeAge } from "./render.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
-import { listAllKeysWithLegacy } from "../notes/storage.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { normalizePath } from "../notes/paths.js";
-import { PROPOSAL_PENDING_PREFIX } from "../tools/proposals.js";
 import { firstParagraphOf, readFrontPage, readIndexText, readSaveProcedure } from "./frontPage.js";
 import { GLOBAL_ORIENT_PATH, PINNED_CONTEXT_NAME, readGlobalOrientNote } from "./globalNote.js";
 import { WEBSITE_GUIDE, hasWebsiteFolder } from "./websiteGuide.js";
@@ -156,12 +154,11 @@ async function overview(store, scope, rules, overrides) {
   // `index.md` read once for the front page and the save procedure, and only where this caller may see it.
   let indexText = null;
   const indexOnce = () => (indexText ??= canSee("index.md", scope, rules, overrides) ? readIndexText(store) : Promise.resolve(null));
-  const [survey, page, procedure, privateIndex, pendingProposals, globalNote, others, mailboxes] = await Promise.all([
+  const [survey, page, procedure, privateIndex, globalNote, others, mailboxes] = await Promise.all([
     timed("survey", () => surveyOf(store, store, scope, rules, overrides)),
     timed("front_page", () => frontParagraphOf(store, scope, rules, overrides, indexOnce())),
     timed("save_procedure", () => readSaveProcedure(store, scope, rules, overrides, indexOnce())),
     scope === "private" ? timed("private_index", () => getWithLegacyFallback(store, "index-private.md")) : Promise.resolve(null),
-    scope === "private" ? timed("proposals", () => listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX)) : Promise.resolve([]),
     timed("global_note", () =>
       readGlobalOrientNote({
         contexts: store.contexts,
@@ -217,14 +214,6 @@ async function overview(store, scope, rules, overrides) {
   }
   const mail = orientMailSection(mailboxes, Date.now(), { v2 });
   if (mail) parts.push(mail);
-  if (scope === "private" && pendingProposals.length) {
-    parts.push(
-      say(
-        `## Pending note proposals\n${pendingProposals.length} waiting for you. ` +
-          "Use fetch with `proposals:` to read them, and manage with action review_proposal to decide each one."
-      )
-    );
-  }
   parts.push(say(`## How to work here\n\n${HOW_TO_WORK}`));
   parts.push(markLine());
   return toolText(parts.join("\n\n---\n\n"));
@@ -252,10 +241,7 @@ async function sinceAnswer(store, scope, rules, overrides, since) {
   }
   const now = new Date();
   const news = toolNewsSection(store.actor?.toolsListedAt, undefined, appOf(store));
-  const [survey, pendingProposals] = await Promise.all([
-    surveyOf(store, store, scope, rules, overrides),
-    scope === "private" ? listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
-  ]);
+  const survey = await surveyOf(store, store, scope, rules, overrides);
   const after = (date) => date instanceof Date && date > at;
   const changed = {
     recent: survey.recent.filter((note) => after(note.uploaded)),
@@ -266,9 +252,6 @@ async function sinceAnswer(store, scope, rules, overrides, since) {
   if (v2 && news) parts.push(`${news}\n\n${await toolsManual(store, scope)}`);
   const recent = recentSection(changed);
   parts.push(recent ?? "Nothing in this workspace changed since then.");
-  if (scope === "private" && pendingProposals.length) {
-    parts.push(inToolNames(`${pendingProposals.length} note proposals are waiting; fetch \`proposals:\` reads them.`, { v2 }));
-  }
   parts.push(
     "Everything else (the workspaces, the front page, the rules) is as your earlier orient said; call orient " +
       "with no since for all of it again.\n\n" +

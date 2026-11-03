@@ -326,8 +326,10 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   // A group's too (2026-10-21): everyone in it is a member of the one workspace it reads, so the app link opens for each of them.
   const noteLinking = { origin: session.actorClientId === TEXTS_CLIENT_ID || group !== null ? appOriginOf(env) : null, contexts: store.contexts };
   // A text has the MCP's own write tools (`textingWrites.js`, the owner,
-  // 2026-10-08); a routine's own run never may.
-  const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
+  // 2026-10-08), and so does the app's own assistant since proposals were
+  // removed (the owner, 2026-11-03, "Edit directly, like texting"); a
+  // routine's own run never may, and a group chat has its own narrower set.
+  const textingWriting = textingWriteTools(offered, { texting: !runner && group === null && (session.actorClientId === TEXTS_CLIENT_ID || session.actorClientId === CONSOLE_CLIENT_ID) });
   // A group chat edits as its tagger could in the app, never moving or deleting a note (`groupTurn.js`).
   const groupWriting = group !== null ? groupWriteTools(offered, group) : [];
   /*
@@ -491,10 +493,8 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
       question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.question ?? askedWith(question, quoted), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
-      // A turn that edits directly is not also handed proposals: they have no
-      // screen on a phone, and two ways to change a note is one too many.
       tools: [
-        ...agentTools(offered).filter((tool) => (textingWriting.length === 0 && group === null && !runner) || tool.name !== "propose_note"), // a routine stops itself with DONE:, never a proposal
+        ...agentTools(offered),
         ...textingWriting, ...groupWriting, ...forwarding,
         ...(skills?.tools ?? []), ...(learned?.tools ?? []),
         ...(delegation?.tools ?? []), ...(background?.tools ?? []),

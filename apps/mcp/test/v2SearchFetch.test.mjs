@@ -103,7 +103,6 @@ describe("translateFetch: keyword ids", () => {
     ["activity:", { limit: 9 }, "read_activity", { limit: 9 }],
     ["changes:", {}, "list_changes", {}],
     ["changes:", { limit: 4, reads: true }, "list_changes", { limit: 4, reads: true }],
-    ["proposals:", {}, "list_proposals", {}],
     ["links:", {}, "list_links", {}],
     ["vault:", {}, "vault_list", {}],
     ["plugins:", {}, "list_plugins", {}],
@@ -152,23 +151,6 @@ describe("translateFetch: keyword ids", () => {
     const out = translateFetch({ id: "vault:" }, CLAUDE);
     assert.equal(out.name, "vault_list");
     assert.equal("fetch" in out.arguments, false);
-  });
-});
-
-describe("translateFetch: proposals:<id>", () => {
-  it("reads one proposal by its id", () => {
-    assert.deepEqual(translateFetch({ id: "proposals:p_123" }, CLAUDE), {
-      name: "read_proposal",
-      arguments: { id: "p_123" },
-      action: "proposal",
-    });
-  });
-
-  it("refuses args on one proposal", () => {
-    assert.equal(
-      translateFetch({ id: "proposals:p_1", args: { limit: 1 } }, CLAUDE).error,
-      'fetch "proposals:p_1" takes no args. orient lists what each id takes.',
-    );
   });
 });
 
@@ -342,7 +324,6 @@ describe("translateFetch: ChatGPT", () => {
       assert.equal(translateFetch({ id: "texts:" }, app).name, "list_texts");
       assert.equal(translateFetch({ id: "texts:chat_1" }, app).name, "read_texts");
       assert.equal(translateFetch({ id: "apps:linear" }, app).name, "app_read");
-      assert.equal(translateFetch({ id: "proposals:p1" }, app).name, "read_proposal");
     }
   });
 
