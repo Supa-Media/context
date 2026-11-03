@@ -406,6 +406,43 @@ test("archive through the object: a team archive without expected_etag is refuse
   assert.deepEqual(queued, []);
 });
 
+test("archive through the object: the archive folder's job is asked beside the probe, not after it", async () => {
+  const { store, sent } = await archiveStore({ ok: true, files: [{ from: "1-projects/a.md", to: "4-archive/1-projects/a.md" }] });
+  let probeAnswered = false;
+  let askedBeforeProbeAnswered = false;
+  // The probe asks whether the note is there (`objectExists`: a listing of its key, on this store).
+  const realList = store.list;
+  store.list = async (options, ...rest) => {
+    if (options?.prefix !== "1-projects/a.md") return realList.call(store, options, ...rest);
+    // Long enough for a facts ask made beside the probe to arrive; one made after it arrives once this returns.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    probeAnswered = true;
+    return realList.call(store, options, ...rest);
+  };
+  store.treeFacts = async ({ ask }) => {
+    if (ask === "jobs" && !probeAnswered) askedBeforeProbeAnswered = true;
+    return { served: true, jobs: { archive: "4-archive" }, roots: ["1-projects", "4-archive"] };
+  };
+  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.equal(askedBeforeProbeAnswered, true, "the jobs were asked only after the probe answered");
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, "4-archive/1-projects/a.md");
+});
+
+test("archive through the object: a note this caller may not see asks no facts", async () => {
+  const { store, sent } = await archiveStore({ ok: true, files: [] });
+  let asked = 0;
+  store.treeFacts = async () => {
+    asked += 1;
+    return { served: true, jobs: { archive: "4-archive" }, roots: [] };
+  };
+  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "2-private/a.md", "e1");
+  assert.equal(result.content[0].text, "not found");
+  assert.equal(asked, 0);
+  assert.equal(sent.length, 0);
+});
+
 test("archive through the object: a note already inside the archive is 'already archived', with no move", async () => {
   const { store, sent, queued } = await archiveStore(
     { ok: true, files: [] },

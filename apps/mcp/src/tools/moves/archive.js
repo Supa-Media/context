@@ -57,8 +57,14 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   // either way, and a note that is simply absent is told it is absent rather
   // than told about the layout.
   const seen = canSee(path, scope, rules, overrides);
+  // The archive folder's job is asked beside the probe, not after it: two reads of the object at once, each a round
+  // trip of 20 to 30 ms (production, 2026-11-03). It is a read, and its answer is used only once the note is found.
+  const jobsAsked = seen ? factJobs(store) : null;
   const present = await probeWithLegacyFallback(store, path);
-  if (!seen || !present) return toolError("not found");
+  if (!seen || !present) {
+    await jobsAsked;
+    return toolError("not found");
+  }
   // The destination is this context's own archive, and that folder is the
   // owner's to have or not have. On a context whose manifest declares one —
   // every PARA scaffold, and every layout naming it `<n>-archive` — this works
@@ -75,7 +81,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   // default for a shared context, so the most common shared workspace we
   // create was told it had no archive while looking at its own.
   // The folder doing the Archive's job wins, whatever it is called now (`tree/facts.js` `factJobs`).
-  const archiveJob = (await factJobs(store))?.jobs.archive ?? null;
+  const archiveJob = (await jobsAsked)?.jobs.archive ?? null;
   const roots = [...new Set([...(archiveJob ? [archiveJob] : []), ...archiveRoots(rules)])];
   const root = archiveJob ?? archiveRoot(rules);
   if (!root) {
