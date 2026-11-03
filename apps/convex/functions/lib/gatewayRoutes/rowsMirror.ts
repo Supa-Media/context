@@ -34,16 +34,17 @@ export async function gatewayRowsMirrorHandler(ctx: ActionCtx, body: Record<stri
   for (const change of changes) {
     const entry = (change !== null && typeof change === "object" ? change : {}) as Record<string, unknown>;
     const seq = entry.seq ?? null;
-    if (entry.op !== "wrote") {
+    if (entry.op !== "wrote" && entry.op !== "adopt") {
       skipped.push({ seq, reason: "unknown op" });
       continue;
     }
     try {
-      const answer = await ctx.runMutation(internal.functions.objectRowsMirror.wrote, {
-        workspaceId: workspaceId as Id<"workspaces">,
-        objectAt: entry.objectAt as number,
-        record: entry.record as never,
-      });
+      // Each op's mutation written out (`functions/objectRowsMirror.ts`), so the credential-reachability check can follow it.
+      const args = { workspaceId: workspaceId as Id<"workspaces">, objectAt: entry.objectAt as number, record: entry.record as never };
+      const answer =
+        entry.op === "adopt"
+          ? await ctx.runMutation(internal.functions.objectRowsMirror.adopt, args)
+          : await ctx.runMutation(internal.functions.objectRowsMirror.wrote, args);
       if (answer.applied) applied.push(seq);
       else skipped.push({ seq, reason: answer.reason });
     } catch (error) {

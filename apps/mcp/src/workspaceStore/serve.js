@@ -23,6 +23,7 @@ import { BindingRowRefused, serveBindingCall } from "./bindingRows.js";
 import { accessCall, applyAccess } from "./serveAccess.js";
 import { isWriteOp, serveWrites } from "./serveWrites.js";
 import { treeRows } from "./treeRows.js";
+import { absentHere } from "./lookupMiss.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 
 const CALL = "x-tex-call";
@@ -129,6 +130,8 @@ function lookUp(rows, fields, by, members = null) {
       // it does for an id held twice). Says nothing else, and not whether any of them is one the reader may see.
       if (by === "noteId" && typeof value === "string" && rows.liveNoteIdCount(value) > 1) return { noteId: value, found: false, ambiguous: true };
       const row = typeof value === "string" ? (by === "path" ? rows.byPath(value) : rows.byNoteId(value)) : null;
+      // Nothing at all at the path, and nothing reroutes it (`lookupMiss.js`): the gateway may make the note without asking.
+      if (by === "path" && row === null && absentHere(rows, value)) return { path: value, found: false, absent: true };
       if (!judge.sees(row)) return { [by === "path" ? "path" : "noteId"]: value, found: false };
       return { found: true, path: row.path, noteId: row.noteId, key: row.storageKey ?? (row.noteId ? `notes/${row.noteId}.md` : null), etag: row.etag, kind: row.kind, collaborates: row.collaborates };
     }),

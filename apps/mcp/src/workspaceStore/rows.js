@@ -406,6 +406,10 @@ export function workspaceRows(sql) {
       const query = `SELECT * FROM ws_rows WHERE gone = 0 AND kind = 'file' AND path ${inclusive ? ">=" : ">"} ?${end === null ? "" : " AND path < ?"}`;
       return all(end === null ? sql.exec(query, from) : sql.exec(query, from, end)).map(rowOut);
     },
+    /** The live folders doing a job (`role`), oldest path first. */
+    foldersByRole(role) {
+      return all(sql.exec("SELECT * FROM ws_rows WHERE role = ? AND gone = 0 AND kind = 'folder' ORDER BY path", role)).map(rowOut);
+    },
     /** The live row at a path, or null. */
     byPath(path) {
       const row = all(sql.exec("SELECT * FROM ws_rows WHERE path = ? AND gone = 0 ORDER BY at DESC LIMIT 1", path))[0];

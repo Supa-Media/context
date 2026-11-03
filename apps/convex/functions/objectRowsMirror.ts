@@ -22,7 +22,8 @@ import type { Id } from "../_generated/dataModel";
 import { internalMutationMirrored } from "./lib/rowWatch/mutations";
 import { nodeAt } from "./lib/noteIds/state";
 import { recordCopyRow } from "./noteIds";
-import { keyedPathOf, recordKeyedRow } from "./noteIdsKeyed";
+import { adoptKeyedRow, keyedPathOf, recordKeyedRow } from "./noteIdsKeyed";
+import { nodeByObjectId, OBJECT_ROW_ID } from "./lib/nodes/objectIds";
 import type { MutationCtx } from "../_generated/server";
 
 export const mirrorRecordValidator = v.object({
@@ -62,6 +63,49 @@ export const wrote = internalMutationMirrored({
       ...(record.keyEtag === undefined ? {} : { keyEtag: record.keyEtag }),
     });
     return await settle(ctx, workspaceId, record.path, objectAt, applied);
+  },
+});
+
+export const mirrorAdoptValidator = v.object({
+  path: v.string(),
+  noteId: v.string(),
+  key: v.string(),
+  etag: v.string(),
+  size: v.optional(v.number()),
+  at: v.number(),
+  objectId: v.string(),
+});
+
+/**
+ * A new note the object made (`ws.write.adopt`): Convex gives it its row by the rule the gateway's own adoption takes
+ * (`adoptKeyedRow`), and keeps the object's id on it (`nodes.objectId`), so every later push names the row as the
+ * object does. Sent again after a lost answer, the row the object's id already names is the answer. A name Convex holds
+ * for another note is `taken`: the change is dropped, and the object's row stays the note's.
+ */
+export const adopt = internalMutationMirrored({
+  args: { workspaceId: v.id("workspaces"), objectAt: v.number(), record: mirrorAdoptValidator },
+  returns: v.union(v.object({ applied: v.literal(true) }), v.object({ applied: v.literal(false), reason: v.string() })),
+  handler: async (ctx, { workspaceId, objectAt, record }): Promise<MirrorWroteAnswer> => {
+    if (!OBJECT_ROW_ID.test(record.objectId)) return { applied: false, reason: "bad_record" };
+    const known = await nodeByObjectId(ctx.db, workspaceId, record.objectId);
+    if (known !== null) {
+      if (known.goneAt !== undefined || known.noteId !== record.noteId) return { applied: false, reason: "refused" };
+      return await settle(ctx, workspaceId, (await keyedPathOf(ctx.db, workspaceId, record.path)), objectAt, true);
+    }
+    const answer = await adoptKeyedRow(ctx, {
+      workspaceId,
+      path: record.path,
+      noteId: record.noteId,
+      key: record.key,
+      etag: record.etag,
+      ...(record.size === undefined ? {} : { size: record.size }),
+      at: record.at,
+    });
+    if (!answer.adopted) return { applied: false, reason: answer.taken === null ? "refused" : "taken" };
+    const path = await keyedPathOf(ctx.db, workspaceId, record.path);
+    const row = await nodeAt(ctx.db, workspaceId, path);
+    if (row !== null && row.objectId === undefined) await ctx.db.patch(row._id, { objectId: record.objectId });
+    return await settle(ctx, workspaceId, path, objectAt, true);
   },
 });
 
