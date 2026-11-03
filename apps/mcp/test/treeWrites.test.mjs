@@ -74,7 +74,7 @@ const OWNER = { scope: "private" };
 const TEAM = { scope: "team" };
 const pathOf = (store, id) => store.rows.get([id])[0].path;
 
-test("an owner trashes a note: it moves under the trash, one tree change is queued, and the flush is awaited", async () => {
+test("an owner trashes a note: it moves under the trash, one tree change is queued, and the mirror is not awaited", async () => {
   const { store, mirror, counts } = objectStore();
   const response = await call(store, "ws.write.trash", { path: "projects/launch/brief.md", ...OWNER });
   assert.equal(response.status, 200);
@@ -97,8 +97,8 @@ test("an owner trashes a note: it moves under the trash, one tree change is queu
   for (const folder of queued.change.record.folders) assert.match(folder.id, /^o_[0-9a-f]{32}$/);
   assert.deepEqual(queued.change.record.removed.map((entry) => entry.id), ["d-launch"]);
   assert.equal(queued.change.objectAt >= answer.at, true);
-  assert.equal(counts.flushes, 1, "a trash waits for the mirror");
-  assert.equal(counts.soon, 0);
+  assert.equal(counts.flushes, 0, "a trash does not wait for the mirror");
+  assert.equal(counts.soon, 1);
 });
 
 test("a team member trashing a private note is NOT_FOUND, and nothing is queued", async () => {
@@ -144,15 +144,11 @@ test("a stale expectedEtag is CHANGED with the current etag, and nothing is queu
   assert.equal(mirror.count(), 0);
 });
 
-test("a failed mirror flush answers 503 MIRROR_PENDING, and the trash change stays queued", async () => {
+test("a mirror that cannot land does not hold the trash: it answers, and the change stays queued", async () => {
   const { store, mirror } = objectStore({ flushDone: false });
   const response = await call(store, "ws.write.trash", { path: "projects/plan.md", ...OWNER });
-  assert.equal(response.status, 503);
-  const body = await response.json();
-  assert.equal(body.ok, false);
-  assert.equal(body.code, "MIRROR_PENDING");
-  // The change landed: its answer comes back beside the code.
-  assert.equal(body.answer.ok, true);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).ok, true);
   assert.equal(mirror.count(), 1);
 });
 
@@ -170,7 +166,7 @@ test("restore brings a trashed note back to its name: no flush awaited, one more
   assert.equal(mirror.count(), 2);
   assert.equal(mirror.pending()[1].change.op, "tree");
   assert.equal(counts.flushes, flushesAfterTrash, "a restore does not wait for the mirror");
-  assert.equal(counts.soon, 1);
+  assert.equal(counts.soon, 2);
 });
 
 test("a team member restores a note it can see at its old name: the restore is judged at the name it returns to", async () => {
@@ -250,4 +246,15 @@ test("a body that is not a write is 422 for both ops, and queues nothing", async
     assert.equal(mirror.count(), 0, `${op} ${JSON.stringify(body)}`);
     assert.equal(counts.flushes + counts.soon, 0);
   }
+});
+
+test("a trash and restore made for a person carry their audit line to the mirror; one for nobody carries none", async () => {
+  const { store, mirror } = objectStore();
+  const trashed = await (await call(store, "ws.write.trash", { path: "projects/launch/brief.md", ...OWNER, userId: "user_1" })).json();
+  await call(store, "ws.write.restore", { from: trashed.to, to: "projects/launch/brief.md", ...OWNER, userId: "user_1" });
+  await call(store, "ws.write.trash", { path: "projects/plan.md", ...OWNER });
+  const [trash, restore, anonymous] = mirror.pending().map((entry) => entry.change.record.audit);
+  assert.deepEqual(trash, { actorUserId: "user_1", action: "trash", files: 1 });
+  assert.deepEqual(restore, { actorUserId: "user_1", action: "restore", files: 1 });
+  assert.equal(anonymous, undefined);
 });

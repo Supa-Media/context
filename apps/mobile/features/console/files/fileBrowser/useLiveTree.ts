@@ -22,6 +22,8 @@
  * workspace (not switched yet, switched back, or unreachable) the Convex
  * queries above answer as before; the first listing from the object turns
  * them off, and the object saying it does not serve turns them back on.
+ * Whether the object serves is also written to `objectServes`, which the file
+ * actions read when they run.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueries } from "convex/react";
@@ -32,6 +34,7 @@ import { useConsoleGrant } from "../../../agent/useConsoleGrant";
 import { gatewayOriginFrom } from "../../../meetings/gateway";
 import { MCP_ENDPOINT } from "../../placeholderData";
 import { openObjectTree, type ObjectTree } from "./objectTree";
+import { setObjectServes } from "./objectServes";
 import { parentPath } from "../paths";
 import type { FolderListing } from "../types";
 import type { Listings } from "./types";
@@ -149,7 +152,10 @@ export function useLiveTree(deps: LiveTreeDeps): void {
     const tree = openObjectTree({
       gatewayOrigin,
       token: async (refresh) => (await mint({ workspaceId }, refresh)).accessToken,
-      onServed: (served) => setServedBy((held) => (served ? workspaceId : held === workspaceId ? null : held)),
+      onServed: (served) => {
+        setServedBy((held) => (served ? workspaceId : held === workspaceId ? null : held));
+        setObjectServes(workspaceId, served);
+      },
       onListing: (folder, page) => {
         const vanished = latest.current.apply(folder, page);
         if (vanished.length > 0) latest.current.onVanished?.(vanished);
@@ -161,6 +167,7 @@ export function useLiveTree(deps: LiveTreeDeps): void {
       tree.close();
       if (objectTree.current === tree) objectTree.current = null;
       setServedBy(null);
+      setObjectServes(workspaceId, false);
     };
   }, [workspaceId, offline, gatewayOrigin, mint]);
   useEffect(() => {
