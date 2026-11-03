@@ -52,12 +52,18 @@ nothing a restore could still want. A narrowing that answers `503 MIRROR_PENDING
 `apps/mcp/test/treeErase.test.mjs` (what an erase may name, pages, the answer beside `MIRROR_PENDING`),
 `__tests__/trash/objectEmptying.test.ts` (a whole pass, pages, refusals, a run that dies after the object erased),
 `__tests__/oldCopies/oldCopiesObjectDelete.test.ts`, `__tests__/workspaceObjectBackgroundMarks.test.ts` (no mark).
-- **Tex chat homes**: `makeChatHome` (through `ensureChatHome`, `textGroups.applyGroupTurn`, `guestPass.enrol`,
-  `texChatHomePeople.nameAgain`, `texGroupMigrationRows.homeEveryChat`, `contextMoveChatHome`), and the legacy guest
-  folders (`syncFolderPeople`, `clearGuests`). A turn and `nameAgain` are marked; `guestPass.enrol`'s legacy branch
-  and `texGuestRetire`'s `clearGuests` can narrow unmarked.
-- **Pinned accounts** (`pinnedAccounts.page`): a one-off that rewrites `@context-lc`'s grants and narrows unmarked.
-  It retires once production reports it done; until then it moves with the access writers.
+- **Tex chat homes, legacy guest folders and pinned accounts stay on Convex, by the row push** (decided with the
+  access workstream, 2026-11-03). `makeChatHome` (through `ensureChatHome`, `textGroups.applyGroupTurn`,
+  `guestPass.enrol`, `texChatHomePeople.nameAgain`, `texGroupMigrationRows.homeEveryChat`, `contextMoveChatHome`),
+  the legacy guest folders (`syncFolderPeople` through `clearGuests`) and `pinnedAccounts.page` all write access from
+  inside a mutation, which cannot call the object. They still converge: the row outbox pushes the access set, and the
+  object takes it once its version is above what it minted. Where an object write raced it, the access mirror finds
+  `baseVersion` unequal to the held version, lifts Convex one above and pushes again, and the object takes Convex's
+  set, the background change included. The delta mirror never brings back a grant either side took away
+  (`__tests__/objectAccessMirror.test.ts`). None of them is on a request a person waits on, so the 0.1 s bar does not
+  reach them. A queued hand-off to `ws.write.access` (`lib/accessHandOff`, falling back to Convex on `NOT_READY` and
+  `NO_ROW`, passing `FORBIDDEN`, `CONFLICT` and `NOT_FOUND` through) is built only if one of them comes to sit on such
+  a request. `makeChatHome` also stands folders, which needs the file operations' folder op before it could move.
 - **`texMigrationRows.switchKey`**: patches only bytes fields (`storageKey`, `etag`, `idCopy`), which never narrow;
   it moves with the Tex store work.
 
