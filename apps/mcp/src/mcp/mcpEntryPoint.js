@@ -19,6 +19,9 @@
  * - `obj:<op>`: each call to a workspace object (`ws.open`, `ws.rows.lookup`,
  *   a body's `get`, ...), through the request's `WORKSPACE_STORE` (`watchObjects`),
  *   so a read the object serves shows its own hop beside the control plane's.
+ * - `inside:<name>`: a time a workspace object measured on its own clock and
+ *   handed back (`ws.collab.replace`'s `took`), so the hop's trip and its work
+ *   inside can be told apart.
  *
  * Points are held until the request's workspace is known and written when the
  * response is handed back (`done`), so each is indexed by workspace and one
@@ -92,6 +95,11 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
     /** Run a step and wait for it. */
     step(name, run) {
       return timed(name, run);
+    },
+    /** A time measured elsewhere (a workspace object's own clock), recorded as a point ending now. */
+    point(name, ms) {
+      if (typeof name !== "string" || !Number.isFinite(ms) || ms < 0) return;
+      points.push({ name, ms, at: Math.max(0, now() - start - ms), state: "ok" });
     },
     /** A `fetch` that times each request by its route, never its query: the control plane's `fetchImpl`. */
     fetchFor(prefix, inner = (...args) => globalThis.fetch(...args)) {

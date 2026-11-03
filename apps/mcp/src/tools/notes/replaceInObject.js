@@ -8,6 +8,7 @@
  * and the save here is refused as a conflict, never applied twice.
  */
 import { CollaborationError, replaceText } from "@context/collaboration";
+import { phaseTook } from "../../mcp/phase.js";
 
 export async function replaceNoteText(store, path, input) {
   if (input?.onlyCurrent === true && typeof store?.replaceInObject === "function") {
@@ -18,6 +19,8 @@ export async function replaceNoteText(store, path, input) {
       answer = null;
     }
     if (answer !== null && answer !== undefined) {
+      // How long the object spent on it by its own clock, beside the call's whole trip (`obj:ws.collab.replace`).
+      phaseTook(store, "collab_replace", answer.took);
       if (answer.error) throw new CollaborationError(String(answer.error.code ?? "STORAGE_WRITE_FAILED"), String(answer.error.message ?? "collaboration save failed"));
       if (answer.result && typeof answer.result === "object") return answer.result;
     }

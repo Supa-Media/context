@@ -8,7 +8,17 @@ const PHASE_NAME = /^[a-z_]{1,40}$/;
 
 /** `(name, run)` timed through the entry point's step as `phase:<name>`; an invalid name runs untimed. */
 export function phaseTimer(mcp) {
-  return (name, run) => (typeof name === "string" && PHASE_NAME.test(name) ? mcp.step(`phase:${name}`, run) : run());
+  const timer = (name, run) => (typeof name === "string" && PHASE_NAME.test(name) ? mcp.step(`phase:${name}`, run) : run());
+  // A time measured inside a workspace object, on its clock: `inside:<name>`, beside the call's own `obj:<op>`.
+  timer.took = (name, ms) => {
+    if (typeof name === "string" && PHASE_NAME.test(name) && typeof ms === "number" && Number.isFinite(ms) && ms >= 0) mcp.point(`inside:${name}`, ms);
+  };
+  return timer;
+}
+
+/** Record `ms`, measured elsewhere, as `inside:<name>` when the store carries a timer; otherwise nothing. */
+export function phaseTook(store, name, ms) {
+  if (typeof store?.phase?.took === "function") store.phase.took(name, ms);
 }
 
 export function phase(store, name, run) {
