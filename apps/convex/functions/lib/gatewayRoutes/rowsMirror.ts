@@ -18,11 +18,8 @@ import { badRequest, json } from "../gatewayAuth";
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** The mutation each op is applied by (`functions/objectRowsMirror.ts`, `functions/objectAccessMirror.ts`). */
-const MIRRORS = new Map<unknown, typeof internal.functions.objectRowsMirror.wrote | typeof internal.functions.objectAccessMirror.access>([
-  ["wrote", internal.functions.objectRowsMirror.wrote],
-  ["access", internal.functions.objectAccessMirror.access],
-]);
+/** The ops a change may name (`functions/objectRowsMirror.ts` `wrote`, `functions/objectAccessMirror.ts` `access`). */
+const OPS = new Set<unknown>(["wrote", "access"]);
 
 /** The most changes one batch may carry. */
 export const ROWS_MIRROR_MAX_CHANGES = 100;
@@ -41,17 +38,17 @@ export async function gatewayRowsMirrorHandler(ctx: ActionCtx, body: Record<stri
   for (const change of changes) {
     const entry = (change !== null && typeof change === "object" ? change : {}) as Record<string, unknown>;
     const seq = entry.seq ?? null;
-    const mirror = MIRRORS.get(entry.op);
-    if (mirror === undefined) {
+    if (!OPS.has(entry.op)) {
       skipped.push({ seq, reason: "unknown op" });
       continue;
     }
     try {
-      const answer = await ctx.runMutation(mirror, {
-        workspaceId: workspaceId as Id<"workspaces">,
-        objectAt: entry.objectAt as number,
-        record: entry.record as never,
-      });
+      const args = { workspaceId: workspaceId as Id<"workspaces">, objectAt: entry.objectAt as number, record: entry.record as never };
+      // Each call written out, so the credential barrier's reachability graph can follow it (`structure/barriers.test.ts`).
+      const answer =
+        entry.op === "access"
+          ? await ctx.runMutation(internal.functions.objectAccessMirror.access, args)
+          : await ctx.runMutation(internal.functions.objectRowsMirror.wrote, args);
       if (answer.applied) applied.push(seq);
       else skipped.push({ seq, reason: answer.reason });
     } catch (error) {
