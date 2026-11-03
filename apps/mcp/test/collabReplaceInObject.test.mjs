@@ -265,3 +265,16 @@ test("an object that cannot record the version leaves the report to the id layer
   const head = await client.bodies.head(KEY);
   assert.deepEqual(reports.map((record) => [record.key, record.etag]), [[KEY, head.etag]]);
 });
+
+test("the object says how long it spent on the save, and write_note's store records it", async () => {
+  const { routed, client, saved } = await started();
+  const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
+  assert.ok(Number.isFinite(answer?.took) && answer.took >= 0, `no time in ${JSON.stringify(answer?.took)}`);
+  const { store: layeredStore } = layered(routed, client);
+  const took = [];
+  Object.defineProperty(layeredStore, "phase", { value: Object.assign((name, run) => run(), { took: (name, ms) => took.push([name, ms]) }) });
+  await replaceNoteText(layeredStore, PATH, { expectedEtag: answer.result.etag, onlyCurrent: true, text: "# Plan\n\nFourth words.\n" });
+  assert.equal(took.length, 1);
+  assert.equal(took[0][0], "collab_replace");
+  assert.ok(Number.isFinite(took[0][1]));
+});

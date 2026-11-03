@@ -140,6 +140,9 @@ const wantsRecord = (fields) => typeof fields.workspaceId === "string" && Number
  * id layer resolved them, and `record: {at}` to record the new version here too.
  */
 export async function serveCollabReplace(store, fields) {
+  // The object's own clock, which moves only across its awaits (a digest, a read): the call's time inside, without the trip.
+  const started = Date.now();
+  const timed = (answer) => ({ ...answer, took: Date.now() - started });
   const { path, key, noteId, expectedEtag, text } = fields ?? {};
   if (typeof path !== "string" || typeof key !== "string" || !NOTE_KEY.test(key) || typeof noteId !== "string" || !NOTE_ID.test(noteId) || typeof expectedEtag !== "string" || typeof text !== "string") {
     return { served: false, reason: "bad_call" };
@@ -157,10 +160,10 @@ export async function serveCollabReplace(store, fields) {
     const result = await replaceText(engine.store, path, { expectedEtag, onlyCurrent: true, text });
     const markdown = engine.writes.filter((write) => write.key === key).at(-1) ?? null;
     const recorded = markdown !== null && wantsRecord(fields) && recordVersion(store, fields, markdown);
-    return { served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, recorded, ...handedBack() };
+    return timed({ served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, recorded, ...handedBack() });
   } catch (error) {
-    if (notHeldHere(error)) return { served: false, reason: "not_held", ...handedBack() };
-    if (error instanceof CollaborationError) return { served: true, error: { code: error.code, message: error.message }, ...handedBack() };
+    if (notHeldHere(error)) return timed({ served: false, reason: "not_held", ...handedBack() });
+    if (error instanceof CollaborationError) return timed({ served: true, error: { code: error.code, message: error.message }, ...handedBack() });
     throw error;
   }
 }

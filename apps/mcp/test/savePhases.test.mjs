@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { toolWriteNote } from "../src/tools/notes/write.js";
-import { laySavePhase, phase, phaseTimer } from "../src/mcp/phase.js";
+import { laySavePhase, phase, phaseTimer, phaseTook } from "../src/mcp/phase.js";
 import { mcpEntry } from "../src/mcp/mcpEntryPoint.js";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { PrivacyOverrides } from "../src/privacy/engine.js";
@@ -138,4 +138,20 @@ test("laySavePhase lays phase once, non-enumerable and read-only, and it times t
   assert.equal(Object.getOwnPropertyDescriptor(store, "phase").writable, false);
   assert.equal(await phase(store, "write_put", () => "done"), "done");
   assert.deepEqual(mcp.points.map((point) => point.name), ["phase:write_put"]);
+});
+
+test("phaseTook records a time measured elsewhere (inside the workspace object) as inside:<name>", () => {
+  const mcp = mcpEntry({});
+  const store = laySavePhase({}, mcp);
+  phaseTook(store, "collab_replace", 42);
+  assert.deepEqual(mcp.points.map((point) => [point.name, point.ms, point.state]), [["inside:collab_replace", 42, "ok"]]);
+});
+
+test("phaseTook records nothing for a bad name, a time that is not a number, or a store with no timer", () => {
+  const mcp = mcpEntry({});
+  const store = laySavePhase({}, mcp);
+  for (const [name, ms] of [["Bad-Name", 3], ["collab_replace", Number.NaN], ["collab_replace", -1], ["collab_replace", "5"], ["collab_replace", undefined]]) phaseTook(store, name, ms);
+  phaseTook({}, "collab_replace", 3);
+  phaseTook(undefined, "collab_replace", 3);
+  assert.deepEqual(mcp.points, []);
 });
