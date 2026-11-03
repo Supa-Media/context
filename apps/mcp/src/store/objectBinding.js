@@ -12,7 +12,10 @@
  * - the object holds the notes and decides access (`home` and `accessHome` both `object`), and knows whether the
  *   workspace holds a data key (`encryption` `none` or `keyed`, never unknown);
  * - the reader is a live member there, and its member rules are held;
- * - nothing the control plane committed is still waiting for the object (`objectBehind`, asked beside it);
+ * - no change that may narrow is still coming: the object's own marks (`workspaceStore/marks.js`), which `ws.open`
+ *   waits for and answers as `behind`, as every other object read does since 2026-11-02 (`store/objectLookup.js`).
+ *   The control plane is not asked per request (2026-11-03, Dev's "every read and write under 0.1 s");
+ *   `OBJECT_BEHIND_FROM_CONTROL_PLANE=on` asks it beside the object again;
  * - the sealed binding opens with this gateway's secret, for this workspace, was read under `FRESH_MS` ago (or under
  *   `SERVE_STALE_MS` on the bucket's own key, refreshed behind the response), and names this workspace; and it carries
  *   a data key exactly when the object says the workspace is keyed.
@@ -65,11 +68,16 @@ function ineligible(session, env, controlPlane) {
   if (audienceOf(session.grantedGroups) !== "member") return "not_member_audience";
   if (typeof session?.texChatId === "string" && session.texChatId !== "") return "tex_chat";
   if (secretOf(env) === null) return "no_secret";
-  if (typeof controlPlane?.objectBehind !== "function") return "no_behind_check";
+  if (askBehind(env) && typeof controlPlane?.objectBehind !== "function") return "no_behind_check";
   return null;
 }
 
 const ENCRYPTION_KNOWN = new Set(["none", "keyed"]);
+
+/** Whether the control plane is asked whether the object is behind, beside `ws.open` (the switch back). */
+function askBehind(env) {
+  return env?.OBJECT_BEHIND_FROM_CONTROL_PLANE === "on";
+}
 
 /** A data key as the control plane answers one: the current generation and every generation's key. */
 function isDataKey(key) {
@@ -109,8 +117,12 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   let held;
   let behind;
   try {
-    // One object call and the behind question, side by side.
-    [held, behind] = await Promise.all([object.open(session.actorUserId), controlPlane.objectBehind(session.workspaceId).catch(() => true)]);
+    // One object call, which waits for an open mark and says `behind` while one is still out; the control plane's
+    // own behind question beside it only where switched back on.
+    [held, behind] = await Promise.all([
+      object.open(session.actorUserId),
+      askBehind(env) ? controlPlane.objectBehind(session.workspaceId).catch(() => true) : false,
+    ]);
   } catch {
     return fail("object_unavailable");
   }
@@ -120,7 +132,7 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   if (!ENCRYPTION_KNOWN.has(held.encryption)) return fail("encryption_unknown");
   if (held.member !== true) return fail("not_a_member");
   if (!held.rules || typeof held.rules !== "object") return fail("no_rules");
-  if (behind !== false) return fail("behind");
+  if (behind !== false || held.behind === true) return fail("behind");
   const secret = secretOf(env);
   const keep = keeper(object, session.workspaceId, secret, held.epoch, held.encryption, now);
   const kept = held.binding;

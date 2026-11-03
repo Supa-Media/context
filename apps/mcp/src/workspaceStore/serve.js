@@ -19,7 +19,7 @@ import { membersState, serveMembersCall } from "./serveMembers.js";
 import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.js";
 import { manifestPage } from "./manifest.js";
 import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
-import { BindingRowRefused, serveBindingCall } from "./bindingRows.js";
+import { BINDING_OPS, BindingRowRefused, serveBindingCall } from "./bindingRows.js";
 import { accessCall, applyAccess } from "./serveAccess.js";
 import { isWriteOp, serveWrites } from "./serveWrites.js";
 import { treeRows } from "./treeRows.js";
@@ -210,7 +210,10 @@ export async function serveWorkspaceStore(store, request) {
     const membership = await serveMembersCall(store, op, fields);
     if (membership !== null) return membership;
     // The sealed binding and the one call a request's store is opened from (`bindingRows.js`).
-    const opened = serveBindingCall(store, op, fields, ACCESS_HOMES.OBJECT);
+    // `ws.open` waits for an open mark like every read, and says whether one is still open (`marks.js`), so the
+    // gateway need not ask the control plane whether the object is behind before a read (`store/objectBinding.js`).
+    const behind = op === BINDING_OPS.OPEN ? await waitForMarks(store.marks ?? null) : false;
+    const opened = serveBindingCall(store, op, fields, ACCESS_HOMES.OBJECT, { behind });
     if (opened !== null) return opened;
     // The grant rows and the rules rendered from them (`serveAccess.js`).
     const access = accessCall(store, op, fields);

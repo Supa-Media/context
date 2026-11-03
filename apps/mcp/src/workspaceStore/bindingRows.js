@@ -66,10 +66,11 @@ export const BINDING_OPS = Object.freeze({ OPEN: "ws.open", PUT: "ws.binding.put
 /**
  * `ws.open {userId}`: everything a request's store is built from, in one call. Where this object decides access
  * (`accessHome: "object"`) and `userId` is a live member, the member rules and the sealed binding; for anybody else,
- * neither, so the gateway asks the control plane as before. `ws.binding.put`, `ws.binding.clear` as above.
+ * neither, so the gateway asks the control plane as before. It answers once no mark is open, or after the object's wait
+ * with `behind: true` (`marks.js`). `ws.binding.put`, `ws.binding.clear` as above.
  * Answers `null` for any other op.
  */
-export function serveBindingCall(store, op, fields, accessHomeObject) {
+export function serveBindingCall(store, op, fields, accessHomeObject, { behind = false } = {}) {
   const binding = store.binding ?? null;
   switch (op) {
     case BINDING_OPS.OPEN: {
@@ -86,6 +87,8 @@ export function serveBindingCall(store, op, fields, accessHomeObject) {
         rules: member ? store.rows.rules("member") : null,
         binding: member && kept.sealed !== null ? { sealed: kept.sealed, at: kept.at } : null,
         epoch: kept.epoch,
+        // Whether a mark was still open after the object's wait (`marks.js`): a narrowing change is coming.
+        behind: behind === true,
       });
     }
     case BINDING_OPS.PUT:
