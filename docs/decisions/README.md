@@ -31,6 +31,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Product analytics records outcomes and named interactions](./observability/product-analytics.md) (2026-10-21)
 - [Tex telemetry: every turn says where it came from and what it cost](./observability/tex-telemetry.md) (2026-10-24)
 - [Token usage at the MCP boundary](./observability/token-usage.md) (2026-10-08)
+- [MCP calls have speed budgets, judged from production's own timings](./observability/mcp-speed-budgets.md) (2026-11-03)
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else
 - [A new managed bucket is served on a temporary credential until its own key answers](./storage-and-credentials.md#a-new-managed-bucket-is-served-on-a-temporary-credential-until-its-own-key-answers) (2026-10-29)
