@@ -18,8 +18,9 @@ import { openedFromObject } from "./store/objectBinding.js";
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
-import { TEX_SETUP_CLIENTS } from "./session.js";
+import { SCOPE_WRITE, TEX_SETUP_CLIENTS, hasScope } from "./session.js";
 import { withPrivacyAuthority } from "./store/privacyAuthority.js";
+import { objectFirstSetAccess } from "./store/objectAccess.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
 
 /**
@@ -156,10 +157,28 @@ async function openSessionStore(session, env, controlPlane) {
 
   // `privacy.md` decided by the control plane's rules where they are the
   // authority, and every write of it reported there (`store/privacyAuthority.js`).
-  const authority =
+  const controlAuthority =
     typeof controlPlane.privacyAuthority === "function"
       ? controlPlane.privacyAuthority({ accessToken: session.accessToken }, session.workspaceId, opened.privacy ?? null)
       : null;
+  // A tier-only change in an object-home workspace is decided there first (`store/objectAccess.js`); the control
+  // plane's `setAccess` is the fallback and what grantee lists still use. The actor is this request's own grant.
+  const authority =
+    controlAuthority === null || typeof controlAuthority.setAccess !== "function"
+      ? controlAuthority
+      : {
+          ...controlAuthority,
+          setAccess: objectFirstSetAccess(controlAuthority.setAccess.bind(controlAuthority), {
+            client: workspaceClient(env, session.workspaceId),
+            home: binding.notesHome ?? null,
+            role: session.role,
+            userId: session.actorUserId ?? null,
+            clientId: session.actorClientId ?? null,
+            canWrite: (session.role === "owner" || session.role === "editor") && hasScope(session, SCOPE_WRITE),
+            workspaceId: session.workspaceId,
+            log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
+          }),
+        };
   // The free plan's cap counts the Convex tree's notes, never the bucket
   // (`store/noteCap.js`); asked only when a capped write would add a note.
   const noteCount =

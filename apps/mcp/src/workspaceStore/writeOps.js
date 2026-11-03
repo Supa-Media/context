@@ -5,6 +5,8 @@
  * `narrows` says whether the answer waits for the mirror (taking access away does; a save does not).
  */
 
+import { writeAccess } from "./accessWrite.js";
+
 export class WriteOpRefused extends Error {
   constructor(message) {
     super(message);
@@ -49,4 +51,5 @@ function wrote(ctx, body) {
 /** The write ops by name. Every name starts with `ws.write.`. */
 export const WRITE_OPS = Object.freeze({
   "ws.write.wrote": wrote,
+  "ws.write.access": writeAccess,
 });

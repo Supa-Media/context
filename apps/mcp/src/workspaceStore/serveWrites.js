@@ -33,13 +33,21 @@ export async function serveWrites(store, op, fields, now = Date.now()) {
   let outcome;
   try {
     outcome = store.transact(() => {
-      const result = handler({ rows: store.rows, now, lookupLive: (path) => liveRowByPath(store.sql, path) }, fields);
+      const result = handler({ rows: store.rows, access: store.access ?? null, mirrorPending: () => store.mirror.pending(1).length > 0, now, lookupLive: (path) => liveRowByPath(store.sql, path) }, fields);
       if (result.change) store.mirror.enqueue(fields.workspaceId, result.change, now);
       return result;
     });
   } catch (error) {
     if (error instanceof WriteOpRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
+  }
+  // New rules (`ws.write.access`): the live tree's sockets re-judge what they show, as after a push's rules.
+  if (outcome.rules === true && typeof store.onTreeChange === "function") {
+    try {
+      store.onTreeChange({ paths: null, rules: true });
+    } catch {
+      // The watcher catches up on its next change; the write has landed.
+    }
   }
   if (outcome.narrows) {
     const flushed = await store.flushMirror();

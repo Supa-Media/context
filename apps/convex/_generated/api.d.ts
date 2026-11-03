@@ -157,6 +157,7 @@ import type * as functions_noteIdsCleanupRun from "../functions/noteIdsCleanupRu
 import type * as functions_noteIdsCopy from "../functions/noteIdsCopy.js";
 import type * as functions_noteLinks from "../functions/noteLinks.js";
 import type * as functions_noteIdsKeyed from "../functions/noteIdsKeyed.js";
+import type * as functions_objectAccessMirror from "../functions/objectAccessMirror.js";
 import type * as functions_objectRowsMirror from "../functions/objectRowsMirror.js";
 import type * as functions_nodesFeed from "../functions/nodesFeed.js";
 import type * as functions_nodeChaos from "../functions/nodeChaos.js";
@@ -419,6 +420,7 @@ declare const fullApi: ApiFromModules<{
   "functions/noteIdsCopy": typeof functions_noteIdsCopy;
   "functions/noteLinks": typeof functions_noteLinks;
   "functions/noteIdsKeyed": typeof functions_noteIdsKeyed;
+  "functions/objectAccessMirror": typeof functions_objectAccessMirror;
   "functions/objectRowsMirror": typeof functions_objectRowsMirror;
   "functions/nodesFeed": typeof functions_nodesFeed;
   "functions/nodeChaos": typeof functions_nodeChaos;

@@ -2,8 +2,9 @@
  * `POST /gateway/rows/mirror` — `{ workspaceId, changes: [{ seq, op, record, objectAt }] }` →
  * `{ applied: [seq…], skipped: [{ seq, reason }] }`, behind the gateway's secret only (`gatewayRoute`).
  *
- * The caller is a workspace object that has just taken note writes; this writes Convex behind it, one change at a
- * time and in the order sent (`functions/objectRowsMirror.ts`). An op this does not know is skipped, and so is a
+ * The caller is a workspace object that has just taken note writes or access writes; this writes Convex behind it, one
+ * change at a time and in the order sent (`functions/objectRowsMirror.ts` for `wrote`, `functions/objectAccessMirror.ts`
+ * for `access`). An op this does not know is skipped, and so is a
  * change whose shape the mutation refuses ("bad change"); a refused change is dropped, not retried, and so are the
  * ones the mutation answers `applied: false` for. A transient failure stops the batch: the answer then carries
  * `stopped: true`, with what was applied and skipped so far, and the caller sends the rest again. A body that is not
@@ -16,6 +17,12 @@ import type { ActionCtx } from "../../../_generated/server";
 import { badRequest, json } from "../gatewayAuth";
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** The mutation each op is applied by (`functions/objectRowsMirror.ts`, `functions/objectAccessMirror.ts`). */
+const MIRRORS = new Map<unknown, typeof internal.functions.objectRowsMirror.wrote | typeof internal.functions.objectAccessMirror.access>([
+  ["wrote", internal.functions.objectRowsMirror.wrote],
+  ["access", internal.functions.objectAccessMirror.access],
+]);
 
 /** The most changes one batch may carry. */
 export const ROWS_MIRROR_MAX_CHANGES = 100;
@@ -34,12 +41,13 @@ export async function gatewayRowsMirrorHandler(ctx: ActionCtx, body: Record<stri
   for (const change of changes) {
     const entry = (change !== null && typeof change === "object" ? change : {}) as Record<string, unknown>;
     const seq = entry.seq ?? null;
-    if (entry.op !== "wrote") {
+    const mirror = MIRRORS.get(entry.op);
+    if (mirror === undefined) {
       skipped.push({ seq, reason: "unknown op" });
       continue;
     }
     try {
-      const answer = await ctx.runMutation(internal.functions.objectRowsMirror.wrote, {
+      const answer = await ctx.runMutation(mirror, {
         workspaceId: workspaceId as Id<"workspaces">,
         objectAt: entry.objectAt as number,
         record: entry.record as never,
