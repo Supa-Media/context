@@ -64,6 +64,7 @@ export const ACTIONS = {
           "Save up to 100 notes in one call: args { notes: [{ path, content, expected_etag? }] }. Each note is saved exactly as " +
           "write saves one (new or replaced, with expected_etag catching a concurrent edit), and the answer has one outcome line " +
           "per note, in order. A note that is refused is reported beside the ones that saved; nothing is rolled back. " +
+          "A call that runs long stops starting saves and marks the rest NOT_STARTED: send just those again. " +
           "Name each path once; to change visibility or add images, use save on that note.",
         inputSchema: {
           type: "object",
