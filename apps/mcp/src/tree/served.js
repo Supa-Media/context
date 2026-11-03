@@ -54,16 +54,26 @@ export const TREE_UNREACHABLE = "this workspace's file list could not be read ju
 /** Pages of a few thousand keys one call may read: 50 is 200k keys, past the largest workspace. */
 const MANIFEST_PAGES = 50;
 
-/** S3 lists in UTF-8 byte order, which is not JavaScript's string order. */
-const KEY_BYTES = new TextEncoder();
+/**
+ * S3 lists in UTF-8 byte order, which is not JavaScript's string order. UTF-8 byte order is code point order, and
+ * code point order differs from UTF-16 order only where a surrogate (half of a character past U+FFFF) meets a
+ * character from U+E000 to U+FFFF: the surrogate's character is the larger. `unitRank` moves surrogates above that
+ * range, so comparing code units gives the byte order without encoding either key. Encoding both on every comparison
+ * was most of `orient`'s map in a workspace of 10,000 notes (a sort makes about 140,000 comparisons).
+ */
+function unitRank(unit) {
+  if (unit < 0xd800) return unit;
+  return unit < 0xe000 ? unit + 0x2000 : unit - 0x800;
+}
+
 export function compareKeys(a, b) {
-  const x = KEY_BYTES.encode(a);
-  const y = KEY_BYTES.encode(b);
-  const shared = Math.min(x.length, y.length);
+  const shared = Math.min(a.length, b.length);
   for (let index = 0; index < shared; index += 1) {
-    if (x[index] !== y[index]) return x[index] - y[index];
+    const x = a.charCodeAt(index);
+    const y = b.charCodeAt(index);
+    if (x !== y) return unitRank(x) - unitRank(y);
   }
-  return x.length - y.length;
+  return a.length - b.length;
 }
 
 /** A listing the tree never answers: Context's plumbing and every dot folder. */

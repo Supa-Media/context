@@ -122,10 +122,23 @@ export function formatCapturedLine(summary, now) {
  * arbitrary eight notes wearing the label "recently updated".
  */
 export function mostRecent(notes, limit) {
-  return notes
-    .filter((note) => note.uploaded instanceof Date && !Number.isNaN(note.uploaded.getTime()))
-    .sort((a, b) => b.uploaded - a.uploaded || a.key.localeCompare(b.key))
-    .slice(0, limit);
+  const order = (a, b) => b.uploaded - a.uploaded || a.key.localeCompare(b.key);
+  // The newest `limit` kept in one pass, then sorted: sorting every note of a large workspace to keep eight cost
+  // more than the rest of the map.
+  const kept = [];
+  for (const note of notes) {
+    if (!(note.uploaded instanceof Date) || Number.isNaN(note.uploaded.getTime())) continue;
+    if (kept.length < limit) {
+      kept.push(note);
+      if (kept.length === limit) kept.sort(order);
+    } else if (limit > 0 && order(note, kept[limit - 1]) < 0) {
+      let at = limit - 1;
+      while (at > 0 && order(note, kept[at - 1]) < 0) at -= 1;
+      kept.splice(at, 0, note);
+      kept.pop();
+    }
+  }
+  return kept.length < limit ? kept.sort(order) : kept;
 }
 
 /** "3h ago" reads as a reason to look; a raw ISO timestamp reads as metadata. */
