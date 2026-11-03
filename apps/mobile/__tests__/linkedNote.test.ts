@@ -682,9 +682,7 @@ describe("switching context leaves the other context's note behind", () => {
     await settle();
     await settle();
 
-    // Not a notice: the not-found page, drawn where the note would be (`NotFoundNote`, Dev 2026-11-03).
-    expect(browser.notFound).toBe(THEIRS);
-    expect(browser.notice).toBeNull();
+    expect([browser.notFound, browser.notice]).toEqual([THEIRS, null]); // The not-found page, not a notice (`NotFoundNote`).
     expect(browser.editor.path).toBeNull();
     // The URL still names what was asked for, and was not written to on the
     // way to the refusal: a person can correct it, or press Back.
