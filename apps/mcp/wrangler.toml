@@ -40,14 +40,6 @@ HANDBACK_JUDGE = "on"
 # whether its words may go with the scores. Needs the AI gateway.
 TEX_REVIEW = "on"
 
-# Word search from the workspace object's own index
-# (docs/decisions/search/object-word-index.md). Off in production until its
-# catch-up is bounded by time: a first build held a large workspace's object
-# for over a second a call, and every read of that workspace waited behind it.
-# The search database answers while it is off. Staging keeps it on.
-
-SEARCH_FROM_OBJECT = "off"
-
 # The gateway's own public origin, e.g. "https://mcp.example.com" (no trailing
 # slash).
 #
