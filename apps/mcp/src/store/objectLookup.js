@@ -173,6 +173,8 @@ export function objectFirstHooks(hooks, options) {
         if (answer?.ok === true) return { recorded: true };
         return await hooks.wrote(record);
       };
+  // A save run in the object records its version there in the same call (`workspaceStore/collabReplace.js`).
+  if (wrote !== hooks.wrote) wrote.inObject = true;
 
   /**
    * A new note's row, made in the object first (`workspaceStore/writeOps.js` `ws.write.adopt`) and mirrored to Convex

@@ -278,3 +278,17 @@ on every save. Dropping the row check lets a save land on a note the tree has si
 fallback for versions the object no longer keeps fails saves on notes edited from an old base.
 `apps/mcp/test/collabReplaceInObject.test.mjs` holds the one call, the conflict, the row check, the fallback, the id
 layer's report and the unreachable object, and its row and fallback checks fail when those guards are removed.
+
+## A member's save records its new version in that same call (2026-11-03)
+
+A member's save on an object-home workspace sends `record: {at}` with `ws.collab.replace`. The object then records
+the new Markdown version on the note's row, the same way `ws.write.wrote` does. The change goes into the control
+plane's mirror queue in the same transaction. The answer says `recorded: true`, and the gateway sends no second call.
+This happens only where the version report would have gone to the object anyway: `objectLookup.js` marks its member
+`wrote` hook `inObject`. A guest's or a chat's report still goes to the control plane. A save that conflicts records
+nothing. An object that cannot record the version answers `recorded: false`, and the id layer reports it as before.
+
+**What a simplification would cost.** Sending the report as its own call again puts one more object round trip on
+every save. Marking every audience lets a guest's save change the row without the control plane's check.
+`collabReplaceInObject.test.mjs` fails if the id layer reports twice or if the mirror entry is dropped.
+`objectLookup.test.mjs` fails if a guest's hook is marked.
