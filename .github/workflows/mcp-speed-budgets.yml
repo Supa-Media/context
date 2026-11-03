@@ -1,5 +1,5 @@
-# Is any MCP call slower than its bar? Every hour, and 20 minutes after each
-# production deploy, read production's own server-side timings and go red when
+# Is any MCP call slower than its bar? Every hour over the last day, and 20
+# minutes after each production deploy, read production's own server-side timings and go red when
 # a call's median crosses its budget (`scripts/mcp-speed-budgets.mjs`, which
 # holds the bars and why). Names and times only, never a path, a word or a
 # workspace. A red run is a report: it changes nothing.
@@ -19,9 +19,9 @@ on:
         options: [production, staging]
         default: production
       minutes:
-        description: "How far back to read, in minutes (5 to 1440)."
+        description: "How far back to read, in minutes (5 to 1440). A day by default: an hour holds too few calls to judge."
         required: true
-        default: "60"
+        default: "1440"
 
 permissions:
   contents: read
@@ -53,5 +53,5 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DATASET: ${{ inputs.environment == 'staging' && 'mcp_entry_staging' || 'mcp_entry' }}
-          MINUTES: ${{ github.event_name == 'workflow_run' && '20' || inputs.minutes || '60' }}
+          MINUTES: ${{ github.event_name == 'workflow_run' && '20' || inputs.minutes || '1440' }}
         run: node scripts/mcp-speed-budgets.mjs
