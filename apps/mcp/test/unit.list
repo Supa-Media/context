@@ -330,6 +330,7 @@ test/writeOps.test.mjs
 test/serveWrites.test.mjs
 test/treeOpsMove.test.mjs
 test/treeOpsTrash.test.mjs
+test/treeWrites.test.mjs
 test/workspaceReaders.test.mjs
 test/workspaceRouting.test.mjs
 test/backupBehind.test.mjs
@@ -356,6 +357,7 @@ test/objectFacts.test.mjs
 test/chatLedger.test.mjs
 test/objectManifest.test.mjs
 test/objectBinding.test.mjs
+test/bindingRefreshBehind.test.mjs
 test/chatLedgerWrites.test.mjs
 test/chatLedgerReads.test.mjs
 test/chatLedgerBackfill.test.mjs

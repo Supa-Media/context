@@ -1,19 +1,17 @@
 /**
  * The workspace object's write ops (`docs/decisions/storage-and-credentials/object-row-writes.md`). Each is
  * `(ctx, body) => {answer, change?, narrows}`, run inside the object's storage transaction by `serveWrites.js`:
- * `ctx` is `{rows, now, lookupLive, mintId}`. `change` is what the mirror gets (`workspaceStore/mirrorOutbox.js`);
+ * `ctx` is `{rows, sql, members, now, lookupLive, mintId}`: the rows and the object's SQL, the membership store (or null) that
+ * judges a member's reading, the clock, a lookup of the live row at a path, and `mintId` for a row the object makes. `change` is what the mirror gets (`workspaceStore/mirrorOutbox.js`);
  * `narrows` says whether the answer waits for the mirror (taking access away does; a save does not).
  */
 
+import { TREE_WRITE_OPS } from "./treeWrites.js";
+import { WriteOpRefused } from "./writeRefusal.js";
 import { effectiveVisibility, isPlumbing, PrivacyOverrides } from "../privacy/engine.js";
 import { idKeyFor, isNoteId } from "../store/noteIdKeys.js";
 
-export class WriteOpRefused extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "WriteOpRefused";
-  }
-}
+export { WriteOpRefused };
 
 const MAX_TEXT = 1024;
 const text = (value) => typeof value === "string" && value !== "" && value.length <= MAX_TEXT && !value.includes("\0");
@@ -101,4 +99,5 @@ function adopt(ctx, body) {
 export const WRITE_OPS = Object.freeze({
   "ws.write.wrote": wrote,
   "ws.write.adopt": adopt,
+  ...TREE_WRITE_OPS,
 });

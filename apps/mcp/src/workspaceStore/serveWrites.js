@@ -34,7 +34,10 @@ export async function serveWrites(store, op, fields, now = Date.now(), mintId = 
   let outcome;
   try {
     outcome = store.transact(() => {
-      const result = handler({ rows: store.rows, now, lookupLive: (path) => liveRowByPath(store.sql, path), mintId }, fields);
+      const result = handler(
+        { rows: store.rows, sql: store.sql, members: store.members ?? null, now, lookupLive: (path) => liveRowByPath(store.sql, path), mintId },
+        fields,
+      );
       if (result.change) store.mirror.enqueue(fields.workspaceId, result.change, now);
       return result;
     });

@@ -146,6 +146,8 @@ export function workspaceClient(env, workspaceId) {
     write: {
       wrote: async (record) => await ask("ws.write.wrote", record),
       adopt: async (note) => await ask("ws.write.adopt", note),
+      trash: async (body) => await ask("ws.write.trash", body),
+      restore: async (body) => await ask("ws.write.restore", body),
     },
     ...membershipClient(ask),
     state: async () => await ask("ws.state"),

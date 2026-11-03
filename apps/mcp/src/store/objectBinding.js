@@ -13,8 +13,9 @@
  *   workspace holds a data key (`encryption` `none` or `keyed`, never unknown);
  * - the reader is a live member there, and its member rules are held;
  * - nothing the control plane committed is still waiting for the object (`objectBehind`, asked beside it);
- * - the sealed binding opens with this gateway's secret, for this workspace, was read under `FRESH_MS` ago, and
- *   names this workspace; and it carries a data key exactly when the object says the workspace is keyed.
+ * - the sealed binding opens with this gateway's secret, for this workspace, was read under `FRESH_MS` ago (or under
+ *   `SERVE_STALE_MS` on the bucket's own key, refreshed behind the response), and names this workspace; and it carries
+ *   a data key exactly when the object says the workspace is keyed.
  *
  * A keyed workspace's data key is kept in the same seal (decided 2026-11-02, the owner's "keys in the box"): 35 of 38
  * object workspaces in production hold one, so without it almost no request is served here. Never kept: a rotation
@@ -37,6 +38,15 @@ import { audienceOf } from "./objectLookup.js";
  * never used past its credential; also how long a deployment switch or a note cap may take to reach a request.
  */
 export const FRESH_MS = 4 * 60 * 1000;
+/**
+ * How long a kept binding may still be served once it is past `FRESH_MS`, with the control plane asked behind the
+ * response for the next request (decided 2026-11-03, Dev's "every read and write under 0.1 s"). Only a binding on the
+ * bucket's own key: one carrying a temporary credential (`sessionToken`) is never served past `FRESH_MS`, since that
+ * credential may expire. Every change to the binding's own rows already clears the kept copy (`BINDING_TABLES`), and
+ * who may read is decided by the object on every request, so what a stale copy can carry is a plan's note cap, a
+ * feature switch or a search index's descriptor, each one request behind.
+ */
+export const SERVE_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 /** A kept binding stamped this far ahead of the gateway's clock is not trusted. */
 const CLOCK_SKEW_MS = 60 * 1000;
 
@@ -116,7 +126,7 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   const kept = held.binding;
   if (!kept || typeof kept.sealed !== "string" || !Number.isFinite(kept.at)) return fail("none_kept", { keep });
   const age = now() - kept.at;
-  if (age > FRESH_MS || age < -CLOCK_SKEW_MS) return fail("stale", { keep });
+  if (age > SERVE_STALE_MS || age < -CLOCK_SKEW_MS) return fail("stale", { keep });
   let value;
   try {
     value = await openBinding(kept.sealed, { secret, workspaceId: session.workspaceId });
@@ -127,6 +137,11 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   if (!value || typeof value !== "object" || !("binding" in value)) return fail("seal_refused", { keep });
   const answer = bindingAnswerOf({ ...value, privacy: held.rules }, (parsed, key) => parsed[key]);
   if (!keepable(answer, session.workspaceId, held.encryption)) return fail("kept_not_usable", { keep });
+  if (age > FRESH_MS) {
+    // Past fresh: served only on the bucket's own key, and the control plane is asked behind the response.
+    if (typeof answer.binding.sessionToken === "string" && answer.binding.sessionToken !== "") return fail("stale", { keep });
+    return { opened: { ...answer, keyed: true }, source: "object", reason: "stale_served", refresh: keep };
+  }
   return { opened: { ...answer, keyed: true }, source: "object", reason: null };
 }
 

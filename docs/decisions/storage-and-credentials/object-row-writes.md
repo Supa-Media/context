@@ -108,6 +108,22 @@ entry (`goneObjectIds`) and the push removes it under that id. Without the colum
 the object as a second row at the same path. Tests: `apps/convex/__tests__/objectRowIds.test.ts` (sabotage: naming the
 row by `_id` fails two cases, dropping `goneObjectIds` fails one).
 
+## Trash and restore are object writes; the tree mirror (2026-11-03)
+
+`ws.write.trash` and `ws.write.restore` (`apps/mcp/src/workspaceStore/treeWrites.js`) run `treeOps` in one object
+transaction and answer with one `tree` change: the moved root, any folders stood up, and any rows retired. Convex
+takes it through `objectRowsMirror.tree` (`lib/nodes/mirrorTree.ts`), which plans the whole change before writing,
+revives or adopts folders by `objectId`, patches the moved root (and, on stored paths, every descendant, refused
+past 500), and runs the same follow-ups a Convex-side move runs. Trash narrows and waits for the mirror; restore
+does not widen, because **a restore only returns a note to the name it came from**: `from` must be
+`.context/trash/<stamp>/<to>`. Letting the caller pick the name would let a member who can see a trashed private
+note put it somewhere the team can see. The test is `treeWrites.test.mjs` ("a restore to another name").
+
+While the mirror is in flight, Convex may still push rows the move just changed. Each row the object changes claims
+the fields it changed (`own_at`, `own_fields`); a push that disagrees with a claim is skipped, a push that agrees
+releases it, a row the object retired stays retired, and a snapshot never drops a row with a live claim
+(`rows.js`, tested in `workspaceRowsOwnership.test.mjs`). Dropping any of these lets a stale push undo a move.
+
 ## New notes and missing paths in the object (2026-11-03)
 
 The owner's bar, 2026-11-03: every read and every write answers in under 0.1 s in production, so nothing on a save's
