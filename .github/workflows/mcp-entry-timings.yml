@@ -20,6 +20,10 @@ on:
         description: "How far back to read, in hours (1 to 168)."
         required: true
         default: "1"
+      minutes:
+        description: "Instead of hours: how far back to read, in minutes (5 to 1440), e.g. since a deploy. Blank uses hours."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -36,27 +40,36 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CALL: ${{ inputs.call }}
           HOURS: ${{ inputs.hours }}
+          MINUTES: ${{ inputs.minutes }}
           DATASET: ${{ inputs.environment == 'staging' && 'mcp_entry_staging' || 'mcp_entry' }}
         run: |
           set -euo pipefail
           case "$CALL" in ''|*[!a-z_/:]*) echo "call must be lowercase letters, _, / and :" >&2; exit 1 ;; esac
           case "$HOURS" in ''|*[!0-9]*) echo "hours must be a number" >&2; exit 1 ;; esac
           if [ "$HOURS" -lt 1 ] || [ "$HOURS" -gt 168 ]; then echo "hours must be 1 to 168" >&2; exit 1; fi
+          window="$HOURS' HOUR"
+          span="$HOURS h"
+          if [ -n "${MINUTES:-}" ]; then
+            case "$MINUTES" in *[!0-9]*) echo "minutes must be a number" >&2; exit 1 ;; esac
+            if [ "$MINUTES" -lt 5 ] || [ "$MINUTES" -gt 1440 ]; then echo "minutes must be 5 to 1440" >&2; exit 1; fi
+            window="$MINUTES' MINUTE"
+            span="$MINUTES min"
+          fi
           query="SELECT blob3 AS step, blob4 AS state, SUM(_sample_interval) AS n,
             quantileWeighted(0.5)(double1, _sample_interval) AS p50_ms,
             quantileWeighted(0.95)(double1, _sample_interval) AS p95_ms,
             SUM(double3 * _sample_interval) / SUM(_sample_interval) AS calls
             FROM $DATASET
-            WHERE blob1 = 'mcp' AND blob2 = '$CALL' AND timestamp > NOW() - INTERVAL '$HOURS' HOUR
+            WHERE blob1 = 'mcp' AND blob2 = '$CALL' AND timestamp > NOW() - INTERVAL '$window
             GROUP BY step, state ORDER BY p50_ms DESC LIMIT 60 FORMAT JSON"
           curl -sS --fail-with-body -X POST \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/analytics_engine/sql" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data "$query" > answer.json
-          node -e '
+          SPAN="$span" node -e '
             const { data } = JSON.parse(require("fs").readFileSync("answer.json", "utf8"));
             const lines = ["| step | state | n | p50 ms | p95 ms | calls each |", "| --- | --- | ---: | ---: | ---: | ---: |"];
             for (const row of data) lines.push(`| ${row.step} | ${row.state} | ${Math.round(row.n)} | ${Math.round(row.p50_ms)} | ${Math.round(row.p95_ms)} | ${Number(row.calls).toFixed(1)} |`);
-            const out = [`### ${process.env.CALL}, last ${process.env.HOURS} h`, "", ...lines].join("\n");
+            const out = [`### ${process.env.CALL}, last ${process.env.SPAN}`, "", ...lines].join("\n");
             console.log(out);
             require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, out + "\n");
           '
