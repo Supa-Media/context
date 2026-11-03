@@ -40,12 +40,13 @@ export async function gatewayRowsMirrorHandler(ctx: ActionCtx, body: Record<stri
       continue;
     }
     try {
-      const mirror = entry.op === "tree" ? internal.functions.objectRowsMirror.tree : internal.functions.objectRowsMirror.wrote;
-      const answer = await ctx.runMutation(mirror, {
-        workspaceId: workspaceId as Id<"workspaces">,
-        objectAt: entry.objectAt as number,
-        record: entry.record as never,
-      });
+      // Each op names its mutation written out, so the credential-reachability check can follow it
+      // (`__tests__/structure/reachability.test.ts`).
+      const args = { workspaceId: workspaceId as Id<"workspaces">, objectAt: entry.objectAt as number, record: entry.record as never };
+      const answer =
+        entry.op === "tree"
+          ? await ctx.runMutation(internal.functions.objectRowsMirror.tree, args)
+          : await ctx.runMutation(internal.functions.objectRowsMirror.wrote, args);
       if (answer.applied) applied.push(seq);
       else skipped.push({ seq, reason: answer.reason });
     } catch (error) {
