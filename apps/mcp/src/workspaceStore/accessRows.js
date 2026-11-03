@@ -194,6 +194,25 @@ export function workspaceAccess(sql) {
         row.token,
       ),
     )[0]?.path ?? null;
+  /**
+   * `livePath` for every held record at once: one statement instead of one per record. Rendering the rules asked once
+   * per record, and a move renders them, so a workspace of 600 records spent about 15 ms of each move here
+   * (2026-11-03). A record the held set does not have (a set being checked) is asked on its own.
+   */
+  const livePaths = () => {
+    const found = new Map();
+    for (const row of all(
+      sql.exec(
+        "SELECT a.token AS token, a.kind AS kind, (SELECT r.path FROM ws_rows r WHERE r.gone = 0 AND r.kind = a.kind AND (r.note_id = a.token OR (r.note_id IS NULL AND r.id = a.token)) ORDER BY r.at DESC LIMIT 1) AS live FROM ws_access a",
+      ),
+    )) {
+      found.set(`${row.kind}\u0000${row.token}`, row.live ?? null);
+    }
+    return (row) => {
+      const key = `${row.kind}\u0000${row.token}`;
+      return found.has(key) ? found.get(key) : livePath(row);
+    };
+  };
 
   const held = () => {
     const header = meta("access:set");
@@ -306,7 +325,7 @@ export function workspaceAccess(sql) {
     /** The rules one audience would be judged by, rendered here from `set` (the held one by default), or null with none. */
     render(audience, set = held(), now = Date.now()) {
       if (set === null) return null;
-      return { ...renderedRules(judgedAccessRows(set, livePath, now), audience), accessVersion: set.version };
+      return { ...renderedRules(judgedAccessRows(set, livePaths(), now), audience), accessVersion: set.version };
     },
     /**
      * Render from `set` and compare with the control plane's rules for each audience it sent (`{member?, guest?}`).
@@ -315,7 +334,7 @@ export function workspaceAccess(sql) {
     check(set, rulesByAudience, now = Date.now()) {
       const checked = checkAccessSet(set);
       if (checked.moving > 0) return { version: checked.version, skipped: "moving" };
-      const judged = judgedAccessRows(checked, livePath, now);
+      const judged = judgedAccessRows(checked, livePaths(), now);
       const audiences = {};
       for (const [audience, rules] of Object.entries(rulesByAudience ?? {})) {
         if (!rules || rules.accessVersion !== checked.version) {
