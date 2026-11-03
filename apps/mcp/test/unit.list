@@ -379,6 +379,7 @@ test/workspaceAccessRows.test.mjs
 test/accessWrite.test.mjs
 test/accessPending.test.mjs
 test/accessDrop.test.mjs
+test/accessMove.test.mjs
 test/workspaceSearchIndex.test.mjs
 test/workspaceMeaningIndex.test.mjs
 test/workspaceIndexBuild.test.mjs
