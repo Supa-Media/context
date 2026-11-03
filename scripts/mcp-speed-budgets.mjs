@@ -27,7 +27,10 @@
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-/** Median `to_response` budget per call, in ms. Lower them as fixes land; the goal is 100 each. */
+/**
+ * Median `to_response` budget per call, in ms. The goal is 100 each. A speed fix lowers its call's bar in
+ * the same change, to the measured median after it plus about 25% (Dev, 2026-11-03).
+ */
 export const BUDGETS = Object.freeze({
   "tools/call:fetch": 150,
   // A save names no action, so its calls are `tools/call:write` (`callOf`).

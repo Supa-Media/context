@@ -20,6 +20,10 @@ and 20 minutes after each production deploy. It reads the gateway's own
   starting bars were read 150 ms, save 250, archive 250, folder move 400,
   search 800 and orient 900. Lowering a bar as a fix lands is the point.
   Raising one is a decision, and the commit says why.
+- **Every speed fix lowers its bar in the same change** (Dev, 2026-11-03: "as
+  future projects improve the numbers make sure the new bar is updated"). The
+  new bar is the measured median after the fix, plus about 25% headroom,
+  never above the old bar.
 - **A quiet hour is not judged.** A call with fewer than 20 requests in the
   window is shown and not judged.
 - **A red run is a report.** It changes nothing, the same way Gateway Health
