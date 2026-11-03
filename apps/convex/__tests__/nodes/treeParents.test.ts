@@ -8,6 +8,10 @@
  *  - drop the duplicate check: a path two live rows hold is pointed at one of them as if it were right;
  *  - take any row at the folder's path as the parent, gone or not: an orphan is pointed at a tombstone;
  *  - let a page run under an old lease: two chains walk one workspace.
+ *  - drop the cron's object check: the object workspace is scheduled at all
+ *    → "a keyed workspace whose notes live in its object is not repaired by the cron" fails;
+ *  - drop the page's object check: an object-home workspace's row is set right from the bucket's side
+ *    → "checkWorkspace on an object-home workspace patches no nodes row" fails.
  */
 
 import { describe, expect, test } from "vitest";
@@ -15,7 +19,8 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { checkParents, folderOf } from "../../functions/lib/nodes/parentCheck";
 import { PARENTS_LEASE_MS } from "../../functions/treeParents";
-import { keyedFixture, rowOf } from "./keyedFixture.helpers";
+import { drainScheduled, type TestConvex } from "../fixtures.helpers";
+import { keyedFixture, NOTE_ID, rowOf } from "./keyedFixture.helpers";
 import type { Fixture } from "./moveFixture.helpers";
 import { storedPathsOnly } from "./treeRows.helpers";
 
@@ -44,6 +49,13 @@ async function builtPaths(f: Fixture): Promise<[string, string][]> {
       built.push([row.path, names.join("/")]);
     }
     return built;
+  });
+}
+
+/** Home the workspace's notes in its object, as the switch does; the check must leave such a workspace alone. */
+async function setObjectHome(f: Fixture) {
+  await f.t.run(async (ctx) => {
+    await ctx.db.insert("workspaceObjectHomes", { workspaceId: f.ws, home: "object", since: Date.now() });
   });
 }
 
@@ -135,5 +147,94 @@ describe("every row says its path through its parents", () => {
     // Once that lease has run out, a page is taken over.
     await walk(f, Date.now() + PARENTS_LEASE_MS + 1);
     expect((await rowOf(f, "1-projects/launch/sub")).name).toBe("sub");
+  });
+  test("a keyed workspace whose notes live in its object is not repaired by the cron, while a bucket one in the same run is", async () => {
+    const f = await keyedFixture();
+    const deep = await rowOf(f, "1-projects/launch/sub/deep.md");
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(deep._id, { parentId: undefined });
+    });
+    await setObjectHome(f);
+
+    // A second keyed workspace on the bucket, with one file whose parent is broken.
+    const other = await f.t.run(async (ctx) => {
+      const ws = await ctx.db.insert("workspaces", {
+        slug: "bucketed",
+        displayName: "Bucketed",
+        createdBy: f.ownerId,
+        kind: "shared",
+        structureTemplate: "para",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      await ctx.db.insert("noteIdCopies", { workspaceId: ws, status: "done", runId: 1, files: 0, copied: 0, failed: 0, failures: [], updatedAt: 1, keyedAt: 1 });
+      const folder = await ctx.db.insert("nodes", { workspaceId: ws, path: "b", name: "b", kind: "folder", observedAt: 1 });
+      const file = await ctx.db.insert("nodes", {
+        workspaceId: ws,
+        path: "b/x.md",
+        name: "x.md",
+        kind: "file",
+        observedAt: 1,
+        noteId: NOTE_ID(900),
+        storageKey: `notes/${NOTE_ID(900)}.md`,
+      });
+      return { ws, folder, file };
+    });
+
+    await f.t.mutation(internal.functions.treeParents.checkDue, {});
+    // The cron schedules the bucket workspace and not the object one.
+    const queued = await f.t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect());
+    const queuedFor = (ws: Id<"workspaces">) => queued.filter((job) => JSON.stringify(job.args).includes(ws as string)).length;
+    expect(queuedFor(f.ws)).toBe(0);
+    expect(queuedFor(other.ws)).toBeGreaterThan(0);
+    await drainScheduled(f.t as unknown as TestConvex);
+
+    expect((await rowOf(f, "1-projects/launch/sub/deep.md")).parentId).toBeUndefined();
+    expect(await stateOf(f)).toBeNull();
+    const repaired = await f.t.run(async (ctx) => await ctx.db.get(other.file));
+    expect(repaired?.parentId).toBe(other.folder);
+    // It set a parent right, so its walk is not done until the next one.
+    expect(await f.t.run(async (ctx) => await ctx.db.query("treeParents").withIndex("by_workspace", (q) => q.eq("workspaceId", other.ws)).unique())).toMatchObject({ done: false, repairedParents: 1 });
+    // The report counts it apart, so the check is not read as waiting on a workspace it never walks.
+    expect(await f.t.query(internal.functions.treeParents.report, {})).toMatchObject({ keyedWorkspaces: 2, inObject: 1, notStarted: 1 });
+  });
+
+  test("checkWorkspace on an object-home workspace patches no nodes row and leaves its state row as it was", async () => {
+    const f = await keyedFixture();
+    const deep = await rowOf(f, "1-projects/launch/sub/deep.md");
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(deep._id, { parentId: undefined, name: "wrong" });
+    });
+    await setObjectHome(f);
+    // A chain scheduled before the switch holds the workspace, mid-walk.
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("treeParents", {
+        workspaceId: f.ws,
+        walks: 0,
+        walkRepaired: 0,
+        repairedNames: 0,
+        repairedParents: 0,
+        orphans: 0,
+        duplicates: 0,
+        walkOrphans: 0,
+        walkHiddenOrphans: 0,
+        walkDuplicates: 0,
+        rows: 0,
+        walkRows: 0,
+        done: false,
+        after: "1-projects/launch",
+        leaseAt: 500,
+        updatedAt: 500,
+      });
+    });
+    const before = await stateOf(f);
+
+    // The page is handed the lease it was scheduled under, so only the home decides what it does.
+    await walk(f, 500);
+
+    const after = await f.t.run(async (ctx) => await ctx.db.get(deep._id));
+    expect(after?.parentId).toBeUndefined();
+    expect(after?.name).toBe("wrong");
+    expect(await stateOf(f)).toEqual(before);
   });
 });

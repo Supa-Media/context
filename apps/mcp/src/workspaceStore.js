@@ -40,6 +40,8 @@ import { accessSockets } from "./workspaceStore/accessSockets.js";
 import { watchMembers, watchPerson } from "./workspaceStore/accessWatch.js";
 import { createControlPlane } from "./controlPlane/index.js";
 import { isTexCall, texHost } from "./workspaceStore/texHost.js";
+import { mirrorOutbox } from "./workspaceStore/mirrorOutbox.js";
+import { flushMirror } from "./workspaceStore/mirrorFlush.js";
 
 const CALL = "x-tex-call";
 /** How long a person-object write that failed waits before it is sent again. */
@@ -76,7 +78,7 @@ export class WorkspaceStore {
     if (this.texSide === null) {
       const store = this.ready();
       // An owed member write waits its retry, whatever Tex arms the one alarm for.
-      this.texSide = texHost(this.state, this.env, { otherWake: () => (store.members.pending().length > 0 ? Date.now() + REACH_RETRY_MS : null) });
+      this.texSide = texHost(this.state, this.env, { otherWake: () => (store.members.pending().length > 0 || store.mirror.count() > 0 ? Date.now() + REACH_RETRY_MS : null) });
     }
     return this.texSide;
   }
@@ -86,7 +88,8 @@ export class WorkspaceStore {
     const sql = this.state.storage.sql;
     const objects = texObjects(sql);
     const rows = workspaceRows(sql);
-    this.store = {
+    const log = (event, fields) => console.log(JSON.stringify({ event, ...fields }));
+    const store = {
       objects,
       rows,
       // What its notes say about themselves: links and props, read from the text held here (`workspaceStore/facts.js`).
@@ -127,7 +130,24 @@ export class WorkspaceStore {
       },
       // One storage transaction for `ws.apply`: all of a change lands, or none of it.
       transact: (work) => this.state.storage.transactionSync(work),
+      // The changes taken for Convex's mirror, written in the transaction that takes them (`workspaceStore/mirrorOutbox.js`).
+      mirror: mirrorOutbox(sql),
+      // Sends them on, oldest first, one flush at a time (`workspaceStore/mirrorFlush.js`, `controlPlane/rowsMirror.js`).
+      flushMirror: () => flushMirror(store, (workspaceId, changes) => createControlPlane(this.env).rowsMirror(workspaceId, changes), log),
+      // A flush soon: the alarm runs at once, unless one is already set earlier. Nothing waits on it.
+      mirrorSoon: () => {
+        this.state.storage
+          .getAlarm()
+          .then(async (set) => {
+            const at = Date.now();
+            if (set === null || set > at) await this.state.storage.setAlarm(at);
+          })
+          .catch(() => {
+            // The change is queued; the next write or alarm arms the flush again.
+          });
+      },
     };
+    this.store = store;
     const tree = treeSockets(this.state, sql, this.store);
     this.store.onTreeChange = (change) => tree.changed(change);
     this.tree = tree;
@@ -154,7 +174,10 @@ export class WorkspaceStore {
 
   /** Person-object writes still owed by member changes, sent again; then the person's Tex routines that are due. */
   async alarm() {
-    await flushReach(this.ready());
+    const store = this.ready();
+    // Changes owed to Convex's mirror go first; a flush that could not finish is tried again in 30 s.
+    if (!(await store.flushMirror()).done) await store.retryLater();
+    await flushReach(store);
     const tex = this.tex();
     await tex.alarm();
     tex.arm();

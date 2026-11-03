@@ -1,26 +1,25 @@
 /**
  * The id copy's internal functions (`lib/noteIds/`): the pages of a copy pass,
- * the diagnosis, the backfill that gives rows their ids, and the carry a queued
- * move makes. Every function here is internal; the public surface is
+ * the diagnosis and the backfill that gives rows their ids. Every function
+ * here is internal; the public surface is
  * `functions/noteIds.ts`. Anything that reaches a bucket is an action.
  *
  * Phase "copy" of the move from path keys to id keys: nothing reads the copies
  * yet, and nothing here changes what a person sees.
  */
 
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, internalQuery } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import { productionDeps } from "./lib/noteIds/deps";
 import { BACKFILL_BATCH, ID_ITEMS_MAX, idKeyFor, newNoteId } from "./lib/nodes/noteIds";
-import { OBSERVE_BATCH, nodePath } from "./lib/nodes/table";
+import { notesInObject } from "./lib/nodes/notesHome";
 import { recordCheckPage, recordKeyedCheckPage, runCheckChain } from "./lib/noteIds/checkPass";
 import { runCopyChain } from "./lib/noteIds/copyPass";
 import { claimCopyRun, failCopyRun, recordCopyPage, releaseCopyRun } from "./lib/noteIds/copyRecord";
 import { flipPage } from "./lib/noteIds/flip";
 import {
-  carryIdentity,
   copyRowOf,
   ensureCopyRow,
   nodeAt,
@@ -183,27 +182,6 @@ export const backfill = internalMutation({
 });
 
 /**
- * What a queued move observed (`lib/nodes/moveWork.ts`), after the observation
- * is stored: each moved note's target takes its source's id and copy.
- */
-export const carryMoved = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    moves: v.array(v.object({ from: v.string(), to: v.string() })),
-  },
-  returns: v.null(),
-  handler: async (ctx, { workspaceId, moves }): Promise<null> => {
-    if (moves.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_MOVES" });
-    for (const move of moves) {
-      const from = nodePath(move.from);
-      const to = nodePath(move.to);
-      if (from !== null && to !== null) await carryIdentity(ctx, workspaceId, from, to);
-    }
-    return null;
-  },
-});
-
-/**
  * Whether a page handed out by the mover is still the one to do: a copy page
  * needs its run current and every item still the same live file, at the same
  * etag, under the key this page would write. A check page needs every item's
@@ -251,6 +229,16 @@ export const checkPage = internalQuery({
       done: scan.done,
     };
   },
+});
+
+/**
+ * Whether the diagnosis may check this workspace against its bucket: not when its notes live in its object, where the
+ * bucket is a backup copy and not the source of the rows (`checkPass.ts`). INTERNAL.
+ */
+export const checkHome = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId }): Promise<boolean> => !(await notesInObject(ctx.db, workspaceId)),
 });
 
 /** The bucket's answers for one page: a copy the row still holds is cleared when it is missing or differs. */

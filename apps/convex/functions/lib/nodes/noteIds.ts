@@ -4,8 +4,7 @@
  * file says what a copy is and when one is still true).
  *
  * A `nodes` row gets a `noteId` the moment it is inserted, and keeps it for as
- * long as the note is that note: a queued move carries it to the destination
- * (`carryIdentity`). The body of a note is then copied to `notes/<noteId>.md`
+ * long as the note is that note. The body of a note is then copied to `notes/<noteId>.md`
  * (or `files/<noteId><ext>` for anything else), and the row records the copy
  * in `idCopy`, with the SOURCE etag it was made from. A copy is fresh only
  * while the row's etag still equals that one, so an edit makes it stale

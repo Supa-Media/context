@@ -324,6 +324,10 @@ test/groupPageCopy.test.mjs
 test/pictureCompressionUnit.test.mjs
 test/readNoteCalls.test.mjs
 test/workspaceStore.test.mjs
+test/mirrorOutbox.test.mjs
+test/mirrorFlush.test.mjs
+test/writeOps.test.mjs
+test/serveWrites.test.mjs
 test/treeOpsMove.test.mjs
 test/treeOpsTrash.test.mjs
 test/workspaceReaders.test.mjs
@@ -333,6 +337,7 @@ test/writeKeepsTier.test.mjs
 test/mcpEntryPoint.test.mjs
 test/texEntryPoint.test.mjs
 test/workspaceTree.test.mjs
+test/workspaceRowsOwnership.test.mjs
 test/objectLookup.test.mjs
 test/agentHomeMove.test.mjs
 test/accessSockets.test.mjs

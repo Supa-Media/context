@@ -30,6 +30,8 @@ export interface ObjectRow {
   order: number | null;
   archiveOf: string | null;
   at: number;
+  /** The object's clock of the last change it made to this row, as Convex holds it (`nodes.objectAt`); not digested. */
+  objectAt: number;
 }
 
 /** The fields the object's digest covers, in its order. */
@@ -44,6 +46,7 @@ export interface ConvexRowLike {
   etag?: string;
   size?: number;
   goneAt?: number;
+  objectAt?: number;
   collaborates?: boolean;
   uploaded?: number;
   role?: string;
@@ -70,6 +73,7 @@ export function objectRowOf(row: ConvexRowLike, at: number): ObjectRow | null {
     order: finite(row.order),
     archiveOf: row.archiveOf ?? null,
     at,
+    objectAt: row.objectAt ?? 0,
   };
 }
 

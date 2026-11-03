@@ -82,6 +82,10 @@ stayed equal. A grant taken back is gone from the next set, and an older set nev
 replayed push cannot bring it back (`apps/mcp/test/workspaceAccessRows.test.mjs`,
 `apps/convex/__tests__/nodes/objectAccessParity.test.ts`).
 
+## Landed: the Convex mirror (`objectAt`)
+
+Convex keeps `nodes.objectAt`, the object's clock of the last change it made to the row. `POST /gateway/rows/mirror` (`functions/lib/gatewayRoutes/rowsMirror.ts`) takes a batch in order and calls `functions/objectRowsMirror.ts` `wrote` per change, built with `internalMutationMirrored` (no outbox entry, no push). A refused or missing row is `{ applied: false, reason }`, never a throw. Tests: `__tests__/objectRowsMirror.test.ts` (keyed write opens no outbox entry; `objectAt` never goes backwards; missing and refused rows; route order, bad body, transient stop). Sabotage: building `wrote` with the watched `internalMutation` fails the outbox case. `objectAt` is outside the object digest (`__tests__/workspaceObjects.test.ts`).
+
 ## File operations in the object (2026-11-03)
 
 `apps/mcp/src/workspaceStore/treeOps.js` holds create folder, move and rename, trash, restore and delete over the

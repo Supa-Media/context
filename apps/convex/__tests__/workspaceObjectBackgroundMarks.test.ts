@@ -8,7 +8,7 @@
  * erasure and a stalled move's watchdog page open a mark before their mutation commits; and a narrowing that still
  * skipped the object is held to "behind" by the push that carries it, even when that push fails.
  *
- * Sabotage, each confirmed to fail a case here: put `sealed` back among the fields that place a row (the fact fill is
+ * Sabotage, each confirmed to fail a case here: put `sealed` back among the fields that place a row (the facts drop is
  * recorded as unmarked), run the erasure's claims outside `objectFirst` (the rows are gone before the mark opens),
  * page the watchdog's move straight from the mutation again (the page is unmarked), and drop the drain's cover for
  * unmarked entries (the object serves the old share with no behind while the push fails).
@@ -59,11 +59,26 @@ async function inObject(paths: string[] = []) {
 }
 
 describe("background writers tell the object first", () => {
-  test("a fact fill that finds a sealed note narrows nothing, and is not recorded as unmarked", async () => {
+  test("a fact fill that lands where the notes live in the object writes nothing, and is not recorded as unmarked", async () => {
     const { t, workspaceId } = await inObject();
     await t.mutation(internal.functions.nodeFacts.record, { workspaceId, notes: [{ path: "plans/a.md", links: [], props: null }] });
     const row = await t.run(async (ctx) => await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "plans/a.md")).first());
-    expect(row?.sealed).toBe(true);
+    // The object keeps this note's facts (`facts-in-objects.md`); the control plane keeps none, so the pass leaves the
+    // row as it was (`background-tree-writers.md`).
+    expect(row?.sealed).toBeUndefined();
+    expect(await unmarked(t)).toEqual([]);
+  });
+
+  test("dropping an encrypted note's facts where the notes live in the object narrows nothing, and is not recorded as unmarked", async () => {
+    const { t, workspaceId } = await inObject();
+    // Seeded straight into the table, as a fill from before the home switched left it.
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "plans/a.md")).first();
+      if (row !== null) await ctx.db.patch(row._id, { sealed: true });
+    });
+    await t.mutation(internal.functions.nodeFactsDrop.drop, { workspaceId, cursor: null });
+    const row = await t.run(async (ctx) => await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "plans/a.md")).first());
+    expect(row?.sealed).toBeUndefined();
     expect(await unmarked(t)).toEqual([]);
   });
 
