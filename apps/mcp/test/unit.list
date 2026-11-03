@@ -113,6 +113,7 @@ test/routines.test.mjs
 test/routinesTexRoot.test.mjs
 test/scopeInfoWorkspaces.test.mjs
 test/searchFollow.test.mjs
+test/searchLinkMatch.test.mjs
 test/siteFlags.test.mjs
 test/smallDataHooks.test.mjs
 test/staleClientArguments.test.mjs
