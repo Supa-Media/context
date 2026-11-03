@@ -7,6 +7,7 @@ import { createSearchBudget } from "./maintain.js";
 import { createSearchTrace, logSearchTrace, reportSearchTiming } from "./trace.js";
 import { DEFERRED_SYNC_FLOOR, FAST_SEARCH_FLOOR } from "./pacing.js";
 import { fastSearchAnswer, scanVisibleNotes } from "./scan.js";
+import { objectSearchAnswer } from "./objectSearch.js";
 import { maintainIndexAfter } from "./maintenance.js";
 import { SEARCH_SUBREQUEST_BUDGET, searchIndexedNotes } from "./visible.js";
 
@@ -124,6 +125,34 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
    * below is for a gateway with no search database (self-hosted, or one not
    * provisioned yet).
    */
+  // The workspace's object first, where it holds the notes and has caught up its own word index
+  // (`objectSearch.js`): one call to the object instead of the search database's round trip.
+  let fromObject = null;
+  if (store.objectSearch) {
+    const objectSpan = trace.span("object");
+    fromObject = await objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace);
+    objectSpan();
+  }
+  if (fromObject !== null) {
+    trace.set("indexed", true);
+    trace.set("fast", true);
+    trace.set("hits", fromObject.hits.length);
+    trace.set("matches", fromObject.matchCount);
+    trace.set("matchesIsFloor", Boolean(fromObject.matchCountIsFloor));
+    trace.set("maintain", "none");
+    logSearchTrace(trace);
+    reportSearchTiming(store, trace, "fast", fromObject.hits.length > 0);
+    return {
+      hits: fromObject.hits,
+      matchCount: fromObject.matchCount,
+      matchCountIsFloor: Boolean(fromObject.matchCountIsFloor),
+      indexIncomplete: false,
+      reducedRecall: false,
+      reducedRecallNotes: [],
+      degraded: false,
+      projectionOnly: true,
+    };
+  }
   if (store.searchIndex) {
     const fastSpan = trace.span("fast");
     const ready = store.searchIndex.state === "ready";

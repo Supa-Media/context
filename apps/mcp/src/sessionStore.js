@@ -256,6 +256,14 @@ async function openSessionStore(session, env, controlPlane) {
   // Where the bucket's backup writes go behind the response, once the request names it (`http/requestStore.js`).
   Object.defineProperty(store, "backupBehind", { value: behind, enumerable: false, writable: false, configurable: true });
   // Notes' links and props from the object that holds their text, before the control plane (`http/routing.js` `treeFacts`).
+  // Its word search from the same object (`search/objectSearch.js`), where the notes live there; `SEARCH_FROM_OBJECT=off`
+  // asks the search database as before.
+  Object.defineProperty(store, "objectSearch", {
+    value: objectReading.home === "object" && env?.SEARCH_FROM_OBJECT !== "off" ? objectReading.client : null,
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   Object.defineProperty(store, "objectFacts", {
     value: objectFirstFacts(objectReading),
     enumerable: false,
