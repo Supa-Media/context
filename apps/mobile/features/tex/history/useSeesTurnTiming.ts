@@ -8,6 +8,6 @@ import { api } from "@context/convex/_generated/api";
  * admin page, any context-lc editor"). False while it is asked, so nobody
  * else ever sees it flash in.
  */
-export function useStaffView(): boolean {
+export function useSeesTurnTiming(): boolean {
   return useQuery(api.functions.texTurnTiming.canSeeTurnTiming, {}) === true;
 }

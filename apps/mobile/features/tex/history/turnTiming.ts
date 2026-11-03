@@ -2,7 +2,7 @@
  * WHERE ONE TEX TURN'S TIME WENT, AS THE HISTORY DRAWS IT (Dev, 2026-11-03:
  * "I need to be able to look at an interaction with Tex and tell exactly why
  * things might be slow"; the artboard approved the same day, and "only
- * breakdowns for developers": owners and editors of @context-lc alone are given it, `useStaffView`).
+ * breakdowns for developers": owners and editors of @context-lc alone are given it, `useSeesTurnTiming`).
  *
  * The gateway keeps a `timing` block on each turn's `reply` entry
  * (`apps/mcp/src/agent/turnTiming.js`): the wait before it, each named step,

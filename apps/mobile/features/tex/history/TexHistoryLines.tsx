@@ -5,7 +5,7 @@ import type { TexPageSource } from "../page/texPageSource";
 import { HistoryDayLines } from "./HistoryDayLines";
 import { HistoryFilters } from "./HistoryFilters";
 import { useHistoryRead, type HistoryRead } from "./useHistoryRead";
-import { useStaffView } from "./useStaffView";
+import { useSeesTurnTiming } from "./useSeesTurnTiming";
 
 /**
  * A chat's history, one line a message: time, who, words, left-aligned and
@@ -20,7 +20,7 @@ import { useStaffView } from "./useStaffView";
  * same way, newest at the bottom (`HistoryFileLines`).
  */
 export function TexHistoryLines({ source, chat, group, job }: { source: TexPageSource; chat: string; group: boolean; /** One job's work only: its page. */ job?: string }) {
-  const history = useHistoryRead({ source, chat, group, job, timing: useStaffView() });
+  const history = useHistoryRead({ source, chat, group, job, timing: useSeesTurnTiming() });
   return (
     <View style={{ gap: 12 }} testID="tex-history-lines">
       <HistoryFilters history={history} />

@@ -29,7 +29,7 @@ import type { LedgerEntry, LedgerQuery } from "../features/tex/page/texPageTypes
 import type { TexPageSource } from "../features/tex/page/texPageSource";
 
 let mockStaff = false;
-jest.mock("../features/tex/history/useStaffView", () => ({ useStaffView: () => mockStaff }));
+jest.mock("../features/tex/history/useSeesTurnTiming", () => ({ useSeesTurnTiming: () => mockStaff }));
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 
 import { TexHistoryLines } from "../features/tex/history/TexHistoryLines";
