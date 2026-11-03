@@ -393,6 +393,12 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    * the pane draws that state in its place. Optional: the demo has no bucket.
    */
   unreadable?: string | null;
+  /**
+   * The note the URL or a link asked for, when its read came back
+   * `FILE_NOT_FOUND`: the pane draws `NotFoundNote` where it would be, and no
+   * notice is raised for it. Optional: the demo has no bucket.
+   */
+  notFound?: string | null;
   dismissNotice: () => void;
 
   /**

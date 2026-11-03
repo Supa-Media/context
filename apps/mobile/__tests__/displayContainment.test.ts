@@ -375,6 +375,9 @@ describe("the console contains a name it did not choose", () => {
       // as a file name: isolation marks there would be typed into the name.
       // An input is its own bidi box, so nothing around it is reordered.
       "features/console/files/noteName.ts",
+      // Ranks names against each other to find similar notes; what it hands
+      // out for display is contained (`folderLabel`, `displayName`).
+      "features/console/files/notFound.ts",
     ]);
     const found = sourceFilesMatching("withoutSortPrefix(").filter((file) => !allowed.has(file));
     expect(found).toEqual([]);

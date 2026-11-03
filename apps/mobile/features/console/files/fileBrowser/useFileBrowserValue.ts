@@ -52,6 +52,7 @@ type FileBrowserValueDeps =
     | "renamed"
     | "notice"
     | "unreadable"
+    | "notFound"
     | "opening"
     | "say"
     | "selectedPath"
@@ -146,7 +147,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     discard, discardLocalCopies, dismissContextMove, dismissNotice, dismissToast, download,
     duplicate, editor, encryptedElsewhere, ensureListing, expanded, flushAutosave, keepMine,
     linkPaths, listings, loadImage, loading, mayShare, mirrorStatus, move, moveDestinations,
-    moveMany, moveToContext, navigations, notice, unreadable, offline, onExternalWrite, onSaved, openBeside, openLinkPaths,
+    moveMany, moveToContext, navigations, notice, unreadable, notFound, offline, onExternalWrite, onSaved, openBeside, openLinkPaths,
     opening, paste, pending, readFormResponses, readRaw, rename, renamed, resolveWith,
     restoreMany, resumeContextMove, retractFormResponse, revokeShare, save, say, search, select,
     selectedPath, setClipboard, setCollaborationDraft, setCollaborationOwned,
@@ -236,6 +237,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       answerOp,
       notice,
       unreadable,
+      notFound,
       dismissNotice,
       toasts,
       say,
@@ -352,6 +354,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       dismissContextMove,
       notice,
       unreadable,
+      notFound,
       mirrorStatus,
       offline.counts,
       offline.durable,

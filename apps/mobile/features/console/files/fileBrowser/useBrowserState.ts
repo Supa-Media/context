@@ -104,6 +104,8 @@ export function useBrowserState(scope: { current: { epoch: number } }) {
   const [notice, setNotice] = useState<string | null>(null);
   /** The note whose read came back unreadable (`../unreadable.ts`), or null. */
   const [unreadable, setUnreadable] = useState<string | null>(null);
+  /** The note whose read came back `FILE_NOT_FOUND` (`NotFoundNote`), or null. */
+  const [notFound, setNotFound] = useState<string | null>(null);
   const [toasts, setToasts] = useState<readonly ToastSpec[]>([]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -258,7 +260,7 @@ export function useBrowserState(scope: { current: { epoch: number } }) {
     ...onlineMoves, bucketListings, setListings, listedAtRef, nextListingStamp, drawLocally, indexedPaths, setIndexedPaths, expanded,
     setExpanded, selectedPath, setSelectedPath, navigations, setNavigations, renamed, noteRenamed,
     opening, setOpening,
-    settleOpening, editor, dispatch, clipboard, setClipboard, notice, setNotice, unreadable, setUnreadable, toasts,
+    settleOpening, editor, dispatch, clipboard, setClipboard, notice, setNotice, unreadable, setUnreadable, notFound, setNotFound, toasts,
     setToasts,
     busy, setBusy, loading, setLoading, editorRef, collaborationPaths, renamingRef, unsentCreates, selectedPathRef,
     nextToastId, dismissToast, say, saveRuns, saveTimers, operationRun, openRun, autosaveNowRef,

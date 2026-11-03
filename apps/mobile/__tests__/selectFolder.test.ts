@@ -184,7 +184,8 @@ describe("a note opened from a link, with nothing loaded", () => {
 
     // The mock throws FILE_NOT_FOUND for every read, which is what a deleted
     // note does. That refusal is honest and must survive the fix.
-    expect(browser.notice).toContain("does not exist");
+    // Not a notice: the not-found page, drawn where the note would be (`NotFoundNote`, Dev 2026-11-03).
+    expect(browser.notFound).toBe("1-projects/gone.md");
   });
 
   test("an uppercase extension is still a note", async () => {

@@ -179,7 +179,9 @@ describe("a note whose body has not arrived", () => {
     expect(browser.opening).toBeNull();
     // And the failure is on screen rather than swallowed, which is what makes
     // handing the empty state back the right move.
-    expect(browser.notice).toBe("That file does not exist.");
+    // Not a notice: the not-found page, drawn where the note would be (`NotFoundNote`, Dev 2026-11-03).
+    expect(browser.notFound).toBe(NOTE_PATH);
+    expect(browser.notice).toBeNull();
   });
 
   test("is forgotten when the context changes under an outstanding read", async () => {
