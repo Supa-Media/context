@@ -37,6 +37,7 @@
  * it is the single most important property in this file's neighbourhood.
  */
 
+import { carryOpened } from "./store/openedHere.js";
 import { StorageUnavailable } from "./store/factory.js";
 import { ControlPlaneError } from "./controlPlane.js";
 import { RESERVED_FIRST_SEGMENTS, SLUG_PATTERN } from "./workspacePath.js";
@@ -268,6 +269,8 @@ export async function resolveSession(token, slug, controlPlane, transport = null
     enumerable: false,
     writable: false,
   });
+  // A store open answered beside this session (`store/openedHere.js`), used only for the workspace and person it names.
+  carryOpened(resolved, resolvedSession);
   return resolvedSession;
 }
 

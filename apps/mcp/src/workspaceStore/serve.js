@@ -9,7 +9,7 @@
 import { canSee, PrivacyOverrides } from "../privacy/engine.js";
 import { serveTexStore } from "../texStore/wire.js";
 import { HOMES, isWorkspaceObjectKey, MAX_READ_IDS } from "./api.js";
-import { ACCESS_HOMES, AccessRowRefused } from "./access.js";
+import { ACCESS_HOMES, ACCESS_OPS, AccessRowRefused } from "./access.js";
 import { judgedReader } from "./members.js";
 import { AUDIENCES, WorkspaceRowRefused } from "./rows.js";
 import { chatRulesFrom, chatTokens } from "./chatRules.js";
@@ -26,6 +26,7 @@ import { isWriteOp, serveWrites } from "./serveWrites.js";
 import { serveCollabRead } from "./collabRead.js";
 import { serveCollabReplace } from "./collabReplace.js";
 import { serveCreateNote } from "./createNote.js";
+import { withOpen } from "./sessionOpen.js";
 import { treeRows } from "./treeRows.js";
 import { absentHere } from "./lookupMiss.js";
 import { namesTaken } from "./namesTaken.js";
@@ -214,7 +215,11 @@ export async function serveWorkspaceStore(store, request) {
   // An old refresh token's index object (`workspaceStore/tokenIndex.js`): never a workspace, so it pins none.
   if (isTokenIndexCall(op) && store.sql) return serveTokenIndex(store.sql, op, fields);
   // A person object's calls (`workspaceStore/access.js`): the personal workspace's reach, shares and connections.
-  if (isPersonCall(op) && store.person) return await servePersonCall(store, op, fields);
+  if (isPersonCall(op) && store.person) {
+    const answered = await servePersonCall(store, op, fields);
+    // A session asked with its store's open, where both are this object's (`sessionOpen.js`).
+    return op === ACCESS_OPS.SESSION ? await withOpen(store, answered, fields) : answered;
+  }
   // Write ops: the change and its mirror entry land in one transaction; they check and pin their workspace themselves (`serveWrites.js`).
   if (isWriteOp(op)) return await serveWrites(store, op, fields);
   try {

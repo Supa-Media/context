@@ -373,6 +373,7 @@ test/chatLedger.test.mjs
 test/objectManifest.test.mjs
 test/objectChildren.test.mjs
 test/objectBinding.test.mjs
+test/sessionOpen.test.mjs
 test/bindingRefreshBehind.test.mjs
 test/chatLedgerWrites.test.mjs
 test/chatLedgerReads.test.mjs
