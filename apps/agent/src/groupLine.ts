@@ -17,6 +17,7 @@
 
 import { ServiceError, type Fetch } from "./clients";
 import { isRefusal } from "./carousel";
+import { linkPictureFinder, sendWithLinkPictures } from "./linkPreviews";
 import type { Picture } from "./line";
 import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import type { SendblueKeys } from "./sendblue";
@@ -83,11 +84,18 @@ function sendblueGroupLine(deps: GroupLineDeps): GroupLine {
           await sendGroupMedia(deps.fetch, keys(), place, drawn.address, replyTo);
           return await sendGroupText(deps.fetch, keys(), place, linkAfterCard(drawn.link), replyTo);
         } catch (error) {
-          // A picture the app would not take: the link alone, as before.
+          // A picture the line would not take: the link in its sentence alone, with no second try at a picture.
           if (!isRefusal(error)) throw error;
+          return await sendGroupText(deps.fetch, keys(), place, linkAfterCard(drawn.link), replyTo);
         }
       }
-      return await sendGroupText(deps.fetch, keys(), place, text, replyTo);
+      // Any other link: its picture, then the words with the link tappable, as in a 1:1 chat (`linkPreviews.ts`).
+      return await sendWithLinkPictures(
+        text,
+        linkPictureFinder(deps.fetch, deps.hostPicture, deps.noteCardPicture),
+        (address) => sendGroupMedia(deps.fetch, keys(), place, address, replyTo),
+        (words) => sendGroupText(deps.fetch, keys(), place, words, replyTo),
+      );
     },
     sendMedia: (place, url, replyTo) => sendGroupMedia(deps.fetch, keys(), place, url, replyTo),
     react: async (place, messageId, emoji) => {
