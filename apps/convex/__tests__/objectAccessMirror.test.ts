@@ -388,3 +388,101 @@ describe("POST /gateway/rows/mirror, op access", () => {
     expect(names).toEqual(["functions/objectAccessMirror:access"]);
   });
 });
+
+describe("objectAccessMirror.pending", () => {
+  const NEW_PATH = "1-projects/new.md";
+
+  /** A pending record the object would send for `NEW_PATH` (`accessWrite.js` `writePending`). */
+  type PendingRecord = {
+    path: string;
+    kind: "file" | "folder";
+    base: "private" | "team" | null;
+    baseVersion: number;
+    version: number;
+    narrowing?: boolean;
+    actorUserId?: string;
+    clientId?: string;
+  };
+  function pendingRecordFor(extra: Partial<PendingRecord> = {}): PendingRecord {
+    return { path: NEW_PATH, kind: "file", base: "private", baseVersion: 3, version: 4, ...extra };
+  }
+
+  test("no row at the path: base private answers applied, waits as a pending entry, and the version is the object's", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.pending, {
+      workspaceId: w.ws,
+      objectAt: 50,
+      record: pendingRecordFor(),
+    });
+    expect(answer).toEqual({ applied: true });
+    const state = await stateOf(w.t, w.ws);
+    expect(state?.pending).toHaveLength(1);
+    expect(state?.pending?.[0]).toMatchObject({ path: NEW_PATH, kind: "file", base: "private" });
+    expect(state?.version).toBe(4);
+  });
+
+  test("then base null (inherit) for the same path drops the waiting entry", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    await w.t.mutation(internal.functions.objectAccessMirror.pending, {
+      workspaceId: w.ws,
+      objectAt: 50,
+      record: pendingRecordFor(),
+    });
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.pending, {
+      workspaceId: w.ws,
+      objectAt: 51,
+      record: pendingRecordFor({ base: null, baseVersion: 4, version: 5 }),
+    });
+    expect(answer).toEqual({ applied: true });
+    const pending = (await stateOf(w.t, w.ws))?.pending ?? [];
+    expect(pending.find((entry) => entry.path === NEW_PATH)).toBeUndefined();
+  });
+
+  test("a live row already at the path takes the base as its own, and no pending entry is added", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.pending, {
+      workspaceId: w.ws,
+      objectAt: 52,
+      record: pendingRecordFor({ path: PLAN }),
+    });
+    expect(answer).toEqual({ applied: true });
+    expect((await rowOf(w.t, w.ws, PLAN))?.access?.base).toBe("private");
+    expect((await stateOf(w.t, w.ws))?.pending ?? []).toEqual([]);
+  });
+
+  test("a version the object did not see: the version is one above the object's, and an access push is queued", async () => {
+    const w = await world();
+    // Convex is at 4 and the object decided from 3: Convex took its own access change in between.
+    await seedState(w.t, w.ws, 4);
+    await objectHome(w.t, w.ws);
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.pending, {
+      workspaceId: w.ws,
+      objectAt: 53,
+      record: pendingRecordFor({ baseVersion: 3, version: 4 }),
+    });
+    expect(answer).toEqual({ applied: true });
+    expect((await stateOf(w.t, w.ws))?.version).toBe(5);
+    expect(await outbox(w.t)).toContainEqual(expect.objectContaining({ workspaceId: w.ws, access: true, nodeIds: [] }));
+  });
+
+  test("a full pending list (100 live entries) refuses a new path with pending_full and writes nothing", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    const state = await stateOf(w.t, w.ws);
+    const now = Date.now();
+    const full = Array.from({ length: 100 }, (_, i) => ({ path: `1-projects/filler-${i}.md`, kind: "file" as const, base: "private" as const, at: now }));
+    await w.t.run((ctx) => ctx.db.patch(state!._id, { pending: full }));
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.pending, {
+      workspaceId: w.ws,
+      objectAt: 54,
+      record: pendingRecordFor(),
+    });
+    expect(answer).toEqual({ applied: false, reason: "pending_full" });
+    const after = (await stateOf(w.t, w.ws))?.pending ?? [];
+    expect(after).toHaveLength(100);
+    expect(after.find((entry) => entry.path === NEW_PATH)).toBeUndefined();
+  });
+});

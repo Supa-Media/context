@@ -264,7 +264,7 @@ test("CONFLICT when expectedVersion is not the held one; NO_ROW for a path with 
     status: 200,
     body: { ok: false, code: "CONFLICT", version: 5 },
   });
-  assert.deepEqual(await write(store, { path: "projects/ghost.md", base: "private", actor: OWNER }), { status: 200, body: { ok: false, code: "NO_ROW" } });
+  assert.deepEqual(await write(store, { path: "projects/ghost.md", grantees: [U], actor: OWNER }), { status: 200, body: { ok: false, code: "NO_ROW" } });
   assert.equal(mirror.count(), 0);
   assert.deepEqual(await write(store, { path: "projects/plan.md", base: "private", actor: OWNER, expectedVersion: 5 }), { status: 200, body: { ok: true, version: 6 } });
 });
