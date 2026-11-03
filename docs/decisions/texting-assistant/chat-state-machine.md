@@ -69,6 +69,14 @@ that one got lost" and kept it in the chat's memory as Tex's reply.
   its 3 s sends it, as before. A command, a yes, a routine and a retried turn
   (`byCode`) never get one, nor does a reaction answering Tex's question
   (never left silent, [reactions-as-input](./reactions-as-input.md)).
+- **An addressed message is answered whatever the chat's settings**
+  (Dev2, 2026-11-03, after decide vetoed "Tex, what's 2+2?" in a quiet chat
+  and a repeated ask in a chat with progress updates off): the veto stays,
+  and for an addressed message decide's `act` instructions carry
+  `ADDRESSED_RULE` in place of the group's speaks-up rule, so no level is
+  shown as a reason to stay silent. The rule says it holds at every
+  speaks-up and progress-updates level and for a repeated ask; silent only
+  for a message plainly for someone else or a pleasantry like "thanks".
 - **A group's SKIP is silence** (`route.js`): an answer that is only SKIP
   in a group sends nothing (only SKIP: "Quiet." can answer a question), keeps nothing in the chat's memory and comes back
   `quiet`; the Worker then sends nothing, keeps the chat's lines and does
