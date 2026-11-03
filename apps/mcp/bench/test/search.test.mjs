@@ -13,6 +13,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { REPO_BENCH_FOLDER } from "../folder.mjs";
+import { readBenchFolder } from "../load.mjs";
 import { hitsOf, rankOf, scoreSearch, searchBars } from "../search.mjs";
 
 const RUN = join(dirname(fileURLToPath(import.meta.url)), "..", "run.mjs");
@@ -159,5 +161,21 @@ test("pnpm ai search --fake scores each search setup on an invented folder, and 
     assert.match(note, /Best: everywhere\./);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("every expected note in the invented world's search test is a real note, and no distractor is expected", async () => {
+  const bench = await readBenchFolder(REPO_BENCH_FOLDER);
+  const questions = bench.tests.search.questions;
+  assert.ok(questions.length >= 59, "the search test has its questions");
+  for (const question of questions) {
+    for (const path of question.expect) {
+      const match = /^@([^/]+)\/(.+)$/.exec(path);
+      assert.ok(match, `q${question.n}: ${path} is not @workspace/path`);
+      const [, workspace, rel] = match;
+      assert.ok(bench.workspaces[workspace]?.files[rel] !== undefined, `q${question.n}: ${path} is not a note in the world`);
+      // Archived sessions and message dumps, saved sessions and search probes are distractors, never answers.
+      assert.doesNotMatch(rel, /(^|\/)(archive|sessions|search-probes)\//, `q${question.n}: ${path} is a distractor, not an answer`);
+    }
   }
 });
