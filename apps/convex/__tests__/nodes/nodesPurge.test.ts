@@ -7,11 +7,11 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { convexTest } from "convex-test";
-import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { MutationCtx } from "../../_generated/server";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
+import { forgetWorkspaceTree } from "../../functions/nodesPurge";
 
 async function workspace(t: ReturnType<typeof convexTest>, slug: string): Promise<Id<"workspaces">> {
   return await t.run(async (ctx) => {
@@ -74,7 +74,7 @@ describe("nodesPurge", () => {
     await seed(t, moved, 2_300);
     await seed(t, other, 3);
 
-    await t.mutation(internal.functions.nodesPurge.resetForStorage, { workspaceId: moved });
+    await t.run((ctx) => forgetWorkspaceTree(ctx as unknown as MutationCtx, moved, { storageMoved: true }));
     // The first batch went with the caller; the rest are still waiting.
     expect((await counts(t, moved)).nodes).toBe(1_300);
     await t.finishAllScheduledFunctions(vi.runAllTimers);
@@ -86,7 +86,7 @@ describe("nodesPurge", () => {
   test("an empty tree is forgotten without scheduling anything", async () => {
     const t = convexTest(schema, modules);
     const ws = await workspace(t, "empty");
-    await t.mutation(internal.functions.nodesPurge.resetForStorage, { workspaceId: ws });
+    await t.run((ctx) => forgetWorkspaceTree(ctx as unknown as MutationCtx, ws, { storageMoved: true }));
     expect(await counts(t, ws)).toEqual({ nodes: 0, trees: 0, privacy: 0, links: 0, facts: 0 });
     const scheduled = await t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect());
     expect(scheduled).toHaveLength(0);
