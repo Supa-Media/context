@@ -57,11 +57,20 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   // either way, and a note that is simply absent is told it is absent rather
   // than told about the layout.
   const seen = canSee(path, scope, rules, overrides);
-  // The archive folder's job is asked beside the probe, not after it: two reads of the object at once, each a round
-  // trip of 20 to 30 ms (production, 2026-11-03). It is a read, and its answer is used only once the note is found.
-  const jobsAsked = seen ? factJobs(store) : null;
-  const present = await probeWithLegacyFallback(store, path);
-  if (!seen || !present) {
+  if (!seen) {
+    await probeWithLegacyFallback(store, path);
+    return toolError("not found");
+  }
+  // A workspace whose notes live in its object archives there, and the object's move says itself whether the note is
+  // there (`NOT_FOUND`), so the probe is not a trip of its own on the way: it is asked only before a refusal below,
+  // which must still say "not found" for a note that is absent. Elsewhere it is asked beside the archive folder's job.
+  const objectAsked = objectServesMoves(store, scope);
+  let probed = objectAsked ? null : probeWithLegacyFallback(store, path);
+  const jobsAsked = factJobs(store);
+  const present = () => (probed ??= probeWithLegacyFallback(store, path));
+  /** A refusal decided before the move, said only of a note that is there. */
+  const refuse = async (result) => ((await present()) ? result : toolError("not found"));
+  if (!objectAsked && !(await present())) {
     await jobsAsked;
     return toolError("not found");
   }
@@ -85,31 +94,30 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   const roots = [...new Set([...(archiveJob ? [archiveJob] : []), ...archiveRoots(rules)])];
   const root = archiveJob ?? archiveRoot(rules);
   if (!root) {
-    return toolError(
+    return refuse(toolError(
       "this context has no archive folder — its layout is its owner's, and archiving must " +
         "not invent one. Use move_note to the folder this context keeps inactive material in " +
         "(orient and the front page state its conventions), or ask the owner to add an " +
         "archive rule to privacy.md (`archive` or `4-archive`, for example)."
-    );
+    ));
   }
   // Every archive it has, not the one we would write to: a note already sitting
   // in `5-archive/` must not be moved into `4-archive/` because the resolver
   // preferred the latter.
-  if (insideArchive(path, roots)) return toolText("already archived");
+  if (insideArchive(path, roots)) return refuse(toolText("already archived"));
   if (scope !== "private" && !expectedEtag) {
-    return toolError("expected_etag is required when a team connection archives a note; read the note and retry");
+    return refuse(toolError("expected_etag is required when a team connection archives a note; read the note and retry"));
   }
   if (scope !== "private" && visibilityOf(archiveDestination(root, path), rules) !== "team") {
-    return writePermissionError("archive destination");
+    return refuse(writePermissionError("archive destination"));
   }
 
   // A workspace whose notes live in its object archives there, in one transaction (`objectMove.js`): nothing here
   // reads the note's text or editing history, and a taken name is the object's own answer, so the next numbered name
   // is asked of it in turn. Archiving took about 2.5 s through the reads below (2026-11-03).
-  const objectAsked = objectServesMoves(store, scope);
   if (objectAsked) {
     const version = await phase(store, "archive_version", () => rowVersionOf(store, path, expectedEtag));
-    if (version.conflict) return toolError("conflict: the note changed since you read it; re-read and retry");
+    if (version.conflict) return refuse(toolError("conflict: the note changed since you read it; re-read and retry"));
     let answered = null;
     const landed = await firstFreePath(archiveDestination(root, path), async (candidate) => {
       const result = await startObjectMove(store, scope, path, candidate, version.etag, {
