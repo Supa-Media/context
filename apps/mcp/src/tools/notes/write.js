@@ -51,6 +51,7 @@ import { statusAdvice } from "./statusList.js";
 import { frontMatterChanged } from "../../activity/changes.js";
 import { aboutMeTooLong } from "../../agent/aboutMe.js";
 import { isAboutNotePath, stampAboutLines } from "../../agent/aboutLines.js";
+import { phase } from "../../mcp/phase.js";
 
 /** The `share` values that mint a link; anything else publishes nothing. */
 const SHARE_REQUESTS = new Set(["members", "anyone", "collect"]);
@@ -141,7 +142,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
 
   // Whether it exists, from the tree; the note itself is opened only once
   // every check below has passed (`present.js`).
-  const found = await noteBeingWritten(store, path, { editing: expectedEtag !== undefined });
+  const found = await phase(store, "write_find", () => noteBeingWritten(store, path, { editing: expectedEtag !== undefined }));
   if (found.refusal) return toolError(found.refusal);
   const exists = found.exists;
   const inheritedVisibility = visibilityOf(path, rules);
@@ -257,7 +258,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   // (`tree/twins.js`). After the team-scope checks, so it asks only for a
   // caller who may write here, and only about what that caller can see.
   if (!exists) {
-    const twin = await nameTwinRefusal(store, scope, rules, overrides, path);
+    const twin = await phase(store, "write_names", () => nameTwinRefusal(store, scope, rules, overrides, path));
     if (twin) return toolError(twin);
   }
   // `!== "team"` on the existing side. A note held back to a group is not
@@ -292,8 +293,10 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
    * It is read only where there is something to read: a create has no stored
    * body and pays nothing for this.
    */
-  const existing = await openNoteBeingWritten(store, path, found);
-  const storedBody = existing ? await existing.text() : null;
+  const { existing, storedBody } = await phase(store, "write_load", async () => {
+    const opened = await openNoteBeingWritten(store, path, found);
+    return { existing: opened, storedBody: opened ? await opened.text() : null };
+  });
   /*
    * A REWRITE THAT DROPPED THE NOTE'S FIRST `---` IS GIVEN IT BACK.
    *
@@ -363,15 +366,17 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
       // an agent's rewrite from before the owner's save took the owner's words
       // out of the lines both had touched, and said it had succeeded.
       if (desiredVisibility === "private" && !sealedHome && !tierKept) {
-        await persistExactVisibility(store, path, "private", rules);
+        await phase(store, "write_tier", () => persistExactVisibility(store, path, "private", rules));
       }
       // The replacement loads the document itself and holds the etag to its generation; reading it here
       // first only to name that generation was a second whole load per write.
-      collaborationResult = await replaceCollaborationText(store, path, {
-        expectedEtag,
-        onlyCurrent: true,
-        text: content,
-      });
+      collaborationResult = await phase(store, "write_collab", () =>
+        replaceCollaborationText(store, path, {
+          expectedEtag,
+          onlyCurrent: true,
+          text: content,
+        }),
+      );
     } catch (error) {
       if (error?.code === "CONFLICT") {
         const current = await readCollaborationDocument(store, path).catch(() => null);
@@ -447,21 +452,23 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   // Tighten the ACL before content becomes visible. For team publishing, keep
   // the private ACL in place until the content write has completed.
   if (desiredVisibility === "private" && !collaborationResult && !sealedHome && !tierKept) {
-    await persistExactVisibility(store, path, "private", rules);
+    await phase(store, "write_tier", () => persistExactVisibility(store, path, "private", rules));
   }
   const put = collaborationResult
     ? { etag: collaborationResult.etag }
-    : await store.put(path, body, {
-        onlyIf: existing
-          ? { etagMatches: existing.etag }
-          : { absent: true },
-      });
+    : await phase(store, "write_put", () =>
+        store.put(path, body, {
+          onlyIf: existing
+            ? { etagMatches: existing.etag }
+            : { absent: true },
+        }),
+      );
   if (!put) {
     if (!existing && desiredVisibility === "private" && !sealedHome) {
       // Remove only an ACL whose path is still absent. If another writer won
       // the create race, leaving the narrowing in place is the safe answer;
       // clearing it would publish their note after this write already lost.
-      await clearExactVisibilityIfAbsent(store, path);
+      await phase(store, "write_tier", () => clearExactVisibilityIfAbsent(store, path));
     }
     return toolError(
       existing
@@ -470,27 +477,29 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
     );
   }
   if (desiredVisibility === "team" && !sealedHome && !tierKept) {
-    await persistExactVisibility(store, path, "team", rules);
+    await phase(store, "write_tier", () => persistExactVisibility(store, path, "team", rules));
   }
-  await recordChange(store, action, scope, [path], {
-    etag: put.etag,
-    visibility: desiredVisibility,
-    team_visible: desiredVisibility === "team",
-    /*
-      What the activity file needs to tell an edit from a keystroke, measured
-      on the bytes that were STORED rather than on the text that was sent: for
-      an encrypted note the stored form is an envelope, and comparing new
-      plaintext against old ciphertext is a comparison of two different things
-      that would read as a large change on every save.
-    */
-    content_bytes: byteSize(body),
-    ...(storedBody === null ? {} : { previous_bytes: byteSize(storedBody) }),
-    ...(frontMatterChanged(storedBody, body) ? { front_matter_changed: true } : {}),
-    ...(typeof args.summary === "string" && args.summary.trim()
-      ? { summary: args.summary }
-      : {}),
-    ...(options.record?.details ?? {}),
-  });
+  await phase(store, "write_record", () =>
+    recordChange(store, action, scope, [path], {
+      etag: put.etag,
+      visibility: desiredVisibility,
+      team_visible: desiredVisibility === "team",
+      /*
+        What the activity file needs to tell an edit from a keystroke, measured
+        on the bytes that were STORED rather than on the text that was sent: for
+        an encrypted note the stored form is an envelope, and comparing new
+        plaintext against old ciphertext is a comparison of two different things
+        that would read as a large change on every save.
+      */
+      content_bytes: byteSize(body),
+      ...(storedBody === null ? {} : { previous_bytes: byteSize(storedBody) }),
+      ...(frontMatterChanged(storedBody, body) ? { front_matter_changed: true } : {}),
+      ...(typeof args.summary === "string" && args.summary.trim()
+        ? { summary: args.summary }
+        : {}),
+      ...(options.record?.details ?? {}),
+    }),
+  );
   await projectWrittenNoteAfterResponse(store, {
     path,
     content: body,
@@ -518,15 +527,17 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   // whose own write then failed is a file referring to a form that does not
   // exist.
   const forms = formBlocks.length
-    ? await ensureFormResponseFiles(store, scope, rules, overrides, formBlocks, path)
+    ? await phase(store, "write_forms", () => ensureFormResponseFiles(store, scope, rules, overrides, formBlocks, path))
     : { created: [], occupied: [] };
   const formLines = [
     ...forms.created.map((responses) => `response file created: ${responses}`),
     ...forms.occupied.map((detail) => `form not collecting yet: ${detail}`),
   ];
-  const shareLines = await shareWrittenNote(store, path, args);
+  const shareLines = await phase(store, "write_share", () => shareWrittenNote(store, path, args));
   // Said after the write, never instead of it: a status outside its folder's list is advice.
-  const statusLine = isDrawingPath(path) ? null : await statusAdvice(store, scope, rules, overrides, path, body).catch(() => null);
+  const statusLine = isDrawingPath(path)
+    ? null
+    : await phase(store, "write_status", () => statusAdvice(store, scope, rules, overrides, path, body).catch(() => null));
   // Whether this created the note, for the live map's "pops in" (`live/activityHint.js`).
   return withActivityHint(toolText(
     `written: ${path} (etag ${put.etag})\nvisibility: ${desiredVisibility}` +
