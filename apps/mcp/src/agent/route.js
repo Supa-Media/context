@@ -34,7 +34,7 @@ import { attachmentsLine, carriesData, carriesPictures, hearVoiceMessages, pictu
 import { withEmailFiles } from "./emailFiles.js";
 import { carryKeptFiles, keepSentFiles, keptIdsOf, keptInHistory, withKeptFiles } from "./keptFiles.js";
 import { EMPTY_FALLBACK, isEmptyAnswer } from "./replyChecks.js";
-import { readTexStyle, stylePrompt, withoutFlattery } from "./pushback.js";
+import { withoutFlattery } from "./pushback.js"; import { asksDetailed, instructionsPrompt, readInstructions, readUpdates } from "./customInstructions.js"; // the chat's own words (`customInstructions.js`)
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted } from "./conversation.js";
@@ -341,7 +341,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     is still the long turn.
   */
   const streamed = typeof progress === "function" && (session.actorClientId === TEXTS_CLIENT_ID || group !== null);
-  const channel = streamed && report === null && readTexStyle(body.texStyle)?.bubbles !== "one" ? progressChannel(progress) : null;
+  const channel = streamed && report === null && readUpdates(body.updates) !== "off" ? progressChannel(progress, { planOnly: readUpdates(body.updates) === "planOnly" }) : null; // progress updates off: no tool; plan only: one line (`progress.js`)
   // Clef is metered with the turn (`meter` below).
   /*
     AN ADDRESS IS VOUCHED FOR BY THE PERSON, NEVER BY A PREVIOUS ANSWER.
@@ -479,7 +479,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? [...(await tex.step("forward_tools", () => standingForwardTools(store, routine.path, offered))), ...routineCalendarTools(offered)] : []; // and their own calendar (`routine.js`)
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
-  const claims = !runner && (!front || job !== null) && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), history, detailed: readTexStyle(body.texStyle)?.length === "detailed", visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
+  const claims = !runner && (!front || job !== null) && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), history, detailed: asksDetailed(readInstructions(body.instructions)), visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
   // A page's cover it draws is kept for the page's link card (`/gateway/page-cover`).
   const keepCover = async (path, png) => controlPlane.recordPageCover(session.accessToken, session.workspaceId, path, png);
   const { outgoing, maker } = await tex.step("pictures_setup", () => turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId, keepCover })); stages?.mark("pictures");
@@ -527,7 +527,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       },
       web: steer?.trackWeb(claims?.wrapWeb(seenWeb) ?? seenWeb) ?? claims?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
       history: logged?.history ?? shown,
-      threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + offerShown + (chatTurn ? stylePrompt(readTexStyle(body.texStyle)) : ""), steer,
+      threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + offerShown + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
       local: [...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
       ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)

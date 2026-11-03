@@ -24,7 +24,7 @@ export function createTexPageMethods({ post }) {
 
     /**
      * One change the Tex page asks for, as the person this token belongs to. `chat` is `"me"` or a chat's key, and
-     * `values` a partial style (plus `answers` for a chat). Answers `{ status, style?, engagement? }`, or null.
+     * `values` the whole text (`instructions`) or a quick pick (`pick`), plus `answers` for a chat. Answers `{ status, instructions?, engagement? }`, or null.
      */
     async texPageSettings(accessToken, chat, values) {
       const parsed = await post("/gateway/tex/page/settings", { accessToken, chat, values });

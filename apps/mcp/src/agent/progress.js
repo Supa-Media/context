@@ -112,11 +112,16 @@ export const DONE_NOTICE =
   "Not sent: start a progress line with what you're doing now (\"Opening OpenTable for Friday.\"), never with what is done, " +
   "sent or booked. That is your reply, once a tool says it happened.";
 
+/** Said when a chat set progress updates to plan only (Dev2, 2026-11-01) and its one line went. */
+export const PLAN_ONLY_NOTICE = "Not sent: this chat gets one plan line per turn, and that one went. Keep working; your reply says the rest.";
+
 /**
  * The progress tool for one turn, around `send(text)` (which writes a line to
- * the stream). Returns an MCP-shaped result the model reads.
+ * the stream). Returns an MCP-shaped result the model reads. `planOnly`: the
+ * chat's progress updates are plan only, so one line goes and the rest are
+ * refused, a backstop to what the prompt says (part B of the owner's decisions).
  */
-export function progressChannel(send) {
+export function progressChannel(send, { planOnly = false } = {}) {
   let said = 0;
   const lines = [];
   return {
@@ -138,6 +143,7 @@ export function progressChannel(send) {
       if (!text) return result("Nothing to send: pass one short line as text.", true);
       if (lines.includes(text)) return result("Not sent: you already sent that line in this turn. Keep working.");
       if (claimsDone(text)) return result(DONE_NOTICE, true);
+      if (planOnly && lines.length > 0) return result(PLAN_ONLY_NOTICE, true);
       lines.push(text);
       await send(text.length > MAX_PROGRESS_CHARS ? `${text.slice(0, MAX_PROGRESS_CHARS - 1)}…` : text);
       return result("Sent. Keep working.");

@@ -1,6 +1,7 @@
 # How Tex talks: settings per person and per group
 
-Decided by Dev2, 2026-10-28.
+Decided by Dev2, 2026-10-28. Superseded by
+[custom-instructions](./custom-instructions.md) (Dev2, 2026-11-01).
 
 Tex had one setting about how it behaves, the group's engagement style. Tone,
 length and emoji were fixed text in the prompt, the same for everyone. People

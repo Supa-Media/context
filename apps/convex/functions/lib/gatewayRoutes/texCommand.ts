@@ -10,8 +10,9 @@ import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
+import { MAX_INSTRUCTIONS } from "../texInstructions";
 
-/** The longest value any command field takes: a mail address, a share's search, a style word. */
+/** The longest value any command field takes: a mail address, a share's search, a level; instructions' text up to theirs. */
 const MAX_FIELD = 400;
 
 export async function gatewayTexCommandHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
@@ -19,14 +20,16 @@ export async function gatewayTexCommandHandler(ctx: ActionCtx, body: Record<stri
   const command = body.command;
   if (accessToken === null || command === null || typeof command !== "object" || Array.isArray(command)) return json({ status: "bad_request" });
   const raw = command as Record<string, unknown>;
-  const text = (key: string) => (typeof raw[key] === "string" && (raw[key] as string).length <= MAX_FIELD ? (raw[key] as string) : undefined);
+  const text = (key: string, max = MAX_FIELD) => (typeof raw[key] === "string" && (raw[key] as string).length <= max ? (raw[key] as string) : undefined);
   const kind = text("kind");
   if (kind === undefined) return json({ status: "bad_request" });
   const answer = await ctx.runMutation(internal.functions.texCommands.applyTexCommand, {
     hashedAccessToken: await hashToken(accessToken),
     command: {
       kind,
-      ...(raw.style !== undefined ? { style: raw.style } : {}),
+      ...(text("action") !== undefined ? { action: text("action") } : {}),
+      ...(text("text", MAX_INSTRUCTIONS) !== undefined ? { text: text("text", MAX_INSTRUCTIONS) } : {}),
+      ...(text("updates") !== undefined ? { updates: text("updates") } : {}),
       ...(text("engagement") !== undefined ? { engagement: text("engagement") } : {}),
       ...(text("address") !== undefined ? { address: text("address") } : {}),
       ...(text("query") !== undefined ? { query: text("query") } : {}),
