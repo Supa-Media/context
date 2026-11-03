@@ -13,7 +13,7 @@
 
 import { gatewayTexStore } from "./texStore/wire.js";
 import { workspaceClient } from "./workspaceStore/api.js";
-import { objectFirstFacts, objectFirstHooks } from "./store/objectLookup.js";
+import { objectFirstFacts, objectFirstHooks, objectFirstNames } from "./store/objectLookup.js";
 import { openedFromObject } from "./store/objectBinding.js";
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { treeNoteCount } from "./tree/names.js";
@@ -289,6 +289,13 @@ async function openSessionStore(session, env, controlPlane) {
   // And its search by meaning (`search/meaning/objectMeaning.js`); `MEANING_FROM_OBJECT=off` asks Vectorize as before.
   Object.defineProperty(store, "objectMeaning", {
     value: objectReading.home === "object" && env?.MEANING_FROM_OBJECT !== "off" ? objectReading.client : null,
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // A writer's "is that name taken?" (`http/routing.js` `treeFacts`), unfiltered and so only where this grant may write.
+  Object.defineProperty(store, "objectNames", {
+    value: objectFirstNames({ ...objectReading, canWrite: (session.role === "owner" || session.role === "editor") && hasScope(session, SCOPE_WRITE) }),
     enumerable: false,
     writable: false,
     configurable: true,
