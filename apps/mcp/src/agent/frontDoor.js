@@ -16,7 +16,7 @@
  *  - any other text lists the waiting asks once, so the model can be told
  *    they still wait (`setAsideLine`), and reads no record when none wait.
  * After the model, the reply checks don't run, and the chat is saved after the
- * reply has gone (`route.js`).
+ * reply has gone (`texTurn.js`).
  *
  * A setup turns it off with `front_door: off` (`production.js`), and a
  * deployment with `TEX_FRONT_DOOR=off`; either brings back the old turn
@@ -45,7 +45,7 @@ export function mayAnswerAsk(question, quoted, hasAttachments) {
 export async function waitingAsks(store, session, { conversation = null, told, now, chat = null }) {
   if (conversation !== null) await appendTold(store, conversation, readTold(told));
   // Always read, never taken from a warm copy's "none waited": a job, a routine or the heartbeat arms an ask beside
-  // the chat, and none of them writes that copy (`route.js` keeps one for an ordinary text alone) or clears it when
+  // the chat, and none of them writes that copy (`texTurn.js` keeps one for an ordinary text alone) or clears it when
   // it arms. A copy sealed before the ask would hide it, and this listing is what the model is told about and what
   // the disarm below rests on.
   const asked = await listPending(store, { userId: session.actorUserId, texting: true, chat, now });

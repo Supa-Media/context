@@ -4,8 +4,9 @@
  * entry point, and everything in there has to log how much time it's
  * taking ... so that we are never guessing").
  *
- * `agentTurn` in `route.js` runs between the `TEX ENTRY POINT: begin` and
- * `end` markers, and every `await` in there is one of this object's calls:
+ * `texTurn` (`texTurn.js`) is the turn, one step per line, each step a file
+ * under `texTurn/`. Each runs between `TEX ENTRY POINT: begin` and `end`
+ * markers, and every `await` in there is one of this object's calls:
  *
  * - `tex.step(name, run, off)`: run now and wait for it.
  * - `tex.ahead(name, run, off)`: start now, wait later (`tex.wait`).

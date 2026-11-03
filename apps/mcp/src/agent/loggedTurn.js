@@ -20,7 +20,7 @@
  * fails closed: a Tex event shown is trusted only when its `turn` has a record
  * saying `clean: true`. No turn, no record, an unreadable one or `clean: false`
  * makes the new turn untrusted (`tainted`), as a tainted kept answer does
- * (`historyIsTainted`, which `route.js` still asks of today's history). The
+ * (`historyIsTainted`, which `texTurn.js` still asks of today's history). The
  * Worker's fixed texts are `system` events (`log.js`), never Tex's.
  */
 
@@ -192,14 +192,14 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
 
 /**
  * What a background job's part reads of the chat: its newest entries only, for the earlier-texts tool, kept files and
- * the words that vouch for an address. Its prompt shows none of them (`route.js`): it works from its own record, the
+ * the words that vouch for an address. Its prompt shows none of them (`texTurn.js`): it works from its own record, the
  * brief, finish line, their later texts, its last answer and the advisor's advice (`background.js` `jobPrompt`).
  * On 2026-10-31 every part re-read the last 150 messages, about 5s each, and three restarted jobs copied the chat's
  * "On it: ... restarted" lines as their answer.
  */
 export const JOB_HISTORY_ENTRIES = 30;
 
-/** Today's history and the chat's event log, side by side: what a turn reads before its model (`route.js`). */
+/** Today's history and the chat's event log, side by side: what a turn reads before its model (`texTurn.js`). */
 export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, records }) {
   const today = turnHistory(store, session, body, { runner, group, dispatch, job });
   return Promise.all([today, runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records, record: today.then((read) => read.history).catch(() => []), ledger: job ? null : chatLedger(store, session) })]);

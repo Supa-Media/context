@@ -5,7 +5,8 @@
  * that we are never guessing").
  *
  * Code between `// TEX ENTRY POINT: begin` and `// TEX ENTRY POINT: end`
- * (the gateway's `agentTurn`, `apps/mcp/src/agent/route.js`; any region in
+ * (the gateway's `texTurn`, `apps/mcp/src/agent/texTurn.js`, and each of its
+ * steps under `apps/mcp/src/agent/texTurn/`; any region in
  * the texting Worker, `apps/agent/src`, is checked the same way) is the path
  * a text takes to its answer. Every `await` in there must await a timed call of the entry point
  * (`await tex.step("name", ...)`, `tex.wait`, `tex.ahead`, `tex.after`,
@@ -37,8 +38,12 @@ export const ENTRY_POINTS = [
     scanned: ["apps/mcp/src/agent", "apps/agent/src"],
     // The texting Worker's side (`apps/agent/src`) is timed per text by `textTiming.ts` (`tex_text_timing`);
     // a region there is checked the same way once one is added, and joins this list then.
-    required: ["apps/mcp/src/agent/route.js"],
+    required: ["apps/mcp/src/agent/texTurn.js"],
+    // Every step file of the turn holds a region too (`texTurn/steps.js` lists them; it and `clients.js` hold no code that waits).
+    requiredUnder: { dir: "apps/mcp/src/agent/texTurn", except: ["steps.js", "clients.js"] },
     timed: /^await\s+tex\.(step|wait|ahead|after|behind)\(/,
+    // `texTurn` itself awaits its steps, each a file whose own region is checked here: only there, and only as `steps.<name>(t)`.
+    stepCalls: { file: "apps/mcp/src/agent/texTurn.js", timed: /^await\s+steps\.[a-zA-Z]+\(t(, error)?\)/ },
     step: /\btex\.(step|wait|ahead|after)\(/g,
     fix: 'wrap it as `await tex.step("what_it_does", () => ...)` (texEntryPoint)',
   },
@@ -58,7 +63,7 @@ const [TEX] = ENTRY_POINTS;
 const NAME = /^(?:"[a-z0-9_:]+"|[a-z]+ !== null \? "[a-z0-9_:]+" : "[a-z0-9_:]+")$/;
 
 /** The problems in one file's text, as `line: message`, and how many regions it has. */
-export function checkSource(source, point = TEX) {
+export function checkSource(source, point = TEX, name = "") {
   const { begin: BEGIN, end: END } = point;
   const problems = [];
   const lines = source.split("\n");
@@ -80,7 +85,8 @@ export function checkSource(source, point = TEX) {
     if (!inside) continue;
     const code = masked(line);
     for (const match of code.matchAll(/\bawait\b/g)) {
-      if (!point.timed.test(code.slice(match.index))) problems.push(`${at}: an untimed await; ${point.fix}`);
+      const rest = code.slice(match.index);
+      if (!point.timed.test(rest) && !(point.stepCalls?.file === name && point.stepCalls.timed.test(rest))) problems.push(`${at}: an untimed await; ${point.fix}`);
     }
     for (const match of code.matchAll(point.step)) {
       const from = match.index + match[0].length;
@@ -116,6 +122,15 @@ function masked(line) {
   return out;
 }
 
+/** Whether a file must hold a region of this entry point: a listed file, or a step file of the turn. */
+function mustHold(point, name) {
+  if (point.required.includes(name)) return true;
+  const under = point.requiredUnder;
+  if (!under || !name.startsWith(`${under.dir}/`)) return false;
+  const rest = name.slice(under.dir.length + 1);
+  return !rest.includes("/") && !under.except.includes(rest);
+}
+
 function filesUnder(dir) {
   const out = [];
   for (const entry of readdirSync(dir)) {
@@ -131,10 +146,10 @@ export function checkRepository(root = ROOT) {
   for (const point of ENTRY_POINTS) {
     for (const dir of point.scanned) {
       for (const path of filesUnder(join(root, dir))) {
-        const { problems: found, regions } = checkSource(readFileSync(path, "utf8"), point);
         const name = relative(root, path);
+        const { problems: found, regions } = checkSource(readFileSync(path, "utf8"), point, name);
         for (const problem of found) problems.push(`${name}:${problem}`);
-        if (point.required.includes(name) && regions === 0) problems.push(`${name}: the ${point.label} path lost its "${point.begin}" marker`);
+        if (mustHold(point, name) && regions === 0) problems.push(`${name}: the ${point.label} path lost its "${point.begin}" marker`);
       }
     }
   }
@@ -153,6 +168,13 @@ function selfTest() {
   if (open.problems.length !== 1) throw new Error("self-test: a region that never ends passed");
   const nested = checkSource(`${BEGIN}\nconst a = await tex.step("outer", async () => keep(await hear()));\n${END}\n`);
   if (nested.problems.length !== 1) throw new Error("self-test: an untimed await inside a step passed");
+  const stepsOk = checkSource(`${BEGIN}\nconst a = (await steps.readTheText(t)) ?? (await steps.sendTheReply(t));\nreturn await steps.recoverFromFailure(t, error);\n${END}\n`, TEX, TEX.stepCalls.file);
+  if (stepsOk.problems.length !== 0) throw new Error(`self-test: texTurn's own steps were refused: ${stepsOk.problems.join("; ")}`);
+  const stepsElsewhere = checkSource(`${BEGIN}\nconst a = await steps.readTheText(t);\n${END}\n`, TEX, "apps/mcp/src/agent/texTurn/readTheText.js");
+  if (stepsElsewhere.problems.length !== 1) throw new Error("self-test: a step call outside texTurn.js passed");
+  const stepsOther = checkSource(`${BEGIN}\nconst a = await steps.readTheText(t, more);\nconst b = await other.readTheText(t);\n${END}\n`, TEX, TEX.stepCalls.file);
+  if (stepsOther.problems.length !== 2) throw new Error("self-test: an await that is not a step of the turn passed in texTurn.js");
+  if (!mustHold(TEX, "apps/mcp/src/agent/texTurn/sendTheReply.js") || mustHold(TEX, "apps/mcp/src/agent/texTurn/steps.js") || mustHold(TEX, "apps/mcp/src/agent/turn.js")) throw new Error("self-test: which step files must hold a region is wrong");
   const MCP = ENTRY_POINTS[1];
   const mcpOk = checkSource(`${MCP.begin}\nconst s = await mcp.step("session", () => r());\n${MCP.end}\n`, MCP);
   if (mcpOk.problems.length !== 0 || mcpOk.regions !== 1) throw new Error(`self-test: a timed MCP region was refused: ${mcpOk.problems.join("; ")}`);
@@ -182,8 +204,8 @@ async function hook() {
     return;
   }
   for (const point of points) {
-    const { problems, regions } = checkSource(source, point);
-    if (point.required.includes(name) && regions === 0) problems.push(`the ${point.label} path lost its "${point.begin}" marker`);
+    const { problems, regions } = checkSource(source, point, name);
+    if (mustHold(point, name) && regions === 0) problems.push(`the ${point.label} path lost its "${point.begin}" marker`);
     if (problems.length === 0) continue;
     process.stderr.write(`${point.label} entry point: every step on its path is timed by name (scripts/tex-entry-check.mjs).\n${problems.map((p) => `${name}:${p}`).join("\n")}\n`);
     process.exit(2);
