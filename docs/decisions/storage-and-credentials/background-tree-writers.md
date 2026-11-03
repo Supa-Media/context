@@ -30,10 +30,28 @@ notes-by-id cleanup rather than gated here.
 
 ## Moves onto the object's write ops
 
-- **Trash**: `trash.claimErasure` (with `removeRow`), run by `trash.emptyDue` and `trashEmptying.eraseWorkspace`.
-  Already marked (`objectFirst`); becomes an object delete, answered once the mirror has it.
-- **Old copies**: `oldCopies.hideRows` (a move into `.context/old-copies/`) and `erasePage` (the owner's delete).
-  `erasePage` narrows without a mark today.
+- **Trash** (moved 2026-11-03): where the notes live in the object, `trashEmptying.eraseWorkspace` no longer claims
+  rows in Convex (`trash.claimErasure`). The object removes the due stamp folder itself (`ws.write.erase`,
+  `apps/mcp/src/workspaceStore/treeWrites.js`, on `treeOps.remove`), at most 400 rows a call so each mirror change
+  stays inside the mirror's 500; the change is a `tree` change with `erase: true`, which deletes Convex's rows and
+  their grants, and the answer waits for it. The control plane only names the folder (`trashObject.dueFolder`) and
+  keeps the bucket half's record (`lib/trash/objectErase.ts`). With no client for the object the pass removes
+  nothing.
+- **Old copies**: the owner's delete (`oldCopies.deleteCopies`) moved the same way (`oldCopiesObject.ts`, erasing
+  `.context/old-copies` page by page), and an `erasePage` chain begun before the switch hands over to it. Hiding
+  (`oldCopies.hideRows`, a move into `.context/old-copies/`) moves onto the file operations' `ws.write.move` with
+  `trash: true` once that op lands.
+
+**The bucket half's record is written before the object erases** (`trashObject.begin`), with every key the mirror
+holds under the folder, and held back from the bucket half (`trashErasures.objectPending`) until the erase is known
+to have happened: the object answered the folder's last page, or a later pass finds the folder gone from the mirror
+(`trashObject.settle`). A run that dies between the object's answer and its own record still leaves the keys to
+delete, so a note's text and its backup never outlive its erasure; a run that dies before the object erased deletes
+nothing a restore could still want. A narrowing that answers `503 MIRROR_PENDING` carries its answer beside the code
+(`serveWrites.js`), so an erase whose mirror is late still hands over its files. Tests:
+`apps/mcp/test/treeErase.test.mjs` (what an erase may name, pages, the answer beside `MIRROR_PENDING`),
+`__tests__/trash/objectEmptying.test.ts` (a whole pass, pages, refusals, a run that dies after the object erased),
+`__tests__/oldCopies/oldCopiesObjectDelete.test.ts`, `__tests__/workspaceObjectBackgroundMarks.test.ts` (no mark).
 - **Tex chat homes**: `makeChatHome` (through `ensureChatHome`, `textGroups.applyGroupTurn`, `guestPass.enrol`,
   `texChatHomePeople.nameAgain`, `texGroupMigrationRows.homeEveryChat`, `contextMoveChatHome`), and the legacy guest
   folders (`syncFolderPeople`, `clearGuests`). A turn and `nameAgain` are marked; `guestPass.enrol`'s legacy branch

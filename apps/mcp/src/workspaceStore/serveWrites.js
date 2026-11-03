@@ -47,7 +47,9 @@ export async function serveWrites(store, op, fields, now = Date.now(), mintId = 
   }
   if (outcome.narrows) {
     const flushed = await store.flushMirror();
-    if (!flushed.done) return Response.json({ ok: false, code: "MIRROR_PENDING" }, { status: 503 });
+    // The change landed and stays queued; its answer goes back beside the code, for a caller that must keep what it
+    // says (an erase's files, which the bucket half deletes).
+    if (!flushed.done) return Response.json({ ok: false, code: "MIRROR_PENDING", answer: outcome.answer }, { status: 503 });
   } else if (outcome.change) {
     store.mirrorSoon();
   }

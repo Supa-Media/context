@@ -45,6 +45,7 @@ import type { HidePass } from "./lib/oldCopies/hiding";
 import { isPlumbing } from "./lib/privacy";
 import { dropLinks, removeRow } from "./trash";
 import { located, nodeAt, nodePaths, removalPage } from "./lib/nodes/paths";
+import { notesInObject } from "./lib/nodes/notesHome";
 
 /** Rows one pass looks at. */
 const ROW_PAGE = 300;
@@ -414,7 +415,9 @@ export const deleteCopies = mutation({
       paths: [],
       details: { oldCopies: true, days: record.days, contacts: record.contacts, files: record.files },
     });
-    await ctx.scheduler.runAfter(0, internal.functions.oldCopies.erasePage, { workspaceId });
+    // Where the notes live in the object, the object removes the rows (`oldCopiesObject.ts`); Convex's follow by the mirror.
+    if (await notesInObject(ctx.db, workspaceId)) await ctx.scheduler.runAfter(0, internal.functions.oldCopiesObject.erase, { workspaceId });
+    else await ctx.scheduler.runAfter(0, internal.functions.oldCopies.erasePage, { workspaceId });
     return null;
   },
 });
@@ -430,6 +433,11 @@ export const erasePage = internalMutation({
   handler: async (ctx, { workspaceId }) => {
     const record = await hideRecord(ctx, workspaceId);
     if (record === null || record.state !== "deleting") return null;
+    // A chain begun before the notes moved into their object hands the rest to the object.
+    if (await notesInObject(ctx.db, workspaceId)) {
+      await ctx.scheduler.runAfter(0, internal.functions.oldCopiesObject.erase, { workspaceId });
+      return null;
+    }
     const page = await removalPage(
       ctx.db,
       workspaceId,

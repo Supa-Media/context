@@ -14,6 +14,7 @@ import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption"
 import type { GatewayCredential } from "./lib/storage/shapes";
 import { eraseWorkspaceTrash } from "./lib/trash/erase";
 import { consoleTexRouting } from "./lib/texStore";
+import { consoleWorkspaceClient } from "./lib/workspaceObjects/door";
 
 export const eraseWorkspace = internalAction({
   args: { workspaceId: v.id("workspaces") },
@@ -26,5 +27,5 @@ export const eraseWorkspace = internalAction({
       const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
       const routing = await consoleWorkspaceRouting(ctx, workspaceId);
       return storeForBinding(routing.credential(credential), undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId), ...routing.options }) as unknown as FileStore;
-    }),
+    }, async () => consoleWorkspaceClient(ctx, workspaceId)),
 });
