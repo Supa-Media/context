@@ -172,6 +172,7 @@ export function workspaceClient(env, workspaceId) {
     // The object's own meaning index (`meaningIndex.js`): the passages closest to a query's fingerprint, and a build.
     meaningQuery: async (vector, { tiers = null } = {}) => await ask("ws.meaning.query", { vector, tiers }),
     meaningBuild: async () => await ask("ws.meaning.build"),
+    meaningSnippets: async (asks, chars) => await ask("ws.meaning.snippets", { asks, chars }),
     binding: {
       put: async ({ sealed, at, epoch }) => await ask("ws.binding.put", { sealed, at, epoch }),
       clear: async () => await ask("ws.binding.clear"),

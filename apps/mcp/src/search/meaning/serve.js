@@ -25,11 +25,10 @@
 
 import { ACTIVITY_PATH } from "../../../../../packages/shared/src/activity.cjs";
 import { isPlumbing } from "../../privacy/engine.js";
-import { extractFields } from "../indexer.js";
-import { noteTitle } from "../resultText.js";
 import { createMeaningClient } from "./client.js";
-import { objectMeaningMatches } from "./objectMeaning.js";
-import { meaningPassages, rankMeaningMatches } from "./project.js";
+import { objectMeaningMatches, objectMeaningSnippets } from "./objectMeaning.js";
+import { snippetFromText } from "./snippet.js";
+import { rankMeaningMatches } from "./project.js";
 import { meaningEmbedderFor } from "./store.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
 import { createD1Client } from "../d1/client.js";
@@ -201,16 +200,7 @@ async function meaningSnippet(store, match, chars = 200) {
   } catch {
     return null;
   }
-  // An encrypted note's passages are its title alone (`meaningPassages` reads
-  // through `indexableText`), so its snippet is empty and no ciphertext shows.
-  const passages = meaningPassages(match.path, text);
-  const passage = passages[match.chunk] ?? passages[0] ?? "";
-  // A passage is the indexed title, a blank line, then its slice of the body
-  // (`meaningPassages`), so the snippet is what follows that title.
-  const indexedTitle = String(extractFields(match.path, text).title ?? "").trim();
-  const body = passage.startsWith(indexedTitle) ? passage.slice(indexedTitle.length) : passage;
-  const line = body.replace(/\s+/g, " ").trim().slice(0, chars);
-  return { title: noteTitle(match.path, text), snippets: line ? [line] : [] };
+  return snippetFromText(match.path, text, match.chunk, chars);
 }
 
 /** The gateway store's search database, as `snippetsFor` asks it, or `null` when it has none. */
@@ -234,8 +224,19 @@ function projectionOf(store) {
 async function snippetsFor(store, reading, chars, given) {
   const read = async (entries) =>
     Promise.all(entries.map(async (entry) => [entry, await meaningSnippet(store, entry.meaning, chars)]));
-  // Notes held in the workspace's object are read from it, all at once, each a call of a few milliseconds: the
-  // search database's one statement took about 170 ms there (production, 2026-11-03).
+  // Notes held in the workspace's object: every snippet in one call to it, beside the text (the search database's
+  // one statement took about 170 ms there, and a read of each note two calls each; production, 2026-11-03).
+  if (!given && store?.objectMeaning) {
+    const answered = await objectMeaningSnippets(store, reading.map((entry) => entry.meaning), chars);
+    if (answered !== null) {
+      const out = new Map();
+      for (const entry of reading) {
+        const snippet = answered.get(entry.meaning.path);
+        if (snippet) out.set(entry, snippet);
+      }
+      return out;
+    }
+  }
   const projection = given ?? (store?.objectMeaning ? null : projectionOf(store));
   if (reading.length === 0 || !projection) return new Map(await read(reading));
   const askable = reading;

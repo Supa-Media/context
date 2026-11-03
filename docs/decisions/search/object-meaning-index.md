@@ -27,8 +27,9 @@ search is then the embedding and one call to the object, and the embedding is th
   waiting, the object wakes a second later and builds both indexes again, until nothing waits; a failed model waits
   a minute. This lives only in memory: an evicted object forgets it, and the next search's build call starts it
   again.
-- **Snippets from the object.** A note found only by meaning in a workspace whose notes are in its object is read
-  from the object for its snippet, all at once, instead of from the search database (about 170 ms there).
+- **Snippets from the object.** The snippets for the notes a search found only by meaning come from the object in
+  one call (`ws.meaning.snippets`), read beside the text, instead of from the search database (about 170 ms) or a
+  read of each note (two calls each). The gateway asks only for paths its `canSee` already let through.
 - **Served once built.** Until its first build has finished, the object answers `served: false` and the gateway asks
   Vectorize exactly as before (`search/meaning/objectMeaning.js`). After that it answers from what it holds: a note
   saved a moment ago ranks by its last fingerprint until the next build, which is what Vectorize did too (the write

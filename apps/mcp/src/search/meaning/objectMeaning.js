@@ -42,3 +42,25 @@ export async function objectMeaningMatches(store, vector, { tiers = null } = {})
     return null;
   }
 }
+
+/** Most notes one snippet call names: a search shows a handful of notes found only by meaning. */
+export const SNIPPET_ASKS = 50;
+
+/**
+ * Snippets for `matches` (each `{path, chunk}`, already let through `canSee`) from the workspace's object, in one
+ * call: a `Map` of path to `{title, snippets}` or `null` for a note it no longer holds; `null` where the object did
+ * not answer, and the caller reads the notes itself.
+ */
+export async function objectMeaningSnippets(store, matches, chars) {
+  const object = store?.objectMeaning ?? null;
+  if (object === null || typeof object.meaningSnippets !== "function") return null;
+  const asks = matches.slice(0, SNIPPET_ASKS).map((match) => ({ path: match.path, chunk: match.chunk }));
+  if (asks.length === 0) return new Map();
+  try {
+    const answer = await object.meaningSnippets(asks, chars);
+    if (answer?.served !== true || !answer.snippets || typeof answer.snippets !== "object") return null;
+    return new Map(asks.map((ask) => [ask.path, answer.snippets[ask.path] ?? null]));
+  } catch {
+    return null;
+  }
+}
