@@ -2,9 +2,10 @@ import { ConvexError } from "convex/values";
 import { objectServes } from "./fileBrowser/objectServes";
 
 /**
- * Trash and restore sent straight to the workspace's object through the
- * gateway (`POST /files/trash` and `POST /files/restore`), so they answer in
- * well under 100 ms instead of a round trip through Convex.
+ * Trash, restore, moves, copies and duplicates sent straight to the
+ * workspace's object through the gateway (`POST /files/trash`, `/files/restore`,
+ * `/files/move`, `/files/copy`, `/files/duplicate`), so they answer in well
+ * under 100 ms instead of a round trip through Convex.
  *
  * The answer is one of three things, and the caller acts on each:
  *  - the moved result, the same shape the Convex action returns;
@@ -63,10 +64,23 @@ export function objectMove(target: ObjectMoveTarget, body: ObjectMoveBody): Prom
   return sendObjectMove(target, "/files/move", body);
 }
 
+export type ObjectCopyBody = { from: string; to: string };
+export type ObjectDuplicateBody = { path: string };
+
+/** Copy one note (paste). A folder, or anything the gateway leaves to Convex, answers `null` like any fallback. */
+export function objectCopy(target: ObjectMoveTarget, body: ObjectCopyBody): Promise<ObjectMoved | null> {
+  return sendObjectMove(target, "/files/copy", body);
+}
+
+/** Duplicate one note beside itself under a free "… copy" name. */
+export function objectDuplicate(target: ObjectMoveTarget, body: ObjectDuplicateBody): Promise<ObjectMoved | null> {
+  return sendObjectMove(target, "/files/duplicate", body);
+}
+
 async function sendObjectMove(
   target: ObjectMoveTarget,
   path: string,
-  body: ObjectTrashBody | ObjectRestoreBody | ObjectMoveBody,
+  body: ObjectTrashBody | ObjectRestoreBody | ObjectMoveBody | ObjectCopyBody | ObjectDuplicateBody,
 ): Promise<ObjectMoved | null> {
   if (target.origin === null || !objectServes(target.workspaceId) || typeof fetch !== "function") return null;
   let token: string;

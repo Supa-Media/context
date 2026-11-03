@@ -15,6 +15,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import type { FileBrowserOptions } from "./types";
 import type { FolderIconsValues } from "./useFolderIcons";
 import { useObjectMoves } from "../useObjectMoves";
+import { objectServes } from "./objectServes";
 
 type FileActionsDeps = { options: FileBrowserOptions; folderIcons: FolderIconsValues };
 
@@ -114,8 +115,25 @@ export function useFileActions(deps: FileActionsDeps) {
   const startContextMoveAction = useAction(api.functions.contextMoves.startContextMove);
   const resumeContextMoveAction = useAction(api.functions.contextMoves.resumeContextMove);
   const dismissContextMoveMutation = useMutation(api.functions.contextMoves.dismissContextMove);
-  const copyEntry = useAction(api.functions.files.copyEntry);
-  const duplicateEntry = useAction(api.functions.files.duplicateEntry);
+  // Copy and Duplicate of a note go to the gateway too, which makes the copy and the object adopts it; a folder, or
+  // anything else the gateway leaves to Convex, answers null and takes the action. A workspace the object does not
+  // serve calls the action at once, exactly as before.
+  const copyEntryAction = useAction(api.functions.files.copyEntry);
+  const copyEntry = useCallback<typeof copyEntryAction>(
+    (args) =>
+      objectServes(args.workspaceId)
+        ? objectMoves.copy(args.workspaceId, { from: args.from, to: args.to }).then((moved) => moved ?? copyEntryAction(args))
+        : copyEntryAction(args),
+    [copyEntryAction, objectMoves],
+  );
+  const duplicateEntryAction = useAction(api.functions.files.duplicateEntry);
+  const duplicateEntry = useCallback<typeof duplicateEntryAction>(
+    (args) =>
+      objectServes(args.workspaceId)
+        ? objectMoves.duplicate(args.workspaceId, { path: args.path }).then((moved) => moved ?? duplicateEntryAction(args))
+        : duplicateEntryAction(args),
+    [duplicateEntryAction, objectMoves],
+  );
   // Archive, trash and restore are moves too: the answer says where the folder went.
   const archiveEntryAction = useAction(api.functions.files.archiveEntry);
   const archiveEntry = useCallback<typeof archiveEntryAction>(

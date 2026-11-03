@@ -1,7 +1,8 @@
 /**
  * `POST /files/trash`, `/files/restore` and `/files/move`: the app's trash, restore, moves and renames, answered by
  * the workspace's object in one transaction (`workspaceStore/treeWrites.js`, `moveWrites.js`), with Convex mirrored
- * behind it and never asked on the way.
+ * behind it and never asked on the way. `POST /files/copy` and `/files/duplicate`: the app's Copy and Duplicate of
+ * one note, made by the gateway and adopted by the object as a new note (`fileCopy.js`).
  *
  * Only a workspace whose notes live in its object (`home: object`, not behind) is served here; any other answers
  * 409 `not_object`, and the app sends the same operation to the control plane's `files.trashEntry` /
@@ -14,8 +15,12 @@
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { normalizePath } from "../notes/paths.js";
+import { copyNote, duplicateNote } from "./fileCopy.js";
 
-export const FILE_OP_PATHS = new Set(["/files/trash", "/files/restore", "/files/move"]);
+export const FILE_OP_PATHS = new Set(["/files/trash", "/files/restore", "/files/move", "/files/copy", "/files/duplicate"]);
+
+/** Copy and Duplicate: made by the gateway itself (`fileCopy.js`), the copy adopted by the object as a new note. */
+const COPY_PATHS = new Set(["/files/copy", "/files/duplicate"]);
 
 const MAX_BODY_BYTES = 8 * 1024;
 const MAX_TEXT = 1024;
@@ -52,7 +57,8 @@ async function readBody(request) {
 
 /** The body this route takes for `path`, normalised, or null. Unknown keys are refused, so nothing rides along. */
 function parse(path, body) {
-  if (path === "/files/trash") {
+  if (path === "/files/trash" || path === "/files/duplicate") {
+    if (path === "/files/duplicate" && Object.keys(body).some((key) => key !== "path")) return null;
     if (Object.keys(body).some((key) => key !== "path" && key !== "expectedEtag")) return null;
     const target = text(body.path) ? normalizePath(body.path) : null;
     if (!target) return null;
@@ -83,6 +89,7 @@ export async function handleFileOp(request, path, store, session) {
   if (reading === null || reading.client === null || reading.home !== "object" || reading.behind === true) {
     return json({ error: "not_object" }, 409);
   }
+  if (COPY_PATHS.has(path)) return await serveCopy(path, asked, store, session);
   // The session's names are a Set (`grantedGroupsOf`), which JSON would send as `{}`: sent as a list.
   const caller = { scope: session.scope, groups: [...(session.grantedGroups ?? [])], userId: session.actorUserId ?? null };
   const write = reading.client.write;
@@ -109,4 +116,29 @@ export async function handleFileOp(request, path, store, session) {
   // The object refused the call's shape, or failed before it committed: nothing moved, and the app's fallback to
   // the control plane is correct.
   return json({ error: "unavailable" }, 503);
+}
+
+/** How a copy's refusals reach the app: the status the control plane's action would have failed with. */
+const COPY_REFUSALS = new Map([
+  ["not_found", [404, "not_found"]],
+  ["taken", [409, "taken"]],
+  ["invalid_path", [400, "invalid_path"]],
+  ["forbidden", [403, "forbidden"]],
+  // Something the control plane decides (a folder, a file that is not a note, a carried exception): sent there.
+  ["defer", [409, "not_object"]],
+]);
+
+async function serveCopy(path, asked, store, session) {
+  const caller = { scope: session.scope, groups: session.grantedGroups ?? new Set() };
+  let answer;
+  try {
+    answer = path === "/files/copy" ? await copyNote(store, caller, asked.from, asked.to) : await duplicateNote(store, caller, asked.path);
+  } catch {
+    // Nothing was put, or a put the app's retry would find taken: the control plane's copy is the honest fallback only
+    // when nothing was made, so this answers `unavailable`, which the app sends there.
+    return json({ error: "unavailable" }, 503);
+  }
+  if (answer?.ok === true) return json({ kind: "moved", from: answer.from, to: answer.to, paths: [answer.to] });
+  const [status, error] = COPY_REFUSALS.get(answer?.code) ?? [503, "unavailable"];
+  return json({ error }, status);
 }
