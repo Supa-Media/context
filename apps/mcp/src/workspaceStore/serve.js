@@ -20,6 +20,7 @@ import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.
 import { manifestPage } from "./manifest.js";
 import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
 import { BindingRowRefused, serveBindingCall } from "./bindingRows.js";
+import { accessCall, applyAccess } from "./serveAccess.js";
 
 const CALL = "x-tex-call";
 
@@ -181,6 +182,9 @@ export async function serveWorkspaceStore(store, request) {
     // The sealed binding and the one call a request's store is opened from (`bindingRows.js`).
     const opened = serveBindingCall(store, op, fields, ACCESS_HOMES.OBJECT);
     if (opened !== null) return opened;
+    // The grant rows and the rules rendered from them (`serveAccess.js`).
+    const access = accessCall(store, op, fields);
+    if (access !== null) return access;
     switch (op) {
       case "ws.read": {
         const behind = await waitForMarks(store.marks ?? null);
@@ -225,8 +229,11 @@ export async function serveWorkspaceStore(store, request) {
           const removed = Array.isArray(fields.removed) && fields.removed.length > 0 ? rows.remove(fields.removed, fields.at).removed : 0;
           const rules = {};
           for (const [audience, held] of Object.entries(fields.rules ?? {})) rules[audience] = rows.putRules(held, audience);
+          // The access set the rules were rendered from, kept and checked against the rules now held (this push's, or
+          // its first call's), in the same transaction.
+          const access = fields.access === undefined ? null : applyAccess(store, fields.access, { member: rows.rules("member"), guest: rows.rules("guest") });
           const closed = closing.length > 0 ? store.marks.close(closing).closed : 0;
-          return { kept, removed, rules, ...(closing.length > 0 ? { closed } : {}) };
+          return { kept, removed, rules, ...(access !== null ? { access } : {}), ...(closing.length > 0 ? { closed } : {}) };
         });
         changed(store, { paths, rules: Object.values(answer.rules).some((rule) => rule.kept) });
         return Response.json(answer);

@@ -22,6 +22,7 @@
  */
 
 import { workspaceMarks } from "./workspaceStore/marks.js";
+import { workspaceAccess } from "./workspaceStore/accessRows.js";
 import { texObjects } from "./texStore/objects.js";
 import { TexObjectRefused } from "./texStore/objects.js";
 import { callTexStore } from "./texStore/wire.js";
@@ -92,6 +93,8 @@ export class WorkspaceStore {
       facts: workspaceFacts(sql, objects),
       // "A change is coming" (`workspaceStore/marks.js`): left by a writer before it changes the tree in Convex.
       marks: workspaceMarks(sql),
+      // Who each note and folder is open to, and the rules rendered from it (`workspaceStore/accessRows.js`).
+      access: workspaceAccess(sql),
       // The storage binding, sealed so this object cannot read it (`workspaceStore/bindingRows.js`).
       binding: bindingRows(sql),
       // A personal workspace's object is also its person's: reach, shares to them and their connections.

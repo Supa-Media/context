@@ -46,3 +46,24 @@ Writing the object and Convex side by side from the gateway, both awaited, keeps
 trip, which is the cost this removes. Letting a narrowing answer before the mirror lands lets the app's Convex listing
 show a note its owner just made private. Letting Convex's older push overwrite the object's newer row silently undoes
 saves. Tests: added with each step, named in this file as they land.
+
+## The object renders its own rules (2026-11-03)
+
+The first step of moving access writes: the object holds the grant rows and renders the member and guest rules
+itself, before anything is judged by them. Every push that carries rules (`lib/rowWatch/drain.ts`) also carries the
+**access set** they were rendered from, read beside them (`nodesPrivacy.accessSet`,
+`lib/nodes/accessSet.ts`): each row that carries a setting, keyed by its token id (`@#<id>`) and kind, with its base
+and its grantees in the `nodeAccess` shape (`{kind, id, role}`), the access version, the private paths still pending
+their row, and whether `accounts` grants are honoured and the chat homes sealed here. It rides the round's last
+call, once every row of the round is held. The object keeps it in `ws_access` (`workspaceStore/accessRows.js`),
+whole, unless it holds a later version, places each record at its own live row's path (the sent path only for a
+row it no longer holds), applies the same overlays as `accessRowsOf` with the same `renderAccess`, and records
+whether the result equals the rules it holds (`ws.access.state`; `ws.access.check` compares without keeping
+anything, for the read-only production run, `Workspace object access parity`). A chunked move part way through is
+skipped: its rules name both paths.
+
+Nothing reads the rendered rules yet, and a set the object refuses never fails the push it rides on: the pushed rules
+stay the only thing reads are judged by until the access writers move onto `ws.write.access` and the parity report has
+stayed equal. A grant taken back is gone from the next set, and an older set never replaces a newer one, so a
+replayed push cannot bring it back (`apps/mcp/test/workspaceAccessRows.test.mjs`,
+`apps/convex/__tests__/nodes/objectAccessParity.test.ts`).

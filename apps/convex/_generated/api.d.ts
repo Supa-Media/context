@@ -170,6 +170,7 @@ import type * as functions_nodesPrivacy from "../functions/nodesPrivacy.js";
 import type * as functions_nodesAccess from "../functions/nodesAccess.js";
 import type * as functions_nodesAccessFirst from "../functions/nodesAccessFirst.js";
 import type * as functions_workspaceObjectMarks from "../functions/workspaceObjectMarks.js";
+import type * as functions_workspaceObjectAccessParity from "../functions/workspaceObjectAccessParity.js";
 import type * as functions_nodesPurge from "../functions/nodesPurge.js";
 import type * as functions_pageCovers from "../functions/pageCovers.js";
 import type * as functions_owners from "../functions/owners.js";
@@ -430,6 +431,7 @@ declare const fullApi: ApiFromModules<{
   "functions/nodesAccess": typeof functions_nodesAccess;
   "functions/nodesAccessFirst": typeof functions_nodesAccessFirst;
   "functions/workspaceObjectMarks": typeof functions_workspaceObjectMarks;
+  "functions/workspaceObjectAccessParity": typeof functions_workspaceObjectAccessParity;
   "functions/nodesPurge": typeof functions_nodesPurge;
   "functions/pageCovers": typeof functions_pageCovers;
   "functions/owners": typeof functions_owners;
