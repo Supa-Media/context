@@ -5,7 +5,8 @@ today: 2026-10-08
 runs: 1
 good_enough:
   found: 90%
-  top3: 85%
+  first: 70%
+  top3: 90%
 ---
 
 # Search test
