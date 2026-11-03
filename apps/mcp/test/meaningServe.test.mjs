@@ -17,6 +17,8 @@
  *   `meaningPassages` dropping `indexableText`       → "an encrypted note found by meaning shows its title only" fails
  *   the with-words floor not applied               → "once the words found the note, a loosely related one…" fails
  *   the with-words floor applied to loose hits too → "…while a question the words could not answer keeps…" fails
+ *   the search-probe filter removed from meaningMatches → "a search-probe note is never a meaning match…" fails
+ *   the search-probe filter removed from withMeaning   → "a search-probe note is never a word hit either" fails
  */
 
 import test from "node:test";
@@ -116,6 +118,18 @@ test("plumbing, the activity feed, non-notes and paths outside the prefix are dr
   const { store } = storeWith();
   const found = await meaningMatches(store, { query: "q", scope: "private", isVisible: everyone, prefix: "1-projects/", fetchImpl: index.impl, embed });
   assert.deepEqual(found.map((m) => m.path), ["1-projects/a.md"]);
+});
+
+/**
+ * The benchmark's search-probe notes carry a fingerprint equal to the query,
+ * so they match almost anything; production, 2026-11-03: "gym weights" showed
+ * one as an answer. Dropped beside the other path filters.
+ */
+test("a search-probe note is never a meaning match, in any workspace", async () => {
+  const index = fakeIndex([match("search-probes/gym.md", 0.99), match("@bench/search-probes/gym-2.md", 0.98), match("gym/weights.md", 0.6)]);
+  const { store } = storeWith();
+  const found = await meaningMatches(store, { query: "q", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed });
+  assert.deepEqual(found.map((m) => m.path), ["gym/weights.md"]);
 });
 
 test("a distant match is noise, not the same topic", async () => {
@@ -348,4 +362,14 @@ test("the console's hit shape, keyed by path, merges the same way", async () => 
     [["w.md", false], ["new.md", true]],
   );
   assert.ok(result.hits.every((hit) => !("key" in hit)));
+});
+
+test("a search-probe note is never a word hit either", async () => {
+  const store = { actor: { workspaceId: "w" } };
+  const found = { hits: [{ key: "ai/search-probes/gym.md", title: "gym", snippets: [] }, { key: "gym/weights.md", title: "weights", snippets: [] }], matchCount: 2 };
+  for (const matches of [null, []]) {
+    const result = await withMeaning(store, found, matches);
+    assert.deepEqual(result.hits.map((hit) => hit.key), ["gym/weights.md"]);
+    assert.equal(result.matchCount, 1);
+  }
 });

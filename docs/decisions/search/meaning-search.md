@@ -103,6 +103,20 @@ benchmark test note" placed tenth, under other workspaces' index pages that
 held one word. `searchEverywhere.test.mjs` ("a note holding every word
 outranks another workspace's loose hit…") fails if this is reversed.
 
+Three more rules, decided on the same production evidence (2026-11-03). An
+archived note, or a log (the Inbox's communication folders, Tex's log folders)
+scales its fused score by 0.5 (`search/priors.js`), so a live note with the same
+evidence places above it; the log still shows when nothing else matches
+("2027 plan objectives owners"). Meaning-only extras are one budget for the
+whole answer, not one per workspace: three, at the 0.5 floor, once any word hit
+is strict; six, at the old floor, otherwise. A strict word hit with no meaning
+score takes the median meaning rank, not nothing, because the index builds
+behind searches and a fresh note has no fingerprint yet. That rule cannot tell
+"not indexed" from "not among the matches", so it also lifts unrelated word
+hits; a precise "is this note in the index" signal is the follow-up. Search
+probes (`search-probes/`) are never meaning matches. Each is pinned by
+`searchEverywhere.test.mjs`, `searchPriors.test.mjs` and `meaningServe.test.mjs`.
+
 The pass diffs a census (`[path, version]` for every note) against a map of
 what it last embedded, kept at `.context/search/meaning/v1/state.json`. That
 is a **new file in the on-bucket layout**, and it is allowed for the reason

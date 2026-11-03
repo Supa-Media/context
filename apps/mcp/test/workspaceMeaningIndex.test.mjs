@@ -3,6 +3,12 @@
 // what changed within its budget, a moved or re-tiered note keeps its fingerprints, a changed or removed note is
 // found by the next build, a failed model leaves the change waiting, the scores are the cosine within rounding, and
 // the object refuses asks it should.
+//
+// Sabotage record (temporary local edits, reverted; each one fails the named test):
+//   the loop's `waiting > 0` check dropped          -> "a build loop runs while something waits, up to the cap, ..." fails
+//   the loop's cap raised past MEANING_BUILD_CALLS  -> the same test fails
+//   the once-per-request WeakSet check removed      -> "two triggers in one request defer one build loop ..." fails
+//   a thrown `meaningBuild` let out of the loop     -> the first build-loop test fails
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -13,7 +19,7 @@ import { workspaceSearch } from "../src/workspaceStore/searchIndex.js";
 import { workspaceMeaning, quantized, signBits } from "../src/workspaceStore/meaningIndex.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { HOMES } from "../src/workspaceStore/api.js";
-import { objectMeaningMatches } from "../src/search/meaning/objectMeaning.js";
+import { MEANING_BUILD_CALLS, meaningBuildBehind, objectMeaningMatches } from "../src/search/meaning/objectMeaning.js";
 import { MEANING_DIMENSIONS } from "../src/search/meaning/embed.js";
 
 let DatabaseSync = null;
@@ -238,6 +244,72 @@ test("the gateway uses the object's matches when served, and otherwise answers n
   assert.equal(builds, 3, "builds go on while something waits");
   assert.equal(await objectMeaningMatches({ objectMeaning: { meaningQuery: async () => { throw new Error("down"); } } }, [0.1]), null);
   assert.equal(await objectMeaningMatches({}, [0.1]), null);
+});
+
+/** Run `meaningBuildBehind` on a store whose `meaningBuild` answers `answer(call)`, and count the calls made. */
+async function buildsBehind(answer) {
+  const deferred = [];
+  let calls = 0;
+  const store = {
+    objectMeaning: {
+      meaningBuild: async () => {
+        calls += 1;
+        return answer(calls);
+      },
+    },
+    defer: (work) => deferred.push(work),
+  };
+  meaningBuildBehind(store);
+  await Promise.all(deferred);
+  return { calls, deferred: deferred.length };
+}
+
+test("a build loop runs while something waits, up to the cap, and stops on busy, unserved or a throw", async () => {
+  assert.deepEqual(await buildsBehind(() => ({ served: true, waiting: 5 })), { calls: MEANING_BUILD_CALLS, deferred: 1 });
+  assert.deepEqual(await buildsBehind((call) => ({ served: true, waiting: call < 3 ? 5 : 0 })), { calls: 3, deferred: 1 });
+  assert.deepEqual(await buildsBehind(() => ({ served: true, waiting: 5, busy: true })), { calls: 1, deferred: 1 });
+  assert.deepEqual(await buildsBehind(() => ({ served: false, waiting: 5 })), { calls: 1, deferred: 1 });
+  assert.deepEqual(await buildsBehind(() => ({ served: true, waiting: 0 })), { calls: 1, deferred: 1 });
+  assert.deepEqual(await buildsBehind(() => { throw new Error("model down"); }), { calls: 1, deferred: 1 });
+});
+
+test("no build loop without an object that can build, or without a way to defer it", async () => {
+  const deferred = [];
+  assert.equal(await meaningBuildBehind({ objectMeaning: null, defer: (work) => deferred.push(work) }), undefined);
+  assert.equal(await meaningBuildBehind({ objectMeaning: { meaningQuery: async () => ({}) }, defer: (work) => deferred.push(work) }), undefined);
+  assert.equal(await meaningBuildBehind({}), undefined);
+  assert.equal(deferred.length, 0);
+
+  let built = 0;
+  const noDefer = { objectMeaning: { meaningBuild: async () => ((built += 1), { served: true, waiting: 1 }) } };
+  await meaningBuildBehind(noDefer);
+  assert.equal(built, 0, "without store.defer nothing runs in front of the response");
+
+  const refusing = { objectMeaning: { meaningBuild: async () => ({ served: true, waiting: 1 }) }, defer: () => { throw new Error("no waitUntil"); } };
+  await meaningBuildBehind(refusing);
+});
+
+test("two triggers in one request defer one build loop between them, a search's included", async () => {
+  const deferred = [];
+  let calls = 0;
+  const store = {
+    objectMeaning: {
+      meaningQuery: async () => ({ served: false, waiting: 1 }),
+      meaningBuild: async () => ((calls += 1), { served: true, waiting: 0 }),
+    },
+    defer: (work) => deferred.push(work),
+  };
+  await meaningBuildBehind(store);
+  await meaningBuildBehind(store);
+  await objectMeaningMatches(store, [0.1]);
+  assert.equal(deferred.length, 1);
+  await Promise.all(deferred);
+  assert.equal(calls, 1);
+
+  const other = { objectMeaning: store.objectMeaning, defer: (work) => deferred.push(work) };
+  await objectMeaningMatches(other, [0.1]);
+  assert.equal(deferred.length, 2, "a new request store defers its own loop");
+  await Promise.all(deferred);
 });
 
 // Sabotage: embed each row on its own (`await embedAll(texts)` per row) and the call count is the note count.

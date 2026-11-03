@@ -31,6 +31,7 @@ import { snippetFromText } from "./snippet.js";
 import { rankMeaningMatches } from "./project.js";
 import { meaningEmbedderFor } from "./store.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
+import { isSearchProbe, notePrior } from "../priors.js";
 import { createD1Client } from "../d1/client.js";
 import { passageSnippets } from "../d1/passages.js";
 import { phase } from "../../mcp/phase.js";
@@ -127,6 +128,7 @@ export async function meaningMatches(
         match.path.endsWith(".md") &&
         match.path !== ACTIVITY_PATH &&
         !isPlumbing(match.path) &&
+        !isSearchProbe(match.path) &&
         (!prefix || match.path.startsWith(prefix)) &&
         isVisible(match.path),
     );
@@ -181,6 +183,10 @@ export function mergeHits(wordHits, matches, keyField = "key") {
       });
     }
   });
+  // The path prior scales the fused score (`search/priors.js`): an archived
+  // note or a log places below a live one with the same evidence. It only
+  // reorders; the sort below keeps the loose-hit rule and the tie order.
+  for (const entry of merged.values()) entry.score *= notePrior(entry.key);
   const weak = (entry) => (entry.word?.loose === true && entry.meaning === null ? 1 : 0);
   return [...merged.values()]
     .sort((a, b) => weak(a) - weak(b) || b.score - a.score || a.order - b.order)
@@ -287,6 +293,13 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
   const settings = searchSettingsOf(store);
   const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
   const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
+  // A search probe is a benchmark's tool, read from the index by id, never an
+  // answer: dropped from the word hits here as `meaningMatches` drops it from
+  // the meaning matches (`../priors.js`).
+  if (found.hits.some((hit) => isSearchProbe(hit[keyField]))) {
+    const hits = found.hits.filter((hit) => !isSearchProbe(hit[keyField]));
+    found = { ...found, hits, matchCount: Math.max(0, (found.matchCount ?? hits.length) - (found.hits.length - hits.length)) };
+  }
   if (!matches || matches.length === 0) {
     // `loose` is a ranking signal, never part of the answer; it and the word
     // rank ride beside the hits as `evidence`, for a search across
