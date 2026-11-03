@@ -464,7 +464,9 @@ export async function toolWriteNote(writer, scope, rules, overrides, args, optio
   const action = options.record?.action ?? (existing ? "update_note" : "create_note");
   // Tighten the ACL before content becomes visible. For team publishing, keep
   // the private ACL in place until the content write has completed.
-  if (desiredVisibility === "private" && !collaborationResult && !sealedHome && !tierKept) {
+  // A new note whose folders already make it private has nothing to write (`rowAccess.inherits`): no trip.
+  const inherited = (tier) => !existing && store.rowAccess?.inherits?.(path, tier) === true;
+  if (desiredVisibility === "private" && !collaborationResult && !sealedHome && !tierKept && !inherited("private")) {
     await phase(store, "write_tier", () => persistExactVisibility(store, path, "private", rules));
   }
   const put = collaborationResult
@@ -495,7 +497,7 @@ export async function toolWriteNote(writer, scope, rules, overrides, args, optio
         : "conflict: note was created while this write was in progress; re-read and try again",
     );
   }
-  if (desiredVisibility === "team" && !sealedHome && !tierKept) {
+  if (desiredVisibility === "team" && !sealedHome && !tierKept && !inherited("team")) {
     await phase(store, "write_tier", () => persistExactVisibility(store, path, "team", rules));
   }
   await phase(store, "write_record", () =>
