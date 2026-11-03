@@ -63,9 +63,9 @@ saw the four-screen mock, and chose every default below on 2026-10-27
   edits, and what the audit names, are the normal paths'. It gets no
   workspace, no membership and no waitlist place. Membership in the chat and
   access to its notes are decided by a later PR; until then the folder naming
-  keeps the reach a guest pass had. The folder's grant comes from
-  `ensureChatFolderGrant` on the chat's first turn, so until that a new
-  account is named on the folder with the next tag.
+  keeps the reach a guest pass had. Naming waits on the folder's group grant,
+  and no writer sets that grant now, so a new account is not named on the
+  folder.
 - **Passes made before accounts keep working.** A pass issued on 2026-10-27
   is kept in its storage and on the server only as a hash (`guestPasses`),
   lasts a year from its last use, and "Sign out" forgets it. No new one is

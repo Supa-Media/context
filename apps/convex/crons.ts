@@ -386,12 +386,11 @@ crons.interval(
 );
 
 /**
- * Keep the id copy current (`functions/noteIds.ts`): a finished pass starts
- * again, so an edit is copied, a pass whose chain stopped is resumed, and a
- * workspace made after the switch gets its first pass and its flip. A
- * third bucket-reaching job, so it owes the two paragraphs: it holds no
- * decision, since every page re-reads its rows and re-checks each file's etag
- * before a copy is marked, and it only decides when to look. Staff pause it.
+ * Keep the id copy current (`functions/noteIds.ts`): a keyed row whose recheck is owed gets its diagnosis again,
+ * a few a tick, so a rewrite of the bucket that moved a key's version under its row is caught. Nothing else is
+ * started here: a workspace is keyed at its binding or by its first pass, and edits are written at their id keys as
+ * they happen. Bucket-reaching, so its two paragraphs: it holds no decision, since every page re-reads its rows and
+ * re-checks each file's etag before a copy is marked; it only decides when to look. Staff pause it.
  */
 crons.interval("keep the id copy of each file current", { minutes: 15 }, internal.functions.noteIds.keepCurrent, {});
 

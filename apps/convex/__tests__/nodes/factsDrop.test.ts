@@ -5,7 +5,9 @@
  *
  * Sabotage (temporary local edits, reverted): dropping the home check in `runFactFill` → "a pass where the notes
  * live in the object drops the copy" fails (the copy stays and the notes are read again); leaving the fill's state
- * row behind → "a home that goes back" fails (the fill thinks it is caught up and reads nothing).
+ * row behind → "a home that goes back" fails (the fill thinks it is caught up and reads nothing); dropping the home check
+ * in `record` → "a fact pass's record that lands after the home went to object writes nothing" fails (the links and
+ * props land after the copy was dropped).
  */
 
 import { describe, expect, test } from "vitest";
@@ -76,6 +78,29 @@ describe("the control plane's copy of facts where the notes live in their object
     expect(reads).toEqual([]);
     // Another change's pass finds nothing left to drop and reads nothing.
     expect(await t.mutation(internal.functions.nodeFactsDrop.drop, { workspaceId: ws })).toEqual({ more: false, cursor: null, links: 0, notes: 0 });
+  });
+
+  test("a fact pass's record that lands after the home went to object writes nothing", async () => {
+    const t = tester();
+    const ws = await workspace(t, "eta");
+    await observeBucket(t, ws, bucket());
+    await setHome(t, ws, "object");
+    const notes = [
+      { path: "1-projects/plan.md", links: [["path", "2-areas/area.md"], ["name", "notes"]], props: JSON.stringify({ properties: { status: "active" } }) },
+      { path: "1-projects/notes.md", gone: true, links: [], props: null },
+    ];
+    await t.mutation(internal.functions.nodeFacts.record, { workspaceId: ws, notes });
+    expect(await kept(t, ws)).toEqual({ links: 0, facts: 0, state: 0 });
+  });
+
+  test("the same record on a bucket home writes the links and the props", async () => {
+    const t = tester();
+    const ws = await workspace(t, "theta");
+    await observeBucket(t, ws, bucket());
+    await setHome(t, ws, "bucket");
+    const notes = [{ path: "1-projects/plan.md", links: [["path", "2-areas/area.md"], ["name", "notes"]], props: JSON.stringify({ properties: { status: "active" } }) }];
+    await t.mutation(internal.functions.nodeFacts.record, { workspaceId: ws, notes });
+    expect(await kept(t, ws)).toMatchObject({ links: 2, facts: 1 });
   });
 
   test("a large copy is dropped a page at a time, each page scheduling the next", async () => {

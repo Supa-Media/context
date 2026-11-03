@@ -10,6 +10,8 @@
  * end having set something right is walked again from the next cron tick,
  * since a move during it can carry a row past the position; a walk that sets
  * nothing right finishes the check. `report` gives the totals as counts for the `Tree parents` workflow.
+ * A workspace whose notes live in its object is left alone: the object is the writer of record for its rows, and a
+ * check from the bucket's side would only rewrite them behind it (`docs/decisions/storage-and-credentials/background-tree-writers.md`).
  * Nothing here reaches a bucket.
  */
 
@@ -19,6 +21,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalQuery, type MutationCtx } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import { checkParents } from "./lib/nodes/parentCheck";
+import { notesInObject } from "./lib/nodes/notesHome";
 import { pathsBuilt } from "./lib/nodes/paths";
 
 /** Rows one page reads. */
@@ -46,6 +49,7 @@ export const checkDue = internalMutation({
     const page = await ctx.db.query("noteIdCopies").paginate({ cursor: cursor ?? null, numItems: WORKSPACE_PAGE });
     for (const copies of page.page) {
       if (copies.keyedAt === undefined) continue;
+      if (await notesInObject(ctx.db, copies.workspaceId)) continue;
       const state = await stateOf(ctx, copies.workspaceId);
       if (state !== null && (state.done || held(state, now))) continue;
       await ctx.scheduler.runAfter(0, internal.functions.treeParents.checkWorkspace, { workspaceId: copies.workspaceId, now });
@@ -63,6 +67,9 @@ export const checkWorkspace = internalMutation({
   args: { workspaceId: v.id("workspaces"), now: v.number() },
   returns: v.null(),
   handler: async (ctx, { workspaceId, now }) => {
+    // A chain scheduled before the switch stops here, at its next page. Its state row is left as it is: the walk
+    // did not finish, and nothing reads a row that says it did.
+    if (await notesInObject(ctx.db, workspaceId)) return null;
     let state = await stateOf(ctx, workspaceId);
     if (state === null) {
       const id = await ctx.db.insert("treeParents", {
@@ -145,6 +152,8 @@ export const report = internalQuery({
   args: {},
   returns: v.object({
     keyedWorkspaces: v.number(),
+    /** Keyed workspaces whose notes live in their object: never checked here, so never counted as waiting. */
+    inObject: v.number(),
     done: v.number(),
     running: v.number(),
     notStarted: v.number(),
@@ -160,6 +169,7 @@ export const report = internalQuery({
     const now = Date.now();
     const answer = {
       keyedWorkspaces: 0,
+      inObject: 0,
       done: 0,
       running: 0,
       notStarted: 0,
@@ -174,6 +184,10 @@ export const report = internalQuery({
     for await (const copies of ctx.db.query("noteIdCopies")) {
       if (copies.keyedAt === undefined) continue;
       answer.keyedWorkspaces += 1;
+      if (await notesInObject(ctx.db, copies.workspaceId)) {
+        answer.inObject += 1;
+        continue;
+      }
       const state = await ctx.db
         .query("treeParents")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", copies.workspaceId))

@@ -10,7 +10,7 @@
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
-import { COPY_LEASE_MS, COPY_SCAN, copyIsFresh, idKeyFor, newNoteId, tooLarge, type NoteIdItem } from "../nodes/noteIds";
+import { COPY_LEASE_MS, COPY_SCAN, copyIsFresh, idKeyFor, tooLarge, type NoteIdItem } from "../nodes/noteIds";
 import { nodeAt as treeNodeAt, nodePaths } from "../nodes/paths";
 
 export type CopyRow = Doc<"noteIdCopies">;
@@ -200,35 +200,4 @@ export async function scanCopiedFiles(
     }
   }
   return scan;
-}
-
-/**
- * A queued move (`lib/nodes/moveWork.ts`) has moved the bytes at `from` to
- * `to`. The note keeps its id, so the target takes the source's `noteId`, and
- * its copy if the copy is still the same object's: the bytes are the same, so
- * the copy is judged by the etag the target now has. A copy that would sit
- * under a different key (the name's extension changed) is not carried.
- */
-export async function carryIdentity(ctx: MutationCtx, workspaceId: Id<"workspaces">, from: string, to: string): Promise<void> {
-  const source = await nodeAt(ctx.db, workspaceId, from);
-  const target = await nodeAt(ctx.db, workspaceId, to);
-  if (source === null || target === null || target.kind !== "file") return;
-  // Only a source that has gone can hand its id over. A source still live keeps its id, and the target keeps its
-  // own: two live rows with one id would share one key (`notes/<id>.md` names no path), and one note's bytes would
-  // be copied over the other's.
-  if (source.goneAt === undefined) return;
-  const noteId = source.noteId ?? target.noteId ?? newNoteId();
-  const key = idKeyFor(noteId, to);
-  const copy = source.idCopy;
-  const idCopy =
-    copy !== undefined && copy.key === key && target.etag !== undefined
-      ? {
-          key,
-          etag: copy.etag === source.etag ? target.etag : copy.etag,
-          copiedAt: copy.copiedAt,
-          // The key's own version travels too: without it a racing write at the key would read as a match.
-          ...(copy.keyEtag === undefined ? {} : { keyEtag: copy.keyEtag }),
-        }
-      : undefined;
-  await ctx.db.patch(target._id, { noteId, idCopy });
 }
