@@ -114,8 +114,18 @@ export function useFileActions(deps: FileActionsDeps) {
   const startContextMoveAction = useAction(api.functions.contextMoves.startContextMove);
   const resumeContextMoveAction = useAction(api.functions.contextMoves.resumeContextMove);
   const dismissContextMoveMutation = useMutation(api.functions.contextMoves.dismissContextMove);
-  const copyEntry = useAction(api.functions.files.copyEntry);
-  const duplicateEntry = useAction(api.functions.files.duplicateEntry);
+  // Copy and Duplicate of a note go to the gateway too, which makes the copy and the object adopts it; a folder, or
+  // anything else the gateway leaves to Convex, answers null and takes the action.
+  const copyEntryAction = useAction(api.functions.files.copyEntry);
+  const copyEntry = useCallback<typeof copyEntryAction>(
+    async (args) => (await objectMoves.copy(args.workspaceId, { from: args.from, to: args.to })) ?? (await copyEntryAction(args)),
+    [copyEntryAction, objectMoves],
+  );
+  const duplicateEntryAction = useAction(api.functions.files.duplicateEntry);
+  const duplicateEntry = useCallback<typeof duplicateEntryAction>(
+    async (args) => (await objectMoves.duplicate(args.workspaceId, { path: args.path })) ?? (await duplicateEntryAction(args)),
+    [duplicateEntryAction, objectMoves],
+  );
   // Archive, trash and restore are moves too: the answer says where the folder went.
   const archiveEntryAction = useAction(api.functions.files.archiveEntry);
   const archiveEntry = useCallback<typeof archiveEntryAction>(

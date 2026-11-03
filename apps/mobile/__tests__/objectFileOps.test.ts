@@ -5,6 +5,8 @@ import {
   OBJECT_FILE_OP_TIMEOUT_MS,
   objectMove,
   objectRestore,
+  objectCopy,
+  objectDuplicate,
   objectTrash,
   type ObjectMoveTarget,
 } from "../features/console/files/objectFileOps";
@@ -241,5 +243,82 @@ describe("moves through the gateway", () => {
     replies = [{ status: 409, body: { error: "changed", currentEtag: "e3" } }];
     const error = await refusalOf(objectMove(target(), { from: "a.md", to: "b.md", expectedEtag: "e1" }));
     expect(error.data).toMatchObject({ code: "CONFLICT", currentEtag: "e3" });
+  });
+});
+
+describe("copies and duplicates through the gateway", () => {
+  const COPIED = { kind: "moved", from: "1-projects/a.md", to: "1-projects/b.md", paths: ["1-projects/b.md"], etag: "e4" };
+
+  test("a 200 copy returns the moved object, posted to /files/copy with exactly the body given", async () => {
+    replies = [{ status: 200, body: COPIED }];
+    const t = target();
+    await expect(objectCopy(t, { from: "1-projects/a.md", to: "1-projects/b.md" })).resolves.toEqual(COPIED);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.url).toBe(`${ORIGIN}/files/copy`);
+    expect(sent[0]!.init.method).toBe("POST");
+    expect(sent[0]!.init.headers).toEqual({ authorization: "Bearer tok-1", "content-type": "application/json" });
+    expect(JSON.parse(sent[0]!.init.body!)).toEqual({ from: "1-projects/a.md", to: "1-projects/b.md" });
+    expect(t.mint).toHaveBeenCalledTimes(1);
+  });
+
+  test("a 200 duplicate returns the moved object, posted to /files/duplicate with exactly the body given", async () => {
+    const duplicated = { kind: "moved", from: "1-projects/a.md", to: "1-projects/a copy.md", paths: ["1-projects/a copy.md"] };
+    replies = [{ status: 200, body: duplicated }];
+    const t = target();
+    await expect(objectDuplicate(t, { path: "1-projects/a.md" })).resolves.toEqual(duplicated);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.url).toBe(`${ORIGIN}/files/duplicate`);
+    expect(sent[0]!.init.method).toBe("POST");
+    expect(sent[0]!.init.headers).toEqual({ authorization: "Bearer tok-1", "content-type": "application/json" });
+    expect(JSON.parse(sent[0]!.init.body!)).toEqual({ path: "1-projects/a.md" });
+    expect(t.mint).toHaveBeenCalledTimes(1);
+  });
+
+  test("409 not_object returns null for copy and duplicate, not a refusal", async () => {
+    replies = [{ status: 409, body: { error: "not_object" } }];
+    await expect(objectCopy(target(), { from: "1-projects/a.md", to: "b.md" })).resolves.toBeNull();
+    replies = [{ status: 409, body: { error: "not_object" } }];
+    await expect(objectDuplicate(target(), { path: "1-projects/a.md" })).resolves.toBeNull();
+  });
+
+  test("409 taken throws DESTINATION_EXISTS for copy", async () => {
+    replies = [{ status: 409, body: { error: "taken" } }];
+    const error = await refusalOf(objectCopy(target(), { from: "1-projects/a.md", to: "1-projects/b.md" }));
+    expect(error.data.code).toBe("DESTINATION_EXISTS");
+    expect(error.data.message.length).toBeGreaterThan(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  test("404 not_found throws FILE_NOT_FOUND for copy", async () => {
+    replies = [{ status: 404, body: { error: "not_found" } }];
+    const error = await refusalOf(objectCopy(target(), { from: "1-projects/gone.md", to: "b.md" }));
+    expect(error.data.code).toBe("FILE_NOT_FOUND");
+    expect(sent).toHaveLength(1);
+  });
+
+  test("403 forbidden throws FORBIDDEN for copy and duplicate", async () => {
+    replies = [{ status: 403, body: { error: "forbidden" } }];
+    expect((await refusalOf(objectCopy(target(), { from: "a.md", to: "b.md" }))).data.code).toBe("FORBIDDEN");
+    replies = [{ status: 403, body: { error: "forbidden" } }];
+    expect((await refusalOf(objectDuplicate(target(), { path: "a.md" }))).data.code).toBe("FORBIDDEN");
+    expect(sent).toHaveLength(2);
+  });
+
+  test("503 unavailable returns null for copy and duplicate", async () => {
+    replies = [{ status: 503, body: { error: "unavailable" } }];
+    await expect(objectCopy(target(), { from: "a.md", to: "b.md" })).resolves.toBeNull();
+    replies = [{ status: 503, body: { error: "unavailable" } }];
+    await expect(objectDuplicate(target(), { path: "a.md" })).resolves.toBeNull();
+  });
+
+  test("a workspace the object does not serve returns null without calling fetch", async () => {
+    setObjectServes(WS, false);
+    const t = target();
+    await expect(objectCopy(t, { from: "a.md", to: "b.md" })).resolves.toBeNull();
+    await expect(objectDuplicate(t, { path: "a.md" })).resolves.toBeNull();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(t.mint).not.toHaveBeenCalled();
   });
 });

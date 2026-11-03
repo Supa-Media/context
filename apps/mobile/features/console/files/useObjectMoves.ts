@@ -4,9 +4,13 @@ import { useConsoleGrant } from "../../agent/useConsoleGrant";
 import { gatewayOriginFrom } from "../../meetings/gateway";
 import { MCP_ENDPOINT } from "../placeholderData";
 import {
+  objectCopy,
+  objectDuplicate,
   objectMove,
   objectRestore,
   objectTrash,
+  type ObjectCopyBody,
+  type ObjectDuplicateBody,
   type ObjectMoveBody,
   type ObjectMoved,
   type ObjectRestoreBody,
@@ -14,7 +18,7 @@ import {
 } from "./objectFileOps";
 
 /**
- * The gateway routes for trash, restore and moves, with the console grant minted for
+ * The gateway routes for trash, restore, moves, copies and duplicates, with the console grant minted for
  * the workspace they act on. Each answers `null` when the caller should use the
  * Convex action instead (see `objectFileOps.ts`); the served check is read at
  * call time, from `objectServes`, so the answer is the one the object gave last.
@@ -34,6 +38,8 @@ export function useObjectMoves() {
       trash: (workspaceId: string, body: ObjectTrashBody): Promise<ObjectMoved | null> => objectTrash(target(workspaceId), body),
       restore: (workspaceId: string, body: ObjectRestoreBody): Promise<ObjectMoved | null> => objectRestore(target(workspaceId), body),
       move: (workspaceId: string, body: ObjectMoveBody): Promise<ObjectMoved | null> => objectMove(target(workspaceId), body),
+      copy: (workspaceId: string, body: ObjectCopyBody): Promise<ObjectMoved | null> => objectCopy(target(workspaceId), body),
+      duplicate: (workspaceId: string, body: ObjectDuplicateBody): Promise<ObjectMoved | null> => objectDuplicate(target(workspaceId), body),
     };
   }, [mintGrant, origin]);
 }

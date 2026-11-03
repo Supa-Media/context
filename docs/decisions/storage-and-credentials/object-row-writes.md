@@ -251,3 +251,20 @@ to the control plane. `DEFER`, `UNKEYED`, an unreachable object or an unknown an
 done in the gateway: open editors are told, the change is recorded, and the forwarding ledger and folder icons follow
 behind the answer; links follow when the mirror takes the move. `archive_note` lands in Archive, so it defers today.
 The tests are `apps/mcp/test/objectMove.test.mjs`.
+
+## Copies in the object (2026-11-03)
+
+The app's Copy and Duplicate of one Markdown note go to the gateway (`POST /files/copy`, `/files/duplicate`,
+`apps/mcp/src/live/fileCopy.js`) when the object serves the workspace. The gateway reads the note's current text (its
+shared-editing document where it has one, as `copyPath` reads it), puts it at the new name with `onlyIf: absent`, and
+the object adopts it as a new note (`ws.write.adopt`); the bucket's backup copy and Convex's row follow behind. The
+copy is not one object transaction: the text goes to the object's body store and the row to its rows, which is the
+same order every new note's save takes.
+
+What travels is `copyPrivacy`'s inherited case: a note private only because of its folder gets an exact private rule
+before its text lands in a team folder; otherwise the copy takes its new folder's tier. Anything else is left to the
+control plane (`defer`, which the app sends to `files.copyEntry` / `files.duplicateEntry`): a folder, a file that is
+not a note, a source or destination with its own rule, a source seen through a group or a person, or a chat's sealed
+home. The caller is judged by the session, source first, so a source they cannot see is `not_found` whatever the
+destination holds. Duplicate tries the control plane's "… copy", "… copy 2" names in order against every live name,
+seen or not, and leaves the choice to the control plane after 20. The tests are `apps/mcp/test/fileCopy.test.mjs`.
