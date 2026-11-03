@@ -138,7 +138,7 @@ test("a row that names another key is not served, and nothing is written", async
   const before = await text(client.bodies, KEY);
   logged.length = 0;
   const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
-  assert.equal(answer, null);
+  assert.deepEqual(answer, { served: false, reason: "row_moved" });
   assert.equal(await text(client.bodies, KEY), before);
   // Why it was not served is logged as the object's code, never the path (2026-11-03).
   assert.deepEqual(logged, [["workspace_object_collab_not_served", { workspaceId: "ws", reason: "row_moved" }]]);
@@ -155,7 +155,10 @@ test("a saved version only the bucket keeps sends the save back to the gateway",
   // The object pruned the version the save is based on; the bucket still has it.
   for (const row of store.sql.exec("SELECT key FROM objects WHERE key LIKE ?", `${COLLAB}v1/revisions/%`).toArray()) store.objects.delete(row.key);
   const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
-  assert.equal(answer, null);
+  // Which read the object lacked, said to the save for its timings (`inside:collab_declined_not_held_version`).
+  assert.equal(answer.served, false);
+  assert.equal(answer.reason, "not_held_version");
+  assert.ok(Number.isFinite(answer.took));
   // And the gateway's own engine, which reads the bucket for it, still saves.
   const done = await replaceText(atPath(routed), PATH, { expectedEtag: saved.etag, onlyCurrent: true, text: "# Plan\n\nThird words.\n" });
   assert.equal(done.text, "# Plan\n\nThird words.\n");
@@ -280,5 +283,17 @@ test("the object says how long it spent on the save, and write_note's store reco
   await replaceNoteText(layeredStore, PATH, { expectedEtag: answer.result.etag, onlyCurrent: true, text: "# Plan\n\nFourth words.\n" });
   assert.equal(took.length, 1);
   assert.equal(took[0][0], "collab_replace");
+  assert.ok(Number.isFinite(took[0][1]));
+});
+
+test("a save the object declines says why in its timings, and the gateway's engine still saves it", async () => {
+  const { routed, client, store, saved } = await started();
+  for (const row of store.sql.exec("SELECT key FROM objects WHERE key LIKE ?", `${COLLAB}v1/revisions/%`).toArray()) store.objects.delete(row.key);
+  const { store: layeredStore } = layered(routed, client);
+  const took = [];
+  Object.defineProperty(layeredStore, "phase", { value: Object.assign((name, run) => run(), { took: (name, ms) => took.push([name, ms]) }) });
+  const result = await replaceNoteText(layeredStore, PATH, { expectedEtag: saved.etag, onlyCurrent: true, text: "# Plan\n\nThird words.\n" });
+  assert.equal(result.text, "# Plan\n\nThird words.\n");
+  assert.deepEqual(took.map(([name]) => name), ["collab_declined_not_held_version"]);
   assert.ok(Number.isFinite(took[0][1]));
 });
