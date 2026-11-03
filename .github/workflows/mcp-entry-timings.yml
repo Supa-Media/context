@@ -80,7 +80,7 @@ jobs:
             const lines = split
               ? ["| step | state | client | n | p50 ms | p95 ms | calls each |", "| --- | --- | --- | ---: | ---: | ---: | ---: |"]
               : ["| step | state | n | p50 ms | p95 ms | calls each |", "| --- | --- | ---: | ---: | ---: | ---: |"];
-            // An app name is the grant's, so only letters, digits, spaces and dots are printed.
+            // An app name comes from the grant, so only letters, digits, spaces and dots are printed.
             const app = (name) => String(name ?? "").replace(/[^A-Za-z0-9 .]/g, "").slice(0, 40) || "-";
             for (const row of data) lines.push(`| ${row.step} | ${row.state} |${split ? ` ${app(row.client)} |` : ""} ${Math.round(row.n)} | ${Math.round(row.p50_ms)} | ${Math.round(row.p95_ms)} | ${Number(row.calls).toFixed(1)} |`);
             const out = [`### ${process.env.CALL}, last ${process.env.SPAN}`, "", ...lines].join("\n");
