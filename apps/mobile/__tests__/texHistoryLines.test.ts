@@ -279,4 +279,34 @@ describe("the history file's view", () => {
     await tick();
     expect(document.querySelector('[data-testid="history-file-latest"]')).toBeNull();
   });
+
+  test("a new line arrives as it is written: the chat's live feed is heard, and the newest page read again", async () => {
+    // Dev, 2026-11-03: "are we making sure we are opening a websocket for realtime updates?"
+    const base = fixtureSource();
+    let extra: { id: string; at: number; kind: string; seq: number; [k: string]: unknown }[] = [];
+    let patch: ((p: { section: string }) => void) | null = null;
+    mockSource = {
+      ...base,
+      ledger: async (chat, q) => {
+        const r = await base.ledger(chat, { ...q, day: undefined });
+        return r.kind === "ok" ? { kind: "ok", value: { ...r.value, entries: [...extra, ...r.value.entries] } } : r;
+      },
+      live: (_chat, onPatch, onLive) => {
+        patch = onPatch;
+        onLive(true);
+        return { close: () => void (patch = null), watch: () => {} } as never;
+      },
+    };
+    const own = { id: "ws_me", slug: "seyi" };
+    act(() => root.render(createElement(HistoryFileView, { path: "tex/history.ledger.json", workspace: own, own })));
+    await tick();
+    expect(patch).not.toBeNull();
+    expect(container.textContent).not.toContain("Just landed");
+    const now = Date.now();
+    extra = [{ id: "new-1", at: now, seq: 9_999, kind: "text", from: { kind: "person", name: "Ada" }, text: "Just landed" }];
+    act(() => patch!({ section: "behind" }));
+    await act(() => new Promise((r) => setTimeout(r, 500)));
+    await tick();
+    expect(container.textContent).toContain("Just landed");
+  });
 });

@@ -4,8 +4,8 @@ import { ActivityIndicator, StyleSheet, View, useWindowDimensions } from "react-
 import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
 import { densityFor } from "../../app/frame";
 import { layout } from "../../design/tokens";
+import { useColors } from "../../design/theme";
 import { ContextIcon } from "../../console/files/contextIcons/ContextIcon";
-import { documentMargin } from "../../console/panes/browsePane/DocumentPage";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useConsoleGrant } from "../../agent/useConsoleGrant";
 import { MCP_ENDPOINT } from "../../console/placeholderData";
@@ -78,7 +78,7 @@ export function HistoryFileView({
 
   const compact = densityFor(useWindowDimensions().width) === "compact";
   const padding = useSurfacePadding();
-  const pad = compact ? { top: padding.content.top, bottom: padding.content.bottom, side: layout.readingMargin } : { top: 0, bottom: 0, side: 0 };
+  const pad = compact ? { top: padding.content.top, bottom: padding.content.bottom, side: layout.readingMargin } : { top: 0, bottom: 0, side: 40 };
   const head = <HistoryHead whose={place.kind === "group" && group ? group.name : null} />;
 
   const body =
@@ -95,13 +95,13 @@ export function HistoryFileView({
         <ActivityIndicator size="small" />
       </View>
     ) : (
-      <HistoryFileLines source={source} chat={chat} group={place.kind === "group"} head={head} pad={pad} />
+      <HistoryFileLines source={source} chat={chat} group={place.kind === "group"} head={head} pad={pad} phone={compact} />
     );
 
   return (
     <NowContext.Provider value={Date.now}>
       <Frame compact={compact} padding={padding}>
-        <View style={[documentMargin.column, styles.fill]} testID="history-file">
+        <View style={styles.fill} testID="history-file">
           {body}
         </View>
       </Frame>
@@ -111,9 +111,10 @@ export function HistoryFileView({
 
 /** One thin row (Dev, 2026-11-03: "can the header be thinner somehow"): the icon, History, and whose. */
 export function HistoryHead({ whose }: { whose: string | null }) {
+  const colors = useColors();
   return (
     <View style={styles.title}>
-      <ContextIcon part="tex_history" size={18} />
+      <ContextIcon part="tex_history" size={18} tint={colors.accent} />
       <T size={17} serif weight="600" line={1.25} testID="history-file-title">
         History
       </T>
