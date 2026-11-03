@@ -162,6 +162,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A yes answers the ask made in its own chat, and only the latest](./privacy-and-sharing/agent-egress.md) (2026-11-02)
 - [In the pinned workspace, `team` means its members, and All Context users is its own grant](./privacy-and-sharing/all-context-users.md) (2026-10-19, superseding the morning's "`team` is shown as All Context users")
 - [A linked page's card is its cover, for team links too](./privacy-and-sharing/page-covers.md) (2026-10-27)
+- [An AI connection reads what was shared with its person, as the app does](./privacy-and-sharing/ai-connection-names.md) (2026-11-03)
 
 ## [Per-note encryption](./encryption.md)
 

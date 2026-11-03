@@ -244,6 +244,14 @@ export function personRows(sql) {
   };
 }
 
+/**
+ * Whether a connection holds the person's names: the app's own client and every AI connection, never one of Context's
+ * own background clients (`context_*`). The control plane's `holdsGrantedNames` (`liveGrants.ts`) is the same rule.
+ */
+export function holdsGrantedNames(clientId) {
+  return clientId === CONSOLE_CLIENT_ID || !String(clientId).startsWith("context_");
+}
+
 /** A connection as a listing shows it: never a hash, so a list can be handed to a screen. */
 export function withoutHashes({ tokenHash, refreshHash, ...row }) {
   return row;
@@ -263,12 +271,12 @@ export function sessionFor(store, tokenHash, now = Date.now()) {
   const reach = store.live("reach").filter((row) => row.workspaceId !== undefined);
   const own = reach.find((row) => row.workspaceId === connection.workspaceId && !row.pinned);
   if (own === undefined) return null;
-  const withNames = connection.clientId === CONSOLE_CLIENT_ID;
+  const withNames = holdsGrantedNames(connection.clientId);
   // The person's own handle is a name they answer to everywhere: their personal workspace's slug.
   const handle = reach.find((row) => row.kind === "personal" && row.role === "owner" && !row.pinned)?.slug ?? null;
-  // The app's own client also holds the names its grants on rows give it (`rowNames`), as the control plane's session
-  // gives it (`grantedNamesFor`): without them a note shared to the person by name, and a Tex chat's sealed home, open
-  // to no one (2026-11-02).
+  // The app's own client, and every AI connection, also holds the names its grants on rows give it (`rowNames`), as the
+  // control plane's session gives them (`grantedNamesFor`): without them a note shared to the person by name, and a Tex
+  // chat's sealed home, open to no one (2026-11-02; AI connections since 2026-11-03).
   const namesOf = (row) =>
     row.pinned ? row.groups : withNames ? [...row.groups, ...(row.rowNames ?? []), ...(handle === null ? [] : [handle])] : [];
   const entry = (row) => ({

@@ -204,6 +204,8 @@ describe("/gateway/session", () => {
         scopes: ["context:read", "context:write"],
         role: "owner",
         kind: "personal",
+        // An AI connection holds the names its person answers to (2026-11-03): here her handle.
+        grantedNames: ["alfa"],
       },
       null,
       null,
@@ -264,6 +266,7 @@ describe("/gateway/session", () => {
         scopes: ["context:read", "context:write"],
         role: "member",
         kind: "personal",
+        grantedNames: ["alfa"],
       },
     ]);
 
@@ -401,8 +404,8 @@ describe("/gateway/session", () => {
     );
     expect((relayAfterRemoval.sessions as any[])[0].grantedNames).toEqual([]);
 
-    // A normal OAuth grant may have the same person, workspace and role, but
-    // its consent is narrower and must never acquire console-only group names.
+    // An AI connection holds the person's names as the app does (Dev, 2026-11-03): a note shared with them by name or
+    // through a group, and a Tex chat's sealed home, open to their Claude too. Live, so the removal above shows.
     await registerClient(t, "narrow_group_client");
     const narrowToken = token("narrow_group");
     await seedConnectedClient(t, {
@@ -415,7 +418,31 @@ describe("/gateway/session", () => {
     const narrowSession = await bodyOf(
       await gatewayPost(t, "/gateway/session", { accessToken: narrowToken }),
     );
-    expect((narrowSession.session as any).workspaces[0].grantedNames).toBeUndefined();
+    expect((narrowSession.session as any).workspaces[0].grantedNames).toEqual([]);
+    await asUser(t, owner).mutation(api.functions.groups.addGroupMember, {
+      workspaceId,
+      groupId: group.groupId,
+      userId: member,
+    });
+    const rejoined = await bodyOf(
+      await gatewayPost(t, "/gateway/session", { accessToken: narrowToken }),
+    );
+    expect((rejoined.session as any).workspaces[0].grantedNames).toEqual(["group-home-readers"]);
+
+    // Context's own background clients (`context_*`) never hold them.
+    await registerClient(t, "context_cards");
+    const backgroundToken = token("background_group");
+    await seedConnectedClient(t, {
+      workspaceId,
+      userId: member,
+      clientId: "context_cards",
+      accessToken: backgroundToken,
+      scopes: ["context:read"],
+    });
+    const background = await bodyOf(
+      await gatewayPost(t, "/gateway/session", { accessToken: backgroundToken }),
+    );
+    expect((background.session as any).workspaces[0].grantedNames).toBeUndefined();
   });
 
   test("resolves a live grant to the documented shape", async () => {
@@ -432,7 +459,7 @@ describe("/gateway/session", () => {
     expect(typeof session.expiresAt).toBe("number");
     expect(session.defaultWorkspaceId).toBe(aliceWs);
     expect(session.workspaces).toEqual([
-      { workspaceId: aliceWs, slug: "alfa", role: "owner", kind: "personal" },
+      { workspaceId: aliceWs, slug: "alfa", role: "owner", kind: "personal", grantedNames: ["alfa"] },
     ]);
   });
 
@@ -473,8 +500,8 @@ describe("/gateway/session", () => {
 
     // No re-approval, no new grant: the membership row is the whole of it.
     expect(session.workspaces).toEqual([
-      { workspaceId: aliceWs, slug: "alfa", role: "owner", kind: "personal" },
-      { workspaceId: bobWs, slug: "alphabet", role: "member", kind: "personal" },
+      { workspaceId: aliceWs, slug: "alfa", role: "owner", kind: "personal", grantedNames: ["alfa"] },
+      { workspaceId: bobWs, slug: "alphabet", role: "member", kind: "personal", grantedNames: ["alfa"] },
     ]);
     // And the context she approved is still the one an unaddressed call means.
     expect(session.defaultWorkspaceId).toBe(aliceWs);

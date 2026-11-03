@@ -10,6 +10,7 @@ import { ensureChatHome, HOME_FOLDERS } from "../functions/lib/textGroupHome";
 import { PERSON_ONLY_TEX_PARTS, TEX_PARTS } from "@context/shared/src/folderJobInfo.cjs";
 import { grantedNamesFor } from "../functions/lib/grantedNames";
 import { checkReachRow } from "../../mcp/src/workspaceStore/access.js";
+import { registerClient, seedConnectedClient, token } from "./controlPlane/fixtures.helpers";
 
 /**
  * A GROUP CHAT'S HOME: MADE FOR ITS PEOPLE, AND THE ONE PLACE ITS TURN MAY CHANGE IN THE PIN (decided by the owner,
@@ -228,6 +229,25 @@ describe("a chat's home", () => {
     const boPin = (bo.reach.rows as { workspaceId: string; rowNames?: string[]; pinned?: boolean }[]).find((row) => row.workspaceId === String(w.pinned));
     expect(boPin?.pinned).toBe(true);
     expect(boPin?.rowNames).toBeUndefined();
+  });
+
+  test("a member's AI connection holds a home's names, as the app does; Context's own background clients do not", async () => {
+    // Dev, 2026-11-03: "i'm a member though, so shouldn't you have access?" Only the app's client held them.
+    const w = await world();
+    await addMember(w.t, w.pinned, w.ada, "member", w.staff);
+    await turn(w.t, ADA, [ADA, BO, CY, LINE]);
+    const folder = `tex/groups/${(await chatRow(w.t))!.homeWords}`;
+    const noteId = (await homeRow(w, folder))!.row.noteId;
+    const own = await w.t.run(async (ctx) => (await ctx.db.query("workspaces").collect()).find((row) => row.slug === "ada")!._id);
+    await registerClient(w.t, "mcp_ada_claude");
+    const claude = token("ada_claude");
+    await seedConnectedClient(w.t, { workspaceId: own, userId: w.ada, clientId: "mcp_ada_claude", accessToken: claude });
+    const pin = (await resolves(w.t, claude))?.workspaces.find((entry) => entry.workspaceId === String(w.pinned));
+    expect(pin?.grantedNames).toEqual(expect.arrayContaining([`#${noteId}`, `#${noteId}!edit`]));
+    const cards = token("ada_cards");
+    await seedConnectedClient(w.t, { workspaceId: own, userId: w.ada, clientId: "context_cards", accessToken: cards });
+    const background = (await resolves(w.t, cards))?.workspaces.find((entry) => entry.workspaceId === String(w.pinned));
+    expect(background?.grantedNames).toBeUndefined();
   });
 
   test("no home where there is no pin", async () => {
