@@ -16,6 +16,9 @@
  * - `store:<op>`: each call the request's stores make (get, head, put,
  *   delete, list), for the default
  *   workspace and every other one a call opens (`open_other_context`).
+ * - `obj:<op>`: each call to a workspace object (`ws.open`, `ws.rows.lookup`,
+ *   a body's `get`, ...), through the request's `WORKSPACE_STORE` (`watchObjects`),
+ *   so a read the object serves shows its own hop beside the control plane's.
  *
  * Points are held until the request's workspace is known and written when the
  * response is handed back (`done`), so each is indexed by workspace and one
@@ -105,6 +108,22 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
       }
       return store;
     },
+    /**
+     * `env` with its workspace objects timed: each stub's `fetch` is an `obj:<op>` point, the op from the call's
+     * path. A copy, never `env` itself, which other requests share; `env` unchanged without the binding.
+     */
+    watchObjects(env) {
+      const namespace = env?.WORKSPACE_STORE;
+      if (!namespace || typeof namespace.idFromName !== "function" || typeof namespace.get !== "function") return env;
+      const watched = {
+        idFromName: (name) => namespace.idFromName(name),
+        get(id, options) {
+          const stub = namespace.get(id, options);
+          return { fetch: (input, init) => timed(`obj:${opOf(input)}`, () => stub.fetch(input, init)) };
+        },
+      };
+      return { ...env, WORKSPACE_STORE: watched };
+    },
     /** The answer is handed back now: write every point, once, and return `response`. */
     done(response) {
       record("to_response", start, response instanceof Response && response.status >= 500 ? "failed" : "ok");
@@ -138,6 +157,12 @@ function routeOf(input) {
   } catch {
     return "unknown";
   }
+}
+
+/** A workspace object call's op: its path, which is the op's name (`texStore/wire.js` `callTexStore`), never a field. */
+function opOf(input) {
+  const route = routeOf(input);
+  return /^\/[A-Za-z0-9_.-]{1,48}$/.test(route) ? route.slice(1) : "unknown";
 }
 
 function write(env, points, { surface, call, workspace, client }) {
