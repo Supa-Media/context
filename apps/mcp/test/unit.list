@@ -381,6 +381,7 @@ test/accessPending.test.mjs
 test/accessDrop.test.mjs
 test/workspaceSearchIndex.test.mjs
 test/workspaceMeaningIndex.test.mjs
+test/workspaceIndexBuild.test.mjs
 
 test/savePhases.test.mjs
 test/bookkeepingBehind.test.mjs

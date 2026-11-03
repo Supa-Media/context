@@ -234,7 +234,9 @@ function projectionOf(store) {
 async function snippetsFor(store, reading, chars, given) {
   const read = async (entries) =>
     Promise.all(entries.map(async (entry) => [entry, await meaningSnippet(store, entry.meaning, chars)]));
-  const projection = given ?? projectionOf(store);
+  // Notes held in the workspace's object are read from it, all at once, each a call of a few milliseconds: the
+  // search database's one statement took about 170 ms there (production, 2026-11-03).
+  const projection = given ?? (store?.objectMeaning ? null : projectionOf(store));
   if (reading.length === 0 || !projection) return new Map(await read(reading));
   const askable = reading;
   let answered = null;

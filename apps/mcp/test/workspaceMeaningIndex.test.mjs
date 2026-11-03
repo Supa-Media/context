@@ -239,3 +239,63 @@ test("the gateway uses the object's matches when served, and otherwise answers n
   assert.equal(await objectMeaningMatches({ objectMeaning: { meaningQuery: async () => { throw new Error("down"); } } }, [0.1]), null);
   assert.equal(await objectMeaningMatches({}, [0.1]), null);
 });
+
+// Sabotage: embed each row on its own (`await embedAll(texts)` per row) and the call count is the note count.
+test("a build asks the model for many notes' passages together, not one note at a time", { skip }, async () => {
+  const object = await seeded();
+  for (let n = 1; n <= 40; n += 1) await note(object, n, `plans/n${n}.md`, `# N${n}\nwillow`);
+  assert.deepEqual((await object.call("ws.meaning.build")).body, { served: true, waiting: 0 });
+  assert.deepEqual(object.embed.calls, [32, 8], "40 one-passage notes are two model calls of at most 32");
+  assert.equal((await query(object, "willow")).body.matches.length, 40);
+});
+
+// Sabotage: drop the `log.again` loop and the notes after the first are never embedded.
+test("a failed model puts every note of the round back", { skip }, async () => {
+  const object = await seeded();
+  for (let n = 1; n <= 3; n += 1) await note(object, n, `plans/n${n}.md`, `# N${n}\nbirch`);
+  object.embed.failing = true;
+  assert.equal((await object.call("ws.meaning.build")).body.failed, true);
+  object.embed.failing = false;
+  assert.deepEqual((await object.call("ws.meaning.build")).body, { served: true, waiting: 0 });
+  assert.equal((await query(object, "birch")).body.matches.length, 3);
+});
+
+// Sabotage: skip the round's still-current check and the note keeps the old text's fingerprint under its new etag.
+test("a note changed while the model answers is not written; its change waits for the next build", { skip }, async () => {
+  const object = await seeded();
+  await note(object, 1, "plans/a.md", "# A\ncedar");
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const inner = object.store.meaning;
+  object.store.meaning = workspaceMeaning(object.store.sql, { rows: object.store.rows, objects: object.store.objects, embed: async (texts) => (await gate, texts.map(fingerprint)) });
+  const building = object.call("ws.meaning.build");
+  await putBody(object, ID(1), "# A\nmaple");
+  release();
+  assert.equal((await building).body.waiting, 1, "the change made during the build is still waiting");
+  assert.equal(object.store.sql.exec("SELECT COUNT(*) AS n FROM ws_meaning_passages").toArray()[0].n, 0, "the old text's fingerprint is not kept");
+  object.store.meaning = inner;
+});
+
+// Sabotage: drop the `store.objectMeaning` test in `snippetsFor` and the search database is asked first.
+test("a note found only by meaning in an object workspace gets its snippet from the object, not the search database", async () => {
+  const { withMeaning } = await import("../src/search/meaning/serve.js");
+  const realFetch = globalThis.fetch;
+  let fetched = 0;
+  globalThis.fetch = async () => {
+    fetched += 1;
+    throw new Error("no network in tests");
+  };
+  try {
+    const store = {
+      objectMeaning: {},
+      searchIndex: { state: "ready", accountId: "acct", databaseId: "db", apiToken: "token" },
+      get: async (path) => (path === "plans/a.md" ? { text: async () => "# A\nthe walnut grove by the river" } : null),
+    };
+    const merged = await withMeaning(store, { hits: [], matchCount: 0 }, [{ path: "plans/a.md", score: 0.8, chunk: 0 }]);
+    assert.equal(fetched, 0, "the search database was not asked");
+    assert.equal(merged.hits.length, 1);
+    assert.match(merged.hits[0].snippets[0], /walnut grove/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
