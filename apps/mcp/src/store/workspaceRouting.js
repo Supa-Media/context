@@ -36,6 +36,10 @@
 import { HOMES, REVISIONS, documentStateId, isHome, isRevisionKey, isWorkspaceObjectKey } from "../workspaceStore/api.js";
 
 const routedPrefix = (prefix) => typeof prefix === "string" && (prefix.startsWith("notes/") || prefix.startsWith(".context/collaboration/"));
+
+/** A workspace note's key in its object, the one form `ws.collab.read` serves (`workspaceStore/collabRead.js`). */
+const OBJECT_NOTE_KEY = /^notes\/[A-Za-z0-9-]{1,128}\.md$/;
+
 /** A listing that could name an older saved version, which only the bucket holds whole. */
 const coversRevisions = (prefix) => typeof prefix === "string" && (REVISIONS.startsWith(prefix) || prefix.startsWith(REVISIONS));
 /**
@@ -285,6 +289,8 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
   if (typeof client.collab?.read === "function") {
     wrapped.readInObject = async ({ path, key, noteId }) => {
       if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
+      // Only a workspace note's own key: a Tex note's (`tex/…`) lives in Tex's store, so asking would be a wasted trip.
+      if (typeof key !== "string" || !OBJECT_NOTE_KEY.test(key)) return null;
       const answer = await client.collab.read({ path, key, noteId });
       await copyHandedBack(answer);
       const markdown = answer?.markdown;

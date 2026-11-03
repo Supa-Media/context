@@ -194,3 +194,10 @@ test("a malformed or out-of-object call is not served", async () => {
   assert.equal((await serveCollabRead(side.store, { path: PATH, key: "../x", noteId: NOTE_ID })).reason, "bad_call");
   assert.equal((await serveCollabRead(side.store, { path: PATH, key: KEY, noteId: NOTE_ID })).reason, "not_held");
 });
+
+test("a Tex note's key never asks the workspace object's read: it lives in Tex's store", async () => {
+  const side = objectSide();
+  const routed = withWorkspaceRouting(bucketSide(), { workspaceId: "ws", client: side.client, log: () => {}, known: { home: "object", backfilledAt: 1 } });
+  assert.equal(await routed.readInObject({ path: "tex/notes/a.md", key: `tex/person:p1/${KEY}`, noteId: NOTE_ID }), null);
+  assert.deepEqual(side.calls, [], "a Tex note's read went to the workspace object");
+});
