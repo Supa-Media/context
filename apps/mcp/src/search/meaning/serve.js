@@ -293,6 +293,13 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
   const settings = searchSettingsOf(store);
   const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
   const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
+  // A search probe is a benchmark's tool, read from the index by id, never an
+  // answer: dropped from the word hits here as `meaningMatches` drops it from
+  // the meaning matches (`../priors.js`).
+  if (found.hits.some((hit) => isSearchProbe(hit[keyField]))) {
+    const hits = found.hits.filter((hit) => !isSearchProbe(hit[keyField]));
+    found = { ...found, hits, matchCount: Math.max(0, (found.matchCount ?? hits.length) - (found.hits.length - hits.length)) };
+  }
   if (!matches || matches.length === 0) {
     // `loose` is a ranking signal, never part of the answer; it and the word
     // rank ride beside the hits as `evidence`, for a search across

@@ -18,6 +18,7 @@
  *   the with-words floor not applied               → "once the words found the note, a loosely related one…" fails
  *   the with-words floor applied to loose hits too → "…while a question the words could not answer keeps…" fails
  *   the search-probe filter removed from meaningMatches → "a search-probe note is never a meaning match…" fails
+ *   the search-probe filter removed from withMeaning   → "a search-probe note is never a word hit either" fails
  */
 
 import test from "node:test";
@@ -361,4 +362,14 @@ test("the console's hit shape, keyed by path, merges the same way", async () => 
     [["w.md", false], ["new.md", true]],
   );
   assert.ok(result.hits.every((hit) => !("key" in hit)));
+});
+
+test("a search-probe note is never a word hit either", async () => {
+  const store = { actor: { workspaceId: "w" } };
+  const found = { hits: [{ key: "ai/search-probes/gym.md", title: "gym", snippets: [] }, { key: "gym/weights.md", title: "weights", snippets: [] }], matchCount: 2 };
+  for (const matches of [null, []]) {
+    const result = await withMeaning(store, found, matches);
+    assert.deepEqual(result.hits.map((hit) => hit.key), ["gym/weights.md"]);
+    assert.equal(result.matchCount, 1);
+  }
 });
