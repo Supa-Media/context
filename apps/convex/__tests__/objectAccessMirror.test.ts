@@ -486,3 +486,149 @@ describe("objectAccessMirror.pending", () => {
     expect(after.find((entry) => entry.path === NEW_PATH)).toBeUndefined();
   });
 });
+
+describe("objectAccessMirror.dropGrantee", () => {
+  /** A second account, for a grant that must survive the drop. */
+  async function addUser(t: T, email: string): Promise<Id<"users">> {
+    return await t.run((ctx) => ctx.db.insert("users", { email, emailVerificationTime: Date.now() } as never));
+  }
+
+  /** A user grant on the row at `nodeId`, as the owner made it. */
+  async function userGrant(t: T, ws: Id<"workspaces">, nodeId: Id<"nodes">, userId: Id<"users">, role: "view" | "edit", owner: Id<"users">) {
+    await t.run((ctx) =>
+      ctx.db.insert("nodeAccess", {
+        workspaceId: ws,
+        nodeId,
+        granteeKind: "user",
+        granteeUserId: userId,
+        role,
+        grantedBy: owner,
+        at: 1,
+        source: "owner",
+      }),
+    );
+  }
+
+  /** Every grant in `ws` held by `userId`, by the index the removal reads. */
+  async function grantsOfUser(t: T, ws: Id<"workspaces">, userId: Id<"users">) {
+    return await t.run(async (ctx) =>
+      await ctx.db
+        .query("nodeAccess")
+        .withIndex("by_workspace_user", (q) => q.eq("workspaceId", ws).eq("granteeUserId", userId))
+        .collect(),
+    );
+  }
+
+  const dropRecord = (userId: string, actorUserId: string, extra: { baseVersion?: number; version?: number } = {}) => ({
+    kind: "user" as const,
+    id: userId,
+    actorUserId,
+    baseVersion: extra.baseVersion ?? 3,
+    version: extra.version ?? 4,
+  });
+
+  test("a user's grants in the workspace are dropped on every row, another user's grant stays, and one access.list audit row is written", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    const mia = await addUser(w.t, "mia@example.test");
+    const dan = await addUser(w.t, "dan@example.test");
+    await userGrant(w.t, w.ws, (await rowOf(w.t, w.ws, PLAN))!._id, mia, "edit", w.owner);
+    await userGrant(w.t, w.ws, (await rowOf(w.t, w.ws, GROUP_VIEW))!._id, mia, "view", w.owner);
+    await userGrant(w.t, w.ws, (await rowOf(w.t, w.ws, PLAN))!._id, dan, "view", w.owner);
+    expect(await grantsOfUser(w.t, w.ws, mia)).toHaveLength(2);
+
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.dropGrantee, {
+      workspaceId: w.ws,
+      objectAt: 60,
+      record: dropRecord(mia, w.owner),
+    });
+    expect(answer).toEqual({ applied: true });
+
+    expect(await grantsOfUser(w.t, w.ws, mia)).toEqual([]);
+    const planGrants = await grantsOn(w.t, w.ws, PLAN);
+    expect(planGrants).toHaveLength(1);
+    expect(planGrants[0]).toMatchObject({ granteeKind: "user", granteeUserId: dan, role: "view" });
+    const audits = await auditOf(w.t, "access.list");
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ workspaceId: w.ws, actorUserId: w.owner, details: { removedCount: 2 } });
+  });
+
+  test("the version is the object's when Convex held the object's version: it becomes record.version, and no outbox opens", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    await objectHome(w.t, w.ws);
+    const mia = await addUser(w.t, "mia@example.test");
+    await userGrant(w.t, w.ws, (await rowOf(w.t, w.ws, PLAN))!._id, mia, "view", w.owner);
+
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.dropGrantee, {
+      workspaceId: w.ws,
+      objectAt: 61,
+      record: dropRecord(mia, w.owner, { baseVersion: 3, version: 9 }),
+    });
+    expect(answer).toEqual({ applied: true });
+    expect((await stateOf(w.t, w.ws))?.version).toBe(9);
+    expect(await outbox(w.t)).toEqual([]);
+  });
+
+  test("the version is one above the object's when Convex held a version the object did not see, and an access push is queued", async () => {
+    const w = await world();
+    // Convex is at 4 and the object decided from 3: Convex took its own access change in between.
+    await seedState(w.t, w.ws, 4);
+    await objectHome(w.t, w.ws);
+    const mia = await addUser(w.t, "mia@example.test");
+    await userGrant(w.t, w.ws, (await rowOf(w.t, w.ws, PLAN))!._id, mia, "view", w.owner);
+
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.dropGrantee, {
+      workspaceId: w.ws,
+      objectAt: 62,
+      record: dropRecord(mia, w.owner, { baseVersion: 3, version: 4 }),
+    });
+    expect(answer).toEqual({ applied: true });
+    expect((await stateOf(w.t, w.ws))?.version).toBe(5);
+    expect(await outbox(w.t)).toContainEqual(expect.objectContaining({ workspaceId: w.ws, access: true, nodeIds: [] }));
+  });
+
+  test("a grant of the same user in another workspace is untouched", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    const mia = await addUser(w.t, "mia@example.test");
+    await userGrant(w.t, w.ws, (await rowOf(w.t, w.ws, PLAN))!._id, mia, "view", w.owner);
+    const elsewhere = await w.t.run((ctx) =>
+      ctx.db.insert("nodes", { workspaceId: w.other, path: PLAN, name: "plan.md", kind: "file", observedAt: 1 }),
+    );
+    await userGrant(w.t, w.other, elsewhere, mia, "edit", w.owner);
+
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.dropGrantee, {
+      workspaceId: w.ws,
+      objectAt: 63,
+      record: dropRecord(mia, w.owner),
+    });
+    expect(answer).toEqual({ applied: true });
+
+    expect(await grantsOfUser(w.t, w.ws, mia)).toEqual([]);
+    const otherGrants = await grantsOfUser(w.t, w.other, mia);
+    expect(otherGrants).toHaveLength(1);
+    expect(otherGrants[0]).toMatchObject({ nodeId: elsewhere, role: "edit" });
+    expect(await auditOf(w.t, "access.list")).toHaveLength(1);
+  });
+
+  test("an id that is not a users id answers bad_grantee, and writes nothing", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    const mia = await addUser(w.t, "mia@example.test");
+    await userGrant(w.t, w.ws, (await rowOf(w.t, w.ws, PLAN))!._id, mia, "view", w.owner);
+
+    expect(
+      await w.t.mutation(internal.functions.objectAccessMirror.dropGrantee, {
+        workspaceId: w.ws,
+        objectAt: 64,
+        record: dropRecord("not-an-id", w.owner),
+      }),
+    ).toEqual({ applied: false, reason: "bad_grantee" });
+
+    expect(await grantsOfUser(w.t, w.ws, mia)).toHaveLength(1);
+    expect((await stateOf(w.t, w.ws))?.version).toBe(3);
+    expect(await auditOf(w.t, "access.list")).toEqual([]);
+    expect(await outbox(w.t)).toEqual([]);
+  });
+});

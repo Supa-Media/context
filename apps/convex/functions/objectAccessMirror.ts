@@ -34,6 +34,7 @@ import { nodeByObjectId } from "./lib/nodes/objectIds";
 import { MAX_GRANTEES, writeRowAccess, wantedOf, type GranteeInput } from "./lib/nodes/setAccess";
 import { livePending, PENDING_MAX } from "./lib/nodes/pendingAccess";
 import { liveNodeAt } from "./lib/nodes/paths";
+import { removeUserGrantsIn } from "./lib/grants/removeUserGrants";
 
 export const accessGranteeValidator = v.object({
   kind: v.union(v.literal("user"), v.literal("group"), v.literal("email"), v.literal("members"), v.literal("accounts")),
@@ -188,6 +189,41 @@ export const pending = internalMutationMirrored({
       if (state === null) await ctx.db.insert("nodeAccessState", { workspaceId, version: heldVersion, orphans: [], pending: next });
       else await ctx.db.patch(state._id, { pending: next });
     }
+    await settleVersion(ctx, workspaceId, heldVersion, record);
+    return { applied: true };
+  },
+});
+
+/**
+ * One account's own grants taken out of the workspace by the object (`accessDrop.js`), taken out here the same way
+ * (`lib/grants/removeUserGrants.ts` `removeUserGrantsIn`: every `user` grant it holds here, audited once). Versions as
+ * `access`. `bad_grantee` / `bad_actor` for an id that names no user.
+ */
+export const dropGrantee = internalMutationMirrored({
+  args: {
+    workspaceId: v.id("workspaces"),
+    objectAt: v.number(),
+    record: v.object({
+      kind: v.literal("user"),
+      id: v.string(),
+      actorUserId: v.string(),
+      baseVersion: v.number(),
+      version: v.number(),
+      dropped: v.optional(v.number()),
+    }),
+  },
+  returns: answerValidator,
+  handler: async (ctx, { workspaceId, record }): Promise<MirrorAccessAnswer> => {
+    const userId = ctx.db.normalizeId("users", record.id);
+    if (userId === null) return refused("bad_grantee");
+    const actorUserId = ctx.db.normalizeId("users", record.actorUserId);
+    if (actorUserId === null) return refused("bad_actor");
+    const state = await ctx.db
+      .query("nodeAccessState")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    const heldVersion = state?.version ?? 0;
+    await removeUserGrantsIn(ctx, { workspaceId, userId, actorUserId });
     await settleVersion(ctx, workspaceId, heldVersion, record);
     return { applied: true };
   },

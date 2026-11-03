@@ -102,13 +102,8 @@ export function writeAccess(ctx, body) {
   if (body.base === undefined && asked === undefined) throw new WriteOpRefused("an access write changes a base or a list");
   if (mode === "add" && (asked === undefined || body.base !== undefined)) throw new WriteOpRefused("adding names grantees and no base");
 
-  const set = ctx.access?.set() ?? null;
-  if (set === null || set.moving > 0) return refusal("NOT_READY");
-  const parity = ctx.access.parity();
-  const shownEqual =
-    ctx.access.minted() === set.version ||
-    (parity?.version === set.version && parity.audiences?.member?.equal === true && parity.audiences?.guest?.equal === true);
-  if (!shownEqual) return refusal("NOT_READY");
+  const set = judgingSet(ctx);
+  if (set === null) return refusal("NOT_READY");
   if (body.expectedVersion !== undefined && body.expectedVersion !== set.version) return refusal("CONFLICT", { version: set.version });
   if (set.sealsChats && touchesChatHomes(body.path) && actor.clientId !== CHAT_HOMES_CLIENT_ID) return refusal("FORBIDDEN");
 
@@ -169,8 +164,22 @@ export function writeAccess(ctx, body) {
   return { answer: { ok: true, version }, change: { op: "access", record: { ...record, narrowing }, objectAt: version }, narrows, rules: true };
 }
 
+/**
+ * The access set the object may decide by, or null (`NOT_READY`): none held, a chunked move part way, or a rendering
+ * never shown equal to the control plane's rules at the version held (unless the object minted that version itself).
+ */
+export function judgingSet(ctx) {
+  const set = ctx.access?.set() ?? null;
+  if (set === null || set.moving > 0) return null;
+  const parity = ctx.access.parity();
+  const shownEqual =
+    ctx.access.minted() === set.version ||
+    (parity?.version === set.version && parity.audiences?.member?.equal === true && parity.audiences?.guest?.equal === true);
+  return shownEqual ? set : null;
+}
+
 /** The member and guest rules rendered from the access set just changed, kept as the rules reads are judged by. */
-function keepRules(ctx, version) {
+export function keepRules(ctx, version) {
   // Both audiences carry the member rules' etag, as the control plane's `authority` gives them.
   const member = ctx.access.render("member", undefined, ctx.now);
   const guest = ctx.access.render("guest", undefined, ctx.now);
