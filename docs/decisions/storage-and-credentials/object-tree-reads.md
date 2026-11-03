@@ -1,0 +1,32 @@
+# The control plane's tree reads come from the workspace object (2026-11-03)
+
+Part of the owner's "Yes, all tree writes" (2026-11-02): when nothing reads Convex's `nodes`, `nodeAccess`,
+`nodeAccessState` and `nodeTrees` for a workspace on its object, the mirror into those tables can stop. Readers move
+in parallel with the writers, one at a time, each proven equal to Convex's answer first.
+
+**Decision.** `servedNodesStore` (`apps/convex/functions/lib/nodes/manifestStore.ts`) is the one store every console
+tree read pages (the file list, the walk, note and folder paths, the map, a folder's notes, the chaos score, folder
+icons) and the gateway's `/gateway/tree/manifest` and `/gateway/tree/facts` read. For a workspace whose home is
+`object` it pages the object's live file rows (`ws.rows.files`, through the door, `lib/nodes/objectTreeStore.ts`) and
+judges them by the rules the object holds for the reader's audience. Callers judge with `canSee` as before; only
+where the rows and rules come from changes.
+
+Convex's rows answer only while the object cannot be the whole answer: the push's outbox holds a change Convex
+committed and the object has not taken (`workspaceObjectPush.waitingSince`, what a binding's `notesBehind` says), a
+chunked move is being drawn over Convex's rows (`nodeRowMoves.drawn`), the object says `behind` (a mark is open), or
+the gateway cannot be reached from the deployment. A walk whose later page finds the object behind fails
+(`ObjectTreeBehind`) rather than mix the object's rows with Convex's.
+
+The gateway's facts ask `jobs` (which folder does each built-in job, and the root folders a reader may see) is
+answered by the object itself (`workspaceStore/jobsAnswer.js`), judged with the listing's `folderVisibleAtScope`.
+
+A check-in's changed-since read (`changedNodesStore`) and the device change feed (`nodesFeed.head`/`changes`) stay on Convex for now: answering "not served" there would
+leave a device copy refreshing every five minutes instead of on each change, until the object offers a change
+signal of its own.
+
+**What a simplification would cost.** Reading the object without the outbox check serves a share taken back by a
+public mutation from the object's older rules until its push lands; reading it while a mark is open does the same
+for a narrowing in flight. `apps/convex/__tests__/workspaceObjectTreeReads.test.ts` proves parity after a real push
+for an owner and a team member, that an object-only row shows, and that each fallback holds (each confirmed by
+sabotage); `apps/convex/__tests__/workspaceObjectJobs.test.ts` runs Convex's folder-jobs logic and the object's over
+one fixture.
