@@ -352,7 +352,7 @@ test("an unknown about is an error that lists the values", async () => {
   const { text, isError } = await orient(HOME_TOKEN, { about: "everything" });
   assert.equal(isError, true);
   assert.match(text, /no "about" value "everything"/);
-  assert.match(text, /tools, access, website, pages, health, or an action name: save, comment/);
+  assert.match(text, /tools, access, website, pages, health, or an action name: save, save_many, comment/);
 });
 
 test("the default answer for four workspaces stays under 12,000 characters", async () => {

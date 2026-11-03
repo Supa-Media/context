@@ -58,7 +58,6 @@ test/agentTurnLimits.test.mjs
 test/agentHeldEcho.test.mjs
 test/agentWorkspaces.test.mjs
 test/appOriginMetadata.test.mjs
-test/chaosChange.test.mjs
 test/chaosLive.test.mjs
 test/chaosReport.test.mjs
 test/chaosRubric.test.mjs
@@ -395,4 +394,5 @@ test/orientIndexOnce.test.mjs
 test/savePhases.test.mjs
 test/bookkeepingBehind.test.mjs
 test/collabReplaceInObject.test.mjs
+test/bulkNotes.test.mjs
 test/pageDrawings.test.mjs

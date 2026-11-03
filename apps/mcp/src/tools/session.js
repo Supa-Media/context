@@ -10,6 +10,7 @@ import { activityHintOf } from "../live/activityHint.js";
 import { recordAgentRead } from "../live/readLog.js";
 import { callTool } from "./dispatch.js";
 import { inWordsOf, translateV2Params } from "./v2/translate.js";
+import { SAVE_MANY_TOOL, saveMany } from "./v2/saveMany.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
 import {
   FORM_TOOLS,
@@ -48,8 +49,6 @@ import { judgeSubject } from "../privacy/judgeSubject.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { PrivacyOverrides } from "../privacy/engine.js";
 import { recordChange } from "../activity/record.js";
-import { CHAOS_TOOLS, chaosLines, takeChaos, withChaosLines, within } from "../chaos/report.js";
-import { changeChaos } from "../chaos/change.js";
 
 /**
  * Tools that rearrange notes inside one context. A move adds nothing, so on a
@@ -317,6 +316,10 @@ function addressByPath(tool, args) {
 export async function callToolForSession(params, store, session) {
   const { error, params: call, v2 } = translateV2Params(params, store); // v2 → the existing call, before any gate
   if (error) return toolError(error);
+  // `save_many` is one ordinary `write` per note, each back through this function and every gate in it (`saveMany.js`).
+  if (v2 && call?.name === SAVE_MANY_TOOL) {
+    return inWordsOf(v2, await saveMany(call.arguments, (one) => callToolForSession({ name: "write", arguments: one }, store, session)));
+  }
   const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed));
   return inWordsOf(v2, result);
 }
@@ -604,7 +607,6 @@ async function routeToolCall(params, store, session, routed) {
   // Whether the model now holds words from outside the workspace, for the turn's ledger.
   recordRead(session.egress?.ledger, { name: params?.name, args, result, writing: toolIsWriting(params?.name) });
   noteAgentActivity(targetStore, params?.name, args, result);
-  result = await reportingChaos(targetStore, params?.name, args, target.scope, result);
   // When the caller joined a note's mail, the news rides on every answer.
   result = await withMailFooter(result, args, params?.name, { store, session, targetStore, target });
   // Counted after the call, against the context the call was *routed to* —
@@ -663,30 +665,4 @@ function noteAgentActivity(store, name, args, result) {
   recordAgentActivity(store, [{ kind: done, path }]);
   // A read is also kept, for the trail and the replay (`live/readLog.js`).
   if (done === "read") recordAgentRead(store, { tool: name, path });
-}
-
-/**
- * End a write's answer with what it did to the chaos score (`chaos/report.js`).
- *
- * The count was started by the change itself (`chaos/change.js`); a save of
- * an existing note's text starts none (the editor saves on every pause), so
- * for `write_note` one is started here, for that note alone, which counts its
- * new length against the facts' old one. Never throws, and never holds
- * an answer longer than `WAIT_MS`.
- */
-async function reportingChaos(store, name, args, scope, result) {
-  const started = takeChaos(store);
-  if (!CHAOS_TOOLS.has(name) || !result || result.isError) return result;
-  // A comment or a website action changes no folder.
-  if (args?.comment !== undefined || args?.site !== undefined) return result;
-  try {
-    let report = started === undefined ? null : await within(started);
-    if (started === undefined && name === "write_note" && typeof args?.path === "string") {
-      const path = normalizePath(args.path);
-      if (path) report = await within(changeChaos(store, { files: [path] }));
-    }
-    return withChaosLines(result, chaosLines(report, scope === "private" ? "all" : "team"));
-  } catch {
-    return result;
-  }
 }

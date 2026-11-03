@@ -40,10 +40,17 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-03",
+    text:
+      'write action "save_many" saves up to 100 notes in one call: args `{ notes: [{ path, content, expected_etag? }] }`. Each note is ' +
+      "saved exactly as save saves it, and the answer has one `outcome:` line per note, in order; one refused never undoes the others. " +
+      'fetch "notes:" now reads up to 100 notes, not 25. Saves, moves and archives no longer end with a `chaos:` line; orient shows the score.',
+  },
+  {
     date: "2026-11-01",
     newTool: true,
     text:
-      'read_notes reads up to 25 notes in one call (`paths`), each answered exactly as read_note answers it, or "not found". ' +
+      'read_notes reads up to 100 notes in one call (`paths`), each answered exactly as read_note answers it, or "not found". ' +
       'With fetch, id "notes:" and args `{ paths }`. Use it instead of several read_note calls when you already know which notes you need.',
   },
   {

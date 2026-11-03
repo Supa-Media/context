@@ -377,6 +377,15 @@ to a member). Checking the row's etag again, or reading the version before
 the collaboration read, stops a move nobody edited; failing on the first
 conflict stops one somebody did. `contextMoveKeyedRace.test.ts` fails for each.
 
+## AI clients archive; they do not trash
+
+Decided by the owner on 2026-11-03, on a decision card ("No, archive only"),
+after a benchmark that had to remove the notes it wrote found no delete in
+the tools. An AI client keeps `archive_note` and has no tool that moves a note
+or folder to the Trash: deleting stays something a person does in the app. A
+`trash_note` was built and taken back out before it shipped; adding one is
+this decision to reverse, not a missing feature.
+
 ## Emptying the trash
 
 Decided by the owner, 2026-10-17: "30 days, Trash page first". Something in a

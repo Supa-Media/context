@@ -264,7 +264,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 - It is one opinion, on purpose
 - It reports; it never tidies
-- Every write answers with the change
+- Writes do not answer with the score
 - Kept incrementally, proven equal to a full pass
 - Two audiences, and a member learns nothing held back
 - A derivative, like every index
