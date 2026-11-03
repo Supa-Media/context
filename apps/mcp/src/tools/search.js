@@ -24,6 +24,7 @@ import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
 import { holdSearchPasses } from "../search/heldPasses.js";
 import { notePrior } from "../search/priors.js";
+import { evidenceBonus } from "../search/evidence.js";
 
 /** Most hits a search across every workspace shows. */
 const EVERYWHERE_HITS = 12;
@@ -64,6 +65,12 @@ function median(values) {
  * searches, so a fresh note has no fingerprint for a while (production
  * benchmark, 2026-11-03).
  *
+ * With the query, a counted word hit also adds what its title and file name
+ * say about the query, which no workspace's corpus changes (`search/evidence.js`,
+ * decided 2026-11-03): `TITLE_WEIGHT` for each share of the query's terms its
+ * title holds, and `PHRASE_BONUS` when the whole query is a phrase in it. It
+ * goes in before the path prior, so an archived note's bonus is halved too.
+ *
  * Meaning-only hits (no word rank: found by what the note is about) are one
  * budget for the whole answer, not one per workspace. Once any workspace has a
  * strict word hit, a meaning-only hit must reach `MEANING_EXTRA_FLOOR_WITH_WORDS`
@@ -74,9 +81,11 @@ function median(values) {
  * @param {Array<Array<object>>} lists hits per workspace, this workspace's first, each hit
  *   carrying `wordRank`, `loose` and `meaningScore` (`search/meaning/serve.js`)
  * @param {number} [most] how many hits the answer shows
- * @param {{extraNotes?: number}} [options] the store's `extraNotes` setting (`search/settings.js`)
+ * @param {{extraNotes?: number, query?: string}} [options] the store's `extraNotes` setting
+ *   (`search/settings.js`), and the query whose title and phrase evidence counts (`search/evidence.js`);
+ *   without a query the order is the one the ranks give
  */
-export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEFAULT_SEARCH_SETTINGS.extraNotes } = {}) {
+export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEFAULT_SEARCH_SETTINGS.extraNotes, query } = {}) {
   const all = lists.flatMap((hits, list) => hits.map((hit, order) => ({ hit, list, order })));
   const anyWhole = all.some(({ hit }) => typeof hit.wordRank === "number" && !hit.loose);
   const isMeaningOnly = ({ hit }) => typeof hit.wordRank !== "number";
@@ -101,9 +110,12 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
     let meaning = 0;
     if (meaningRank.has(entry)) meaning = 1 / (RRF_K + meaningRank.get(entry) + 1);
     else if (strictWord && medianRank !== null) meaning = 1 / (RRF_K + medianRank + 1);
+    // The title and phrase evidence (`search/evidence.js`): only for a word hit that counts,
+    // so a loose hit gets none while a strict one exists, as its words do not count either.
+    const title = counted ? evidenceBonus(query, hit) : 0;
     // The path prior (`search/priors.js`): an archived note or a log scores half
     // what the same evidence does on a live note. Hit keys carry `@name/`, which it reads through.
-    return { ...entry, score: (word + meaning) * notePrior(hit.key) };
+    return { ...entry, score: (word + meaning + title) * notePrior(hit.key) };
   });
   const byScore = (a, b) => b.score - a.score || a.list - b.list || a.order - b.order;
   const budget = anyWhole ? extraNotes : MEANING_SNIPPET_READS_LOOSE;
@@ -184,7 +196,7 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
   const hits = fuseEverywhere(
     [annotated(here), ...elsewhere.map(({ name, found }) => annotated(found, name))],
     EVERYWHERE_HITS,
-    { extraNotes: searchSettingsOf(store).extraNotes },
+    { extraNotes: searchSettingsOf(store).extraNotes, query },
   );
   return {
     ...here,

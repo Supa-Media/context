@@ -17,7 +17,9 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fuseEverywhere } from "../src/tools/search.js";
+import { fuseEverywhere, toolSearchNotes } from "../src/tools/search.js";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
+import { withServedTree } from "./servedTree.mjs";
 
 const hit = (key, { wordRank = null, loose = false, meaningScore = null } = {}) => ({ key, title: key, snippets: [], wordRank, loose, meaningScore });
 
@@ -171,4 +173,160 @@ test("a workspace prefix is read through before the prior is decided", () => {
 test("a log still shows when nothing else matches", () => {
   const own = [hit("archive/chat-history/only.md", { wordRank: 0 })];
   assert.deepEqual(fuseEverywhere([own]).map((entry) => entry.key), ["archive/chat-history/only.md"]);
+});
+
+/**
+ * Title and phrase evidence (`search/evidence.js`, decided by the owner,
+ * 2026-11-03). Sabotage record (temporary local edits, reverted):
+ *   the query not passed from searchEverywhere to fuseEverywhere    → "the query reaches the fusion…" fails (the fusion tests pass their own query, so they stay green)
+ *   TITLE_WEIGHT set to 1/61                                        → "a title match alone does not beat a note strong on both…" and "the title weight is a fifth…" fail
+ *   the bonus given to a loose hit beside a strict one              → "a loose hit gets no title bonus while a strict hit exists" fails
+ *   the bonus added after the path prior instead of before it       → "an archived note with a title match…" fails
+ *   the phrase bonus dropped                                        → "the bonus is the title weight times the coverage…" fails (and the phrase test of the file name)
+ *   the file name read with its folders, a phrase as a substring,
+ *   hyphens kept, and short words counted                           → see `test/searchEvidence.test.mjs`'s record
+ */
+
+const seen = (key, { title = key, snippets = [], ...rest } = {}) => ({ ...hit(key, rest), title, snippets });
+
+test("production 2026-11-03 'workers comp renewal': the page whose title holds every word leads a weak link hit", () => {
+  // Reconstructed: another workspace's rank-0 hit is a note whose only link is
+  // about the renewal (no title match, no phrase), and the real page, titled
+  // with every word, has a near-identical meaning score and a word rank one
+  // place lower. Without the query the link note led and the page came second.
+  const lists = () => [
+    [seen("@office/links.md", { title: "Useful links", snippets: ["Renewal quote on the [carrier portal](https://example.com)"], wordRank: 0, meaningScore: 0.4 })],
+    [seen("@ops/insurance/workers comp renewal.md", { title: "Workers comp renewal", wordRank: 1, meaningScore: 0.38 })],
+  ];
+  assert.deepEqual(fuseEverywhere(lists()).map((entry) => entry.key), ["@office/links.md", "@ops/insurance/workers comp renewal.md"]);
+  assert.deepEqual(fuseEverywhere(lists(), 12, { query: "workers comp renewal" }).map((entry) => entry.key), [
+    "@ops/insurance/workers comp renewal.md",
+    "@office/links.md",
+  ]);
+});
+
+test("production 2026-11-03 '2027 plan objectives owners': the overview titled with every word moves from third to first", () => {
+  // Reconstructed: an archived chat log (prior 0.5) and two other workspaces'
+  // notes lead on word and meaning ranks, the plan overview is third, and its
+  // title and file name hold every word as one phrase.
+  const lists = () => [
+    [seen("archive/chat-history/2027-plan-chat.md", { title: "2027 plan chat", wordRank: 0, meaningScore: 0.9 })],
+    [seen("@x/budget.md", { wordRank: 0, meaningScore: 0.8 }), seen("@x/owners.md", { title: "Owners", wordRank: 1, meaningScore: 0.7 })],
+    [seen("@plans/2027-plan-objectives-owners.md", { title: "2027 plan objectives owners", wordRank: 2, meaningScore: 0.2 })],
+  ];
+  assert.equal(fuseEverywhere(lists()).map((entry) => entry.key).indexOf("@plans/2027-plan-objectives-owners.md"), 2);
+  const after = fuseEverywhere(lists(), 12, { query: "2027 plan objectives owners" }).map((entry) => entry.key);
+  assert.equal(after[0], "@plans/2027-plan-objectives-owners.md", after.join(", "));
+});
+
+/** A workspace's notes as a store the search reads: listed, read and headed, as the search needs (`meetingsAnywhere.test.mjs`). */
+function scannedStore(notes, extra = {}) {
+  const files = new Map(Object.entries(notes));
+  const store = {
+    async list({ prefix } = {}) {
+      const objects = [...files.keys()]
+        .filter((key) => !prefix || key.startsWith(prefix))
+        .sort()
+        .map((key) => ({ key, size: files.get(key).length, uploaded: new Date(0), etag: `e-${key}` }));
+      return { objects, truncated: false };
+    },
+    async get(key) {
+      if (!files.has(key)) return null;
+      const body = files.get(key);
+      return { etag: `e-${key}`, text: async () => body, size: body.length };
+    },
+    async head(key) {
+      return files.has(key) ? { etag: `e-${key}`, size: files.get(key).length } : null;
+    },
+    ...extra,
+  };
+  return "treeManifest" in extra ? store : withServedTree(store);
+}
+
+/**
+ * The query reaches the fusion through `toolSearchNotes` (the sabotage of
+ * dropping it from `searchEverywhere` is caught here, not by the fusion tests
+ * above). Two other workspaces, with no notes of this one's own: the body
+ * match is first in the context list, so without the title evidence it leads
+ * on the tie, and with the query the titled page does.
+ */
+test("the query reaches the fusion: across workspaces a titled page leads a body match listed before it", async () => {
+  const rowsOf = (store) => withPrivacyAuthority(store, { rules: { etag: "rows-v1", accessVersion: 1, folders: [], notes: [] } });
+  const others = {
+    "@office": scannedStore({ "2-areas/links.md": "# Useful links\n\nWorkers comp renewal quote is on the carrier portal.\n" }),
+    "@ops": scannedStore({ "2-areas/insurance/workers comp renewal.md": "# Workers comp renewal\n\nCarrier quote due in March.\n" }),
+  };
+  const home = scannedStore(
+    { "0-inbox/todo.md": "# Todo\n\nCall the dentist.\n" },
+    {
+      contexts: [{ name: "@office" }, { name: "@ops" }],
+      async openContext(name) {
+        return { session: { scope: "private" }, store: rowsOf(others[name]) };
+      },
+    },
+  );
+  const keys = async (query) =>
+    (await toolSearchNotes(home, "private", [], new Map(), query, "")).content[0].text.split("\n").filter((line) => line.endsWith(".md"));
+  const withQuery = await keys("workers comp renewal");
+  assert.equal(withQuery.length, 2, withQuery.join(" | "));
+  assert.equal(withQuery[0], "@ops/2-areas/insurance/workers comp renewal.md", withQuery.join(" | "));
+});
+
+test("no query given, or one no title or snippet holds, leaves the order exactly as it was", () => {
+  const lists = () => [
+    [seen("todo.md", { wordRank: 0, meaningScore: 0.3 }), seen("notes/a.md", { title: "Workers comp", wordRank: 2 })],
+    [seen("@x/b.md", { title: "Workers comp renewal", wordRank: 0, meaningScore: 0.5 }), seen("@x/c.md", { wordRank: 1 })],
+  ];
+  const plain = fuseEverywhere(lists()).map((entry) => entry.key);
+  assert.deepEqual(fuseEverywhere(lists(), 12, { query: undefined }).map((entry) => entry.key), plain);
+  assert.deepEqual(fuseEverywhere(lists(), 12, { query: "zebra" }).map((entry) => entry.key), plain);
+});
+
+test("a title match alone does not beat a note strong on both word rank and meaning", () => {
+  // The strong note is first on words and on meaning. The titled hit has a
+  // full title match and no phrase, but ranks 20th on words and 8th on meaning:
+  // weak on both, so the title is all it has to offer.
+  const fillers = [0.8, 0.7, 0.6, 0.55, 0.52, 0.51].map((meaningScore, i) => [seen(`@f${i}/n.md`, { wordRank: 0, meaningScore })]);
+  const lists = [
+    [seen("@x/strong.md", { title: "Renewal of the policy", wordRank: 0, meaningScore: 0.9 })],
+    [seen("@y/titled.md", { title: "Renewal of workers comp", wordRank: 20, meaningScore: 0.1 })],
+    ...fillers,
+  ];
+  const fused = fuseEverywhere(lists, 12, { query: "workers comp renewal" }).map((entry) => entry.key);
+  assert.ok(fused.indexOf("@x/strong.md") < fused.indexOf("@y/titled.md"), fused.join(", "));
+});
+
+test("the whole query as a phrase in the title outranks the same words scattered in another title", () => {
+  // Both titles hold every word, and the scattered one ranks first on words:
+  // only the phrase tells them apart.
+  const lists = [
+    [seen("@x/scattered.md", { title: "Renewal for comp and workers", wordRank: 0, meaningScore: 0.5 })],
+    [seen("@y/phrase.md", { title: "Workers comp renewal", wordRank: 3, meaningScore: 0.5 })],
+  ];
+  assert.deepEqual(fuseEverywhere(lists, 12, { query: "Workers   comp Renewal" }).map((entry) => entry.key), ["@y/phrase.md", "@x/scattered.md"]);
+});
+
+test("a loose hit gets no title bonus while a strict hit exists", () => {
+  // The loose hit holds every word in its title and a phrase, but another
+  // workspace has a strict word hit: the loose hit's words do not count, so
+  // the order is the one it had without a query.
+  const lists = () => [
+    [seen("notes/workers-comp-renewal.md", { title: "Workers comp renewal", wordRank: 0, loose: true, meaningScore: 0.95 })],
+    [seen("@x/strict.md", { title: "Insurance", wordRank: 25 })],
+    [seen("@z/m1.md", { wordRank: 0, meaningScore: 0.9 }), seen("@z/m2.md", { wordRank: 0, meaningScore: 0.8 }), seen("@z/m3.md", { wordRank: 0, meaningScore: 0.7 })],
+  ];
+  const plain = fuseEverywhere(lists()).map((entry) => entry.key);
+  const withQuery = fuseEverywhere(lists(), 12, { query: "workers comp renewal" }).map((entry) => entry.key);
+  assert.deepEqual(withQuery, plain);
+  assert.ok(withQuery.indexOf("@x/strict.md") < withQuery.indexOf("notes/workers-comp-renewal.md"), withQuery.join(", "));
+});
+
+test("an archived note with a title match does not outrank a live note with a better word rank and no title match", () => {
+  // The path prior multiplies the score that includes the bonus, so the
+  // archived note's bonus is halved with the rest of it.
+  const lists = [
+    [seen("archive/old/workers-comp-renewal.md", { title: "Workers comp renewal", wordRank: 0 })],
+    [seen("@x/live.md", { title: "Renewal notes", wordRank: 0 })],
+  ];
+  assert.deepEqual(fuseEverywhere(lists, 12, { query: "workers comp renewal" }).map((entry) => entry.key), ["@x/live.md", "archive/old/workers-comp-renewal.md"]);
 });
