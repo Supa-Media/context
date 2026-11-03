@@ -340,6 +340,7 @@ test/texEntryPoint.test.mjs
 test/workspaceTree.test.mjs
 test/workspaceRowsOwnership.test.mjs
 test/objectLookup.test.mjs
+test/lookupMiss.test.mjs
 test/agentHomeMove.test.mjs
 test/accessSockets.test.mjs
 test/accessContract.test.mjs

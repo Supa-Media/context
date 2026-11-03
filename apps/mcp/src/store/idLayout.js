@@ -423,7 +423,9 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     const size = sizeOf(body);
     let answer;
     try {
-      answer = await adopt({ path, noteId, key, etag: result.etag, ...(size === undefined ? {} : { size }), at: now() });
+      // The tier the writer asked for (`tools/notes/write.js`), so the workspace object adopts it only where it is no wider there.
+      const tier = options?.tier === "private" || options?.tier === "team" ? { tier: options.tier } : {};
+      answer = await adopt({ path, noteId, key, etag: result.etag, ...(size === undefined ? {} : { size }), at: now(), ...tier });
     } catch (error) {
       await discard(key);
       throw error;
