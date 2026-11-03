@@ -27,13 +27,15 @@
 import { effectiveVisibility } from "../privacy/engine.js";
 import { isIndexableNote } from "../search/indexable.js";
 import { meaningPassages, meaningTierFor } from "../search/meaning/project.js";
-import { MEANING_DIMENSIONS } from "../search/meaning/embed.js";
+import { EMBED_BATCH, MEANING_DIMENSIONS } from "../search/meaning/embed.js";
 import { parsedRules } from "./serve.js";
 import { TEX_TABLES, texObjects } from "../texStore/objects.js";
 import { changeLog, PERSON_TEX_KEY } from "./changeLog.js";
 
 /** Passages one build call embeds (16 model calls of 32); the object answers other calls while it waits on them. */
 export const BUILD_PASSAGES = 512;
+/** Model calls one build has out at once. */
+export const EMBED_PARALLEL = 4;
 /** Matches a query answers with, as the search database's index does (`client.js` `QUERY_TOP_K`). */
 export const QUERY_TOP_K = 50;
 /** Passages scored by their bytes after the bits' scan. */
@@ -225,6 +227,22 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
 
   let running = false;
 
+  /** `texts`' fingerprints in order, `EMBED_BATCH` a model call and `EMBED_PARALLEL` calls at once. */
+  const embedAll = async (texts) => {
+    const groups = [];
+    for (let start = 0; start < texts.length; start += EMBED_BATCH) groups.push(texts.slice(start, start + EMBED_BATCH));
+    const out = new Array(groups.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < groups.length) {
+        const index = next++;
+        out[index] = await embed(groups[index]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(EMBED_PARALLEL, groups.length) }, worker));
+    return out.flat();
+  };
+
   /**
    * Bring the index up to the notes, embedding at most `passages` passages, and say how many changes are still
    * waiting: `{waiting}`, `{busy: true}` while another build runs here, `null` with no member rules or no model.
@@ -245,6 +263,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
       const { rules: parsed, overrides } = parsedRules(rules);
       log.keysToRows();
       let spent = 0;
+      const round = [];
       while (spent < budget) {
         const ids = log.take(50);
         if (ids.length === 0) break;
@@ -278,21 +297,28 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
           }
           // Off the log before the model is asked: a change while it answers puts the row back.
           log.done(rowId);
-          let vectors;
-          try {
-            vectors = texts.length === 0 ? [] : await embed(texts);
-          } catch (error) {
-            // The model failed: the row waits for the next build, and this one stops.
-            log.again(rowId);
-            throw error;
-          }
+          round.push({ rowId, want, texts });
           spent += texts.length;
-          // Written only if the row is still what was embedded; otherwise its change is already on the log.
-          const now = wantFor(rowId, parsed, overrides);
-          if (now === null || now.etag !== want.etag || now.path !== want.path) continue;
-          keep(rowId, want, vectors);
         }
         if (full) break;
+      }
+      // Every row of the round in one go: its passages asked of the model `EMBED_PARALLEL` calls at a time, not a
+      // note at a time one after another (2026-11-03: about 130 ms a call made a 512-passage build take a minute).
+      let vectors;
+      try {
+        vectors = await embedAll(round.flatMap((entry) => entry.texts));
+      } catch (error) {
+        // The model failed: the round waits for the next build.
+        for (const entry of round) log.again(entry.rowId);
+        throw error;
+      }
+      let at = 0;
+      for (const { rowId, want, texts } of round) {
+        const mine = vectors.slice(at, (at += texts.length));
+        // Written only if the row is still what was embedded; otherwise its change is already on the log.
+        const now = wantFor(rowId, parsed, overrides);
+        if (now === null || now.etag !== want.etag || now.path !== want.path) continue;
+        keep(rowId, want, mine);
       }
       const waiting = log.pending();
       if (waiting === 0 && meta("complete") === null) setMeta("complete", String(Date.now()));

@@ -380,6 +380,7 @@ test/accessWrite.test.mjs
 test/accessPending.test.mjs
 test/workspaceSearchIndex.test.mjs
 test/workspaceMeaningIndex.test.mjs
+test/workspaceIndexBuild.test.mjs
 
 test/savePhases.test.mjs
 test/bookkeepingBehind.test.mjs
