@@ -313,13 +313,31 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
      * Removes for good what sits in the trash (or Context's old copies) at `path`, with everything under it. A note
      * outside them is never deleted in one step: it goes to the trash first, as Convex refuses a keyed delete.
      */
-    remove({ path, now }) {
+    remove({ path, now, limit }) {
       if (!validPath(path) || !underHiddenRoot(path) || !Number.isFinite(now)) return { ok: false, reason: "invalid" };
+      if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) return { ok: false, reason: "invalid" };
       const root = liveAt(path);
       if (root === null) return { ok: false, reason: "not_found" };
+      const below = liveBelow(path);
+      // A folder bigger than `limit` goes a page at a time, deepest rows first, so a page never leaves a row under a
+      // folder it removed; the folder itself, and the emptied folders above it, go with the last page.
+      if (limit !== undefined && below.length + 1 > limit) {
+        const depth = (row) => row.path.split("/").length;
+        const page = [...below].sort((a, b) => depth(b) - depth(a) || (a.kind === b.kind ? 0 : a.kind === "file" ? -1 : 1)).slice(0, limit);
+        const removed = [];
+        const files = [];
+        for (const row of page) {
+          const at = stamp(row, now);
+          sql.exec("UPDATE ws_rows SET gone = 1, at = ? WHERE id = ?", at, row.id);
+          claim(row.id, ["gone"], at);
+          removed.push({ id: row.id, at });
+          if (row.kind === "file") files.push({ id: row.id, noteId: row.note_id ?? null, storageKey: row.storage_key ?? null });
+        }
+        return { ok: true, kind: root.kind, count: removed.length, rows: [], removed, files, folders: [], more: true };
+      }
       const removed = [];
       const files = [];
-      for (const row of [root, ...liveBelow(path)]) {
+      for (const row of [root, ...below]) {
         const at = stamp(row, now);
         sql.exec("UPDATE ws_rows SET gone = 1, at = ? WHERE id = ?", at, row.id);
         claim(row.id, ["gone"], at);
@@ -328,7 +346,7 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
         if (row.kind === "file") files.push({ id: row.id, noteId: row.note_id ?? null, storageKey: row.storage_key ?? null });
       }
       removed.push(...retireEmptied(parentOf(path), now));
-      return { ok: true, kind: root.kind, count: removed.length, rows: [], removed, files, folders: [] };
+      return { ok: true, kind: root.kind, count: removed.length, rows: [], removed, files, folders: [], more: false };
     },
 
     /**

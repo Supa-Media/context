@@ -148,7 +148,11 @@ test("a failed mirror flush answers 503 MIRROR_PENDING, and the trash change sta
   const { store, mirror } = objectStore({ flushDone: false });
   const response = await call(store, "ws.write.trash", { path: "projects/plan.md", ...OWNER });
   assert.equal(response.status, 503);
-  assert.deepEqual(await response.json(), { ok: false, code: "MIRROR_PENDING" });
+  const body = await response.json();
+  assert.equal(body.ok, false);
+  assert.equal(body.code, "MIRROR_PENDING");
+  // The change landed: its answer comes back beside the code.
+  assert.equal(body.answer.ok, true);
   assert.equal(mirror.count(), 1);
 });
 
