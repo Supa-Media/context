@@ -251,6 +251,11 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(store.marks.close(fields.tokens));
       case "ws.rows.get":
         return Response.json({ rows: rows.get(fields.ids) });
+      case "ws.rows.files":
+        // The control plane's tree reads, through the door: unjudged rows and the audience's rules from one call,
+        // settled like a lookup, so a reader there falls back to its own rows only while this object is behind.
+        if (rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json(await settledAnswer(store, () => ({ served: true, ...rows.filesPage(fields), rules: rows.rules(fields.audience ?? "member") })));
       case "ws.rows.list":
         return Response.json(rows.list(fields));
       case "ws.rules.put": {

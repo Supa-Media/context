@@ -20,6 +20,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import type { FileStore } from "../fileOps/store";
 import { foldRows, type PendingMove } from "./moveOverlay";
+import { objectServedStore } from "./objectTreeStore";
 import { mirrorFile } from "./privacyMirror";
 import { NODE_PRIVACY_KEY, type NodeRow, type PrivacyMirror } from "./table";
 
@@ -189,6 +190,9 @@ export async function servedNodesStore(
   base: FileStore,
   audience: Audience = "member",
 ): Promise<FileStore | null> {
+  // A workspace on its object is read there, Convex's rows only while the object cannot be the whole answer.
+  const fromObject = await objectServedStore(ctx, workspaceId, base, audience);
+  if (fromObject !== null) return fromObject;
   const served = await ctx.runQuery(internal.functions.nodes.served, { workspaceId, audience });
   if (served === null) return null;
   const listed: NodePage = async (after, limit, root) => {

@@ -80,7 +80,7 @@ export async function privacyEtagFrom(ctx: QueryCtx, workspaceId: Id<"workspaces
 }
 
 /** A version of the rows' rules: a 32-bit FNV-1a of what they say, so it moves exactly when they do. */
-function rowsEtag(folders: { prefix: string; visibility: string }[], notes: { path: string; visibility: string }[]): string {
+export function rowsEtag(folders: { prefix: string; visibility: string }[], notes: { path: string; visibility: string }[]): string {
   const text = JSON.stringify([folders, notes]);
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i += 1) {
