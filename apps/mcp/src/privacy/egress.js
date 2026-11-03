@@ -20,7 +20,7 @@
  */
 
 import { classifyCaptureKind } from "../communications/paths.js";
-import { normalizePath } from "../notes/paths.js";
+import { isChatHistoryPath, normalizePath } from "../notes/paths.js";
 
 /**
  * Tools whose results are, by construction, words people other than the person
@@ -133,6 +133,9 @@ function readsCapturedContent(name, args) {
   // `read_notes` reads many: any one of them that is captured content marks the turn.
   if (name === "read_notes") return (Array.isArray(args?.paths) ? args.paths : []).some((path) => readsCapturedContent("read_note", { path }));
   const raw = name === "fetch" ? args?.id : args?.path;
+  // A chat's history file is judged on the raw id: it may name another context (`@name/tex/...`), which
+  // `normalizePath` leaves on, and `fetch` routes the file to `read_note` so the name tells nothing.
+  if (isChatHistoryPath(raw)) return true;
   const path = typeof raw === "string" ? normalizePath(raw) : null;
   return path !== null && path !== undefined && classifyCaptureKind(path) !== null;
 }
