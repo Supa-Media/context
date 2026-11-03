@@ -328,6 +328,8 @@ test/mirrorOutbox.test.mjs
 test/mirrorFlush.test.mjs
 test/writeOps.test.mjs
 test/serveWrites.test.mjs
+test/treeOpsMove.test.mjs
+test/treeOpsTrash.test.mjs
 test/workspaceReaders.test.mjs
 test/workspaceRouting.test.mjs
 test/backupBehind.test.mjs

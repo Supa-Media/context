@@ -88,7 +88,7 @@ export function objectReader({ client, home, behind = false, scope, names, chatN
 }
 
 /**
- * The note facts the object answers itself (`workspaceStore/facts.js`: `props`, `links`, `neighbors`), asked of it
+ * The note facts the object answers itself (`workspaceStore/facts.js`: `props`, `links`, `neighbors`, `jobs`), asked of it
  * before the control plane's `/gateway/tree/facts`. `null` where this session does not read the object; otherwise a
  * function that answers an ask, or `null` for one the object did not serve (another ask, notes not caught up, the
  * object failing or behind), and the caller asks the control plane as before.

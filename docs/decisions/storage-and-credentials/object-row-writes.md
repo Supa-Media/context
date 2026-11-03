@@ -64,3 +64,14 @@ saves. Tests: added with each step, named in this file as they land.
 ## Landed: the Convex mirror (`objectAt`)
 
 Convex keeps `nodes.objectAt`, the object's clock of the last change it made to the row. `POST /gateway/rows/mirror` (`functions/lib/gatewayRoutes/rowsMirror.ts`) takes a batch in order and calls `functions/objectRowsMirror.ts` `wrote` per change, built with `internalMutationMirrored` (no outbox entry, no push). A refused or missing row is `{ applied: false, reason }`, never a throw. Tests: `__tests__/objectRowsMirror.test.ts` (keyed write opens no outbox entry; `objectAt` never goes backwards; missing and refused rows; route order, bad body, transient stop). Sabotage: building `wrote` with the watched `internalMutation` fails the outbox case. `objectAt` is outside the object digest (`__tests__/workspaceObjects.test.ts`).
+
+## File operations in the object (2026-11-03)
+
+`apps/mcp/src/workspaceStore/treeOps.js` holds create folder, move and rename, trash, restore and delete over the
+object's rows, with the refusals Convex's row move gives (`rowMove.ts`, `rowTrash.ts`, `archiveTwins.ts`,
+`sealedChats.ts`), each one synchronous run of SQL so the object commits it whole. A folder move rewrites every path
+under it in that one transaction: nothing is chunked, because a workspace's rows fit in its object. A note outside the
+trash is never deleted in one step; it goes to the trash, as Convex refuses a keyed delete. Each answer names the rows
+it wrote and the ids it removed with their clocks, for the outbox. Rows the object makes take ids `o_` and 32 hex
+characters. Whether the caller may see what it moves is the caller's `judge`, built from the rules it holds. Tests:
+`apps/mcp/test/treeOpsMove.test.mjs`, `apps/mcp/test/treeOpsTrash.test.mjs`.
