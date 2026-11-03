@@ -92,6 +92,17 @@ export function readOnlyManifest() {
 }
 
 /**
+ * Whether `path` holds no rule of its own in the rules held and its folders already give it `tier`: a new note's tier
+ * write there would be `inherit` on a path with nothing to clear, which changes nothing anywhere, so a save need not
+ * make the trip. Only for a path with no note yet: a row's `inherit` also clears the people named on it.
+ */
+function inheritsTier(held, path, tier) {
+  if (typeof path !== "string" || (tier !== "private" && tier !== "team")) return false;
+  if (held.notes.some((rule) => rule.path === path)) return false;
+  return visibilityOf(path, held.folders.map((rule) => ({ prefix: rule.prefix, vis: rule.visibility }))) === tier;
+}
+
+/**
  * The store with the access rules served from `authority`.
  *
  * @param {import("./index.js").ContextStore} store
@@ -160,7 +171,7 @@ export function withPrivacyAuthority(store, authority, { names } = {}) {
   // Rows mode only: a row's tier goes through `setAccess`.
   Object.defineProperty(wrapped, "rowAccess", {
     enumerable: false,
-    value: { setTier: setRowTier, addPeople: addRowPeople },
+    value: { setTier: setRowTier, addPeople: addRowPeople, inherits: (path, tier) => inheritsTier(held, path, tier) },
   });
   // A row held only to view (a guest chat's, `readOnlyRows.js`) is read and never changed, whichever tool asks.
   Object.defineProperty(wrapped, "readOnlyAt", { enumerable: false, value: (path) => readOnlyAt(held, path) });
