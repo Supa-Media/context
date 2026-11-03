@@ -9,13 +9,13 @@
  * (`TEX_TIMING`, read with the account's SQL API): the turn's kind and
  * outcome, and how its milliseconds split between the wait before the
  * gateway, each step before the first model round (`STAGES`, marked in
- * `route.js`), the model, the tools, the rest of the turn, and the work after
+ * `texTurn.js`), the model, the tools, the rest of the turn, and the work after
  * the answer until the response. Numbers, a kind and an outcome only: never a
  * workspace, a person, a model's words or theirs. Without the binding
  * (self-hosting, tests) nothing is written.
  */
 
-/** The marks `route.js` sets before the model, in order; each one's double is the time since the one before. */
+/** The marks `texTurn.js` sets before the model, in order; each one's double is the time since the one before. */
 export const STAGES = ["provider", "tools", "history", "web", "setup", "skills", "pictures", "ready"];
 
 /**

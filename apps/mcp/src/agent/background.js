@@ -359,7 +359,7 @@ export const SLOW_TURN_NOTE =
   'now with send { action: "background" }, putting what you found so far in the brief; otherwise answer now.)';
 /**
  * A start or restart they asked to hear nothing about until it's done (Dev, 2026-11-03: "don't come back to me until
- * you are done" was answered with "On it" three times): the turn ends texting nothing (`route.js`), and the chat keeps
+ * you are done" was answered with "On it" three times): the turn ends texting nothing (`texTurn.js`), and the chat keeps
  * `QUIET_ACK_LINE` as what was said.
  */
 export const QUIET_ACK = "[[tex:quiet-ack]]";
@@ -484,7 +484,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     const title = line(args?.title, MAX_TITLE);
     const picked = title === "" ? running : running.filter((entry) => entry.title.toLowerCase() === title.toLowerCase() || sameJob(entry.title, title));
     if (picked.length === 0) return text("No background job by that title in this chat. Your list has them all.", true);
-    // A job's report and its advisor's advice are what it read from outside, as its report to the coordinator is (`route.js`).
+    // A job's report and its advisor's advice are what it read from outside, as its report to the coordinator is (`texTurn.js`).
     if (picked.some((entry) => entry.result || entry.advice)) read();
     return text(picked.map((entry) => jobStatusText(entry, now)).join("\n\n"));
   };

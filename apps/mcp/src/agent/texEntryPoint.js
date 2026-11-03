@@ -4,8 +4,9 @@
  * entry point, and everything in there has to log how much time it's
  * taking ... so that we are never guessing").
  *
- * `agentTurn` in `route.js` runs between the `TEX ENTRY POINT: begin` and
- * `end` markers, and every `await` in there is one of this object's calls:
+ * `texTurn` (`texTurn.js`) is the turn, one step per line, each step a file
+ * under `texTurn/`. Each runs between `TEX ENTRY POINT: begin` and `end`
+ * markers, and every `await` in there is one of this object's calls:
  *
  * - `tex.step(name, run, off)`: run now and wait for it.
  * - `tex.ahead(name, run, off)`: start now, wait later (`tex.wait`).
@@ -40,7 +41,6 @@
  * instead of before it).
  */
 export const OFF_IN_CHATS = new Set([
-  "waiting_asks", // the open approvals listed for the model before it answers; a texted yes still settles them
   "kept_files_again", // files from earlier texts shown again
   "learned_skills", // the index of skills Tex wrote itself
   "google_offer", // the once-only "connect Google" line, and its mail-health call
