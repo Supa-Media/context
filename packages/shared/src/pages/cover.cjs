@@ -36,6 +36,17 @@ function pageKind(fields) {
   return fields.number ? "status" : "research";
 }
 
+/**
+ * Whether the page's cover is its big number: a status page that has one. A
+ * status page with no `number:` has no figure to show, so it is covered like
+ * any other page, by its photo or Tex's drawing (owner, 2026-11-03: Tex's
+ * seven-day status page came out as a bare dark band, with no drawing and no
+ * link picture).
+ */
+function numberCover(fields) {
+  return pageKind(fields) === "status" && String(fields.number ?? "").trim() !== "";
+}
+
 /** The small line over the title: `kicker:` as written, else the kind and who it is for. */
 function kickerOf(fields, kind) {
   if (fields.kicker) return fields.kicker;
@@ -128,7 +139,7 @@ function coverHtml(page, nodes, { title, dek }, ctx) {
   const pics = coverPhotos(page, nodes);
   const name = page.title || "";
 
-  if (kind === "status") {
+  if (numberCover(page.fields)) {
     const number = numberOf(page.fields.number);
     const big = number.big ? `<div class="pg-big">${esc(number.big)}${number.total ? `<small> / ${esc(number.total)}</small>` : ""}</div>` : "";
     const dots = number.share !== null ? dotField(number.share, `${number.big} of ${number.total}`) : "";
@@ -150,4 +161,4 @@ function coverHtml(page, nodes, { title, dek }, ctx) {
   return `<header class="pg-cover pg-cover-plain" data-kind="${kind}"><div class="pg-in pg-cover-t">${k}${title}${dek}${status}</div></header>`;
 }
 
-module.exports = { coverHtml, pageKind, kickerOf, numberOf, hasPicture, drawingOf };
+module.exports = { coverHtml, pageKind, numberCover, kickerOf, numberOf, hasPicture, drawingOf };

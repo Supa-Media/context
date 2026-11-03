@@ -23,7 +23,7 @@
 import { isPagePath, parsePage } from "../../../../../packages/shared/src/pages/parse.cjs";
 import { renderPage } from "../../../../../packages/shared/src/pages/render.cjs";
 import { BASE_CSS, pageTokens } from "../../../../../packages/shared/src/pages/css.cjs";
-import { drawingOf, hasPicture, kickerOf, pageKind } from "../../../../../packages/shared/src/pages/cover.cjs";
+import { drawingOf, hasPicture, kickerOf, numberCover, pageKind } from "../../../../../packages/shared/src/pages/cover.cjs";
 
 export const PAGE_TEMPLATE = "page";
 export const PAGE_TEMPLATE_LINE =
@@ -100,7 +100,7 @@ const escText = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/<
 export function drawingCard(page, theme, pictures) {
   if (hasPicture(page)) return null;
   const drawn = drawingOf(page);
-  if (drawn === null || pageKind(page.fields) === "status") return null;
+  if (drawn === null || numberCover(page.fields)) return null;
   const { dark, vars } = pageTokens(page.fields, theme === "dark");
   const art = (dark && drawn.dark && pictures.get(drawn.dark)) || pictures.get(drawn.light);
   if (!art) return null;

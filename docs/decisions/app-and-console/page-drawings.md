@@ -24,8 +24,11 @@ How it works:
   getting wrong) still ends.
 - **"No picture" means** no `cover:` photo, no option photo, no embedded image
   and no map (`hasPicture` in `packages/shared/src/pages/cover.cjs`). Tex's own
-  drawing does not count, so a page can be drawn again. A status page is left
-  alone, because its cover is its number.
+  drawing does not count, so a page can be drawn again. A status page with a
+  `number:` is left alone, because its cover is its number; one without a
+  number is drawn like any other page (2026-11-03: a seven-day status page
+  with no number came out as an empty dark band, with no drawing and no link
+  picture; `numberCover` in `cover.cjs`).
 - **The model writes shapes, never the picture.** The scene is SVG on a
   1200 x 900 canvas. `readScene` (`packages/shared/src/ink/drawing.cjs`) reads
   it into shapes and numbers and refuses anything else: an element outside the
