@@ -185,6 +185,16 @@ path waits on Convex.
   before. A `DEFER` keeps the bytes and asks the control plane to adopt them, as after the gateway's own put. The
   bucket's backup copy is written after the response. `apps/mcp/test/createInObject.test.mjs` fails if the id layer
   skips that adoption, or if a held key is overwritten.
+- **A new private note can leave its find and name checks to that call** (`checks: true`, 2026-11-03). The save
+  skips its row lookup and its name-twin check, which cost about 25 to 38 ms side by side, and the object makes the
+  checks before writing anything. This applies only when nothing the save does before its put needs those answers:
+  a private connection, no etag, no link or images, outside `tex/`, and a note its folders already make private.
+  The object declines, writing nothing, if there is a live row at the path, a file on its way, or a case-only twin
+  at any depth. It also declines for a top-level name with no row. Because these checks are wider than the gateway's,
+  a decline never stands as an answer: the save runs the long way from the start. A served note that is not adopted
+  is discarded, and that is treated as a decline. The cost is one extra trip for an overwrite of an existing private
+  note without an etag. `apps/mcp/test/checkedCreate.test.mjs` fails in these cases: a team connection leaves its
+  checks, a decline is not rerun, a twin is compared case-sensitively, or an unadopted key is left behind.
 - **A note meant to be private is adopted only where the object's rules already make it private.** The writer names
   the tier it wrote for (`tier` on the put, `tools/notes/write.js`). The narrowing it persisted first may not have
   reached the object yet, and without that check a member reading the object could see the note before its rule

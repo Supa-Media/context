@@ -408,6 +408,7 @@ test/collabReplaceInObject.test.mjs
 test/readNoteInObject.test.mjs
 test/workspaceObjectCold.test.mjs
 test/createInObject.test.mjs
+test/checkedCreate.test.mjs
 test/bulkNotes.test.mjs
 test/pageDrawings.test.mjs
 test/agentLinkCheck.test.mjs
