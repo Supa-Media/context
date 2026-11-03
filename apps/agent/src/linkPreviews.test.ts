@@ -26,10 +26,10 @@ describe("which links a text carries", () => {
 describe("keeping a link tappable", () => {
   it("never leaves a link at either end of its text", () => {
     expect(tappable("What I'm working on, live: https://context.lc/messages/threads?k=a.b")).toBe(
-      "What I'm working on, live: https://context.lc/messages/threads?k=a.b (tap the link)",
+      "What I'm working on, live: https://context.lc/messages/threads?k=a.b.",
     );
-    expect(tappable("https://www.reddit.com/r/x/")).toBe("Link: https://www.reddit.com/r/x/ (tap the link)");
-    expect(tappable("Read https://a.example/x.")).toBe("Read https://a.example/x (tap the link).");
+    expect(tappable("https://www.reddit.com/r/x/")).toBe("Link: https://www.reddit.com/r/x/.");
+    expect(tappable("Read https://a.example/x.")).toBe("Read https://a.example/x.");
     expect(tappable("https://a.example/x has it")).toBe("Link: https://a.example/x has it");
   });
 
@@ -52,7 +52,7 @@ describe("sending a text's link pictures", () => {
       async (words) => (sent.push(words), "mh_1"),
     );
     expect(answer).toBe("mh_1");
-    expect(sent).toEqual(["https://host.example/b.example.png", "Try https://a.example/1, https://none.example/2 and https://b.example/3 (tap the link)"]);
+    expect(sent).toEqual(["https://host.example/b.example.png", "Try https://a.example/1, https://none.example/2 and https://b.example/3."]);
   });
 
   it("sends words with no link as they are, and never looks for a picture", async () => {
@@ -101,7 +101,7 @@ describe("a web link on a Sendblue line", () => {
     await lineFor({ fetch: world(calls), linqApiKey: "", sendblue: KEYS, hostPicture }, chatId).sendText(chatId, LINK, "k", "mh_0");
     expect(hosted).toEqual([`image/png:${btoa(String.fromCharCode(...PNG_BYTES))}`]);
     const sends = calls.filter((call) => call.body);
-    expect(sends.map((call) => call.body!.media_url ?? call.body!.content)).toEqual(["https://agent.example/media/p.png", `Link: ${LINK} (tap the link)`]);
+    expect(sends.map((call) => call.body!.media_url ?? call.body!.content)).toEqual(["https://agent.example/media/p.png", `Link: ${LINK}.`]);
     expect(sends.every((call) => (call.body!.reply_to as { message_handle?: string })?.message_handle === "mh_0")).toBe(true);
   });
 
@@ -112,7 +112,7 @@ describe("a web link on a Sendblue line", () => {
       `Found it: ${LINK}`,
     );
     const sends = calls.filter((call) => call.body);
-    expect(sends.map((call) => call.body!.media_url ?? call.body!.content)).toEqual(["https://agent.example/media/p.png", `Found it: ${LINK} (tap the link)`]);
+    expect(sends.map((call) => call.body!.media_url ?? call.body!.content)).toEqual(["https://agent.example/media/p.png", `Found it: ${LINK}.`]);
     expect(sends.every((call) => call.body!.group_id === "group-1")).toBe(true);
   });
 
@@ -120,6 +120,6 @@ describe("a web link on a Sendblue line", () => {
     const calls: Call[] = [];
     const chatId = sendblueChatId("+18135550100", "+14155550123");
     await lineFor({ fetch: world(calls), linqApiKey: "", sendblue: KEYS, hostPicture }, chatId).sendText(chatId, "See https://forum.example/gone", "k");
-    expect(calls.filter((call) => call.body).map((call) => call.body!.content)).toEqual(["See https://forum.example/gone (tap the link)"]);
+    expect(calls.filter((call) => call.body).map((call) => call.body!.content)).toEqual(["See https://forum.example/gone."]);
   });
 });

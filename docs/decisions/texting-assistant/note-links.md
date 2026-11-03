@@ -81,9 +81,10 @@ adapter, because Tex may move to another provider.
   fetches and hosts itself (`pagePicture.ts`). Linq, WhatsApp and any later
   provider that attaches previews itself send links as before.
 - A link at the very end of a text is what Messages splits off into the grey
-  box, and a lone link is the same box. So a text ending with a link gets
-  "(tap the link)" after it, and one starting with a link gets "Link:" before
-  it. A link with words on both sides stays an ordinary tappable link, as the
+  box, and a lone link is the same box. So a text ending with a bare link gets
+  a full stop after it (it was "(tap the link)" until the owner, 2026-11-03:
+  "can you just end it with a period"), and one starting with a link gets
+  "Link:" before it. A link with words on both sides stays an ordinary tappable link, as the
   note-link sentence already showed.
 - The fetch is held to the site reader's lock: public https names only, no IP
   literal or local name, every redirect checked again, no cookie or

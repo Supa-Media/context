@@ -13,10 +13,10 @@
  * Two things make the grey box: a text that is only a link, and a text that
  * ends with one, which Messages splits off into a box of its own (the owner's
  * screenshot of a group's progress line, 2026-11-03). A link with words on both sides stays an
- * ordinary tappable link, which is why a note's link already goes as
- * "Open it in Context: <link> (tap the link)" (`noteCards.ts`). So a text that
- * ends with a link gets the same "(tap the link)" after it, and one that
- * starts with a link gets "Link:" before it.
+ * ordinary tappable link. So a text that ends with a bare link gets a full
+ * stop after it (it was "(tap the link)" until the owner asked, 2026-11-03,
+ * for "just a period"), one already ending in punctuation is left as it is,
+ * and one that starts with a link gets "Link:" before it.
  *
  * A picture is never the only way to the link, and never holds the words
  * back: one that cannot be found, hosted or sent is skipped.
@@ -30,8 +30,8 @@ import { pagePicture } from "./pagePicture";
 
 /** Pictures sent ahead of one text; a long answer citing many pages sends the first few. */
 export const MAX_LINK_PICTURES = 3;
-/** What follows a link that would otherwise end its text. */
-export const TAP_HINT = "(tap the link)";
+/** What follows a link that would otherwise end its text: a full stop (the owner, 2026-11-03, replacing "(tap the link)": "can you just end it with a period"). */
+export const TAP_HINT = ".";
 /** What goes before a link that would otherwise start its text. */
 export const LEAD_IN = "Link:";
 
@@ -60,7 +60,7 @@ export function linksIn(text: string): string[] {
 /**
  * The text with no link at either end, where Messages draws a box of its own
  * (`noteCards.ts` keeps a note's link off both ends for the same reason):
- * "…steps: <link>" becomes "…steps: <link> (tap the link)", "<link> has it"
+ * "…steps: <link>" becomes "…steps: <link>.", "<link> has it"
  * becomes "Link: <link> has it", and a lone link both. Anything else is
  * unchanged. Pure.
  */
@@ -71,7 +71,7 @@ export function tappable(text: string): string {
   if (last) {
     const raw = last[1]!;
     const link = cleanLink(raw);
-    if (link.length > "https://".length) out = `${out.slice(0, last.index)}${link} ${TAP_HINT}${raw.slice(link.length)}`;
+    if (link.length > "https://".length && raw === link) out = `${out}${TAP_HINT}`;
   }
   if (/^https?:\/\/\S/i.test(out)) out = `${LEAD_IN} ${out}`;
   return out === text.trim() ? text : out;

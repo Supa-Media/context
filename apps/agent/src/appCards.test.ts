@@ -67,7 +67,7 @@ describe("the Sendblue line with cards on", () => {
     const line = lineFor({ fetch: fake(calls, 403), linqApiKey: "", sendblue: KEYS, appCard: CONFIG }, chatId);
     await line.sendText(chatId, LINK, "k");
     expect(calls.map((call) => Boolean(call.body.app_card))).toEqual([true, false]);
-    expect(calls[1].body.content).toBe(`Link: ${LINK} (tap the link)`);
+    expect(calls[1].body.content).toBe(`Link: ${LINK}.`);
     calls.length = 0;
     await line.sendText(chatId, "Saved it.", "k");
     expect(calls.map((call) => call.body.content)).toEqual(["Saved it."]);
@@ -77,6 +77,6 @@ describe("the Sendblue line with cards on", () => {
     const calls: Call[] = [];
     const line = lineFor({ fetch: fake(calls), linqApiKey: "", sendblue: KEYS, appCard: null }, chatId);
     await line.sendText(chatId, LINK, "k");
-    expect(calls.map((call) => call.body.content)).toEqual([`Link: ${LINK} (tap the link)`]);
+    expect(calls.map((call) => call.body.content)).toEqual([`Link: ${LINK}.`]);
   });
 });

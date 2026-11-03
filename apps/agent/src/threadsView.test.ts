@@ -99,7 +99,7 @@ describe("offering the view", () => {
     expect(await withThreadsLine(["On it.", "More."], ["threads"], mint)).toEqual([`On it.\n\nWatch it live at ${link} while I work.`, "More."]);
   });
 
-  it("never ends its text with the link, so Sendblue adds no \"(tap the link)\"", async () => {
+  it("never ends its text with the link, so Sendblue adds nothing to it", async () => {
     const { tappable } = await import("./linkPreviews");
     const [first] = await withThreadsLine(["On it."], ["threads"], mint);
     expect(tappable(first!)).toBe(first);
