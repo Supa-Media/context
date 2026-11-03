@@ -38,8 +38,9 @@ export async function dropInObject(
   args: DropArgs,
   client: GranteeDropper | null,
 ): Promise<"object" | "convex"> {
-  // Only an owner may drop another person's grants; anyone else acts as the person leaving, which the object allows.
-  const actor = args.actorRole === "owner" ? { role: "owner" as const, userId: args.actorUserId } : { role: "member" as const, userId: args.userId };
+  // The remover, as the audit must name the acting identity. An object that refuses their role answers FORBIDDEN, and
+  // the Convex fallback takes the grants out under the same name.
+  const actor = { role: args.actorRole, userId: args.actorUserId };
   let answer: unknown = null;
   if (client !== null) {
     try {

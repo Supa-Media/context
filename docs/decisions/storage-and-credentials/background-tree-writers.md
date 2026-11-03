@@ -75,7 +75,7 @@ nothing a restore could still want. A narrowing that answers `503 MIRROR_PENDING
 - `accessMirror.apply`: applies the object's member, invite and connection changes, and is `internalMutationMirrored`
   (no row outbox entry) since 2026-11-03. Where the notes live in the object, a member removal no longer deletes that
   person's grants in Convex: it schedules `accessMirrorGrants.drop`, which asks the object to drop them
-  (`ws.write.dropGrantee`, an owner acting, or else the person leaving), and the object's change comes back through
+  (`ws.write.dropGrantee`, with the remover as the actor, so the audit names who acted), and the object's change comes back through
   the access mirror (`objectAccessMirror.dropGrantee`, the same `removeUserGrantsIn` and audit row). Every answer but
   the object's `ok` (`NOT_READY`, a refusal, an object out of reach, no client) takes them out in Convex with a watched
   write, so the row push carries it: a grant left behind would still reach someone the owner removed. Between the

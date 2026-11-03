@@ -55,7 +55,7 @@ function dropper(answer: unknown | Error) {
   return { client, calls };
 }
 
-const runner = (t: TestConvex) => ({ runMutation: ((ref: never, args: never) => t.mutation(ref, args)) as never });
+const runner = (t: TestConvex) => ({ runMutation: ((ref: unknown, args: unknown) => (t.mutation as (r: unknown, a: unknown) => Promise<unknown>)(ref, args)) as never });
 
 describe("a removed member's grants where the notes live in the object", () => {
   test("the mirror leaves them to the object, schedules the drop, and opens no row outbox entry", async () => {
@@ -74,11 +74,11 @@ describe("a removed member's grants where the notes live in the object", () => {
     expect(await grants(t, shared, member)).toHaveLength(1);
   });
 
-  test("an actor who is not an owner drops them as the person leaving, which the object allows", async () => {
+  test("an editor who removed them is named as the actor, never the person leaving", async () => {
     const { t, owner, shared, member } = await world("object");
     const { client, calls } = dropper({ ok: true, version: 5, dropped: 1 });
     await dropInObject(runner(t), { workspaceId: shared, userId: member, actorUserId: owner, actorRole: "editor" }, client);
-    expect(calls).toEqual([{ kind: "user", id: member, actor: { role: "member", userId: member } }]);
+    expect(calls).toEqual([{ kind: "user", id: member, actor: { role: "editor", userId: owner } }]);
   });
 
   for (const [why, answer] of [
