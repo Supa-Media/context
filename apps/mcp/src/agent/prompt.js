@@ -168,6 +168,14 @@ export const MEETINGS_LINE =
 export const DIRECT_LINE = "If what's in front of you answers it, reply now in one round: no tools, no deliberating.";
 
 /**
+ * The Tex Devs group, 2026-11-03 (`untriedWeb.js`): asked "thoughts?" on a
+ * shared link, Tex took `DIRECT_LINE` and an earlier "couldn't open it" for
+ * what was in front of it, tried nothing, and asked them to paste the page.
+ */
+export const LINK_LINE =
+  "Read a link someone sent (open_page or browse) before saying anything about it, every time, even after a failed try; never ask them to paste what a link holds.";
+
+/**
  * What Tex can do outside the notes, said by the build because a production
  * setup's own words go stale (the owner, 2026-10-23: the live setup still said
  * calendar changes wait for a YES and "tell them what to change themselves",
@@ -446,6 +454,8 @@ export function systemPromptParts(
         SETTINGS_LINE,
         // Dev2, 2026-11-01: what's in front of you answers in one round (`DIRECT_LINE`).
         DIRECT_LINE,
+        // The Tex Devs group, 2026-11-03: a link is read, not answered from memory (`LINK_LINE`).
+        LINK_LINE,
         // Dev2, 2026-10-29: short texts, and one line beside a page or card (`wordy.js`).
         BRIEF_LINE,
         // A new tester, 2026-10-30: 👍 or 👎, not "say yes" (`chatVoice.js`).
