@@ -42,6 +42,7 @@ import { rewriteReferencesAfterMove } from "./references.js";
 import { destinationRefusal } from "./destination.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { rowVersionOf, startKeyedNoteMove } from "./queuedFolder.js";
+import { phase } from "../../mcp/phase.js";
 import { TAKEN_REFUSAL, objectServesMoves, startObjectMove } from "./objectMove.js";
 
 const ARCHIVE_TAKEN = "conflict: archive destination already exists";
@@ -101,7 +102,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   // is asked of it in turn. Archiving took about 2.5 s through the reads below (2026-11-03).
   const objectAsked = objectServesMoves(store, scope);
   if (objectAsked) {
-    const version = await rowVersionOf(store, path, expectedEtag);
+    const version = await phase(store, "archive_version", () => rowVersionOf(store, path, expectedEtag));
     if (version.conflict) return toolError("conflict: the note changed since you read it; re-read and retry");
     let answered = null;
     const landed = await firstFreePath(archiveDestination(root, path), async (candidate) => {

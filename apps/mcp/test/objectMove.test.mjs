@@ -415,3 +415,14 @@ test("archive through the object: a note already inside the archive is 'already 
   assert.equal(sent.length, 0);
   assert.deepEqual(queued, []);
 });
+
+test("each step after the object's answer is timed on its own, so a slow move says where its time went", async () => {
+  const { store } = objectStore({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }] });
+  const timed = [];
+  store.phase = (name, run) => {
+    timed.push(name);
+    return run();
+  };
+  await startObjectMove(store, "team", "a/x.md", "b/x.md", undefined, NOTE);
+  for (const name of ["move_announce", "move_record", "move_behind"]) assert.ok(timed.includes(name), `${name} in ${timed}`);
+});
