@@ -218,8 +218,9 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     });
   }
   // A change to a job still running is handed to it, in the words of whoever texted it.
-  if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, { id: message.eventId, text: message.jobReport ? "" : message.text }, deps.steerJob, deps.now()); // a report's turn passes only its own notes
-  if (answer.steers && deps.steerJob) await resumeJobs(storage, answer.steers, { id: message.eventId }, deps.steerJob, deps.now()); // "restart it": an ended job picks up where it stopped
+  const theirWords = { id: message.eventId, text: message.jobReport ? "" : message.text }; // a report's turn passes only its own notes
+  if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, theirWords, deps.steerJob, deps.now());
+  if (answer.steers && deps.steerJob) await resumeJobs(storage, answer.steers, theirWords, deps.steerJob, deps.now()); // "restart it": an ended job picks up where it stopped, with their words
 }
 
 /** Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them. */

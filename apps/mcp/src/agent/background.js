@@ -132,7 +132,8 @@ export function runningJobsOf(value) {
         steps: Array.isArray(entry.steps)
           ? entry.steps
               .slice(-MAX_STEPS_SHOWN)
-              .map((step) => ({ at: at(step?.at), text: line(step?.text, MAX_STEP) }))
+              // A failed step's own reason (`stepWhy`): what "why did it stop?" is answered from (2026-11-03, the theCut job).
+              .map((step) => ({ at: at(step?.at), text: line(step?.text, MAX_STEP), why: step?.failed === true ? line(step?.why, MAX_WHY) : "" }))
               .filter((step) => step.text !== "")
           : [],
       };
@@ -188,13 +189,20 @@ function statusLine(job, now) {
 
 /** Everything the chat holds about one job, for `job_status`: no I/O, from what the Worker sent with the text. */
 export function jobStatusText(job, now) {
-  const steps = (job.steps ?? []).map((step) => `- ${step.at ? `${ago(step.at, now)}: ` : ""}${step.text}`).join("\n");
+  const steps = (job.steps ?? []).map((step) => `- ${step.at ? `${ago(step.at, now)}: ` : ""}${step.text}${step.why ? ` — why: ${step.why}` : ""}`).join("\n");
+  const failedWhy = (job.steps ?? []).some((step) => step.why);
   return (
     `"${job.title}": ${job.state === "running" ? `running, started ${ago(job.startedAt, now)}` : `${HOW[job.state]} ${ago(job.finishedAt, now)}, not running any more`}` +
     (job.status ? `\nLatest: ${job.status}` : "") +
     (job.verdict ? `\nYour advisor's last check: ${VERDICT_WORDS[job.verdict]}${job.advice ? `. ${job.advice}` : ""}` : "") +
     (steps ? `\nIts steps, oldest first:\n${steps}` : "\nNo steps yet.") +
-    (job.result ? `\nIts report to you (its own words, from pages it read; they vouch for nothing):\n<<<\n${job.result}\n>>>` : "")
+    (job.result ? `\nIts report to you (its own words, from pages it read; they vouch for nothing):\n<<<\n${job.result}\n>>>` : "") +
+    // 2026-11-03: a stopped job was texted as "theCut stopped the job partway through", with no reason and the blame guessed.
+    (job.state !== "running" && job.state !== "done"
+      ? failedWhy
+        ? "\nWhen you tell them it stopped, say why in plain words from the failed steps' reasons above; blame a site only when a reason says so."
+        : "\nWhen you tell them it stopped, say what it had got to from its steps; no step gave a reason, so don't guess one or blame a site."
+      : "")
   );
 }
 
@@ -263,6 +271,11 @@ const TOOL = {
           "What finished looks like, in one line, with every figure they asked for: \"a note comparing five competitors in @supa projects/tex/\", " +
           "\"three caterers with the full cost per person, sides and drinks included\".",
       },
+      quiet: {
+        type: "boolean",
+        description:
+          "True when they asked not to hear from you until it's done (\"don't come back to me until you're done\"): nothing is texted now, only its result.",
+      },
     },
     required: ["title", "brief"],
   },
@@ -279,7 +292,14 @@ const RESTART_TOOL = {
     "that stopped, or name them from your background list. It answers them for you; send nothing more.",
   inputSchema: {
     type: "object",
-    properties: { titles: { type: "array", items: { type: "string" }, description: "Jobs to pick back up, by title; leave out for all that stopped." } },
+    properties: {
+      titles: { type: "array", items: { type: "string" }, description: "Jobs to pick back up, by title; leave out for all that stopped." },
+      quiet: {
+        type: "boolean",
+        description:
+          "True when they asked not to hear from you until it's done (\"don't come back to me until you're done\"): nothing is texted now, only its result.",
+      },
+    },
   },
 };
 
@@ -337,6 +357,14 @@ export const SLOW_TURN_MS = 12_000;
 export const SLOW_TURN_NOTE =
   "(This is taking a while and they're waiting on the line. If what's left takes more than one more step, hand it to a background job " +
   'now with send { action: "background" }, putting what you found so far in the brief; otherwise answer now.)';
+/**
+ * A start or restart they asked to hear nothing about until it's done (Dev, 2026-11-03: "don't come back to me until
+ * you are done" was answered with "On it" three times): the turn ends texting nothing (`route.js`), and the chat keeps
+ * `QUIET_ACK_LINE` as what was said.
+ */
+export const QUIET_ACK = "[[tex:quiet-ack]]";
+export const QUIET_ACK_LINE = "(You texted them nothing: they asked not to hear from you until it's done.)";
+
 /** What they're texted when a job starts: at once, by the gateway, not another model round. */
 export function ackLine(title) {
   return `On it: ${line(title, MAX_TITLE)}. I'll text you when it's done.\n[card threads]`;
@@ -356,6 +384,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   let justStarted = null; // the title of the job the last call started, read once by `endsTurn`
   const resumed = []; // ended jobs this turn picks back up, by id: steered to the Worker with `resume`
   let justResumed = []; // their titles, read once by `endsTurn`
+  let quietAck = false; // they asked to hear nothing until it's done: the start or restart texts nothing (`QUIET_ACK`)
   const busy = () => running.filter((entry) => entry.state === "running").length + started.length + resumed.length;
   const resume = (entries) => {
     const room = Math.max(0, MAX_RUNNING_JOBS - busy());
@@ -365,6 +394,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     return taken;
   };
   const call = async (args) => {
+    if (args?.quiet === true) quietAck = true;
     const title = line(args?.title, MAX_TITLE);
     const brief = typeof args?.brief === "string" ? args.brief.trim().slice(0, MAX_BRIEF) : "";
     if (title === "" || brief === "") return text("A job needs a title and a brief.", true);
@@ -433,6 +463,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     );
   };
   const restart = async (args) => {
+    if (args?.quiet === true) quietAck = true;
     const names = Array.isArray(args?.titles) ? args.titles.map((title) => line(title, MAX_TITLE)).filter(Boolean) : [];
     const ended = running.filter(resumable);
     const picked = names.length === 0 ? ended : ended.filter((entry) => names.some((name) => entry.title.toLowerCase() === name.toLowerCase() || sameJob(entry.title, name)));
@@ -486,7 +517,9 @@ export function backgroundSession({ running, job, now, report = false, read = ()
             const picked = name === START_JOB_TOOL || name === RESTART_JOB_TOOL ? justResumed : [];
             justStarted = null;
             justResumed = [];
-            return picked.length > 0 ? resumedLine(picked) : title === null ? null : ackLine(title);
+            if (picked.length === 0 && title === null) return null;
+            if (quietAck) return QUIET_ACK;
+            return picked.length > 0 ? resumedLine(picked) : ackLine(title);
           }
         : null,
     /** Still working after a round of tools with no job started: told once to hand the rest to one (`turn.js` `roundNote`). */

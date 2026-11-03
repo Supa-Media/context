@@ -246,12 +246,14 @@ export type JobPlace = Pick<JobEntry, "chatId" | "messageId" | "line" | "groupId
  * instead of the task). Each job's own object still holds its run for two hours
  * after it ended (`jobRun.ts` `resumeJob`): the same ask, brief, finish line and
  * what it had got to. Only this chat's jobs that ended without finishing, and
- * never past the running limit. Says which could not be picked up.
+ * never past the running limit. Says which could not be picked up. Their text
+ * goes with it (2026-11-03: "book with santana, mens adult style cut" restarted
+ * a job that was handed "(Picked back up.)" and never saw the barber or cut).
  */
 export async function resumeJobs(
   storage: InboxStorage,
   asks: JobSteerAsk[],
-  steer: Pick<JobSteer, "id">,
+  steer: Pick<JobSteer, "id" | "text">,
   send: (id: string, steer: JobSteer) => Promise<boolean>,
   now: number,
 ): Promise<string[]> {
@@ -261,7 +263,7 @@ export async function resumeJobs(
     if (entry === undefined || entry.state === "running") continue;
     const running = (await chatJobs(storage, now)).filter((job) => job.state === "running").length;
     // A finished job has nothing to pick up: its object kept no run (`resumeJob`).
-    const ok = entry.state !== "done" && running < MAX_RUNNING_JOBS && (await send(id, { id: steer.id, text: "(Picked back up.)", resume: true }).catch(() => false));
+    const ok = entry.state !== "done" && running < MAX_RUNNING_JOBS && (await send(id, { id: steer.id, text: steer.text.trim() || PICKED_UP, resume: true }).catch(() => false));
     if (ok) {
       const { finishedAt: _f, finalPass: _p, verdict: _v, advice: _a, result: _r, stopped: _s, ...kept } = entry;
       await storage.put<JobEntry>(entryKey(id), { ...kept, state: "running", startedAt: now, status: "Picking up where it stopped" });
@@ -270,6 +272,9 @@ export async function resumeJobs(
   }
   return missed;
 }
+
+/** A restart's text when no words of theirs came with it (a turn by code): shown to the job as nothing. */
+export const PICKED_UP = "(Picked back up.)";
 
 /** What they're told about jobs that could not be picked back up: too long ago, or three already running. */
 export function notResumedText(titles: readonly string[]): string | undefined {
