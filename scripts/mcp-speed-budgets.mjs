@@ -34,7 +34,8 @@ import { pathToFileURL } from "node:url";
 export const BUDGETS = Object.freeze({
   "tools/call:fetch": 150,
   // A save names no action, so its calls are `tools/call:write` (`callOf`).
-  "tools/call:write": 250,
+  // 250 -> 210 after #2820 (a new note's bytes and row in one call): 167 ms median.
+  "tools/call:write": 210,
   "tools/call:manage:archive": 250,
   "tools/call:manage:move_folder": 400,
   "tools/call:search": 800,
