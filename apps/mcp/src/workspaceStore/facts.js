@@ -166,6 +166,18 @@ export function workspaceFacts(sql, objects) {
     return byKey;
   }
 
+  /** The long notes and contact reviews the chaos score needs beyond the keys (`chaosExtraOf`), for the paths `sees` lets through. */
+  function chaosExtras(byPath, sees) {
+    const extras = [];
+    for (const note of byPath.values()) {
+      if (!parsed(note) || !sees(note.path)) continue;
+      const row = all(sql.exec("SELECT props FROM ws_facts WHERE key = ?", note.key))[0];
+      const extra = chaosExtraOf(note.path, row?.props ?? null);
+      if (extra !== null) extras.push({ path: note.path, ...extra });
+    }
+    return extras;
+  }
+
   /** Every note's facts current, or `false` when more changed than one ask reads. */
   const current = () => {
     const byPath = notes();
@@ -201,16 +213,7 @@ export function workspaceFacts(sql, objects) {
         }
         return { served: true, links, unparsed: [...byPath.values()].filter((note) => !parsed(note)).length };
       }
-      if (fields.ask === "chaos") {
-        const extras = [];
-        for (const note of byPath.values()) {
-          if (!parsed(note)) continue;
-          const row = all(sql.exec("SELECT props FROM ws_facts WHERE key = ?", note.key))[0];
-          const extra = chaosExtraOf(note.path, row?.props ?? null);
-          if (extra !== null) extras.push({ path: note.path, ...extra });
-        }
-        return { served: true, extras };
-      }
+      if (fields.ask === "chaos") return { served: true, extras: chaosExtras(byPath, () => true) };
       throw new FactAskRefused("not a facts ask");
     },
 
@@ -321,6 +324,18 @@ export function workspaceFacts(sql, objects) {
     },
 
     /**
+     * `{ask: "chaos", history: false}`: the long notes and contact reviews among the notes the reader may see, in the
+     * control plane's `chaos` shape, for a write's report of what it did to the score (`chaos/change.js`). The score a
+     * week ago, and keeping today's, are the control plane's history: an ask that wants them is not served here.
+     */
+    chaos({ history }, sees) {
+      if (history !== false) return NOT_SERVED;
+      const byPath = current();
+      if (byPath === null) return NOT_SERVED;
+      return { served: true, chaos: { extras: chaosExtras(byPath, sees), weekAgo: null } };
+    },
+
+    /**
      * `{ask: "jobs"}`: which folder does each built-in job, and the root folders, as the reader may see them
      * (`jobsAnswer.js`, Convex's `gatewayFacts` `jobs` branch). `folderSees` is the reader's `folderVisibleAtScope`.
      */
@@ -332,7 +347,7 @@ export function workspaceFacts(sql, objects) {
 }
 
 /** The asks a workspace object answers itself. Every other ask is the control plane's. */
-export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors", "jobs"]);
+export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors", "jobs", "chaos"]);
 
 /**
  * The asks the control plane's own readers make through the door (`ws.facts.rows`): unfiltered, like the control
