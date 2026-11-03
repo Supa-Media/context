@@ -56,14 +56,33 @@ test("a setup is scored on found, top three, MRR and complete, against the test'
   ];
   const [a, b] = scoreSearch(records, setups, searchBars({ found: "90%", top3: "85%" }));
   assert.equal(a.found, 2);
+  assert.equal(a.first, 1, "only question 1 had an expected note first");
   assert.equal(a.top3, 2);
   assert.equal(a.complete, 1, "question 2 wanted two notes and got one");
   assert.ok(Math.abs(a.mrr - (1 + 0.5 + 0) / 3) < 1e-9);
   assert.equal(a.goodEnough, false);
   assert.equal(b.found, 3);
+  assert.equal(b.first, 3);
   assert.equal(b.complete, 3);
   assert.equal(b.goodEnough, true);
-  assert.deepEqual(searchBars({}), { found: null, top3: null });
+  assert.deepEqual(searchBars({}), { found: null, first: null, top3: null });
+});
+
+test("the first bar is read from good_enough, and a test that sets none is not held to one", () => {
+  assert.deepEqual(searchBars({ found: "90%", first: "70%", top3: "90%" }), { found: 90, first: 70, top3: 90 });
+  assert.equal(searchBars({ found: "90%" }).first, null);
+  const setups = [{ name: "c", search: {} }];
+  const records = [
+    { setup: "c", question: 1, expected: ["@m/x.md"], hits: ["@m/x.md"], rank: 1, ms: 10 },
+    { setup: "c", question: 2, expected: ["@m/y.md"], hits: ["@m/z.md", "@m/y.md"], rank: 2, ms: 10 },
+  ];
+  // Found and in the top three are 100%, but only half the first lines are expected notes.
+  const [held] = scoreSearch(records, setups, searchBars({ found: "90%", first: "70%", top3: "90%" }));
+  assert.equal(held.found, 2);
+  assert.equal(held.first, 1);
+  assert.equal(held.goodEnough, false);
+  const [unheld] = scoreSearch(records, setups, searchBars({ found: "90%", top3: "90%" }));
+  assert.equal(unheld.goodEnough, true);
 });
 
 const SEARCH_TEST = [
@@ -73,6 +92,7 @@ const SEARCH_TEST = [
   "today: 2026-10-08",
   "good_enough:",
   "  found: 90%",
+  "  first: 70%",
   "  top3: 85%",
   "---",
   "",
@@ -119,12 +139,21 @@ test("pnpm ai search --fake scores each search setup on an invented folder, and 
     assert.match(note, /^job: search$/m);
     assert.match(note, /^status: scored$/m);
     const summary = note.split("## Misses")[0];
-    const here = summary.split("\n").find((line) => line.startsWith("| here |"));
-    const everywhere = summary.split("\n").find((line) => line.startsWith("| everywhere |"));
-    assert.ok(here && everywhere, summary);
     // From Ana's own workspace, q2 cannot be found with everywhere off; q3 names the brand and is found either way.
-    assert.match(here, /\| 66\.7% \| 66\.7% \|/, here);
-    assert.match(everywhere, /\| 100\.0% \| 100\.0% \|/, everywhere);
+    const cell = (setup, heading) => {
+      const lines = summary.split("\n");
+      const columns = lines.find((line) => line.startsWith("| Setup |"))?.split("|").map((c) => c.trim());
+      const row = lines.find((line) => line.startsWith(`| ${setup} |`))?.split("|").map((c) => c.trim());
+      assert.ok(columns && row, summary);
+      return row[columns.indexOf(heading)];
+    };
+    assert.equal(cell("here", "Found"), "66.7%");
+    assert.equal(cell("here", "First"), "66.7%", "q1 and q3 both have an expected note first");
+    assert.equal(cell("here", "In top 3"), "66.7%");
+    assert.equal(cell("everywhere", "Found"), "100.0%");
+    assert.equal(cell("everywhere", "First"), "100.0%");
+    assert.equal(cell("everywhere", "In top 3"), "100.0%");
+    assert.match(summary, /Bars: found 90%, first 70%, in top 3 85%\./);
     assert.match(note, /### here: 1 missed\n\n- q2 "order twill"/);
     assert.match(note, /### everywhere: 0 missed/);
     assert.match(note, /Best: everywhere\./);
