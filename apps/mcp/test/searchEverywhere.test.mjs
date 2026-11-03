@@ -5,6 +5,8 @@
  * ranking across every workspace, since one model scored them all.
  *
  * Sabotage record (temporary local edits, reverted):
+ *   a link-only hit not counted as loose               → "a hit whose words are only inside a link's address…" fails
+ *   code passages kept for a prose question             → "a code passage found only by meaning is left out…" fails
  *   meaning ranked per workspace instead of across them → "a note the query is about outranks another workspace's first word hit" fails
  *   the loose penalty dropped                           → "a loose any-word hit never outranks a real match" fails
  *   loose word evidence counted beside a real match     → "a note holding every word outranks another workspace's loose hit that meaning also found" fails
@@ -329,4 +331,24 @@ test("an archived note with a title match does not outrank a live note with a be
     [seen("@x/live.md", { title: "Renewal notes", wordRank: 0 })],
   ];
   assert.deepEqual(fuseEverywhere(lists, 12, { query: "workers comp renewal" }).map((entry) => entry.key), ["@x/live.md", "archive/old/workers-comp-renewal.md"]);
+});
+
+test("a hit whose words are only inside a link's address ranks as a loose one (production, 2026-11-03)", () => {
+  const review = { ...hit("@lc/areas/reviews/goal-4.md", { wordRank: 0 }), title: "Goal 4 review", snippets: ["…https://example.invalid/note/@care/projects/workers-comp-renewal/coverage…"] };
+  const page = { ...hit("@care/projects/workers-comp-renewal/coverage.page.md", { wordRank: 0 }), title: "Coverage and call script", snippets: ["…calling about our workers' comp renewal that starts…"] };
+  const fused = fuseEverywhere([[review], [page]], 12, { query: "workers comp renewal" });
+  assert.deepEqual(fused.map((entry) => entry.key), [page.key, review.key]);
+  assert.equal(fused[1].loose, false, "the answer carries the hit as given");
+  // Without a query nothing is judged, and the lists' order stands.
+  assert.deepEqual(fuseEverywhere([[review], [page]]).map((entry) => entry.key), [review.key, page.key]);
+});
+
+test("a code passage found only by meaning is left out of a prose question, kept for a code one", () => {
+  const code = { ...hit("@supa/projects/oauth/zap-plan.md", { meaningScore: 0.62 }), snippets: ['ientId || state.tokenUrl) && !canRefresh) { print("refresh settings off"); } function form(value) { return encode(value); }'] };
+  const prose = { ...hit("@pw/projects/recruitment.md", { meaningScore: 0.55 }), snippets: ["Outreach, partner vetting, booking, invoicing and renewals."] };
+  const page = hit("@care/projects/renewal.md", { wordRank: 0 });
+  const asked = (query) => fuseEverywhere([[page], [code], [prose]], 12, { query }).map((entry) => entry.key);
+  assert.ok(!asked("workers comp renewal").includes(code.key));
+  assert.ok(asked("workers comp renewal").includes(prose.key));
+  assert.ok(asked("state.tokenUrl refresh").includes(code.key));
 });

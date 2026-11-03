@@ -25,6 +25,8 @@ import { toolError, toolText } from "./results.js";
 import { holdSearchPasses } from "../search/heldPasses.js";
 import { notePrior } from "../search/priors.js";
 import { evidenceBonus } from "../search/evidence.js";
+import { matchesOnlyInLinks } from "../search/linkMatch.js";
+import { looksLikeCode, queryLooksLikeCode } from "../search/codeLike.js";
 
 /** Most hits a search across every workspace shows. */
 const EVERYWHERE_HITS = 12;
@@ -86,12 +88,28 @@ function median(values) {
  *   without a query the order is the one the ranks give
  */
 export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEFAULT_SEARCH_SETTINGS.extraNotes, query } = {}) {
-  const all = lists.flatMap((hits, list) => hits.map((hit, order) => ({ hit, list, order })));
+  const texts = (hit) => [hit.title, ...(Array.isArray(hit.snippets) ? hit.snippets : [])].filter((text) => typeof text === "string");
+  // A word hit whose terms sit only inside a link's address counts as a loose
+  // one (`search/linkMatch.js`): production, 2026-11-03, "workers comp renewal"
+  // put a review note that held only a link to the real page above the page.
+  const all = lists.flatMap((hits, list) =>
+    hits.map((hit, order) => {
+      const linkOnly = typeof query === "string" && typeof hit.wordRank === "number" && !hit.loose && matchesOnlyInLinks(query, texts(hit));
+      return { hit: linkOnly ? { ...hit, loose: true } : hit, list, order, original: hit };
+    }),
+  );
   const anyWhole = all.some(({ hit }) => typeof hit.wordRank === "number" && !hit.loose);
   const isMeaningOnly = ({ hit }) => typeof hit.wordRank !== "number";
+  // A passage of code found only by meaning is noise for a question asked in
+  // prose (`search/codeLike.js`): the same search added three code passages
+  // as "Same topic, different words". A query that is itself code keeps them.
+  const proseQuery = typeof query === "string" && !queryLooksLikeCode(query);
+  const codeOnly = (entry) => proseQuery && isMeaningOnly(entry) && looksLikeCode(texts(entry.hit).slice(1).join(" "));
   // Meaning-only hits must be close to be worth a row once the words found a note with every word.
   const eligible = all.filter(
-    (entry) => !(anyWhole && isMeaningOnly(entry) && !(typeof entry.hit.meaningScore === "number" && entry.hit.meaningScore >= MEANING_EXTRA_FLOOR_WITH_WORDS)),
+    (entry) =>
+      !codeOnly(entry) &&
+      !(anyWhole && isMeaningOnly(entry) && !(typeof entry.hit.meaningScore === "number" && entry.hit.meaningScore >= MEANING_EXTRA_FLOOR_WITH_WORDS)),
   );
   // The meaning ranking is over the eligible hits; the budget below only removes
   // meaning-only hits from the answer, after the ranks are set.
@@ -125,8 +143,9 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
     .filter((entry) => !overBudget.has(entry))
     .sort(byScore)
     .slice(0, most);
-  for (const entry of answer) if (isMeaningOnly(entry)) entry.hit.meaningOnly = true;
-  return answer.map(({ hit }) => hit);
+  for (const entry of answer) if (isMeaningOnly(entry)) entry.original.meaningOnly = true;
+  // The hits as given: a link-only hit's `loose` was a ranking signal, never part of the answer.
+  return answer.map(({ original }) => original);
 }
 
 /** Word search and search by meaning in one workspace, as `search_notes` has always asked. */
