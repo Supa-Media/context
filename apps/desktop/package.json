@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Meeting capture on the desktop — notices the meeting, records it without a bot joining the call, and writes the note into the customer's own bucket",
+  "homepage": "https://context.lc",
+  "author": "Context <support@context.lc>",
+  "desktopName": "context.desktop",
   "type": "module",
   "main": "dist/main/index.cjs",
   "scripts": {
@@ -13,7 +16,8 @@
     "smoke": "node test/launch.smoke.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "echo \"no lint configured yet\" && exit 0",
-    "package": "node scripts/build.mjs && electron-builder --mac --config electron-builder.yml --publish never"
+    "package": "node scripts/build.mjs && electron-builder --mac --config electron-builder.yml --publish never",
+    "package:linux": "node scripts/build.mjs && electron-builder --linux --config electron-builder.yml --publish never"
   },
   "dependencies": {
     "@supa-media/context": "workspace:*",

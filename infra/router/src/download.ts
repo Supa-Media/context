@@ -13,6 +13,13 @@
  * `/download/mac/intel` is the x64 build for the Macs before it. A browser
  * cannot tell the two apart (Safari on Apple silicon still says "Intel"), so
  * the default is the one nearly everybody has.
+ *
+ * `/download/linux` is the x64 AppImage, which runs on any distribution once
+ * it is marked executable; `/download/linux/arm64` is the same for arm64.
+ * `/download/linux/deb` and `/download/linux/deb/arm64` are the `.deb`s for
+ * Debian and Ubuntu (`apt install ./Context-linux-amd64.deb`). The AppImage's
+ * x64 name says `x86_64` and the `.deb`'s says `amd64` because each is that
+ * format's own word for the CPU.
  */
 
 export const DOWNLOAD_RELEASES = "https://github.com/Supa-Media/context/releases/latest/download";
@@ -20,9 +27,13 @@ export const DOWNLOAD_RELEASES = "https://github.com/Supa-Media/context/releases
 const DOWNLOADS: Readonly<Record<string, string>> = {
   "/download/mac": `${DOWNLOAD_RELEASES}/Context-mac-arm64.dmg`,
   "/download/mac/intel": `${DOWNLOAD_RELEASES}/Context-mac-x64.dmg`,
+  "/download/linux": `${DOWNLOAD_RELEASES}/Context-linux-x86_64.AppImage`,
+  "/download/linux/arm64": `${DOWNLOAD_RELEASES}/Context-linux-arm64.AppImage`,
+  "/download/linux/deb": `${DOWNLOAD_RELEASES}/Context-linux-amd64.deb`,
+  "/download/linux/deb/arm64": `${DOWNLOAD_RELEASES}/Context-linux-arm64.deb`,
 };
 
-/** The dmg an address names, or null. Exact paths only; a trailing slash is tolerated. */
+/** The file an address names, or null. Exact paths only; a trailing slash is tolerated. */
 export function downloadFor(pathname: string): string | null {
   const path = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
   return Object.hasOwn(DOWNLOADS, path) ? DOWNLOADS[path] : null;

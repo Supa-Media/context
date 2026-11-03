@@ -1,0 +1,125 @@
+name: Deploy Desktop (build the Linux app)
+
+# An AppImage and a `.deb` of the desktop app, for x64 and arm64 (Dev,
+# 2026-11-03). Called only by `deploy-desktop.yml` (a `workflow_call`, never a push or a pull request), which attaches these files to
+# the release its Mac job creates; never run on its own. Nothing on Linux is
+# signed or notarised: there is no Gatekeeper to satisfy, so this needs no
+# secret and no environment.
+#
+# The version rule is the Mac job's, restated: `major.minor.<run number>` when
+# publish was requested, the committed version otherwise. The Mac job can still
+# decline to publish (unsigned, unnotarised); then nothing here is uploaded, and
+# `deploy-desktop.yml`'s `publish-linux` refuses outright if the two versions
+# differ.
+#
+# The launch check installs the `.deb` it just built, the way a person would,
+# and starts `/opt/Context/context --smoke` under a virtual display. The install
+# is the point: on Ubuntu 24.04 an unprivileged Chromium sandbox needs the
+# AppArmor profile the `.deb` installs, and launching the unpacked directory
+# would prove the app's code and nothing about the package. Only x64 is
+# launched; the arm64 files are the same app for another CPU and ship unlaunched.
+#
+# Auto-update is not armed on Linux: the updater arms only on a signed build
+# (`shouldArmUpdater`), and a Linux build is never signed. `latest-linux.yml` is
+# therefore not uploaded; a Linux install updates by downloading again.
+#
+# The meeting collectors and system-audio capture are macOS-only today
+# (`apps/desktop/src/platform/macos/`); on Linux they report "unknown", and the
+# app is the signed-in shell, the tray and the local agent.
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        description: "Whether the caller was asked to publish; decides the version stamped"
+        required: true
+        type: boolean
+    outputs:
+      version:
+        description: "The version this build was stamped with"
+        value: ${{ jobs.build.outputs.version }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the Linux app
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --filter "@context/desktop..." --frozen-lockfile
+      - name: Resolve the app version
+        id: linux_version
+        working-directory: apps/desktop
+        env:
+          PUBLISH_REQUESTED: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { readFileSync, writeFileSync, appendFileSync } = require("node:fs");
+          const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+          let version = String(pkg.version);
+          if (process.env.PUBLISH_REQUESTED === "true") {
+            const [major, minor] = version.split(".");
+            const run = process.env.GITHUB_RUN_NUMBER;
+            if (!/^\d+$/.test(major) || !/^\d+$/.test(minor) || !/^\d+$/.test(run ?? "")) {
+              throw new Error(`cannot derive desktop release version from ${version} and run ${run}`);
+            }
+            version = `${major}.${minor}.${run}`;
+            pkg.version = version;
+            writeFileSync("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `value=${version}\n`);
+          console.log(`Linux app version for this build: ${version}`);
+          NODE
+      - name: Build
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          pnpm run build
+          pnpm exec electron-builder --linux --config electron-builder.yml --publish never
+          ls -la release/*.AppImage release/*.deb
+      - name: Install the .deb and launch it
+        working-directory: apps/desktop
+        run: |
+          set -uo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+          sudo apt-get install -y -qq ./release/Context-linux-amd64.deb
+          log="$RUNNER_TEMP/smoke-linux.log"
+          timeout 90 xvfb-run -a env -u ELECTRON_RUN_AS_NODE /opt/Context/context --smoke > "$log" 2>&1
+          status=$?
+          tail -n 40 "$log"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::The installed Linux app exited $status under --smoke (124 is the 90s timeout) — see its log above."
+            exit 1
+          fi
+          if grep -qE 'Uncaught Exception|A JavaScript error occurred|Dynamic require' "$log"; then
+            echo "::error::The installed Linux app exited 0 but its log names a crash."
+            exit 1
+          fi
+          if ! grep -q '^\[smoke\] the app started, opened a window' "$log"; then
+            echo "::error::The installed Linux app exited 0 without its smoke verdict line."
+            exit 1
+          fi
+          echo "PASS: the installed .deb started, opened a window and exited 0."
+      - uses: actions/upload-artifact@v4
+        with:
+          name: context-desktop-linux
+          path: |
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+          if-no-files-found: error
+          retention-days: 14
+    outputs:
+      version: ${{ steps.linux_version.outputs.value }}
