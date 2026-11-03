@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { T } from "../page/TexPageParts";
 import { jobCount, type HistoryDay, type HistoryLine } from "./historyLines";
+import { TimingPill, TurnTiming, timingFor } from "./TurnTiming";
 
 /**
  * One day of a chat's history, its turns one line a message: time, who,
@@ -116,13 +117,18 @@ function Line({ line: given, open, onPress, look = "page", step = false }: { lin
   const [openCall, setOpenCall] = useState<string | null>(null);
   const quiet = line.tone === "quiet" || line.tone === "thinking";
   const failed = step && line.entry.kind === "tool" && line.entry.ok === false && line.calls === undefined;
+  // Staff only: where this turn's time went, from its first text out (`turnTiming.ts`).
+  const timing = useMemo(() => timingFor(line.timing), [line.timing]);
+  const [timingOpen, setTimingOpen] = useState(false);
+  const pill = timing === null ? null : <TimingPill view={timing} open={timingOpen} onPress={() => setTimingOpen((was) => !was)} id={line.id} />;
   return (
     <View>
+      <View style={pill !== null ? (look === "phone" ? styles.withPillPhone : styles.withPill) : null}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${line.who || "Note"} ${line.time}: ${line.text}`}
         onPress={onPress}
-        style={step ? styles.stepLine : look === "phone" ? styles.stacked : styles.line}
+        style={[step ? styles.stepLine : look === "phone" ? styles.stacked : styles.line, pill !== null ? styles.shrink : null]}
         testID={`tex-history-entry-${line.id}`}
       >
         {step ? null : look === "phone" ? (
@@ -162,6 +168,9 @@ function Line({ line: given, open, onPress, look = "page", step = false }: { lin
           ) : null}
         </View>
       </Pressable>
+      {pill !== null ? <View style={look === "phone" ? styles.pillPhone : styles.pillBeside}>{pill}</View> : null}
+      </View>
+      {timing !== null && timingOpen ? <TurnTiming view={timing} look={look} id={line.id} /> : null}
       {open && line.calls ? (
         <View testID={`tex-history-calls-${line.id}`}>
           {line.calls.map((call) => (
@@ -203,6 +212,12 @@ const makeStyles = (colors: Colors) =>
     whoTime: { flexDirection: "row", gap: 8, alignItems: "baseline" },
     pill: { alignSelf: "flex-start", marginTop: 2, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden" },
     thinking: { fontStyle: "italic" },
+    // The wait sits beside the line, never inside it: a button in a button is neither valid nor reachable.
+    withPill: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+    withPillPhone: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+    shrink: { flexShrink: 1 },
+    pillBeside: { paddingTop: 6 },
+    pillPhone: { paddingTop: 7 },
     whoJob: { width: 104 },
     jobHead: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 2 },
     state: { paddingHorizontal: 8, paddingVertical: 1, borderRadius: 999, borderWidth: 1, borderColor: colors.muted, overflow: "hidden" },
