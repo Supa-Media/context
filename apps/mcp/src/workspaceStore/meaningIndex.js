@@ -262,8 +262,9 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
             if (was.path !== want.path || was.tier !== want.tier) {
               sql.exec("UPDATE ws_meaning_passages SET path = ?, tier = ? WHERE row_id = ?", want.path, want.tier, rowId);
               sql.exec("UPDATE ws_meaning_held SET path = ?, tier = ? WHERE row_id = ?", want.path, want.tier, rowId);
-              // Read again on the next query: a move or a change of rules is rare beside a search.
-              held = null;
+              if (held !== null) {
+                for (const row of all(sql.exec("SELECT id FROM ws_meaning_passages WHERE row_id = ?", rowId))) Object.assign(held.get(Number(row.id)) ?? {}, { path: want.path, tier: want.tier });
+              }
               packed = null;
             }
             log.done(rowId);

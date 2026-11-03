@@ -129,6 +129,8 @@ test("a moved note and a change of rules keep its fingerprints; only a changed t
   await note(object, 1, "plans/a.md", "# A\ncedar forest");
   await object.call("ws.meaning.build");
   const embedded = object.embed.calls.length;
+  // Asked once first, so the passages held in memory are what the move has to update.
+  assert.deepEqual(paths(await query(object, "cedar")), ["plans/a.md"]);
 
   await object.call("ws.apply", { rows: [{ id: "r1", noteId: ID(1), path: "plans/moved/a.md", kind: "file", storageKey: `notes/${ID(1)}.md`, at: 20 }], at: 20 });
   await object.call("ws.meaning.build");
