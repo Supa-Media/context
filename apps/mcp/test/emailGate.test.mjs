@@ -46,7 +46,7 @@
  *     email reaches the model as waiting for a yes` fails.
  * 16. `answerWithAsk` not calling `withoutHeldEcho`. → `a held email is texted
  *     once` fails.
- * 17. `setAsideLine` dropped from the model's question in `route.js`. → `the
+ * 17. `setAsideLine` dropped from the model's question in `texTurn.js`. → `the
  *     turn that set a held email aside is told so` fails.
  */
 
