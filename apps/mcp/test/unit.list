@@ -332,6 +332,7 @@ test/treeOpsMove.test.mjs
 test/treeOpsTrash.test.mjs
 test/treeWrites.test.mjs
 test/fileOpsRoute.test.mjs
+test/treeErase.test.mjs
 test/workspaceReaders.test.mjs
 test/workspaceRouting.test.mjs
 test/backupBehind.test.mjs
@@ -374,6 +375,8 @@ test/ledgerJobsAndThinking.test.mjs
 test/ledgerWorkEntries.test.mjs
 test/ledgerConversation.test.mjs
 test/workspaceAccessRows.test.mjs
+test/workspaceSearchIndex.test.mjs
 
 test/savePhases.test.mjs
 test/bookkeepingBehind.test.mjs
+test/collabReplaceInObject.test.mjs

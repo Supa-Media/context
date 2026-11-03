@@ -5,11 +5,11 @@
  * Production's report of narrowing writes that opened no mark (`workspaceObjectMarks.report`, 2026-11-02, 72 hours)
  * named three writers: the fact fill's `nodeFacts.record` (43 writes), `bugNotes.shareWithTeam` (3) and
  * `nodeRowMoves.rowMove` (3, a restore out of the trash). Here: a fact fill is not a narrowing at all; the trash's
- * erasure and a stalled move's watchdog page open a mark before their mutation commits; and a narrowing that still
+ * erasure is the object's own (`ws.write.erase`), and a stalled move's watchdog page opens a mark before its mutation commits; and a narrowing that still
  * skipped the object is held to "behind" by the push that carries it, even when that push fails.
  *
  * Sabotage, each confirmed to fail a case here: put `sealed` back among the fields that place a row (the facts drop is
- * recorded as unmarked), run the erasure's claims outside `objectFirst` (the rows are gone before the mark opens),
+ * recorded as unmarked), let the trash's erasure claim rows in Convex again where the notes live in the object (the erase case sees no `ws.write.erase`),
  * page the watchdog's move straight from the mutation again (the page is unmarked), and drop the drain's cover for
  * unmarked entries (the object serves the old share with no behind while the push fails).
  *
@@ -82,21 +82,18 @@ describe("background writers tell the object first", () => {
     expect(await unmarked(t)).toEqual([]);
   });
 
-  test("emptying the trash opens a mark before its rows go, and closes it once the object has them", async () => {
+  test("emptying the trash where the notes live in the object asks the object to erase, and opens no mark", async () => {
     const trashed = ".context/trash/2026-09-01T05-00-00-000Z/plans/old.md";
-    const { t, workspaceId, ops, onCall, lookup } = await inObject([trashed]);
-    const atMarkOpen: boolean[] = [];
-    onCall(async (op) => {
-      if (op === "ws.mark.open") atMarkOpen.push(await liveAt(t, workspaceId, trashed));
-    });
+    const { t, workspaceId, ops } = await inObject([trashed]);
     const before = ops().length;
     await t.action(internal.functions.trashEmptying.eraseWorkspace, { workspaceId });
-    // The mark went in while the row was still there: the object knew before the control plane changed.
-    expect(atMarkOpen[0]).toBe(true);
-    expect(await liveAt(t, workspaceId, trashed)).toBe(false);
+    // The object is the writer of its rows now (`lib/trash/objectErase.ts`): the control plane removes none itself
+    // and so has nothing to tell it first. (This test object keeps no mirror, so its erase is refused and the row
+    // stays for the next pass; `__tests__/trash/objectEmptying.test.ts` follows a whole erase.)
     const order = ops().slice(before);
-    expect(order.indexOf("ws.mark.open")).toBeLessThan(order.indexOf("ws.apply"));
-    expect(await lookup(trashed, "private")).toMatchObject({ found: false });
+    expect(order).toContain("ws.write.erase");
+    expect(order).not.toContain("ws.mark.open");
+    expect(await liveAt(t, workspaceId, trashed)).toBe(true);
     expect(await unmarked(t)).toEqual([]);
     expect(await marks(t)).toEqual([]);
   });

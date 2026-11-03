@@ -1,5 +1,5 @@
 /**
- * The tree's write ops over a workspace object: `ws.write.trash` and `ws.write.restore`. `treeOps.js` makes each move
+ * The tree's write ops over a workspace object: `ws.write.trash`, `ws.write.restore` and `ws.write.erase`. `treeOps.js` makes each move
  * in the object's rows; this module judges the caller first, with the audience's rules as `serve.js` `judgeFor` holds
  * them, and turns the answer into the op's `{answer, change, narrows}` (`writeOps.js`).
  *
@@ -120,8 +120,41 @@ function restore(ctx, body) {
   };
 }
 
+/** Rows one erase page removes: inside the mirror's 500 a change (`mirrorTree.ts` `MIRROR_TREE_MAX`), with room for the emptied folders above. */
+export const ERASE_PAGE = 400;
+
+/** What an erase may name: a stamp folder in the trash, or Context's old copies (all of them, or a name in them). */
+const ERASABLE = /^(?:\.context\/trash\/[^/]+|\.context\/old-copies(?:\/.+)?)$/;
+
+/**
+ * `ws.write.erase`: removes for good a stamp folder in the trash (`.context/trash/<stamp>`) or what sits in Context's
+ * old copies, a page of at most `ERASE_PAGE` rows at a time (`more` says another page is owed). It is a background
+ * job's, called by the control plane with the gateway secret (emptying the trash when its days are up, the owner's
+ * delete of hidden copies), so there is no caller to judge: what it may name is the judgement. It answers each removed
+ * file's note id and storage key, which the bucket half still deletes, and waits for the mirror: the rows are gone.
+ * `docs/decisions/storage-and-credentials/background-tree-writers.md`.
+ */
+function erase(ctx, body) {
+  if (!text(body.path) || !ERASABLE.test(body.path) || body.path.split("/").includes("..")) {
+    throw new WriteOpRefused("an erase names a stamp folder in the trash or a name in the old copies");
+  }
+  const result = treeOps(ctx.sql).remove({ path: body.path, now: ctx.now, limit: ERASE_PAGE });
+  if (!result.ok) return refused(result);
+  const { removed, files, more } = result;
+  return {
+    answer: { ok: true, count: removed.length, more, files: files.map(({ noteId, storageKey }) => ({ noteId, storageKey })) },
+    change: {
+      op: "tree",
+      record: { moves: [], folders: [], removed, trash: true, erase: true },
+      objectAt: removed.reduce((latest, entry) => Math.max(latest, entry.at), 0),
+    },
+    narrows: true,
+  };
+}
+
 /** The tree write ops by name, merged into `WRITE_OPS` (`writeOps.js`). */
 export const TREE_WRITE_OPS = Object.freeze({
   "ws.write.trash": trash,
   "ws.write.restore": restore,
+  "ws.write.erase": erase,
 });

@@ -22,8 +22,10 @@ import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
 import { BINDING_OPS, BindingRowRefused, serveBindingCall } from "./bindingRows.js";
 import { accessCall, applyAccess } from "./serveAccess.js";
 import { isWriteOp, serveWrites } from "./serveWrites.js";
+import { serveCollabReplace } from "./collabReplace.js";
 import { treeRows } from "./treeRows.js";
 import { absentHere } from "./lookupMiss.js";
+import { SearchAskRefused } from "./searchIndex.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 
 const CALL = "x-tex-call";
@@ -38,6 +40,20 @@ function changed(store, change) {
   }
 }
 const SCOPES = new Set(["private", "team"]);
+/** Bucket-shaped calls that change what the object holds. */
+const TEXT_CHANGES = new Set(["put", "delete", "wipe"]);
+
+/** Whether a bucket-shaped call names a note's text (`notes/...`), or everything (`wipe`). */
+function touchesNoteText(request) {
+  try {
+    const call = JSON.parse(decodeURIComponent(request.headers.get(CALL) ?? "null"));
+    if (call?.op === "wipe") return true;
+    const keys = call?.op === "delete" ? (Array.isArray(call.keys) ? call.keys : [call.keys]) : [call?.key];
+    return keys.some((key) => typeof key === "string" && key.startsWith("notes/"));
+  } catch {
+    return true;
+  }
+}
 
 function opOf(request) {
   try {
@@ -194,7 +210,13 @@ function pathsTouched(rows, ids, incoming = []) {
  */
 export async function serveWorkspaceStore(store, request) {
   const op = opOf(request);
-  if (typeof op !== "string" || !(op.startsWith("ws.") || isPersonCall(op) || isTokenIndexCall(op))) return await serveTexStore(store.objects, request);
+  if (typeof op !== "string" || !(op.startsWith("ws.") || isPersonCall(op) || isTokenIndexCall(op))) {
+    const answer = await serveTexStore(store.objects, request);
+    // A note's text written or removed: the word index reads its notes again before its next answer (`searchIndex.js`).
+    // Only a note's own key: editing history is written on every keystroke batch and changes no note's words.
+    if (TEXT_CHANGES.has(op) && store.search && touchesNoteText(request)) store.search.touched();
+    return answer;
+  }
   let fields;
   try {
     fields = JSON.parse((await request.text()) || "{}");
@@ -280,6 +302,15 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "noteId", store.members ?? null)));
       case "ws.facts":
         return Response.json(await settledAnswer(store, () => answerFacts(store, fields)));
+      case "ws.search":
+        // The gateway's search, over this object's own word index (`searchIndex.js`); its `canSee` filters the rows.
+        if (!store.search || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json(store.search.search(fields.asks));
+      case "ws.search.build": {
+        if (!store.search || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        const waiting = store.search.catchUp();
+        return Response.json({ served: waiting !== null, waiting });
+      }
       case "ws.facts.rows":
         // The control plane's own readers, through the door: unfiltered, as its internal queries are.
         if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ROW_ASKS.has(fields.ask)) return Response.json({ served: false });
@@ -326,13 +357,16 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json({ home: rows.setHome(fields.home) });
       case "ws.encryption":
         return Response.json({ encryption: rows.setEncryption(fields.state) });
+      case "ws.collab.replace":
+        // A whole-note save's editing history in one call (`collabReplace.js`); `{served: false}` sends it back.
+        return Response.json(await serveCollabReplace(store, fields));
       case "ws.backfilled":
         return Response.json({ backfilledAt: rows.markBackfilled(fields.at) });
       default:
         return Response.json({ error: "unknown_op" }, { status: 400 });
     }
   } catch (error) {
-    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
+    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused || error instanceof SearchAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
   }
 }
