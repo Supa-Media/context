@@ -26,7 +26,9 @@ const SCHEMA = [
     ord REAL,
     archive_of TEXT,
     at INTEGER NOT NULL,
-    gone INTEGER NOT NULL DEFAULT 0
+    gone INTEGER NOT NULL DEFAULT 0,
+    own_at INTEGER NOT NULL DEFAULT 0,
+    own_fields TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS ws_rows_note ON ws_rows (note_id)`,
   `CREATE INDEX IF NOT EXISTS ws_rows_path ON ws_rows (path)`,
@@ -42,6 +44,57 @@ export const ENCRYPTION_STATES = new Set(["none", "keyed"]);
 
 /** The fields a row's digest covers, in order. */
 const DIGEST_FIELDS = ["id", "noteId", "path", "kind", "storageKey", "etag", "size", "collaborates", "uploaded", "role", "order", "archiveOf"];
+
+/** Each row field the object may originate, and the column that holds it. */
+const COLUMN = {
+  noteId: "note_id",
+  path: "path",
+  kind: "kind",
+  storageKey: "storage_key",
+  etag: "etag",
+  size: "size",
+  collaborates: "collaborates",
+  uploaded: "uploaded",
+  role: "role",
+  order: "ord",
+  archiveOf: "archive_of",
+};
+
+const UPSERT = `INSERT INTO ws_rows (id, note_id, path, kind, storage_key, etag, size, collaborates, uploaded, role, ord, archive_of, at, own_at, own_fields, gone)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+  ON CONFLICT(id) DO UPDATE SET note_id = excluded.note_id, path = excluded.path, kind = excluded.kind, storage_key = excluded.storage_key,
+    etag = excluded.etag, size = excluded.size, collaborates = excluded.collaborates, uploaded = excluded.uploaded, role = excluded.role,
+    ord = excluded.ord, archive_of = excluded.archive_of, at = excluded.at, own_at = excluded.own_at, own_fields = excluded.own_fields, gone = 0`;
+
+/** A row field's value as its column stores it. Every value is a SQLite value, never undefined. */
+function stored(field, value) {
+  if (field === "collaborates") return value === true ? 1 : 0;
+  if (field === "size" || field === "uploaded" || field === "order") return Number.isFinite(value) ? value : null;
+  return value ?? null;
+}
+
+/** Every column of a checked row, keyed by column name. */
+function storedValues(row) {
+  return Object.fromEntries(Object.keys(COLUMN).map((field) => [COLUMN[field], stored(field, row[field])]));
+}
+
+/** The fields a row's object-originated changes own, as a list (`[]` for none). */
+function ownFieldsOf(row) {
+  const value = row.own_fields === null || row.own_fields === undefined ? [] : JSON.parse(row.own_fields);
+  return Array.isArray(value) ? value : [];
+}
+
+/** The `objectAt` a pushed row carries: what Convex had seen of the object's clock (0 when it names none). */
+const objectAtOf = (row) => (Number.isFinite(row.objectAt) ? row.objectAt : 0);
+
+/**
+ * The fields a push of `row` must not overwrite, as a set: those the object wrote after the copy the push was built
+ * from (`held.own_at` above the push's `objectAt`). Null when the push takes the whole row.
+ */
+function ownedAgainst(held, row) {
+  if (held === null || Number(held.own_at) <= objectAtOf(row)) return null;
+  return new Set(ownFieldsOf(held));
+}
 
 /** Thrown for a row or rule write the object will not keep. */
 export class WorkspaceRowRefused extends Error {
@@ -78,10 +131,36 @@ function checkRow(row) {
   if (!text(row.path)) throw new WorkspaceRowRefused("a row needs its path");
   if (row.kind !== "file" && row.kind !== "folder") throw new WorkspaceRowRefused("a row is a file or a folder");
   if (!Number.isFinite(row.at)) throw new WorkspaceRowRefused("a row needs its writer's clock");
+  if (row.objectAt !== undefined && !Number.isFinite(row.objectAt)) throw new WorkspaceRowRefused("a row's objectAt is a number");
+  checkTexts(row);
+  return row;
+}
+
+/** The optional text fields of a row or a change: a note id, a storage key, a role, an archive id, or null. */
+function checkTexts(row) {
   if (row.noteId !== undefined && row.noteId !== null && !text(row.noteId, 64)) throw new WorkspaceRowRefused("not a note id");
   if (row.storageKey !== undefined && row.storageKey !== null && !text(row.storageKey, 1024)) throw new WorkspaceRowRefused("not a storage key");
   for (const field of ["role", "archiveOf"]) if (row[field] !== undefined && row[field] !== null && !text(row[field], 1024)) throw new WorkspaceRowRefused(`not a ${field}`);
-  return row;
+}
+
+/**
+ * An object-originated change's fields, checked as `checkRow` checks a row's: only known fields, each with a value its
+ * column takes. Returns the named fields as `[field, value]` pairs (an `undefined` value names nothing).
+ */
+function checkChange(fields) {
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) throw new WorkspaceRowRefused("a change names its fields");
+  const given = Object.entries(fields).filter(([, value]) => value !== undefined);
+  if (given.length === 0) throw new WorkspaceRowRefused("a change names at least one field");
+  for (const [field, value] of given) {
+    if (!Object.hasOwn(COLUMN, field)) throw new WorkspaceRowRefused(`not a row field: ${field}`);
+    if (field === "path" && !text(value)) throw new WorkspaceRowRefused("a row needs its path");
+    if (field === "kind" && value !== "file" && value !== "folder") throw new WorkspaceRowRefused("a row is a file or a folder");
+    if (field === "collaborates" && typeof value !== "boolean") throw new WorkspaceRowRefused("collaborates is true or false");
+    if (["size", "uploaded", "order"].includes(field) && value !== null && !Number.isFinite(value)) throw new WorkspaceRowRefused(`not a ${field}`);
+    if (field === "etag" && value !== null && !text(value, 1024)) throw new WorkspaceRowRefused("not an etag");
+  }
+  checkTexts(fields);
+  return given;
 }
 
 /** The rules as the control plane renders them (`HeldRules`): folders, notes, and the version they are at. */
@@ -94,41 +173,106 @@ function checkRules(rules) {
   return rules;
 }
 
+/**
+ * Adds the ownership columns to a table made before them. `pragma_table_info` is read as a SELECT, so the same
+ * `exec` shape serves the Durable Object and the Node tests, and the columns are added only where missing.
+ */
+function addOwnershipColumns(sql) {
+  const have = new Set(all(sql.exec("SELECT name FROM pragma_table_info('ws_rows')")).map((column) => column.name));
+  if (!have.has("own_at")) sql.exec("ALTER TABLE ws_rows ADD COLUMN own_at INTEGER NOT NULL DEFAULT 0");
+  if (!have.has("own_fields")) sql.exec("ALTER TABLE ws_rows ADD COLUMN own_fields TEXT");
+}
+
 export function workspaceRows(sql) {
   for (const statement of SCHEMA) sql.exec(statement);
+  addOwnershipColumns(sql);
   const meta = (name) => all(sql.exec("SELECT value FROM ws_meta WHERE name = ?", name))[0]?.value ?? null;
   const setMeta = (name, value) => sql.exec("INSERT INTO ws_meta (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value", name, value);
+  const heldRow = (id) => all(sql.exec("SELECT * FROM ws_rows WHERE id = ?", id))[0] ?? null;
+
+  /**
+   * Writes one row's columns. Its pushed values are written, except that the fields the object owns (`owned`, from
+   * `ownedAgainst`) keep the held values; an owned row keeps its ownership, and a row taken whole clears it.
+   */
+  const upsertValues = (id, values, at, ownAt, ownFields) =>
+    sql.exec(UPSERT, id, values.note_id, values.path, values.kind, values.storage_key, values.etag, values.size, values.collaborates,
+      values.uploaded, values.role, values.ord, values.archive_of, at, ownAt, ownFields);
+  const writeRow = (row, held, owned) => {
+    const values = storedValues(row);
+    if (owned) for (const field of owned) if (Object.hasOwn(COLUMN, field)) values[COLUMN[field]] = held[COLUMN[field]];
+    upsertValues(row.id, values, row.at, owned ? Number(held.own_at) : 0, owned ? held.own_fields : null);
+  };
 
   return {
-    /** Upsert rows; a row older than the one held (or its tombstone) is skipped. */
+    /**
+     * Upsert rows; a row older than the one held (or its tombstone) is skipped. A pushed row that names an `objectAt`
+     * older than the object's own write to it keeps the fields the object wrote (see `originate`).
+     */
     put(rows) {
       if (!Array.isArray(rows) || rows.length > MAX_ROWS_PER_PUT) throw new WorkspaceRowRefused("rows come as a list of at most " + MAX_ROWS_PER_PUT);
       let kept = 0;
       for (const row of rows.map(checkRow)) {
-        const held = all(sql.exec("SELECT at, path, kind, gone FROM ws_rows WHERE id = ?", row.id))[0];
+        const held = heldRow(row.id);
         if (held && Number(held.at) > row.at) continue;
+        const owned = ownedAgainst(held, row);
+        const path = owned?.has("path") ? held.path : row.path;
         // A folder that moved carries everything under it: the tree's move is one row (paths are built on read), so
         // the object rewrites its descendants' paths in the same call, or they would be judged under the old folder.
-        if (held && Number(held.gone) === 0 && held.kind === "folder" && held.path !== "" && held.path !== row.path) {
+        if (held && Number(held.gone) === 0 && held.kind === "folder" && held.path !== "" && held.path !== path) {
           sql.exec(
             // Each moved row takes the folder's clock too, so a push of it read before the move is older and ignored.
             "UPDATE ws_rows SET path = ? || substr(path, length(?) + 1), at = MAX(at, ?) WHERE gone = 0 AND substr(path, 1, length(?) + 1) = ? || '/'",
-            row.path, held.path, row.at, held.path, held.path,
+            path, held.path, row.at, held.path, held.path,
           );
         }
-        sql.exec(
-          `INSERT INTO ws_rows (id, note_id, path, kind, storage_key, etag, size, collaborates, uploaded, role, ord, archive_of, at, gone)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-           ON CONFLICT(id) DO UPDATE SET note_id = excluded.note_id, path = excluded.path, kind = excluded.kind, storage_key = excluded.storage_key,
-             etag = excluded.etag, size = excluded.size, collaborates = excluded.collaborates, uploaded = excluded.uploaded, role = excluded.role,
-             ord = excluded.ord, archive_of = excluded.archive_of, at = excluded.at, gone = 0`,
-          row.id, row.noteId ?? null, row.path, row.kind, row.storageKey ?? null, row.etag ?? null,
-          Number.isFinite(row.size) ? row.size : null, row.collaborates === true ? 1 : 0,
-          Number.isFinite(row.uploaded) ? row.uploaded : null, row.role ?? null, Number.isFinite(row.order) ? row.order : null, row.archiveOf ?? null, row.at,
-        );
+        writeRow(row, held, owned);
         kept += 1;
       }
       return { kept };
+    },
+    /**
+     * An object-originated change to a live row: only the named fields are written, stamped `max(now, held.at + 1)`,
+     * and recorded as the object's own, so an older push from Convex keeps them (`put`). Null when the row is gone or
+     * absent. A folder's path is not changed here: a move carries its descendants and has its own op.
+     */
+    originate(change, now) {
+      if (!change || typeof change !== "object" || !text(change.id, 128)) throw new WorkspaceRowRefused("a change needs its id");
+      if (!Number.isFinite(now)) throw new WorkspaceRowRefused("a change needs the object's clock");
+      const given = checkChange(change.fields);
+      const held = heldRow(change.id);
+      if (held === null || Number(held.gone) !== 0) return null;
+      const fields = Object.fromEntries(given);
+      if (fields.path !== undefined && fields.path !== held.path && (fields.kind ?? held.kind) === "folder") {
+        throw new WorkspaceRowRefused("move a folder with its own op");
+      }
+      const at = Math.max(now, Number(held.at) + 1);
+      const values = Object.fromEntries(given.map(([field, value]) => [COLUMN[field], stored(field, value)]));
+      const columns = Object.keys(values);
+      const own = [...new Set([...ownFieldsOf(held), ...given.map(([field]) => field)])];
+      sql.exec(
+        `UPDATE ws_rows SET ${columns.map((column) => `${column} = ?`).join(", ")}, at = ?, own_at = ?, own_fields = ? WHERE id = ? AND gone = 0`,
+        ...columns.map((column) => values[column]), at, at, JSON.stringify(own), change.id,
+      );
+      return rowOut(heldRow(change.id));
+    },
+    /**
+     * A row the object creates at its clock `now`. It must not exist yet (a tombstone holds its id too), and every
+     * field it names is the object's own.
+     */
+    originateNew(row, now) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) throw new WorkspaceRowRefused("not a row");
+      if (!Number.isFinite(now)) throw new WorkspaceRowRefused("a change needs the object's clock");
+      const { id, at: _ignored, ...fields } = row;
+      const given = checkChange(fields);
+      const checked = checkRow({ ...fields, id, at: now });
+      if (heldRow(id) !== null) throw new WorkspaceRowRefused("the row exists");
+      upsertValues(id, storedValues(checked), now, now, JSON.stringify(given.map(([field]) => field)));
+      return rowOut(heldRow(id));
+    },
+    /** The object's own clock and fields for a row (`ownFields` null when none), or null for no row. */
+    ownership(id) {
+      const row = heldRow(id);
+      return row === null ? null : { ownAt: Number(row.own_at), ownFields: row.own_fields === null ? null : ownFieldsOf(row) };
     },
     /** Remove rows at the writer's clock, leaving a tombstone. */
     remove(ids, at) {
@@ -178,8 +322,14 @@ export function workspaceRows(sql) {
       }
       if (last !== true) return { staged: page.length, swapped: false };
       const staged = all(sql.exec("SELECT row FROM ws_stage WHERE epoch = ?", epoch)).map((entry) => JSON.parse(entry.row));
+      // The swap drops every row, so the held ownership is read first and each staged row merges against its own
+      // (`writeRow`, as `put` does), with no skip and no folder rewrite: the copy is the whole truth, not a push.
+      const held = new Map(all(sql.exec("SELECT * FROM ws_rows WHERE own_at > 0")).map((row) => [row.id, row]));
       sql.exec("DELETE FROM ws_rows");
-      for (let at = 0; at < staged.length; at += MAX_ROWS_PER_PUT) this.put(staged.slice(at, at + MAX_ROWS_PER_PUT));
+      for (const row of staged) {
+        const before = held.get(row.id) ?? null;
+        writeRow(row, before, ownedAgainst(before, row));
+      }
       sql.exec("DELETE FROM ws_stage");
       return { staged: page.length, swapped: true, rows: staged.length };
     },
