@@ -113,6 +113,7 @@ test/routines.test.mjs
 test/routinesTexRoot.test.mjs
 test/scopeInfoWorkspaces.test.mjs
 test/searchFollow.test.mjs
+test/searchLinkMatch.test.mjs
 test/siteFlags.test.mjs
 test/smallDataHooks.test.mjs
 test/staleClientArguments.test.mjs
@@ -206,8 +207,10 @@ test/managedDecryption.test.mjs
 test/meaningSnippetsFromDatabase.test.mjs
 test/moveWithoutConditionalDelete.test.mjs
 test/searchEverywhere.test.mjs
+test/searchEvidence.test.mjs
 test/searchPriors.test.mjs
 test/searchSettings.test.mjs
+test/searchCodeLike.test.mjs
 test/tokens.test.mjs
 test/presence/movedNotice.test.mjs
 test/searchKeyed/census.test.mjs

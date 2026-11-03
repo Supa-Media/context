@@ -24,6 +24,9 @@ import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
 import { holdSearchPasses } from "../search/heldPasses.js";
 import { notePrior } from "../search/priors.js";
+import { evidenceBonus } from "../search/evidence.js";
+import { matchesOnlyInLinks } from "../search/linkMatch.js";
+import { looksLikeCode, queryLooksLikeCode } from "../search/codeLike.js";
 
 /** Most hits a search across every workspace shows. */
 const EVERYWHERE_HITS = 12;
@@ -64,6 +67,12 @@ function median(values) {
  * searches, so a fresh note has no fingerprint for a while (production
  * benchmark, 2026-11-03).
  *
+ * With the query, a counted word hit also adds what its title and file name
+ * say about the query, which no workspace's corpus changes (`search/evidence.js`,
+ * decided 2026-11-03): `TITLE_WEIGHT` for each share of the query's terms its
+ * title holds, and `PHRASE_BONUS` when the whole query is a phrase in it. It
+ * goes in before the path prior, so an archived note's bonus is halved too.
+ *
  * Meaning-only hits (no word rank: found by what the note is about) are one
  * budget for the whole answer, not one per workspace. Once any workspace has a
  * strict word hit, a meaning-only hit must reach `MEANING_EXTRA_FLOOR_WITH_WORDS`
@@ -74,15 +83,33 @@ function median(values) {
  * @param {Array<Array<object>>} lists hits per workspace, this workspace's first, each hit
  *   carrying `wordRank`, `loose` and `meaningScore` (`search/meaning/serve.js`)
  * @param {number} [most] how many hits the answer shows
- * @param {{extraNotes?: number}} [options] the store's `extraNotes` setting (`search/settings.js`)
+ * @param {{extraNotes?: number, query?: string}} [options] the store's `extraNotes` setting
+ *   (`search/settings.js`), and the query whose title and phrase evidence counts (`search/evidence.js`);
+ *   without a query the order is the one the ranks give
  */
-export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEFAULT_SEARCH_SETTINGS.extraNotes } = {}) {
-  const all = lists.flatMap((hits, list) => hits.map((hit, order) => ({ hit, list, order })));
+export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEFAULT_SEARCH_SETTINGS.extraNotes, query } = {}) {
+  const texts = (hit) => [hit.title, ...(Array.isArray(hit.snippets) ? hit.snippets : [])].filter((text) => typeof text === "string");
+  // A word hit whose terms sit only inside a link's address counts as a loose
+  // one (`search/linkMatch.js`): production, 2026-11-03, "workers comp renewal"
+  // put a review note that held only a link to the real page above the page.
+  const all = lists.flatMap((hits, list) =>
+    hits.map((hit, order) => {
+      const linkOnly = typeof query === "string" && typeof hit.wordRank === "number" && !hit.loose && matchesOnlyInLinks(query, texts(hit));
+      return { hit: linkOnly ? { ...hit, loose: true } : hit, list, order, original: hit };
+    }),
+  );
   const anyWhole = all.some(({ hit }) => typeof hit.wordRank === "number" && !hit.loose);
   const isMeaningOnly = ({ hit }) => typeof hit.wordRank !== "number";
+  // A passage of code found only by meaning is noise for a question asked in
+  // prose (`search/codeLike.js`): the same search added three code passages
+  // as "Same topic, different words". A query that is itself code keeps them.
+  const proseQuery = typeof query === "string" && !queryLooksLikeCode(query);
+  const codeOnly = (entry) => proseQuery && isMeaningOnly(entry) && looksLikeCode(texts(entry.hit).slice(1).join(" "));
   // Meaning-only hits must be close to be worth a row once the words found a note with every word.
   const eligible = all.filter(
-    (entry) => !(anyWhole && isMeaningOnly(entry) && !(typeof entry.hit.meaningScore === "number" && entry.hit.meaningScore >= MEANING_EXTRA_FLOOR_WITH_WORDS)),
+    (entry) =>
+      !codeOnly(entry) &&
+      !(anyWhole && isMeaningOnly(entry) && !(typeof entry.hit.meaningScore === "number" && entry.hit.meaningScore >= MEANING_EXTRA_FLOOR_WITH_WORDS)),
   );
   // The meaning ranking is over the eligible hits; the budget below only removes
   // meaning-only hits from the answer, after the ranks are set.
@@ -101,9 +128,12 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
     let meaning = 0;
     if (meaningRank.has(entry)) meaning = 1 / (RRF_K + meaningRank.get(entry) + 1);
     else if (strictWord && medianRank !== null) meaning = 1 / (RRF_K + medianRank + 1);
+    // The title and phrase evidence (`search/evidence.js`): only for a word hit that counts,
+    // so a loose hit gets none while a strict one exists, as its words do not count either.
+    const title = counted ? evidenceBonus(query, hit) : 0;
     // The path prior (`search/priors.js`): an archived note or a log scores half
     // what the same evidence does on a live note. Hit keys carry `@name/`, which it reads through.
-    return { ...entry, score: (word + meaning) * notePrior(hit.key) };
+    return { ...entry, score: (word + meaning + title) * notePrior(hit.key) };
   });
   const byScore = (a, b) => b.score - a.score || a.list - b.list || a.order - b.order;
   const budget = anyWhole ? extraNotes : MEANING_SNIPPET_READS_LOOSE;
@@ -113,8 +143,9 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
     .filter((entry) => !overBudget.has(entry))
     .sort(byScore)
     .slice(0, most);
-  for (const entry of answer) if (isMeaningOnly(entry)) entry.hit.meaningOnly = true;
-  return answer.map(({ hit }) => hit);
+  for (const entry of answer) if (isMeaningOnly(entry)) entry.original.meaningOnly = true;
+  // The hits as given: a link-only hit's `loose` was a ranking signal, never part of the answer.
+  return answer.map(({ original }) => original);
 }
 
 /** Word search and search by meaning in one workspace, as `search_notes` has always asked. */
@@ -184,7 +215,7 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
   const hits = fuseEverywhere(
     [annotated(here), ...elsewhere.map(({ name, found }) => annotated(found, name))],
     EVERYWHERE_HITS,
-    { extraNotes: searchSettingsOf(store).extraNotes },
+    { extraNotes: searchSettingsOf(store).extraNotes, query },
   );
   return {
     ...here,
