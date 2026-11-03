@@ -395,3 +395,4 @@ test/savePhases.test.mjs
 test/bookkeepingBehind.test.mjs
 test/collabReplaceInObject.test.mjs
 test/bulkNotes.test.mjs
+test/trashNote.test.mjs
