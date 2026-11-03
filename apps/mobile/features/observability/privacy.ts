@@ -32,8 +32,9 @@ const CALLBACK_SECRET = /(\/(?:invite|join|s|signin|texts|vault)\/)[^/?#\s]+/gi;
 */
 const ENCODED_PATH_QUERY_VALUE = /([?&][A-Za-z0-9_.-]{1,64}=)[^&#\s]*%2[Ff][^&#\s]*/g;
 const CONTEXT_PATH = /(\/console\/)[^/?#\s]+/gi;
-// `/tex/<handle>`: whose agent computer this is, which is who uses Tex.
-const TEX_HANDLE = /(\/tex\/)[^/?#\s]+/gi;
+// `/tex/<handle>`: whose agent computer this is, which is who uses Tex; and
+// `/tex/group/<words>`, the words that name a group chat's home, as one.
+const TEX_HANDLE = /(\/tex\/)(?:group\/)?[^/?#\s]+/gi;
 // `/note/@slug/<path>` — everything after the keyword, not just the handle.
 // This route carries a whole note path, which `CONTEXT_PATH`'s one-segment
 // shape would leave standing from the second segment on.
@@ -109,7 +110,8 @@ export function telemetryRoute(pathname: string): string {
   if ((named[0] === "console" || named[0] === "note") && named.length >= 2) {
     named[1] = ":context";
   }
-  if (named[0] === "tex" && named.length >= 2) named[1] = ":context";
+  if (named[0] === "tex" && named[1] === "group" && named.length >= 3) named[2] = ":context";
+  else if (named[0] === "tex" && named.length >= 2) named[1] = ":context";
   if ((named[0] === "invite" || named[0] === "join" || named[0] === "s" || named[0] === "signin" || named[0] === "texts" || named[0] === "vault") && named.length >= 2) {
     named[1] = ":token";
   }

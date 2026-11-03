@@ -584,6 +584,9 @@ describe("every route is reachable, or says why not", () => {
       "/signin/[token]",
       "/stop-new-email",
       "/tex/[handle]",
+      "/tex/[handle]/[...rest]",
+      "/tex/group/[words]",
+      "/tex/group/[words]/[...rest]",
       // tex.lc's signed-in page (2026-10-20), reached from tex.lc only.
       "/text",
       "/texts/[token]",

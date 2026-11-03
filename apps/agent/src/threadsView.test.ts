@@ -7,12 +7,15 @@
  *   `stepOf` keeping a reason with no failure → "keeps that it failed and the tool's short reason" fails.
  *   `serveThreads` not checking the age → "a token it never made, a malformed one and an expired link" fails.
  *   `threadsPart` ignoring `cardsOn` → "the link in words where cards are off" fails.
+ *   `readHub` dropping its path pattern → "only the person's or a group's Tex page" fails.
+ *   `viewLink` always minting → "points at the Tex page the gateway named" fails.
  */
 
 import { describe, expect, it } from "vitest";
 
 import { withAnswerCards } from "./answerCards";
-import { MAX_THREADS_LINKS, mintThreadsLink, serveThreads, startJobs, THREADS_FOR_MS, threadsKey, threadsLines } from "./jobs";
+import { agentAnswer } from "./clients";
+import { MAX_THREADS_LINKS, mintThreadsLink, readHub, serveThreads, startJobs, THREADS_FOR_MS, threadsKey, threadsLines, viewLink } from "./jobs";
 import { MemoryStorage } from "./memoryStorage.testing";
 
 const OBJECT = "a".repeat(64);
@@ -101,6 +104,53 @@ describe("offering the view", () => {
     expect(await withAnswerCards(["Hi."], { texts: ["Hi."], choices: [], offers: ["threads"] }, CONFIG, broken)).toEqual(["Hi."]);
     expect(await threadsLines(["threads"], broken)).toEqual([]);
     expect(await threadsLines(undefined, mint)).toEqual([]);
+  });
+});
+
+describe("the Tex page instead of the view (the owner, 2026-11-03)", () => {
+  const minted = `https://context.lc/messages/threads?k=${OBJECT}.${"c".repeat(64)}`;
+  const mint = async () => minted;
+
+  it("only the person's or a group's Tex page, exactly as named", () => {
+    expect(readHub("https://context.lc/tex/@seyi")).toBe("https://context.lc/tex/@seyi");
+    expect(readHub("https://staging.context.lc/tex/group/brave-otter-lamp")).toBe("https://staging.context.lc/tex/group/brave-otter-lamp");
+    for (const bad of [
+      "http://context.lc/tex/@seyi",
+      "https://context.lc/tex/seyi",
+      "https://context.lc/tex/@seyi?k=1",
+      "https://context.lc/tex/@seyi#x",
+      "https://user@context.lc/tex/@seyi",
+      "https://context.lc:8443/tex/@seyi",
+      "https://context.lc/tex/@seyi/../../login",
+      "https://context.lc/tex/group/Brave-Otter",
+      "https://context.lc/tex/group/one",
+      "https://context.lc/note/@seyi/a.md",
+      "javascript:alert(1)",
+      7,
+      null,
+    ]) expect(readHub(bad), String(bad)).toBeNull();
+  });
+
+  it("points at the Tex page the gateway named, and mints the chat's own view only without one", async () => {
+    expect(await viewLink("https://context.lc/tex/@seyi", mint)!()).toBe("https://context.lc/tex/@seyi");
+    expect(await viewLink(undefined, mint)!()).toBe(minted);
+    expect(await viewLink("https://evil.example/x", mint)!()).toBe(minted);
+    expect(viewLink(undefined, undefined)).toBeUndefined();
+  });
+
+  it("is read off the gateway's answer only beside the offer", () => {
+    const answer = agentAnswer(200, { answer: "On it.", offers: ["threads"], hub: "https://context.lc/tex/group/brave-otter-lamp" });
+    expect(answer).toMatchObject({ kind: "answer", offers: ["threads"], hub: "https://context.lc/tex/group/brave-otter-lamp" });
+    expect(agentAnswer(200, { answer: "Hi.", hub: "https://context.lc/tex/@seyi" })).not.toHaveProperty("hub");
+    expect(agentAnswer(200, { answer: "On it.", offers: ["threads"], hub: "https://evil.example/tex/@seyi?x" })).not.toHaveProperty("hub");
+  });
+
+  it("goes as a card that opens the page where cards go, and in words, kept tappable, anywhere else", async () => {
+    const hub = viewLink("https://context.lc/tex/@seyi", mint);
+    const parts = await withAnswerCards(["On it."], { texts: ["On it."], choices: [], offers: ["threads"] }, CONFIG, hub);
+    expect(parts[1]).toMatchObject({ card: { url: "https://context.lc/tex/@seyi", layout: { caption: "What Tex is working on", subcaption: "Tap to open your Tex page" } } });
+    const group = await threadsLines(["threads"], viewLink("https://context.lc/tex/group/brave-otter-lamp", mint));
+    expect(group).toEqual(["What I'm working on, live (tap one to see its steps): https://context.lc/tex/group/brave-otter-lamp"]);
   });
 });
 

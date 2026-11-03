@@ -71,7 +71,7 @@ export function pagesOpenedBefore(history) {
 export async function openTurnWeb(env, { session, texting, group, question, vouched, history = [], channel, store, dispatch, ledger }) {
   // The person's browser tag lets a later text carry on in the same browser
   // (`browserProviders.js`); it is made from their id, never from the request.
-  // A handoff texts their own `/tex/<handle>` page, never the browser's link.
+  // A handoff texts their own `/tex/@<handle>` page, never the browser's link.
   const computer = texting
     ? computerFor(env, { owner: await browserOwner(env, session.actorUserId), viewer: texViewerUrl(env, session), store })
     : group

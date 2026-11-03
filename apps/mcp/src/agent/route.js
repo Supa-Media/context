@@ -62,6 +62,7 @@ import { withSameAsk } from "./sameAsk.js"; // a change they pushed back on is n
 import { paidLine } from "./textedPay.js";
 import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends, read for sense
 import { googleOfferLine } from "./googleOffer.js"; // offers Google once to a texter without it
+import { chatHubUrl } from "./hubLinks.js";
 import { backgroundSession, jobOf, jobPrompt, jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, reportReply, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
 import { chatLines, checkerHistory, commandTools, settingsChanged, consentForTurn, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange } from "./groupTurn.js";
 /**
@@ -611,7 +612,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     const answer = [answerWithAsk(claims?.stale() === true && ledger.asked.length === 0 && ask !== null && !/\?/.test(told) ? "" : told, ask, ledger.asked), offerText].filter(Boolean).join("\n\n"); // a drop's line replaces the model's unless it asked something
     /*
       A browser handed to the person goes out as a link the gateway adds, so
-      the model never holds it. The link is their own `/tex/<handle>` page,
+      the model never holds it. The link is their own `/tex/@<handle>` page,
       which only they can open, signed in; it still stays out of the saved
       conversation below, because the line is the gateway's and not an answer
       the model gave.
@@ -653,7 +654,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       ...(verbatim.length > 0 || offerText ? { verbatim: [...verbatim, ...(offerText ? [offerText] : [])] } : {}),
       ...(offerText ? { askFor: ledger.offered.who } : {}), // the Worker takes only their 👍 or yes
       ...startedJobs(background, ledger.untrusted === true), // the Worker runs these (`background.js`)
-      ...(pictures.length > 0 ? { pictures, ...(choices.length > 0 ? { choices } : {}) } : {}), ...(offers.length > 0 ? { offers } : {}), // choices, offers: `outgoingPictures.js`
+      ...(pictures.length > 0 ? { pictures, ...(choices.length > 0 ? { choices } : {}) } : {}), ...(offers.length > 0 ? { offers, ...hubField(offers, chatHubUrl(env, session, group)) } : {}), // choices, offers: `outgoingPictures.js`; `hub`: where "what I'm working on" points (`hubLinks.js`)
       ...(ledger.vaultLink === true && group === null ? { vaultWatch: true } : {}), // the Worker watches for the save (`vaultSaved.js`)
       provider: turn.provider,
       model: turn.model,
@@ -695,3 +696,8 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   }
 }
 // TEX ENTRY POINT: end
+
+/** `hub` beside an answer that offered the live view of its jobs, when the chat has one (`hubLinks.js`). */
+function hubField(offers, hub) {
+  return offers.includes("threads") && hub !== null ? { hub } : {};
+}

@@ -10,23 +10,28 @@
 import { cardsOn, type AppCard, type AppCardConfig } from "./appCards";
 import { withAskCard } from "./cardChats";
 import { withDataCards, type Offer } from "./dataCards";
-import { threadsLine } from "./jobs";
+import { readHub, threadsLine } from "./jobs";
 import type { SendPart } from "./outgoing";
 import { withPickCard, type Choice } from "./pickCard";
 import { withDrawnCards } from "./sendParts";
 
-/** The live view of the chat's jobs as a Context card; tapped, the extension opens the view's page (`/tex/threads` → `/messages/threads`). */
+/**
+ * The live view of the chat's jobs as a Context card. A hub link (`jobs.ts` `readHub`) is the card's own address,
+ * which the extension opens as it is, the signed-in Tex page; the chat's own view opens in the extension
+ * (`/tex/threads` → `/messages/threads`).
+ */
 export function threadsCard(link: string, config: AppCardConfig): AppCard {
+  const hub = readHub(link);
   const key = new URL(link).searchParams.get("k") ?? "";
   return {
     appName: "Context",
     extensionBundleId: config.extensionBundleId,
     teamId: config.teamId,
     ...(config.appStoreId ? { appStoreId: config.appStoreId } : {}),
-    url: `https://context.lc/tex/threads?k=${encodeURIComponent(key)}`,
+    url: hub ?? `https://context.lc/tex/threads?k=${encodeURIComponent(key)}`,
     interactive: false,
     fallbackText: threadsLine(link),
-    layout: { caption: "What Tex is working on", subcaption: "Tap to see each one's steps", trailingCaption: "Live", summary: "What Tex is working on" },
+    layout: { caption: "What Tex is working on", subcaption: hub ? "Tap to open your Tex page" : "Tap to see each one's steps", trailingCaption: "Live", summary: "What Tex is working on" },
   };
 }
 

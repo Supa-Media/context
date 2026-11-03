@@ -12,7 +12,7 @@
  *   this isolate uses Cloudflare's browser. Its browser outlives the question
  *   (until five idle minutes pass, `infra/site-shots/src/idle.ts`), found again by
  *   the person's tag, so a person can sign in on it and text Tex to carry on.
- *   They take it over at `viewer`, their own `context.lc/tex/<handle>` page
+ *   They take it over at `viewer`, their own `context.lc/tex/@<handle>` page
  *   (`http/texComputer.js`), signed in; Browserbase's live-view link, which
  *   drives the browser for whoever holds it, is never asked for.
  *

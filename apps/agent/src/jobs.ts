@@ -457,6 +457,34 @@ export function threadsKey(value: string | null): { objectId: string; token: str
   return extra === undefined && THREADS_OBJECT.test(objectId ?? "") && THREADS_TOKEN.test(token ?? "") ? { objectId: objectId!, token: token! } : null;
 }
 
+/**
+ * The signed-in Tex hub the gateway names beside an answer that offered the
+ * view (`apps/mcp/src/agent/hubLinks.js`; the owner, 2026-11-03: "it should
+ * show the hubs context.lc/tex/@user or context.lc/tex/group/<words> ...
+ * instead of random thread pages"): `/tex/@<handle>` for a person's own chat,
+ * `/tex/group/<words>` for a group's. Read strictly, so the gateway's answer
+ * can never put anything else in a text; null for anything else, and the
+ * chat's own short-lived view is minted instead.
+ */
+const HUB_PATH = /^\/tex\/(?:@[a-z0-9-]{2,32}|group\/[a-z]+(?:-[a-z]+){1,4})$/;
+export function readHub(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 200) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  const clean = url.protocol === "https:" && url.username === "" && url.password === "" && url.port === "" && url.search === "" && url.hash === "";
+  return clean && HUB_PATH.test(url.pathname) && url.href === value ? value : null;
+}
+
+/** The link "what I'm working on" sends: the chat's hub when the gateway named one, else a fresh link to its own view. */
+export function viewLink(hub: string | null | undefined, mint: (() => Promise<string>) | undefined): (() => Promise<string>) | undefined {
+  const named = readHub(hub);
+  return named !== null ? async () => named : mint;
+}
+
 /** The words that carry the view where there is no card to: a group, or a phone without the Context app. */
 export function threadsLine(link: string): string {
   return `What I'm working on, live (tap one to see its steps): ${link}`;

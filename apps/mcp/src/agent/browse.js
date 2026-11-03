@@ -366,7 +366,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   // And a hidden one, which only shows as a send button that does nothing (`silentSubmit.js`).
   const submits = silentSubmits();
   let shownElements = [];
-  // The person's own page for taking the browser over (`context.lc/tex/<handle>`),
+  // The person's own page for taking the browser over (`context.lc/tex/@<handle>`),
   // never the model's and never a link to the browser itself: texted the
   // moment it exists when the turn can text mid-task (`say`), else added to
   // the reply by the gateway.

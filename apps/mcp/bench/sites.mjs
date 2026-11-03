@@ -68,7 +68,7 @@
  *
  * The person signs in only through a handoff: once a turn handed the browser
  * over, the next text from the person comes after they signed in on that
- * site, the way someone taking over at their `/tex/<handle>` page would. The
+ * site, the way someone taking over at their `/tex/@<handle>` page would. The
  * `liveUrl` this stand-in answers with is what an older screenshot Worker
  * sent; the gateway must never pass it on.
  *
