@@ -4,6 +4,8 @@
  * failure, so a slow or broken upstream is one answer with "never linked".
  */
 
+import { COVER_VERSION } from "./preview/meta";
+
 /**
  * How long the control plane gets to answer before the card falls back.
  *
@@ -18,7 +20,7 @@ export const SHARE_TITLE_TIMEOUT_MS = 1_500;
  * Shape-checked, because it goes into a card address our own tags point at.
  */
 export function coverOf(value: unknown): string | null {
-  return typeof value === "string" && /^[0-9a-f]{8}$/.test(value) ? value : null;
+  return typeof value === "string" && COVER_VERSION.test(value) ? value : null;
 }
 
 /**

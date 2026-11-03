@@ -17,7 +17,7 @@ import { json, stringField } from "../gatewayAuth";
 import { writableWorkspace } from "../nodes/gatewayNames";
 import { GATEWAY_PATH_LENGTH } from "../nodes/gatewayManifest";
 
-/** A cover is a 1080 x 1350 picture; past this it is not one. */
+/** A cover is a 1080 x 1350 picture, or a 1200 x 630 card; past this it is not one. */
 export const MAX_COVER_BYTES = 2_000_000;
 /** The request: the picture as base64, and the rest. */
 export const MAX_COVER_REQUEST_BYTES = 2_800_000;
@@ -47,9 +47,25 @@ async function hex(data: Uint8Array | string, chars: number): Promise<string> {
   return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, chars);
 }
 
-/** `cover-<note>-<picture>.png`: the note's part is hashed, so no id or name is in the object's name. */
+/**
+ * Whether the PNG is wider than it is tall, read from its header (IHDR: width
+ * at byte 16, height at 20): the 1200 x 630 card of a page Tex drew a picture
+ * for, rather than the portrait first screen
+ * (`docs/decisions/app-and-console/page-drawings.md`).
+ */
+export function isWide(bytes: Uint8Array): boolean {
+  if (bytes.length < 24) return false;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return view.getUint32(16) > view.getUint32(20);
+}
+
+/**
+ * `cover-<note>-<picture>.png`, or `card-…` for a wide one: the note's part is
+ * hashed, so no id or name is in the object's name, and the prefix is how the
+ * card's size is told later without reading the picture (`coverVersion`).
+ */
 export async function coverLeaf(workspaceId: string, key: string, bytes: Uint8Array): Promise<string> {
-  return `cover-${await hex(`${workspaceId}:${key}`, 16)}-${await hex(bytes, 8)}.png`;
+  return `${isWide(bytes) ? "card" : "cover"}-${await hex(`${workspaceId}:${key}`, 16)}-${await hex(bytes, 8)}.png`;
 }
 
 export async function gatewayPageCoverHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
