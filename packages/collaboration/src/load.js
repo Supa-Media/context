@@ -263,6 +263,16 @@ export async function finalizePending(store, path, loaded) {
         return { ...current, revision };
       }
       if (!eligible(path, note.text)) throw fail("MATERIALIZATION_CONFLICT", "the Markdown generation is no longer eligible for collaboration");
+      // The Markdown already says what the accepted state says, under a new version (the note was copied, moved to
+      // another store, or rewritten with the same bytes): only the version is recorded. Rewriting the same text
+      // would be a note write on a read, with its bookkeeping, for nothing.
+      if (note.text === revision.value.text && note.text === state.text) {
+        const recorded = { ...state, rawMarkdownEtag: note.etag };
+        const kept = await put(store, head.stateKey, JSON.stringify(recorded), { etagMatches: stateEtag });
+        if (kept) return { head, state: recorded, stateEtag: kept.etag, revision };
+        current = await reload(store, path);
+        continue;
+      }
       const repaired = await put(store, path, revision.value.text, { etagMatches: note.etag });
       if (!repaired) {
         current = await reload(store, path);

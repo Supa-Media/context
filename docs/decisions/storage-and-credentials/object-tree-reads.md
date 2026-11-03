@@ -28,6 +28,15 @@ A check-in's changed-since read (`changedNodesStore`) and the device change feed
 leave a device copy refreshing every five minutes instead of on each change, until the object offers a change
 signal of its own.
 
+**A read's own lookups (2026-11-03).** The id layer asks a read's question (`get`, `head`, `exists`, one read's
+view) through `lookupRead` (`store/idLayout.js`): for a workspace on its object, a path the object answers "not
+found" for, while not behind, is no note for that reader, as the control plane would say, and the control plane is
+not asked. A write keeps the full lookup, because a new note's Tex home is known only there. And a read of a note
+whose Markdown already says what its accepted collaboration state says, under a new version, records the version
+instead of rewriting the same bytes (`packages/collaboration/src/load.js` `finalizePending`): that rewrite was a note
+write on a read, with a control-plane `note-ids/wrote` round trip, for nothing. Bytes that differ are still repaired
+to the accepted state.
+
 **What a simplification would cost.** Reading the object without the outbox check serves a share taken back by a
 public mutation from the object's older rules until its push lands; reading it while a mark is open does the same
 for a narrowing in flight. `apps/convex/__tests__/workspaceObjectTreeReads.test.ts` proves parity after a real push

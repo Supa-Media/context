@@ -344,3 +344,38 @@ test("without an object write client, or without an object, wrote is the control
   assert.equal(noObject, cp.hooks);
   assert.equal(noObject.wrote, cp.hooks.wrote);
 });
+
+test("a read's lookup: a path the object does not find, while not behind, is no note, with no control-plane call", async () => {
+  const cp = control();
+  const ob = object({ "plans/a.md": seen });
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: new Set(), workspaceId: "w1" });
+  const answer = await hooks.lookupRead(["plans/a.md", "plans/missing.md"]);
+  assert.deepEqual(cp.asked.lookup, []);
+  assert.equal(answer.keyed, true);
+  assert.equal(answer.notes["plans/a.md"].key, KEY);
+  assert.equal(answer.notes["plans/missing.md"], undefined);
+  // A write's lookup still asks the control plane for the miss: a new note's Tex home is only known there.
+  const written = await hooks.lookup(["plans/missing.md"]);
+  assert.deepEqual(cp.asked.lookup, [["plans/missing.md"]]);
+  assert.deepEqual(written.texHomes, { "tex/new.md": "person:w1" });
+});
+
+test("a read's lookup still asks the control plane when the object is behind, fails, or answers some other path", async () => {
+  for (const variant of ["behind", "fails", "other path"]) {
+    const cp = control();
+    const ob = object({});
+    if (variant === "behind") {
+      const plain = ob.client.rows.lookup;
+      ob.client.rows.lookup = async (fields) => ({ ...(await plain(fields)), behind: true });
+    } else if (variant === "fails") {
+      ob.client.rows.lookup = async () => {
+        throw new Error("down");
+      };
+    } else {
+      ob.client.rows.lookup = async (fields) => ({ rows: fields.paths.map(() => ({ path: "elsewhere.md", found: false })) });
+    }
+    const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: new Set(), workspaceId: "w1" });
+    await hooks.lookupRead(["plans/missing.md"]);
+    assert.deepEqual(cp.asked.lookup, [["plans/missing.md"]], variant);
+  }
+});
