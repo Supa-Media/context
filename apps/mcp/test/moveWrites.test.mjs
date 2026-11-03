@@ -47,6 +47,7 @@ const ROWS = [
   { id: "row-inbox-sub", path: "inbox/sub", kind: "folder", at: 1 },
   { id: "row-launch", path: "projects/launch", kind: "folder", role: "clients", at: 1 },
   { id: "row-old", path: "notes/old", kind: "folder", at: 1 },
+  { id: "row-archive", path: "archive", kind: "folder", role: "archive", at: 1 },
   { id: "row-plan", noteId: PLAN, path: "projects/plan.md", kind: "file", storageKey: "notes/plan.md", etag: "e-plan", at: 1 },
   { id: "row-me", noteId: ME, path: "notes/me.md", kind: "file", storageKey: "notes/me.md", etag: "e-me", at: 1 },
   { id: "row-team", noteId: TEAM_NOTE, path: "projects/team-note.md", kind: "file", storageKey: "notes/team.md", etag: "e-team", at: 1 },
@@ -297,12 +298,13 @@ test("a move that would narrow to a taken name is TAKEN, and the access set is u
   assert.equal(counts.flushes + counts.soon, 0);
 });
 
-test("moves the control plane decides answer DEFER and move nothing: a job folder, a folder in the Inbox, a folder to the top level, a name twinned by case", async () => {
+test("moves the control plane decides answer DEFER and move nothing: a job folder, a folder in the Inbox, a folder to the top level, a name twinned by case, a move into Archive", async () => {
   const cases = [
     ["a folder with a role", { from: "projects/launch", to: "projects/renamed-launch" }, "projects/launch"],
     ["a folder directly inside the Inbox", { from: "inbox/sub", to: "projects/sub" }, "inbox/sub"],
     ["a folder to the top level", { from: "notes/old", to: "old" }, "notes/old"],
     ["a destination that differs only by case from a live row", { from: "notes/me.md", to: "resources/brief.md" }, "notes/me.md"],
+    ["a note into Archive, whose twins the control plane marks", { from: "notes/me.md", to: "archive/notes/me.md" }, "notes/me.md"],
   ];
   for (const [label, move, heldAt] of cases) {
     const { store, mirror, counts } = await ready();
