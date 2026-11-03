@@ -229,6 +229,11 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   const desiredVisibility = publishedForLink
     ? "team"
     : requestedVisibility || existingVisibility || scope;
+  // An existing note saved with no visibility asked for keeps the tier it has: `desiredVisibility` is then the
+  // note's own effective visibility, so writing it would change nothing but cost a control-plane round trip on every
+  // save (a median 2.1 s in production, 2026-11-02). Re-pinning it from this request's rules could also undo another
+  // person's change made since they were read.
+  const tierKept = exists && !requestedVisibility && !publishedForLink;
   /*
    * `create_form` NEVER OVERWRITES, AND SAYS SO HERE RATHER THAN LOOKING FIRST.
    *
@@ -357,7 +362,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
       // one kept the merge's own rules, not the person's edit: on 2026-10-28
       // an agent's rewrite from before the owner's save took the owner's words
       // out of the lines both had touched, and said it had succeeded.
-      if (desiredVisibility === "private" && !sealedHome) {
+      if (desiredVisibility === "private" && !sealedHome && !tierKept) {
         await persistExactVisibility(store, path, "private", rules);
       }
       // The replacement loads the document itself and holds the etag to its generation; reading it here
@@ -441,7 +446,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   const action = options.record?.action ?? (existing ? "update_note" : "create_note");
   // Tighten the ACL before content becomes visible. For team publishing, keep
   // the private ACL in place until the content write has completed.
-  if (desiredVisibility === "private" && !collaborationResult && !sealedHome) {
+  if (desiredVisibility === "private" && !collaborationResult && !sealedHome && !tierKept) {
     await persistExactVisibility(store, path, "private", rules);
   }
   const put = collaborationResult
@@ -464,7 +469,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
         : "conflict: note was created while this write was in progress; re-read and try again",
     );
   }
-  if (desiredVisibility === "team" && !sealedHome) {
+  if (desiredVisibility === "team" && !sealedHome && !tierKept) {
     await persistExactVisibility(store, path, "team", rules);
   }
   await recordChange(store, action, scope, [path], {

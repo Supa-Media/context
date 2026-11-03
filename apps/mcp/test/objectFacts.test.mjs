@@ -16,6 +16,7 @@ import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { workspaceClient, HOMES } from "../src/workspaceStore/api.js";
 import { objectFirstFacts } from "../src/store/objectLookup.js";
 import { attachLinkCalls } from "../src/http/routing.js";
+import { factJobs } from "../src/tree/facts.js";
 import { propsOf } from "../src/tree/props.js";
 import { resolveNeighbors } from "../src/tree/neighbors.js";
 import { READS_AS_CHAT } from "../src/privacy/engine.js";
@@ -319,4 +320,79 @@ test("a note's neighbor rows through the door are unfiltered, in the control pla
   assert.deepEqual(answer.rows.links.map((link) => `${link.kind} ${link.target}`).sort(), ["name brief", "path projects/notes.md"]);
   const missing = await ws.factRows({ ask: "neighborRows", path: "projects/none.md" });
   assert.deepEqual(missing.rows, { present: false, current: false, links: [], byPath: [], byName: [] });
+});
+
+/* ------------------------------- folder jobs ------------------------------- */
+
+// Which folder does each built-in job (`tree/facts.js` `factJobs`, the control plane's `jobs` ask). The object answers
+// it itself at home `object` (`workspaceStore/facts.js` `jobs`), judged like Convex's branch in `gatewayFacts.ts`: a
+// folder the reader cannot see is not named, and nor is a root it would be listed under. Parity with Convex's
+// `folderJobsAndClaims` over the same fixture: apps/convex/__tests__/workspaceObjectJobs.test.ts.
+const JOB_ROWS = [
+  { id: "f-projects", path: "projects", kind: "folder", at: 10, role: "projects" },
+  { id: "f-archive", path: "archive", kind: "folder", at: 10 },
+  { id: "f-vault", path: "Vault", kind: "folder", at: 10, role: "products" },
+  { id: "f-trash", path: ".context/trash/old-clients", kind: "folder", at: 10, role: "clients" },
+  { id: "f-gone", path: "gone-areas", kind: "folder", at: 10, role: "areas" },
+  { id: "f-note", path: "projects/plan.md", kind: "file", at: 10, noteId: ID(1) },
+];
+const JOB_RULES = {
+  etag: "m.2",
+  accessVersion: 1,
+  folders: [
+    { prefix: "projects", visibility: "team" },
+    { prefix: "archive", visibility: "team" },
+    { prefix: "Vault", visibility: "private" },
+  ],
+  notes: [],
+};
+const JOBS_BASE = { inbox: null, projects: "projects", areas: null, resources: null, archive: "archive", clients: null, teams: null, products: "Vault", website: null, meetings: null, tex: null };
+
+async function withJobs({ home = HOMES.OBJECT, rules = JOB_RULES } = {}) {
+  const env = { WORKSPACE_STORE: namespace() };
+  const ws = workspaceClient(env, "ws_jobs");
+  await ws.rows.put(JOB_ROWS);
+  await ws.rows.remove(["f-gone"], 20);
+  if (rules !== null) await ws.rules.put(rules);
+  await ws.setHome(home);
+  return ws;
+}
+
+test("the object names each job the reader may see, and each root it may see, as Convex does", { skip }, async () => {
+  const ws = await withJobs();
+  assert.deepEqual(await ws.facts({ ask: "jobs", ...owner }), { served: true, jobs: JOBS_BASE, roots: ["Vault", "archive", "projects"] });
+  // A team member cannot see the private Vault: its job is not named, and it is not a root they are shown.
+  assert.deepEqual(await ws.facts({ ask: "jobs", ...team }), { served: true, jobs: { ...JOBS_BASE, products: null }, roots: ["archive", "projects"] });
+});
+
+test("a job held by a trashed or removed row is not named", { skip }, async () => {
+  const ws = await withJobs();
+  const answer = await ws.facts({ ask: "jobs", ...owner });
+  assert.equal(answer.jobs.clients, null, "a folder in the trash does no job");
+  assert.equal(answer.jobs.areas, null, "a removed folder does no job");
+  assert.equal(answer.roots.includes("gone-areas"), false);
+});
+
+test("jobs are served only where the notes live: bucket and dual answer served false", { skip }, async () => {
+  for (const home of [HOMES.BUCKET, HOMES.DUAL]) {
+    const ws = await withJobs({ home });
+    assert.deepEqual(await ws.facts({ ask: "jobs", ...owner }), { served: false });
+  }
+});
+
+test("with no rules held the object does not answer jobs: the control plane does", { skip }, async () => {
+  const ws = await withJobs({ rules: null });
+  assert.deepEqual(await ws.facts({ ask: "jobs", ...owner }), { served: false });
+});
+
+test("the gateway asks the object for jobs first, judged by the reader, and factJobs reads its answer", { skip }, async () => {
+  const ws = await withJobs();
+  const asked = [];
+  const client = { facts: async (request) => (asked.push(request.ask), ws.facts(request)) };
+  const store = {};
+  Object.defineProperty(store, "treeFacts", { value: objectFirstFacts(READING(client, { names: [] })) });
+  assert.deepEqual(await factJobs(store), { jobs: { ...JOBS_BASE, products: null }, roots: ["archive", "projects"] });
+  assert.deepEqual(asked, ["jobs"]);
+  const notHome = objectFirstFacts(READING({ facts: async () => ({ served: false }) }));
+  assert.equal(await notHome({ ask: "jobs" }), null);
 });

@@ -153,6 +153,10 @@ export function workspaceRows(sql) {
       const row = all(sql.exec("SELECT * FROM ws_rows WHERE note_id = ? AND gone = 0 AND kind = 'file' ORDER BY at DESC LIMIT 1", noteId))[0];
       return row ? rowOut(row) : null;
     },
+    /** How many live file rows hold a note id. Above one, no single row is the note's (`serve.js` lookUp answers ambiguous). */
+    liveNoteIdCount(noteId) {
+      return Number(all(sql.exec("SELECT COUNT(*) AS n FROM ws_rows WHERE note_id = ? AND gone = 0 AND kind = 'file'", noteId))[0]?.n ?? 0);
+    },
     list({ after = null, limit = 1000 } = {}) {
       const size = Math.max(1, Math.min(1000, Number(limit) || 1000));
       const page = all(
@@ -217,6 +221,28 @@ export function workspaceRows(sql) {
       if (!AUDIENCES.has(audience)) return null;
       const value = meta(`rules:${audience}`);
       return value === null ? null : JSON.parse(value);
+    },
+    /**
+     * One page of live file rows in path order, after `after` and beneath `root` when it is named: the control
+     * plane's tree reads walk these (`ws.rows.files`), as its own `nodes.listLive` pages its rows. The cursor is
+     * the page's last path, `null` once the rows run out.
+     */
+    filesPage(/** @type {{after?: string | null, limit?: number, root?: string | null}} */ { after = null, limit = 1000, root = null } = {}) {
+      const size = Math.max(1, Math.min(1000, Math.floor(Number(limit)) || 1000));
+      const prefix = typeof root === "string" && root !== "" ? `${root}/` : "";
+      const clauses = ["gone = 0", "kind = 'file'"];
+      const args = [];
+      if (prefix !== "") {
+        // Every path under `a/b/` sorts before `a/b0`, the byte after "/".
+        clauses.push("path >= ?", "path < ?");
+        args.push(prefix, `${prefix.slice(0, -1)}0`);
+      }
+      if (typeof after === "string" && after !== "") {
+        clauses.push("path > ?");
+        args.push(after);
+      }
+      const rows = all(sql.exec(`SELECT * FROM ws_rows WHERE ${clauses.join(" AND ")} ORDER BY path LIMIT ?`, ...args, size)).map(rowOut);
+      return { rows, cursor: rows.length >= size ? rows[rows.length - 1].path : null };
     },
     /**
      * Every live file row under `prefix` (`""`: the whole tree) whose path sorts after `after`, for a listing

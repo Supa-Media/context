@@ -324,8 +324,12 @@ test/groupPageCopy.test.mjs
 test/pictureCompressionUnit.test.mjs
 test/readNoteCalls.test.mjs
 test/workspaceStore.test.mjs
+test/treeOpsMove.test.mjs
+test/treeOpsTrash.test.mjs
 test/workspaceReaders.test.mjs
 test/workspaceRouting.test.mjs
+test/backupBehind.test.mjs
+test/writeKeepsTier.test.mjs
 test/mcpEntryPoint.test.mjs
 test/texEntryPoint.test.mjs
 test/workspaceTree.test.mjs
