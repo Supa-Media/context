@@ -11,11 +11,17 @@
  * Under the title: the opening words (the dek), and a status line, a pill
  * from `status:`. Photos come from `cover:` or, left out, the first ones the
  * page's blocks name, so a cover is never blank when the page has pictures.
+ *
+ * A page with no picture at all gets Tex's drawing of it (`drawing:`, and
+ * `drawing-dark:` for the dark page; owner, 2026-11-03,
+ * `docs/decisions/app-and-console/page-drawings.md`). A drawing is always the
+ * split, whatever the kind but `status`, whose number is its picture: the
+ * plan's collage crops a drawing to a strip.
  */
 
 const { numberIn } = require("./blocks.cjs");
 const { photosOf } = require("./drawRich.cjs");
-const { esc, sources, photo } = require("./html.cjs");
+const { esc, sources, photo, drawing } = require("./html.cjs");
 
 const KINDS = { research: "Research", plan: "Plan", status: "Status" };
 
@@ -76,6 +82,40 @@ function coverPhotos(page, nodes) {
   return [...new Set([...named, ...found])].slice(0, 3);
 }
 
+/** The page's drawing, light and dark, or null: only for a page whose cover would otherwise have no picture. */
+function drawingOf(page) {
+  const light = sources(page.fields.drawing ? { value: { text: page.fields.drawing } } : null)[0];
+  if (!light) return null;
+  const dark = sources(page.fields["drawing-dark"] ? { value: { text: page.fields["drawing-dark"] } } : null)[0] ?? null;
+  return { light, dark };
+}
+
+/** Every picture a node holds: an image in its words, anywhere in it. */
+function imagesIn(value, out, depth = 0) {
+  if (depth > 12 || value === null || typeof value !== "object") return out;
+  if (Array.isArray(value)) {
+    for (const item of value) imagesIn(item, out, depth + 1);
+    return out;
+  }
+  if (value.image && typeof value.image.src === "string" && value.image.src.trim() !== "") out.push(value.image.src.trim());
+  for (const key of Object.keys(value)) if (key !== "image" && typeof value[key] === "object") imagesIn(value[key], out, depth + 1);
+  return out;
+}
+
+/**
+ * Whether a page already has a picture of its own, so Tex does not draw it
+ * one (owner: "if there is no image already in the page"): a cover photo, an
+ * embedded image, a block item's photo or a block's map. Its own drawing
+ * does not count, so a page can be drawn again.
+ */
+function hasPicture(page) {
+  if (sources(page.fields.cover ? { value: { text: page.fields.cover } } : null).length > 0) return true;
+  const blocks = page.nodes.filter((node) => node.type === "block");
+  if (blocks.some((block) => block.items.some((item) => photosOf(item).length > 0))) return true;
+  if (blocks.some((block) => String(block.settings?.map?.value ?? "").trim() !== "")) return true;
+  return imagesIn(page.nodes, []).length > 0;
+}
+
 /**
  * The cover's HTML. `title` and `dek` are already drawn (the note's own `#`
  * heading and first paragraph, editable in place) or the front matter's title.
@@ -94,6 +134,10 @@ function coverHtml(page, nodes, { title, dek }, ctx) {
     const dots = number.share !== null ? dotField(number.share, `${number.big} of ${number.total}`) : "";
     return `<header class="pg-cover pg-cover-num" data-kind="status"><div class="pg-in"><div class="pg-lead">${k}${title}${big}${status}${dek}</div>${dots}</div></header>`;
   }
+  const drawn = pics.length === 0 ? drawingOf(page) : null;
+  if (drawn) {
+    return `<header class="pg-cover pg-cover-split pg-cover-drawn" data-kind="${kind}">${drawing(drawn.light, drawn.dark, ctx, { name })}<div class="pg-in pg-cover-t">${k}${title}${dek}${status}</div></header>`;
+  }
   if (kind === "plan" && pics.length > 0) {
     return (
       `<header class="pg-cover" data-kind="plan"><div class="pg-cover-col n${pics.length}">${pics.map((src) => photo(src, ctx, { name })).join("")}</div>` +
@@ -106,4 +150,4 @@ function coverHtml(page, nodes, { title, dek }, ctx) {
   return `<header class="pg-cover pg-cover-plain" data-kind="${kind}"><div class="pg-in pg-cover-t">${k}${title}${dek}${status}</div></header>`;
 }
 
-module.exports = { coverHtml, pageKind, numberOf };
+module.exports = { coverHtml, pageKind, kickerOf, numberOf, hasPicture, drawingOf };

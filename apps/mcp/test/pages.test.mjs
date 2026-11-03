@@ -62,6 +62,9 @@ const GOOD = [
   "",
 ].join("\n");
 
+/** GOOD with Tex's drawing already in it, so its cover is drawn without being sent back for one (`pageDrawings.test.mjs`). */
+const DRAWN = GOOD.replace("kicker: Caterers", "kicker: Caterers\ndrawing: upload-3333333333333333.png");
+
 const BROKEN = ["---", `skill: ${PAGE_SKILL_STAMP}`, "---", "# Sales", "", "```chart By month", "- Jan", "```", "", "```choose", "- Only one", "```", ""].join("\n");
 
 test("a page whose blocks can be drawn passes; one that cannot names each line to fix", () => {
@@ -146,11 +149,12 @@ test("the cover is the page, read as the turn may read it", async () => {
   const maker = pictureMaker(shots, { outgoing: outgoingPictures({ enabled: true }) });
   const reads = [];
   const callTool = async (name, args) => {
-    reads.push([name, args.path]);
-    return { content: [{ type: "text", text: `etag: "e1"\npath: ${args.path}\nvisibility: private\n\n${GOOD}` }] };
+    reads.push([name, args.path ?? args.note]);
+    if (name === "read_image") return { isError: true, content: [{ type: "text", text: "not found" }] };
+    return { content: [{ type: "text", text: `etag: "e1"\npath: ${args.path}\nvisibility: private\n\n${DRAWN}` }] };
   };
   const drawn = await withPictureMaker(maker, callTool)(VISUAL_TOOL, { template: "page", data: { path: "projects/dinner.page.md" } });
-  assert.deepEqual(reads, [["read_note", "projects/dinner.page.md"]]);
+  assert.deepEqual(reads.filter(([name]) => name === "read_note"), [["read_note", "projects/dinner.page.md"]]);
   assert.equal(drawn.content[0].type, "image");
   assert.equal(shots.calls.length, 1);
   const { html, width, height } = shots.calls[0];
@@ -191,7 +195,7 @@ test("a cover's photos are read through the page's own note and drawn in as byte
 
 test("a drawn cover is kept for the page's link card, and a failed keep costs nothing", async () => {
   const kept = [];
-  const read = async (_name, args) => ({ content: [{ type: "text", text: `etag: "e1"\npath: ${args.path}\nvisibility: private\n\n${GOOD}` }] });
+  const read = async (_name, args) => ({ content: [{ type: "text", text: `etag: "e1"\npath: ${args.path}\nvisibility: private\n\n${DRAWN}` }] });
   const keeping = pictureMaker(siteShots(), { outgoing: outgoingPictures({ enabled: true }), keepCover: async (path, png) => (kept.push([path, png]), true) });
   await withPictureMaker(keeping, read)(VISUAL_TOOL, { template: "page", data: { path: "projects/dinner.page.md" } });
   // Another context's page is not this turn's to keep.

@@ -271,7 +271,7 @@ export const REORGANIZE_LINE =
 export const PAGES_LINE =
   "Every new note you make is a page: a note named <name>.page.md, never a plain .md, unless they ask for a plain note. " +
   "Read the page design skill first (orient about: \"pages\") and follow it. A note they have keeps its form and place: never make it a page, move or archive it unasked; a new note among their plain notes stays plain. Your own tex/ notes, " +
-  "about.md and todo.md stay plain; what you make for a chat in tex/chats/ is a page too. Then draw the page's cover (send action draw_visual, template page, data { path }) and text it with one line; the link goes with it.";
+  "about.md and todo.md stay plain; what you make for a chat in tex/chats/ is a page too. Then draw the page's cover (send action draw_visual, template page, data { path }; a page with no picture of its own also takes scene, your simple line drawing of what it is about) and text it with one line; the link goes with it.";
 
 /** What the agent says it can do to a note, decided by the tools it was given. */
 const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";

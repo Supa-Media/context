@@ -42,7 +42,12 @@ export async function livePageRow(db: QueryCtx["db"], workspaceId: Id<"workspace
   return rows.find((row) => row.goneAt === undefined && row.kind === "file") ?? null;
 }
 
-/** The cache key a cover's card URL carries: a new cover is a new address, the only invalidation the edge has. */
+/**
+ * The cache key a cover's card URL carries: a new cover is a new address, the
+ * only invalidation the edge has. A wide card (`card-…`, a page Tex drew a
+ * picture for) ends `-w`, which is how the edge says its size
+ * (`infra/router/src/preview/meta.ts` `coverSize`).
+ */
 export function coverVersion(leaf: string): string {
-  return hashTitle(`cover:${leaf}`);
+  return hashTitle(`cover:${leaf}`) + (leaf.startsWith("card-") ? "-w" : "");
 }
