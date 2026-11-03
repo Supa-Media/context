@@ -14,7 +14,9 @@
 # folders moved to the trash once their chat is whole in its ledger,
 # restorable for 30 days; `texTranscriptsTrash:run`), or `group_pages` (each
 # group chat's memory page copied into its ledger, its history file made, and
-# the page moved to the trash once the ledger holds it; `texGroupPagesRetire:run`).
+# the page moved to the trash once the ledger holds it; `texGroupPagesRetire:run`),
+# or `group_pages_without_log` (the same, for a chat whose old log is in no
+# place searched: its page goes in without it; Dev, 2026-11-03).
 name: Tex chats into their ledger
 
 on:
@@ -35,6 +37,7 @@ on:
           - groups
           - transcripts
           - group_pages
+          - group_pages_without_log
         default: chats
       dry_run:
         description: "Count only; change nothing."
@@ -68,11 +71,14 @@ jobs:
           SCOPE: ${{ inputs.scope }}
         run: |
           set -euo pipefail
+          extra='{}'
           case "$SCOPE" in
             chats) fn=functions/texLedgerBackfill:run ;;
             groups) fn=functions/texLedgerBackfillGroups:run ;;
             transcripts) fn=functions/texTranscriptsTrash:run ;;
             group_pages) fn=functions/texGroupPagesRetire:run ;;
+            # A page whose chat's old log is nowhere goes in without it (Dev's decision, 2026-11-03).
+            group_pages_without_log) fn=functions/texGroupPagesRetire:run; extra='{"withoutLog":true}' ;;
             *) echo "unknown scope"; exit 1 ;;
           esac
           cursor=""
@@ -81,9 +87,9 @@ jobs:
           while :; do
             page=$((page + 1))
             if [ -z "$cursor" ]; then
-              args=$(jq -cn --argjson dry "$DRY_RUN" '{dryRun: $dry}')
+              args=$(jq -cn --argjson dry "$DRY_RUN" --argjson extra "$extra" '{dryRun: $dry} + $extra')
             else
-              args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" '{dryRun: $dry, cursor: $cursor}')
+              args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" --argjson extra "$extra" '{dryRun: $dry, cursor: $cursor} + $extra')
             fi
             # stderr is dropped: `convex run` prints the function's own log lines there, and a failure logs a
             # workspace id, which this public log must not show (`scripts/check-convex-run-stderr.mjs`).
