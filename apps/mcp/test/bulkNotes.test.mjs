@@ -12,11 +12,13 @@
  *  5. `fetch` `notes:` takes 100 paths, and refuses 101.
  *  6. No write starts a chaos rescore or answers with a chaos line (the owner,
  *     2026-11-03): `orient` alone reports the score.
+ *  7. A call that runs out of time stops starting saves and names each note it
+ *     did not start, so the caller can send just those again.
  *
  * Sabotage-checked (2026-11-03): handing each note straight to the handler
  * with a write scope, past `callToolForSession`, fails 3; dropping the
  * duplicate check fails 4; `READ_NOTES_MAX` back at 25 fails 5; starting the
- * rescore on a write again fails 6.
+ * rescore on a write again fails 6; dropping the time check fails 7.
  */
 
 import { test } from "node:test";
@@ -35,7 +37,7 @@ import {
   worker,
 } from "./searchProjection/fixtures.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
-import { SAVE_MANY_MAX } from "../src/tools/v2/saveMany.js";
+import { SAVE_MANY_MAX, saveMany } from "../src/tools/v2/saveMany.js";
 import { READ_NOTES_MAX } from "../src/tools/notes/read.js";
 
 const TOKEN = `cat_bulk_${"0".repeat(28)}`;
@@ -239,4 +241,26 @@ test("no write starts a rescore or answers with a chaos line", async () => {
   } finally {
     restore();
   }
+});
+
+test("save_many out of time names the notes it did not start, and starts no more", async () => {
+  // A clock that moves 1 s per save started; the budget runs out after the first few.
+  let clock = 0;
+  const now = () => clock;
+  const notes = Array.from({ length: 12 }, (_, index) => ({ path: `0-inbox/t/n${index}.md`, content: "x\n" }));
+  const started = [];
+  const result = await saveMany({ notes }, async (one) => {
+    started.push(one.path);
+    clock += 1000;
+    return { content: [{ type: "text", text: `written: ${one.path} (etag e)` }] };
+  }, { budgetMs: 2500, now });
+  const lines = textOf(result).split("\n").filter((line) => line.startsWith("outcome: ")).map((line) => JSON.parse(line.slice(9)));
+  assert.equal(lines.length, 12);
+  const notStarted = lines.filter((line) => line.error === "NOT_STARTED");
+  assert.equal(started.length + notStarted.length, 12);
+  assert.ok(notStarted.length > 0, "some notes were left for the next call");
+  assert.ok(started.length < 12);
+  for (const line of notStarted) assert.ok(!started.includes(line.path));
+  assert.match(textOf(result), new RegExp(`^${started.length} of 12 notes saved`));
+  assert.deepEqual(result.ownOutcome, { applied: true, saved: started.length, failed: 12 - started.length });
 });
