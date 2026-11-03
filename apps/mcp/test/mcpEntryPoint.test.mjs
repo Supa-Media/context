@@ -44,9 +44,9 @@ test("steps are held until the response, then written once, indexed by the works
   assert.equal(mcp.done(response), response);
   mcp.done(response);
   assert.deepEqual(MCP_ENTRY.points, [
-    { blobs: ["mcp", "tools/call:fetch", "session", "ok", "Claude"], doubles: [70, 3, 1], indexes: ["ws_1"] },
-    { blobs: ["mcp", "tools/call:fetch", "open_store", "failed", "Claude"], doubles: [20, 73, 1], indexes: ["ws_1"] },
-    { blobs: ["mcp", "tools/call:fetch", "to_response", "ok", "Claude"], doubles: [93, 0, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "session", "ok", "Claude", ""], doubles: [70, 3, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "open_store", "failed", "Claude", ""], doubles: [20, 73, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "to_response", "ok", "Claude", ""], doubles: [93, 0, 1], indexes: ["ws_1"] },
   ]);
   assert.doesNotMatch(JSON.stringify(MCP_ENTRY.points), /secret|token/);
 });
@@ -188,6 +188,16 @@ async function post(payload, token = TOKEN) {
   await settle();
   return { status: response.status, text, points: MCP_ENTRY.points };
 }
+
+test("the data center a request ran in rides on every point, and only a data center's code is kept", () => {
+  for (const [given, kept] of [["IAD", "IAD"], ["iad", ""], ["IADX", ""], ["<b>", ""], [undefined, ""], [42, ""]]) {
+    const MCP_ENTRY = dataset();
+    const mcp = mcpEntry({ MCP_ENTRY });
+    mcp.colo = given;
+    mcp.done(new Response("{}"));
+    assert.deepEqual(MCP_ENTRY.points.map((p) => p.blobs[5]), [kept], String(given));
+  }
+});
 
 const steps = (points) => points.map((p) => p.blobs[2]);
 

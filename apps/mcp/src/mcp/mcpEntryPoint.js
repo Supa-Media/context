@@ -41,6 +41,8 @@ import { ACTIONS } from "../tools/v2/actions.js";
 const MAX_POINTS = 240;
 /** A store's own calls, timed by `watch`. */
 const STORE_OPS = ["get", "head", "put", "delete", "list"];
+/** A Cloudflare data center's code. */
+const COLO = /^[A-Z]{3}$/;
 
 /**
  * @param {{ MCP_ENTRY?: { writeDataPoint(point: object): void } }} env
@@ -53,6 +55,7 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
   let call = "unknown";
   let workspace = "";
   let client = "";
+  let colo = "";
   let written = false;
 
   const record = (name, at, state) => {
@@ -93,6 +96,13 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
     /** The connection's app (Claude, ChatGPT, ...), as the grant names it. */
     set client(value) {
       client = typeof value === "string" ? value.slice(0, 64) : "";
+    },
+    /**
+     * The Cloudflare data center this request ran in (`request.cf.colo`, three capital letters), so a workspace
+     * object's round trip can be told apart by how far the gateway ran from it. Anything else is left blank.
+     */
+    set colo(value) {
+      colo = typeof value === "string" && COLO.test(value) ? value : "";
     },
     /** Run a step and wait for it. */
     step(name, run) {
@@ -145,7 +155,7 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
       record("to_response", start, response instanceof Response && response.status >= 500 ? "failed" : "ok");
       if (!written) {
         written = true;
-        write(env, points, { surface, call, workspace, client });
+        write(env, points, { surface, call, workspace, client, colo });
       }
       return response;
     },
@@ -227,13 +237,13 @@ export function totals(points) {
   return all;
 }
 
-function write(env, points, { surface, call, workspace, client }) {
+function write(env, points, { surface, call, workspace, client, colo = "" }) {
   const dataset = env?.MCP_ENTRY;
   if (!dataset || typeof dataset.writeDataPoint !== "function") return;
   const summed = totals(points);
   for (const entry of summed.slice(0, MAX_POINTS - 1).concat(summed.length >= MAX_POINTS ? [summed[summed.length - 1]] : [])) {
     try {
-      dataset.writeDataPoint({ blobs: [surface, call, entry.name, entry.state, client], doubles: [entry.ms, entry.at, entry.count], indexes: [workspace] });
+      dataset.writeDataPoint({ blobs: [surface, call, entry.name, entry.state, client, colo], doubles: [entry.ms, entry.at, entry.count], indexes: [workspace] });
     } catch {
       // Diagnostics never fail a request.
     }
