@@ -22,6 +22,8 @@ import { normalizePath } from "../fileOps/paths";
 import { OLD_COPIES_ROOT, type FileStore } from "../fileOps/store";
 import { objectFactRows, objectPropsAt } from "../nodes/objectFacts";
 import { bodyVerdict, dayOf, rowVerdict } from "./classify";
+import { hideInObject, type OldCopyMover } from "./hideInObject";
+import { consoleWorkspaceClient } from "../workspaceObjects/door";
 
 /** Rows one mutation hides: each is a row move, with its access and links followed. */
 export const HIDE_BATCH = 25;
@@ -87,7 +89,15 @@ export async function hideOldCopiesPass(
   store: FileStore,
   projection: ProjectionClient | null,
   cursor: string | null,
+  openMover: () => OldCopyMover | null = () => consoleWorkspaceClient(ctx, workspaceId),
 ): Promise<HidePass> {
+  // Where the notes live in their object, the object hides each copy (`hideInObject.ts`), and with no way to reach it
+  // nothing is hidden this pass: Convex's row move would push the move back to the object.
+  const inObject = (await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId }).catch(() => null)) === "object";
+  const mover = inObject ? openMover() : null;
+  if (inObject && mover === null) {
+    return { kind: "oldCopiesHidden", cursor, days: 0, contacts: 0, files: 0, stopped: "not_served" };
+  }
   // Where the notes live in their object, it says what each note's front matter is, read at its current text.
   const facts = await objectFactRows(ctx, workspaceId);
   const page = await ctx.runQuery(internal.functions.oldCopies.candidatePage, { workspaceId, cursor, ...(facts === null ? {} : { everyNote: true }) });
@@ -111,11 +121,9 @@ export async function hideOldCopiesPass(
 
   for (let at = 0; at < hide.length; at += HIDE_BATCH) {
     const batch = hide.slice(at, at + HIDE_BATCH);
-    const answer = await ctx.runMutation(internal.functions.oldCopies.hideRows, {
-      workspaceId,
-      paths: batch.map((entry) => entry.path),
-      now: Date.now(),
-    });
+    const paths = batch.map((entry) => entry.path);
+    const answer =
+      mover !== null ? await hideInObject(mover, paths) : await ctx.runMutation(internal.functions.oldCopies.hideRows, { workspaceId, paths, now: Date.now() });
     const moved = new Set(answer.moved.map((pair) => pair.from));
     for (const entry of batch) {
       if (!moved.has(entry.path)) continue;
@@ -127,8 +135,9 @@ export async function hideOldCopiesPass(
       } else if (entry.as === "contact") pass.contacts += 1;
       else pass.files += 1;
     }
-    await carryRowHistory(store, answer.moved);
-    if (projection !== null && answer.moved.length > 0) {
+    // In the object, the tree mirror follows the moved files and a head is filed by note id: nothing to carry here.
+    if (mover === null) await carryRowHistory(store, answer.moved);
+    if (mover === null && projection !== null && answer.moved.length > 0) {
       await followInProjection(store, { written: [], gone: answer.moved.map((pair) => pair.from) }, projection);
     }
     if (answer.stopped !== null) {

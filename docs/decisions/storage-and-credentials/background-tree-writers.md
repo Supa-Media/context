@@ -38,9 +38,13 @@ notes-by-id cleanup rather than gated here.
   keeps the bucket half's record (`lib/trash/objectErase.ts`). With no client for the object the pass removes
   nothing.
 - **Old copies**: the owner's delete (`oldCopies.deleteCopies`) moved the same way (`oldCopiesObject.ts`, erasing
-  `.context/old-copies` page by page), and an `erasePage` chain begun before the switch hands over to it. Hiding
-  (`oldCopies.hideRows`, a move into `.context/old-copies/`) moves onto the file operations' `ws.write.move` with
-  `trash: true` once that op lands.
+  `.context/old-copies` page by page), and an `erasePage` chain begun before the switch hands over to it. Hiding moved too
+  (2026-11-03): where the notes live in the object, the hiding pass asks the object to move each copy into
+  `.context/old-copies/` (`ws.write.move` with `trash: true`, `lib/oldCopies/hideInObject.ts`) instead of running
+  `oldCopies.hideRows`; the tree mirror moves Convex's copy and follows the moved files, and no history needs
+  carrying (heads are filed by note id). A copy already gone or a hidden name taken is passed over; an object that
+  throws, is busy or defers stops the page for the next pass; with no client the pass hides nothing. Tests:
+  `__tests__/oldCopies/oldCopiesObjectHide.test.ts`.
 
 **The bucket half's record is written before the object erases** (`trashObject.begin`), with every key the mirror
 holds under the folder, and held back from the bucket half (`trashErasures.objectPending`) until the erase is known
