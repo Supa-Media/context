@@ -23,6 +23,7 @@ import { internalMutationMirrored } from "./lib/rowWatch/mutations";
 import { nodeAt } from "./lib/noteIds/state";
 import { recordCopyRow } from "./noteIds";
 import { keyedPathOf, recordKeyedRow } from "./noteIdsKeyed";
+import { mirrorTree, MIRROR_TREE_MAX } from "./lib/nodes/mirrorTree";
 import type { MutationCtx } from "../_generated/server";
 
 export const mirrorRecordValidator = v.object({
@@ -62,6 +63,26 @@ export const wrote = internalMutationMirrored({
       ...(record.keyEtag === undefined ? {} : { keyEtag: record.keyEtag }),
     });
     return await settle(ctx, workspaceId, record.path, objectAt, applied);
+  },
+});
+
+/** A tree change the object took (`lib/nodes/mirrorTree.ts`): each list is capped at `MIRROR_TREE_MAX`, checked there. */
+export const mirrorTreeValidator = v.object({
+  moves: v.array(v.object({ id: v.string(), kind: v.union(v.literal("file"), v.literal("folder")), from: v.string(), to: v.string(), at: v.number() })),
+  folders: v.array(v.object({ id: v.string(), noteId: v.union(v.string(), v.null()), path: v.string(), role: v.union(v.string(), v.null()), at: v.number() })),
+  removed: v.array(v.object({ id: v.string(), at: v.number() })),
+  trash: v.boolean(),
+  erase: v.optional(v.boolean()),
+});
+
+export const tree = internalMutationMirrored({
+  args: { workspaceId: v.id("workspaces"), objectAt: v.number(), record: mirrorTreeValidator },
+  returns: v.union(v.object({ applied: v.literal(true) }), v.object({ applied: v.literal(false), reason: v.string() })),
+  handler: async (ctx, { workspaceId, objectAt, record }): Promise<MirrorWroteAnswer> => {
+    if (record.moves.length > MIRROR_TREE_MAX || record.folders.length > MIRROR_TREE_MAX || record.removed.length > MIRROR_TREE_MAX) {
+      return { applied: false, reason: "bad_record" };
+    }
+    return await mirrorTree(ctx, { workspaceId, objectAt, record });
   },
 });
 

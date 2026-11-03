@@ -127,6 +127,16 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
     return isRowRole(row.role) ? row.role : jobAt(jobs, row.path);
   };
   const stamp = (row, now) => Math.max(now, Number(row.at) + 1);
+  /**
+   * Records `fields` as the object's own on row `id` at clock `at` (`rows.js` `originate`): a push from Convex read
+   * before the mirror took this change keeps them, until a push that agrees with them (`ownedAgainst`). `gone` is
+   * owned too, so a row the object removed or brought back stays so against an older push.
+   */
+  const claim = (id, fields, at) => {
+    const held = all(sql.exec("SELECT own_fields FROM ws_rows WHERE id = ?", id))[0];
+    const before = held?.own_fields ? JSON.parse(held.own_fields) : [];
+    sql.exec("UPDATE ws_rows SET own_at = ?, own_fields = ? WHERE id = ?", at, JSON.stringify([...new Set([...before, ...fields])]), id);
+  };
 
   /**
    * A move into or under the Archive, or of the Archive itself (`archiveTwins.ts`): the Archive stays at the top,
@@ -161,14 +171,16 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
       if (live !== null) continue;
       const gone = goneFolderAt(path);
       if (gone !== null) {
-        sql.exec("UPDATE ws_rows SET gone = 0, at = ? WHERE id = ?", stamp(gone, now), gone.id);
+        const at = stamp(gone, now);
+        sql.exec("UPDATE ws_rows SET gone = 0, at = ? WHERE id = ?", at, gone.id);
+        claim(gone.id, ["path", "gone"], at);
         written.push(gone.id);
         continue;
       }
       const id = mintId();
       sql.exec(
-        "INSERT INTO ws_rows (id, note_id, path, kind, role, at, gone) VALUES (?, ?, ?, 'folder', ?, ?, 0)",
-        id, newNoteId(now), path, roleForNew(path, jobs, meetingsPath), now,
+        "INSERT INTO ws_rows (id, note_id, path, kind, role, at, own_at, own_fields, gone) VALUES (?, ?, ?, 'folder', ?, ?, ?, ?, 0)",
+        id, newNoteId(now), path, roleForNew(path, jobs, meetingsPath), now, now, JSON.stringify(["noteId", "path", "kind", "role", "gone"]),
       );
       written.push(id);
     }
@@ -189,6 +201,7 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
       if (anyLiveChild(path)) break;
       const at = stamp(folder, now);
       sql.exec("UPDATE ws_rows SET gone = 1, at = ? WHERE id = ?", at, folder.id);
+      claim(folder.id, ["gone"], at);
       removed.push({ id: folder.id, at });
       path = parentOf(path);
     }
@@ -251,8 +264,14 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
         role = jobAt(jobs, root.path) ?? (meetingsPath === root.path && jobs.jobs.meetings === null ? "meetings" : null);
       }
       const written = standFolders(chainOf(to), now, jobs, meetingsPath);
-      sql.exec("UPDATE ws_rows SET path = ?, role = ?, at = ? WHERE id = ?", to, role, stamp(root, now), root.id);
-      for (const row of below) sql.exec("UPDATE ws_rows SET path = ?, at = ? WHERE id = ?", `${to}${row.path.slice(from.length)}`, stamp(row, now), row.id);
+      const rootAt = stamp(root, now);
+      sql.exec("UPDATE ws_rows SET path = ?, role = ?, at = ? WHERE id = ?", to, role, rootAt, root.id);
+      claim(root.id, ["path", "role"], rootAt);
+      for (const row of below) {
+        const at = stamp(row, now);
+        sql.exec("UPDATE ws_rows SET path = ?, at = ? WHERE id = ?", `${to}${row.path.slice(from.length)}`, at, row.id);
+        claim(row.id, ["path"], at);
+      }
       const removed = retireEmptied(parentOf(from), now);
       return {
         ok: true,
@@ -262,6 +281,9 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
         ...(root.kind === "file" && root.etag !== null ? { etag: root.etag } : {}),
         rows: changedRows([...written, ...rows.map((row) => row.id)]),
         removed,
+        // What the mirror needs: the moved row by id (Convex builds the paths beneath it), the folders stood up.
+        moved: { id: root.id, kind: root.kind, from, to, at: rootAt },
+        folders: changedRows(written),
       };
     },
 
@@ -296,13 +318,17 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
       const root = liveAt(path);
       if (root === null) return { ok: false, reason: "not_found" };
       const removed = [];
+      const files = [];
       for (const row of [root, ...liveBelow(path)]) {
         const at = stamp(row, now);
         sql.exec("UPDATE ws_rows SET gone = 1, at = ? WHERE id = ?", at, row.id);
+        claim(row.id, ["gone"], at);
         removed.push({ id: row.id, at });
+        // What the bucket half still deletes: each file's note id and the key its bytes are at.
+        if (row.kind === "file") files.push({ id: row.id, noteId: row.note_id ?? null, storageKey: row.storage_key ?? null });
       }
       removed.push(...retireEmptied(parentOf(path), now));
-      return { ok: true, kind: root.kind, count: removed.length, rows: [], removed };
+      return { ok: true, kind: root.kind, count: removed.length, rows: [], removed, files, folders: [] };
     },
 
     /**
@@ -312,10 +338,11 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
     createFolder({ path, now, meetingsPath = null }) {
       if (!validPath(path) || path.startsWith(".context") || !Number.isFinite(now)) return { ok: false, reason: "invalid" };
       const held = liveAt(path);
-      if (held !== null) return held.kind === "folder" ? { ok: true, created: false, rows: [], removed: [] } : { ok: false, reason: "taken" };
+      if (held !== null) return held.kind === "folder" ? { ok: true, created: false, rows: [], removed: [], folders: [] } : { ok: false, reason: "taken" };
       if (fileInChain(path)) return { ok: false, reason: "taken" };
       const written = standFolders([...chainOf(path), path], now, jobsNow(), meetingsPath);
-      return { ok: true, created: true, rows: changedRows(written), removed: [] };
+      const folders = changedRows(written);
+      return { ok: true, created: true, rows: folders, removed: [], folders };
     },
   };
   return ops;

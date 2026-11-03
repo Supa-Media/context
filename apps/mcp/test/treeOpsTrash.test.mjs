@@ -316,7 +316,7 @@ test("createFolder on a folder already there answers created false and writes no
   const { rows, ops, minted } = world();
   rows.put([folder("d1", "projects")]);
   const before = rows.list().rows;
-  assert.deepEqual(ops.createFolder({ path: "projects", now: NOW }), { ok: true, created: false, rows: [], removed: [] });
+  assert.deepEqual(ops.createFolder({ path: "projects", now: NOW }), { ok: true, created: false, rows: [], removed: [], folders: [] });
   assert.deepEqual(rows.list().rows, before);
   assert.equal(minted(), 0);
 });

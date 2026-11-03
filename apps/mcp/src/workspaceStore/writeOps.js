@@ -1,16 +1,15 @@
 /**
  * The workspace object's write ops (`docs/decisions/storage-and-credentials/object-row-writes.md`). Each is
  * `(ctx, body) => {answer, change?, narrows}`, run inside the object's storage transaction by `serveWrites.js`:
- * `ctx` is `{rows, now, lookupLive}`. `change` is what the mirror gets (`workspaceStore/mirrorOutbox.js`);
+ * `ctx` is `{rows, sql, members, now, lookupLive}`: the rows and the object's SQL, the membership store (or null) that
+ * judges a member's reading, the clock, and a lookup of the live row at a path. `change` is what the mirror gets (`workspaceStore/mirrorOutbox.js`);
  * `narrows` says whether the answer waits for the mirror (taking access away does; a save does not).
  */
 
-export class WriteOpRefused extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "WriteOpRefused";
-  }
-}
+import { TREE_WRITE_OPS } from "./treeWrites.js";
+import { WriteOpRefused } from "./writeRefusal.js";
+
+export { WriteOpRefused };
 
 const MAX_TEXT = 1024;
 const text = (value) => typeof value === "string" && value !== "" && value.length <= MAX_TEXT && !value.includes("\0");
@@ -49,4 +48,5 @@ function wrote(ctx, body) {
 /** The write ops by name. Every name starts with `ws.write.`. */
 export const WRITE_OPS = Object.freeze({
   "ws.write.wrote": wrote,
+  ...TREE_WRITE_OPS,
 });
