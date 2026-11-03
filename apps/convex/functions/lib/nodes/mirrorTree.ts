@@ -28,6 +28,7 @@ import { queueFolderLinks } from "./folderLinks";
 import { childless, countFolderMove, dropSettings } from "./builtMove";
 import { ROW_MOVE_MAX, chainAt, followMovedFiles, liveUnder, removeReplaced, subtreeOf } from "./rowMove";
 import { nameOf, type PrivacyMirror } from "./table";
+import { markArchiveTwins } from "./archiveTwins";
 
 /** The most entries one change carries in each list; above it the change is refused `bad_record`. */
 export const MIRROR_TREE_MAX = 500;
@@ -310,6 +311,9 @@ async function followMove(
   if (!trash) await followMovesForMembers(ctx, ws, [{ from: move.from, to: move.to }], mirror);
   await markWebsiteMoved(ctx, ws, { from: move.from, to: move.to });
   if (!trash) await followFolderSettings(ctx, ws, move.from, move.to);
+  // A move into Archive marks the twins on its way there (`archiveTwins.ts`), as `afterArchiveMove` does for a row
+  // move: the object takes archiving now, and the marks are Convex's.
+  if (!trash) await markArchiveTwins(ctx, ws, move.to);
   await freshenMeaningAfterActivity(ctx, ws);
   await refreshSnapshot(ctx, ws);
 }

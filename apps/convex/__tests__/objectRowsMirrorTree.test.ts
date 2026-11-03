@@ -370,3 +370,42 @@ describe("objectRowsMirror.tree, a move made for a person", () => {
     ]);
   });
 });
+
+describe("objectRowsMirror.tree, a move into Archive", () => {
+  const FOLDER_ARCHIVE = "o_4123456789abcdef0123456789abcdef";
+  const FOLDER_ARCHIVED_PROJECTS = "o_5123456789abcdef0123456789abcdef";
+
+  test("marks the Archive twin of the built-in folder it came from, as a row move into Archive does", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "tree-archive-twins");
+    await objectHome(t, ws);
+    const { plan } = await seedTree(t, ws);
+    const answer = await t.mutation(internal.functions.objectRowsMirror.tree, {
+      workspaceId: ws,
+      objectAt: 100,
+      record: change({
+        folders: [
+          { id: FOLDER_ARCHIVE, noteId: null, path: "4-archive", role: null, at: 100 },
+          { id: FOLDER_ARCHIVED_PROJECTS, noteId: null, path: "4-archive/1-projects", role: null, at: 100 },
+        ],
+        moves: [{ id: plan, kind: "file", from: "1-projects/plan.md", to: "4-archive/1-projects/plan.md", at: 100 }],
+      }),
+    });
+    expect(answer).toEqual({ applied: true });
+    expect(await rowByObjectId(t, ws, FOLDER_ARCHIVED_PROJECTS)).toMatchObject({ archiveOf: "projects" });
+  });
+
+  test("a trash marks nothing", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "tree-archive-trash");
+    await objectHome(t, ws);
+    const { plan } = await seedTree(t, ws);
+    await t.mutation(internal.functions.objectRowsMirror.tree, {
+      workspaceId: ws,
+      objectAt: 100,
+      record: change({ folders: trashFolders(100), moves: [{ id: plan, kind: "file", from: "1-projects/plan.md", to: TRASH_PATH, at: 100 }], trash: true }),
+    });
+    const rows = await t.run(async (ctx) => (await ctx.db.query("nodes").collect()).filter((row) => row.workspaceId === ws));
+    expect(rows.filter((row) => row.archiveOf !== undefined)).toEqual([]);
+  });
+});

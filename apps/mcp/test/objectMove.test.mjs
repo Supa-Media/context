@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { startObjectMove } from "../src/tools/moves/objectMove.js";
 import { startKeyedNoteMove, startQueuedFolderMove } from "../src/tools/moves/queuedFolder.js";
+import { ControlPlaneError } from "../src/controlPlane/client.js";
 
 function memory() {
   const objects = new Map();
@@ -281,6 +282,21 @@ test("startKeyedNoteMove on DEFER asks the control plane once, with no etag", as
   await startKeyedNoteMove(store, "team", "a/x.md", "b/x.md", undefined, PRIVACY);
   assert.equal(queued.length, 1);
   assert.deepEqual(queued[0], ["a/x.md", "b/x.md", undefined]);
+});
+
+test("a control-plane move the gateway stopped waiting on is answered as one that may still finish, not as a failure", async () => {
+  const { store } = objectStore({ ok: false, code: "DEFER" });
+  store.startQueuedMove = async () => {
+    throw new ControlPlaneError("timed out");
+  };
+  const result = await startKeyedNoteMove(store, "team", "a/x.md", "b/x.md", undefined, PRIVACY);
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /may still finish; check whether b\/x\.md exists/);
+  store.startQueuedMove = async () => {
+    throw new ControlPlaneError("request failed");
+  };
+  const failed = await startKeyedNoteMove(store, "team", "a/x.md", "b/x.md", undefined, PRIVACY);
+  assert.match(failed.content[0].text, /could not start the move right now/);
 });
 
 test("startQueuedFolderMove takes an ok object answer and never asks the control plane", async () => {

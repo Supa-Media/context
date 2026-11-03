@@ -19,7 +19,7 @@ import { toolMoveNotes } from "../src/tools/moves/notes.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { withServedTree } from "./servedTree.mjs";
-import { CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS, CONTROL_PLANE_TIMEOUT_MS } from "../src/controlPlane/client.js";
+import { CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS, CONTROL_PLANE_MOVE_TIMEOUT_MS, CONTROL_PLANE_TIMEOUT_MS } from "../src/controlPlane/client.js";
 import { ControlPlaneError, createControlPlane } from "../src/controlPlane.js";
 import { MOVE_TIMEOUTS } from "../src/agent/slowMoves.js";
 
@@ -329,4 +329,35 @@ test("a keyed batch given collaboration etags asks with the stored versions", as
   await toolMoveNotes(made.store, "private", [], new Map(), moves, false);
 
   assert.deepEqual(made.batches[0].map((move) => move.expectedEtag), ["e1", "e2"]);
+});
+
+/*
+ * One move or archive asked of the control plane (`/gateway/moves/start`). An archive took about 10 s in production,
+ * and every one came back "could not start the move right now" from under the 8-second lookup timeout, though it had
+ * moved (2026-11-03). It now waits longer, inside the tools' own limits.
+ */
+test("one move waits longer than a lookup, inside move_note's and archive_note's own limits", async () => {
+  const timeouts = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...rest) => {
+    timeouts.push(ms);
+    return realSetTimeout(fn, 0, ...rest);
+  };
+  const hang = (_url, init) =>
+    new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    });
+  const env = { CONTROL_PLANE_URL: "https://control-plane.example.test", GATEWAY_SECRET: "s".repeat(32) };
+  let error = null;
+  try {
+    await createControlPlane(env, { fetchImpl: hang }).startQueuedMove("cat_token", "ws_moves", "a.md", "4-archive/a.md");
+  } catch (caught) {
+    error = caught;
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+  assert.ok(timeouts.includes(CONTROL_PLANE_MOVE_TIMEOUT_MS));
+  assert.ok(CONTROL_PLANE_MOVE_TIMEOUT_MS > CONTROL_PLANE_TIMEOUT_MS);
+  assert.ok(CONTROL_PLANE_MOVE_TIMEOUT_MS < MOVE_TIMEOUTS.move_note && CONTROL_PLANE_MOVE_TIMEOUT_MS < MOVE_TIMEOUTS.archive_note);
+  assert.ok(error instanceof ControlPlaneError && error.reason === "timed out");
 });

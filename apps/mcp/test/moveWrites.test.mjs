@@ -298,13 +298,12 @@ test("a move that would narrow to a taken name is TAKEN, and the access set is u
   assert.equal(counts.flushes + counts.soon, 0);
 });
 
-test("moves the control plane decides answer DEFER and move nothing: a job folder, a folder in the Inbox, a folder to the top level, a name twinned by case, a move into Archive", async () => {
+test("moves the control plane decides answer DEFER and move nothing: a job folder, a folder in the Inbox, a folder to the top level, a name twinned by case", async () => {
   const cases = [
     ["a folder with a role", { from: "projects/launch", to: "projects/renamed-launch" }, "projects/launch"],
     ["a folder directly inside the Inbox", { from: "inbox/sub", to: "projects/sub" }, "inbox/sub"],
     ["a folder to the top level", { from: "notes/old", to: "old" }, "notes/old"],
     ["a destination that differs only by case from a live row", { from: "notes/me.md", to: "resources/brief.md" }, "notes/me.md"],
-    ["a note into Archive, whose twins the control plane marks", { from: "notes/me.md", to: "archive/notes/me.md" }, "notes/me.md"],
   ];
   for (const [label, move, heldAt] of cases) {
     const { store, mirror, counts } = await ready();
@@ -315,6 +314,14 @@ test("moves the control plane decides answer DEFER and move nothing: a job folde
     assert.equal(mirror.count(), 0, label);
     assert.equal(counts.flushes + counts.soon, 0, label);
   }
+});
+
+test("a note moved into Archive is made in the object: Convex marks its twins when the mirror takes it", async () => {
+  const { store, mirror } = await ready();
+  const response = await callMove(store, { from: "notes/me.md", to: "archive/notes/me.md", ...OWNER });
+  assert.equal((await response.json()).ok, true);
+  assert.equal(pathOf(store, "row-me"), "archive/notes/me.md");
+  assert.ok(queued(mirror).some((change) => change.op === "tree"));
 });
 
 test("a plain file moved out of the Inbox into a projects folder is not deferred: the move and its tree change are made", async () => {
