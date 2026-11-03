@@ -146,12 +146,16 @@ async function readPage(env: Env, url: string): Promise<Response> {
   const started = Date.now();
   // The person's address and the page's text stay out of the log.
   const log = (via: string) => console.log(JSON.stringify({ event: "site_shots_read", via, ms: Date.now() - started }));
+  // A failed read by codes only: where the ladder stopped, whether the plain fetch was turned away, whether Browserbase was tried.
+  const failed = (stage: "launch" | "browser") =>
+    console.log(JSON.stringify({ event: "site_shots_read_failed", stage, refused: fast.refused, browserbase: tried, ms: Date.now() - started }));
   const fast = await fetchRead(url);
   if (fast.page !== null) {
     log(fast.page.via);
     return json({ page: fast.page });
   }
-  if (fast.refused && browserbaseConfigured(env)) {
+  const tried = fast.refused && browserbaseConfigured(env);
+  if (tried) {
     const again = await fetchRead(url, browserbaseFetch(env), BROWSERBASE_FETCH_TIMEOUT_MS);
     if (again.page !== null) {
       log(`browserbase_${again.page.via}`);
@@ -162,6 +166,7 @@ async function readPage(env: Env, url: string): Promise<Response> {
   try {
     browser = await warmContext(env);
   } catch (error) {
+    failed("launch");
     return launchFailed(error);
   }
   try {
@@ -170,6 +175,7 @@ async function readPage(env: Env, url: string): Promise<Response> {
     return json({ page });
   } catch {
     // The reason can quote the page; the gateway only needs to know it failed.
+    failed("browser");
     return json({ error: "that page could not be read" }, 502);
   }
 }
