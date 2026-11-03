@@ -56,7 +56,8 @@ import { phase } from "../../mcp/phase.js";
 /** The `share` values that mint a link; anything else publishes nothing. */
 const SHARE_REQUESTS = new Set(["members", "anyone", "collect"]);
 
-export async function toolWriteNote(store, scope, rules, overrides, args, options = {}) {
+export async function toolWriteNote(writer, scope, rules, overrides, args, options = {}) {
+  let store = writer;
   const path = normalizePath(args.path);
   let content = args.content;
   const expectedEtag = args.expected_etag;
@@ -140,6 +141,9 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   // refusal it can read and act on.
   if (!writesOneRule(path)) return toolError(UNWRITABLE_PATH_REFUSAL);
 
+  // From here the note's row is looked up once for the whole save (`oneWrite`, `store/idLayout.js`): the find, the
+  // load, the engine's note id and the save itself each asked it again before. A refusal above touches no store.
+  if (typeof writer?.oneWrite === "function") store = writer.oneWrite(writer);
   // Whether it exists, from the tree; the note itself is opened only once
   // every check below has passed (`present.js`).
   const found = await phase(store, "write_find", () => noteBeingWritten(store, path, { editing: expectedEtag !== undefined }));

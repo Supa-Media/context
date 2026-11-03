@@ -192,8 +192,15 @@ function rememberingLookup(lookup) {
     }
     await Promise.all(asked);
   };
+  /** Drop what is remembered for `path`, so the next question asks again (after a write to it). */
+  ask.forget = (path) => {
+    answers.delete(path);
+  };
   return ask;
 }
+
+/** The option a write view (`oneWrite`) hands its remembered lookup down under; a symbol, so no caller can name it. */
+const REMEMBERED = Symbol("rememberedLookup");
 
 /** The most paths one lookup may name: the control plane's `NOTE_IDS_LOOKUP_PATHS`. */
 const LOOKUP_MAX = 200;
@@ -262,6 +269,16 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     return { entry, texHome: typeof home === "string" && Object.prototype.hasOwnProperty.call(answer.texHomes, path) ? home : null };
   };
   const resolve = (path) => resolveWith(lookup, path);
+  /**
+   * A write's options, and the lookup to resolve it with: the one a write view remembers (`oneWrite`), carried under
+   * `REMEMBERED` through the layers above so they still judge the write (the note cap, the read-only rows), else a
+   * fresh one. The key is taken off before anything below sees the options.
+   */
+  const remembered = (options) => {
+    if (options === null || typeof options !== "object" || !Object.hasOwn(options, REMEMBERED)) return [options, lookup];
+    const { [REMEMBERED]: ask, ...plain } = options;
+    return [plain, typeof ask === "function" ? ask : lookup];
+  };
 
   /** Whether the tree's answer means "no note here": no live row at the path. */
   const noNote = ({ entry }) => entry === null || entry.state === "gone";
@@ -442,10 +459,11 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
   if (typeof store.put === "function") {
     wrapped.put = async (path, body, ...rest) => {
       if (!mirroredPath(path)) return await store.put(path, body, ...rest);
-      const resolved = await resolve(path);
+      const [options, ask] = remembered(rest[0]);
+      const resolved = await resolveWith(ask, path);
       const { entry } = resolved;
-      if (keyedEntry(entry)) return await keyedPut(path, entry, body, rest[0]);
-      if (noNote(resolved)) return await keyedCreate(path, body, rest[0], resolved.texHome);
+      if (keyedEntry(entry)) return await keyedPut(path, entry, body, options);
+      if (noNote(resolved)) return await keyedCreate(path, body, options, resolved.texHome);
       throw new NoteNameTaken();
     };
   }
@@ -457,9 +475,10 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
    * and the caller runs the engine through this store as before.
    */
   if (typeof store.replaceInObject === "function") {
-    wrapped.replaceInObject = async (path, { expectedEtag, text }) => {
+    wrapped.replaceInObject = async (path, input) => {
       if (!mirroredPath(path)) return null;
-      const { entry } = await resolve(path);
+      const [{ expectedEtag, text }, ask] = remembered(input);
+      const { entry } = await resolveWith(ask, path);
       if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
       const answer = await store.replaceInObject({
         path,
@@ -516,6 +535,69 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
       return await wrapped.put(destination, await object.arrayBuffer(), options);
     };
   }
+
+  /**
+   * The store as one write sees it (`tools/notes/write.js`): the note's row is looked up once for the whole save, and
+   * that answer serves the write's own reads (the find, the load, the engine's `noteIdAt`) and the save itself (`put`,
+   * `replaceInObject`). A save asked the workspace object the same question three times in a row before this.
+   *
+   * After any write through the view the path's answer is dropped, so whatever the write changed is asked afresh. A
+   * remembered answer that went stale meanwhile can only refuse a save, never misplace one: the bucket's own version
+   * check and the object's row check (`replaceInObject`, `wrote`) judge the write against what is there now.
+   */
+  wrapped.oneWrite = (outer = wrapped) => {
+    const ask = rememberingLookup(lookup);
+    const view = Object.create(outer);
+    const define = (name, value) =>
+      Object.defineProperty(view, name, { value, enumerable: false, writable: false, configurable: true });
+    const routed = (path) => mirroredPath(path);
+    for (const method of ["get", "head", "exists", "existsMetadata"]) {
+      if (typeof store[method] !== "function" || typeof outer[method] !== "function") continue;
+      const read = routedRead(method, ask);
+      define(method, (path, ...rest) => (routed(path) ? read(path, ...rest) : outer[method](path, ...rest)));
+    }
+    define("noteIdAt", noteIdAtWith(ask));
+    // The writes go through `outer`, so every layer above still judges them, with this view's lookup beside them.
+    const carrying = (options) => ({ ...(options ?? {}), [REMEMBERED]: ask });
+    if (typeof outer.put === "function") {
+      define("put", async (path, body, options, ...rest) => {
+        try {
+          return await outer.put(path, body, routed(path) ? carrying(options) : options, ...rest);
+        } finally {
+          ask.forget(path);
+        }
+      });
+    }
+    if (typeof outer.replaceInObject === "function") {
+      define("replaceInObject", async (path, input) => {
+        try {
+          return await outer.replaceInObject(path, carrying(input));
+        } finally {
+          ask.forget(path);
+        }
+      });
+    }
+    if (typeof outer.delete === "function") {
+      define("delete", async (path, ...rest) => {
+        try {
+          return await outer.delete(path, ...rest);
+        } finally {
+          ask.forget(path);
+        }
+      });
+    }
+    if (typeof outer.copy === "function") {
+      define("copy", async (source, destination, ...rest) => {
+        try {
+          return await outer.copy(source, destination, ...rest);
+        } finally {
+          ask.forget(destination);
+        }
+      });
+    }
+    define("oneWrite", () => view);
+    return view;
+  };
 
   return wrapped;
 }
