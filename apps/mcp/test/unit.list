@@ -377,6 +377,7 @@ test/ledgerWorkEntries.test.mjs
 test/ledgerConversation.test.mjs
 test/workspaceAccessRows.test.mjs
 test/accessWrite.test.mjs
+test/accessPending.test.mjs
 test/workspaceSearchIndex.test.mjs
 
 test/savePhases.test.mjs

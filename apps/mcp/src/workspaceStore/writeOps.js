@@ -92,6 +92,9 @@ function adopt(ctx, body) {
     { id: ctx.mintId(), noteId, path, kind: "file", storageKey: key, etag: body.etag, ...(body.size !== undefined ? { size: body.size } : {}) },
     ctx.now,
   );
+  // The tier asked for this path before its row existed becomes the row's own access, in this transaction
+  // (`accessRows.js` `takePending`): the rule is then held by the note, not by its path alone.
+  ctx.access?.takePending?.(path, "file", noteId, ctx.now);
   const record = { path, noteId, key, etag: body.etag, ...(body.size !== undefined ? { size: body.size } : {}), at: body.at, objectId: row.id };
   return { answer: { ok: true, adopted: true, at: row.at }, change: { op: "adopt", record, objectAt: row.at }, narrows: false };
 }

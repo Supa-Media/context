@@ -260,6 +260,49 @@ export function workspaceAccess(sql) {
       setMeta("access:minted", String(version));
       return version;
     },
+    /**
+     * A base asked for a path with no row yet, kept as pending access at a version the object minted (the write side of
+     * `ws.write.access` on a path with no row, as `lib/nodes/setAccess.ts` `setPendingAccess`). A base of `null`
+     * (inherit) drops the entry. `PENDING_FULL` when a new entry would pass the cap. Inside the caller's transaction.
+     */
+    writePending({ path, kind, base }, version, now) {
+      const header = meta("access:set");
+      if (header === null) throw new WorkspaceRowRefused("no access set is held yet");
+      const set = JSON.parse(header);
+      const waiting = (set.pending ?? []).filter((entry) => entry.at >= now - PENDING_TTL_MS);
+      const others = waiting.filter((entry) => entry.path !== path);
+      if (base !== null && others.length === waiting.length && others.length >= MAX_PENDING) return { ok: false, code: "PENDING_FULL" };
+      const pending = base === null ? others : [...others, checkPending({ path, kind, base, at: now })];
+      setMeta("access:set", JSON.stringify({ ...set, pending, version }));
+      setMeta("access:minted", String(version));
+      return { ok: true, version };
+    },
+    /** The live pending entry at `path` for a row of `kind`, or null. */
+    pendingAt(path, kind, now) {
+      const set = held();
+      return set?.pending.find((entry) => entry.path === path && entry.kind === kind && entry.at >= now - PENDING_TTL_MS) ?? null;
+    },
+    /**
+     * A row born at `path`: the access waiting for it becomes the row's own record, and the entry goes, in the caller's
+     * transaction (`lib/nodes/pendingAccess.ts` `applyPendingAccess`). The version does not move: the rules said this
+     * already. Returns the base taken, or null when none was waiting.
+     */
+    takePending(path, kind, token, now) {
+      const header = meta("access:set");
+      if (header === null) return null;
+      const set = JSON.parse(header);
+      const entry = (set.pending ?? []).find((item) => item.path === path && item.kind === kind);
+      if (entry === undefined) return null;
+      setMeta("access:set", JSON.stringify({ ...set, pending: set.pending.filter((item) => item !== entry) }));
+      if (entry.at < now - PENDING_TTL_MS) return null;
+      const existing = all(sql.exec("SELECT base, grantees FROM ws_access WHERE token = ? AND kind = ?", token, kind))[0];
+      if (existing !== undefined) {
+        sql.exec("UPDATE ws_access SET base = ?, path = ? WHERE token = ? AND kind = ?", entry.base, path, token, kind);
+      } else {
+        sql.exec("INSERT INTO ws_access (token, kind, path, base, grantees) VALUES (?, ?, ?, ?, ?)", token, kind, path, entry.base, "[]");
+      }
+      return entry.base;
+    },
     /** The rules one audience would be judged by, rendered here from `set` (the held one by default), or null with none. */
     render(audience, set = held(), now = Date.now()) {
       if (set === null) return null;

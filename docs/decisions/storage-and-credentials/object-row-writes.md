@@ -192,3 +192,18 @@ path waits on Convex.
 
 Reversing the tier check fails `writeOps.test.mjs` "a private tier where the held rules make the path team is DEFER". Reversing
 the folder-job or Tex check fails `lookupMiss.test.mjs`.
+
+### A new note's tier, before its row (2026-11-03)
+
+A note saved private is given its tier before its bytes are put, so its row does not exist yet when the tier is
+asked for. For an object-home workspace the object now keeps that ask itself, as the control plane's
+`setPendingAccess` does: `ws.write.access` on a path with no row records a pending base in the access set, mints a
+version, and re-renders the rules, so the path is closed to members before the note exists. The change goes to the
+mirror as `accessPending` (`objectAccessMirror.pending`), ahead of the adoption that follows it. `ws.write.adopt` then
+finds the path private in the rules it holds and takes the note in the object instead of deferring it to the
+control plane, and in the same transaction the pending entry becomes the note's own access record
+(`accessRows.js` `takePending`). The version does not move on adoption, because the rules already said so. Only a
+base can wait: a list change at a path with no row is `NO_ROW`, and the control plane answers it `NOT_FOUND` as
+before. A team entry is kept but not rendered, so the path inherits. That is the narrower answer under a private
+folder, as `withPendingPrivate` has it. Reversing this costs a new private note one control-plane round trip for its
+tier and another for its adoption; `apps/mcp/test/accessPending.test.mjs` fails if it is reversed.

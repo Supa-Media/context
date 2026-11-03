@@ -23,7 +23,7 @@
 import { HOMES } from "../workspaceStore/api.js";
 
 /** The object's refusals the control plane gives too, passed through unchanged. */
-const REFUSED = new Set(["CONFLICT", "FORBIDDEN", "NOT_FOUND", "INVALID"]);
+const REFUSED = new Set(["CONFLICT", "FORBIDDEN", "NOT_FOUND", "INVALID", "PENDING_FULL"]);
 
 /**
  * @param {(change: object) => Promise<object>} controlSetAccess

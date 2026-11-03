@@ -32,6 +32,8 @@ import { internalMutationMirrored, flushRowChanges } from "./lib/rowWatch/mutati
 import type { WorkspaceChange } from "./lib/rowWatch/watch";
 import { nodeByObjectId } from "./lib/nodes/objectIds";
 import { MAX_GRANTEES, writeRowAccess, wantedOf, type GranteeInput } from "./lib/nodes/setAccess";
+import { livePending, PENDING_MAX } from "./lib/nodes/pendingAccess";
+import { liveNodeAt } from "./lib/nodes/paths";
 
 export const accessGranteeValidator = v.object({
   kind: v.union(v.literal("user"), v.literal("group"), v.literal("email"), v.literal("members"), v.literal("accounts")),
@@ -121,20 +123,7 @@ export const access = internalMutationMirrored({
       actorClientId: record.clientId,
     });
 
-    const fresh = await ctx.db
-      .query("nodeAccessState")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-      .unique();
-    if (fresh !== null) {
-      const sawSame = heldVersion === record.baseVersion;
-      const version = sawSame ? Math.max(heldVersion + 1, record.version) : Math.max(heldVersion + 1, record.version + 1);
-      if (fresh.version !== version) await ctx.db.patch(fresh._id, { version });
-      if (!sawSame) {
-        // Convex's own access change is not in the object: an access push sends the object the set as Convex now holds it.
-        const push: WorkspaceChange = { nodeIds: new Set(), access: true, narrows: false, binding: false, born: new Set(), bornPaths: new Set(), goneObjectIds: new Set() };
-        await flushRowChanges(ctx, new Map([[workspaceId, push]]), "objectAccessMirror");
-      }
-    }
+    await settleVersion(ctx, workspaceId, heldVersion, record);
 
     // The row takes the object's clock, as `objectRowsMirror.wrote` does for a note write: never backwards.
     const current = await ctx.db.get(row._id);
@@ -143,6 +132,91 @@ export const access = internalMutationMirrored({
     return { applied: true };
   },
 });
+
+export const pendingRecordValidator = v.object({
+  path: v.string(),
+  kind: v.union(v.literal("file"), v.literal("folder")),
+  /** `null` is inherit: a waiting entry at the path is dropped. */
+  base: v.union(v.literal("private"), v.literal("team"), v.null()),
+  baseVersion: v.number(),
+  version: v.number(),
+  narrowing: v.optional(v.boolean()),
+  actorUserId: v.optional(v.string()),
+  clientId: v.optional(v.string()),
+});
+
+/**
+ * A base the object kept for a path with no row yet (`accessWrite.js` `writePending`), kept here the same way
+ * (`lib/nodes/setAccess.ts` `setPendingAccess`): Convex renders the private entry for its own readers, and gives the
+ * row that access when it is born at the path (`applyPendingAccess`, which the object's `adopt` mirror reaches through
+ * the row's insert). A row Convex already holds at the path takes the base as its own instead. Versions as `access`.
+ */
+export const pending = internalMutationMirrored({
+  args: { workspaceId: v.id("workspaces"), objectAt: v.number(), record: pendingRecordValidator },
+  returns: answerValidator,
+  handler: async (ctx, { workspaceId, record }): Promise<MirrorAccessAnswer> => {
+    const actorUserId = record.actorUserId === undefined ? undefined : ctx.db.normalizeId("users", record.actorUserId) ?? undefined;
+    if (record.actorUserId !== undefined && actorUserId === undefined) return refused("bad_actor");
+    const state = await ctx.db
+      .query("nodeAccessState")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    const heldVersion = state?.version ?? 0;
+    const row = await liveNodeAt(ctx.db, workspaceId, record.path);
+    if (row !== null && row.kind === record.kind) {
+      const grants = await ctx.db
+        .query("nodeAccess")
+        .withIndex("by_node", (q) => q.eq("nodeId", row._id))
+        .collect();
+      await writeRowAccess(ctx, {
+        workspaceId,
+        path: row.path,
+        row,
+        state,
+        base: record.base ?? undefined,
+        grants,
+        replaces: false,
+        wanted: [],
+        actorUserId,
+        actorClientId: record.clientId,
+      });
+    } else {
+      const now = Date.now();
+      const waiting = livePending(state?.pending, now).filter((entry) => entry.path !== record.path);
+      if (record.base !== null && waiting.length >= PENDING_MAX) return refused("pending_full");
+      const next = record.base === null ? waiting : [...waiting, { path: record.path, kind: record.kind, base: record.base, at: now }];
+      if (state === null) await ctx.db.insert("nodeAccessState", { workspaceId, version: heldVersion, orphans: [], pending: next });
+      else await ctx.db.patch(state._id, { pending: next });
+    }
+    await settleVersion(ctx, workspaceId, heldVersion, record);
+    return { applied: true };
+  },
+});
+
+/**
+ * Convex's access version after a mirrored change: the object's when Convex had nothing the object did not see, else one
+ * above it, with an access push so the object takes the access as Convex now holds it.
+ */
+async function settleVersion(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  heldVersion: number,
+  record: { baseVersion: number; version: number },
+): Promise<void> {
+  const fresh = await ctx.db
+    .query("nodeAccessState")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (fresh === null) return;
+  const sawSame = heldVersion === record.baseVersion;
+  const version = sawSame ? Math.max(heldVersion + 1, record.version) : Math.max(heldVersion + 1, record.version + 1);
+  if (fresh.version !== version) await ctx.db.patch(fresh._id, { version });
+  if (!sawSame) {
+    // Convex's own access change is not in the object: an access push sends the object the set as Convex now holds it.
+    const push: WorkspaceChange = { nodeIds: new Set(), access: true, narrows: false, binding: false, born: new Set(), bornPaths: new Set(), goneObjectIds: new Set() };
+    await flushRowChanges(ctx, new Map([[workspaceId, push]]), "objectAccessMirror");
+  }
+}
 
 /** The live row the object calls `rowId` in this workspace, or `null`: a row of another workspace or a gone one is no row here. */
 async function liveRow(ctx: MutationCtx, workspaceId: Id<"workspaces">, rowId: string): Promise<Doc<"nodes"> | null> {

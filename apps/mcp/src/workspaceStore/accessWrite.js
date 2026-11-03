@@ -13,7 +13,8 @@
  *
  * - `NOT_READY`: no access set held, a chunked move part way, or the set's last parity check against Convex's rules
  *   was not equal at the version held (an object whose own rendering was never shown equal never judges by it).
- * - `NO_ROW`: no live row at the path (Convex keeps such an ask pending until the row is born).
+ * - `NO_ROW`: a list change at a path with no live row, or a row of the other kind. A base on a path with no row is
+ *   kept here as pending access (`writePending`) until `ws.write.adopt` or a push gives the path its row.
  *
  * Refusals, as Convex gives them: `CONFLICT` (the caller's `expectedVersion` is not the held one), `FORBIDDEN` (a list
  * change by anyone but an owner, any change by a `member`, or a change touching the sealed chat homes by any client
@@ -23,7 +24,7 @@
  * handle is the control plane's.
  */
 
-import { CHAT_HOMES_FOLDER } from "./accessRows.js";
+import { CHAT_HOMES_FOLDER, PENDING_TTL_MS } from "./accessRows.js";
 import { WriteOpRefused } from "./writeRefusal.js";
 
 /** The client the chat homes are kept under (`lib/nodes/sealedChats.ts` `CHAT_HOMES_CLIENT_ID`). */
@@ -112,7 +113,8 @@ export function writeAccess(ctx, body) {
   if (set.sealsChats && touchesChatHomes(body.path) && actor.clientId !== CHAT_HOMES_CLIENT_ID) return refusal("FORBIDDEN");
 
   const row = ctx.rows.byPath(body.path);
-  if (row === null || (body.kind !== undefined && row.kind !== body.kind)) return refusal("NO_ROW");
+  if (row === null) return writePending(ctx, body, set, actor, asked);
+  if (body.kind !== undefined && row.kind !== body.kind) return refusal("NO_ROW");
 
   const listChanges = asked !== undefined || body.base === "inherit";
   if (actor.role === "member" || (listChanges && actor.role !== "owner")) return refusal("FORBIDDEN");
@@ -136,12 +138,7 @@ export function writeAccess(ctx, body) {
 
   const version = Math.max(ctx.now, set.version + 1);
   ctx.access.writeRecord({ token, kind: row.kind, path: row.path, base: nextBase, grantees: nextList }, version);
-  // Both audiences carry the member rules' etag, as the control plane's `authority` gives them.
-  const member = ctx.access.render("member", undefined, ctx.now);
-  const guest = ctx.access.render("guest", undefined, ctx.now);
-  const etag = rulesEtag(member, version);
-  ctx.rows.putRules({ ...member, etag }, "member");
-  ctx.rows.putRules({ ...guest, etag }, "guest");
+  keepRules(ctx, version);
   // Whether this may hide something from someone: anything but a base made `team` (or kept) with nobody's grant taken
   // or lowered. Every gateway read is judged by this object, which already has it. Whether the answer also waits for
   // Convex's readers (`WAIT_FOR_MIRROR`) is the owner's 0.1 s call (2026-11-03): by default it does not.
@@ -170,6 +167,50 @@ export function writeAccess(ctx, body) {
     ...(actor.clientId !== undefined ? { clientId: actor.clientId } : {}),
   };
   return { answer: { ok: true, version }, change: { op: "access", record: { ...record, narrowing }, objectAt: version }, narrows, rules: true };
+}
+
+/** The member and guest rules rendered from the access set just changed, kept as the rules reads are judged by. */
+function keepRules(ctx, version) {
+  // Both audiences carry the member rules' etag, as the control plane's `authority` gives them.
+  const member = ctx.access.render("member", undefined, ctx.now);
+  const guest = ctx.access.render("guest", undefined, ctx.now);
+  const etag = rulesEtag(member, version);
+  ctx.rows.putRules({ ...member, etag }, "member");
+  ctx.rows.putRules({ ...guest, etag }, "guest");
+}
+
+/**
+ * A base on a path with no row yet (a note saved private is given its tier before its bytes are put): kept as pending
+ * access in the object, as `setPendingAccess` keeps it in the control plane, and rendered at once, so the path is
+ * closed before its row exists and `ws.write.adopt` can take the note here. Only a base can wait: a list needs its row
+ * (`NO_ROW`, which the control plane answers `NOT_FOUND`). `inherit` drops a waiting entry.
+ */
+function writePending(ctx, body, set, actor, asked) {
+  if ((asked !== undefined && asked.length > 0) || body.base === undefined) return refusal("NO_ROW");
+  if (actor.role === "member") return refusal("FORBIDDEN");
+  const kind = body.kind ?? "file";
+  const base = body.base === "inherit" ? null : body.base;
+  const waiting = set.pending.find((entry) => entry.path === body.path && entry.at >= ctx.now - PENDING_TTL_MS) ?? null;
+  if (waiting === null ? base === null : waiting.base === base && waiting.kind === kind) {
+    return { answer: { ok: true, version: set.version }, change: null, narrows: false };
+  }
+  const version = Math.max(ctx.now, set.version + 1);
+  const written = ctx.access.writePending({ path: body.path, kind, base }, version, ctx.now);
+  if (written.ok !== true) return refusal(written.code);
+  keepRules(ctx, version);
+  // Only a private entry is rendered (`judgedAccessRows`): it alone takes anything from anyone.
+  const narrowing = base === "private";
+  const record = {
+    path: body.path,
+    kind,
+    base,
+    baseVersion: set.version,
+    version,
+    narrowing,
+    ...(actor.userId !== undefined ? { actorUserId: actor.userId } : {}),
+    ...(actor.clientId !== undefined ? { clientId: actor.clientId } : {}),
+  };
+  return { answer: { ok: true, version }, change: { op: "accessPending", record, objectAt: version }, narrows: narrowing && WAIT_FOR_MIRROR, rules: true };
 }
 
 /**
