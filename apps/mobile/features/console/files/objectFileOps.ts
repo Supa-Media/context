@@ -56,10 +56,17 @@ export function objectRestore(target: ObjectMoveTarget, body: ObjectRestoreBody)
   return sendObjectMove(target, "/files/restore", body);
 }
 
+export type ObjectMoveBody = { from: string; to: string; expectedEtag?: string };
+
+/** A move or rename. The object leaves some to Convex (`409 not_object`), which answer `null` like any fallback. */
+export function objectMove(target: ObjectMoveTarget, body: ObjectMoveBody): Promise<ObjectMoved | null> {
+  return sendObjectMove(target, "/files/move", body);
+}
+
 async function sendObjectMove(
   target: ObjectMoveTarget,
   path: string,
-  body: ObjectTrashBody | ObjectRestoreBody,
+  body: ObjectTrashBody | ObjectRestoreBody | ObjectMoveBody,
 ): Promise<ObjectMoved | null> {
   if (target.origin === null || !objectServes(target.workspaceId) || typeof fetch !== "function") return null;
   let token: string;

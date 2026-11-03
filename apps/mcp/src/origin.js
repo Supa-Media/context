@@ -102,6 +102,7 @@ export function isTransportPath(path) {
     // somebody else's token.
     path === "/files/trash" ||
     path === "/files/restore" ||
+    path === "/files/move" ||
     // Authenticated and read by the console from a browser. It changes
     // nothing, but it names notes, so a page on another origin must not be
     // able to ask it with somebody else's token.

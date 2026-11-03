@@ -1,10 +1,12 @@
 /**
- * `POST /files/trash` and `POST /files/restore`: the app's trash and restore, answered by the workspace's object in
- * one transaction (`workspaceStore/treeWrites.js`), with Convex mirrored behind it and never asked on the way.
+ * `POST /files/trash`, `/files/restore` and `/files/move`: the app's trash, restore, moves and renames, answered by
+ * the workspace's object in one transaction (`workspaceStore/treeWrites.js`, `moveWrites.js`), with Convex mirrored
+ * behind it and never asked on the way.
  *
  * Only a workspace whose notes live in its object (`home: object`, not behind) is served here; any other answers
  * 409 `not_object`, and the app sends the same operation to the control plane's `files.trashEntry` /
- * `files.restoreTrashEntry` as before. The object judges the caller by the scope, groups and user id this session
+ * `files.restoreTrashEntry` / `files.moveEntry` as before; so does a move the object leaves to the control plane
+ * (`DEFER`). The object judges the caller by the scope, groups and user id this session
  * resolved, never by anything in the body, and a path the caller cannot see is `not_found` exactly like one that
  * does not exist.
  */
@@ -13,7 +15,7 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { normalizePath } from "../notes/paths.js";
 
-export const FILE_OP_PATHS = new Set(["/files/trash", "/files/restore"]);
+export const FILE_OP_PATHS = new Set(["/files/trash", "/files/restore", "/files/move"]);
 
 const MAX_BODY_BYTES = 8 * 1024;
 const MAX_TEXT = 1024;
@@ -30,6 +32,9 @@ const REFUSALS = new Map([
   ["BUILT_IN_ARCHIVED", [409, "protected"]],
   ["UNKEYED", [409, "not_object"]],
   ["INVALID", [400, "invalid_path"]],
+  // A move the control plane decides (a folder doing a job, a name twinned by case, access not yet decided here): the
+  // app sends it there, as for a workspace not served by its object.
+  ["DEFER", [409, "not_object"]],
 ]);
 
 async function readBody(request) {
@@ -54,10 +59,12 @@ function parse(path, body) {
     if (body.expectedEtag !== undefined && !text(body.expectedEtag)) return null;
     return { path: target, ...(body.expectedEtag === undefined ? {} : { expectedEtag: body.expectedEtag }) };
   }
-  if (Object.keys(body).some((key) => key !== "from" && key !== "to")) return null;
+  const keys = path === "/files/move" ? ["from", "to", "expectedEtag"] : ["from", "to"];
+  if (Object.keys(body).some((key) => !keys.includes(key))) return null;
   const from = text(body.from) ? normalizePath(body.from) : null;
   const to = text(body.to) ? normalizePath(body.to) : null;
-  return from && to ? { from, to } : null;
+  if (body.expectedEtag !== undefined && !text(body.expectedEtag)) return null;
+  return from && to ? { from, to, ...(body.expectedEtag === undefined ? {} : { expectedEtag: body.expectedEtag }) } : null;
 }
 
 /**
@@ -77,15 +84,18 @@ export async function handleFileOp(request, path, store, session) {
     return json({ error: "not_object" }, 409);
   }
   const caller = { scope: session.scope, groups: session.grantedGroups ?? [], userId: session.actorUserId ?? null };
+  const write = reading.client.write;
   const answer =
     path === "/files/trash"
-      ? await reading.client.write.trash({ ...asked, ...caller })
-      : await reading.client.write.restore({ ...asked, ...caller });
+      ? await write.trash({ ...asked, ...caller })
+      : path === "/files/move"
+      ? await write.move({ ...asked, ...caller })
+      : await write.restore({ ...asked, ...caller });
 
   if (answer?.ok === true) {
     const from = path === "/files/trash" ? asked.path : asked.from;
     const to = path === "/files/trash" ? answer.to : asked.to;
-    return json({ kind: "moved", from, to, paths: [to] });
+    return json({ kind: "moved", from, to, paths: [to], ...(path === "/files/move" && typeof answer.etag === "string" ? { etag: answer.etag } : {}) });
   }
   const refusal = REFUSALS.get(answer?.code);
   if (refusal !== undefined) {

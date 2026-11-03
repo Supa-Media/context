@@ -154,6 +154,7 @@ export function workspaceClient(env, workspaceId) {
       trash: async (body) => await ask("ws.write.trash", body),
       restore: async (body) => await ask("ws.write.restore", body),
       erase: async (body) => await ask("ws.write.erase", body),
+      move: async (body) => await ask("ws.write.move", body),
     },
     // A whole-note save's editing history, run in the object (`workspaceStore/collabReplace.js`).
     collab: {
