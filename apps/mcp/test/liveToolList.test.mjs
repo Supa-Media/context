@@ -102,9 +102,7 @@ test("the full list stays compact", () => {
   // Raised to 16,300 on 2026-10-26 for search_texts, list_texts and
   // read_texts, which are unlisted (reached through search and fetch) but
   // still defined: the list stood at 15,821 with 74.
-  // Raised to 16,600 on 2026-11-03 for `trash_note`, which moves a note to
-  // the Trash: the list stood at 16,381 with 77.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 16_600);
+  assert.ok(liveToolListSection(toolDefinitions()).length < 16_300);
 });
 
 /* -------------------------------------------------------------------------- */

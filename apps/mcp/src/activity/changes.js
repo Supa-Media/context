@@ -30,7 +30,6 @@ export const TREE_ACTIONS = new Set([
   // itself waited under `.context/`, outside every tree.
   "approve_proposal",
   "archive_note",
-  "trash_note",
   "move_note",
   "move_notes",
   "move_folder",

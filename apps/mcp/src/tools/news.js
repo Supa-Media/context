@@ -44,9 +44,7 @@ export const TOOL_NEWS = Object.freeze([
     text:
       'write action "save_many" saves up to 100 notes in one call: args `{ notes: [{ path, content, expected_etag? }] }`. Each note is ' +
       "saved exactly as save saves it, and the answer has one `outcome:` line per note, in order; one refused never undoes the others. " +
-      'fetch "notes:" now reads up to 100 notes, not 25. manage action "trash" (trash_note, `path`, `expected_etag?`) deletes a note or ' +
-      "folder the way the app does: it goes to the Trash, restorable for 30 days. And a change's `chaos:` line now appears only when " +
-      "the score is ready at once.",
+      'fetch "notes:" now reads up to 100 notes, not 25. And a change\'s `chaos:` line now appears only when the score is ready at once.',
   },
   {
     date: "2026-11-01",
@@ -380,7 +378,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "c9f8d323";
+export const TOOL_SHAPE = "dfb18474";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

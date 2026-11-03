@@ -62,8 +62,6 @@ const RELOCATING_TOOLS = new Set([
   "move_notes",
   "move_folder",
   "archive_note",
-  // A note moved to the Trash adds nothing either.
-  "trash_note",
 ]);
 
 /**

@@ -8,7 +8,6 @@ import { loadPrivacyState } from "../privacy/state.js";
 import { historyWriteRefusal } from "../agent/historyFile.js";
 import { toolDefinitions } from "./registry.js";
 import { toolArchiveNote } from "./moves/archive.js";
-import { toolTrashNote } from "./moves/trash.js";
 import {
   toolCreateForm,
   toolRetractSubmission,
@@ -218,8 +217,6 @@ async function runTool(name, args, store, scope) {
       return toolRelatedNotes(store, scope, rules, overrides, args);
     case "archive_note":
       return toolArchiveNote(store, scope, rules, overrides, args.path, args.expected_etag);
-    case "trash_note":
-      return toolTrashNote(store, scope, args.path, args.expected_etag);
     case "move_note":
       return toolMoveNote(
         store,

@@ -377,20 +377,6 @@ to a member). Checking the row's etag again, or reading the version before
 the collaboration read, stops a move nobody edited; failing on the first
 conflict stops one somebody did. `contextMoveKeyedRace.test.ts` fails for each.
 
-## AI clients trash the same way
-
-Asked for by the owner on 2026-11-03, after a benchmark had to delete the 100
-notes it wrote and found no tool for it. `trash_note` (`manage` action
-`trash`, `apps/mcp/src/tools/moves/trash.js`) moves a note or folder into the
-same Trash as the app's Delete, through the object's `ws.write.trash`, judged
-by the session's own scope, groups and user id, and restorable for 30 days.
-It is never a delete forever, and it runs only where the notes live in the
-workspace's object: anywhere else it trashes nothing and says to archive.
-Tex is not granted it. Making it erase, or letting it send a trash to the
-control plane from a tool call, is the step this leaves out on purpose. Tests:
-`apps/mcp/test/trashNote.test.mjs`, and the write gate in
-`apps/mcp/test/bulkNotes.test.mjs`.
-
 ## Emptying the trash
 
 Decided by the owner, 2026-10-17: "30 days, Trash page first". Something in a

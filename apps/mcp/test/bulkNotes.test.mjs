@@ -12,7 +12,6 @@
  *  5. `fetch` `notes:` takes 100 paths, and refuses 101.
  *  6. A save answers without waiting for a slow chaos count.
  *  7. `save_many` starts no rescore per note, and carries no chaos line.
- *  8. `manage` `trash` passes the write gate (`trashNote.test.mjs` proves the rest).
  *
  * Sabotage-checked (2026-11-03): handing each note straight to the handler
  * with a write scope, past `callToolForSession`, fails 3; dropping the
@@ -257,21 +256,6 @@ test("save_many starts no rescore per note, and carries no chaos line", async ()
     // And the hush ends with the call.
     await call("write", { path: "0-inbox/after.md", content: "# After\n" });
     assert.ok(chaosAsks() > before, "a save after save_many rescores again");
-  } finally {
-    restore();
-  }
-});
-
-test("manage trash passes the write gate, and a workspace not in its object is told to archive", async () => {
-  const { restore } = await setUp();
-  try {
-    const readOnly = await call("manage", { action: "trash", args: { path: "1-projects/plan.md" } }, READ_ONLY);
-    assert.equal(readOnly.isError, true);
-    assert.match(textOf(readOnly), /read-only/);
-    const owner = await call("manage", { action: "trash", args: { path: "1-projects/plan.md" } });
-    assert.equal(owner.isError, true);
-    assert.match(textOf(owner), /Archive the note instead/);
-    assert.match(textOf(await call("fetch", { id: "1-projects/plan.md" })), /# Plan/);
   } finally {
     restore();
   }

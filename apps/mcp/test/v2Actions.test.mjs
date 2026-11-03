@@ -419,10 +419,9 @@ test("a non-object arguments value is treated as no arguments", () => {
 test("every row of ACTIONS names a tool, and every row is covered above", () => {
   const rows = Object.entries(ACTIONS).flatMap(([verb, actions]) => Object.keys(actions).map((action) => `${verb}.${action}`));
   const covered = new Set([
-    // `write.save_many` and `manage.trash` are covered through the worker in `bulkNotes.test.mjs`.
+    // `write.save_many` is covered through the worker in `bulkNotes.test.mjs`.
     ...["write.save", "write.save_many", "write.comment", "write.mail", "write.upload", "write.remember", "write.propose", "write.answer", "write.update_answer", "write.retract_answer", "write.vote", "write.save_session", "write.report_problem"],
     ...MANAGE.map(([action]) => `manage.${action}`),
-    "manage.trash",
     ...["manage.website", "send.api", "send.email", "send.email_draft", "send.calendar", "send.forward_rule", "send.notify", "send.slack", "send.google_chat", "send.app"],
   ]);
   assert.deepEqual(rows.filter((row) => !covered.has(row)), []);

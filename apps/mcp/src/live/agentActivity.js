@@ -21,7 +21,6 @@ export const AGENT_ACTIVITY_TOOLS = new Map([
   ["move_notes", "move"],
   ["move_folder", "move"],
   ["archive_note", "move"],
-  ["trash_note", "move"],
 ]);
 
 /**

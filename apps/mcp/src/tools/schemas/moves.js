@@ -71,22 +71,6 @@ export function searchAndMoveToolDefinitions() {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
-      name: "trash_note",
-      title: "Move note to Trash",
-      description:
-        "Delete a note or a folder the way the app's Delete does: it moves to this workspace's Trash, where the person can restore it for 30 days before it is erased. Use it for notes that should not exist (a duplicate, a test, something made by mistake); use archive_note for notes that are finished but worth keeping. Pass expected_etag from your read of a note so an edit made since is not thrown away.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "The note or folder to move to the Trash" },
-          expected_etag: { type: "string", description: "The note's etag from your read; refused if it changed since" },
-        },
-        required: ["path"],
-        additionalProperties: false,
-      },
-      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
-    },
-    {
       name: "move_note",
       title: "Move note",
       description:
