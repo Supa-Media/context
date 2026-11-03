@@ -144,6 +144,8 @@ export class WorkspaceStore {
         const at = Date.now() + REACH_RETRY_MS;
         if (set === null || set > at) await this.state.storage.setAlarm(at);
       },
+      // Every write so far made durable (`createNote.js` times it, for the save's timings).
+      settle: () => this.state.storage.sync(),
       // One storage transaction for `ws.apply`: all of a change lands, or none of it.
       transact: (work) => this.state.storage.transactionSync(work),
       // The changes taken for Convex's mirror, written in the transaction that takes them (`workspaceStore/mirrorOutbox.js`).

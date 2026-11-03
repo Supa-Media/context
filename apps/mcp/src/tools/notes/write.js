@@ -480,6 +480,8 @@ export async function toolWriteNote(writer, scope, rules, overrides, args, optio
       );
   // A new note made in the workspace object in one call says how long the object spent on it (`inside:create`).
   if (Number.isFinite(put?.took)) phaseTook(store, "create", put.took);
+  // Of that, the wait for its writes to be durable (`inside:create_commit`, `workspaceStore/createNote.js`).
+  if (Number.isFinite(put?.commit)) phaseTook(store, "create_commit", put.commit);
   if (!put) {
     if (!existing && desiredVisibility === "private" && !sealedHome) {
       // Remove only an ACL whose path is still absent. If another writer won

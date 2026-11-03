@@ -23,7 +23,7 @@ const NOTE_ID = "0199a000-0000-7000-8000-000000000009";
 const KEY = `notes/${NOTE_ID}.md`;
 const RULES = { etag: "m.1", accessVersion: 1, folders: [{ prefix: "1-projects", visibility: "team" }], notes: [] };
 
-function objectSide({ home = "object", backfilled = true, failing = false } = {}) {
+function objectSide({ home = "object", backfilled = true, failing = false, settleMs = null } = {}) {
   const { sql, transact: run } = durableSqlite();
   let depth = 0;
   const transact = (work) => {
@@ -45,6 +45,13 @@ function objectSide({ home = "object", backfilled = true, failing = false } = {}
   store.mirrorSoon = () => {
     store.soon += 1;
   };
+  if (settleMs !== null) {
+    store.settled = 0;
+    store.settle = async () => {
+      await new Promise((resolve) => setTimeout(resolve, settleMs));
+      store.settled += 1;
+    };
+  }
   store.rows.pinWorkspace("ws");
   store.rows.put([{ id: "folder-1", path: "1-projects", kind: "folder", at: 1 }]);
   store.rows.putRules(RULES, "member");
@@ -190,4 +197,20 @@ test("an object that cannot be reached, or a create with no tier, writes and ado
   await second.store.put("1-projects/b.md", "# B\n", { onlyIf: { absent: true } });
   assert.ok(!plain.calls.includes("ws.create"));
   assert.equal(second.adoptions.length, 1);
+});
+
+test("the object says how long its writes took to be durable, and the id layer hands that on beside its own time", async () => {
+  const { routed, store } = started({ settleMs: 5 });
+  const { store: layer } = layered(routed);
+  const result = await layer.put("1-projects/new.md", "# New\n", { onlyIf: { absent: true }, tier: "team" });
+  assert.equal(store.settled, 1, "the writes were never waited on");
+  assert.ok(result.commit >= 4, `commit ${result.commit}`);
+  assert.ok(result.took >= result.commit, "the call's own time leaves out the wait for its writes");
+});
+
+test("an object that cannot wait for its writes says nothing of them", async () => {
+  const { routed } = started();
+  const answer = await routed.createInObject(create("1-projects/new.md"));
+  assert.equal(answer.served, true);
+  assert.equal(Object.hasOwn(answer, "commit"), false);
 });
