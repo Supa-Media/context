@@ -450,6 +450,34 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     };
   }
 
+  /**
+   * A whole-note save's editing history in one call to the workspace object (`workspaceRouting.js`), for a keyed note:
+   * the object is told the key and note id this layer resolved, and refuses if its own row says otherwise. The new
+   * Markdown version is reported as `keyedPut` reports one. `null` when there is no such door or it did not serve,
+   * and the caller runs the engine through this store as before.
+   */
+  if (typeof store.replaceInObject === "function") {
+    wrapped.replaceInObject = async (path, { expectedEtag, text }) => {
+      if (!mirroredPath(path)) return null;
+      const { entry } = await resolve(path);
+      if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
+      const answer = await store.replaceInObject({
+        path,
+        key: entry.key,
+        noteId: entry.noteId,
+        ...(typeof entry.legacyEtag === "string" ? { legacyEtag: entry.legacyEtag, rowEtag: entry.etag } : {}),
+        expectedEtag,
+        text,
+      });
+      if (answer === null) return null;
+      const markdown = answer.markdown;
+      if (typeof markdown?.etag === "string") {
+        await report({ path, key: entry.key, etag: markdown.etag, ...(Number.isFinite(markdown.size) ? { size: markdown.size } : {}), at: now(), keyed: true });
+      }
+      return answer;
+    };
+  }
+
   if (typeof store.delete === "function") {
     wrapped.delete = async (path, ...rest) => {
       if (!mirroredPath(path)) return await store.delete(path, ...rest);

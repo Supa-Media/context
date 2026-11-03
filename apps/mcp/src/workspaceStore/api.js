@@ -107,6 +107,8 @@ export function workspaceStub(env, workspaceId) {
  * - `apply({rows, removed, at, rules: {member?, guest?}})`: rows, removals and rules in one storage transaction
  * - `state()` → `{home, backfilledAt, encryption, rows, objects, accessVersion, members: {home, members, invites, reachPending}}`; `setHome(home)`; `setEncryption("none"|"keyed")`; `markBackfilled(at)`
  * - `members.*`, `invites.*`: who belongs to the workspace (`workspaceStore/members.js`): see `membershipClient`.
+ * - `collab.replace({path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text})` → `{served: true, result|error, markdown, writes, deletes}`
+ *   or `{served: false, writes?, deletes?}`: a whole-note save's editing history run in the object (`collabReplace.js`)
  * - `open(userId)` → `{home, backfilledAt, encryption, accessHome, member, rules, binding: {sealed, at}|null, epoch}`:
  *   what a request's store is built from, in one call; `binding.put({sealed, at, epoch})` → `{kept, epoch}`,
  *   `binding.clear()` → `{epoch}` (`workspaceStore/bindingRows.js`)
@@ -148,6 +150,10 @@ export function workspaceClient(env, workspaceId) {
       adopt: async (note) => await ask("ws.write.adopt", note),
       trash: async (body) => await ask("ws.write.trash", body),
       restore: async (body) => await ask("ws.write.restore", body),
+    },
+    // A whole-note save's editing history, run in the object (`workspaceStore/collabReplace.js`).
+    collab: {
+      replace: async (fields) => await ask("ws.collab.replace", fields),
     },
     ...membershipClient(ask),
     state: async () => await ask("ws.state"),
