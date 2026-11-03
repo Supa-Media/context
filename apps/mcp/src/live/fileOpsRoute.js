@@ -83,7 +83,8 @@ export async function handleFileOp(request, path, store, session) {
   if (reading === null || reading.client === null || reading.home !== "object" || reading.behind === true) {
     return json({ error: "not_object" }, 409);
   }
-  const caller = { scope: session.scope, groups: session.grantedGroups ?? [], userId: session.actorUserId ?? null };
+  // The session's names are a Set (`grantedGroupsOf`), which JSON would send as `{}`: sent as a list.
+  const caller = { scope: session.scope, groups: [...(session.grantedGroups ?? [])], userId: session.actorUserId ?? null };
   const write = reading.client.write;
   const answer =
     path === "/files/trash"

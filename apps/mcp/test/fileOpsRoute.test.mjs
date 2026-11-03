@@ -13,7 +13,7 @@ import { FILE_OP_PATHS, handleFileOp } from "../src/live/fileOpsRoute.js";
 import { isTransportPath } from "../src/origin.js";
 import { SCOPE_READ, SCOPE_WRITE } from "../src/session.js";
 
-const session = { scope: "team", grantedGroups: ["design"], actorUserId: "user_1", scopes: [SCOPE_READ, SCOPE_WRITE] };
+const session = { scope: "team", grantedGroups: new Set(["@design"]), actorUserId: "user_1", scopes: [SCOPE_READ, SCOPE_WRITE] };
 
 function storeWith(answer, { home = "object", behind = false } = {}) {
   const calls = [];
@@ -44,7 +44,7 @@ test("a trash is answered by the object, judged by the session's clearance", asy
     to: ".context/trash/2026-11-03T03-00-00-000Z/plans/a.md",
     paths: [".context/trash/2026-11-03T03-00-00-000Z/plans/a.md"],
   });
-  assert.deepEqual(calls, [{ op: "trash", body: { path: "plans/a.md", expectedEtag: "e1", scope: "team", groups: ["design"], userId: "user_1" } }]);
+  assert.deepEqual(calls, [{ op: "trash", body: { path: "plans/a.md", expectedEtag: "e1", scope: "team", groups: ["@design"], userId: "user_1" } }]);
 });
 
 test("a restore is answered by the object", async () => {
@@ -132,7 +132,7 @@ test("a move is answered by the object, and one it defers goes back to the contr
   const response = await handleFileOp(post("/files/move", { from: "plans/a.md", to: "plans/b.md", expectedEtag: "e9" }), "/files/move", store, session);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { kind: "moved", from: "plans/a.md", to: "plans/b.md", paths: ["plans/b.md"], etag: "e9" });
-  assert.deepEqual(calls, [{ op: "move", body: { from: "plans/a.md", to: "plans/b.md", expectedEtag: "e9", scope: "team", groups: ["design"], userId: "user_1" } }]);
+  assert.deepEqual(calls, [{ op: "move", body: { from: "plans/a.md", to: "plans/b.md", expectedEtag: "e9", scope: "team", groups: ["@design"], userId: "user_1" } }]);
 
   const deferred = storeWith({ ok: false, code: "DEFER" });
   const answer = await handleFileOp(post("/files/move", { from: "plans/a.md", to: "plans/b.md" }), "/files/move", deferred.store, session);

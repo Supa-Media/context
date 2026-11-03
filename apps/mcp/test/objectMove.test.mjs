@@ -79,7 +79,7 @@ function objectStore(answer) {
     behind: false,
     canWrite: true,
     scope: "team",
-    names: ["g1"],
+    names: new Set(["g1"]),
     userId: "u1",
     workspaceId: "w1",
     log: (event, fields) => logged.push({ event, fields }),

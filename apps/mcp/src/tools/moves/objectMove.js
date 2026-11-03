@@ -75,7 +75,8 @@ export async function startObjectMove(store, scope, source, destination, expecte
       to: destination,
       ...(typeof expectedEtag === "string" && expectedEtag !== "" ? { expectedEtag } : {}),
       scope: reading.scope,
-      groups: Array.isArray(reading.names) ? reading.names : [],
+      // The session's names are a Set (`grantedGroupsOf`): sent as a list.
+      groups: [...(reading.names ?? [])],
       userId: reading.userId ?? null,
     });
   } catch (error) {
