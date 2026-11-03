@@ -45,10 +45,9 @@ export function useHistoryRead({ source, chat, group, job, live = false }: { sou
   const kinds = kindsFor(shown);
   const kindsKey = kinds.join(",");
   const waiting = (day === "pick" && asked === undefined) || kinds.length === 0;
-  const jobsShown = shown.jobs;
   const query = useMemo(
-    () => ({ kinds: kindsKey.split(",").filter(Boolean) as typeof kinds, ...(asked ? { day: asked } : {}), ...(job !== undefined ? { job } : jobsShown ? {} : { jobs: false as const }) }),
-    [kindsKey, asked, job, jobsShown],
+    () => ({ kinds: kindsKey.split(",").filter(Boolean) as typeof kinds, ...(asked ? { day: asked } : {}), ...(job !== undefined ? { job } : {}) }),
+    [kindsKey, asked, job],
   );
 
   // A "Show older" still reading when a filter changes is dropped, never added to the new list.
@@ -128,7 +127,7 @@ export function useHistoryRead({ source, chat, group, job, live = false }: { sou
     toggle: (s) => setShown((was) => ({ ...was, [s]: !was[s] })),
     read,
     waiting,
-    days: historyDays(entries, now, { group, thinking: shown.thinking }),
+    days: historyDays(entries, now, { group, thinking: shown.thinking, fold: job === undefined }),
     hasOlder: older !== undefined && !waiting,
     loadingMore,
     more,
