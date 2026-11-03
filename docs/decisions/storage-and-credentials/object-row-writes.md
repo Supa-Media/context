@@ -207,3 +207,11 @@ base can wait: a list change at a path with no row is `NO_ROW`, and the control 
 before. A team entry is kept but not rendered, so the path inherits. That is the narrower answer under a private
 folder, as `withPendingPrivate` has it. Reversing this costs a new private note one control-plane round trip for its
 tier and another for its adoption; `apps/mcp/test/accessPending.test.mjs` fails if it is reversed.
+
+### A member's grants taken out in the object (2026-11-03)
+
+`ws.write.dropGrantee` (`accessDrop.js`) takes one account's own `user` grants out of every row of an object-home
+workspace in one minted version, with the rules re-rendered once. An owner may do it, and so may the account itself
+when it leaves. It mirrors to `objectAccessMirror.dropGrantee`, which calls the same `removeUserGrantsIn` the control
+plane uses, so the audit row is the same. There is no cap: a grant left behind would reach an outsider. Email grants
+stay, as in `removeUserGrants.ts`. `apps/mcp/test/accessDrop.test.mjs` fails if a held grant survives the drop.

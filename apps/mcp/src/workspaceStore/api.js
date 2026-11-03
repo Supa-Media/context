@@ -148,6 +148,7 @@ export function workspaceClient(env, workspaceId) {
     write: {
       wrote: async (record) => await ask("ws.write.wrote", record),
       access: async (change) => await ask("ws.write.access", change),
+      dropGrantee: async (body) => await ask("ws.write.dropGrantee", body),
       adopt: async (note) => await ask("ws.write.adopt", note),
       trash: async (body) => await ask("ws.write.trash", body),
       restore: async (body) => await ask("ws.write.restore", body),
