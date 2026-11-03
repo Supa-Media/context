@@ -37,6 +37,9 @@ async function pushRound(
         guest: await ctx.runQuery(internal.functions.nodesPrivacy.authority, { workspaceId, audience: "guest" }),
       }
     : null;
+  // The access set the rules are rendered from, so the object can render its own and compare
+  // (`apps/mcp/src/workspaceStore/accessRows.js`). Only the rules judge a read there yet.
+  const access = round.access ? { access: await ctx.runQuery(internal.functions.nodesPrivacy.accessSet, { workspaceId }) } : {};
   if (round.all) {
     // The whole set, staged in pages and swapped in on the last, so a row the tree no longer has leaves.
     const epoch = `push-${round.readAt}`;
@@ -52,7 +55,7 @@ async function pushRound(
       if (last) break;
       after = next.after ?? undefined;
     }
-    if (rules !== null || round.close.length > 0) await call("ws.apply", { rows: [], removed: [], at: round.readAt, ...(rules !== null ? { rules } : {}), ...closing });
+    if (rules !== null || round.close.length > 0) await call("ws.apply", { rows: [], removed: [], at: round.readAt, ...(rules !== null ? { rules } : {}), ...access, ...closing });
     return;
   }
   // Rows and rules in one call: a move changes both, and the object must never judge new paths by old rules.
@@ -65,7 +68,8 @@ async function pushRound(
       removed: round.removed.slice(at, at + ROWS_PER_CALL),
       at: round.readAt,
       ...(first && rules !== null ? { rules } : {}),
-      ...(last ? closing : {}),
+      // On the last call, once every row of the round is held, so its paths are the ones the rules were read at.
+      ...(last ? { ...access, ...closing } : {}),
     });
   }
 }

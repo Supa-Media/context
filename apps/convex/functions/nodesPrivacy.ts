@@ -21,6 +21,7 @@ import { nodeAt } from "./lib/nodes/paths";
 import { chatRules } from "./lib/nodes/chatFolders";
 import { setupRules } from "./lib/texSetupRead";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
+import { objectAccessSet } from "./lib/nodes/accessSet";
 
 const folders = v.array(v.object({ prefix: v.string(), visibility: v.string() }));
 const notes = v.array(v.object({ path: v.string(), visibility: v.string() }));
@@ -64,6 +65,18 @@ export const authority = internalQuery({
   returns: heldValidator,
   handler: async (ctx, { workspaceId, audience, chatNames, setupOnly }) =>
     await heldFor(ctx, workspaceId, audience ?? "member", chatNames, setupOnly === true),
+});
+
+/**
+ * The access set the rules are rendered from, as the workspace object keeps it (`lib/nodes/accessSet.ts`), sent with
+ * the push beside the rules (`lib/rowWatch/drain.ts`). Its own query, as `authority` is per audience: one function
+ * that rendered both and read the set would read a big workspace's rows three times under one read limit. The object
+ * compares only rules and a set at the same access version.
+ */
+export const accessSet = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.any(),
+  handler: async (ctx, { workspaceId }) => await objectAccessSet(ctx, workspaceId),
 });
 
 /** Whether this is the deployment's pinned workspace (`lib/pinnedContext.ts`), the only one a setup read opens. */

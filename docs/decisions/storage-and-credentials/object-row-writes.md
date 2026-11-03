@@ -61,6 +61,27 @@ trip, which is the cost this removes. Letting a narrowing answer before the mirr
 show a note its owner just made private. Letting Convex's older push overwrite the object's newer row silently undoes
 saves. Tests: added with each step, named in this file as they land.
 
+## The object renders its own rules (2026-11-03)
+
+The first step of moving access writes: the object holds the grant rows and renders the member and guest rules
+itself, before anything is judged by them. Every push that carries rules (`lib/rowWatch/drain.ts`) also carries the
+**access set** they were rendered from, read beside them (`nodesPrivacy.accessSet`,
+`lib/nodes/accessSet.ts`): each row that carries a setting, keyed by its token id (`@#<id>`) and kind, with its base
+and its grantees in the `nodeAccess` shape (`{kind, id, role}`), the access version, the private paths still pending
+their row, and whether `accounts` grants are honoured and the chat homes sealed here. It rides the round's last
+call, once every row of the round is held. The object keeps it in `ws_access` (`workspaceStore/accessRows.js`),
+whole, unless it holds a later version, places each record at its own live row's path (the sent path only for a
+row it no longer holds), applies the same overlays as `accessRowsOf` with the same `renderAccess`, and records
+whether the result equals the rules it holds (`ws.access.state`; `ws.access.check` compares without keeping
+anything, for the read-only production run, `Workspace object access parity`). A chunked move part way through is
+skipped: its rules name both paths.
+
+Nothing reads the rendered rules yet, and a set the object refuses never fails the push it rides on: the pushed rules
+stay the only thing reads are judged by until the access writers move onto `ws.write.access` and the parity report has
+stayed equal. A grant taken back is gone from the next set, and an older set never replaces a newer one, so a
+replayed push cannot bring it back (`apps/mcp/test/workspaceAccessRows.test.mjs`,
+`apps/convex/__tests__/nodes/objectAccessParity.test.ts`).
+
 ## Landed: the Convex mirror (`objectAt`)
 
 Convex keeps `nodes.objectAt`, the object's clock of the last change it made to the row. `POST /gateway/rows/mirror` (`functions/lib/gatewayRoutes/rowsMirror.ts`) takes a batch in order and calls `functions/objectRowsMirror.ts` `wrote` per change, built with `internalMutationMirrored` (no outbox entry, no push). A refused or missing row is `{ applied: false, reason }`, never a throw. Tests: `__tests__/objectRowsMirror.test.ts` (keyed write opens no outbox entry; `objectAt` never goes backwards; missing and refused rows; route order, bad body, transient stop). Sabotage: building `wrote` with the watched `internalMutation` fails the outbox case. `objectAt` is outside the object digest (`__tests__/workspaceObjects.test.ts`).

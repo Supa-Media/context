@@ -1,0 +1,72 @@
+# Read-only dry run of the access rules each workspace object renders, against Convex's own
+# (`apps/convex/functions/workspaceObjectAccessParity.ts` `dryRun`). For every workspace at `home: object`, the
+# object renders its rules from the access set Convex sends and compares them with Convex's rules. Nothing is
+# written anywhere. Counts only, never a path, a name or a message: this job's log is public, and so is
+# `docs/decisions/storage-and-credentials/workspace-objects.md`.
+name: Workspace object access parity
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to check."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      limit:
+        description: "Workspaces per page."
+        type: string
+        default: "25"
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Dry run
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          set -euo pipefail
+          case "$LIMIT" in (*[!0-9]*|"") echo "limit must be a whole number"; exit 1;; esac
+          after=""
+          page=0
+          total='{"checked":0,"equal":0,"differs":0,"skipped":0,"failed":0}'
+          while :; do
+            page=$((page + 1))
+            args=$(jq -cn --argjson limit "$LIMIT" '{limit: $limit}')
+            if [ -n "$after" ]; then args=$(echo "$args" | jq -c --arg after "$after" '. + {after: $after}'); fi
+            answer=$(npx convex run functions/workspaceObjectAccessParity:dryRun "$args" 2>/dev/null)
+            # Counts only: the rows (a Convex id, a version and per-audience counts) stay out of the log.
+            echo "page $page: $(echo "$answer" | jq -c '{checked, equal, differs, skipped, failed}')"
+            total=$(jq -cn --argjson a "$total" --argjson b "$answer" '{checked: ($a.checked + $b.checked), equal: ($a.equal + $b.equal), differs: ($a.differs + $b.differs), skipped: ($a.skipped + $b.skipped), failed: ($a.failed + $b.failed)}')
+            if [ "$(echo "$answer" | jq -r '.next')" = "null" ]; then break; fi
+            after=$(echo "$answer" | jq -r '.next')
+            if [ "$page" -ge 2000 ]; then echo "stopped after $page pages"; exit 1; fi
+          done
+          echo "total: $total"
+          {
+            echo "### Workspace object access parity (dry run)"
+            echo "| checked | equal | differs | skipped | failed |"
+            echo "| --- | --- | --- | --- | --- |"
+            echo "$total" | jq -r '"| \(.checked) | \(.equal) | \(.differs) | \(.skipped) | \(.failed) |"'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(echo "$total" | jq -r '.differs + .failed')" != "0" ]; then exit 1; fi

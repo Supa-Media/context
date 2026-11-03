@@ -129,8 +129,26 @@ export async function accessVersionOf(ctx: QueryCtx, workspaceId: Id<"workspaces
  */
 export async function accessRowsOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<AccessRow[]> {
   const state = await accessStateOf(ctx, workspaceId);
-  const rows =
-    state?.snapshot !== undefined
+  const rows = await settingRowsOf(ctx, workspaceId, state);
+  // A folder moving in pages is judged by the same rules at both its names (`rowMoveChunks.ts`).
+  const moving = withMovingAccess(rows, await movingRowMoves(ctx.db, workspaceId));
+  // A private access waiting for its row closes the path before the row exists (`pendingAccess.ts`).
+  const pending = withPendingPrivate(moving, state?.pending, Date.now());
+  const honoured = await withAccountsHonoured(ctx, workspaceId, pending);
+  // Group Tex's chat homes, sealed from every role in the pinned workspace (`withSealedChats`).
+  return await withSealedChats(ctx, workspaceId, honoured);
+}
+
+/**
+ * The rows that carry a setting, before any overlay: the snapshot, else the scan. What the workspace object is sent
+ * to render its own rules from (`accessSet.ts`), so both sides start from the same rows.
+ */
+export async function settingRowsOf(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  state: Doc<"nodeAccessState"> | null,
+): Promise<AccessRow[]> {
+  return state?.snapshot !== undefined
       ? state.snapshot.map((entry) => ({
           path: entry.path,
           noteId: entry.noteId,
@@ -139,13 +157,6 @@ export async function accessRowsOf(ctx: QueryCtx, workspaceId: Id<"workspaces">)
           grantees: entry.grantees.map((grantee) => ({ kind: grantee.kind, id: grantee.id, role: grantee.role })),
         }))
       : await scanAccessRows(ctx, workspaceId);
-  // A folder moving in pages is judged by the same rules at both its names (`rowMoveChunks.ts`).
-  const moving = withMovingAccess(rows, await movingRowMoves(ctx.db, workspaceId));
-  // A private access waiting for its row closes the path before the row exists (`pendingAccess.ts`).
-  const pending = withPendingPrivate(moving, state?.pending, Date.now());
-  const honoured = await withAccountsHonoured(ctx, workspaceId, pending);
-  // Group Tex's chat homes, sealed from every role in the pinned workspace (`withSealedChats`).
-  return await withSealedChats(ctx, workspaceId, honoured);
 }
 
 /**
