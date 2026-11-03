@@ -464,17 +464,14 @@ export function sealedCovers(key, rules) {
 /**
  * May this caller see this key at all?
  *
- * ## A group is reached by the grant, never by the role
+ * ## A group is reached through the session's names, never by the role
  *
- * `grantedGroups` is the set of group names the caller's grant was **issued
- * with**, and it defaults to none. A connection somebody added at team tier
- * therefore cannot see, search or list a note scoped to a group *even when the
- * person holding it is in that group*: to that connection the note is private,
- * which is the answer somebody expects from a client they deliberately gave
- * the narrower tier. Widening one client is a deliberate act that lands in the
- * grant and in the audit trail — the rule `visibilityTierForGrant` already
- * follows, applied to the third kind of audience — rather than an inference
- * from a role, which is the read-time check nothing records.
+ * `grantedGroups` is the set of names the session carries (groups, handle, row
+ * tokens), and it defaults to none. The control plane hands them to the app's
+ * own client and every AI connection, and to none of Context's background
+ * clients (`holdsGrantedNames`; the owner, 2026-11-03,
+ * `docs/decisions/privacy-and-sharing/ai-connection-names.md`). A role alone
+ * never opens a group's note: what opens it is a name the session holds.
  */
 export function canSee(key, scope, rules, overrides, grantedGroups) {
   if (foldPath(key) === PRIVACY_KEY) return scope === "private";

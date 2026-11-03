@@ -26,6 +26,13 @@ grant keeps its own rows (`liveGrants.ts`). One predicate on each side:
 (the person object's session). The names stay live: re-read on every request,
 so leaving a group or losing a grant closes it on the next call.
 
+**The tree routes judge by the same names.** The control plane's gateway tree
+routes (`/gateway/tree/manifest`, the facts and note-id lookups) take their
+clearance from `gatewayReadClearance` (`lib/nodes/gatewayManifest.ts`), which
+passed a guest's names on and dropped everyone else's. After the change above,
+a member's AI connection held a chat home's names in its session and still got
+an empty listing there. It now passes every name the session carries.
+
 **Why this is not a widening of tier.** The names open only what the person
 could already open in the app; a connection's scopes and visibility tier are
 clamped exactly as before (`effectiveScopes`, `visibilityTierForGrant`), so a
@@ -47,4 +54,8 @@ connection holds a home's names"), `apps/convex/__tests__/controlPlane/session.t
 ("a console session carries live group names"), `apps/convex/__tests__/pinnedReaders.test.ts`
 ("a real member's MCP connection holds the members grant's names"),
 `apps/mcp/test/personObject.test.mjs` ("the app's own client and every AI
-connection hold the names its grants on rows give it").
+connection hold the names its grants on rows give it"),
+`apps/convex/__tests__/pinnedReaders.test.ts` ("the gateway's tree manifest
+lists a member's AI connection what its names open"), and
+`apps/convex/__tests__/nodes/gatewayManifest.test.ts` ("a member's names are
+passed on").
