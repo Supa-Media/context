@@ -377,7 +377,7 @@ export async function runTurn(options) {
     // not it cleared the setup's cutoff: a benchmark tunes the cutoff from the
     // near misses. Absent when it picked another tier or did not answer.
     const confidence = routed.pick === "think" && typeof routed.confidence === "number" ? { confidence: routed.confidence } : {};
-    trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked, ...confidence });
+    trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, at: asked - began, ms: clock() - asked, ...confidence });
     tell({ kind: "model", model, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
   const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, voice, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
@@ -481,7 +481,7 @@ export async function runTurn(options) {
         fellBack = true;
         const ms = clock() - asked;
         timing.modelMs += ms;
-        trace.push({ kind: "fallback", from: model, model: next, status: error.status ?? null, ok: true, ms });
+        trace.push({ kind: "fallback", from: model, model: next, status: error.status ?? null, ok: true, at: asked - began, ms });
         tell({ kind: "model", model: next, reason: `after ${model} failed` });
         // The rest of the turn stays on the fallback: a plan would send it back to what failed.
         plan = null;
@@ -499,7 +499,7 @@ export async function runTurn(options) {
           rounds: timing.rounds + 1,
           modelMs: timing.modelMs + ms,
           toolMs: timing.toolMs,
-          trace: [...trace, { kind: "model", model, ok: false, ms, ...(error.status === null || error.status === undefined ? {} : { status: error.status }) }],
+          trace: [...trace, { kind: "model", model, ok: false, at: asked - began, ms, ...(error.status === null || error.status === undefined ? {} : { status: error.status }) }],
         };
       }
       throw error;
@@ -512,6 +512,8 @@ export async function runTurn(options) {
       // Which model ran this round: a planned or fallen-back turn has more than one.
       model,
       ok: true,
+      // When it started, from the turn's start, for the chat's timeline (`turnTiming.js`).
+      at: asked - began,
       ms: roundMs,
       // Retried once by the gateway (`aiGateway.js`): noted, with what it was retried after.
       ...(answer.retried ? { retried: true, ...(answer.retried.status === null ? {} : { status: answer.retried.status }) } : {}),
@@ -531,7 +533,8 @@ export async function runTurn(options) {
 
     for (const block of Array.isArray(answer.content) ? answer.content : []) {
       if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim()) {
-        tell({ kind: "thinking", text: block.thinking });
+        // With the round's time and output tokens, so the history shows what the thinking cost (`ledger.js`).
+        tell({ kind: "thinking", text: block.thinking, ms: roundMs, ...(answer.usage ? { output: answer.usage.output } : {}) });
       }
     }
 
@@ -639,7 +642,7 @@ export async function runTurn(options) {
       // A call the egress gate held for the person's yes is not a failure: it
       // runs when they give it (`route.js`), and a log that called it failed
       // would read as a broken tool.
-      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
+      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
       // A failed step sends the next round to the planner; one held for the person's yes does not.
       if (failedCall(result)) escalate = true;

@@ -19,7 +19,9 @@
  *
  * Each finished step is one point in Workers Analytics Engine (`TEX_ENTRY`,
  * dataset `tex_entry`): blobs = surface ("gateway"), the turn's kind, the
- * step, its state (ok, failed, off); doubles = its milliseconds and when it
+ * step, its state (ok, failed, off), the turn's id (the chat ledger's `turn`,
+ * so one turn's steps can be pulled out; points wait for it until it is read,
+ * and a turn that ends before then writes "" there); doubles = its milliseconds and when it
  * started, from the turn's start; index = the workspace, so one person's
  * texts and everyone's can both be added up. Names, counts and times only,
  * never a word anyone wrote. A `to_response` point marks when the answer was
@@ -62,14 +64,24 @@ export function texEntry(env, { who = "", now = Date.now, later = [] } = {}) {
   const steps = [];
   let kind = "unknown";
   let written = 0, stored = 0;
+  // The turn's id, once read: every point carries it, so one turn's steps can be found (`turn`). Points before it wait here.
+  let turn = null, settled = false;
+  const pending = [];
+  const emit = (entry) => (turn === null && !settled ? pending.push(entry) : write(env, entry, kind, who, turn ?? ""));
+  const release = () => {
+    settled = true;
+    for (const entry of pending.splice(0)) write(env, entry, kind, who, turn ?? "");
+  };
   const record = (name, at, state) => {
     const ms = Math.max(0, now() - at);
     const entry = { name, ms, at: at - start, state };
     steps.push(entry);
-    write(env, entry, kind, who, () => (written += 1) <= MAX_POINTS);
+    if ((written += 1) <= MAX_POINTS) emit(entry);
     return entry;
   };
-  const recordCall = (name, at, state) => write(env, { name, ms: Math.max(0, now() - at), at: at - start, state }, kind, who, () => (stored += 1) <= MAX_STORE_POINTS);
+  const recordCall = (name, at, state) => {
+    if ((stored += 1) <= MAX_STORE_POINTS) emit({ name, ms: Math.max(0, now() - at), at: at - start, state });
+  };
   const off = (name) => env?.TEX_LEAN === "on" && CHAT_KINDS.has(kind) && OFF_IN_CHATS.has(name);
   const timed = (name, run) => {
     const at = now();
@@ -95,6 +107,15 @@ export function texEntry(env, { who = "", now = Date.now, later = [] } = {}) {
     },
     get kind() {
       return kind;
+    },
+    /** The turn's id (the ledger's `turn`), once known: its points so far go out with it, and every later one carries it. */
+    set turn(value) {
+      if (turn !== null) return;
+      turn = typeof value === "string" ? value.slice(0, 64) : "";
+      release();
+    },
+    get turn() {
+      return turn;
     },
     /** Whether `name` is turned off on this turn. */
     isOff: off,
@@ -180,6 +201,7 @@ export function texEntry(env, { who = "", now = Date.now, later = [] } = {}) {
     /** The answer is handed back now. */
     responded() {
       record("to_response", start, "ok");
+      release(); // a turn that ended before it had an id still writes its points
     },
     /** Every step so far, in the order they finished (tests, the log line). */
     steps,
@@ -200,11 +222,11 @@ export function allowedFirst(allowed, callTool) {
   };
 }
 
-function write(env, entry, kind, who, room) {
+function write(env, entry, kind, who, turn) {
   const dataset = env?.TEX_ENTRY;
-  if (!dataset || typeof dataset.writeDataPoint !== "function" || !room()) return;
+  if (!dataset || typeof dataset.writeDataPoint !== "function") return;
   try {
-    dataset.writeDataPoint({ blobs: ["gateway", kind, entry.name, entry.state], doubles: [entry.ms, entry.at], indexes: [String(who).slice(0, 96)] });
+    dataset.writeDataPoint({ blobs: ["gateway", kind, entry.name, entry.state, turn], doubles: [entry.ms, entry.at], indexes: [String(who).slice(0, 96)] });
   } catch {
     // Diagnostics never fail a turn.
   }
