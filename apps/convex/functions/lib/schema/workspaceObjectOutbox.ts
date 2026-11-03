@@ -13,6 +13,8 @@ export const workspaceObjectOutboxTables = {
     workspaceId: v.id("workspaces"),
     /** `nodes` rows written: pushed as they now stand, or removed if gone. */
     nodeIds: v.array(v.id("nodes")),
+    /** Object ids (`nodes.objectId`) of rows the object made that this change deleted outright: pushed as removed. */
+    goneObjectIds: v.optional(v.array(v.string())),
     /** The access rules may have changed: render them and send them. */
     access: v.boolean(),
     /** More rows changed than an entry names: push the workspace's rows whole. */

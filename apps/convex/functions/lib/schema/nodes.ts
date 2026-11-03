@@ -139,8 +139,16 @@ export const nodeTables = {
      * customer's own bytes, never the note's text.
      */
     pageCover: v.optional(v.string()),
+    /**
+     * The id the workspace object gave this row, for a row the object made (`o_` and 32 hex characters,
+     * `apps/mcp/src/workspaceStore/treeOps.js` `objectRowId`) and Convex took behind it. The object knows the row by
+     * this id, so every push names it by it (`lib/workspaceObjects/rows.ts` `objectRowOf`) and every mirrored change
+     * finds it by it (`lib/nodes/objectIds.ts`). Rows Convex made keep their `_id` as the object's id and have none.
+     */
+    objectId: v.optional(v.string()),
   })
     .index("by_workspace_path", ["workspaceId", "path"])
+    .index("by_workspace_objectId", ["workspaceId", "objectId"])
     .index("by_workspace_role", ["workspaceId", "role"])
     .index("by_workspace_noteId", ["workspaceId", "noteId"])
     /** A key a row keys its bytes at: the old-copy cleanup's re-check and count look a key up here (`lib/cleanup/`). */

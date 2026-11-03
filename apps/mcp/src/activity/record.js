@@ -27,6 +27,7 @@ import { treeEditsOf, treeTouchOf } from "../tree/record.js";
 import { rememberChaos, within } from "../chaos/report.js";
 import { CHAOS_ACTIONS, changeChaos } from "../chaos/change.js";
 import { keepHistoryActivityLater } from "../history/record.js";
+import { phase } from "../mcp/phase.js";
 
 export async function recordChange(store, action, actorScope, paths, details = {}) {
   const at = new Date().toISOString();
@@ -40,8 +41,8 @@ export async function recordChange(store, action, actorScope, paths, details = {
     entry.actor_client_id = store.actor.clientId;
     entry.workspace_id = store.actor.workspaceId;
   }
-  await store.put(`${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, JSON.stringify(entry));
-  await recordActivity(store, { action, paths, details, at });
+  await phase(store, "record_audit", () => store.put(`${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, JSON.stringify(entry)));
+  await phase(store, "record_activity", () => recordActivity(store, { action, paths, details, at }));
   announceTreeChange(store, action, paths, details);
   announceWebsiteChange(store, action, paths);
   announceRoutineChange(store, paths);
