@@ -224,8 +224,11 @@ export async function serveWorkspaceStore(store, request) {
     // The sealed binding and the one call a request's store is opened from (`bindingRows.js`).
     // `ws.open` waits for an open mark like every read, and says whether one is still open (`marks.js`), so the
     // gateway need not ask the control plane whether the object is behind before a read (`store/objectBinding.js`).
+    const waitStarted = Date.now();
     const behind = op === BINDING_OPS.OPEN ? await waitForMarks(store.marks ?? null) : false;
     const opened = serveBindingCall(store, op, fields, ACCESS_HOMES.OBJECT, { behind });
+    // How long the open waited for a mark's push, for the gateway's log line (`sessionStore.js` `openBinding`).
+    if (opened !== null && op === BINDING_OPS.OPEN && opened.ok) return Response.json({ ...(await opened.json()), waitedMs: Date.now() - waitStarted });
     if (opened !== null) return opened;
     // The grant rows and the rules rendered from them (`serveAccess.js`).
     const access = accessCall(store, op, fields);

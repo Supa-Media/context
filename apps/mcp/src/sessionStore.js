@@ -68,7 +68,7 @@ async function openBinding(session, env, controlPlane, later = () => {}) {
     // Anything unexpected asks the control plane, as before.
   }
   const logged = (source, extra = {}) =>
-    console.log(JSON.stringify({ event: "workspace_binding_opened", workspaceId: session.workspaceId, source, reason: fromObject.reason, ms: Date.now() - started, ...extra }));
+    console.log(JSON.stringify({ event: "workspace_binding_opened", workspaceId: session.workspaceId, source, reason: fromObject.reason, ms: Date.now() - started, ...(fromObject.wake ? { cold: fromObject.wake.cold, waitedMs: fromObject.wake.waitedMs } : {}), ...extra }));
   if (fromObject.opened !== null) {
     logged("object");
     // A kept copy past fresh was served; the control plane is asked behind the response, for the next request.

@@ -127,6 +127,8 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
     return fail("object_unavailable");
   }
   if (!held || typeof held !== "object") return fail("object_unavailable");
+  // How the object answered: woken for this call, and how long it waited for a mark's push (`serve.js`), for the log.
+  const wake = { cold: held.cold === true, waitedMs: Number.isFinite(held.waitedMs) ? held.waitedMs : null };
   if (held.home !== "object") return fail("notes_not_in_object");
   if (held.accessHome !== "object") return fail("access_not_in_object");
   if (!ENCRYPTION_KNOWN.has(held.encryption)) return fail("encryption_unknown");
@@ -152,9 +154,9 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   if (age > FRESH_MS) {
     // Past fresh: served only on the bucket's own key, and the control plane is asked behind the response.
     if (typeof answer.binding.sessionToken === "string" && answer.binding.sessionToken !== "") return fail("stale", { keep });
-    return { opened: { ...answer, keyed: true }, source: "object", reason: "stale_served", refresh: keep };
+    return { opened: { ...answer, keyed: true }, source: "object", reason: "stale_served", refresh: keep, wake };
   }
-  return { opened: { ...answer, keyed: true }, source: "object", reason: null };
+  return { opened: { ...answer, keyed: true }, source: "object", reason: null, wake };
 }
 
 /**
