@@ -3,9 +3,10 @@
  * in the object's rows; this module judges the caller first, with the audience's rules as `serve.js` `judgeFor` holds
  * them, and turns the answer into the op's `{answer, change, narrows}` (`writeOps.js`).
  *
- * A trash hides what it moves, so its answer waits for the mirror (`narrows`): share links, websites and the
- * console's search still resolve a path through Convex's rows and read the body by key, so until the mirror lands
- * they would serve a note the person just trashed. A restore puts a note back only where it was, so it does not wait. Judgement is by the caller's own scope, groups and user id, never by a value the caller sends about
+ * Neither waits for the mirror (decided by the owner, 2026-11-03). Share links, websites and the console's search
+ * resolve a path through Convex's rows, so for up to the mirror's lag they may still serve a note just trashed, to
+ * people who could open it a moment earlier: nobody gains access, and the trash answers inside the 0.1 s bar. A
+ * restore puts a note back only where it was. Judgement is by the caller's own scope, groups and user id, never by a value the caller sends about
  * itself beyond those: the gateway resolved them.
  */
 
@@ -79,7 +80,7 @@ function trash(ctx, body) {
   return {
     answer: { ok: true, to, count, at: moved.at },
     change: treeChange(moved, folders, removed, auditOf(body, "trash", count)),
-    narrows: true,
+    narrows: false,
   };
 }
 

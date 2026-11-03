@@ -134,7 +134,8 @@ line (`record.audit`). Any other workspace answers `409 not_object`, and the app
 it does on a network failure. A refusal is never sent to Convex as well, and neither is `mirror_pending` (the trash
 is in the object and lands in Convex on its own).
 
-Trash still waits for the mirror: share links, websites, "shared with me" and the console's search resolve a path
-through Convex's rows and read the body by key, so answering first would let them serve a note for up to the
-mirror's lag after the person trashed it. Whether that wait is worth its 0.1 to 0.3 s is the owner's call, asked on
-2026-11-03.
+Trash does not wait for the mirror (decided by the owner, 2026-11-03, for the 0.1 s bar), though the contract above
+lists it with the narrowings. Share links, websites, "shared with me" and the console's search resolve a path through
+Convex's rows and read the body by key, so for up to the mirror's lag they may still serve a note the person just
+trashed, only to people who could open it a moment earlier. Nobody gains access. Moves, which can change who sees a
+note, still wait.
