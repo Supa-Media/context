@@ -48,6 +48,16 @@ test("a write that names another context links into that one", async () => {
   assert.match(result.content[0].text, /link: https:\/\/app\.example\/note\/@hangg\/plan\.md/);
 });
 
+test("a write whose path opens with a workspace's name links into that one", async () => {
+  // 2026-11-03: Tex wrote `@public-worship/projects/love-thy-neighbor/church-venues-150-seats.page.md`; the session
+  // routed it to @public-worship and answered with the rest of the path, and the link named the turn's own @maya.
+  const call = withNoteLinks(async () => written("projects/love-thy-neighbor/church-venues-150-seats.page.md"), { origin: ORIGIN, contexts: CONTEXTS });
+  const result = await call("write_note", { path: "@public-worship/projects/love-thy-neighbor/church-venues-150-seats.page.md", content: "x" });
+  assert.match(result.content[0].text, /link: https:\/\/app\.example\/note\/@public-worship\/projects\/love-thy-neighbor\/church-venues-150-seats\.page\.md /);
+  const read = withNoteLinks(async () => ({ content: [{ type: "text", text: "etag: e\npath: gigs/show.md\n\nbody" }] }), { origin: ORIGIN, contexts: CONTEXTS });
+  assert.match((await read("read_note", { path: "@band/gigs/show.md" })).content[0].text, /note\/@band\/gigs\/show\.md/);
+});
+
 test("a name with spaces and a # is encoded, segment by segment", () => {
   assert.equal(noteLinkUrl(ORIGIN, "maya", "a b/c#d?.md"), "https://app.example/note/@maya/a%20b/c%23d%3F.md");
 });
