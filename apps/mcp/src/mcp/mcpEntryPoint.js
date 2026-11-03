@@ -115,13 +115,18 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
     watchObjects(env) {
       const namespace = env?.WORKSPACE_STORE;
       if (!namespace || typeof namespace.idFromName !== "function" || typeof namespace.get !== "function") return env;
-      const watched = {
-        idFromName: (name) => namespace.idFromName(name),
-        get(id, options) {
-          const stub = namespace.get(id, options);
-          return { fetch: (input, init) => timed(`obj:${opOf(input)}`, () => stub.fetch(input, init)) };
+      // Ids are made, and placed, by the callers as before (`objectPlace.js`): only the stub `get` hands back is wrapped,
+      // with every argument (the location hint among them) passed through unchanged.
+      const watched = new Proxy(namespace, {
+        get(target, prop) {
+          const value = target[prop];
+          if (prop !== "get") return typeof value === "function" ? value.bind(target) : value;
+          return (...args) => {
+            const stub = value.apply(target, args);
+            return { fetch: (input, init) => timed(`obj:${opOf(input)}`, () => stub.fetch(input, init)) };
+          };
         },
-      };
+      });
       return { ...env, WORKSPACE_STORE: watched };
     },
     /** The answer is handed back now: write every point, once, and return `response`. */
