@@ -10,6 +10,11 @@
  *   the upsert's failure rethrown out of `writeMeaningNote` → "a refused upsert does not fail the write" fails
  *   `indexWrittenNotesAfterResponse` not removing passages  → "a removed note's passages leave the index" fails
  *   `attachMeaningIndex` making the descriptor enumerable   → "the token never rides an enumerable key" fails
+ *   the object's build dropped from `indexWrittenNotesAfterResponse` → "a removed note's catch-up is behind the response too" fails
+ *   the object's build dropped from `projectWrittenNoteAfterResponse` → "a save catches the object's meaning index up behind the response, ..." fails
+ *   the object's build dropped from `followChangeAfterResponse`  → "a move and a change followed in catch the object's meaning index up..." fails
+ *   the live-editor `meaning: false` check dropped                  → "a write with no object to build, or a live save that does not embed, ..." fails
+ *   `meaningBuildBehind` run without the once-per-request check     → "a save and a search in one request defer one build loop between them" fails
  *   `meaningPassages` dropping `indexableText`              → "an encrypted note is embedded as its title…" fails
  */
 
@@ -24,7 +29,9 @@ import {
   removeMeaningNotes,
   writeMeaningNote,
 } from "../src/search/meaning/store.js";
+import { objectMeaningMatches } from "../src/search/meaning/objectMeaning.js";
 import {
+  followChangeAfterResponse,
   indexWrittenNotesAfterResponse,
   projectWrittenNoteAfterResponse,
 } from "../src/search/writeProjection.js";
@@ -222,3 +229,87 @@ test("an encrypted note is embedded as its title and nothing of its envelope", a
   assert.equal(ai.calls.length, 1);
   assert.deepEqual(ai.calls[0].input.text, ["salary"]);
 });
+
+/**
+ * A store whose notes live in its workspace object (`store.objectMeaning`) and whose search indexes are off, so the
+ * only derivative a write can start is the object's build. `answer(call)` is the object's answer to each build call.
+ */
+function objectHomed(answer = () => ({ served: true, waiting: 0 })) {
+  const deferred = [];
+  const object = {
+    calls: 0,
+    meaningBuild: async () => {
+      object.calls += 1;
+      return answer(object.calls);
+    },
+    meaningQuery: async () => ({ served: false, waiting: 1 }),
+  };
+  const store = { actor: { workspaceId: "ws1" }, objectMeaning: object, defer: (work) => deferred.push(work) };
+  return { store, object, deferred };
+}
+
+const SAVED = { path: "1-projects/hiring.md", content: "# Hiring\n\nWe are recruiting two engineers.", version: "v2", visibility: "team" };
+
+test("a save catches the object's meaning index up behind the response, looping while something waits", async () => {
+  const { store, object, deferred } = objectHomed((call) => ({ served: true, waiting: call < 2 ? 4 : 0 }));
+  const outcome = await projectWrittenNoteAfterResponse(store, SAVED);
+  assert.equal(outcome, "off", "neither search derivative is on, so the save itself projects nothing");
+  assert.equal(deferred.length, 1, "the build is handed to store.defer, which is what keeps it behind the response");
+  await Promise.all(deferred);
+  assert.equal(object.calls, 2);
+});
+
+test("a move and a change followed in catch the object's meaning index up behind the response", async () => {
+  const moved = objectHomed();
+  await followChangeAfterResponse(moved.store, { moved: [["0-inbox/a.md", "1-projects/a.md"]] });
+  assert.equal(moved.deferred.length, 1);
+  await Promise.all(moved.deferred);
+  assert.equal(moved.object.calls, 1);
+
+  const written = objectHomed();
+  await followChangeAfterResponse(written.store, { written: ["1-projects/b.md"] });
+  assert.equal(written.deferred.length, 1);
+  await Promise.all(written.deferred);
+  assert.equal(written.object.calls, 1);
+});
+
+test("a removed note's catch-up is behind the response too", async () => {
+  const { store, object, deferred } = objectHomed();
+  store.searchIndex = { state: "off" };
+  await indexWrittenNotesAfterResponse(store, [{ path: "1-projects/gone.md", removed: true }]);
+  await Promise.all(deferred);
+  assert.equal(object.calls, 1);
+});
+
+test("a write with no object to build, or a live save that does not embed, starts no build", async () => {
+  const plain = { actor: { workspaceId: "ws1" }, objectMeaning: null, defer: (work) => deferred.push(work) };
+  const deferred = [];
+  await projectWrittenNoteAfterResponse(plain, SAVED);
+  await followChangeAfterResponse(plain, { written: ["1-projects/x.md"] });
+  assert.equal(deferred.length, 0);
+
+  const live = objectHomed();
+  await projectWrittenNoteAfterResponse(live.store, { ...SAVED, meaning: false });
+  assert.equal(live.deferred.length, 0, "the editor's saves leave embedding to the catch-up, as before");
+  assert.equal(live.object.calls, 0);
+});
+
+test("a build that throws never fails the save", async () => {
+  const { store, object, deferred } = objectHomed(() => {
+    throw new Error("model down");
+  });
+  assert.equal(await projectWrittenNoteAfterResponse(store, SAVED), "off");
+  await Promise.all(deferred);
+  assert.equal(object.calls, 1);
+});
+
+test("a save and a search in one request defer one build loop between them", async () => {
+  const { store, object, deferred } = objectHomed();
+  await projectWrittenNoteAfterResponse(store, SAVED);
+  await followChangeAfterResponse(store, { written: ["1-projects/y.md"] });
+  await objectMeaningMatches(store, [0.1]);
+  assert.equal(deferred.length, 1, "one loop per request store, however many triggers name it");
+  await Promise.all(deferred);
+  assert.equal(object.calls, 1);
+});
+

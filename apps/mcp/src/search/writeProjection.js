@@ -25,6 +25,7 @@ import { indexableText } from "../encryption/format.js";
 import { createSearchBudget } from "./maintain.js";
 import { syncShardedIndex } from "./shards.js";
 import { meaningWritable, moveMeaningNotes, removeMeaningNotes, writeMeaningNote } from "./meaning/store.js";
+import { meaningBuildBehind } from "./meaning/objectMeaning.js";
 import { FOLLOW_NOTE_CAP, followChange, followsNote } from "./d1/follow.js";
 import { effectiveVisibility } from "../privacy/engine.js";
 import { loadPrivacyState } from "../privacy/state.js";
@@ -89,6 +90,9 @@ async function afterResponse(store, work) {
  * below, called by the writers that have the note's text in hand.
  */
 export async function indexWrittenNotesAfterResponse(store, notes) {
+  // A written or removed note starts the object's meaning-index catch-up behind the response (`meaningBuildBehind`),
+  // because nothing else builds that index after a save (production benchmark, 2026-11-03).
+  if ((notes ?? []).length > 0) meaningBuildBehind(store);
   // A removed path leaves the meaning index here too: what an older write
   // filed under the path goes, and nothing has to be read. A moved note's own
   // passages are filed under its id and are re-pathed by the follow below.
@@ -118,6 +122,9 @@ export async function projectWrittenNoteAfterResponse(
   store,
   { path, content, version, visibility, meaning: embedNow = true },
 ) {
+  // A save the object's index would embed now starts its catch-up behind the response. The live editor's saves do not
+  // (`meaning: false`): embedding them per keystroke batch is the cost that flag exists to avoid, as before.
+  if (embedNow !== false) meaningBuildBehind(store);
   const fast = Boolean(store.searchIndex && store.searchIndex.state === "ready");
   const meaning = embedNow !== false && meaningWritable(store);
   if (!fast && !meaning) return "off";
@@ -189,6 +196,10 @@ export async function projectWrittenNoteAfterResponse(
  * @param {{ written?: string[], gone?: string[], moved?: [string, string][] }} change
  */
 export async function followChangeAfterResponse(store, change) {
+  // A written, moved or gone note starts the object's meaning-index catch-up behind the response, before the early
+  // return below: an object-homed store with no other index takes that return, and nothing else would build for it.
+  const changed = (change.written?.length ?? 0) + (change.moved?.length ?? 0) + (change.gone?.length ?? 0);
+  if (changed > 0) meaningBuildBehind(store);
   const fast = Boolean(store.searchIndex && store.searchIndex.state === "ready");
   const meaning = meaningWritable(store);
   if (!fast && !meaning) return "off";
