@@ -60,3 +60,14 @@ Writing the object and Convex side by side from the gateway, both awaited, keeps
 trip, which is the cost this removes. Letting a narrowing answer before the mirror lands lets the app's Convex listing
 show a note its owner just made private. Letting Convex's older push overwrite the object's newer row silently undoes
 saves. Tests: added with each step, named in this file as they land.
+
+## File operations in the object (2026-11-03)
+
+`apps/mcp/src/workspaceStore/treeOps.js` holds create folder, move and rename, trash, restore and delete over the
+object's rows, with the refusals Convex's row move gives (`rowMove.ts`, `rowTrash.ts`, `archiveTwins.ts`,
+`sealedChats.ts`), each one synchronous run of SQL so the object commits it whole. A folder move rewrites every path
+under it in that one transaction: nothing is chunked, because a workspace's rows fit in its object. A note outside the
+trash is never deleted in one step; it goes to the trash, as Convex refuses a keyed delete. Each answer names the rows
+it wrote and the ids it removed with their clocks, for the outbox. Rows the object makes take ids `o_` and 32 hex
+characters. Whether the caller may see what it moves is the caller's `judge`, built from the rules it holds. Tests:
+`apps/mcp/test/treeOpsMove.test.mjs`, `apps/mcp/test/treeOpsTrash.test.mjs`.
