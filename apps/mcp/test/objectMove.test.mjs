@@ -487,3 +487,29 @@ test("a keyed folder move the object makes lists only the top level for twins; o
   assert.match(refused.content[0].text, /Sub is already here/);
   assert.deepEqual(deferred.queued, []);
 });
+
+test("a keyed folder move the object makes inside one top-level folder lists nothing first; one it defers still does", async () => {
+  const rules = [{ prefix: "archive", vis: "team" }];
+  const seed = async (store) => {
+    for (const key of ["archive/inbox/old/x.md", "archive/inbox/New/y.md"]) await store.put(key, "# x\n");
+    withServedTree(store);
+    const listed = [];
+    const list = store.list.bind(store);
+    store.list = async (options = {}) => {
+      listed.push(options.prefix ?? "");
+      return list(options);
+    };
+    return listed;
+  };
+  const moved = objectStore({ ok: true, files: [{ from: "archive/inbox/old/x.md", to: "archive/inbox/later/x.md" }] });
+  const listed = await seed(moved.store);
+  const answer = await toolMoveKeyedFolder(moved.store, "team", rules, new Map(), "archive/inbox/old", "archive/inbox/later", false);
+  assert.notEqual(answer.isError, true, answer.content[0].text);
+  assert.deepEqual(listed, []);
+
+  const deferred = objectStore({ ok: false, code: "DEFER" });
+  await seed(deferred.store);
+  const refused = await toolMoveKeyedFolder(deferred.store, "team", rules, new Map(), "archive/inbox/old", "archive/inbox/new", false);
+  assert.match(refused.content[0].text, /New is already here/);
+  assert.deepEqual(deferred.queued, []);
+});

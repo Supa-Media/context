@@ -102,7 +102,7 @@ export async function nameTwinRefusal(store, scope, rules, overrides, path, { ki
   const levels = levelsOf(store);
   const segments = path.split("/");
   // Every folder on the way down, asked of the object in one call; the root only if the walk reaches it.
-  const below = segments.slice(0, -1).map((_, index) => segments.slice(0, index + 1).join("/"));
+  const below = (topOnly ? segments.slice(0, 1) : segments.slice(0, -1)).map((_, index) => segments.slice(0, index + 1).join("/"));
   try {
     for (let index = 0; index < (topOnly ? 1 : segments.length); index += 1) {
       const last = index === segments.length - 1;
