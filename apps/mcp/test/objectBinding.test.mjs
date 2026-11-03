@@ -431,3 +431,12 @@ test("ATTACK: the control plane's door refuses ws.open and ws.binding.put, and l
   assert.equal(cleared.status, 200);
   assert.equal(w.object.store.binding.get().sealed, null);
 });
+
+test("an open served from the object says how it answered: how long it waited for a mark's push", { skip }, async () => {
+  const w = await world();
+  await open(w);
+  const served = await openedFromObject(w.session, w.env, w.controlPlane);
+  assert.equal(served.source, "object");
+  assert.equal(served.wake.cold, false, "the test object is not a woken instance");
+  assert.equal(typeof served.wake.waitedMs, "number");
+});
