@@ -40,21 +40,6 @@ function changed(store, change) {
   }
 }
 const SCOPES = new Set(["private", "team"]);
-/** Bucket-shaped calls that change what the object holds. */
-const TEXT_CHANGES = new Set(["put", "delete", "wipe"]);
-
-/** Whether a bucket-shaped call names a note's text (`notes/...`), or everything (`wipe`). */
-function touchesNoteText(request) {
-  try {
-    const call = JSON.parse(decodeURIComponent(request.headers.get(CALL) ?? "null"));
-    if (call?.op === "wipe") return true;
-    const keys = call?.op === "delete" ? (Array.isArray(call.keys) ? call.keys : [call.keys]) : [call?.key];
-    return keys.some((key) => typeof key === "string" && key.startsWith("notes/"));
-  } catch {
-    return true;
-  }
-}
-
 function opOf(request) {
   try {
     return JSON.parse(decodeURIComponent(request.headers.get(CALL) ?? "null"))?.op ?? null;
@@ -211,11 +196,8 @@ function pathsTouched(rows, ids, incoming = []) {
 export async function serveWorkspaceStore(store, request) {
   const op = opOf(request);
   if (typeof op !== "string" || !(op.startsWith("ws.") || isPersonCall(op) || isTokenIndexCall(op))) {
-    const answer = await serveTexStore(store.objects, request);
-    // A note's text written or removed: the word index reads its notes again before its next answer (`searchIndex.js`).
-    // Only a note's own key: editing history is written on every keystroke batch and changes no note's words.
-    if (TEXT_CHANGES.has(op) && store.search && touchesNoteText(request)) store.search.touched();
-    return answer;
+    // A note's text written or removed reaches the word index by its own triggers (`searchIndex.js`).
+    return serveTexStore(store.objects, request);
   }
   let fields;
   try {

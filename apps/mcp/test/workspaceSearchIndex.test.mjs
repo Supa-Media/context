@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { texObjects } from "../src/texStore/objects.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { workspaceMarks } from "../src/workspaceStore/marks.js";
-import { workspaceSearch, QUERY_BUDGET } from "../src/workspaceStore/searchIndex.js";
+import { workspaceSearch, QUERY_ROWS, QUERY_BYTES, BUILD_BYTES } from "../src/workspaceStore/searchIndex.js";
 import { serveWorkspaceStore, parsedRules } from "../src/workspaceStore/serve.js";
 import { workspaceClient, HOMES } from "../src/workspaceStore/api.js";
 import { objectSearchAnswer } from "../src/search/objectSearch.js";
@@ -122,16 +122,42 @@ test("a change to the member rules re-tiers a note: found in the private table, 
 
 test("a search over the budget says waiting, and a build catches up so the next search is served", { skip }, async () => {
   const object = await seeded();
-  for (let n = 1; n <= QUERY_BUDGET + 5; n += 1) await note(object, n, `plans/n${n}.md`, `# N${n}\nmarble`);
+  const many = 2 * QUERY_ROWS + 5;
+  for (let n = 1; n <= many; n += 1) await note(object, n, `plans/n${n}.md`, `# N${n}\nmarble`);
   const first = await object.call("ws.search", { asks: [ask(TEAM, "marble")] });
   assert.equal(first.body.served, false);
-  assert.equal(first.body.waiting, 5, "the notes past the budget are still waiting");
+  assert.ok(first.body.waiting > 2 * QUERY_ROWS, "every changed note is still waiting");
 
   const built = await object.call("ws.search.build");
   assert.deepEqual(built.body, { served: true, waiting: 0 });
-  const second = await object.call("ws.search", { asks: [ask(TEAM, "marble")] });
+  const second = await object.call("ws.search", { asks: [ask(TEAM, "marble", 500)] });
   assert.equal(second.body.served, true);
-  assert.equal(second.body.answers[0].length, QUERY_BUDGET + 5);
+  assert.equal(second.body.answers[0].length, many);
+});
+
+// Sabotage: drop the byte check from `catchUp` and the first build indexes all three, failing `waiting`.
+test("a build stops at its text budget, a note longer than it still indexed whole and alone", { skip }, async () => {
+  const object = await seeded();
+  const long = "# Long\n" + "sequoia ".repeat(Math.ceil(BUILD_BYTES / 8) + 10);
+  await note(object, 1, "plans/long.md", long);
+  await note(object, 2, "plans/b.md", "# B\nsequoia");
+  await note(object, 3, "plans/c.md", "# C\nsequoia");
+  const first = await object.call("ws.search.build");
+  assert.equal(first.body.waiting, 2, "the long note spent the call");
+  const second = await object.call("ws.search.build");
+  assert.equal(second.body.waiting, 0);
+  const answer = await object.call("ws.search", { asks: [ask(TEAM, "sequoia", 500)] });
+  assert.equal(new Set(paths(answer.body.answers[0])).size, 3);
+});
+
+test("a search with a long note waiting is not served, and does not index it inline", { skip }, async () => {
+  const object = await seeded();
+  await note(object, 1, "plans/a.md", "# A\nfern");
+  assert.equal((await object.call("ws.search", { asks: [ask(TEAM, "fern")] })).body.served, true);
+  await putBody(object, ID(1), "# A\n" + "fern ".repeat(QUERY_BYTES));
+  await note(object, 2, "plans/b.md", "# B\nfern");
+  const answer = await object.call("ws.search", { asks: [ask(TEAM, "fern")] });
+  assert.equal(answer.body.served, false, "the second note waits behind the long one");
 });
 
 test("the search is not served while the object is not the home of the notes", { skip }, async () => {
@@ -198,8 +224,7 @@ test("while the object is catching up the gateway answers null and defers one ca
   assert.equal(trace.get("objectSearch"), "catching_up");
 });
 
-// Sabotage: drop `touched()` from serve.js's bucket-shaped puts and this fails (the clock never moves, so the
-// signature alone cannot tell the second body from the first).
+// Sabotage: drop the text triggers (`textTriggers`) and this fails: the row did not change, only its text.
 test("a body written again in the same millisecond is indexed again", { skip }, async () => {
   const object = await seeded();
   await note(object, 1, "plans/a.md", "# A\n\nmarigold");

@@ -16,8 +16,8 @@ import { canSee } from "../privacy/engine.js";
 import { folderPrefix } from "./indexable.js";
 import { answerFromProjection } from "./d1/serve.js";
 
-/** Catch-up calls one search sends behind its response: up to `BUILD_BUDGET` notes each, one after another. */
-export const BUILD_CALLS = 20;
+/** Catch-up calls one search sends behind its response: a bounded slice each (`BUILD_ROWS`, `BUILD_BYTES`), one after another. */
+export const BUILD_CALLS = 40;
 
 /** Catch the object's index up behind a response, a call at a time, until nothing is waiting. Never throws. */
 async function buildBehind(object) {
