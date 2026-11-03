@@ -91,6 +91,19 @@ export async function groupsInStore(store: LogStore, lines: string[], keys: Set<
   return { found, unmatched };
 }
 
+/**
+ * Every workspace a group's old log may be in: the ones chats were bound to,
+ * those the old notes' plan names, and the pin. A group with a home and no
+ * bound workspace texted under a grant in the pin (`texChatHomeGrants.ts`),
+ * so its log is there; leaving the pin out left that group's log unread and
+ * its memory page waiting (Crystal Care Agency's, 2026-11-03). Only keys of
+ * known chats are matched in it, so nothing else there is read past its
+ * first event.
+ */
+export function logPlaces(plan: SweepPlan): Id<"workspaces">[] {
+  return [...new Set([...plan.chats.map((chat) => chat.bound), ...plan.workspaces.map((workspace) => workspace.id), plan.pin].filter((id): id is Id<"workspaces"> => id !== null))];
+}
+
 async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">, chats: string[]): Promise<unknown | null> {
   const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
   if (credential === null) return null;
@@ -127,8 +140,7 @@ export const run = internalAction({
     const plan: SweepPlan = await ctx.runQuery(internal.functions.texGroupMigrationRows.sweepPlan, {});
     const keys = new Set(plan.chats.map((chat) => chat.groupKey));
     const lines = dedicatedTexLines(process.env.TEX_LINE_NUMBERS);
-    // Every workspace a chat's log may be in: the ones chats were bound to, and those the old notes' plan names.
-    const places = [...new Set([...plan.chats.map((chat) => chat.bound), ...plan.workspaces.map((workspace) => workspace.id)].filter((id): id is Id<"workspaces"> => id !== null))];
+    const places = logPlaces(plan);
     for (const workspaceId of places) {
       counts.workspaces += 1;
       try {

@@ -19,10 +19,13 @@ import { membersState, serveMembersCall } from "./serveMembers.js";
 import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.js";
 import { manifestPage } from "./manifest.js";
 import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
-import { BindingRowRefused, serveBindingCall } from "./bindingRows.js";
+import { BINDING_OPS, BindingRowRefused, serveBindingCall } from "./bindingRows.js";
 import { accessCall, applyAccess } from "./serveAccess.js";
 import { isWriteOp, serveWrites } from "./serveWrites.js";
+import { serveCollabReplace } from "./collabReplace.js";
 import { treeRows } from "./treeRows.js";
+import { absentHere } from "./lookupMiss.js";
+import { SearchAskRefused } from "./searchIndex.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 
 const CALL = "x-tex-call";
@@ -37,7 +40,6 @@ function changed(store, change) {
   }
 }
 const SCOPES = new Set(["private", "team"]);
-
 function opOf(request) {
   try {
     return JSON.parse(decodeURIComponent(request.headers.get(CALL) ?? "null"))?.op ?? null;
@@ -129,6 +131,8 @@ function lookUp(rows, fields, by, members = null) {
       // it does for an id held twice). Says nothing else, and not whether any of them is one the reader may see.
       if (by === "noteId" && typeof value === "string" && rows.liveNoteIdCount(value) > 1) return { noteId: value, found: false, ambiguous: true };
       const row = typeof value === "string" ? (by === "path" ? rows.byPath(value) : rows.byNoteId(value)) : null;
+      // Nothing at all at the path, and nothing reroutes it (`lookupMiss.js`): the gateway may make the note without asking.
+      if (by === "path" && row === null && absentHere(rows, value)) return { path: value, found: false, absent: true };
       if (!judge.sees(row)) return { [by === "path" ? "path" : "noteId"]: value, found: false };
       return { found: true, path: row.path, noteId: row.noteId, key: row.storageKey ?? (row.noteId ? `notes/${row.noteId}.md` : null), etag: row.etag, kind: row.kind, collaborates: row.collaborates };
     }),
@@ -191,7 +195,10 @@ function pathsTouched(rows, ids, incoming = []) {
  */
 export async function serveWorkspaceStore(store, request) {
   const op = opOf(request);
-  if (typeof op !== "string" || !(op.startsWith("ws.") || isPersonCall(op) || isTokenIndexCall(op))) return await serveTexStore(store.objects, request);
+  if (typeof op !== "string" || !(op.startsWith("ws.") || isPersonCall(op) || isTokenIndexCall(op))) {
+    // A note's text written or removed reaches the word index by its own triggers (`searchIndex.js`).
+    return serveTexStore(store.objects, request);
+  }
   let fields;
   try {
     fields = JSON.parse((await request.text()) || "{}");
@@ -210,7 +217,10 @@ export async function serveWorkspaceStore(store, request) {
     const membership = await serveMembersCall(store, op, fields);
     if (membership !== null) return membership;
     // The sealed binding and the one call a request's store is opened from (`bindingRows.js`).
-    const opened = serveBindingCall(store, op, fields, ACCESS_HOMES.OBJECT);
+    // `ws.open` waits for an open mark like every read, and says whether one is still open (`marks.js`), so the
+    // gateway need not ask the control plane whether the object is behind before a read (`store/objectBinding.js`).
+    const behind = op === BINDING_OPS.OPEN ? await waitForMarks(store.marks ?? null) : false;
+    const opened = serveBindingCall(store, op, fields, ACCESS_HOMES.OBJECT, { behind });
     if (opened !== null) return opened;
     // The grant rows and the rules rendered from them (`serveAccess.js`).
     const access = accessCall(store, op, fields);
@@ -279,6 +289,15 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "noteId", store.members ?? null)));
       case "ws.facts":
         return Response.json(await settledAnswer(store, () => answerFacts(store, fields)));
+      case "ws.search":
+        // The gateway's search, over this object's own word index (`searchIndex.js`); its `canSee` filters the rows.
+        if (!store.search || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json(store.search.search(fields.asks));
+      case "ws.search.build": {
+        if (!store.search || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        const waiting = store.search.catchUp();
+        return Response.json({ served: waiting !== null, waiting });
+      }
       case "ws.facts.rows":
         // The control plane's own readers, through the door: unfiltered, as its internal queries are.
         if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ROW_ASKS.has(fields.ask)) return Response.json({ served: false });
@@ -325,13 +344,16 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json({ home: rows.setHome(fields.home) });
       case "ws.encryption":
         return Response.json({ encryption: rows.setEncryption(fields.state) });
+      case "ws.collab.replace":
+        // A whole-note save's editing history in one call (`collabReplace.js`); `{served: false}` sends it back.
+        return Response.json(await serveCollabReplace(store, fields));
       case "ws.backfilled":
         return Response.json({ backfilledAt: rows.markBackfilled(fields.at) });
       default:
         return Response.json({ error: "unknown_op" }, { status: 400 });
     }
   } catch (error) {
-    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
+    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused || error instanceof SearchAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
   }
 }

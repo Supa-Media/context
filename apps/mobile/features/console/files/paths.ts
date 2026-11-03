@@ -206,6 +206,8 @@ export function folderLabel(name: string): string {
  * `.md` keeps its name rather than becoming a blank row.
  */
 export function displayName(name: string): string {
+  // A chat's history file reads as what it opens as (Dev, 2026-11-03: "view history.ledger.json as “history”").
+  if (name === HISTORY_FILE_NAME) return "History";
   const called = withoutSortPrefix(name);
   if (!isMarkdown(called)) return isolateForDisplay(called);
   const stem = called.slice(0, -3);
@@ -214,6 +216,9 @@ export function displayName(name: string): string {
   // off and leave the value open.
   return isolateForDisplay(stem === "" ? called : stem);
 }
+
+/** The read-only history file Tex keeps in a chat's folder (`texStore/historyView.js`). */
+const HISTORY_FILE_NAME = "history.ledger.json";
 
 /**
  * The name of the file that makes a folder exist.

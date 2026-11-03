@@ -6,6 +6,7 @@
  */
 
 import { liveRowByPath } from "./rowsByPath.js";
+import { objectRowId } from "./treeOps.js";
 import { WorkspaceRowRefused } from "./rows.js";
 import { WRITE_OPS, WriteOpRefused } from "./writeOps.js";
 
@@ -17,7 +18,7 @@ export const isWriteOp = (op) => typeof op === "string" && op.startsWith("ws.wri
  * `store` is the object's `ready()` store: `{rows, sql, transact, mirror, flushMirror, mirrorSoon}`.
  * `now` is the object's clock for the change.
  */
-export async function serveWrites(store, op, fields, now = Date.now()) {
+export async function serveWrites(store, op, fields, now = Date.now(), mintId = objectRowId) {
   const handler = Object.hasOwn(WRITE_OPS, op) ? WRITE_OPS[op] : null;
   if (handler === null) return Response.json({ error: "unknown_op" }, { status: 400 });
   if (typeof fields.workspaceId !== "string" || fields.workspaceId.length > 64 || !WORKSPACE_ID.test(fields.workspaceId)) {
@@ -33,7 +34,19 @@ export async function serveWrites(store, op, fields, now = Date.now()) {
   let outcome;
   try {
     outcome = store.transact(() => {
-      const result = handler({ rows: store.rows, access: store.access ?? null, mirrorPending: () => store.mirror.pending(1).length > 0, now, lookupLive: (path) => liveRowByPath(store.sql, path) }, fields);
+      const result = handler(
+        {
+          rows: store.rows,
+          sql: store.sql,
+          members: store.members ?? null,
+          access: store.access ?? null,
+          mirrorPending: () => store.mirror.pending(1).length > 0,
+          now,
+          lookupLive: (path) => liveRowByPath(store.sql, path),
+          mintId,
+        },
+        fields,
+      );
       if (result.change) store.mirror.enqueue(fields.workspaceId, result.change, now);
       return result;
     });
@@ -51,7 +64,9 @@ export async function serveWrites(store, op, fields, now = Date.now()) {
   }
   if (outcome.narrows) {
     const flushed = await store.flushMirror();
-    if (!flushed.done) return Response.json({ ok: false, code: "MIRROR_PENDING" }, { status: 503 });
+    // The change landed and stays queued; its answer goes back beside the code, for a caller that must keep what it
+    // says (an erase's files, which the bucket half deletes).
+    if (!flushed.done) return Response.json({ ok: false, code: "MIRROR_PENDING", answer: outcome.answer }, { status: 503 });
   } else if (outcome.change) {
     store.mirrorSoon();
   }

@@ -44,11 +44,32 @@ test("steps are held until the response, then written once, indexed by the works
   assert.equal(mcp.done(response), response);
   mcp.done(response);
   assert.deepEqual(MCP_ENTRY.points, [
-    { blobs: ["mcp", "tools/call:fetch", "session", "ok", "Claude"], doubles: [70, 3], indexes: ["ws_1"] },
-    { blobs: ["mcp", "tools/call:fetch", "open_store", "failed", "Claude"], doubles: [20, 73], indexes: ["ws_1"] },
-    { blobs: ["mcp", "tools/call:fetch", "to_response", "ok", "Claude"], doubles: [93, 0], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "session", "ok", "Claude"], doubles: [70, 3, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "open_store", "failed", "Claude"], doubles: [20, 73, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "to_response", "ok", "Claude"], doubles: [93, 0, 1], indexes: ["ws_1"] },
   ]);
   assert.doesNotMatch(JSON.stringify(MCP_ENTRY.points), /secret|token/);
+});
+
+test("one point per step and state for the whole request: repeated calls are summed and counted, to_response last", async () => {
+  const time = clock();
+  const MCP_ENTRY = dataset();
+  const mcp = mcpEntry({ MCP_ENTRY }, { now: time.now });
+  for (const ms of [5, 7, 9]) {
+    await mcp.step("store:get", async () => {
+      time.tick(ms);
+    });
+  }
+  await assert.rejects(mcp.step("store:get", async () => {
+    time.tick(2);
+    throw new Error("missing");
+  }));
+  mcp.done(new Response("{}"));
+  assert.deepEqual(MCP_ENTRY.points.map((p) => [p.blobs[2], p.blobs[3], ...p.doubles]), [
+    ["store:get", "ok", 21, 0, 3],
+    ["store:get", "failed", 2, 21, 1],
+    ["to_response", "ok", 23, 0, 1],
+  ]);
 });
 
 test("a control-plane fetch is timed by its route, never its query or an id in it", async () => {

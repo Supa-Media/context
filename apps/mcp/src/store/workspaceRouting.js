@@ -237,5 +237,29 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
     };
   }
 
+  /**
+   * A whole-note save's editing history, run in the object in one call (`workspaceStore/collabReplace.js`), for an
+   * object-home workspace the object holds whole. Every write it made is copied to the bucket behind the response,
+   * exactly as `put` copies one, and a document state it wrote prunes the object's older versions the same way.
+   * `null` when the object did not serve it (not held there, the row moved, a version only the bucket keeps): the
+   * caller then runs the engine through this store, as before.
+   */
+  if (typeof client.collab?.replace === "function") {
+    wrapped.replaceInObject = async ({ path, key, noteId, legacyEtag = null, rowEtag = null, expectedEtag, text }) => {
+      if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
+      const answer = await client.collab.replace({ path, key, noteId, ...(typeof legacyEtag === "string" && typeof rowEtag === "string" ? { legacyEtag, rowEtag } : {}), expectedEtag, text });
+      for (const write of Array.isArray(answer?.writes) ? answer.writes : []) {
+        if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
+        await mirror("put", write.key, () => store.put(write.key, write.body));
+        const documentId = documentStateId(write.key);
+        if (documentId !== null) await mirror("prune", write.key, () => pruneRevisions(documentId, write.body));
+      }
+      for (const removed of Array.isArray(answer?.deletes) ? answer.deletes : []) {
+        if (typeof removed === "string") await mirror("delete", removed, () => store.delete(removed));
+      }
+      return answer?.served === true ? answer : null;
+    };
+  }
+
   return wrapped;
 }

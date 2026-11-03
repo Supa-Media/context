@@ -98,6 +98,10 @@ export function isTransportPath(path) {
     // The access socket names members, invitations and connected apps, and writes them: likewise.
     path === "/presence/access" ||
     path === "/collaboration" ||
+    // The app's trash and restore (`live/fileOpsRoute.js`): a page on another origin must not move notes with
+    // somebody else's token.
+    path === "/files/trash" ||
+    path === "/files/restore" ||
     // Authenticated and read by the console from a browser. It changes
     // nothing, but it names notes, so a page on another origin must not be
     // able to ask it with somebody else's token.

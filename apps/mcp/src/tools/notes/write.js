@@ -23,8 +23,8 @@ import {
   eligible as collaborationEligible,
   supported as collaborationSupported,
   readDocument as readCollaborationDocument,
-  replaceText as replaceCollaborationText,
 } from "@context/collaboration";
+import { replaceNoteText } from "./replaceInObject.js";
 import {
   effectiveVisibility,
   isPlumbing,
@@ -371,7 +371,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
       // The replacement loads the document itself and holds the etag to its generation; reading it here
       // first only to name that generation was a second whole load per write.
       collaborationResult = await phase(store, "write_collab", () =>
-        replaceCollaborationText(store, path, {
+        replaceNoteText(store, path, {
           expectedEtag,
           onlyCurrent: true,
           text: content,
@@ -461,6 +461,8 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
           onlyIf: existing
             ? { etagMatches: existing.etag }
             : { absent: true },
+          // A new note's tier, so the workspace object may adopt it first (`store/objectLookup.js` adopt).
+          ...(existing || sealedHome ? {} : { tier: desiredVisibility }),
         }),
       );
   if (!put) {

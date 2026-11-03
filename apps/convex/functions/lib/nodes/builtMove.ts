@@ -60,7 +60,7 @@ export interface BuiltMoveArgs {
 }
 
 /** Bump the count of folder moves a device's feed token carries (`nodesFeed.ts`). */
-async function countFolderMove(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+export async function countFolderMove(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
   const tree = await ctx.db
     .query("nodeTrees")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -69,7 +69,7 @@ async function countFolderMove(ctx: MutationCtx, workspaceId: Id<"workspaces">):
 }
 
 /** Whether a gone row at a destination can be removed: one with rows beneath it stays, beside the live row. */
-async function childless(ctx: MutationCtx, row: Doc<"nodes">): Promise<boolean> {
+export async function childless(ctx: MutationCtx, row: Doc<"nodes">): Promise<boolean> {
   const child = await ctx.db
     .query("nodes")
     .withIndex("by_parent_name", (q) => q.eq("workspaceId", row.workspaceId).eq("parentId", row._id))
@@ -113,7 +113,7 @@ async function unkeyedBeneath(ctx: MutationCtx, ws: Id<"workspaces">, from: stri
  * A gone row kept at the name, beside the moved one, keeps no setting: the stored-path move removed it with
  * its setting and grants, and a setting left at the name would judge the live row that now holds it.
  */
-async function dropSettings(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
+export async function dropSettings(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
   for (const grant of await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row._id)).collect()) {
     await ctx.db.delete(grant._id);
   }

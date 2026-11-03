@@ -14,6 +14,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { FileBrowserOptions } from "./types";
 import type { FolderIconsValues } from "./useFolderIcons";
+import { useObjectMoves } from "../useObjectMoves";
 
 type FileActionsDeps = { options: FileBrowserOptions; folderIcons: FolderIconsValues };
 
@@ -115,23 +116,36 @@ export function useFileActions(deps: FileActionsDeps) {
     },
     [archiveEntryAction, moved],
   );
+  /*
+    Trash and restore go to the workspace's object through the gateway when it
+    serves the tree (`objectServes`), and to the Convex action otherwise, or when
+    the gateway cannot answer. A refusal from the gateway is thrown as the
+    action's own refusal, so it is not retried against Convex.
+  */
+  const objectMoves = useObjectMoves();
   const trashEntryAction = useAction(api.functions.files.trashEntry);
   const trashEntry = useCallback<typeof trashEntryAction>(
     async (args) => {
-      const result = await trashEntryAction(args);
+      const result =
+        (await objectMoves.trash(args.workspaceId, {
+          path: args.path,
+          ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+        })) ?? (await trashEntryAction(args));
       moved(args.path, result.to);
       return result;
     },
-    [moved, trashEntryAction],
+    [moved, objectMoves, trashEntryAction],
   );
   const restoreTrashEntryAction = useAction(api.functions.files.restoreTrashEntry);
   const restoreTrashEntry = useCallback<typeof restoreTrashEntryAction>(
     async (args) => {
-      const result = await restoreTrashEntryAction(args);
+      const result =
+        (await objectMoves.restore(args.workspaceId, { from: args.from, to: args.to })) ??
+        (await restoreTrashEntryAction(args));
       moved(args.from, args.to);
       return result;
     },
-    [moved, restoreTrashEntryAction],
+    [moved, objectMoves, restoreTrashEntryAction],
   );
   const setNoteVisibility = useAction(api.functions.files.setNoteVisibility);
   const setNoteGroupAction = useAction(api.functions.files.setNoteGroup);

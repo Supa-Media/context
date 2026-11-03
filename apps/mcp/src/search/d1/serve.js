@@ -187,9 +187,8 @@ export async function searchProjectionEach(
    * plausible, quietly wrong order instead of a slow correct one; half a
    * corpus is not a smaller answer, it is a different question.
    */
-  const statements = asked.flatMap((match) =>
-    tables.map((table) => ({ sql: searchSql(table, options), params: searchParams(match, options) })),
-  );
+  const asks = asked.flatMap((match) => tables.map((table) => ({ table, match })));
+  const statements = asks.map(({ table, match }) => ({ sql: searchSql(table, options), params: searchParams(match, options) }));
   if (budget) {
     for (let n = 0; n < statements.length; n += 1) {
       if (!budget.take(reserve)) return matches.map(() => null);
@@ -197,10 +196,13 @@ export async function searchProjectionEach(
   }
   // Every table and every expression in one request where the client can
   // batch (`client.js`).
+  // A workspace object's own index (`workspaceStore/searchIndex.js`) takes the asks and builds the same SQL itself.
   const answers =
-    typeof client.queryAll === "function"
-      ? await client.queryAll(statements)
-      : await Promise.all(statements.map(({ sql, params }) => client.query(sql, params)));
+    typeof client.search === "function"
+      ? await client.search(asks.map(({ table, match }) => ({ table, match, prefix: options.prefix, limit: options.limit })))
+      : typeof client.queryAll === "function"
+        ? await client.queryAll(statements)
+        : await Promise.all(statements.map(({ sql, params }) => client.query(sql, params)));
 
   const results = asked.map((_, index) => {
     const rows = [];

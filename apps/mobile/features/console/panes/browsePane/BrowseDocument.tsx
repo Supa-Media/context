@@ -399,10 +399,8 @@ export function BrowseDocument({
         }}
       />
     ) : current && files.selectedPath && isHistoryView(files.selectedPath) ? (
-      // A chat's history file opens as the chat's history, never as its JSON (`tex/history/`).
-      <DocumentPage>
-        <HistoryFileView path={files.selectedPath} workspace={current} own={ownPersonalContext(data.contexts)} />
-      </DocumentPage>
+      // A chat's history file opens as the chat's history, never as its JSON (`tex/history/`). It owns its scroller and margin.
+      <HistoryFileView path={files.selectedPath} workspace={current} own={ownPersonalContext(data.contexts)} />
     ) : unreadable !== null && unreadable === files.selectedPath ? (
       <UnreadableNote
         onRetry={() => files.select(unreadable)}

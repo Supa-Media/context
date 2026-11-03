@@ -219,8 +219,8 @@ describe("the document region on a pointer layout", () => {
     expect(container.textContent).toContain("meetings");
   });
 
-  test("puts a chat's history file in a scroller: it opens as the history, which has none of its own", () => {
-    // Dev, 2026-11-02: "the page doesnt scroll".
+  test("leaves a chat's history file out of the page scroller: it brings its own, under its title and filters", () => {
+    // Dev, 2026-11-02: "the page doesnt scroll"; 2026-11-03: start at the bottom, keep the filters sticky.
     const HISTORY = "tex/history.ledger.json";
     const container = mount(
       createElement(BrowsePane, {
@@ -238,9 +238,8 @@ describe("the document region on a pointer layout", () => {
         } as Partial<FileBrowser>),
       }),
     );
-    const scroll = scroller(container);
-    expect(scroll).not.toBeNull();
-    expect(scroll!.querySelector('[data-testid="history-file"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="history-file"]')).not.toBeNull();
+    expect(scroller(container)).toBeNull();
   });
 
   test("leaves a note alone, because the editor brings its own", () => {

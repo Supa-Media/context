@@ -330,6 +330,9 @@ test/writeOps.test.mjs
 test/serveWrites.test.mjs
 test/treeOpsMove.test.mjs
 test/treeOpsTrash.test.mjs
+test/treeWrites.test.mjs
+test/fileOpsRoute.test.mjs
+test/treeErase.test.mjs
 test/workspaceReaders.test.mjs
 test/workspaceRouting.test.mjs
 test/backupBehind.test.mjs
@@ -340,6 +343,7 @@ test/workspaceTree.test.mjs
 test/workspaceRowsOwnership.test.mjs
 test/objectLookup.test.mjs
 test/objectAccessWrite.test.mjs
+test/lookupMiss.test.mjs
 test/agentHomeMove.test.mjs
 test/accessSockets.test.mjs
 test/accessContract.test.mjs
@@ -356,6 +360,7 @@ test/objectFacts.test.mjs
 test/chatLedger.test.mjs
 test/objectManifest.test.mjs
 test/objectBinding.test.mjs
+test/bindingRefreshBehind.test.mjs
 test/chatLedgerWrites.test.mjs
 test/chatLedgerReads.test.mjs
 test/chatLedgerBackfill.test.mjs
@@ -372,5 +377,8 @@ test/ledgerWorkEntries.test.mjs
 test/ledgerConversation.test.mjs
 test/workspaceAccessRows.test.mjs
 test/accessWrite.test.mjs
+test/workspaceSearchIndex.test.mjs
 
 test/savePhases.test.mjs
+test/bookkeepingBehind.test.mjs
+test/collabReplaceInObject.test.mjs

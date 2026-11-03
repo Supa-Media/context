@@ -1,0 +1,26 @@
+/**
+ * A whole-note save's editing history: in the workspace object in one call where the store offers it
+ * (`store/idLayout.js` `replaceInObject`, `workspaceStore/collabReplace.js`), else the engine through the store.
+ *
+ * The object runs the same engine on its own storage, so the answer and every refusal are the same: a conflict is a
+ * `CONFLICT` either way. A call that fails on the way (the object unreachable) runs the engine here instead. That is
+ * safe because the engine only ever commits on the version it read: had the object committed, the version has moved
+ * and the save here is refused as a conflict, never applied twice.
+ */
+import { CollaborationError, replaceText } from "@context/collaboration";
+
+export async function replaceNoteText(store, path, input) {
+  if (input?.onlyCurrent === true && typeof store?.replaceInObject === "function") {
+    let answer = null;
+    try {
+      answer = await store.replaceInObject(path, { expectedEtag: input.expectedEtag, text: input.text });
+    } catch {
+      answer = null;
+    }
+    if (answer !== null && answer !== undefined) {
+      if (answer.error) throw new CollaborationError(String(answer.error.code ?? "STORAGE_WRITE_FAILED"), String(answer.error.message ?? "collaboration save failed"));
+      if (answer.result && typeof answer.result === "object") return answer.result;
+    }
+  }
+  return await replaceText(store, path, input);
+}

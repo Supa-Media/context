@@ -25,8 +25,9 @@
  * person's calls and everyone's both add up. Dataset `mcp_entry` (binding
  * `MCP_ENTRY`): blobs = "mcp", the call (`tools/call:orient`, `initialize`,
  * `notifications/initialized`, ...), the step, its state (ok, failed), the
- * client's name; doubles = its milliseconds and when it started, from the
- * request's start. A `to_response` point is the whole request. Names, routes
+ * client's name; doubles = its milliseconds, when it first started (from the
+ * request's start) and how many times it ran: one point per step and state,
+ * summed over the request (`totals`). A `to_response` point is the whole request. Names, routes
  * and times only, never a path, a query or a word anyone wrote. Without the
  * binding nothing is written.
  */
@@ -170,12 +171,37 @@ function opOf(input) {
   return /^\/[A-Za-z0-9_.-]{1,48}$/.test(route) ? route.slice(1) : "unknown";
 }
 
+/**
+ * One point per step and state: the request's total milliseconds in it, when it first started, and how many times it
+ * ran. A save makes hundreds of `store:get` calls, and a request writing hundreds of points is sampled down by Analytics
+ * Engine until most steps of it are gone (2026-11-03: a save's phases read as one point in eleven). In order of first
+ * start, so `to_response` stays last.
+ */
+export function totals(points) {
+  const byStep = new Map();
+  for (const entry of points) {
+    const key = `${entry.name}\u0000${entry.state}`;
+    const held = byStep.get(key);
+    if (held === undefined) byStep.set(key, { name: entry.name, state: entry.state, ms: entry.ms, at: entry.at, count: 1 });
+    else {
+      held.ms += entry.ms;
+      held.at = Math.min(held.at, entry.at);
+      held.count += 1;
+    }
+  }
+  const all = [...byStep.values()];
+  const last = all.findIndex((entry) => entry.name === "to_response");
+  if (last >= 0) all.push(all.splice(last, 1)[0]);
+  return all;
+}
+
 function write(env, points, { surface, call, workspace, client }) {
   const dataset = env?.MCP_ENTRY;
   if (!dataset || typeof dataset.writeDataPoint !== "function") return;
-  for (const entry of points.slice(0, MAX_POINTS - 1).concat(points.length >= MAX_POINTS ? [points[points.length - 1]] : [])) {
+  const summed = totals(points);
+  for (const entry of summed.slice(0, MAX_POINTS - 1).concat(summed.length >= MAX_POINTS ? [summed[summed.length - 1]] : [])) {
     try {
-      dataset.writeDataPoint({ blobs: [surface, call, entry.name, entry.state, client], doubles: [entry.ms, entry.at], indexes: [workspace] });
+      dataset.writeDataPoint({ blobs: [surface, call, entry.name, entry.state, client], doubles: [entry.ms, entry.at, entry.count], indexes: [workspace] });
     } catch {
       // Diagnostics never fail a request.
     }

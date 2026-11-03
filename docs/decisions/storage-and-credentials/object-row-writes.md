@@ -136,3 +136,59 @@ still on Convex (the app's Convex listing) may show what was just taken away; th
 move to the object. Tests: `apps/mcp/test/accessWrite.test.mjs`, `apps/mcp/test/objectAccessWrite.test.mjs`,
 `apps/convex/__tests__/objectAccessMirror.test.ts` ("a tier change from an object behind Convex keeps the list as
 Convex holds it").
+
+## Trash and restore are object writes; the tree mirror (2026-11-03)
+
+`ws.write.trash` and `ws.write.restore` (`apps/mcp/src/workspaceStore/treeWrites.js`) run `treeOps` in one object
+transaction and answer with one `tree` change: the moved root, any folders stood up, and any rows retired. Convex
+takes it through `objectRowsMirror.tree` (`lib/nodes/mirrorTree.ts`), which plans the whole change before writing,
+revives or adopts folders by `objectId`, patches the moved root (and, on stored paths, every descendant, refused
+past 500), and runs the same follow-ups a Convex-side move runs. Trash narrows and waits for the mirror; restore
+does not widen, because **a restore only returns a note to the name it came from**: `from` must be
+`.context/trash/<stamp>/<to>`. Letting the caller pick the name would let a member who can see a trashed private
+note put it somewhere the team can see. The test is `treeWrites.test.mjs` ("a restore to another name").
+
+While the mirror is in flight, Convex may still push rows the move just changed. Each row the object changes claims
+the fields it changed (`own_at`, `own_fields`); a push that disagrees with a claim is skipped, a push that agrees
+releases it, a row the object retired stays retired, and a snapshot never drops a row with a live claim
+(`rows.js`, tested in `workspaceRowsOwnership.test.mjs`). Dropping any of these lets a stale push undo a move.
+
+## The app trashes and restores through the object (2026-11-03)
+
+For a workspace its object serves, the app sends trash and restore to the gateway (`POST /files/trash`,
+`/files/restore`, `apps/mcp/src/live/fileOpsRoute.js`) instead of Convex's `files.trashEntry` /
+`files.restoreTrashEntry`. The gateway judges the caller by the scope, groups and user id its session resolved and
+nothing in the body; the object answers; Convex follows through the tree mirror, which also writes the person's audit
+line (`record.audit`). Any other workspace answers `409 not_object`, and the app falls back to the Convex action, as
+it does on a network failure. A refusal is never sent to Convex as well, and neither is `mirror_pending` (the trash
+is in the object and lands in Convex on its own).
+
+Trash does not wait for the mirror (decided by the owner, 2026-11-03, for the 0.1 s bar), though the contract above
+lists it with the narrowings. Share links, websites, "shared with me" and the console's search resolve a path through
+Convex's rows and read the body by key, so for up to the mirror's lag they may still serve a note the person just
+trashed, only to people who could open it a moment earlier. Nobody gains access. Moves, which can change who sees a
+note, still wait.
+
+## New notes and missing paths in the object (2026-11-03)
+
+The owner's bar, 2026-11-03: every read and every write answers in under 0.1 s in production, so nothing on a save's
+path waits on Convex.
+
+- **A new note's row is made in the object** (`ws.write.adopt`, `workspaceStore/writeOps.js`), with an `o_` id, and
+  Convex takes it behind through the mirror's `adopt` op (`objectRowsMirror.adopt`, which keeps `nodes.objectId`).
+  Only the plain case is taken: the note's own id key, a live parent folder, nothing live at the path or holding the
+  note id. Everything else answers `DEFER` and the control plane adopts it as before.
+- **A note meant to be private is adopted only where the object's rules already make it private.** The writer names
+  the tier it wrote for (`tier` on the put, `tools/notes/write.js`). The narrowing it persisted first may not have
+  reached the object yet, and without that check a member reading the object could see the note before its rule
+  lands. A `team` note may be adopted under narrower rules, since its own `team` rule is written right after.
+- **A lookup miss is answered by the object** (`absent: true`, `workspaceStore/lookupMiss.js`) when nothing live is
+  at the path and nothing reroutes it: no built-in folder's default name standing for another folder, and no Tex folder
+  or group chat home, whose new notes are kept in Tex's store under a key only the control plane names. A row the
+  reader may not see is never "absent".
+- **Known gap:** if Convex makes a row at the same path before the object's adoption reaches it, the mirror answers
+  `taken` and drops the change. Both rows then live in the object until the owner of the clash is settled by hand.
+  This needs a row made in Convex, not yet pushed, within the same second.
+
+Reversing the tier check fails `writeOps.test.mjs` "a private tier where the held rules make the path team is DEFER". Reversing
+the folder-job or Tex check fails `lookupMiss.test.mjs`.

@@ -41,12 +41,72 @@ export async function recordChange(store, action, actorScope, paths, details = {
     entry.actor_client_id = store.actor.clientId;
     entry.workspace_id = store.actor.workspaceId;
   }
-  await phase(store, "record_audit", () => store.put(`${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, JSON.stringify(entry)));
-  await phase(store, "record_activity", () => recordActivity(store, { action, paths, details, at }));
+  await keepBookkeeping(store, `${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, entry, { action, paths, details, at });
   announceTreeChange(store, action, paths, details);
   announceWebsiteChange(store, action, paths);
   announceRoutineChange(store, paths);
   await indexChangedNotes(store, action, paths, details);
+}
+
+/**
+ * A deferred audit entry or activity line that did not land. The action and the workspace, never a path or a note's
+ * words (`CLAUDE.md`: structured logs carry request, workspace and grant identifiers and never note content).
+ */
+function said(store, action, error) {
+  try {
+    console.warn(
+      JSON.stringify({
+        event: "bookkeeping_behind_failed",
+        action: typeof action === "string" ? action : null,
+        ...(typeof store?.actor?.workspaceId === "string" ? { workspace: store.actor.workspaceId } : {}),
+        error: String(error?.message ?? error).slice(0, 200),
+      }),
+    );
+  } catch {
+    // Saying it must never be what fails the change.
+  }
+}
+
+/** Each store's last bookkeeping, so one request's changes reach `activity.md` in order and never race each other. */
+const BOOKKEEPING_TAIL = new WeakMap();
+
+/**
+ * Changes whose audit entry is the whole point, so it lands before the answer and its failure fails the call: a routing
+ * suggestion writes nothing else, and `suggestDestination.js` refuses to suggest what it could not record.
+ */
+export const AUDITED_BEFORE_ANSWER = new Set(["route_suggestion"]);
+
+/**
+ * The audit entry and the activity line, behind the response where the host can defer.
+ *
+ * Neither is the change: the note has landed when this runs, and both were already unable to fail it
+ * (`recordActivity` catches everything). Awaited in front of the answer they cost two or three storage round trips on
+ * every save, which is most of a save's budget. Deferred, they still finish inside the same invocation
+ * (`ctx.waitUntil`), audit first, and a store's entries run one after another so two changes in one request do not
+ * contend for `activity.md`. On a host with no `defer` (the suite's direct calls, a self-host shim) both are awaited
+ * here exactly as before, and an audit put that fails still fails the change there.
+ *
+ * A failure behind the response never fails the change, whose note has already landed, but it is said rather than
+ * swallowed (`said`): a change with no audit entry is a hole in the workspace's own record of who changed what, and
+ * the deferred writes beside this one say so too (`store/workspaceRouting.js` `workspace_mirror_failed`).
+ */
+function keepBookkeeping(store, auditKey, entry, change) {
+  const keep = async (timed) => {
+    const run = (name, work) => (timed ? phase(store, name, work) : work());
+    await run("record_audit", () => store.put(auditKey, JSON.stringify(entry)));
+    await run("record_activity", () => recordActivity(store, change));
+  };
+  if (typeof store.defer !== "function" || AUDITED_BEFORE_ANSWER.has(change.action)) return keep(true);
+  const before = BOOKKEEPING_TAIL.get(store) ?? Promise.resolve();
+  const work = before.then(() => keep(false)).catch((error) => said(store, change.action, error));
+  BOOKKEEPING_TAIL.set(store, work);
+  try {
+    store.defer(work);
+    return undefined;
+  } catch {
+    // A host whose `waitUntil` refuses the work: wait for it here instead.
+    return work;
+  }
 }
 
 /**

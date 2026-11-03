@@ -17,12 +17,15 @@
  * change back to the object.
  */
 
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
+import { recordAudit } from "./lib/audit";
 import type { Id } from "../_generated/dataModel";
 import { internalMutationMirrored } from "./lib/rowWatch/mutations";
 import { nodeAt } from "./lib/noteIds/state";
 import { recordCopyRow } from "./noteIds";
-import { keyedPathOf, recordKeyedRow } from "./noteIdsKeyed";
+import { adoptKeyedRow, keyedPathOf, recordKeyedRow } from "./noteIdsKeyed";
+import { nodeByObjectId, OBJECT_ROW_ID } from "./lib/nodes/objectIds";
+import { mirrorTree, MIRROR_TREE_MAX } from "./lib/nodes/mirrorTree";
 import type { MutationCtx } from "../_generated/server";
 
 export const mirrorRecordValidator = v.object({
@@ -64,6 +67,95 @@ export const wrote = internalMutationMirrored({
     return await settle(ctx, workspaceId, record.path, objectAt, applied);
   },
 });
+
+export const mirrorAdoptValidator = v.object({
+  path: v.string(),
+  noteId: v.string(),
+  key: v.string(),
+  etag: v.string(),
+  size: v.optional(v.number()),
+  at: v.number(),
+  objectId: v.string(),
+});
+
+/**
+ * A new note the object made (`ws.write.adopt`): Convex gives it its row by the rule the gateway's own adoption takes
+ * (`adoptKeyedRow`), and keeps the object's id on it (`nodes.objectId`), so every later push names the row as the
+ * object does. Sent again after a lost answer, the row the object's id already names is the answer. A name Convex holds
+ * for another note is `taken`: the change is dropped, and the object's row stays the note's.
+ */
+export const adopt = internalMutationMirrored({
+  args: { workspaceId: v.id("workspaces"), objectAt: v.number(), record: mirrorAdoptValidator },
+  returns: v.union(v.object({ applied: v.literal(true) }), v.object({ applied: v.literal(false), reason: v.string() })),
+  handler: async (ctx, { workspaceId, objectAt, record }): Promise<MirrorWroteAnswer> => {
+    if (!OBJECT_ROW_ID.test(record.objectId)) return { applied: false, reason: "bad_record" };
+    const known = await nodeByObjectId(ctx.db, workspaceId, record.objectId);
+    if (known !== null) {
+      if (known.goneAt !== undefined || known.noteId !== record.noteId) return { applied: false, reason: "refused" };
+      return await settle(ctx, workspaceId, (await keyedPathOf(ctx.db, workspaceId, record.path)), objectAt, true);
+    }
+    const answer = await adoptKeyedRow(ctx, {
+      workspaceId,
+      path: record.path,
+      noteId: record.noteId,
+      key: record.key,
+      etag: record.etag,
+      ...(record.size === undefined ? {} : { size: record.size }),
+      at: record.at,
+    });
+    if (!answer.adopted) return { applied: false, reason: answer.taken === null ? "refused" : "taken" };
+    const path = await keyedPathOf(ctx.db, workspaceId, record.path);
+    const row = await nodeAt(ctx.db, workspaceId, path);
+    if (row !== null && row.objectId === undefined) await ctx.db.patch(row._id, { objectId: record.objectId });
+    return await settle(ctx, workspaceId, path, objectAt, true);
+  },
+});
+
+/** A tree change the object took (`lib/nodes/mirrorTree.ts`): each list is capped at `MIRROR_TREE_MAX`, checked there. */
+export const mirrorTreeValidator = v.object({
+  moves: v.array(v.object({ id: v.string(), kind: v.union(v.literal("file"), v.literal("folder")), from: v.string(), to: v.string(), at: v.number() })),
+  folders: v.array(v.object({ id: v.string(), noteId: v.union(v.string(), v.null()), path: v.string(), role: v.union(v.string(), v.null()), at: v.number() })),
+  removed: v.array(v.object({ id: v.string(), at: v.number() })),
+  trash: v.boolean(),
+  erase: v.optional(v.boolean()),
+  /** Who asked for this change, when a person did through the app (`apps/mcp/src/live/fileOpsRoute.js`): recorded as their audit line. */
+  audit: v.optional(v.object({ actorUserId: v.string(), action: v.union(v.literal("trash"), v.literal("restore")), files: v.number() })),
+});
+
+export const tree = internalMutationMirrored({
+  args: { workspaceId: v.id("workspaces"), objectAt: v.number(), record: mirrorTreeValidator },
+  returns: v.union(v.object({ applied: v.literal(true) }), v.object({ applied: v.literal(false), reason: v.string() })),
+  handler: async (ctx, { workspaceId, objectAt, record }): Promise<MirrorWroteAnswer> => {
+    if (record.moves.length > MIRROR_TREE_MAX || record.folders.length > MIRROR_TREE_MAX || record.removed.length > MIRROR_TREE_MAX) {
+      return { applied: false, reason: "bad_record" };
+    }
+    const answer = await mirrorTree(ctx, { workspaceId, objectAt, record });
+    if (record.audit !== undefined) await auditTreeChange(ctx, workspaceId, record);
+    return answer;
+  },
+});
+
+/**
+ * The audit line the control plane's own trash and restore write (`lib/filesFns/entries.ts`), for one the object
+ * made. Written whether or not the rows applied: the object made the move either way, and this mutation runs once
+ * per change.
+ */
+async function auditTreeChange(ctx: MutationCtx, workspaceId: Id<"workspaces">, record: Infer<typeof mirrorTreeValidator>): Promise<void> {
+  const audit = record.audit;
+  const moved = record.moves[0];
+  if (audit === undefined || moved === undefined) return;
+  const actorUserId = ctx.db.normalizeId("users", audit.actorUserId) ?? undefined;
+  await recordAudit(ctx, {
+    workspaceId,
+    actorUserId,
+    action: audit.action === "trash" ? "file.archive" : "file.move",
+    paths: [moved.from, moved.to],
+    details:
+      audit.action === "trash"
+        ? { files: audit.files, recoverable: true, trash: true }
+        : { files: audit.files, restoredFromTrash: true },
+  });
+}
 
 /** The row at `path` takes the object's clock when the record applied; a missing row or a refused record says why. */
 async function settle(ctx: MutationCtx, workspaceId: Id<"workspaces">, path: string, objectAt: number, applied: boolean): Promise<MirrorWroteAnswer> {

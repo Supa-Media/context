@@ -24,7 +24,7 @@
  */
 
 import { CHAT_HOMES_FOLDER } from "./accessRows.js";
-import { WriteOpRefused } from "./writeOps.js";
+import { WriteOpRefused } from "./writeRefusal.js";
 
 /** The client the chat homes are kept under (`lib/nodes/sealedChats.ts` `CHAT_HOMES_CLIENT_ID`). */
 export const CHAT_HOMES_CLIENT_ID = "context_chat_homes";
