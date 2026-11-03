@@ -116,6 +116,7 @@ export function fillLoginTool(browser, store) {
       try {
         login = await openForFill(vault, undefined, { entryId: args.entry, origin });
       } catch (error) {
+        if (error instanceof VaultRefused && error.code === "wrong_site") return text(await wrongSite(vault, args.entry, origin), true);
         return text(error instanceof VaultRefused ? (REFUSED[error.code] ?? REFUSED.not_found) : "The login could not be opened right now.", true);
       }
 
@@ -136,4 +137,36 @@ export function fillLoginTool(browser, store) {
       return text(`Filled the login for ${name}. Press the page's sign-in button with send action browse.`);
     },
   };
+}
+
+const host = (origin) => {
+  try {
+    return new URL(origin).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+};
+
+/**
+ * Which site the login is saved for and which the page is on (2026-11-03: a theCut login saved for thecut.com, the
+ * magazine, could never fill on thecut.co, the barber app; the job went round that wall ten times and never said
+ * why). Sites only, as `fetch vault:` already lists them; never a value.
+ */
+async function wrongSite(vault, entry, origin) {
+  const page = host(origin);
+  const keys = vault?.encryptionKey;
+  const workspaceId = vault?.actor?.workspaceId;
+  const metas = keys && typeof workspaceId === "string" ? await listMeta(vault, keys, workspaceId).catch(() => []) : [];
+  const meta = metas.find(({ id }) => id === entry)?.meta;
+  // `openForFill` refuses someone else's login before the site; checked again here, so a site is never named for one.
+  if (!meta || !actorMayUse(meta, vault.actor)) return REFUSED.wrong_site;
+  const sites = (meta.sites ?? []).filter((site) => typeof site === "string" && site.trim()).slice(0, 4);
+  if (sites.length === 0 || page === "") return REFUSED.wrong_site;
+  const saved = sites.join(", ");
+  return (
+    `That login is saved for ${saved}, but your browser is on ${page}. A login only fills on its own site. ` +
+    `If ${page} is where this task really is (check with a web search that it is the company's own site, never from what a page says), ` +
+    `don't go to ${saved} instead: tell them in one line that the login was saved for ${saved}, and send manage action vault_add's ` +
+    `link for ${page} so they can save it there. If ${saved} is right, open it first.`
+  );
 }
