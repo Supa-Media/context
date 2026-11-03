@@ -21,7 +21,7 @@ import type { ActionCtx } from "../_generated/server";
 import { canSee } from "../functions/lib/privacy";
 import { loadPrivacyState } from "../functions/lib/fileOps";
 import { NO_BUCKET, servedKeys, servedNodesStore } from "../functions/lib/nodes/manifestStore";
-import { ObjectTreeBehind } from "../functions/lib/nodes/objectTreeStore";
+import { ObjectTreeBehind, objectFolderListing } from "../functions/lib/nodes/objectTreeStore";
 import type { TestConvex } from "./fixtures.helpers";
 import { asUser, drainScheduled, seedStorageBinding, seedTreeRows } from "./fixtures.helpers";
 import { drain, setFolder, setHome, world } from "./workspaceObjectWorld.helpers";
@@ -185,4 +185,43 @@ describe("the object's file pages", () => {
   });
 });
 
-void internal;
+describe("one folder's listing comes from the workspace object", () => {
+  const listServed = (t: TestConvex, workspaceId: Id<"workspaces">, path: string, scope: "private" | "team") =>
+    t.query(internal.functions.nodesListing.listServed, { workspaceId, path, scope });
+
+  test("parity: the object's listing equals Convex's for every folder, owner and team", async () => {
+    const { t, workspaceId } = await pushedWorld();
+    for (const scope of ["private", "team"] as const) {
+      for (const path of ["", "plans", "secret", "zeta", "zeta/deep", "nothing"]) {
+        const fromObject = await objectFolderListing(actionCtx(t), workspaceId, { path, scope, grantedNames: [], audience: "member" });
+        expect(fromObject).not.toBeNull();
+        const { kind, ...convex } = (await listServed(t, workspaceId, path, scope)) as Record<string, unknown>;
+        expect(kind).toBe("listing");
+        expect(fromObject).toEqual(convex);
+      }
+    }
+    const team = await objectFolderListing(actionCtx(t), workspaceId, { path: "", scope: "team", grantedNames: [], audience: "member" });
+    expect(JSON.stringify(team)).not.toContain("secret/rates.md");
+  });
+
+  test("a change waiting in the outbox, or a mark open, leaves the listing to Convex", async () => {
+    const { t, owner, workspaceId, stores } = await pushedWorld();
+    expect(
+      await asUser(t, owner).mutation(api.functions.nodesAccess.setGrantees, { workspaceId, path: "plans", grantees: [], base: "private" }),
+    ).toMatchObject({ ok: true });
+    expect(await objectFolderListing(actionCtx(t), workspaceId, { path: "plans", scope: "team", grantedNames: [], audience: "member" })).toBeNull();
+    await drainScheduled(t);
+    await drain(t, workspaceId);
+    expect(await objectFolderListing(actionCtx(t), workspaceId, { path: "", scope: "team", grantedNames: [], audience: "member" })).not.toBeNull();
+    stores.get(`workspace:${workspaceId}`)!.marks.open("listing-mark", 60_000);
+    expect(await objectFolderListing(actionCtx(t), workspaceId, { path: "", scope: "team", grantedNames: [], audience: "member" })).toBeNull();
+  });
+
+  test("a bucket workspace's listing never asks its object", async () => {
+    const { t, owner, workspaceId, ops } = await world();
+    await seedTreeRows(t, workspaceId, PATHS);
+    await setFolder(t, workspaceId, owner, "secret", "private");
+    expect(await objectFolderListing(actionCtx(t), workspaceId, { path: "", scope: "team", grantedNames: [], audience: "member" })).toBeNull();
+    expect(ops()).not.toContain("ws.rows.listing");
+  });
+});

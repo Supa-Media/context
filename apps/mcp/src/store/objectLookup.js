@@ -188,6 +188,9 @@ export function objectFirstHooks(hooks, options) {
       const row = answer?.rows?.[at];
       // A path under a dot folder is not a note a person names: the control plane answers it (as `null`).
       if (row?.found === true && row.noteId === noteId && typeof row.path === "string" && row.kind !== "folder" && !isPlumbing(row.path)) paths[noteId] = row.path;
+      // Not found, and not ambiguous (`serve.js` lookUp): the object has judged this reader's answer, which is `null`, so
+      // the control plane is not asked. Ambiguous (two live rows) falls through, as does anything else the object did not say.
+      else if (row?.found === false && row.noteId === noteId && row.ambiguous !== true) paths[noteId] = null;
       else missing.push(noteId);
     });
     if (missing.length === 0) return { paths };

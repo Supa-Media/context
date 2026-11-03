@@ -297,6 +297,10 @@ export function workspaceRows(sql) {
       const row = all(sql.exec("SELECT * FROM ws_rows WHERE note_id = ? AND gone = 0 AND kind = 'file' ORDER BY at DESC LIMIT 1", noteId))[0];
       return row ? rowOut(row) : null;
     },
+    /** How many live file rows hold a note id. Above one, no single row is the note's (`serve.js` lookUp answers ambiguous). */
+    liveNoteIdCount(noteId) {
+      return Number(all(sql.exec("SELECT COUNT(*) AS n FROM ws_rows WHERE note_id = ? AND gone = 0 AND kind = 'file'", noteId))[0]?.n ?? 0);
+    },
     list({ after = null, limit = 1000 } = {}) {
       const size = Math.max(1, Math.min(1000, Number(limit) || 1000));
       const page = all(

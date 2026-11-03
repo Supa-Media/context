@@ -203,7 +203,7 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   // control plane, which picks the workspace and clearance off this token's grant.
   const readControlManifest = (page, options) => controlPlane.readTreeManifest(session.accessToken, session.workspaceId, page, options);
   Object.defineProperty(store, "treeManifest", {
-    value: store.objectReading ? objectFirstManifest(readControlManifest, store.objectReading, { defer: () => store.defer }) : readControlManifest,
+    value: store.objectReading ? objectFirstManifest(readControlManifest, store.objectReading) : readControlManifest,
     enumerable: false,
     writable: false,
     configurable: true,

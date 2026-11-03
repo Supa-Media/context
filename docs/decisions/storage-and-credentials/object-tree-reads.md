@@ -17,6 +17,10 @@ chunked move is being drawn over Convex's rows (`nodeRowMoves.drawn`), the objec
 the gateway cannot be reached from the deployment. A walk whose later page finds the object behind fails
 (`ObjectTreeBehind`) rather than mix the object's rows with Convex's.
 
+The barrier's `list` (one folder: `files.listFiles`, shared folder links, share cards, routines, plugins) asks the
+object for that folder (`ws.rows.listing`), drawn as the live tree socket draws it at the clearance the control plane
+resolved, under the same fallbacks (2026-11-03).
+
 The gateway's facts ask `jobs` (which folder does each built-in job, and the root folders a reader may see) is
 answered by the object itself (`workspaceStore/jobsAnswer.js`), judged with the listing's `folderVisibleAtScope`.
 

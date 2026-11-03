@@ -102,6 +102,7 @@ export function workspaceStub(env, workspaceId) {
  *   through the door, which judge every path themselves
  * - `rows.files({after, limit, root, audience})` → `{served, rows, cursor, rules, behind?}`: live file rows in path order and
  *   the audience's held rules, for the control plane's tree reads (`lib/nodes/objectTreeStore.ts`); `{served: false}` before home `object`
+ * - `rows.listing({path, scope, groups, audience})` → `{served, listing, behind?}`: one folder at a clearance the control plane resolved
  * - `rules.put(heldRules, audience)`, `rules.get(audience)`
  * - `apply({rows, removed, at, rules: {member?, guest?}})`: rows, removals and rules in one storage transaction
  * - `state()` → `{home, backfilledAt, encryption, rows, objects, accessVersion, members: {home, members, invites, reachPending}}`; `setHome(home)`; `setEncryption("none"|"keyed")`; `markBackfilled(at)`
@@ -125,6 +126,8 @@ export function workspaceClient(env, workspaceId) {
       lookup: async ({ paths, scope, groups = [], audience = "member", userId = null, chatNames = null }) => await ask("ws.rows.lookup", { paths, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
       resolve: async ({ noteIds, scope, groups = [], audience = "member", userId = null, chatNames = null }) => await ask("ws.rows.resolve", { noteIds, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
       list: async ({ after = null, limit = 1000 } = {}) => await ask("ws.rows.list", { after, limit }),
+      listing: async (/** @type {{path: string, scope: string, groups?: string[], audience?: string}} */ options) =>
+        await ask("ws.rows.listing", { path: options.path, scope: options.scope, groups: options.groups ?? [], audience: options.audience ?? "member" }),
       files: async (/** @type {{after?: string | null, limit?: number, root?: string | null, audience?: string}} */ options = {}) =>
         await ask("ws.rows.files", { after: options.after ?? null, limit: options.limit ?? 1000, root: options.root ?? null, audience: options.audience ?? "member" }),
       manifest: async ({ folder = "", cursor = null, scope, groups = [], audience = "member", userId = null, chatNames = null }) =>
