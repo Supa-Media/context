@@ -5,7 +5,7 @@
  * ever fetches a workspace.
  */
 
-import { COVER_SIZE, GENERIC_PREVIEW, ORIGIN, normalisePath, type PreviewMeta } from "./meta";
+import { COVER_VERSION, coverSize, GENERIC_PREVIEW, ORIGIN, normalisePath, type PreviewMeta } from "./meta";
 import { decodeSafely, boundTitle } from "./textBounds";
 
 /**
@@ -105,7 +105,7 @@ export function previewForShortLink(
     typeof handle === "string" &&
     typeof slug === "string" &&
     typeof cardVersion === "string" &&
-    /^[0-9a-f]{8}$/.test(cardVersion) &&
+    COVER_VERSION.test(cardVersion) &&
     SHORT_LINK_HANDLE.test(handle) &&
     SHORT_LINK_SLUG.test(slug);
   return {
@@ -114,7 +114,7 @@ export function previewForShortLink(
     description:
       "Shared with you on Context — plain markdown in a bucket its owner controls.",
     ...(named
-      ? { imageUrl: `${ORIGIN}${shortLinkCardPath(handle as string, slug as string, cardVersion as string)}`, ...(cover ? { imageSize: COVER_SIZE } : {}) }
+      ? { imageUrl: `${ORIGIN}${shortLinkCardPath(handle as string, slug as string, cardVersion as string)}`, ...(cover ? coverSize(cardVersion as string) : {}) }
       : {}),
   };
 }

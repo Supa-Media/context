@@ -40,6 +40,7 @@ import { assetsWithStyleNonce } from "./styleNonce";
 import { CSP_REPORT_PATH, cspReportResponse } from "./cspReport";
 import { isPluginSandboxPath, pluginSandboxResponse } from "./pluginSandbox";
 import { coverOf, noteTitle, SHARE_TITLE_TIMEOUT_MS } from "./previewTitles";
+import { COVER_VERSION } from "./preview/meta";
 
 export type { Env } from "./env";
 import type { Env } from "./env";
@@ -436,7 +437,7 @@ async function shareCardResponse(
   // re-resolved from the token on every render, so nothing here reaches what
   // is drawn.
   const version = new URL(url).searchParams.get("v");
-  const suffix = version !== null && /^[0-9a-f]{8}$/.test(version) ? `?v=${version}` : "";
+  const suffix = version !== null && COVER_VERSION.test(version) ? `?v=${version}` : "";
   const cacheKey = new Request(`https://context.lc/og/s/${token}.png${suffix}`);
 
   // The cache is best-effort, and saying so in the doc above was not enough:
@@ -500,7 +501,7 @@ async function shortLinkCardResponse(
 ): Promise<Response> {
   const cache = cacheOrNull();
   const version = new URL(url).searchParams.get("v");
-  const suffix = version !== null && /^[0-9a-f]{8}$/.test(version) ? `?v=${version}` : "";
+  const suffix = version !== null && COVER_VERSION.test(version) ? `?v=${version}` : "";
   const cacheKey = new Request(
     `https://context.lc${SHORT_CARD_PREFIX}@${handle}/${slug}.png${suffix}`,
   );
@@ -647,7 +648,7 @@ async function shortLinkPreview(
       // goes into a URL our own tags point at, and "upstream would not send
       // anything else" is the assumption that makes a path built by
       // concatenation into a redirect.
-      typeof version === "string" && /^[0-9a-f]{8}$/.test(version) ? version : null,
+      typeof version === "string" && COVER_VERSION.test(version) ? version : null,
       payload?.cover === true,
     ];
   } catch {

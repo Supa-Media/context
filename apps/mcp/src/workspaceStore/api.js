@@ -136,6 +136,8 @@ export function workspaceClient(env, workspaceId) {
         await ask("ws.rows.files", { after: options.after ?? null, limit: options.limit ?? 1000, root: options.root ?? null, audience: options.audience ?? "member" }),
       manifest: async ({ folder = "", cursor = null, scope, groups = [], audience = "member", userId = null, chatNames = null }) =>
         await ask("ws.rows.manifest", { folder, ...(cursor ? { cursor } : {}), scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
+      children: async ({ folders, scope, groups = [], audience = "member", userId = null, chatNames = null }) =>
+        await ask("ws.rows.children", { folders, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
       snapshot: async ({ epoch, rows, last = false, mode = "replace" }) => await ask("ws.rows.snapshot", { epoch, rows, last, mode }),
       digest: async () => await ask("ws.rows.digest"),
       names: async ({ paths, canWrite }) => await ask("ws.rows.names", { paths, canWrite: canWrite === true }),

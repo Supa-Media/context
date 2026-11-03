@@ -370,6 +370,7 @@ describe("the note link Tex texts unfurls as a note", () => {
  * Sabotage record (applied, suite run, named test observed failing, reverted):
  *  1. `noteTitle` dropping `cover` → "a team-linked page unfurls with its cover, drawn portrait".
  *  2. `coverOf` and `coverPreview` both without the shape check → "a cover version that is not one is ignored".
+ *  3. `coverSize` naming the portrait size for every version → "a page Tex drew a picture for unfurls wide".
  */
 describe("a linked page unfurls with its cover", () => {
   const PAGE_TOKEN = "b".repeat(64);
@@ -390,13 +391,24 @@ describe("a linked page unfurls with its cover", () => {
   });
 
   it("a cover version that is not one is ignored", async () => {
-    for (const cover of ["../../x", "0A1B2C3D", 12345678, "0a1b2c3d?x=1"]) {
+    for (const cover of ["../../x", "0A1B2C3D", 12345678, "0a1b2c3d?x=1", "0a1b2c3d-wx", "0a1b2c3d-"]) {
       fetchSpy.mockImplementation(async () => Response.json({ title: "Trip plan", cardToken: PAGE_TOKEN, children: [], cover }));
       const html = await (await get("/note/@seyi/1-projects/trip.page.md", CRAWLER_UAS.Slackbot)).text();
       expect(html).not.toContain("1350");
       expect(html).not.toContain("x=1");
       expect(html).toContain('<meta property="og:image:width" content="1200">');
     }
+  });
+
+  it("a page Tex drew a picture for unfurls wide: its card is the 1200 x 630 title and drawing", async () => {
+    fetchSpy.mockImplementation(async () => Response.json({ title: "Trip plan", cardToken: PAGE_TOKEN, children: [], cover: "0a1b2c3d-w" }));
+    const html = await (await get("/note/@seyi/1-projects/trip.page.md", CRAWLER_UAS.Slackbot)).text();
+    expect(html).toContain(`<meta property="og:image" content="https://context.lc/og/s/${PAGE_TOKEN}.png?v=0a1b2c3d-w">`);
+    expect(html).toContain('<meta property="og:image:width" content="1200">');
+    expect(html).toContain('<meta property="og:image:height" content="630">');
+    const { previewForShortLink } = await import("./preview");
+    expect(previewForShortLink("Trip plan", "seyi", "trip", "0a1b2c3d-w", true).imageSize).toBeUndefined();
+    expect(previewForShortLink("Trip plan", "seyi", "trip", "0a1b2c3d-w", true).imageUrl).toContain("0a1b2c3d-w");
   });
 
   it("a short link to a page says the cover's size", async () => {

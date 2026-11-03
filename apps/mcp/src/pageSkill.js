@@ -82,7 +82,7 @@ const FORMAT = [
   "A note whose name ends in `.page.md` is drawn as a page: words, pictures and choices people read, vote on, tick and comment on in the app. It is still Markdown, so every word stays editable and searchable.",
   "",
   "- **Words** are ordinary Markdown: `#` title, `##` sections (each a section, or a tab with `layout: tabs`), lists, `- [ ]` tasks people tick, tables, `> [!NOTE]` callouts, links and `[[wiki links]]`.",
-  "- **Front matter**: `skill` (the stamp below, required), `kind` (research, plan, status), `for`, `status`, `updated`, `cover` (photo files, comma separated), `number` (a status page's big number, `412 of 1,000`), `kicker` (replaces the kind line), `theme` (light, dark; else the reader's), `accent` (indigo, green, orange, plum, red, ink), `layout: tabs`.",
+  "- **Front matter**: `skill` (the stamp below, required), `kind` (research, plan, status), `for`, `status`, `updated`, `cover` (photo files, comma separated), `number` (a status page's big number, `412 of 1,000`), `kicker` (replaces the kind line), `theme` (light, dark; else the reader's), `accent` (indigo, green, orange, plum, red, ink), `layout: tabs`. `drawing` and `drawing-dark` are the picture Tex draws for a page with none (draw_visual template page with a scene saves them): keep them as they are.",
   "- **Blocks** are fenced data the page draws: the fence names the kind and a caption, then one `- ` line per item and `key: value` settings. An item is `|`-separated parts, and the first may start with `Label: `. Lines indented under an item are its fields (`photo: stand.jpg`, `seats: 300-500`, or facts split with `; `). Example:",
   "",
   "  ```places Three rooms that seat 200",
