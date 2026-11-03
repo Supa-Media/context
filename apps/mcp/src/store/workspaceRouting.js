@@ -306,9 +306,9 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
    * create (`idLayout.js` `keyedCreate`). `null` where the object does not serve it, and the caller puts as before.
    */
   if (typeof client.collab?.create === "function") {
-    wrapped.createInObject = async ({ path, noteId, key, text, tier, at, contentType = null }) => {
+    wrapped.createInObject = async ({ path, noteId, key, text, tier, at, contentType = null, checks = false }) => {
       if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
-      const answer = await client.collab.create({ path, noteId, key, text, tier, at, ...(typeof contentType === "string" ? { contentType } : {}) });
+      const answer = await client.collab.create({ path, noteId, key, text, tier, at, ...(typeof contentType === "string" ? { contentType } : {}), ...(checks === true ? { checks: true } : {}) });
       for (const write of Array.isArray(answer?.writes) ? answer.writes : []) {
         if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
         await mirror("put", write.key, () => store.put(write.key, write.body, typeof contentType === "string" ? { httpMetadata: { contentType } } : {}));

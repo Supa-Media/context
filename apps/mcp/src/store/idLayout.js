@@ -155,6 +155,18 @@ export class NoteCreateRaced extends Error {
 }
 
 /**
+ * A checked create (`options.checked`, `tools/notes/write.js`) the workspace object would not make alone: nothing
+ * was left written, and the caller saves the note the long way, with its own find and name checks. Says nothing about
+ * the path, so it can never stand for an answer.
+ */
+export class CheckedCreateDeclined extends Error {
+  constructor() {
+    super("this new note is saved with its checks");
+    this.name = "CheckedCreateDeclined";
+  }
+}
+
+/**
  * Thrown when the control plane answers for a workspace, or a row, that is not
  * keyed. Every workspace is keyed (2026-10-22), so this is a fault to report,
  * never a layout to serve: the bucket's path objects are not notes.
@@ -490,10 +502,41 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     throw new NoteNameTaken();
   };
 
+  /**
+   * A new note made by the workspace object alone, its row and name checks made there (`workspaceStore/createNote.js`
+   * `checks`), with no lookup first: the row it is adopted under is the answer. Anything else, a decline or a row the
+   * object leaves to the control plane, leaves nothing written and throws `CheckedCreateDeclined`.
+   */
+  const checkedCreate = async (path, body, options) => {
+    const tier = options?.tier;
+    if (typeof store.createInObject !== "function" || typeof body !== "string" || (tier !== "private" && tier !== "team")) throw new CheckedCreateDeclined();
+    if (options?.onlyIf?.etagMatches !== undefined) throw new CheckedCreateDeclined();
+    const noteId = newNoteId(now());
+    const key = idKeyFor(noteId, path);
+    let answer;
+    try {
+      answer = await store.createInObject({ path, noteId, key, text: body, tier, at: now(), checks: true });
+    } catch {
+      throw new CheckedCreateDeclined();
+    }
+    if (answer?.served === true && answer.adopted === true && typeof answer.etag === "string" && answer.etag !== "") {
+      return { key, etag: answer.etag, ...(Number.isFinite(answer.size) ? { size: answer.size } : {}), ...(Number.isFinite(answer.took) ? { took: answer.took } : {}), ...(Number.isFinite(answer.commit) ? { commit: answer.commit } : {}) };
+    }
+    // Bytes written whose row the control plane would adopt: removed, so the long way starts from nothing.
+    if (answer?.served === true) await discard(key);
+    throw new CheckedCreateDeclined();
+  };
+  // Whether a save may skip its own find and name checks for a new note here (`tools/notes/write.js`).
+  Object.defineProperty(wrapped, "createsChecked", { value: typeof store.createInObject === "function", enumerable: false });
+
   if (typeof store.put === "function") {
     wrapped.put = async (path, body, ...rest) => {
-      if (!mirroredPath(path)) return await store.put(path, body, ...rest);
+      if (!mirroredPath(path)) {
+        if (rest[0]?.checked === true) throw new CheckedCreateDeclined();
+        return await store.put(path, body, ...rest);
+      }
       const [options, ask] = remembered(rest[0]);
+      if (options?.checked === true) return await checkedCreate(path, body, options);
       const resolved = await resolveWith(ask, path);
       const { entry } = resolved;
       if (keyedEntry(entry)) return await keyedPut(path, entry, body, options);

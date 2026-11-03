@@ -14,12 +14,20 @@
  *   (`DEFER`, the same reasons `ws.write.adopt` gives). The gateway asks it, as it did after its own put.
  *
  * Every write is handed back (`writes`) for the bucket's backup copy, which only the gateway can reach.
+ *
+ * `checks: true` (a save that skipped its own find and name checks, `tools/notes/write.js`): before anything is
+ * written, the call is declined (`{served: false, reason}`, nothing written) wherever those checks could have said
+ * anything: a row already at the path or a file on its way, a name on its way that differs from a live one only by
+ * case, or a top-level name with no row yet (a new top-level folder or root file, whose role the control plane's
+ * guards judge). The gateway then saves the note the long way. Wider than the gateway's own checks, which judge only
+ * what the caller can see, so a decline never stands for an answer.
  */
 
 import { HOMES } from "./api.js";
 import { WRITE_OPS, WriteOpRefused } from "./writeOps.js";
 import { runWriteOp } from "./serveWrites.js";
 import { isNoteId } from "../store/noteIdKeys.js";
+import { liveRowByPath } from "./rowsByPath.js";
 
 const NOTE_KEY = /^notes\/[A-Za-z0-9-]{1,128}\.md$/;
 const WORKSPACE_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -51,6 +59,10 @@ export async function serveCreateNote(store, fields) {
   if (!sql || !objects || typeof store.transact !== "function" || typeof store.mirror?.enqueue !== "function") return { served: false, reason: "not_held" };
   if (rows.home() !== HOMES.OBJECT || typeof rows.backfilledAt() !== "number") return { served: false, reason: "not_held" };
 
+  if (fields.checks === true) {
+    const declined = checksDecline(sql, path);
+    if (declined !== null) return timed({ served: false, reason: declined });
+  }
   // The key is a fresh id: somebody already at it is the gateway's to name (`NoteCreateRaced`), from its own put.
   const written = await objects.put(key, text, { ...metadataOf(fields), onlyIf: { etagDoesNotMatch: "*" } });
   if (written === null) return timed({ served: false, reason: "key_held" });
@@ -92,4 +104,24 @@ async function committed(store) {
     return null;
   }
   return Date.now() - at;
+}
+
+/** Why a checked create is not this object's to make alone (see the module note), or `null`. */
+function checksDecline(sql, path) {
+  const segments = path.split("/");
+  if (segments.length < 2 || segments.some((segment) => segment === "")) return "top_level";
+  for (let depth = 1; depth <= segments.length; depth += 1) {
+    const here = segments.slice(0, depth).join("/");
+    const row = liveRowByPath(sql, here);
+    if (depth === segments.length) {
+      if (row !== null) return "taken";
+    } else if (row !== null && row.kind !== "folder") {
+      return "parent_file";
+    } else if (depth === 1 && row === null) {
+      return "top_level";
+    }
+    const twins = sql.exec("SELECT path FROM ws_rows WHERE gone = 0 AND lower(path) = lower(?) LIMIT 5", here).toArray();
+    if (twins.some((twin) => twin.path !== here)) return "twin";
+  }
+  return null;
 }
