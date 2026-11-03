@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import type { ReactNode } from "react";
+import { ActivityIndicator, StyleSheet, View, useWindowDimensions } from "react-native";
+import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
+import { densityFor } from "../../app/frame";
+import { layout } from "../../design/tokens";
+import { ContextIcon } from "../../console/files/contextIcons/ContextIcon";
+import { documentMargin } from "../../console/panes/browsePane/DocumentPage";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useConsoleGrant } from "../../agent/useConsoleGrant";
 import { MCP_ENDPOINT } from "../../console/placeholderData";
 import { NowContext, T } from "../page/TexPageParts";
 import { gatewaySource } from "../page/texPageSource";
 import { groupChatAt, historyFileChat } from "./historyFile";
-import { TexHistoryLines } from "./TexHistoryLines";
+import { HistoryFileLines } from "./HistoryFileLines";
 
 /**
  * A history file opened in the app (`tex/history.ledger.json`, or a group
@@ -16,6 +22,10 @@ import { TexHistoryLines } from "./TexHistoryLines";
  * viewer's own Tex page routes with a console grant on their personal
  * workspace, so a chat they are not one of the people of is refused by the
  * gateway, as on the page.
+ *
+ * It owns its scroller: the title and the filters stay above it, and it opens
+ * at the newest line (`HistoryFileLines`). On a phone it pays for the floating
+ * chrome itself, as a note does.
  */
 export function HistoryFileView({
   path,
@@ -66,22 +76,63 @@ export function HistoryFileView({
   const chat = place.kind === "me" ? "me" : place.kind === "group" ? (group?.key ?? null) : null;
   const waiting = place.kind === "group" && group === undefined && source !== null;
 
+  const compact = densityFor(useWindowDimensions().width) === "compact";
+  const padding = useSurfacePadding();
+  const pad = compact ? { top: padding.content.top, bottom: padding.content.bottom, side: layout.readingMargin } : { top: 0, bottom: 0, side: 0 };
+  const head = <HistoryHead whose={place.kind === "group" && group ? group.name : null} />;
+
+  const body =
+    source === null || place.kind === "none" || (place.kind === "group" && group === null) ? (
+      <View style={{ gap: 12, paddingTop: pad.top, paddingHorizontal: pad.side }}>
+        {head}
+        <T size={14} tone="muted" testID="history-file-not-yours">
+          This chat's history opens for the people in it, from their own Tex.
+        </T>
+      </View>
+    ) : waiting || chat === null ? (
+      <View style={{ gap: 12, paddingTop: pad.top, paddingHorizontal: pad.side }}>
+        {head}
+        <ActivityIndicator size="small" />
+      </View>
+    ) : (
+      <HistoryFileLines source={source} chat={chat} group={place.kind === "group"} head={head} pad={pad} />
+    );
+
   return (
     <NowContext.Provider value={Date.now}>
-      <View style={{ gap: 18 }} testID="history-file">
-        <T size={26} serif line={1.25}>
-          {place.kind === "group" && group ? `History · ${group.name}` : "History"}
-        </T>
-        {source === null || place.kind === "none" || (place.kind === "group" && group === null) ? (
-          <T size={14} tone="muted" testID="history-file-not-yours">
-            This chat's history opens for the people in it, from their own Tex.
-          </T>
-        ) : waiting || chat === null ? (
-          <ActivityIndicator size="small" />
-        ) : (
-          <TexHistoryLines source={source} chat={chat} group={place.kind === "group"} />
-        )}
-      </View>
+      <Frame compact={compact} padding={padding}>
+        <View style={[documentMargin.column, styles.fill]} testID="history-file">
+          {body}
+        </View>
+      </Frame>
     </NowContext.Provider>
   );
 }
+
+/** One thin row (Dev, 2026-11-03: "can the header be thinner somehow"): the icon, History, and whose. */
+export function HistoryHead({ whose }: { whose: string | null }) {
+  return (
+    <View style={styles.title}>
+      <ContextIcon part="tex_history" size={18} />
+      <T size={17} serif weight="600" line={1.25} testID="history-file-title">
+        History
+      </T>
+      {whose !== null ? (
+        <T size={14} tone="muted" numberOfLines={1} style={styles.whose}>
+          {whose}
+        </T>
+      ) : null}
+    </View>
+  );
+}
+
+/** A phone holds the status bar's band back, as a note's scroller does; a pointer layout's pane pads itself. */
+function Frame({ compact, padding, children }: { compact: boolean; padding: ReturnType<typeof useSurfacePadding>; children: ReactNode }) {
+  return compact ? <ScreenViewport padding={padding}>{children}</ScreenViewport> : <View style={styles.fill}>{children}</View>;
+}
+
+const styles = StyleSheet.create({
+  fill: { flex: 1, minHeight: 0 },
+  title: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 32 },
+  whose: { flexShrink: 1 },
+});
