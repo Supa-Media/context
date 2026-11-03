@@ -394,6 +394,7 @@ test/workspaceMeaningIndex.test.mjs
 test/workspaceIndexBuild.test.mjs
 test/orientIndexOnce.test.mjs
 test/orientMostRecent.test.mjs
+test/orientSurveyInObject.test.mjs
 test/orientSiblingParallel.test.mjs
 
 test/savePhases.test.mjs

@@ -11,9 +11,7 @@
 
 import { accessSentence } from "./access.js";
 import { firstParagraphOf, readFrontPage, readIndexText } from "./frontPage.js";
-import { surveyContext } from "./survey.js";
-import { describeFolders } from "./folderAbout.js";
-import { factJobs } from "../tree/facts.js";
+import { surveyLocally } from "./surveyOf.js";
 import { ORIENT_SIBLING_INDEX_CHAR_CAP, ORIENT_SIBLING_LIMIT, renderStructure } from "./render.js";
 import { hasWebsiteFolder } from "./websiteGuide.js";
 import { systemFoldersSection } from "./systemFolders.js";
@@ -54,18 +52,17 @@ export function openOnce(store) {
 }
 
 /**
- * One workspace's survey, with its folder descriptions. `listing` answers the
- * tree's keys, `facts` its note facts; a survey the tree cannot answer comes
- * back `unreadable`, which the block says rather than drawing a map of nothing.
+ * One workspace's survey, with its folder descriptions. Drawn inside the workspace's own object where it can be
+ * (`store.objectSurvey`, `workspaceStore/orientSurvey.js`): the object judges its own rows and sends the map, never
+ * every path, and the workspaces of one `orient` draw theirs side by side rather than one after another in the
+ * gateway. Otherwise drawn here (`surveyLocally`), as before.
  */
 export async function surveyOf(listing, facts, scope, rules, overrides) {
-  // Which folder does each built-in job, whatever it is called now; absent where the tree cannot say. Asked beside the
-  // survey and the folder descriptions, which never need it.
-  const asking = factJobs(facts).catch(() => null);
-  const survey = await surveyContext(listing, scope, rules, overrides);
-  const [jobs] = await Promise.all([asking, describeFolders(facts, survey)]);
-  if (jobs !== null) survey.jobs = jobs.jobs;
-  return survey;
+  if (typeof facts?.objectSurvey === "function") {
+    const drawn = await facts.objectSurvey().catch(() => null);
+    if (drawn !== null) return drawn;
+  }
+  return await surveyLocally(listing, facts, scope, rules, overrides);
 }
 
 /** The survey of a workspace whose file list could not be read: no map, and why. */
