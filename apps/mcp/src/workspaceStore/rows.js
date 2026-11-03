@@ -32,6 +32,10 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS ws_rows_note ON ws_rows (note_id)`,
   `CREATE INDEX IF NOT EXISTS ws_rows_path ON ws_rows (path)`,
+  // A move's case-twin check (`moveWrites.js` `twinsByCase`) and the job lookup (`treeOps.js` `jobsNow`) read these
+  // instead of every row: at 30,000 rows each scan cost several ms on every move (2026-11-03).
+  `CREATE INDEX IF NOT EXISTS ws_rows_path_folded ON ws_rows (lower(path))`,
+  `CREATE INDEX IF NOT EXISTS ws_rows_live_folders ON ws_rows (path) WHERE gone = 0 AND kind = 'folder'`,
   `CREATE TABLE IF NOT EXISTS ws_meta (name TEXT PRIMARY KEY, value TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS ws_stage (epoch TEXT NOT NULL, id TEXT NOT NULL, row TEXT NOT NULL, PRIMARY KEY (epoch, id))`,
 ];
@@ -230,7 +234,7 @@ export function workspaceRows(sql) {
         if (held && Number(held.gone) === 0 && held.kind === "folder" && held.path !== "" && held.path !== path) {
           sql.exec(
             // Each moved row takes the folder's clock too, so a push of it read before the move is older and ignored.
-            "UPDATE ws_rows SET path = ? || substr(path, length(?) + 1), at = MAX(at, ?) WHERE gone = 0 AND substr(path, 1, length(?) + 1) = ? || '/'",
+            "UPDATE ws_rows SET path = ? || substr(path, length(?) + 1), at = MAX(at, ?) WHERE gone = 0 AND path >= ? || '/' AND path < ? || '0'",
             path, held.path, row.at, held.path, held.path,
           );
         }

@@ -41,7 +41,8 @@ export const BUDGETS = Object.freeze({
   // 400 -> 250 after #2825 and #2828 (no twin listing before a move the object makes): about 190 ms for 107 notes.
   "tools/call:manage:move_folder": 250,
   "tools/call:search": 800,
-  "tools/call:orient": 900,
+  // 900 -> 850 after #2834 and #2838 (faster key sort; each workspace draws its own map): 679 ms median.
+  "tools/call:orient": 850,
 });
 
 /** Fewer requests than this in the window and a call is shown, not judged. */
