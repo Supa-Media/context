@@ -181,6 +181,7 @@ jobs:
           - 'apps/mcp/src/tools/moves/note.js'
           - 'apps/mcp/src/tools/moves/notes.js'
           - 'apps/mcp/src/tools/moves/objectMove.js'
+          - 'apps/mcp/src/tools/v2/actions.js'
           - 'apps/mcp/src/tools/moves/queuedFolder.js'
           - 'apps/mcp/src/tools/moves/references.js'
           - 'apps/mcp/src/tools/notes/write.js'
@@ -802,6 +803,7 @@ jobs:
             apps/mcp/src/tools/moves/note.js
             apps/mcp/src/tools/moves/notes.js
             apps/mcp/src/tools/moves/objectMove.js
+            apps/mcp/src/tools/v2/actions.js
             apps/mcp/src/tools/moves/queuedFolder.js
             apps/mcp/src/tools/moves/references.js
             apps/mcp/src/tools/notes/write.js
