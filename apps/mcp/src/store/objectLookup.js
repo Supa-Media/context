@@ -226,6 +226,8 @@ export function objectFirstHooks(hooks, options) {
           return await hooks.adopt(note);
         }
         if (answer?.ok === true && answer.adopted === true) return { adopted: true, taken: null };
+        // Why the object left it to the control plane: a short code, never the path (logs carry no note names).
+        log("workspace_object_adopt_deferred", { workspaceId, code: answer?.code ?? null, reason: typeof answer?.reason === "string" ? answer.reason : null });
         return await hooks.adopt(note);
       };
 

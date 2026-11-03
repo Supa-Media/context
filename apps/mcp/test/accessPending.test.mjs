@@ -176,7 +176,7 @@ test("a private note under a team folder is closed before its row exists, then a
 test("without the tier asked first, a private note under a team folder is deferred to the control plane", async () => {
   const { store } = await ready();
   const adopted = await adopt(store, "private");
-  assert.deepEqual(adopted.body, { ok: false, code: "DEFER" });
+  assert.deepEqual(adopted.body, { ok: false, code: "DEFER", reason: "wider_here" });
 });
 
 test("a list change at a path with no row is NO_ROW; a member's base is FORBIDDEN; nothing is queued", async () => {

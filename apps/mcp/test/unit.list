@@ -324,6 +324,7 @@ test/groupPageCopy.test.mjs
 test/pictureCompressionUnit.test.mjs
 test/readNoteCalls.test.mjs
 test/writeNoteCalls.test.mjs
+test/saveContextTier.test.mjs
 test/workspaceStore.test.mjs
 test/mirrorOutbox.test.mjs
 test/mirrorFlush.test.mjs
