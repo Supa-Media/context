@@ -189,7 +189,10 @@ const ADOPT = { path: "plans/a.md", noteId: NOTE, key: idKeyFor(NOTE, "plans/a.m
 
 /** Asserts an adoption is deferred to the control plane: DEFER, no change, and no row made. */
 function assertDeferred(context, body, label = JSON.stringify(body)) {
-  assert.deepEqual(adopt(context, body), { answer: { ok: false, code: "DEFER" }, change: null, narrows: false }, label);
+  const result = adopt(context, body);
+  // Why rides beside the code, a short word for the gateway's log and never the path.
+  assert.match(result.answer?.reason ?? "", /^[a-z_]+$/, label);
+  assert.deepEqual(result, { answer: { ok: false, code: "DEFER", reason: result.answer.reason }, change: null, narrows: false }, label);
   assert.deepEqual(context.originated, [], `made a row before deferring: ${label}`);
 }
 

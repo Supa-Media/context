@@ -434,6 +434,16 @@ test("an object that answers DEFER falls back to hooks.adopt, and its answer is 
   }
 });
 
+test("a deferred adoption is logged with the object's reason and never the path", async () => {
+  const cp = control();
+  const logged = [];
+  const ob = objectAdopting({ ok: false, code: "DEFER", reason: "job_folder" });
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: ["@design"], workspaceId: "w1", log: (event, fields) => logged.push([event, fields]) });
+  await hooks.adopt(CREATE);
+  assert.deepEqual(logged, [["workspace_object_adopt_deferred", { workspaceId: "w1", code: "DEFER", reason: "job_folder" }]]);
+  assert.ok(!JSON.stringify(logged).includes(CREATE.path));
+});
+
 test("an object that throws on the adopt falls back to hooks.adopt, logged", async () => {
   const cp = control();
   const logged = [];

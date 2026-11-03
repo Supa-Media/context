@@ -115,7 +115,8 @@ export async function toolSaveContext(store, scope, rules, overrides, args) {
   }
   let put;
   try {
-    put = await store.put(path, content, { onlyIf: { absent: true } });
+    // The archive's tier, so the workspace object may adopt it first (`store/objectLookup.js` adopt), as `write_note`'s.
+    put = await store.put(path, content, { onlyIf: { absent: true }, tier: visibility });
   } catch (error) {
     await clearExactVisibilityIfAbsent(store, path).catch(() => {});
     throw error;

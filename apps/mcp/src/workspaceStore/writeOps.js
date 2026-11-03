@@ -55,6 +55,8 @@ function wrote(ctx, body) {
 
 /** The answer for a new note the object leaves to the control plane: nothing was written, and the caller asks there. */
 const DEFER = Object.freeze({ answer: Object.freeze({ ok: false, code: "DEFER" }), change: null, narrows: false });
+/** DEFER with why, for the gateway's log (`workspace_object_adopt_deferred`): a short code, never a path. */
+const deferred = (reason) => ({ answer: { ok: false, code: "DEFER", reason }, change: null, narrows: false });
 /** A path's visibility under the rules the object holds, read as `serve.js` `parsedRules` reads them for `canSee`. */
 function heldVisibility(held, path) {
   const overrides = new PrivacyOverrides();
@@ -82,22 +84,25 @@ function adopt(ctx, body) {
   if (body.tier !== "private" && body.tier !== "team") throw new WriteOpRefused("an adoption names the tier it was written for");
 
   const { path, noteId, key } = body;
-  if (isPlumbing(path) || key !== idKeyFor(noteId, path)) return { ...DEFER };
+  if (isPlumbing(path)) return deferred("plumbing");
+  if (key !== idKeyFor(noteId, path)) return deferred("key");
   const parent = parentOf(path);
   const folder = parent === "" ? null : ctx.lookupLive(parent);
-  if (folder !== null && folder.kind !== "folder") return { ...DEFER };
+  if (folder !== null && folder.kind !== "folder") return deferred("parent_file");
   // A missing folder is stood up here, unless the path's first name is a built-in folder's that no root folder has:
   // Convex reads that name as the folder doing the job now (`folderJobs.ts` `canonicalJobPath`), so it is its to place.
-  if (parent !== "" && folder === null && (typeof ctx.sql?.exec !== "function" || reroutedByJob(ctx, path))) return { ...DEFER };
-  if (ctx.lookupLive(path) !== null || ctx.rows.byNoteId(noteId) !== null) return { ...DEFER };
+  if (parent !== "" && folder === null && typeof ctx.sql?.exec !== "function") return deferred("no_sql");
+  if (parent !== "" && folder === null && reroutedByJob(ctx, path)) return deferred("job_folder");
+  if (ctx.lookupLive(path) !== null) return deferred("taken");
+  if (ctx.rows.byNoteId(noteId) !== null) return deferred("note_id_held");
   const held = ctx.rows.rules("member");
-  if (held === null) return { ...DEFER };
-  if (body.tier === "private" && heldVisibility(held, path) !== "private") return { ...DEFER };
+  if (held === null) return deferred("no_rules");
+  if (body.tier === "private" && heldVisibility(held, path) !== "private") return deferred("wider_here");
 
   let stood = null;
   if (parent !== "" && folder === null) {
     stood = treeOps(ctx.sql, { mintId: ctx.mintId }).createFolder({ path: parent, now: ctx.now });
-    if (stood.ok !== true || stood.created !== true) return { ...DEFER };
+    if (stood.ok !== true || stood.created !== true) return deferred("folders");
   }
 
   const row = ctx.rows.originateNew(

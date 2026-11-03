@@ -193,7 +193,7 @@ test("ws.write.adopt leaves a note under a built-in folder's name that no root f
   const NOTE = "01890a5d-ac96-7c4e-8f3a-1b2c3d4e5f62";
   const body = { workspaceId: "ws_one", path: "inbox/a.md", noteId: NOTE, key: `notes/${NOTE}.md`, etag: "e-1", at: 500, tier: "team" };
   const response = await serveWrites(store, "ws.write.adopt", body, 5_000, () => `o_${"c".repeat(32)}`);
-  assert.deepEqual(await response.json(), { ok: false, code: "DEFER" });
+  assert.deepEqual(await response.json(), { ok: false, code: "DEFER", reason: "job_folder" });
   assert.equal(store.rows.byPath("inbox"), null);
   assert.equal(mirror.count(), 0);
 });
