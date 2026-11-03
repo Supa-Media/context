@@ -6,6 +6,7 @@
  * Sabotage record (applied, suite run, named check observed failing, reverted):
  *   `stepOf` keeping a reason with no failure → "keeps that it failed and the tool's short reason" fails.
  *   `serveThreads` not checking the age → "a token it never made, a malformed one and an expired link" fails.
+ *   `withViewLine` appending a bubble of its own → "inside the first text" fails.
  *   `threadsPart` ignoring `cardsOn` → "the link in words where cards are off" fails.
  *   `readHub` dropping its path pattern → "only the person's or a group's Tex page" fails.
  *   `viewLink` always minting → "points at the Tex page the gateway named" fails.
@@ -15,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { withAnswerCards } from "./answerCards";
 import { agentAnswer } from "./clients";
-import { MAX_THREADS_LINKS, mintThreadsLink, readHub, serveThreads, startJobs, THREADS_FOR_MS, threadsKey, threadsLines, viewLink } from "./jobs";
+import { MAX_THREADS_LINKS, mintThreadsLink, readHub, serveThreads, startJobs, THREADS_FOR_MS, threadsKey, viewLink, withThreadsLine } from "./jobs";
 import { MemoryStorage } from "./memoryStorage.testing";
 
 const OBJECT = "a".repeat(64);
@@ -90,20 +91,26 @@ describe("offering the view", () => {
     expect(parts[1]).toMatchObject({ card: { url: `https://context.lc/tex/threads?k=${OBJECT}.${"c".repeat(64)}`, layout: { caption: "What Tex is working on" } } });
   });
 
-  it("is the link in words where cards are off, and in a group", async () => {
-    const parts = await withAnswerCards(["On it."], { texts: ["On it."], choices: [], offers: ["threads"] }, null, mint);
-    expect(parts).toEqual(["On it.", expect.stringContaining(link)]);
+  it("is the link in words, inside the first text, where cards are off, and in a group (the owner, 2026-11-03)", async () => {
+    const parts = await withAnswerCards(["On it.", "More."], { texts: ["On it.", "More."], choices: [], offers: ["threads"] }, null, mint);
+    expect(parts).toEqual([`On it.\n\nWatch it live: ${link}`, "More."]);
     const noApp = await withAnswerCards(["On it."], { texts: ["On it."], choices: [], offers: ["threads"] }, { ...CONFIG, onlyWhereApp: true }, mint);
-    expect(noApp).toEqual(["On it.", expect.stringContaining(link)]);
-    expect(await threadsLines(["threads"], mint)).toEqual([expect.stringContaining(link)]);
+    expect(noApp).toEqual([`On it.\n\nWatch it live: ${link}`]);
+    expect(await withThreadsLine(["On it.", "More."], ["threads"], mint)).toEqual([`On it.\n\nWatch it live: ${link}`, "More."]);
+  });
+
+  it("never rides in a text that must go exactly as written, and goes alone when there is no other", async () => {
+    const ask = "Send this email to Bo? Reply YES to send.";
+    expect(await withThreadsLine([ask], ["threads"], mint, [ask])).toEqual([ask, `Watch it live: ${link}`]);
+    expect(await withThreadsLine([], ["threads"], mint)).toEqual([`Watch it live: ${link}`]);
   });
 
   it("sends nothing when it wasn't offered, or the link could not be made", async () => {
     expect(await withAnswerCards(["Hi."], { texts: ["Hi."], choices: [], offers: [] }, CONFIG, mint)).toEqual(["Hi."]);
     const broken = async () => Promise.reject(new Error("no"));
     expect(await withAnswerCards(["Hi."], { texts: ["Hi."], choices: [], offers: ["threads"] }, CONFIG, broken)).toEqual(["Hi."]);
-    expect(await threadsLines(["threads"], broken)).toEqual([]);
-    expect(await threadsLines(undefined, mint)).toEqual([]);
+    expect(await withThreadsLine(["Hi."], ["threads"], broken)).toEqual(["Hi."]);
+    expect(await withThreadsLine(["Hi."], undefined, mint)).toEqual(["Hi."]);
   });
 });
 
@@ -149,8 +156,8 @@ describe("the Tex page instead of the view (the owner, 2026-11-03)", () => {
     const hub = viewLink("https://context.lc/tex/@seyi", mint);
     const parts = await withAnswerCards(["On it."], { texts: ["On it."], choices: [], offers: ["threads"] }, CONFIG, hub);
     expect(parts[1]).toMatchObject({ card: { url: "https://context.lc/tex/@seyi", layout: { caption: "What Tex is working on", subcaption: "Tap to open your Tex page" } } });
-    const group = await threadsLines(["threads"], viewLink("https://context.lc/tex/group/brave-otter-lamp", mint));
-    expect(group).toEqual(["What I'm working on, live (tap one to see its steps): https://context.lc/tex/group/brave-otter-lamp"]);
+    const group = await withThreadsLine(["On it: summary of this chat."], ["threads"], viewLink("https://context.lc/tex/group/brave-otter-lamp", mint));
+    expect(group).toEqual(["On it: summary of this chat.\n\nWatch it live: https://context.lc/tex/group/brave-otter-lamp"]);
   });
 });
 

@@ -10,7 +10,8 @@
 import { cardsOn, type AppCard, type AppCardConfig } from "./appCards";
 import { withAskCard } from "./cardChats";
 import { withDataCards, type Offer } from "./dataCards";
-import { readHub, threadsLine } from "./jobs";
+import { readHub, threadsLine, withViewLine } from "./jobs";
+import { isAsk } from "./thumbs";
 import type { SendPart } from "./outgoing";
 import { withPickCard, type Choice } from "./pickCard";
 import { withDrawnCards } from "./sendParts";
@@ -35,16 +36,19 @@ export function threadsCard(link: string, config: AppCardConfig): AppCard {
   };
 }
 
-/** The view, where it was offered: a card where cards go, the link in words anywhere else. A link that could not be made sends nothing. */
-async function threadsPart(offers: readonly Offer[], config: AppCardConfig | null | undefined, mint: (() => Promise<string>) | undefined): Promise<SendPart[]> {
-  if (!offers.includes("threads") || mint === undefined) return [];
+/**
+ * The parts with the view, where it was offered: a card after them where cards go, else the link in words inside the
+ * first text that is not an ask (`jobs.ts` `withViewLine`). A link that could not be made changes nothing.
+ */
+async function withThreads(parts: SendPart[], offers: readonly Offer[], config: AppCardConfig | null | undefined, mint: (() => Promise<string>) | undefined): Promise<SendPart[]> {
+  if (!offers.includes("threads") || mint === undefined) return parts;
   let link: string;
   try {
     link = await mint();
   } catch {
-    return [];
+    return parts;
   }
-  return [cardsOn(config) ? { card: threadsCard(link, config) } : threadsLine(link)];
+  return cardsOn(config) ? [...parts, { card: threadsCard(link, config) }] : withViewLine(parts, threadsLine(link), isAsk);
 }
 
 export async function withAnswerCards(
@@ -54,5 +58,5 @@ export async function withAnswerCards(
   mint: (() => Promise<string>) | undefined,
 ): Promise<SendPart[]> {
   const cards = withDataCards(withDrawnCards(withPickCard(parts, answer.choices, config), config), answer.offers, config);
-  return withAskCard([...cards, ...(await threadsPart(answer.offers, config, mint))], answer.texts, config);
+  return withAskCard(await withThreads(cards, answer.offers, config, mint), answer.texts, config);
 }

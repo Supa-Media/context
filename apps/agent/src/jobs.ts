@@ -485,17 +485,34 @@ export function viewLink(hub: string | null | undefined, mint: (() => Promise<st
   return named !== null ? async () => named : mint;
 }
 
-/** The words that carry the view where there is no card to: a group, or a phone without the Context app. */
+/** The words that carry the view where there is no card to: a group, or a phone without the Context app. Short (the owner, 2026-11-03: "shorter link, and put it in the first text"). */
 export function threadsLine(link: string): string {
-  return `What I'm working on, live (tap one to see its steps): ${link}`;
+  return `Watch it live: ${link}`;
 }
 
-/** The lines a group's answer ends with when it offered the view, or none. Never throws. */
-export async function threadsLines(offers: readonly string[] | undefined, mint: (() => Promise<string>) | undefined): Promise<string[]> {
-  if (!offers?.includes("threads") || mint === undefined) return [];
+/**
+ * The texts with the view's line added to the first one that is not an exact text (an ask texted as written,
+ * `format.ts` `textsWithExact`), so it rides in the "On it" text rather than a bubble of its own (the owner,
+ * 2026-11-03). With no such text, it goes on its own after them.
+ */
+export function withViewLine<T>(texts: readonly T[], line: string, exact: (text: string) => boolean): (T | string)[] {
+  const at = texts.findIndex((text) => typeof text === "string" && text.trim() !== "" && !exact(text));
+  if (at === -1) return [...texts, line];
+  return texts.map((text, index) => (index === at ? `${text as string}\n\n${line}` : text));
+}
+
+/** A group's texts with the view's line in the first, when it was offered; as they were otherwise. Never throws. */
+export async function withThreadsLine(
+  texts: string[],
+  offers: readonly string[] | undefined,
+  mint: (() => Promise<string>) | undefined,
+  exact: readonly string[] = [],
+): Promise<string[]> {
+  if (!offers?.includes("threads") || mint === undefined) return texts;
   try {
-    return [threadsLine(await mint())];
+    const kept = new Set(exact.map((text) => text.trim()));
+    return withViewLine(texts, threadsLine(await mint()), (text) => kept.has(text.trim())) as string[];
   } catch {
-    return [];
+    return texts;
   }
 }

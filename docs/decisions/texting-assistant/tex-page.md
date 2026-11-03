@@ -101,6 +101,10 @@ of random thread pages, and maybe link to sub pages".
   `readHub`: https, one of those two paths, nothing else) and sends it as the
   card's address where cards go, and as words everywhere else, which on
   Sendblue go tappable with any picture sent beside them (`linkPreviews.ts`).
+  The words are short ("Watch it live: <link>") and ride inside the answer's
+  first text rather than a bubble of their own (the owner, the same day:
+  "shorter link, and put it in the first text"; `jobs.ts` `withViewLine`),
+  never inside an ask that has to go exactly as written.
   A chat with neither (no handle, no home) keeps the six-hour view of
   2026-10-29 (`background-jobs.md`), so no answer loses its link.
 - **Every place on the page has a path.** `/tex/@<handle>[/<view>|/job/<id>]`
