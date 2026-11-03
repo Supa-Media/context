@@ -19,6 +19,7 @@
  */
 
 import { recordChange } from "../../activity/record.js";
+import { phase } from "../../mcp/phase.js";
 import { recordForwarding } from "../../forwarding.js";
 import { withActivityHint } from "../../live/activityHint.js";
 import { announceMoves } from "../../moves/keyedCollaboration.js";
@@ -101,15 +102,18 @@ export async function startObjectMove(store, scope, source, destination, expecte
   }
 
   const files = Array.isArray(answer.files) ? answer.files : [{ from: source, to: destination }];
-  await announceMoves(store, files, privacy);
-  await recordChange(store, action, scope, [source, destination], { rowed: true, object: true, ...(kind === "folder" ? { count: files.length } : {}) });
+  // Each step after the object's answer is timed on its own (`phase:move_*`), so a move over 0.1 s says where.
+  await phase(store, "move_announce", () => announceMoves(store, files, privacy));
+  await phase(store, "move_record", () =>
+    recordChange(store, action, scope, [source, destination], { rowed: true, object: true, ...(kind === "folder" ? { count: files.length } : {}) }),
+  );
   const pair = [{ from: source, to: destination }];
-  await behind(store, async () => {
+  await phase(store, "move_behind", () => behind(store, async () => {
     await Promise.all([
       recordForwarding(store, [{ from: source, to: destination, kind }]),
       remapIcons(store, pair),
     ]);
-  });
+  }));
   const text =
     kind === "folder"
       ? `moved folder: ${source}/ → ${destination}/ (${files.length} objects)\nEvery app shows it at the new name now.`

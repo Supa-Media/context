@@ -3,7 +3,8 @@
  * (`textGroups.engagement`, CONTRACT.md section 4), chosen by a member the
  * first time Tex is addressed there, and which untagged messages it lets
  * reach decide (`decide.ts`):
- * - quiet: none, only messages `addressesTex` accepts;
+ * - quiet: answers when someone says "Tex": messages `addressesTex` accepts, and any that names Tex (`namesTex`), which
+ *   reaches decide at every level but off;
  * - attentive: also the asker's texts while their ask (`gask`) is open;
  * - followAlong (the default, and until a style is chosen): also untagged
  *   texts after Tex last spoke, until decide says the chat moved on or 20 went by;

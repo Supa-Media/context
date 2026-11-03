@@ -56,7 +56,7 @@ export function checkViewer(session, handle) {
 
 /**
  * The person's page as the control plane answers it (`controlPlane.texPage`):
- * their personal workspace, phone, time zone, style, routine rows and chats.
+ * their personal workspace, phone, time zone, instructions, routine rows and chats.
  */
 export async function loadPage(controlPlane, session) {
   let answer = null;
@@ -105,7 +105,8 @@ export function chatOf(page, key) {
       owner: { person: page.workspaceId },
       jobsChat: typeof page.phone === "string" && page.phone ? { phone: page.phone } : null,
       routines: page.routines ?? [],
-      style: page.style ?? {},
+      instructions: typeof page.instructions === "string" ? page.instructions : "",
+      picks: Array.isArray(page.picks) ? page.picks : [],
       about: { path: "tex/about.md" },
     };
   }
@@ -121,7 +122,8 @@ export function chatOf(page, key) {
     owner: { chat: group.key },
     jobsChat: { groupKey: group.key },
     routines: group.routines ?? [],
-    style: group.style ?? {},
+    instructions: typeof group.instructions === "string" ? group.instructions : "",
+    picks: Array.isArray(page.picks) ? page.picks : [],
     engagement: group.engagement ?? null,
     sponsor: group.sponsor ?? null,
     about: home ? { context: home.context, path: `${home.folder}/about.md` } : null,

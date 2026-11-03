@@ -2,7 +2,7 @@
  * The Tex page's two gateway routes (`functions/texPage.ts`, decided with the Context app's Tex page):
  *
  *  - `POST /gateway/tex/page` `{ accessToken }` → the page's data, or `{ status: "refused" }`;
- *  - `POST /gateway/tex/page/settings` `{ accessToken, chat, values }` → `{ status: "done", style, engagement? }`
+ *  - `POST /gateway/tex/page/settings` `{ accessToken, chat, values }` → `{ status: "done", instructions?, engagement? }`
  *    or `refused` / `not_found` / `bad_request` / `rate_limited`.
  *
  * Behind the gateway's secret like every gateway route, and always 200. The token is hashed here and the person is

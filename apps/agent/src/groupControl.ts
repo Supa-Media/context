@@ -3,7 +3,7 @@
  * on every message Tex acts on (moved out of `groupInbox.ts` whole).
  */
 
-import { readTexStyle, type TexStyle } from "./texStyle";
+import { readSettings, type Updates } from "./texStyle";
 import { post, record, ServiceError } from "./clients";
 import { GROUP_STYLES, type GroupStyle } from "./decide";
 import type { GroupDeps, Command } from "./groupInbox";
@@ -11,6 +11,7 @@ import type { GroupMessage } from "./sendblueGroups";
 
 export type ControlAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
+  | { status: "speaks_up"; level: GroupStyle; by: string }
   | { status: "not_allowed"; slug: string }
   | { status: "invited"; slug: string; count: number; role: string }
   | { status: "mail_shared"; address: string; narrowed: boolean }
@@ -30,11 +31,12 @@ export type ControlAnswer =
       guests?: { phone: string; label: string }[];
       /** Mailboxes shared with this chat (`chat-mail.md`): the turn is told whose and which. */
       mail?: { handle: string; address: string }[];
-      /** When Tex speaks up here (`groupStyle.ts`); absent from a control plane that has none. */
+      /** When Tex speaks up here (`groupStyle.ts`, the row's `speaksUp`, never off here); absent from a control plane that has none. */
       engagement?: GroupStyle;
       engagementChosen?: boolean;
-      /** How Tex talks in this chat (`texStyle.ts`): the group's own, never a member's personal one. */
-      texStyle?: TexStyle;
+      /** How Tex talks in this chat (`texStyle.ts`): the group's own instructions, never a member's personal ones, and its progress updates. */
+      instructions?: string;
+      updates?: Updates;
     };
 
 const LABEL = /^guest-[0-9a-f]{4}$/;
@@ -64,6 +66,9 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
       return { status: body.status };
     case "unknown_sender":
       return { status: "unknown_sender", tell: body.tell === true };
+    case "speaks_up":
+      if (!GROUP_STYLES.includes(body.level as GroupStyle) || typeof body.by !== "string") throw new ServiceError("control_plane", status);
+      return { status: "speaks_up", level: body.level as GroupStyle, by: body.by.slice(0, 64) };
     case "not_allowed":
       if (!slug(body.slug)) throw new ServiceError("control_plane", status);
       return { status: "not_allowed", slug: body.slug as string };
@@ -98,7 +103,7 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         ),
         ...(GROUP_STYLES.includes(body.engagement as GroupStyle) ? { engagement: body.engagement as GroupStyle } : {}),
         ...(typeof body.engagementChosen === "boolean" ? { engagementChosen: body.engagementChosen } : {}),
-        ...(readTexStyle(body.texStyle) ? { texStyle: readTexStyle(body.texStyle) } : {}),
+        ...readSettings(body),
       };
     default:
       throw new ServiceError("control_plane", status);

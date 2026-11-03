@@ -123,7 +123,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         ...(covers.length > 0 ? { covers, chat: message.groupId, ...(await outbox(storage, message.groupId)) } : {}), // the chat's day is the gateway's ledger; the outbox goes on top
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
-        ...(asked.texStyle ? { texStyle: asked.texStyle } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : {}), // a job reporting to this chat's turn (`jobTexts.ts`)
+        ...(asked.instructions ? { instructions: asked.instructions } : {}), ...(asked.updates ? { updates: asked.updates } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : {}), // a job reporting to this chat's turn (`jobTexts.ts`)
         ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now(), { results: true }) } : {}),
         ...(message.reaction !== undefined
           ? { quoted: message.reaction.words, tapback: message.reaction.how }
@@ -181,7 +181,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // member of it. So a list unread twice holds the answer, as a joiner does.
   if (routine && (answer.quiet || saysSkip(answer.text)) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
   const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
-  const texts = [...textsWithExact(answer.text, answer.verbatim, checkIn || asked.texStyle?.bubbles === "one"), ...(checkIn ? [] : await threadsLines(answer.offers, deps.threadsLink))];
+  const texts = [...textsWithExact(answer.text, answer.verbatim, checkIn), ...(checkIn ? [] : await threadsLines(answer.offers, deps.threadsLink))];
   const now = await readTwice();
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");

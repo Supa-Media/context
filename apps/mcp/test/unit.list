@@ -289,7 +289,7 @@ test/agentSilentSubmit.test.mjs
 test/staleEtagWrite.test.mjs
 test/oneVersion.test.mjs
 test/outcome.test.mjs
-test/agentTexStyle.test.mjs
+test/agentCustomInstructions.test.mjs
 test/agentChatVoice.test.mjs
 test/groupDirectNotes.test.mjs
 test/agentCommandTools.test.mjs

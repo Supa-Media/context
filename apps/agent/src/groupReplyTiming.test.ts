@@ -40,10 +40,10 @@ describe("a group reply's timing", () => {
     const turn = (await storage.get<HandedTurn>(TURN_KEY))!;
     t = 10_000;
     expect(await answerHanded(storage, deps, turn.id)).toBe("done");
-    expect(w.texts[0]).toMatch(/^My settings here:/);
+    expect(w.texts[0]).toMatch(/^My settings in this chat:/);
     expect(timings(spy)).toEqual([{ event: "group_reply_timing", path: "settings", outcome: "done", queueMs: 2_000, startMs: 8_000, membersMs: 0, controlMs: 230_000, replyMs: 0, totalMs: 240_000 }]);
     // Numbers and a path name only: never the words or who sent them.
-    expect(JSON.stringify(timings(spy))).not.toMatch(/settings here|Tex, settings|\+1/);
+    expect(JSON.stringify(timings(spy))).not.toMatch(/settings in this chat|Tex, settings|\+1/);
   });
 
   it("a settings reply's timing rides on the chat's next model turn, once, for the chat's note", async () => {

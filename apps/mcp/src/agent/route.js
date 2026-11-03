@@ -34,7 +34,7 @@ import { attachmentsLine, carriesData, carriesPictures, hearVoiceMessages, pictu
 import { withEmailFiles } from "./emailFiles.js";
 import { carryKeptFiles, keepSentFiles, keptIdsOf, keptInHistory, withKeptFiles } from "./keptFiles.js";
 import { EMPTY_FALLBACK, isEmptyAnswer } from "./replyChecks.js";
-import { readTexStyle, stylePrompt, withoutFlattery } from "./pushback.js";
+import { withoutFlattery } from "./pushback.js"; import { asksDetailed, instructionsPrompt, readInstructions, readUpdates } from "./customInstructions.js"; // the chat's own words (`customInstructions.js`)
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted } from "./conversation.js";
@@ -326,8 +326,10 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   // A group's too (2026-10-21): everyone in it is a member of the one workspace it reads, so the app link opens for each of them.
   const noteLinking = { origin: session.actorClientId === TEXTS_CLIENT_ID || group !== null ? appOriginOf(env) : null, contexts: store.contexts };
   // A text has the MCP's own write tools (`textingWrites.js`, the owner,
-  // 2026-10-08); a routine's own run never may.
-  const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
+  // 2026-10-08), and so does the app's own assistant since proposals were
+  // removed (the owner, 2026-11-03, "Edit directly, like texting"); a
+  // routine's own run never may, and a group chat has its own narrower set.
+  const textingWriting = textingWriteTools(offered, { texting: !runner && group === null && (session.actorClientId === TEXTS_CLIENT_ID || session.actorClientId === CONSOLE_CLIENT_ID) });
   // A group chat edits as its tagger could in the app, never moving or deleting a note (`groupTurn.js`).
   const groupWriting = group !== null ? groupWriteTools(offered, group) : [];
   /*
@@ -339,7 +341,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     is still the long turn.
   */
   const streamed = typeof progress === "function" && (session.actorClientId === TEXTS_CLIENT_ID || group !== null);
-  const channel = streamed && report === null && readTexStyle(body.texStyle)?.bubbles !== "one" ? progressChannel(progress) : null;
+  const channel = streamed && report === null && readUpdates(body.updates) !== "off" ? progressChannel(progress, { planOnly: readUpdates(body.updates) === "planOnly" }) : null; // progress updates off: no tool; plan only: one line (`progress.js`)
   // Clef is metered with the turn (`meter` below).
   /*
     AN ADDRESS IS VOUCHED FOR BY THE PERSON, NEVER BY A PREVIOUS ANSWER.
@@ -477,7 +479,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? [...(await tex.step("forward_tools", () => standingForwardTools(store, routine.path, offered))), ...routineCalendarTools(offered)] : []; // and their own calendar (`routine.js`)
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
-  const claims = !runner && (!front || job !== null) && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), history, detailed: readTexStyle(body.texStyle)?.length === "detailed", origin: noteLinking.origin, visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
+  const claims = !runner && (!front || job !== null) && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), history, detailed: asksDetailed(readInstructions(body.instructions)), origin: noteLinking.origin, visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
   // A page's cover it draws is kept for the page's link card (`/gateway/page-cover`).
   const keepCover = async (path, png) => controlPlane.recordPageCover(session.accessToken, session.workspaceId, path, png);
   const { outgoing, maker } = await tex.step("pictures_setup", () => turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId, keepCover })); stages?.mark("pictures");
@@ -491,10 +493,8 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
       question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.question ?? askedWith(question, quoted), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
-      // A turn that edits directly is not also handed proposals: they have no
-      // screen on a phone, and two ways to change a note is one too many.
       tools: [
-        ...agentTools(offered).filter((tool) => (textingWriting.length === 0 && group === null && !runner) || tool.name !== "propose_note"), // a routine stops itself with DONE:, never a proposal
+        ...agentTools(offered),
         ...textingWriting, ...groupWriting, ...forwarding,
         ...(skills?.tools ?? []), ...(learned?.tools ?? []),
         ...(delegation?.tools ?? []), ...(background?.tools ?? []),
@@ -527,7 +527,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       },
       web: steer?.trackWeb(claims?.wrapWeb(seenWeb) ?? seenWeb) ?? claims?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
       history: logged?.history ?? shown,
-      threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + offerShown + (chatTurn ? stylePrompt(readTexStyle(body.texStyle)) : ""), steer,
+      threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + offerShown + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
       local: [...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
       ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)

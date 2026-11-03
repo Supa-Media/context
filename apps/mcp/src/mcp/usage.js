@@ -21,7 +21,6 @@ const USAGE_METRICS_BY_TOOL = new Map([
   ["search", ["search.query"]],
   ["search_notes", ["search.query"]],
   ["write_note", ["note.write"]],
-  ["propose_note", ["note.write"]],
   ["save_context", ["note.write"]],
   ["submit_form", ["note.write"]],
 ]);

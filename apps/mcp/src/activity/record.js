@@ -123,7 +123,6 @@ export const INDEX_ON_CHANGE = new Map([
   ["remember_fact", "written"],
   ["save_context", "written"],
   ["meeting_note", "written"],
-  ["propose_note", "written"],
   ["rewrite_references", "written"],
   ["inbox_capture", "written"],
   // The app's Copy and Duplicate made by the gateway (`live/fileCopy.js`): the copy is a new note to follow.

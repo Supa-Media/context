@@ -23,7 +23,8 @@ import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { LINES, setup } from "./groupWorld.testing";
 
-const MENU = /^My settings here:/;
+// The group menu since 2026-11-01 (`texStyle.ts` `settingsMenu`).
+const MENU = /^My settings in this chat:/;
 
 for (const { name, groupId } of LINES) {
   describe(`"Tex, settings" in a group, ${name}`, () => {
@@ -41,13 +42,14 @@ for (const { name, groupId } of LINES) {
     it("a menu pick the same person made a minute ago still opens that setting", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { control: { engagement: "followAlong", engagementChosen: true } });
-      const steps: [string, number][] = [["Tex, settings", 0], ["8", 10], ["60", 20], ["Tex, settings", 30], ["8", 40], ["40", 50]];
+      // "3" opens Quick picks and "13" is Less emoji (`texStyle.ts` `PICKS`): the same words twice, as the dial picks were.
+      const steps: [string, number][] = [["Tex, settings", 0], ["3", 10], ["13", 20], ["Tex, settings", 30], ["3", 40], ["13", 50]];
       for (const [text, at] of steps) {
         await acceptGroup(storage, w.message(text), at);
         await drainGroup(storage, { ...w.deps, now: () => at + 1 });
       }
-      expect(w.styles.map((set) => set.style)).toEqual([{ humor: 60 }, { humor: 40 }]);
-      expect(w.texts.at(-1)).toBe("Humor set to 40% (set by ada).");
+      expect(w.styles.map((set) => set.pick)).toEqual(["emoji_less", "emoji_less"]);
+      expect(w.texts.at(-1)).toBe('ada set: "emoji_less line.". Anyone here can text "Tex, undo the change" to put it back.');
     });
 
     for (const text of ["Tex settings", "Tex Settings!", "@Tex settings", "Tex less emoji"]) {
@@ -57,7 +59,7 @@ for (const { name, groupId } of LINES) {
         expect(await acceptGroup(storage, w.message(text), 0)).toBe("queued");
         await drainGroup(storage, w.deps);
         expect(w.texts).toHaveLength(1);
-        expect(w.texts[0]).toMatch(text.includes("emoji") ? /^Emoji set to Less/ : MENU);
+        expect(w.texts[0]).toMatch(text.includes("emoji") ? /^ada set: "emoji_less line\."/ : MENU);
         expect(w.asks).toEqual([]);
       });
     }

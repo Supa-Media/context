@@ -20,6 +20,8 @@ import { startObjectMove } from "../src/tools/moves/objectMove.js";
 import { startKeyedNoteMove, startQueuedFolderMove } from "../src/tools/moves/queuedFolder.js";
 import { toolArchiveNote } from "../src/tools/moves/archive.js";
 import { ControlPlaneError } from "../src/controlPlane/client.js";
+import { toolMoveKeyedFolder } from "../src/tools/moves/keyedFolder.js";
+import { withServedTree } from "./servedTree.mjs";
 
 function memory() {
   const objects = new Map();
@@ -414,4 +416,74 @@ test("archive through the object: a note already inside the archive is 'already 
   assert.equal(result.content[0].text, "already archived");
   assert.equal(sent.length, 0);
   assert.deepEqual(queued, []);
+});
+
+test("each step after the object's answer is timed on its own, so a slow move says where its time went", async () => {
+  const { store } = objectStore({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }] });
+  const timed = [];
+  store.phase = (name, run) => {
+    timed.push(name);
+    return run();
+  };
+  await startObjectMove(store, "team", "a/x.md", "b/x.md", undefined, NOTE);
+  for (const name of ["move_announce", "move_record", "move_behind"]) assert.ok(timed.includes(name), `${name} in ${timed}`);
+});
+
+/* -- a folder's check left until the object passes the move on (`keyedFolder.js`'s full twin check) --------------- */
+
+test("startQueuedFolderMove asks beforeControlPlane only on DEFER, and a refusal there asks the control plane nothing", async () => {
+  const deferred = objectStore({ ok: false, code: "DEFER" });
+  let asked = 0;
+  const refused = await startQueuedFolderMove(deferred.store, "team", "a", "b", PRIVACY, {
+    beforeControlPlane: async () => {
+      asked += 1;
+      return "Plans is already here";
+    },
+  });
+  assert.equal(asked, 1);
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /Plans is already here/);
+  assert.deepEqual(deferred.queued, []);
+
+  const moved = objectStore({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }] });
+  asked = 0;
+  const answer = await startQueuedFolderMove(moved.store, "team", "a", "b", PRIVACY, {
+    beforeControlPlane: async () => {
+      asked += 1;
+      return "never";
+    },
+  });
+  assert.notEqual(answer.isError, true);
+  assert.equal(asked, 0);
+  assert.deepEqual(moved.queued, []);
+});
+
+test("a keyed folder move the object makes lists only the top level for twins; one it defers is judged in full first", async () => {
+  const rules = [{ prefix: "Projects", vis: "team" }, { prefix: "old", vis: "team" }];
+  const seed = async (store) => {
+    for (const key of ["Projects/Plans/Sub/a.md", "old/x.md"]) await store.put(key, "# x\n");
+    withServedTree(store);
+    const listed = [];
+    const list = store.list.bind(store);
+    store.list = async (options = {}) => {
+      listed.push(options.prefix ?? "");
+      return list(options);
+    };
+    return listed;
+  };
+
+  // Moved in the object: only the top level is looked at, never the destination's own folder ("Projects/Plans/").
+  const moved = objectStore({ ok: true, files: [{ from: "old/x.md", to: "Projects/Plans/sub/x.md" }] });
+  const listed = await seed(moved.store);
+  const answer = await toolMoveKeyedFolder(moved.store, "team", rules, new Map(), "old", "Projects/Plans/sub", false);
+  assert.notEqual(answer.isError, true, answer.content[0].text);
+  assert.ok(!listed.includes("Projects/Plans/"), JSON.stringify(listed));
+
+  // Deferred: the twin by case below the root is refused before the control plane is asked.
+  const deferred = objectStore({ ok: false, code: "DEFER" });
+  await seed(deferred.store);
+  const refused = await toolMoveKeyedFolder(deferred.store, "team", rules, new Map(), "old", "Projects/Plans/sub", false);
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /Sub is already here/);
+  assert.deepEqual(deferred.queued, []);
 });

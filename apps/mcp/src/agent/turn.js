@@ -9,29 +9,19 @@
  * `index.js` built for the request — so there is no second answer anywhere to
  * "may this caller do that", which is the property that matters most here.
  *
- * ## Writes are proposals, except from a text
+ * ## Writes are the client's own, except in a routine
  *
- * The one exception is a texting turn, which edits notes directly (the owner,
- * 2026-10-08, "Edit directly"): `textingWrites.js` adds the connection's own
- * MCP write tools and fields, all of them. Everywhere else, what follows
- * holds.
+ * A texting turn edits notes directly (the owner, 2026-10-08, "Edit
+ * directly"), and so does the app's own assistant since proposals were
+ * removed (the owner, 2026-11-03): `textingWrites.js` adds the connection's
+ * own MCP write tools and fields. A group chat has its narrower set
+ * (`groupTurn.js`), and a routine's own run has none.
  *
- * The agent is offered the read tools and `propose_note`, and never
- * `write_note`, `move_note`, `set_visibility` or anything else that changes the
- * bucket — and the list is enforced at the call as well as in the prompt, so a
- * model that names one anyway reaches nothing. It has to be both: what comes
- * back from the provider is a name the *model* wrote, and a note it read can
- * have told it what to write there.
- *
- * Not because a model cannot be trusted with a write — the scope clamp would
- * already refuse one this connection may not make — but because a note is the
- * customer's own record of their work, and an edit they did not read is a
- * different product. A proposal lands in the review queue the console already
- * has, and they say yes.
- *
- * That also makes the failure mode of a confused turn *noise* rather than
- * *damage*, which is the difference between a bad answer and a support ticket
- * about a rewritten note.
+ * Beyond those, the agent is offered only the read tools, and the list is
+ * enforced at the call as well as in the prompt, so a model that names
+ * another tool anyway reaches nothing. It has to be both: what comes back from
+ * the provider is a name the *model* wrote, and a note it read can have told
+ * it what to write there.
  *
  * ## The ambient place carries references, never content
  *
@@ -79,9 +69,6 @@ const MAX_ROUNDS = 8;
 function roundsFor(maxRounds, cap = MAX_ROUNDS) {
   return Number.isInteger(maxRounds) ? Math.min(cap, Math.max(1, maxRounds)) : cap;
 }
-
-/** The one write the agent may make, and it is not a write to the bucket. */
-const PROPOSAL_TOOL = "propose_note";
 
 /**
  * Tools a model is never offered, whatever their annotations say.
@@ -157,15 +144,14 @@ export class AgentRefusal extends Error {
  * The tools the agent is offered.
  *
  * Filtered from what `toolsForSession` already returned, never assembled
- * independently — so a connection with no write scope is not offered
- * `propose_note` either, and a tool the context's owner turned off stays off.
+ * independently — so a tool the context's owner turned off stays off.
  * One authority decision, taken upstream, narrowed here.
  */
 export function agentTools(offered) {
   return offered.filter(
     (tool) =>
       !WITHHELD_FROM_AGENT.has(tool.name) &&
-      (tool.annotations?.readOnlyHint === true || tool.name === PROPOSAL_TOOL),
+      tool.annotations?.readOnlyHint === true,
   );
 }
 
@@ -425,7 +411,7 @@ export async function runTurn(options) {
     `agentTools` decides what the model is *told about*. What comes back is a
     name the model wrote, and handing that to `callTool` — which is the client's
     own dispatcher, holding this connection's whole authority — would make
-    "writes are proposals" a property of the prompt rather than of the gateway.
+    "only what was offered" a property of the prompt rather than of the gateway.
     A model names a tool it was never offered when it is confused, and when a
     sentence in a note it just read told it to; a personal context takes email
     into `0-inbox/`, so that sentence is one anybody who knows the address can

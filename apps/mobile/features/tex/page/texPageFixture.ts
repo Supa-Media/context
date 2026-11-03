@@ -264,7 +264,8 @@ function meCopy(): Copy {
       about: { items: ABOUT, total: 24 },
       settings: {
         items: [],
-        values: { tone: "friendly", warmth: "default", enthusiasm: "default", emoji: "less", length: "short", bubbles: "one", humor: 30 },
+        instructions: "Be friendly.\nUse emoji sparingly.\nKeep answers short: the answer and nothing more.",
+        picks: [{ id: "friendly", label: "Friendly" }, { id: "emoji_none", label: "No emoji" }, { id: "short", label: "Short answers" }],
         number: "+1 (555) 010-0199",
       },
     },
@@ -305,7 +306,7 @@ function groupCopy(key: string, name: string): Copy {
       routines: { items: [ROUTINES[1]!] },
       checkins: { items: [] },
       about: { items: GROUP_ABOUT, total: 12 },
-      settings: { items: [], values: { answers: "named", tone: "friendly" }, approver: "You", people: ["You", "Ada", "Cy", "Bo", "Mia"] },
+      settings: { items: [], values: { answers: "named" }, instructions: "", picks: [{ id: "friendly", label: "Friendly" }, { id: "emoji_none", label: "No emoji" }, { id: "short", label: "Short answers" }], approver: "You", people: ["You", "Ada", "Cy", "Bo", "Mia"] },
     },
     jobs: ["gdinner", "gplaces", "gbill"],
   };
@@ -447,7 +448,10 @@ export function fixtureSource(): TexPageSource {
         case "settings":
         case "group.settings": {
           const s = c.lists.settings!;
-          s.values = { ...s.values, ...action.values };
+          const { instructions, pick, ...rest } = action.values;
+          if (typeof instructions === "string") s.instructions = instructions;
+          if (typeof pick === "string") s.instructions = [s.instructions, s.picks?.find((p) => p.id === pick)?.label].filter(Boolean).join("\n");
+          if (Object.keys(rest).length) s.values = { ...s.values, ...rest };
           push(chat, { section: "settings" });
           break;
         }
