@@ -38,7 +38,10 @@ export async function toolMoveKeyedFolder(store, scope, rules, overrides, source
   // whole path is asked before a move the object leaves to the control plane.
   const twinsOf = (topOnly) => nameTwinRefusal(store, scope, rules, overrides, destination, { kind: "folder", ignore: source, topOnly });
   const inObject = !dryRun && objectServesMoves(store, scope);
-  const twin = await phase(store, "move_twins", () => twinsOf(inObject));
+  // A move that stays under the source's own top-level folder makes no new one, so nothing is left to ask first: the
+  // top-level look listed every note under `archive/` (469 ms in production, 2026-11-03).
+  const sameTop = source.split("/")[0] === destination.split("/")[0] && destination.includes("/");
+  const twin = inObject && sameTop ? null : await phase(store, "move_twins", () => twinsOf(inObject));
   if (twin) return toolError(twin);
   if (dryRun) return await keyedFolderPreflight(store, scope, rules, overrides, source, destination);
   const moved = await startQueuedFolderMove(store, scope, source, destination, { rules, overrides }, {
