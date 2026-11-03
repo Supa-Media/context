@@ -51,7 +51,7 @@ import { statusAdvice } from "./statusList.js";
 import { frontMatterChanged } from "../../activity/changes.js";
 import { aboutMeTooLong } from "../../agent/aboutMe.js";
 import { isAboutNotePath, stampAboutLines } from "../../agent/aboutLines.js";
-import { phase } from "../../mcp/phase.js";
+import { phase, phaseTook } from "../../mcp/phase.js";
 
 /** The `share` values that mint a link; anything else publishes nothing. */
 const SHARE_REQUESTS = new Set(["members", "anyone", "collect"]);
@@ -144,9 +144,18 @@ export async function toolWriteNote(writer, scope, rules, overrides, args, optio
   // From here the note's row is looked up once for the whole save (`oneWrite`, `store/idLayout.js`): the find, the
   // load, the engine's note id and the save itself each asked it again before. A refusal above touches no store.
   if (typeof writer?.oneWrite === "function") store = writer.oneWrite(writer);
+  // A save that brings no version is most likely a new note: its row and its name check are asked now, beside the
+  // find, instead of one after another (each is a trip to the workspace object). Nothing is decided from either
+  // before the checks below run, and the name check reads only what this caller can see (`tree/twins.js`).
+  // Only for a private connection: a team connection's refusal of a held-back destination must cost what every other
+  // such refusal costs (`privacyGroups.test.mjs`), and work started ahead of it would end at different points.
+  const creating = expectedEtag === undefined;
+  const ahead = creating && scope === "private";
+  if (ahead && typeof store.warm === "function") store.warm(path);
+  const twinAsked = ahead ? nameTwinRefusal(store, scope, rules, overrides, path).catch(() => null) : null;
   // Whether it exists, from the tree; the note itself is opened only once
   // every check below has passed (`present.js`).
-  const found = await phase(store, "write_find", () => noteBeingWritten(store, path, { editing: expectedEtag !== undefined }));
+  const found = await phase(store, "write_find", () => noteBeingWritten(store, path, { editing: !creating }));
   if (found.refusal) return toolError(found.refusal);
   const exists = found.exists;
   const inheritedVisibility = visibilityOf(path, rules);
@@ -259,10 +268,10 @@ export async function toolWriteNote(writer, scope, rules, overrides, args, optio
   }
   // A new note may not sit beside a twin of its name or of a folder on its
   // way: `projects/x.md` beside `Projects/` is told to write `Projects/x.md`
-  // (`tree/twins.js`). After the team-scope checks, so it asks only for a
-  // caller who may write here, and only about what that caller can see.
+  // (`tree/twins.js`). Asked beside the find (`twinAsked`) and only read
+  // here, after the team-scope checks; it is about what this caller can see.
   if (!exists) {
-    const twin = await phase(store, "write_names", () => nameTwinRefusal(store, scope, rules, overrides, path));
+    const twin = await phase(store, "write_names", () => twinAsked ?? nameTwinRefusal(store, scope, rules, overrides, path));
     if (twin) return toolError(twin);
   }
   // `!== "team"` on the existing side. A note held back to a group is not
@@ -469,6 +478,8 @@ export async function toolWriteNote(writer, scope, rules, overrides, args, optio
           ...(existing || sealedHome ? {} : { tier: desiredVisibility }),
         }),
       );
+  // A new note made in the workspace object in one call says how long the object spent on it (`inside:create`).
+  if (Number.isFinite(put?.took)) phaseTook(store, "create", put.took);
   if (!put) {
     if (!existing && desiredVisibility === "private" && !sealedHome) {
       // Remove only an ACL whose path is still absent. If another writer won

@@ -448,7 +448,8 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
       return null;
     }
     if (answer === null || answer === undefined || typeof answer.etag !== "string" || answer.etag === "") return null;
-    const result = { key, etag: answer.etag, ...(Number.isFinite(answer.size) ? { size: answer.size } : {}) };
+    // `took`: the object's own time on it, beside the call's whole trip (`obj:ws.create`), for the save's timings.
+    const result = { key, etag: answer.etag, ...(Number.isFinite(answer.size) ? { size: answer.size } : {}), ...(Number.isFinite(answer.took) ? { took: answer.took } : {}) };
     return { result, adopted: answer.adopted === true };
   };
 
@@ -590,6 +591,11 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
       define(method, (path, ...rest) => (routed(path) ? read(path, ...rest) : outer[method](path, ...rest)));
     }
     define("noteIdAt", noteIdAtWith(ask));
+    // Ask for the path's row now, without waiting: a save can start it beside its other checks, and the find, the
+    // load and the put then take the answer already on its way. A failure is the put's to meet, as if asked then.
+    define("warm", (path) => {
+      if (routed(path)) ask([path]).catch(() => {});
+    });
     // The writes go through `outer`, so every layer above still judges them, with this view's lookup beside them.
     const carrying = (options) => ({ ...(options ?? {}), [REMEMBERED]: ask });
     if (typeof outer.put === "function") {

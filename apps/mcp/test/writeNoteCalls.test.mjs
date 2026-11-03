@@ -147,3 +147,36 @@ test("the note cap still judges a create made through the write view", async () 
   const view = capped.oneWrite(capped);
   await assert.rejects(() => view.put("1-projects/other.md", "# Other\n", { onlyIf: { absent: true } }), NoteCapReached);
 });
+
+test("a new note's row, its name and its twin check are asked side by side, not one after another", async () => {
+  const { store } = world();
+  const events = [];
+  const slow = (name, run) => async (...args) => {
+    events.push(`start:${name}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    events.push(`end:${name}`);
+    return await run(...args);
+  };
+  // The three questions a create asks before it writes, each a trip to the workspace object in production.
+  const lookupOf = store.oneWrite;
+  store.treeFacts = slow("names", store.treeFacts);
+  store.treeManifest = slow("twins", store.treeManifest);
+  store.oneWrite = (outer) => {
+    const view = lookupOf(outer);
+    const warm = view.warm;
+    Object.defineProperty(view, "warm", { value: (path) => (events.push("start:lookup"), warm(path)) });
+    return view;
+  };
+  const result = await toolWriteNote(store, "private", RULES, undefined, { path: "1-projects/new.md", content: "# New\n", visibility: "team", confirm_team_publish: true });
+  assert.equal(result.isError, undefined, result.content?.[0]?.text);
+  const firstEnd = events.findIndex((event) => event.startsWith("end:"));
+  for (const name of ["lookup", "names", "twins"]) {
+    const started = events.indexOf(`start:${name}`);
+    assert.ok(started !== -1 && started < firstEnd, `${name} waited for another question: ${events.join(", ")}`);
+  }
+  // A team connection asks them one after another, so a refusal costs what every other refusal costs.
+  events.length = 0;
+  const team = await toolWriteNote(store, "team", RULES, undefined, { path: "1-projects/other.md", content: "# Other\n" });
+  assert.equal(team.isError, undefined, team.content?.[0]?.text);
+  assert.ok(!events.includes("start:lookup"), events.join(", "));
+});

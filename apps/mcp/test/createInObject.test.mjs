@@ -157,6 +157,8 @@ test("write_note's create, through the id layer, is one object call and asks the
   const { store, adoptions } = layered(routed);
   const result = await store.put("1-projects/new.md", "# New\n", { onlyIf: { absent: true }, tier: "team" });
   assert.equal(typeof result.etag, "string");
+  // The object's own time on it rides back for the save's timings (`inside:create`).
+  assert.ok(Number.isFinite(result.took) && result.took >= 0);
   assert.deepEqual(calls, ["ws.create"]);
   assert.deepEqual(adoptions, []);
   const row = (await client.bodies.list({ prefix: "notes/" })).objects;
