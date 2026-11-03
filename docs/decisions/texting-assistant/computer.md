@@ -283,3 +283,20 @@ replies back to a fresh sign-in. Tests: `idle.test.ts` ("a browser is held
 fifteen minutes while Tex waits on the person") and
 `agentBrowserHold.test.mjs` (sabotaged by dropping the "never closer" check
 and by `waitsOnThem` answering yes to everything).
+
+## A page read includes its frames' words (2026-11-03)
+
+A shared claude.ai artifact is a shell page whose content is a frame from
+`*.frame.claudeusercontent.com`. `open_page` read only the top document, so
+Tex got the shell's title and nothing more, and never saw the artifact (the
+Tex Devs group, 2026-11-03). A browsing step already read frames
+(`frames.ts`); now a read does too (`infra/site-shots/src/read.ts`
+`frameTexts`): each public https frame's words, after the page's, under its
+site's name, the page's cut first so a frame is never lost below a long page.
+A shell with almost no words of its own waits up to six seconds for its frames
+to draw. Blank, private and empty frames are left out.
+
+**What a simplification would cost:** reading the top page only makes every
+embedded document (an artifact, an embedded form or doc) read as empty.
+`read.test.ts` ("read, a page whose words are in a frame") fails.
+

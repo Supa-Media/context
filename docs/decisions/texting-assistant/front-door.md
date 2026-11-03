@@ -66,3 +66,26 @@ ask up to ten times, and the everyday model is never told there is a limit.
 tool results again, so the advisor can't catch a failed step or an unfinished
 task it was asked about. `agentAdvisor.test.mjs` ("the advisor reads the tool
 results") fails if the live turn stops reaching it.
+
+## One check stays: "I can't open it" with nothing tried (2026-11-03)
+
+The Tex Devs group: Dev shared a claude.ai artifact and asked "thoughts?". Tex
+answered "I still can't open that artifact … Paste the main points here"
+without one web call in the turn (its thinking: "the earlier note said I
+couldn't open it"), while another assistant in the chat read the link. The
+old turn's claim check sends that answer back (`TRY_NOTICE`), but the front
+door runs none. Dev, the same day: "it doesn't even feel like Tex is trying to
+open links."
+
+So the front door keeps exactly that one check (`untriedWeb.js`): an answer
+saying it couldn't open, read or reach something, in a turn that had the web
+and called nothing on it, gets one more round to try. It is a regex over the
+answer and a flag on the web's calls, so every other answer still goes out in
+one round, untouched. The texting prompt also says a link someone sent is read
+before it is talked about, every time, and never pasted back to them
+(`prompt.js` `LINK_LINE`), because `DIRECT_LINE` ("if what's in front of you
+answers it, reply now") read an earlier failure as an answer.
+
+**What a simplification would cost:** dropping it brings back "paste the
+points" for a link nothing tried. `agentUntriedWeb.test.mjs` ("an untried
+can't-open on the front door gets one round to try") fails.
