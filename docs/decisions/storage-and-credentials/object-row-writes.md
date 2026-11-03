@@ -258,6 +258,13 @@ gateway gave up at the 8-second lookup timeout, so every one answered "could not
 had moved. A move asked of the control plane now waits `CONTROL_PLANE_MOVE_TIMEOUT_MS` (30 s), and one it gives up on
 is told as one that may still finish. Removing the mark fails `objectRowsMirrorTree.test.ts` ("a move into Archive").
 
+`archive_note` asks the object before it reads anything else (`tools/moves/archive.js`): not the note's text, its
+editing history or the tree's names. The object's own `TAKEN` asks the next numbered name, and a `DEFER` falls through
+to the control plane without asking the object a second time. With those reads, an archive in the object still took
+2.45 s in production (2026-11-03). A folder move the control plane times out on is told as one that may still finish,
+never "Nothing was changed", and is not moved the old way on top: 93 notes took 9.2 s and all moved while the answer
+said nothing had (`keyedNoteMove.test.mjs`, "a keyed folder move the gateway gave up on").
+
 ## Copies in the object (2026-11-03)
 
 The app's Copy and Duplicate of one Markdown note go to the gateway (`POST /files/copy`, `/files/duplicate`,
