@@ -269,5 +269,24 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
     };
   }
 
+  /**
+   * A new note's bytes and row in one call to the workspace object (`workspaceStore/createNote.js`), for the id layer's
+   * create (`idLayout.js` `keyedCreate`). `null` where the object does not serve it, and the caller puts as before.
+   */
+  if (typeof client.collab?.create === "function") {
+    wrapped.createInObject = async ({ path, noteId, key, text, tier, at, contentType = null }) => {
+      if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
+      const answer = await client.collab.create({ path, noteId, key, text, tier, at, ...(typeof contentType === "string" ? { contentType } : {}) });
+      for (const write of Array.isArray(answer?.writes) ? answer.writes : []) {
+        if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
+        await mirror("put", write.key, () => store.put(write.key, write.body, typeof contentType === "string" ? { httpMetadata: { contentType } } : {}));
+      }
+      if (answer?.served === true && typeof answer.etag === "string") return answer;
+      // Why the note was put from here instead: a short code from the object, never the path.
+      log("workspace_object_create_not_served", { workspaceId, reason: typeof answer?.reason === "string" ? answer.reason : null });
+      return null;
+    };
+  }
+
   return wrapped;
 }

@@ -241,6 +241,8 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
   }
 
   const wrapped = Object.create(Object.getPrototypeOf(store), Object.getOwnPropertyDescriptors(store));
+  // The object's one-call create is this layer's to make (`keyedCreate`): nothing above names a note's key.
+  delete wrapped.createInObject;
 
   /** Bytes this layer wrote and no row will ever name: removed, and left for the cleanup if that fails. */
   const discard = async (key) => {
@@ -423,6 +425,24 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
   };
 
   /**
+   * `{result, adopted}` from the workspace object's one-call create (`createInObject`), or `null` where it did not
+   * serve it (no door, a body that is not text, a failure) and nothing was written there.
+   */
+  const createdInObject = async (path, noteId, key, body, options, tier) => {
+    if (typeof store.createInObject !== "function" || typeof body !== "string") return null;
+    let answer;
+    try {
+      const contentType = options?.httpMetadata?.contentType;
+      answer = await store.createInObject({ path, noteId, key, text: body, tier, at: now(), ...(typeof contentType === "string" ? { contentType } : {}) });
+    } catch {
+      return null;
+    }
+    if (answer === null || answer === undefined || typeof answer.etag !== "string" || answer.etag === "") return null;
+    const result = { key, etag: answer.etag, ...(Number.isFinite(answer.size) ? { size: answer.size } : {}) };
+    return { result, adopted: answer.adopted === true };
+  };
+
+  /**
    * A new note in a keyed workspace: a new id, its bytes at the new key, then
    * the row. A name taken meanwhile removes the bytes just written; an
    * unconditional write then lands on whoever holds the name, as a write to
@@ -433,15 +453,18 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     const noteId = newNoteId(now());
     // In the Tex folder the note is kept in Tex's Durable Object, and its key says so.
     const key = texHome === null ? idKeyFor(noteId, path) : texKeyFor(texHome, idKeyFor(noteId, path));
-    const result = await store.put(key, body, { ...unconditional(options), onlyIf: { absent: true } });
+    // The tier the writer asked for (`tools/notes/write.js`), so the workspace object adopts it only where it is no wider there.
+    const tier = options?.tier === "private" || options?.tier === "team" ? { tier: options.tier } : {};
+    // The bytes and the row in one call to the workspace object where it serves it (`workspaceRouting.js`).
+    const inObject = texHome === null && tier.tier !== undefined ? await createdInObject(path, noteId, key, body, options, tier.tier) : null;
+    if (inObject !== null && inObject.adopted === true) return inObject.result;
+    const result = inObject !== null ? inObject.result : await store.put(key, body, { ...unconditional(options), onlyIf: { absent: true } });
     // The key is a fresh id, so a refusal here means somebody else's object is already at it.
     if (result === null) throw new NoteCreateRaced(await etagAtKey(key));
     if (!written(result)) return result;
     const size = sizeOf(body);
     let answer;
     try {
-      // The tier the writer asked for (`tools/notes/write.js`), so the workspace object adopts it only where it is no wider there.
-      const tier = options?.tier === "private" || options?.tier === "team" ? { tier: options.tier } : {};
       answer = await adopt({ path, noteId, key, etag: result.etag, ...(size === undefined ? {} : { size }), at: now(), ...tier });
     } catch (error) {
       await discard(key);
