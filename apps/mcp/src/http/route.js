@@ -51,8 +51,11 @@ import { MESSAGES_BACKUP_LOG_ROUTE, handleMessagesBackupFileRead, handleMessages
 import { handleMessagesBackupFile } from "../communications/messagesBackupFiles.js";
 import { MESSAGES_BACKUP_ROUTE, parseFileRoute } from "../../../../packages/communications/src/backup.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
+import { handleTexPage, TEX_PAGE_PATHS } from "./texPage/serve.js";
+import { handleTexPageLive, TEX_PAGE_SOCKET_PATH } from "./texPage/live.js";
 import { ACCESS_SOCKET_PATH, handleAccess, handleAgentActivity, handlePresence, handleTree, TREE_SOCKET_PATH } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
+import { FILE_OP_PATHS, handleFileOp } from "../live/fileOpsRoute.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
 import {
   handleMeetings,
@@ -208,6 +211,8 @@ export async function route(request, env, ctx) {
     if (TEX_COMPUTER_PATHS.has(path)) {
       return await handleTexComputer(request, env, { path, origin });
     }
+    // The Tex page's socket, held by the chat's Tex object (`texPage/live.js`): a GET answering 101, as `/presence`.
+    if (path === TEX_PAGE_SOCKET_PATH) return await handleTexPageLive(request, env, { slug, pathToken, origin });
 
     // The MCP transport: every step timed by the MCP entry point (`mcpRoute.js`).
     if (path === "/mcp") return await serveMcp(request, env, ctx, { slug, pathToken, origin });
@@ -224,10 +229,14 @@ export async function route(request, env, ctx) {
     // and what a card in Messages shows. Each is read over GET, so the
     // POST-only gate below is not asked of them either.
     const appRoute = APP_ROUTES.get(path);
+    // The Tex page (`texPage/serve.js`): POST, the console's own client, reading through the tool door.
+    const texPageRoute = TEX_PAGE_PATHS.has(path);
     // The Mac app's Messages backup (`communications/messagesBackup.js`): a
     // batch, or one file. A path under the file route that is not one is
     // still this route, refused below rather than read as anything else.
     const messagesBackupRoute = isMessagesBackupPath(path);
+    // The app's trash and restore, answered by the workspace's object (`live/fileOpsRoute.js`).
+    const fileOpRoute = FILE_OP_PATHS.has(path);
     if (
       summaryRoute ||
       path === "/inbox" ||
@@ -236,7 +245,9 @@ export async function route(request, env, ctx) {
       TEXTING_ROUTES.has(path) ||
       path === "/agent/review" ||
       path === "/collaboration" ||
+      fileOpRoute ||
       appRoute ||
+      texPageRoute ||
       messagesBackupRoute ||
       meetingRoute
     ) {
@@ -284,7 +295,7 @@ export async function route(request, env, ctx) {
       // connection's default workspace may clamp the person to `member` where
       // they are an `editor` in the one they asked to write into. Clamping
       // the route here would 403 them there, and they could never approve it.
-      const needed = summaryRoute || messagesBackupRoute
+      const needed = summaryRoute || messagesBackupRoute || fileOpRoute
         ? SCOPE_WRITE
         : appRoute
         ? SCOPE_READ
@@ -338,6 +349,7 @@ export async function route(request, env, ctx) {
         store.actor = actorFor(session);
         return handleCollaboration(request, store, session, origin);
       }
+      if (fileOpRoute) return handleFileOp(request, path, store, session);
 
       // Capture is anchored to the context its grant was approved for, so the
       // inbox store is built without the opener at all rather than with one
@@ -420,6 +432,7 @@ export async function route(request, env, ctx) {
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
       if (appRoute) return await appRoute(request, store, session, path);
+      if (texPageRoute) return await handleTexPage(request, env, store, session, { path, controlPlane });
       if (messagesBackupRoute) {
         const file = parseFileRoute(path);
         if (backupRead) return file ? await handleMessagesBackupFileRead(store, file) : path === MESSAGES_BACKUP_LOG_ROUTE ? await handleMessagesBackupLog(request, store, session) : json({ ok: false, error: "not_found" }, 404);

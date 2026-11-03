@@ -29,5 +29,11 @@ export const trashTables = {
     attempts: v.number(),
     /** A fixed, path-free label for the last failed attempt. */
     error: v.optional(v.string()),
+    /**
+     * Written before the workspace's object erases `folder` (`trashObject.ts`), with the keys the mirror held there,
+     * so an erase the run did not live to record still has its keys. The bucket half waits until the erase is known
+     * to have happened: the object answered its last page, or the folder is gone from the mirror.
+     */
+    objectPending: v.optional(v.literal(true)),
   }).index("by_workspace", ["workspaceId"]),
 };

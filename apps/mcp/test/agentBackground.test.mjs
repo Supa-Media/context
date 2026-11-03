@@ -130,9 +130,10 @@ test("an ask for a job already running is refused with its status", async () => 
   assert.match(words(fresh), /\[card threads\] on its own line/, "a started job offers the live view of what is running");
   const twice = await background.call({ title: "Lisbon trip plan", brief: "Same again" });
   assert.match(words(twice), /Already working on that/, "the same turn can't start it twice either");
-  assert.deepEqual(startedJobs(background, false), {
-    jobs: [{ title: "Plan the Lisbon trip", brief: "Flights and a hotel for May", doneWhen: "a note in 1-projects/trips" }],
-  });
+  const { jobs: [{ id, ...asked }] } = startedJobs(background, false);
+  assert.deepEqual(asked, { title: "Plan the Lisbon trip", brief: "Flights and a hotel for May", doneWhen: "a note in 1-projects/trips" });
+  assert.match(id, /^[0-9a-f-]{36}$/, "the gateway picks the job's id, so Tex's page can point at it (`pageWork.js`)");
+  assert.equal(startedJobs(background, false).jobs[0].id, id, "the same id every time it is read");
   assert.equal(startedJobs(background, true).jobs[0].tainted, true, "a job planned after a read from outside says so");
 });
 
@@ -344,6 +345,23 @@ test("a running job is shown in one line, and job_status gives its steps, check 
   assert.match(all, /Logo in green[^]*Apply to a16z/);
   assert.match(all, /<<<\nGot to the sign-in page\.\n>>>/);
   assert.equal(jobStatusText(ended, NOW).includes("vouch for nothing"), true);
+  assert.match(jobStatusText(ended, NOW), /no step gave a reason, so don't guess one or blame a site/);
+  assert.doesNotMatch(jobStatusText(live, NOW), /When you tell them it stopped/, "a running job hasn't stopped");
+
+  // 2026-11-03, the theCut job: a failed step's reason reaches job_status, so "why did it stop?" is answered from it.
+  const [failed] = runningJobsOf([
+    {
+      ...running("Book the haircut", { id: "job-cut-ended-1", state: "failed", finishedAt: NOW - 60_000 }),
+      steps: [
+        { at: NOW - 60_000, text: "fill_login: theCut (failed)", failed: true, why: "That login is saved for thecut.com; this page is thecut.co." },
+        { at: NOW - 30_000, text: "search: q", why: "not failed, never shown" },
+      ],
+    },
+  ]);
+  const why = jobStatusText(failed, NOW);
+  assert.match(why, /fill_login: theCut \(failed\) — why: That login is saved for thecut\.com; this page is thecut\.co\./);
+  assert.doesNotMatch(why, /never shown/);
+  assert.match(why, /say why in plain words from the failed steps' reasons/);
   assert.equal((await dispatch(JOB_STATUS_TOOL, { title: "Quarterly taxes" })).isError, true);
 
   assert.match(words(await dispatch(STEER_JOB_TOOL, { title: "Logo in green" })), /Passed their text/);

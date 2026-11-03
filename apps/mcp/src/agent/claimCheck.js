@@ -52,7 +52,7 @@
  * written by a call the person's dispatcher allowed.
  */
 
-import { READ_FAILED_NOTICE, aPageReadFailed, asksForPublishedText, publishedTextNotice } from "./publishedText.js";
+import { ENOUGH_SITES, aSiteFailed, asksForPublishedText, hostsAsked, otherSitesNotice, publishedTextNotice } from "./otherSites.js";
 import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, claimsNotePicture, owesAPicture, wantsACard } from "./visuals/notice.js";
 import { BUG_NOTICE, filesABugElsewhere, lessonInAboutMe, writeBeforeReport } from "./bugCheck.js";
 import { selfRepairNotice } from "./lookFirst.js";
@@ -67,6 +67,7 @@ import { KEEPS_A_PROMISE, givesUp, laterNotice, otherRoutesNotice, saysSourceIsD
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
 import { figureCheck } from "./sourcedFigures.js";
 import { browserWalls } from "./browserWalls.js";
+import { noteLinkCheck, unknownLinkNotice } from "./linkCheck.js";
 export { CAPTCHA_NOTICE, handsOverACaptcha } from "./browserWalls.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
@@ -407,7 +408,7 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [], detailed = false }) {
+export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [], detailed = false, origin = null }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
   const shape = replyChecks({ question, waiting, pictures, history, detailed });
   let wrote = false;
@@ -434,8 +435,10 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   // A source failed and the answer gave up, or it promised a later text nothing keeps (`otherRoutes.js`).
   let routesNoticed = false;
   let laterNoticed = false;
-  // Published text (verses, lyrics) asked of them, or a failed page read never tried in the browser (`publishedText.js`).
+  // A give-up after a site failed with few sites tried, or published text asked of them (`otherSites.js`).
+  let sitesNoticed = false;
   let pasteNoticed = false;
+  const sitesTried = new Set();
   // An answer that stops at a next step or an offer to keep looking (`stopsShort.js`).
   let shortNoticed = false;
   let askFirstNoticed = false;
@@ -462,6 +465,9 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
   const steps = [];
   let judged = false;
+  // A note link in the answer that no tool gave (`linkCheck.js`).
+  const links = noteLinkCheck({ origin, question, history });
+  let linkNoticed = false;
   return {
     /** The turn's web (`turnWeb.js`), watched for whether anything on it was tried. */
     wrapWeb(web) {
@@ -473,6 +479,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         ...web,
         call: async (name, args) => {
           triedWeb = true;
+          for (const host of hostsAsked(name, args)) sitesTried.add(host);
           const result = await web.call(name, args);
           figures.read(result, { web: true });
           steps.push({ name, ok: result?.isError !== true });
@@ -492,6 +499,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         if (readsAKeptFile(name, args)) keptRead = true;
         const result = refused ?? (await callTool(name, args));
         figures.read(result, { args });
+        if (result?.isError !== true) links.read(result);
         const images = args?.images ?? args?.args?.images;
         // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
         steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...noteStep(name, args, isWrite(name)) });
@@ -532,6 +540,12 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   function firstNotice(answer) {
     const shaped = shape(answer, steps);
     if (shaped !== null) return shaped;
+    // A note link nobody gave: a shortened or retyped name opens "That file does not exist".
+    const unknown = linkNoticed ? [] : links.unknown(answer);
+    if (unknown.length > 0) {
+      linkNoticed = true;
+      return unknownLinkNotice(unknown, links.known());
+    }
     // "I hadn't checked your calendar" when it had: check the reads before agreeing.
     const confessed = confessNoticed ? null : contradictedConfession(answer, { history, steps });
     if (confessed !== null) {
@@ -550,15 +564,15 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
       retryNoticed = true;
       return BROWSER_RETRY_NOTICE;
     }
+    // A page read failed and the answer gives up with few sites tried: the same content is on others.
+    if (!sitesNoticed && aSiteFailed(steps) && sitesTried.size < ENOUGH_SITES && (saysItCouldNot(answer) || givesUp(answer) || asksForPublishedText(answer))) {
+      sitesNoticed = true;
+      return otherSitesNotice({ sites: Math.max(1, sitesTried.size), canBrowse: canBrowse() });
+    }
     // A browser it never tried this turn, said to have failed: try it first.
     if (!retryNoticed && !browserTried && canBrowse() && givesUpOnTheBrowser(answer) && ABOUT_A_PAGE.test(answer)) {
       retryNoticed = true;
       return BROWSER_UNTRIED_NOTICE;
-    }
-    // A page read failed and the answer gives up on it, with the browser on offer and never tried.
-    if (!retryNoticed && !browserTried && canBrowse() && aPageReadFailed(steps) && saysItCouldNot(answer)) {
-      retryNoticed = true;
-      return READ_FAILED_NOTICE;
     }
     // "Paste them in": published text asked of them, which is Tex's to find, tried or not.
     if (!pasteNoticed && hadWeb && asksForPublishedText(answer)) {

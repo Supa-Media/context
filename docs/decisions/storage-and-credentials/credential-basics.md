@@ -22,11 +22,86 @@ bucket keys are retrievable in bulk. **A change that lets the gateway name its
 own workspace would look like a cleanup and would be a catastrophe.** There is
 a test asserting `expectedWorkspaceId` is never used as a lookup key.
 
+Since 2026-11-02 a member's request may instead open the binding its own
+workspace's object keeps sealed, with no control-plane call: see "A binding
+kept in its workspace's object is sealed to it" below for what replaces the
+second proof there.
+
 ### Never cache a decrypted credential across requests
 
 Workers reuse isolates across tenants. A cache keyed even slightly wrong is a
 cross-tenant leak. This costs roughly 20–60ms per call and that is the right
 trade. Per-request caching is fine; anything that outlives a request is not.
+
+### A binding kept in its workspace's object is sealed to it
+
+Decided by the owner, 2026-11-02, for speed: `/gateway/binding` was about 260 ms
+of every tool call, and the workspace's object already decides who is a member
+and holds the rules every read is judged by. So the gateway keeps a copy of the
+binding (bucket credential, index tokens, note cap, deployment switches, and
+the workspace's data key with its managed-encryption mode) **in
+that workspace's own object**, and a request opens its store from one call to
+it (`store/objectBinding.js`, `workspaceStore/bindingRows.js`).
+
+What keeps this from being the bulk credential store the two-proof rule exists
+to prevent:
+
+- **Sealed, never plain.** AES-GCM under a key derived from the gateway secret
+  (`workspaceStore/bindingSeal.js`); the object holds text it cannot read, and
+  the control plane never puts one there. It is opened per request and dies
+  with it, so the rule above (no decrypted credential across requests) holds.
+- **Bound to one workspace.** `workspace:<id>` is the seal's additional data,
+  and the opened binding must name the request's workspace: a copy moved into
+  another workspace's object does not open.
+- **Only for a live member, where the object decides access.** The object
+  answers the sealed copy only to a member it holds (`accessHome: "object"`),
+  only where it holds the notes, and only where it knows whether the workspace
+  holds a data key. Guests, Tex chats, Tex's setup read, rotations, and managed
+  encryption moving in or out always ask the control plane.
+- **A data key only where the object says there is one.** The control plane
+  answers "no key" and "a key that would not open" alike, so a copy is kept
+  and served only when it carries a key exactly where the object records the
+  workspace as `keyed` (`functions/workspaceObjectEncryption.ts` records it
+  from the key rows). The data key went in on 2026-11-02, under the owner's
+  "keys in the box": 35 of 38 object workspaces in production hold one, and
+  without it almost no request took this path.
+- **Never stale past a change.** Every write to the tables a binding is made of
+  (`storageBindings`, `managedEncryptionWorkspaces`, `workspaceObjectHomes`,
+`workspaceDataKeys`, `workspaceKeyRotations`) is
+  watched like a row write (`lib/rowWatch/watch.ts` `BINDING_TABLES`): the
+  push clears the copy, and a clear moves an epoch on so an answer read before
+  it can never be put back. Whether a change is still coming is the object's
+  own word since 2026-11-03 (Dev's "every read and write under 0.1 s"): `ws.open`
+  waits for an open mark and answers `behind` while one is out
+  (`workspaceStore/marks.js`), as every other object read has since 2026-11-02.
+  The control plane's `/gateway/objects/behind` (90 to 220 ms, the floor of
+  every store open) is no longer asked per request;
+  `OBJECT_BEHIND_FROM_CONTROL_PLANE=on` asks it beside the object again. What
+  that gives up: a change to the binding's own rows reaches a request when its
+  push clears the copy (scheduled at once, usually under a second), not when it
+  commits. Narrowing access is not in that gap, because every narrowing writer
+  opens its mark before it commits. A copy is fresh
+  for `FRESH_MS` (4 minutes), under the 5-minute margin before a temporary
+  bucket credential expires.
+- **Past fresh, served and refreshed behind** (2026-11-03, for Dev's "every
+  read and write under 0.1 s": a miss cost about 310 ms, and most requests
+  came more than four minutes after the last one). A copy on the bucket's own
+  key is still served for up to `SERVE_STALE_MS` (7 days), and the control
+  plane is asked behind the response (`ctx.waitUntil`) so the next request has
+  a fresh one. A copy carrying a temporary credential (`sessionToken`) is never
+  served past fresh. Nothing about who may read rides on the copy (the session
+  and the object's member check are live on every request) and every change to
+  the binding's own rows clears it, so what can lag is a plan's note cap, a
+  feature switch or a search index's descriptor, by one request.
+- **A kill switch.** `BINDING_FROM_OBJECT=off` on the gateway sends every
+  request to the control plane again.
+
+What is given up, said plainly: the second proof. On this path the person's
+token is checked when the session is resolved and membership by the object;
+the control plane does not re-derive the workspace from the grant per call.
+Reversing this means deleting the object path and going back to one
+`/gateway/binding` per request; `test/objectBinding.test.mjs` and
+`__tests__/workspaceObjectBindingClear.test.ts` fail if any guard above goes.
 
 ### Scheduling is not calling
 

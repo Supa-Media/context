@@ -213,10 +213,10 @@ own action: [the vault](./texting-assistant/vault.md).
 
 Tex's own jobs, each with its record:
 
-- [Transcripts](./texting-assistant/transcripts.md): each person's texts,
-  thinking and tool calls, daily in their own `tex/transcripts/`.
+- [Transcripts](./texting-assistant/transcripts.md): retired 2026-11-02; each chat's
+  [ledger](./texting-assistant/chat-ledger.md) keeps everything, and texted pictures go in `tex/pictures/`.
 - [Dreams](./texting-assistant/dreams.md): nightly, brings `tex/about-me.md`
-  up to date from the day's transcripts and the facts their other AI apps saved, logged in `tex/dreams/`.
+  up to date from the chat's ledger and the facts their other AI apps saved, logged in `tex/dreams/`.
 - [Who they are](./texting-assistant/who-they-are.md): their phone, name, emails
   and Google accounts, told on every turn Tex answers for them.
 - [Saving notes](./texting-assistant/saving-notes.md): a note they ask for is saved
@@ -491,7 +491,7 @@ the person must act themselves (sign in, a code, a captcha), the model asks
 for a `handoff`; the gateway adds the link to the text itself, so the model
 never holds it, and it is kept out of the saved conversation. Since
 2026-10-11 that link is the person's own page, not Browserbase's live view:
-[Tex's computer](./texting-assistant/computer.md).
+[Tex's computer](./texting-assistant/computer.md). The Tex page, live from each chat's box: [Tex page](./texting-assistant/tex-page.md).
 
 A Browserbase billing refusal (402, every texted browser job from
 2026-10-13) is answered 402 by the screenshot Worker, which logs only the

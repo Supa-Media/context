@@ -241,6 +241,41 @@ test("the app's own client carries the names the person answers to; other client
   assert.deepEqual(session.workspaces.find((entry) => entry.slug === "context-lc").grantedNames, ["#pin-reader"]);
 });
 
+test("the app's own client holds the names its grants on rows give it; other clients do not", { skip }, async () => {
+  // 2026-11-02: the person object's session gave the app only its groups, so a Tex chat's sealed home, named to the
+  // person by a grant on its row, opened to nobody once access moved into the objects.
+  const env = { WORKSPACE_STORE: namespace() };
+  const rowNames = ["#home1234abcd", "#home1234abcd!edit"];
+  const app = await person(env, { pwid: "pR", userId: "uR", grantId: "gR", secret: SECRET("r"), clientId: "context_console", shared: ["wsR"] });
+  const reach = await app.client.reach.list({});
+  const rows = (reach.rows ?? reach).map((row) => (row.workspaceId === "wsR" ? { ...row, rowNames, at: 2 } : row));
+  await app.client.reach.put(rows);
+  const session = await app.client.session(await sha256Hex(app.token));
+  assert.deepEqual(session.workspaces.find((entry) => entry.workspaceId === "wsR").grantedNames, ["leads", ...rowNames, "ur"]);
+  const resolved = await resolveSession(app.token, "team-wsr", createControlPlane({ ...env, CONTROL_PLANE_URL: "https://control.invalid", CONTROL_PLANE_SECRET: "x".repeat(40) }, {
+    fetchImpl: async () => {
+      throw new Error("the control plane was asked");
+    },
+  }));
+  for (const name of rowNames) assert.ok(resolved.grantedGroups.has(`@${name}`), name);
+
+  const other = await person(env, { pwid: "pS", userId: "uS", grantId: "gS", secret: SECRET("s"), shared: ["wsS"] });
+  const otherRows = ((await other.client.reach.list({})).rows ?? []).map((row) => (row.workspaceId === "wsS" ? { ...row, rowNames, at: 2 } : row));
+  await other.client.reach.put(otherRows);
+  const otherSession = await other.client.session(await sha256Hex(other.token));
+  assert.deepEqual(otherSession.workspaces.find((entry) => entry.workspaceId === "wsS").grantedNames ?? [], []);
+});
+
+test("a reach row's row names are row names, and no more than the cap", { skip }, async () => {
+  const { checkReachRow, MAX_ROW_NAMES } = await import("../src/workspaceStore/access.js");
+  const base = { workspaceId: "ws1", slug: "team", kind: "shared", role: "member", groups: [], at: 1 };
+  assert.deepEqual(checkReachRow({ ...base, rowNames: ["#abcdefgh", "#abcdefgh!edit"] }).rowNames, ["#abcdefgh", "#abcdefgh!edit"]);
+  assert.equal("rowNames" in checkReachRow(base), false);
+  assert.throws(() => checkReachRow({ ...base, rowNames: ["leads"] }));
+  assert.throws(() => checkReachRow({ ...base, rowNames: ["#abcdefgh!owner"] }));
+  assert.throws(() => checkReachRow({ ...base, rowNames: Array.from({ length: MAX_ROW_NAMES + 1 }, (_, i) => `#row${String(i).padStart(8, "0")}`) }));
+});
+
 test("while dual, the object holds the copy and answers no session", { skip }, async () => {
   const env = { WORKSPACE_STORE: namespace() };
   const { client, token } = await person(env, { pwid: "pI", userId: "uI", grantId: "gI", secret: SECRET("i") });

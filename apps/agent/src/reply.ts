@@ -42,7 +42,7 @@ import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
 import type { Steer } from "./steer";
 import { textsWithExact } from "./format";
-import { saveTextsStyle, textSettings, type MenuState, type SettingStep, type TexStyle } from "./texStyle";
+import { saveTextsStyle, textSettings, type MenuState, type SettingStep } from "./texStyle";
 import { saveReviewSharing, sharingReply, sharingWords } from "./reviewSharing";
 import type { OutgoingPicture } from "./outgoing";
 import type { Choice } from "./pickCard";
@@ -121,13 +121,8 @@ export type ReplyDeps = {
   onJobs?: (jobs: StartedJob[]) => Promise<string | undefined | void>;
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
   onSteers?: (asks: JobSteerAsk[]) => Promise<string | undefined | void>;
-  /**
-   * "Tex, settings" (`texStyle.ts`): where the open menu is kept, and handed
-   * the person's style each session so the quick tapback can follow it.
-   * Absent, settings texts go to the model like any other.
-   */
+  /** "Tex, settings" (`texStyle.ts`): where the open menu is kept. Absent, settings texts go to the model like any other. */
   settings?: { state: () => Promise<MenuState | undefined>; open: (step?: SettingStep) => Promise<void>; close: () => Promise<void> };
-  onTexStyle?: (style: TexStyle | undefined) => Promise<void>;
   /** A texted yes to sharing with the devs: file what this chat keeps, once (`reviewWatch.ts` `watchShared`). */
   onShared?: () => Promise<void>;
 };
@@ -243,10 +238,9 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     }
 
     if (message.sms) return COPY.sms;
-    await deps.onTexStyle?.(session.texStyle);
-    // "Tex, settings", a reply to its menu, or "less emoji": set by the person, never the model (`texStyle.ts`).
+    // "Tex, settings", a reply to its menu, or "no emoji": set by the person, never the model (`texStyle.ts`).
     const settings = deps.settings && !message.event
-      ? await textSettings(message.text, session.texStyle ?? {}, deps.settings, (patch) => saveTextsStyle(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, patch))
+      ? await textSettings(message.text, session.settings ?? {}, deps.settings, (ask) => saveTextsStyle(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, ask))
       : null;
     if (settings !== null) return settings;
     // "Tex, share my chats with the devs", or stop: the person's own words, never the model's (`reviewSharing.ts`).
@@ -276,7 +270,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId), holdsLog: message.chatId ? await deps.warm?.holds(message.chatId) : undefined },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId) },
     );
     if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
@@ -285,7 +279,6 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       deps.onAnswered?.();
       // Kept when it started a job too: a job reports through the chat's own turn (never writes the chat itself), and the gateway reads notes and skills fresh while one runs (`warmCopy.js` `jobBusy`).
       await deps.warm?.keep(answer.warm);
-      if (answer.log && message.chatId) await deps.warm?.keepLog(message.chatId, answer.log); // the chat's log, held here from now on (`events.ts` `keepLog`)
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();
@@ -300,7 +293,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only
       // what they read (`apps/mcp/src/tools/emailGate.js`).
-      return [...textsWithExact(answer.text, answer.verbatim, session.texStyle?.bubbles === "one"), ...after];
+      return [...textsWithExact(answer.text, answer.verbatim), ...after];
     }
     if (answer.kind === "not_started" && deps.retry) throw new TryLater();
     // A job's report the chat's turn was refused for is never lost in silence: the result waits in the job list for their next text.

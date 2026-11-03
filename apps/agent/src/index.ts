@@ -40,7 +40,7 @@ import type { Picture } from "./line";
 import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, repliedToText, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
-import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
+import { groupNameOf, parseSendblueGroup, sendGroupName, type GroupMessage } from "./sendblueGroups";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { sha256Hex } from "./groupChat";
@@ -51,11 +51,12 @@ import { mintThreadsLink, readJobSteer, readJobUpdate, serveThreads, type JobRun
 import { acceptJob, failJob, jobAlarm, resumeJob, runJob, steerJob } from "./jobRun";
 import { startJobFlow, type JobRunParams } from "./jobWorkflow";
 import { jobUpdate } from "./jobTexts";
+import { pageJobsOf, pageSteerResponse } from "./texPage";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
 import { appCardConfig } from "./appCards";
 import { phoneOfJid, readWhapiMessage, verifyWhapiSecret, watchGroupPresenceDaily, whapiKeys, type WhapiKeys } from "./whapi";
-import { parseWhapiWebhook } from "./whapiInbound";
+import { parseWhapiWebhook, whapiGroupNames } from "./whapiInbound";
 import { groupLineFor } from "./groupLine";
 import { noteCardDrawer } from "./noteCards";
 import { answerHanded, failHanded } from "./groupTurnRun";
@@ -174,7 +175,7 @@ export default {
     }
     // A group message goes to the group's own queue, never a sender's (`groupInbox.ts`).
     const grouped = line === "sendblue" ? parseSendblueGroup(payload) : null;
-    if (grouped !== null) return groupWebhook(env, grouped, url.origin);
+    if (grouped !== null) return groupWebhook(env, grouped, url.origin, "sendblue", groupNameOf(payload));
     const inbound = line === "sendblue" ? parseSendblueInbound(payload) : parseInbound(payload);
     if (inbound.kind === "invalid") {
       logWebhook(line, "invalid");
@@ -275,7 +276,7 @@ function logWebhook(line: "linq" | "sendblue" | "whapi", outcome: "unsigned" | "
 }
 
 /** A group message: dropped, or handed to the group's own queue, keyed on the group alone. */
-async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof parseSendblueGroup>>, origin: string, line: "sendblue" | "whapi" = "sendblue"): Promise<Response> {
+async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof parseSendblueGroup>>, origin: string, line: "sendblue" | "whapi" = "sendblue", name: string | null = null): Promise<Response> {
   if (grouped.kind === "invalid") {
     logWebhook(line, "invalid");
     return new Response(null, { status: 400 });
@@ -284,6 +285,7 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
     logWebhook(line, "ignored", `group_${grouped.reason}`);
     return new Response(null, { status: 200 });
   }
+  await sendGroupName((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET, grouped, name); // its folder's name, never in the message
   const stub = inboxByName(env.SENDER_INBOX, groupInboxName(grouped.groupId));
   // The Worker's own address goes along, as for a 1:1 text: without it the group's pictures had nowhere to be
   // served from, and every answer with a card failed after its words went out (2026-10-26).
@@ -291,7 +293,6 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
   logWebhook(line, "accepted", "group");
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
-
 
 /**
  * `POST /whapi`: Tex's WhatsApp line (`whapi.ts`). One delivery can carry
@@ -324,14 +325,14 @@ async function whapiWebhook(request: Request, env: Env, origin: string): Promise
   }
   let failed = false;
   for (const event of parseWhapiWebhook(payload, keys.line)) {
-    const response = await whapiEvent(env, keys, event, origin);
+    const response = await whapiEvent(env, keys, event, origin, whapiGroupNames(payload)); // names beside, never in, messages
     if (response.status >= 500) failed = true;
   }
   // A queue that could not take one asks Whapi to deliver again; the inbox and the group queue drop what they already have.
   return new Response(null, { status: failed ? 503 : 200 });
 }
 
-async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof parseWhapiWebhook>[number], origin: string): Promise<Response> {
+async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof parseWhapiWebhook>[number], origin: string, names: Map<string, string>): Promise<Response> {
   if (event.kind === "group-message") {
     if (event.reactionOn !== undefined && event.reaction !== undefined) {
       // Every reaction is read (Dev2, 2026-11-01); the words come only from a text Tex sent in this same group, so a
@@ -342,9 +343,9 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
       );
       const reaction = { ...event.reaction, words: (words ?? "").slice(0, 500), ...(words === null ? { onOther: true as const } : { onTex: true as const }) };
       const { reactionOn: _on, ...message } = event;
-      return groupWebhook(env, { ...message, reaction }, origin, "whapi");
+      return groupWebhook(env, { ...message, reaction }, origin, "whapi", names.get(event.groupId) ?? null);
     }
-    return groupWebhook(env, event, origin, "whapi");
+    return groupWebhook(env, event, origin, "whapi", names.get(event.groupId) ?? null);
   }
   // One message that can't be read, or is not one we answer, leaves the rest of the delivery to be read.
   if (event.kind === "invalid" || event.kind === "ignored") {
@@ -557,7 +558,7 @@ export class SenderInbox implements DurableObject {
       const steer = readJobSteer(await request.json());
       if (steer === null) return new Response(null, { status: 400 });
       // "Restart it": the job ended here picks up where it stopped, under a new workflow (`resumeJob`).
-      if (steer.resume) return Response.json({ taken: await resumeJob(this.state.storage, Date.now(), this.env.JOB_RUN ? (id, resumes) => startJobFlow(this.env.JOB_RUN!, id, resumes) : undefined) });
+      if (steer.resume) return Response.json({ taken: await resumeJob(this.state.storage, Date.now(), this.env.JOB_RUN ? (id, resumes) => startJobFlow(this.env.JOB_RUN!, id, resumes) : undefined, steer) });
       return Response.json({ taken: await steerJob(this.state.storage, steer) });
     }
     if (path === "/job-update") {
@@ -565,6 +566,8 @@ export class SenderInbox implements DurableObject {
       if (update === null) return new Response(null, { status: 400 });
       return Response.json({ known: await jobUpdate(this.state.storage, this.deps(), update) });
     }
+    if (path === "/page-jobs") return Response.json(await pageJobsOf(this.state.storage, Date.now()));
+    if (path === "/page-steer") return await pageSteerResponse(this.state.storage, await request.json().catch(() => null), async (id, next) => (await this.deps().steerJob?.(id, next)) ?? false);
     if (path === "/react") {
       const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
       return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });

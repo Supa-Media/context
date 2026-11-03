@@ -30,10 +30,15 @@ breaking one, stop and say so rather than working around it.
    `bucket` | `dual` | `object`), its bodies stay in the bucket and its rows in
    the control plane ([notes-by-id](./docs/decisions/storage-and-credentials/notes-by-id.md)).
    The control plane keeps accounts, usernames, sign-in, AI client grants,
-   billing, audit, a "shared with me" index and each note's rebuildable facts
-   (links, front matter, first heading and paragraph;
-   [convex-facts](./docs/decisions/app-and-console/convex-facts.md)), and
-   **never** holds a note's body. Leaving is **Download as folders**: a complete, decrypted copy with
+   billing, audit, a "shared with me" index and, only for a workspace not yet
+   on its object, each note's rebuildable facts (links, front matter, first
+   heading and paragraph;
+   [convex-facts](./docs/decisions/app-and-console/convex-facts.md)); a
+   workspace object keeps its own notes' facts beside their text, every
+   reader (gateway and app) reads them there, and the control plane keeps no
+   copy for it (decided by the owner, 2026-11-02;
+   [facts-in-objects](./docs/decisions/storage-and-credentials/facts-in-objects.md)).
+   The control plane **never** holds a note's body. Leaving is **Download as folders**: a complete, decrypted copy with
    real names, free on every plan, still available after cancelling, never
    gated, degraded or behind a paywall — gate it and this is a different
    product. Bring-your-own bucket is retired: nobody new connects one, and a
@@ -54,11 +59,16 @@ breaking one, stop and say so rather than working around it.
    `tex/groups/`, sealed so no role there opens it, an owner's included, only
    the chat's people (decided by the owner, 2026-10-31;
    [chat-homes](./docs/decisions/texting-assistant/chat-homes.md)). Tex's
-   own notes are the third: each keeps its tree row, marked as living in a
-   Tex Durable Object (one per person, one per group chat) that holds its text,
-   read, searched and exported like any note (decided by the owner,
-   2026-10-31;
-   [tex-durable-objects](./docs/decisions/texting-assistant/tex-durable-objects.md)). See
+   own notes are the third: each keeps its tree row, marked as living in
+   Tex's store, which holds its text, read, searched and exported like any
+   note: a person's in their personal workspace's own object, in tables of
+   its own, and a group chat's in a Tex Durable Object of its own (decided by
+   the owner, 2026-10-31 and 2026-11-02;
+   [tex-durable-objects](./docs/decisions/texting-assistant/tex-durable-objects.md)). A
+   workspace's storage binding and data key are the fourth: its own workspace object keeps
+   them sealed with a key only the gateway derives, bound to that workspace and
+   handed only to its live members (decided by the owner, 2026-11-02;
+   [credential-basics](./docs/decisions/storage-and-credentials/credential-basics.md)). See
    [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
 2. **Tenancy is object-level and bucket-level, never prefix-level.** One
    workspace has one workspace object, named `workspace:<workspaceId>` from
@@ -274,8 +284,9 @@ statement of what is blocking, not a request for permission. Longer form:
 [repository-and-review](./docs/decisions/repository-and-review.md).
 
 **Merging deploys staging and production side by side.** Every merge to
-`main` runs `Deploy Staging`, and its first job starts `Deploy to Production`
-at the same time (decided by the owner, 2026-10-23). Check that production
+`main` runs `Deploy Staging` and, from `deploy-production-start.yml`, starts
+`Deploy to Production` at the same time, outside staging's queue (decided by
+the owner, 2026-10-23). Check that production
 finished; do not dispatch it a second time. The repository variable
 `AUTO_DEPLOY_PRODUCTION` puts staging back in front: `after-staging` waits
 for green staging and main CI, `off` makes production manual.

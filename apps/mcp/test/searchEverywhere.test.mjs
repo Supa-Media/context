@@ -7,6 +7,7 @@
  * Sabotage record (temporary local edits, reverted):
  *   meaning ranked per workspace instead of across them → "a note the query is about outranks another workspace's first word hit" fails
  *   the loose penalty dropped                           → "a loose any-word hit never outranks a real match" fails
+ *   loose word evidence counted beside a real match     → "a note holding every word outranks another workspace's loose hit that meaning also found" fails
  */
 
 import test from "node:test";
@@ -44,4 +45,22 @@ test("a meaning-only note ranks by its closeness against every workspace's, and 
   const many = Array.from({ length: 30 }, (_, i) => [hit(`@w${i}/n.md`, { wordRank: 0 })]);
   assert.equal(fuseEverywhere(many).length, 12);
   assert.equal(fuseEverywhere(many, 3).length, 3);
+});
+
+test("a note holding every word outranks another workspace's loose hit that meaning also found", () => {
+  // Production, 2026-11-03, "speed benchmark test note": the person's own note
+  // holding all four words placed tenth, below other workspaces' index pages
+  // that held one word and that meaning ranked low.
+  const own = [hit("archive/chat-history/log.md", { wordRank: 0 }), hit("inbox/bench/single-4.md", { wordRank: 1 })];
+  const other = [
+    hit("@x/projects/benchmarks.md", { wordRank: 0, meaningScore: 0.6 }),
+    hit("@x/a.md", { meaningScore: 0.55 }),
+    hit("@x/b.md", { meaningScore: 0.5 }),
+  ];
+  const care = [hit("@care/index.md", { wordRank: 0, loose: true, meaningScore: 0.41 })];
+  const fused = fuseEverywhere([own, other, care]).map((entry) => entry.key);
+  assert.ok(fused.indexOf("inbox/bench/single-4.md") < fused.indexOf("@care/index.md"), fused.join(", "));
+  // With no note holding every word anywhere, loose hits still rank by their words.
+  const allLoose = fuseEverywhere([[hit("a.md", { wordRank: 0, loose: true })], [hit("@x/b.md", { wordRank: 1, loose: true })]]).map((entry) => entry.key);
+  assert.deepEqual(allLoose, ["a.md", "@x/b.md"]);
 });

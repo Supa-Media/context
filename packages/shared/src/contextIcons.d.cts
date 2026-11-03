@@ -40,7 +40,9 @@ export declare const PART_EMOJI: Readonly<{
   tex_heartbeat: string;
   tex_housekeeping: string;
   tex_jobs: string;
+  tex_pictures: string;
   tex_chats: string;
+  tex_history: string;
   tex_groups: string;
   tex_handbacks: string;
   tex_routines: string;

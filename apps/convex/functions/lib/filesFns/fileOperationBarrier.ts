@@ -37,6 +37,7 @@ import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
 import { siteLens } from "../websites/siteLens";
 import { mayRelocateRoutines, mayTouchNestedRoutines, routinePathsTouched } from "../routines/changes";
 import { texFolderOf } from "../routines/texFolder";
+import { chatHomePaths } from "./chatHomePaths";
 import { executeOperation } from "./executeOperation";
 import { announceTreeChange } from "./treeOps";
 import { searchDatabaseClient } from "../fastSearchFns/client";
@@ -79,6 +80,7 @@ import { repairLinks } from "../nodes/linkRepair";
 import { toConvexError } from "./operationErrors";
 import { afterMaintenance } from "./maintenanceFollowUps";
 import { consoleTexRouting } from "../texStore";
+import { markedIfNarrowing } from "../rowWatch/objectFirst";
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "archiveTidy", "trash"]);
@@ -411,11 +413,9 @@ export async function runFileOperationHandler(
   let store: FileStore;
   // The owner's Download of old copies reads each at the key its row names, a pinned path included, so past the id layer (`lib/oldCopies/folders.ts`).
   let keyStore: FileStore | null = null;
-  // A move landing notes under a chat's home keeps them in that chat's object, so the ticket and the store name it.
-  const landingChats: string[] =
-    args.operation.kind === "contextMoveImport"
-      ? await ctx.runQuery(internal.functions.texChatLanding.chatsOfHomes, { workspaceId: args.workspaceId, paths: args.operation.objects.map((object) => object.destination) })
-      : [];
+  // A note under a chat's home is kept in that chat's object, so the ticket and the store name it (`chatHomePaths.ts`).
+  const homePaths = chatHomePaths(args.operation);
+  const landingChats: string[] = homePaths.length === 0 ? [] : await ctx.runQuery(internal.functions.texChatLanding.chatsOfHomes, { workspaceId: args.workspaceId, paths: homePaths });
   try {
     // One table decides which backend this workspace got — the same table
     // the gateway uses, so the console reads and writes exactly what an AI
@@ -479,7 +479,8 @@ export async function runFileOperationHandler(
   attachSmallData(ctx, args.workspaceId, store);
 
   if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
-  if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store, projection);
+  const move = isMoveOperation(args.operation) ? { ...args, operation: args.operation } : null;
+  if (move !== null) return await markedIfNarrowing(ctx, args, () => runMoveOperation(ctx, move, store, projection));
   if (args.operation.kind === "pruneIndex") {
     // Its census decides which rows are gone, so it reads the tree's names too: a bucket listing of uuid keys would delete every keyed row.
     attachTreeListing(ctx, args.workspaceId, store);
@@ -559,7 +560,8 @@ export async function runFileOperationHandler(
   const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
   // Where Tex's folder is before this runs: a move or trash may take it out of reach (see `routinePathsTouched`).
   const texBefore = mayRelocateRoutines(args.operation as FileOperation) ? await texFolderOf(ctx, args.workspaceId) : null;
-  const operate = () => executeOperation(
+  // An operation that may narrow tells the workspace's object first (`../rowWatch/objectFirst.ts`).
+  const operate = () => markedIfNarrowing(ctx, args, () => executeOperation(
     listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),
     operation as FileOperation,
@@ -578,11 +580,8 @@ export async function runFileOperationHandler(
       dueNotification = material;
     },
     args.workspaceId,
-  );
-  const result = await (RELOCATING_OPERATIONS.has(args.operation.kind)
-    ? asRelocation(store, operate)
-    : operate()
-  ).catch(rethrowUnreadable);
+  ));
+  const result = await (RELOCATING_OPERATIONS.has(args.operation.kind) ? asRelocation(store, operate) : operate()).catch(rethrowUnreadable);
 
   // Website rows are a derivative of bucket bytes: mark them stale after the
   // canonical write lands. Best effort; the periodic reconciler repairs a miss.

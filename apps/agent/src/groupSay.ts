@@ -5,7 +5,8 @@
 
 import { ServiceError } from "./clients";
 import { MAX_CANDIDATES } from "./decide";
-import { addEvent, kindOf, recentEvents, type EventReason, type TexEvent } from "./events";
+import { addEvent, kindOf, type EventReason, type TexEvent } from "./events";
+import { chatEvents } from "./chatRead";
 import { groupLineFor, type GroupLineDeps, type GroupPlace } from "./groupLine";
 import { PICTURE_FAILED, shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
@@ -143,7 +144,7 @@ export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pi
 export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
   if (isControlWord(text)) return;
   const over = meta.covers ?? [];
-  if (over.length > 0 && (await recentEvents(storage, message.groupId)).some((event) => event.from.kind === "tex" && event.delivered === true && event.text === text && (event.covers ?? []).some((cover) => over.includes(cover)))) return;
+  if (over.length > 0 && (await chatEvents(storage, message.groupId)).some((event) => event.from.kind === "tex" && event.delivered === true && event.text === text && (event.covers ?? []).some((cover) => over.includes(cover)))) return;
   const scope = sending.get(storage);
   if (scope === undefined || !scope.under.includes(message.messageId)) return await sayNow(storage, deps, message, text, meta);
   const key = `${PART_PREFIX}${scope.turn}:progress:${await sha256Hex(text)}`;

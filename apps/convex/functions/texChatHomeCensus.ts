@@ -18,6 +18,10 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { chatHomeOf, chatHomePath } from "./lib/textGroupHome";
 import { liveNodeAt } from "./lib/nodes/paths";
+import { grantedNamesFor } from "./lib/grantedNames";
+import { listFolderFromNodes } from "./lib/nodes/listing";
+import { clearanceOf } from "./lib/clearance";
+import { scopeForRole } from "./lib/filesFns/access";
 
 /** How one chat's home stands, as a code. */
 type HomeCode = "ok" | "no_words" | "folder_missing" | "not_a_folder" | "no_note_id" | "bound_to_pin";
@@ -62,6 +66,69 @@ export const census = internalQuery({
       }
     }
     if (matched.length > 3) matched = matched.slice(0, 3);
-    return { pin: pinned === null ? "none" : "ok", chats: chats.length, homes: counts, ...(wanted !== null ? { matched } : {}) };
+    return {
+      pin: pinned === null ? "none" : "ok",
+      chats: chats.length,
+      homes: counts,
+      owners: pinned === null ? [] : await ownersSee(ctx, pinned, chats),
+      ...(wanted !== null ? { matched } : {}),
+    };
   },
 });
+
+/**
+ * What each owner and editor of the pin sees of the homes, as counts (2026-11-02: an owner saw `tex/` empty in the app): how
+ * many chats name them among a home's people, how many row names their grants give them in the pin, and how many
+ * entries their own listing of `tex` and `tex/groups` returns, as the app's tree asks (`nodesListing.listFolder`).
+ */
+async function ownersSee(ctx: QueryCtx, pinned: Id<"workspaces">, chats: Doc<"textGroups">[]) {
+  // Every role that can change the pin, not only owners: the one who saw `tex/` empty may hold another (2026-11-02).
+  const owners = (await ctx.db.query("workspaceMembers").withIndex("by_workspace_user", (q) => q.eq("workspaceId", pinned)).collect()).filter(
+    (row) => row.role === "owner" || row.role === "editor",
+  );
+  const out: Record<string, unknown>[] = [];
+  for (const owner of owners.slice(0, 10)) {
+    const names = await grantedNamesFor(ctx, pinned, owner.userId);
+    const clearance = clearanceOf(scopeForRole(owner.role), names);
+    const listed = async (path: string) => {
+      try {
+        const listing = await listFolderFromNodes(ctx, pinned, path, clearance);
+        return listing.entries.length;
+      } catch {
+        return -1;
+      }
+    };
+    out.push({
+      role: owner.role,
+      ...(await numberTwins(ctx, owner.userId, chats)),
+      inHomeUsers: chats.filter((chat) => (chat.homeUsers ?? []).includes(owner.userId)).length,
+      names: names.length,
+      tex: await listed("tex"),
+      groups: await listed("tex/groups"),
+    });
+  }
+  return out;
+}
+
+/**
+ * Whether this account's phone number (texted to Tex, or confirmed at sign-in) is also another account's, and how many
+ * homes name that other account (2026-11-02: a person in five chats saw none from the account they sign in with).
+ * Booleans and counts only.
+ */
+async function numberTwins(ctx: QueryCtx, userId: Id<"users">, chats: Doc<"textGroups">[]) {
+  const user = await ctx.db.get(userId);
+  const linked = (await ctx.db.query("phoneLinks").withIndex("by_user", (q) => q.eq("userId", userId)).collect()).map((row) => row.phone);
+  const confirmed = user?.phone !== undefined && user.phoneVerificationTime !== undefined ? [user.phone] : [];
+  const numbers = [...new Set([...linked, ...confirmed])];
+  const others = new Set<Id<"users">>();
+  for (const phone of numbers) {
+    for (const row of await ctx.db.query("phoneLinks").withIndex("by_phone", (q) => q.eq("phone", phone)).take(5)) {
+      if (row.userId !== userId) others.add(row.userId);
+    }
+    for (const row of await ctx.db.query("users").withIndex("by_phone", (q) => q.eq("phone", phone)).take(5)) {
+      if (row._id !== userId && row.phoneVerificationTime !== undefined) others.add(row._id);
+    }
+  }
+  const twinHomes = chats.filter((chat) => (chat.homeUsers ?? []).some((id) => others.has(id))).length;
+  return { linkedNumbers: linked.length, confirmedNumber: confirmed.length === 1, numberOnOtherAccounts: others.size, homesNamingThem: twinHomes };
+}

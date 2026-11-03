@@ -683,18 +683,17 @@ describe("a mailbox shared with the chat (chat-mail.md)", () => {
     expect((w.asks[0]?.group as { mail?: unknown }).mail).toEqual([{ handle: "ada", address: "me@work.example" }]);
   });
 
-  it("hands the chat's log in once the gateway handed it back, so later turns read none from storage", async () => {
+  it("hands the gateway only its outbox, never the chat: the chat's day is the ledger's (Dev, 2026-11-02)", async () => {
     const storage = new MemoryStorage();
     const w = world();
-    const held = [{ id: "0000000000001-000001", at: 1, chat: GROUP, from: { kind: "person" }, kind: "text", text: "earlier" }];
+    const handed = [{ id: "0000000000001-000001", at: 1, chat: GROUP, from: { kind: "person" }, kind: "text", text: "earlier" }];
     await acceptGroup(storage, message("Tex, hi"), 0);
-    await drainGroup(storage, deps(w, { agent: { answer: "Hey.", log: held } }));
+    await drainGroup(storage, deps(w, { agent: { answer: "Hey.", log: handed } }));
     await acceptGroup(storage, message("Tex, and now?", { messageId: "t2" }), 10);
     await drainGroup(storage, deps(w));
     expect(w.asks).toHaveLength(2);
-    expect(w.asks[0].holdsLog).toBeUndefined();
-    expect(w.asks[1]).toMatchObject({ holdsLog: true, chat: GROUP });
-    expect((w.asks[1].recent as { id: string }[]).map((event) => event.id)).toContain("0000000000001-000001");
+    for (const ask of w.asks) expect(ask.holdsLog).toBeUndefined();
+    expect(((w.asks[1].recent as { id: string }[] | undefined) ?? []).map((event) => event.id)).not.toContain("0000000000001-000001");
   });
 });
 

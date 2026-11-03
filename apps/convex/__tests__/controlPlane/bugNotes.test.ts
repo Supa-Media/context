@@ -48,6 +48,7 @@ import { PINNED_CONTEXT_SLUG } from "@context/shared";
 vi.setConfig({ testTimeout: 30_000 });
 
 import { api, internal } from "../../_generated/api";
+import { getFunctionName } from "convex/server";
 import type { Id } from "../../_generated/dataModel";
 import { fileBugNote } from "../../functions/bugNotes";
 import { filedAsBugNote } from "../../functions/lib/gatewayRoutes/feedback";
@@ -439,5 +440,18 @@ describe("a report that is filed but cannot be shared", () => {
     // second copy of the same texts.
     expect(await fileBugNote(ctx as never, where, { message: "threw", eventId: "abcdef", now: 0 })).toBe(true);
     expect(written).toHaveLength(1);
+  });
+
+  test("sharing the report with the team is a write the workspace's object hears of first", async () => {
+    // The row watch counts any access write as a narrowing: it goes through `objectFirst`, never straight to the mutation.
+    const asked: string[] = [];
+    const { ctx } = stub(async () => true);
+    const runMutation = async (ref: Parameters<typeof getFunctionName>[0]) => {
+      asked.push(getFunctionName(ref));
+      // A workspace not judged in its object: no mark is needed, and the share runs as before.
+      return !getFunctionName(ref).endsWith("workspaceObjectMarks:open");
+    };
+    expect(await fileBugNote({ ...ctx, runMutation } as never, where, { message: "marked", eventId: "abcdef", now: 0 })).toBe(true);
+    expect(asked).toEqual(["functions/workspaceObjectMarks:open", "functions/bugNotes:shareWithTeam"]);
   });
 });

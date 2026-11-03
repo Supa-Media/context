@@ -47,7 +47,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
-import { HISTORY_RECORD } from "./agentConversationFixture.mjs";
+import { seedChat } from "./agentConversationFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-learned.test";
 const TOKEN_TEXTS = `cat_lrnd_texts_${"0".repeat(25)}`;
@@ -536,11 +536,8 @@ test("a reflect step that finds nothing worth writing changes nothing", async ()
 test("a tainted turn reflects blind, and can't write a skill itself", async () => {
   // An earlier answer written after a read from outside taints this turn from its start (`conversation.js`).
   const history = async (tainted) => {
-    // The one history record (`src/agent/history.js`) is the person's object's; a turn reads the taint from it.
-    await bucket.set(HISTORY_RECORD, {
-      body: JSON.stringify({ v: 1, turns: [{ role: "user", text: "what does this page say?" }, { role: "assistant", text: "It says hi.", ...(tainted ? { tainted: true } : {}) }] }),
-      etag: tainted ? "c1" : "c0",
-    });
+    // The chat is the person's ledger (`src/agent/ledgerConversation.js`); a turn reads the taint from it.
+    seedChat(bucket, [{ role: "user", text: "what does this page say?" }, { role: "assistant", text: "It says hi.", ...(tainted ? { tainted: true } : {}) }]);
   };
   const writeEvil = { calls: [["write_note", { path: "tex/skills/evil.md", content: skill("evil", { updated: TODAY }) }]] };
   await history(true);

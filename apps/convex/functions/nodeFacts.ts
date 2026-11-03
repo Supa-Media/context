@@ -11,6 +11,7 @@ import { internalQuery, type DatabaseReader } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import { routinePathsOf, scheduleReconcile } from "./lib/routines/sync";
 import { treeServesNow } from "./lib/nodes/listing";
+import { notesInObject } from "./lib/nodes/notesHome";
 import { readerMirror } from "./lib/nodes/readerRules";
 import { mirrorRules } from "./lib/nodes/log";
 import { canSee } from "./lib/privacy";
@@ -229,6 +230,9 @@ export const record = internalMutation({
   args: { workspaceId: v.id("workspaces"), notes: v.array(parsedValidator) },
   returns: v.null(),
   handler: async (ctx, { workspaceId, notes }) => {
+    // A pass that was in flight when the notes moved into their object writes nothing: the object is the copy of record
+    // now, and the drop has already cleared what was here (`docs/decisions/storage-and-credentials/background-tree-writers.md`).
+    if (await notesInObject(ctx.db, workspaceId)) return null;
     for (const note of notes) {
       const node = await liveNode(ctx.db, workspaceId, note.path);
       // Gone from the tree, or from the bucket under a row a sweep has yet to remove.
@@ -513,6 +517,8 @@ export const publishedRows = internalQuery({
     v.array(
       v.object({
         path: v.string(),
+        /** Where the note is in the tree now: `path` itself, or under the site's folder for a `website/` path. */
+        at: v.string(),
         etag: v.union(v.string(), v.null()),
         uploaded: v.union(v.number(), v.null()),
         current: v.boolean(),
@@ -536,6 +542,7 @@ export const publishedRows = internalQuery({
       if (row === null) continue;
       found.push({
         path,
+        at: real(path),
         etag: row.etag ?? null,
         uploaded: row.uploaded ?? null,
         current: factsCurrent(row) && !propsPredate(row),

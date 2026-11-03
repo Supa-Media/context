@@ -37,7 +37,8 @@
  * caller's as for one that does not exist. A malformed body is a 400.
  */
 
-import { objectSettled } from "../../workspaceObjectPush";
+import { objectFirst } from "../rowWatch/objectFirst";
+import { GATEWAY_SETTLE, objectSettled } from "../../workspaceObjectPush";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
@@ -138,7 +139,7 @@ export async function gatewayNoteIdsWroteHandler(ctx: ActionCtx, body: Record<st
       ...(keyEtag === null ? {} : { keyEtag }),
     });
     // The object's row must carry this version before the gateway's next lookup reads it there.
-    await objectSettled(ctx, writable);
+    await objectSettled(ctx, writable, GATEWAY_SETTLE);
     return json({ ok: true, recorded });
   } catch {
     return json(NOT_SERVED);
@@ -168,7 +169,7 @@ async function keyedWrote(
       at,
     });
     // The object's row must carry this version before the gateway's next lookup reads it there.
-    await objectSettled(ctx, writable);
+    await objectSettled(ctx, writable, GATEWAY_SETTLE);
     return json({ ok: true, recorded });
   } catch {
     return json(NOT_SERVED);
@@ -210,7 +211,7 @@ export async function gatewayNoteIdsAdoptHandler(ctx: ActionCtx, body: Record<st
       at,
     });
     // The object's row must carry this version before the gateway's next lookup reads it there.
-    await objectSettled(ctx, writable);
+    await objectSettled(ctx, writable, GATEWAY_SETTLE);
     if (answer.adopted) return json({ ok: true, adopted: true, taken: null });
     return json({ ok: true, adopted: false, taken: answer.taken ?? null });
   } catch {
@@ -231,8 +232,7 @@ export async function gatewayNoteIdsRemovedHandler(ctx: ActionCtx, body: Record<
   try {
     const writable = await memberWritableWorkspace(ctx, accessToken, workspaceId);
     if (writable === null) return json(NOT_SERVED);
-    const removed = await ctx.runMutation(internal.functions.noteIdsKeyed.removeKeyed, { workspaceId: writable, path, key, at });
-    await objectSettled(ctx, writable);
+    const removed = await objectFirst(ctx, writable, () => ctx.runMutation(internal.functions.noteIdsKeyed.removeKeyed, { workspaceId: writable, path, key, at }), { settle: GATEWAY_SETTLE });
     return json({ ok: true, removed });
   } catch {
     return json(NOT_SERVED);

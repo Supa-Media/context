@@ -22,6 +22,8 @@ import { MeetingJoinFixture } from "./MeetingJoinFixture";
 import { TranscriptionConsentFixture } from "./TranscriptionConsentFixture";
 import { MoveNoticeFixture } from "./MoveNoticeFixture";
 import { SetupDoneFixture } from "./SetupDoneFixture";
+import { TexPageFixture } from "./TexPageFixture";
+import { HistoryFileFixture } from "./HistoryFileFixture";
 
 /**
  * Which fixture `/e2e-fixture` is showing, decided off the query.
@@ -77,6 +79,10 @@ export interface FixtureParams {
   available?: string | string[];
   /** `screen=resume`: which Resume surface to draw. See `ResumeFixture`. */
   surface?: string | string[];
+  /** `screen=tex-page`: which chat, sub-page or job it opens on. */
+  chat?: string | string[];
+  view?: string | string[];
+  job?: string | string[];
 }
 
 /** Expo hands a repeated query parameter back as an array. */
@@ -107,6 +113,8 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   // The live map open over Browse, on invented data. See its own header.
   if (first(params.screen) === "live-map") return <LiveMapFixture />;
   if (first(params.screen) === "setup-done") return <SetupDoneFixture />;
+  if (first(params.screen) === "history-file") return <HistoryFileFixture phone={first(params.at) === "phone"} />;
+  if (first(params.screen) === "tex-page") return <TexPageFixture params={params as Record<string, string | string[] | undefined>} />;
   // The phone check; `at=code` opens on the code step. Nothing is sent until a button is pressed.
   if (first(params.screen) === "phone-check") {
     return (

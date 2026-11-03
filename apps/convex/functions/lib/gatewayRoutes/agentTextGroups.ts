@@ -12,8 +12,10 @@
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
+import { GATEWAY_SETTLE } from "../rowWatch/drain";
+import { objectFirst } from "../rowWatch/objectFirst";
 import { badRequest, json, randomOpaqueToken, stringField } from "../gatewayAuth";
-import { groupKeyOf, MAX_GROUP_PARTICIPANTS, TEXTS_GROUP_GRANT_TTL_MS, type GroupAnswer } from "../../textGroups";
+import { ENGAGEMENT_STYLES, groupKeyOf, MAX_GROUP_PARTICIPANTS, TEXTS_GROUP_GRANT_TTL_MS, type Engagement, type GroupAnswer } from "../../textGroups";
 
 /** Sendblue's group ids are uuids; anything much longer is not one. */
 const MAX_GROUP_ID = 200;
@@ -21,6 +23,7 @@ const MAX_GROUP_ID = 200;
 type Command =
   | { kind: "stop" }
   | { kind: "start" }
+  | { kind: "speaks_up"; level: Engagement }
   | { kind: "invite"; slug: string; role?: "editor" | "member" }
   | { kind: "share_mail"; address: string; query?: string }
   | { kind: "unshare_mail"; address?: string };
@@ -30,6 +33,10 @@ function readCommand(value: unknown): Command | null | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const kind = (value as { kind?: unknown }).kind;
   if (kind === "stop" || kind === "start") return { kind };
+  if (kind === "speaks_up") {
+    const level = (value as { level?: unknown }).level;
+    return (ENGAGEMENT_STYLES as readonly unknown[]).includes(level) ? { kind, level: level as Engagement } : null;
+  }
   if (kind === "share_mail" || kind === "unshare_mail") return readMailCommand(kind, value as Record<string, unknown>);
   const slug = (value as { slug?: unknown }).slug;
   if (typeof slug !== "string" || slug.length === 0 || slug.length > 65) return null;
@@ -64,9 +71,12 @@ export async function agentTextsGroupHandler(ctx: ActionCtx, body: Record<string
   const listed = participants.map((entry) => (typeof entry === "string" ? entry.slice(0, 320) : "?"));
   const mint = body.mint === true && command === undefined;
   const accessToken = `cat_${randomOpaqueToken(32)}`;
-  const answer: GroupAnswer = await ctx.runMutation(internal.functions.textGroups.applyGroupTurn, {
+  const groupKey = await groupKeyOf(line, groupId);
+  // A turn that may take people off a folder or a home: each object it touches hears it first (`textGroupsMarked.ts`).
+  const marked = await ctx.runQuery(internal.functions.textGroupsMarked.turnWorkspaces, { groupKey });
+  const turn = async (): Promise<GroupAnswer> => await ctx.runMutation(internal.functions.textGroups.applyGroupTurn, {
     line,
-    groupKey: await groupKeyOf(line, groupId),
+    groupKey,
     sender,
     participants: listed,
     ...(command !== undefined ? { command } : {}),
@@ -77,6 +87,8 @@ export async function agentTextsGroupHandler(ctx: ActionCtx, body: Record<string
     hashedRefreshToken: await hashToken(`unissued_${randomOpaqueToken(32)}`),
     expiresAt: Date.now() + TEXTS_GROUP_GRANT_TTL_MS,
   });
+  const run = marked.reduceRight<() => Promise<GroupAnswer>>((inner, workspaceId) => () => objectFirst(ctx, workspaceId, inner, { settle: GATEWAY_SETTLE }), turn);
+  const answer = await run();
   if (answer.status === "ready" && answer.minted) return json({ ...answer, accessToken });
   return json(answer);
 }

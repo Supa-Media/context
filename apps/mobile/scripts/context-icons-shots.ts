@@ -181,6 +181,7 @@ const TREE: Row[] = [
   row("Assistant/tex/dreams", "dreams", 2),
   row("Assistant/tex/heartbeat", "heartbeat", 2),
   row("Assistant/tex/housekeeping", "housekeeping", 2),
+  row("Assistant/tex/pictures", "pictures", 2),
   row("Assistant/tex/routines", "routines", 2, { expanded: true }),
   row("Assistant/tex/routines/every-day", "every-day", 3),
   row("Assistant/tex/routines/every-week", "every-week", 3),

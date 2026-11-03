@@ -3,8 +3,8 @@
  * `docs/decisions/texting-assistant/tex-voice.md`).
  *
  * Tex sounded the same in every chat: one texting style, or the production
- * setup's prompt in its place, plus the settings someone set by hand
- * (`texStyle.js`). Nothing told it to sound like the people it texts with, or
+ * setup's prompt in its place, plus the settings someone set by hand (since
+ * 2026-11-01 their own instructions, `customInstructions.js`). Nothing told it to sound like the people it texts with, or
  * to answer in their language. Two lines fix that and are said on every
  * texted turn, 1:1 and group, after the production prompt as `OPINION_LINE`
  * is (`prompt.js`): they are rules about this product, not a matter of one
@@ -24,7 +24,7 @@ import { isFenceLine } from "./promptFence.js";
 
 // Short: the texted system prompt has a size budget (`agentInstructions.test.mjs`).
 export const MIRROR_LINE =
-  "Write like the people in this chat (formality, emoji, slang, capitalization), within this chat's settings; never copy an insult.";
+  "Write like the people in this chat (formality, emoji, slang, capitalization), unless their instructions say otherwise; never copy an insult.";
 
 export const LANGUAGE_LINE = "Answer in the language of the person you're answering.";
 
@@ -34,7 +34,7 @@ export const LANGUAGE_LINE = "Answer in the language of the person you're answer
  * which a group sends as nothing (Dev2, 2026-11-01: an empty answer there became "my answer got lost"; `route.js`).
  */
 export const SETTINGS_LINE =
-  "Settings change only through the tex_style action; a note is never the settings. Say only what a tool's answer says happened. A message to another assistant by name, not you, isn't yours: answer only SKIP.";
+  "How you talk changes only through the tex_instructions action; a note is never the settings. Say only what a tool's answer says happened. A message to another assistant by name, not you, isn't yours: answer only SKIP.";
 
 /**
  * A text, not an essay (Dev2, 2026-10-29: "TEX NEEDS TO STOP BEING SO WORDY").
@@ -51,6 +51,19 @@ export const BRIEF_LINE =
  * ask it is the yes or the no itself (`textedApprovals.js`).
  */
 export const YES_NO_LINE = 'End a yes-or-no question with "👍 or 👎?", never "say yes": a 👍 on it is their yes, a 👎 their no.';
+
+/**
+ * A safe next step is taken, never offered (three self-reviews of
+ * 2026-10-31: Tex asked whether to try a sign-in before trying it, whether to
+ * give a result it had been asked for, and whether to restart a form fill).
+ * Each cost the person a round for a step that reached nobody else. A yes
+ * still waits for what reaches another person
+ * (docs/decisions/texting-assistant/handing-back.md). The front door runs no
+ * reply checks, so this line is the guard; hand-back bench cases 19 and 20
+ * measure it.
+ */
+export const DO_NOT_OFFER_LINE =
+  'A next step that reaches nobody else (try again, restart, start a sign-in, give what you have) is yours: take it and say what happened, never "want me to?". Ask first only for what reaches another person, spends money or can\'t be undone.';
 
 /** The word the note is fenced in below, dropped from its own lines (`promptFence.js`). */
 const FENCE = "VOICE";

@@ -30,6 +30,8 @@ export interface ObjectRow {
   order: number | null;
   archiveOf: string | null;
   at: number;
+  /** The object's clock of the last change it made to this row, as Convex holds it (`nodes.objectAt`); not digested. */
+  objectAt: number;
 }
 
 /** The fields the object's digest covers, in its order. */
@@ -37,6 +39,8 @@ const DIGEST_FIELDS = ["id", "noteId", "path", "kind", "storageKey", "etag", "si
 
 export interface ConvexRowLike {
   _id: string;
+  /** The object's own id for a row it made (`nodes.objectId`): the row's id in the object, in place of `_id`. */
+  objectId?: string;
   path: string;
   kind: "file" | "folder";
   noteId?: string;
@@ -44,6 +48,7 @@ export interface ConvexRowLike {
   etag?: string;
   size?: number;
   goneAt?: number;
+  objectAt?: number;
   collaborates?: boolean;
   uploaded?: number;
   role?: string;
@@ -53,11 +58,16 @@ export interface ConvexRowLike {
 
 const finite = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
 
+/** The id the object knows a Convex row by: the object's own for a row it made, else the row's `_id`. */
+export function objectIdOf(row: { _id: string; objectId?: string }): string {
+  return typeof row.objectId === "string" && row.objectId !== "" ? row.objectId : String(row._id);
+}
+
 /** A live Convex row as the object row, stamped with `at` (the copy's clock); `null` for a gone row. */
 export function objectRowOf(row: ConvexRowLike, at: number): ObjectRow | null {
   if (row.goneAt !== undefined) return null;
   return {
-    id: String(row._id),
+    id: objectIdOf(row),
     noteId: row.noteId ?? null,
     path: row.path,
     kind: row.kind,
@@ -70,6 +80,7 @@ export function objectRowOf(row: ConvexRowLike, at: number): ObjectRow | null {
     order: finite(row.order),
     archiveOf: row.archiveOf ?? null,
     at,
+    objectAt: row.objectAt ?? 0,
   };
 }
 

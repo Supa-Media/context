@@ -24,7 +24,7 @@ import { after, before, beforeEach, test } from "node:test";
 
 import { createEgressWorld, request } from "./agentEgressFixtures.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { PENDING_PREFIX, armForText, createPending, listPending } from "../src/tools/approvals.js";
+import { EVERY_CHAT, PENDING_PREFIX, armForText, createPending, listPending } from "../src/tools/approvals.js";
 import { textedAsk } from "../src/agent/textedApprovals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
@@ -203,6 +203,35 @@ test("an ask armed before asks carried their chat: their own texts' still answer
   const reached = async (chat) => (await listPending(store, { userId: "user_a", texting: true, chat })).map(({ record }) => record.id);
   assert.deepEqual(await reached(null), [own.id], "their own texts' old ask, and not the group's");
   assert.deepEqual(await reached(KEY), [], "no group's yes reaches either");
+});
+
+test("a texted listing names its chat, or every chat, and never reaches them all by omission", async () => {
+  // The chat filter was skipped when `chat` was left out, so it guarded only the call sites that remembered it.
+  // Every settling path does pass it; the sweeping disarms deliberately do not, and now say so. A later settling
+  // path that forgot would have reopened exactly the ask this file is about, silently. Sabotage: take the
+  // `chat === undefined` refusal back out and the first assertion fails.
+  const store = createMemoryStore();
+  const raise = (to) =>
+    createPending(store, {
+      name: "send_email",
+      args: { to: [`${to}@example.test`] },
+      actor: { workspaceId: "ws_1", userId: "user_a", clientId: "context_texts_group", client: "Tex" },
+      tier: "private",
+      scopes: [],
+      widening: { summary: to, audience: "outside" },
+      workspaceId: "ws_1",
+    });
+  const here = await raise("here");
+  // One armed ask, in a group: `armForText` deliberately disarms every other armed ask of theirs, so two chats'
+  // asks cannot be armed from here (the Cy and Ada turn armed them a chat at a time).
+  await armForText(store, { userId: "user_a", ids: [here.id], chat: KEY });
+
+  await assert.rejects(listPending(store, { userId: "user_a", texting: true }), TypeError);
+  const reached = async (chat) => (await listPending(store, { userId: "user_a", texting: true, chat })).map(({ record }) => record.id);
+  assert.deepEqual(await reached(KEY), [here.id]);
+  assert.deepEqual(await reached(null), [], "their own texts reach no ask armed in a group");
+  assert.deepEqual(await reached(OTHER_KEY), [], "nor does another group's");
+  assert.deepEqual(await reached(EVERY_CHAT), [here.id], "the sweep the disarms want, said out loud");
 });
 
 test("an ask shown again in a reply that asks something stays armed, in that chat", async () => {

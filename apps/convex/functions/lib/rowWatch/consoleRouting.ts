@@ -17,8 +17,13 @@ import { doorStub } from "./objectDoor";
 type Home = "bucket" | "dual" | "object";
 
 export type ConsoleWorkspaceRouting = {
-  /** The binding with its home on it, as the factory reads it (`notesHome`). */
-  credential: <C extends object>(credential: C) => C & { notesHome?: Home };
+  /**
+   * The binding with its workspace and home on it, as the factory reads them (`workspaceId`, `notesHome`,
+   * `notesBackfilledAt`). The console's credential names no workspace of its own, and the factory routes nothing for
+   * a binding without one: until 2026-11-02 every note the app made or saved in an object-home workspace went to the
+   * bucket alone, where the gateway never reads it, so a new note opened read-only in the app.
+   */
+  credential: <C extends object>(credential: C) => C & { workspaceId?: string; notesHome?: Home; notesBackfilledAt?: number };
   /** The factory's `workspaceStore` option, or absent for a bucket workspace. */
   options: { workspaceStore?: (workspaceId: string) => { bodies: unknown } | null };
 };
@@ -29,7 +34,10 @@ export async function consoleWorkspaceRouting(
   workspaceId: Id<"workspaces">,
   options: Parameters<typeof doorStub>[2] = {},
 ): Promise<ConsoleWorkspaceRouting> {
-  const home = (await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId })) as Home;
+  const { home, backfilledAt } = (await ctx.runQuery(internal.functions.workspaceObjectsRows.notesOf, { workspaceId })) as {
+    home: Home;
+    backfilledAt: number | null;
+  };
   if (home === "bucket") return { credential: (credential) => credential, options: {} };
   const stub = doorStub(ctx, workspaceId, options);
   // A workspace whose notes live in its object, built where the gateway cannot be reached, must not write the
@@ -37,7 +45,13 @@ export async function consoleWorkspaceRouting(
   if (stub === null) throw new Error("this workspace's notes live in its object, and this deployment cannot reach it");
   const bodies = new R2Store(texBucket(stub));
   return {
-    credential: (credential) => ({ ...credential, notesHome: home }),
+    credential: (credential) => ({
+      ...credential,
+      workspaceId,
+      notesHome: home,
+      // Read as the gateway reads: once the object holds everything, a key it lacks is not fetched from the bucket.
+      ...(backfilledAt === null ? {} : { notesBackfilledAt: backfilledAt }),
+    }),
     options: { workspaceStore: (id: string) => (id === workspaceId ? { bodies } : null) },
   };
 }

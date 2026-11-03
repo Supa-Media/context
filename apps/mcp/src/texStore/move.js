@@ -87,7 +87,7 @@ export function placeOf(sql) {
   return out;
 }
 
-function setPlace(sql, fields) {
+export function setPlace(sql, fields) {
   init(sql);
   for (const [k, v] of Object.entries(fields)) sql.exec("INSERT INTO place (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", k, JSON.stringify(v));
 }
@@ -95,7 +95,9 @@ function setPlace(sql, fields) {
 /** The objects' write guard for this store: throws once it has moved. */
 export function moveGuard(sql) {
   return () => {
-    if (placeOf(sql).movedTo !== undefined) throw new TexMoved();
+    const place = placeOf(sql);
+    // Moved to a placed store, or merged into a person's workspace object (`merge.js`).
+    if (place.movedTo !== undefined || place.mergedTo !== undefined) throw new TexMoved();
   };
 }
 

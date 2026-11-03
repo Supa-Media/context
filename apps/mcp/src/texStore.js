@@ -18,17 +18,17 @@
  * Every store lives under a name placed in eastern North America, and the
  * first call to one copies in what the owner's store under the old name held
  * (`texStore/move.js`). The old one then passes every call on, and clears its
- * copy after three days.
+ * copy after three days. A person's store then moves once more, into their
+ * workspace's object (`texStore/merge.js`), and passes every call on there;
+ * only a group chat's store is still answered from here.
  */
 
-import { cancel, due, nextAt, retry, schedule, settle } from "./texStore/alarms.js";
 import { routineDispatchFor } from "./texStore/dispatch.js";
-import { texObjects } from "./texStore/objects.js";
-import { serveTexStore } from "./texStore/wire.js";
-import { MOVE_OPS, TexMoved, arrive, clearOld, forward, logMove, moveGuard, opOf, ownerOf, placeOf, purgeOld, serveMoveOut } from "./texStore/move.js";
+import { RETRY_MS, TexEngine } from "./texStore/engine.js";
+import { MOVE_OPS, TexMoved, arrive, clearOld, forward, logMove, moveGuard, opOf, ownerOf, placeOf, purgeOld, serveMoveOut, setPlace } from "./texStore/move.js";
+import { MERGE_OPS, clearMerged, forwardMerged, serveMergeOut } from "./texStore/merge.js";
 
-/** How long a routine that could not be handed on waits before it is tried again. */
-export const RETRY_MS = 60 * 1000;
+export { RETRY_MS };
 
 export class TexStore {
   /**
@@ -37,40 +37,25 @@ export class TexStore {
    * @param {{dispatch?: (routine: {id: string, at: number, payload: unknown}) => Promise<{next: number | null}>, now?: () => number}} [options]
    *   `dispatch` hands a due routine on and answers when it next runs, or throws to have it tried again.
    */
-  constructor(state, env, { dispatch = routineDispatchFor(env), now = Date.now } = {}) {
+  constructor(state, env, { dispatch = routineDispatchFor(env), now = Date.now, pageDeps = {} } = {}) {
     this.state = state;
     this.env = env;
-    this.dispatch = dispatch;
     this.now = now;
-    this.objects = null;
-    this.timers = null;
+    this.engine = new TexEngine(state, env, { dispatch, now, pageDeps, guard: () => moveGuard(state.storage.sql)() });
   }
 
-  /** The object's notes and alarms, built on first use. */
+  /** The object's notes, ledger, page and alarms, built on first use. */
   ready() {
-    if (this.objects !== null) return;
-    const guard = moveGuard(this.state.storage.sql);
-    this.objects = texObjects(this.state.storage.sql, { now: this.now, guard });
-    this.timers = {
-      schedule: (alarm) => {
-        guard();
-        const set = schedule(this.state.storage.sql, alarm ?? {});
-        this.arm();
-        return set;
-      },
-      cancel: (id) => {
-        guard();
-        cancel(this.state.storage.sql, id);
-        this.arm();
-      },
-    };
+    this.engine.ready();
+    this.objects = this.engine.objects;
+    this.page = this.engine.page;
+    this.timers = this.engine.timers;
+    this.live = this.engine.live;
   }
 
-  /** Sets the runtime alarm at the earliest routine, or clears it when there is none. */
+  /** Sets the runtime alarm at the earliest routine or open page's poll, or clears it when there is neither. */
   arm() {
-    const at = nextAt(this.state.storage.sql);
-    if (at === null) this.state.storage.deleteAlarm();
-    else this.state.storage.setAlarm(at);
+    this.engine.arm();
   }
 
   async fetch(request) {
@@ -104,28 +89,45 @@ export class TexStore {
       });
       if (failed) return Response.json({ error: "tex_store_moving" }, { status: 503 });
     }
-    const fresh = () => new Request(request.url, { method: request.method, headers: request.headers, body });
+    // A person's Tex moving into their workspace object (`texStore/merge.js`): only that object asks, naming the person.
+    if (MERGE_OPS.has(op)) {
+      if (!String(ownerOf(request) ?? "").startsWith("person:")) return Response.json({ error: "unknown_op" }, { status: 400 });
+      const answer = await serveMergeOut(new Request(request.url, { method: request.method, headers: request.headers, body }), {
+        sql,
+        objects: this.objects,
+        place: placeOf(sql),
+        setPlace: (fields) => setPlace(sql, fields),
+        setAlarm,
+        env: this.env,
+        now: this.now,
+      });
+      // Pages open on this store come back through the gateway, to the workspace object.
+      if (op === "merge_out" || op === "merge_purge") this.engine.wipePage();
+      return answer;
+    }
+    if (placeOf(sql).mergedTo !== undefined) return await forwardMerged(this.env, placeOf(sql), request, body);
     try {
-      const answer = await serveTexStore(this.objects, fresh(), this.timers);
+      const answer = await this.engine.serve(request, body);
+      if (op === "wipe") this.engine.wiped();
       if (op === "wipe" && placeOf(sql).from !== undefined) await purgeOld(this.env, placeOf(sql).from);
       return answer;
     } catch (error) {
-      if (error instanceof TexMoved) return await forward(this.env, placeOf(sql), request, body);
+      if (error instanceof TexMoved) {
+        const now = placeOf(sql);
+        return now.mergedTo !== undefined ? await forwardMerged(this.env, now, request, body) : await forward(this.env, now, request, body);
+      }
       throw error;
     }
   }
 
   /**
-   * The runtime alarm fired: hand each due routine on, one after another. One
-   * handed on answers when it next runs, and the routine is kept for that time;
-   * one that answers no next time is removed; one that could not be handed on
-   * waits `RETRY_MS`. Nothing is ever armed at a time already past, so nothing
-   * is lost and the alarm does not spin.
+   * The runtime alarm fired: hand each due routine on (`texStore/engine.js`).
+   * A store that has moved or merged runs no routine: its alarm is only for
+   * clearing the old copy.
    */
   async alarm() {
     this.ready();
     const sql = this.state.storage.sql;
-    // A store that has moved runs no routine: its alarm is only for clearing the old copy.
     const place = placeOf(sql);
     if (place.movedTo !== undefined) {
       if (this.now() >= place.purgeAt) {
@@ -134,18 +136,31 @@ export class TexStore {
       } else this.state.storage.setAlarm(place.purgeAt);
       return;
     }
-    const started = this.now();
-    for (const routine of due(sql, started)) {
-      let answer = null;
-      try {
-        answer = await this.dispatch(routine);
-      } catch {
-        answer = null;
-      }
-      if (answer === null) retry(sql, routine, started + RETRY_MS);
-      else if (typeof answer.next === "number") retry(sql, routine, answer.next);
-      else settle(sql, routine.id, routine.at);
+    if (place.mergedTo !== undefined) {
+      // Kept until the workspace object confirmed its copy (`merge_done`), then three days more.
+      if (place.purgeAt === undefined) this.state.storage.deleteAlarm();
+      else if (this.now() >= place.purgeAt) {
+        if (place.purgedAt === undefined) clearMerged(sql, (fields) => setPlace(sql, fields), this.now);
+        this.state.storage.deleteAlarm();
+      } else this.state.storage.setAlarm(place.purgeAt);
+      return;
     }
-    this.arm();
+    await this.engine.runDue();
+  }
+
+  async webSocketMessage(ws, raw) {
+    this.engine.message(ws, raw);
+  }
+
+  async webSocketClose(ws) {
+    try {
+      ws.close(1000, "closed");
+    } catch {
+      // Already closed.
+    }
+  }
+
+  async webSocketError(ws) {
+    await this.webSocketClose(ws);
   }
 }

@@ -2,6 +2,13 @@
 
 ### Each note's links, front matter and chaos history live in Convex beside its row
 
+> **2026-11-02:** for a workspace whose notes live in its object, the gateway
+> reads notes' links and props from the object instead
+> ([facts-in-objects](../storage-and-credentials/facts-in-objects.md)), and so
+> does every app reader; the control plane drops its copy for such a workspace
+> and stops filling it. The copy below is kept only for workspaces whose
+> `home` is still `bucket` or `dual`.
+
 *Decided by the owner, 2026-10-13* ("let's move the front matter, keep it on
 the same row, but update the readme about this, no need to surface in the app
 as it doesn't change anyone's experience"), after the sweep of what still read
@@ -86,8 +93,8 @@ gone, and since 2026-10-13 a reader the facts cannot answer yet never falls
 back to the bucket either: a List shows its gaps, the map draws every note
 and says it is behind on links, and the chaos score is counted from the
 tree's keys alone and kept out of the history until the facts are whole. A
-write's chaos report is counted from the tree's keys and the facts
-(`apps/mcp/src/chaos/change.js`). The gateway's agent tools likewise (owner,
+write's chaos report, counted from the tree's keys and the facts, was retired
+on 2026-11-03 ([chaos-score](../chaos-score.md)). The gateway's agent tools likewise (owner,
 2026-10-13: nothing but opening a note reads storage): a note with no props
 is listed as "(details still loading)", a List leaves it out and says
 `pending`, a rewrite whose candidates are not whole reads every note the tree

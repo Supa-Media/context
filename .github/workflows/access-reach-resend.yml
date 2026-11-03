@@ -1,0 +1,63 @@
+# Send every person's reach to their object again (2026-11-02), so rows copied
+# before reach carried `rowNames` get them now rather than at the person's next
+# access change. Manual only, dry run first. It pages through
+# `functions/accessReachResend:resend`, which answers counts and a cursor only,
+# because this repository is public and so is this job's log.
+name: Access reach resend
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      dry_run:
+        description: "Count only; queue nothing."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  resend:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Resend
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          people=0
+          queued=0
+          for page in $(seq 1 500); do
+            args=$(jq -cn --argjson dry "$DRY_RUN" '{dryRun: $dry}')
+            if [ -n "$cursor" ]; then args=$(echo "$args" | jq -c --arg cursor "$cursor" '. + {cursor: $cursor}'); fi
+            answer=$(npx convex run functions/accessReachResend:resend "$args" 2>/dev/null)
+            people=$((people + $(echo "$answer" | jq -r '.people')))
+            queued=$((queued + $(echo "$answer" | jq -r '.queued')))
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+          done
+          echo "dry_run=$DRY_RUN people=$people queued=$queued"
+          echo "### Access reach resend" >> "$GITHUB_STEP_SUMMARY"
+          echo "dry_run=$DRY_RUN people=$people queued=$queued" >> "$GITHUB_STEP_SUMMARY"

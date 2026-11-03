@@ -22,7 +22,7 @@
  * name every app a person connected. Today those are Convex calls only the
  * signed-in app can make, so an MCP client holding a grant is refused here
  * rather than handed a new power: only the console's client (`context_console`)
- * opens this socket. Tex guest grants (`@#` names) are refused as on the tree.
+ * opens this socket. Tex guest grants and pin readers (`readsByOtherRules`) are refused as on the tree.
  *
  * ## A socket lives at most five minutes
  *
@@ -33,6 +33,7 @@
 
 import { resolvePresentedSession } from "../http/presentedToken.js";
 import { hasScope, SCOPE_READ, SessionRefusal } from "../session.js";
+import { readsByOtherRules } from "./readerNames.js";
 import { createControlPlane } from "../controlPlane.js";
 import { forbiddenResponse, unauthorizedResponse } from "../oauth.js";
 import { json } from "../http/responses.js";
@@ -100,7 +101,7 @@ export async function handleAccess(request, env, { slug, pathToken, origin }, de
     typeof session.actorUserId !== "string" ||
     !session.actorUserId ||
     !MEMBER_ROLES.has(session.role) ||
-    groups.some((name) => name.startsWith("@#"))
+    readsByOtherRules(session)
   ) {
     return json({ error: "forbidden" }, 403);
   }

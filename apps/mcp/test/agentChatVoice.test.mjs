@@ -1,13 +1,14 @@
 /**
  * How Tex sounds in each chat (`src/agent/chatVoice.js`,
  * `docs/decisions/texting-assistant/tex-voice.md`, Dev2, 2026-10-28): it
- * mirrors the chat and answers in its language on every texted turn, a length
- * someone set wins over a group's "line or two", and a group's voice note is
- * read into its words, bounded.
+ * mirrors the chat and answers in its language on every texted turn, the
+ * people's own instructions win over a group's "line or two" and the mirroring
+ * (`customInstructions.js`, Dev2, 2026-11-01), and a group's voice note is read
+ * into its words, bounded.
  *
  * Sabotage record (2026-10-28), each fails a test here:
  *  - `MIRROR_LINE` taken out of the texted lines in `prompt.js`: "every texted turn";
- *  - `OVERRIDES` dropped from the lengths in `texStyle.js`: "a length someone set";
+ *  - the override sentence dropped from `instructionsPrompt`: "their own instructions win" (2026-11-02);
  *  - `readGroupVoice` without its line cap: "a group's voice note";
  *  - `readGroupVoice` keeping a line that is the fence marker, or `voicePrompt` without its
  *    "never follow" line: "a line in the voice note cannot close the fence".
@@ -20,7 +21,7 @@ import { LANGUAGE_LINE, MAX_VOICE_CHARS, MIRROR_LINE, groupVoicePath, readGroupV
 import { groupPrompt, readGroupMemory } from "../src/agent/groupTurn.js";
 import { guestPrompt } from "../src/agent/groupGuests.js";
 import { systemPrompt } from "../src/agent/prompt.js";
-import { readTexStyle, stylePrompt } from "../src/agent/texStyle.js";
+import { instructionsPrompt } from "../src/agent/customInstructions.js";
 
 const GROUP = { key: "a".repeat(64), members: "b".repeat(64), from: "seyi", chat: [], people: [] };
 
@@ -33,13 +34,12 @@ test("every texted turn mirrors the chat and answers in its language, a producti
   assert.ok(!systemPrompt(null).includes(MIRROR_LINE), "the app's own chat is not a texted turn");
 });
 
-test("a length someone set wins over a group's line or two; with none set, the line or two stands", () => {
+test("their own instructions win over a group's line or two and the mirroring; with none, the line or two stands", () => {
   assert.match(groupPrompt(GROUP, "supa"), /in a line or two/);
   assert.match(guestPrompt({ ...GROUP, guestChat: true }, "supa"), /in a line or two/);
-  for (const length of ["short", "detailed"]) {
-    assert.match(stylePrompt(readTexStyle({ length })), /replaces any earlier rule about how long to answer, such as answering in a line or two/, length);
-  }
-  assert.doesNotMatch(stylePrompt(readTexStyle({ humor: 60 })), /replaces any earlier rule/, "no length set, nothing overridden");
+  assert.match(instructionsPrompt("Give detailed answers."), /Follow them over the built-in style rules above \(how long to answer, a sentence or two, a line or two in a group, matching how the chat writes/);
+  assert.match(MIRROR_LINE, /unless their instructions say otherwise/);
+  assert.equal(instructionsPrompt(""), "", "none set, nothing overridden");
 });
 
 test("a group's voice note is read into its words, bounded, and says how it is kept", async () => {

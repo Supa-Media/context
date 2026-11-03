@@ -415,9 +415,9 @@ test("a streamed group turn texts its progress to the chat, as a text does (2026
   assert.match(JSON.stringify(world.model.requests[0]), /send with action progress/);
 });
 
-test("a chat set to one bubble, and a job's report, get no progress lines, though each is streamed (Dev2, 2026-11-01)", async () => {
+test("a chat with progress updates off, and a job's report, get no progress lines, though each is streamed (Dev2, 2026-11-01)", async () => {
   const report = { title: "Venue research", state: "done", texts: ["Nopa has a room for 20."] };
-  for (const extra of [{ texStyle: { bubbles: "one" } }, { event: "job_report", jobReport: report }]) {
+  for (const extra of [{ updates: "off" }, { event: "job_report", jobReport: report }]) {
     world.model.install([{ toolCalls: [{ name: "send", args: { action: "progress", args: { text: "Reading the page now." } } }] }, { text: "Done." }]);
     const { progress, answer } = await streamed({ question: "Tex research this link", group: chat(), ...extra });
     assert.deepEqual(progress, [], JSON.stringify(extra));

@@ -23,6 +23,8 @@
  *  - `readHistory` ignoring the desk (`openDesk` returning null): "... in one desk call";
  *  - `deskTexts` answering {} (About me read as a note again): "About me and the jobs list come from the desk";
  *  - `openWarm` passing `copy.chat` whole: "a copy sealed before ... is never used for the history".
+ * 2026-11-02: `readDesk` ignoring `DESK_KEYS_KEY`: "About me and the jobs list come from the desk ..." and "the desk reads the note keys ...".
+ * 2026-11-02: `copiedIn` answering false (the record written beside a copied-in ledger): "a texted turn never touches ...".
  */
 
 import assert from "node:assert/strict";
@@ -32,7 +34,8 @@ import { createEgressWorld, request, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentE
 import { openWarm, sealWarm, warmTurn } from "../src/agent/warmCopy.js";
 import { TOLD } from "../src/agent/conversation.js";
 import { deskEligible, learnDeskKeys } from "../src/agent/texDesk.js";
-import { HISTORY_KEY } from "../src/agent/history.js";
+import { DESK_KEYS, HISTORY_KEY } from "../src/agent/history.js";
+import { readDesk } from "../src/texStore/desk.js";
 import { isAgentHomeKey, TexStoreUnavailable, withTexRouting } from "../src/store/texRouting.js";
 import { R2Store } from "../src/store/r2.js";
 import { texStoreStub, texBucket } from "../src/texStore/wire.js";
@@ -82,11 +85,16 @@ test("a texted turn never touches the bucket for its history or bookkeeping, and
     const now = Date.now();
     const first = event(now - 9_000, { text: "hi Tex" });
     world.model.install([{ text: "Hey Seyi." }]);
+    // The Worker posts each text both ways to the chat's ledger (`/agent/events`), as it does beside every turn.
+    const posted = async (events) => assert.equal((await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events })).status, 200);
+    await posted([first]);
     const one = await watched(world, () => request(world.env, TOKEN_TEXTS, "/agent", { question: "hi Tex", conversation: "texts", covers: [first.id], chat: CHAT, recent: [first], turn: "turn-copy-0001" }));
     assert.equal(one.result.status, 200, JSON.stringify(one.result.body));
-    // A person with no record yet (one the migration has not reached) has their old copies read once, to move them in: reads only, never a write.
-    assert.deepEqual(one.bucket, ["GET /tenant-egress.context/agent/events/", "GET /tenant-egress/.context/agent/conversations/texts.json"], "the one move-in: the old log's listing and the old file");
-    assert.ok(await record(world), "and the record is made, so it never happens again");
+    // Their chat's past is copied into the ledger (`ledgerBackfill.js`) after the Worker's post, so the turn reads the ledger:
+    // no old copy is moved in and no history record is made (`conversation.js` `appendConversation`).
+    assert.deepEqual(one.bucket, [], "nothing of the old copies is read");
+    assert.equal(await record(world), null, "and no history record is made: the ledger is the one copy");
+    await posted([event(Date.now(), { from: { kind: "tex" }, text: "Hey Seyi.", turn: "turn-copy-0001", covers: [first.id], delivered: true })]);
 
     // A job reports to the chat's own turn.
     world.model.install([{ text: "Your application is drafted." }]);
@@ -114,9 +122,9 @@ test("a texted turn never touches the bucket for its history or bookkeeping, and
     assert.match(shown, /Nothing changed since yesterday\./, "the routine's text reached the record the next text read");
     assert.ok(shown.includes(TOLD.setup.slice(0, 40)), "the Worker's fixed text too");
 
-    const kept = await record(world);
-    const texts = kept.turns.map((turn) => turn.text);
-    for (const said of ["hi Tex", "Hey Seyi.", "Nothing changed since yesterday.", "That it's drafted."]) assert.ok(texts.some((text) => text.includes(said)), `${said} is in the one record`);
+    assert.equal(await record(world), null, "still no history record");
+    const ledger = JSON.stringify(await texBucket(texStoreStub(world.env, { person: PERSON.slice("person:".length) })).ledgerRead("texts"));
+    for (const said of ["hi Tex", "Hey Seyi.", "Nothing changed since yesterday.", "That it's drafted."]) assert.ok(ledger.includes(said), `${said} is in the one record, the chat's ledger`);
     const inBucket = [...world.bucket.keys()].filter((key) => BOOKKEEPING.test(key));
     assert.deepEqual(inBucket, [], "the bucket holds none of it");
   } finally {
@@ -124,7 +132,7 @@ test("a texted turn never touches the bucket for its history or bookkeeping, and
   }
 });
 
-test("About me and the jobs list come from the desk, by the keys the record keeps, with no note read", async () => {
+test("About me and the jobs list come from the desk, by the keys kept beside the record, with no note read", async () => {
   const world = await createEgressWorld();
   try {
     world.model.install([{ text: "Hey." }]);
@@ -133,8 +141,8 @@ test("About me and the jobs list come from the desk, by the keys the record keep
     const object = personObject(world);
     await object.put(`notes/${ABOUT_ID}.md`, "- Prefers mornings\n- ABOUT-MARKER-7731\n");
     await object.put(`notes/${JOBS_ID}.md`, "- [Visa](@egress/1-projects/visa.md) JOBS-MARKER-4410\n");
-    const held = await record(world);
-    await object.put("state/agent/history/texts.json", JSON.stringify({ ...held, direct: { about: `notes/${ABOUT_ID}.md`, jobs: `notes/${JOBS_ID}.md` } }));
+    // The keys sit beside the record, in their own key (`history.js` `keepDeskKeys`): the record is retired, they are not.
+    await object.put("state/agent/history/desk.json", JSON.stringify({ v: 1, direct: { about: `notes/${ABOUT_ID}.md`, jobs: `notes/${JOBS_ID}.md` } }));
 
     world.model.install([{ text: "Morning it is." }]);
     const noteReads = [];
@@ -197,12 +205,29 @@ test("the desk only keeps keys of notes in this person's own object, and only fo
     contexts: [{ current: true, kind: "personal", role: "owner", tier: "private" }],
     keysAt: async () => ({ "tex/about-me.md": `tex/person:ws_other/notes/${ABOUT_ID}.md`, "tex/jobs.md": `tex/person:ws_1/notes/${JOBS_ID}.md` }),
     get: async () => ({ etag: "e1", text: async () => JSON.stringify({ v: 1, turns: [] }) }),
-    put: async (_key, body) => (kept.push(JSON.parse(body)), {}),
+    put: async (key, body) => (kept.push({ key, ...JSON.parse(body) }), {}),
   };
   await learnDeskKeys(store, "ws_1");
   assert.deepEqual(kept.at(-1).direct, { jobs: `notes/${JOBS_ID}.md` }, "another workspace's object is never named");
+  assert.equal(kept.at(-1).key, DESK_KEYS, "kept in their own key, never the history record");
+  assert.equal(kept.at(-1).turns, undefined);
   for (const current of [{ kind: "shared", role: "owner", tier: "private" }, { kind: "personal", role: "editor", tier: "team" }, { kind: "personal", role: "owner", tier: "team" }]) {
     assert.equal(deskEligible({ contexts: [{ current: true, ...current }] }), false, JSON.stringify(current));
   }
   assert.equal(deskEligible(store), true);
+});
+
+test("the desk reads the note keys kept by themselves, and an older record's own until those are written", () => {
+  const body = (value) => ({ etag: "e", body: new TextEncoder().encode(typeof value === "string" ? value : JSON.stringify(value)) });
+  const objectsOf = (held) => ({ get: (key) => held[key] ?? null });
+  const about = `notes/${ABOUT_ID}.md`;
+  const jobs = `notes/${JOBS_ID}.md`;
+  const notes = { [about]: body("ABOUT"), [jobs]: body("JOBS") };
+  const old = readDesk(objectsOf({ ...notes, "state/agent/history/texts.json": body({ v: 1, turns: [], direct: { about } }) }));
+  assert.equal(old.notes.about.text, "ABOUT", "an older record's keys");
+  const own = readDesk(objectsOf({ ...notes, "state/agent/history/texts.json": body({ v: 1, turns: [], direct: { about } }), "state/agent/history/desk.json": body({ v: 1, direct: { jobs } }) }));
+  assert.deepEqual(Object.keys(own.notes), ["jobs"], "the keys kept by themselves win");
+  const none = readDesk(objectsOf({ ...notes, "state/agent/history/desk.json": body({ v: 1, direct: { about, jobs } }) }));
+  assert.equal(none.history, null);
+  assert.equal(none.notes.jobs.text, "JOBS", "with no record at all");
 });

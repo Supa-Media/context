@@ -8,7 +8,7 @@
  * control plane derives the workspace from that token's grant; the
  * `workspaceId` and `expectedWorkspaceId` fields only let it refuse a mismatch.
  */
-import { ControlPlaneError } from "./client.js";
+import { CONTROL_PLANE_WRITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
 import { isIdKey } from "../privacy/engine.js";
 import { isNoteId } from "../store/noteIdKeys.js";
 
@@ -150,7 +150,7 @@ export function createNoteIdMethods({ post, required }) {
         ...(Number.isFinite(copy?.at) ? { at: copy.at } : {}),
         accessToken,
         expectedWorkspaceId: workspaceId,
-      });
+      }, { timeoutMs: CONTROL_PLANE_WRITE_TIMEOUT_MS });
       if (parsed.ok !== true) throw new ControlPlaneError("malformed note id record");
       return { recorded: parsed.recorded === true };
     },
@@ -176,7 +176,7 @@ export function createNoteIdMethods({ post, required }) {
         at: note?.at,
         accessToken,
         expectedWorkspaceId: workspaceId,
-      });
+      }, { timeoutMs: CONTROL_PLANE_WRITE_TIMEOUT_MS });
       if (parsed.ok !== true) throw new ControlPlaneError("malformed note adoption");
       if (parsed.adopted === true) return { adopted: true, taken: null };
       return { adopted: false, taken: narrowNote(parsed.taken) };
@@ -199,7 +199,7 @@ export function createNoteIdMethods({ post, required }) {
         at: note?.at,
         accessToken,
         expectedWorkspaceId: workspaceId,
-      });
+      }, { timeoutMs: CONTROL_PLANE_WRITE_TIMEOUT_MS });
       if (parsed.ok !== true) throw new ControlPlaneError("malformed note removal");
       return { removed: parsed.removed === true };
     },

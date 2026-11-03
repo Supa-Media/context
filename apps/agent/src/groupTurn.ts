@@ -14,7 +14,8 @@
 import { chatEvent } from "./chatState";
 import type { SettingReply } from "./texStyle";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
-import { addEvent, keptEvents, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
+import { addEvent, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
+import { chatEvents } from "./chatRead";
 import { decide, GROUP_DECIDE_MS, MAX_CANDIDATES, RUNNING_DECIDE_MS, type ControlDeps, type Decision, type GroupStyle } from "./decide";
 import { eventPeople, sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
@@ -92,7 +93,7 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       sender: newest.from,
       style,
       // The chat's whole log, whoever has joined or left since (the owner, 2026-11-02).
-      transcript: renderTranscript(await keptEvents(storage, newest.groupId)),
+      transcript: renderTranscript(await chatEvents(storage, newest.groupId)),
       candidates,
       running,
       // Only the sender's own asks: nobody else's "nah forget it" can end somebody's ask.

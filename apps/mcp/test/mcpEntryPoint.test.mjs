@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { before, test } from "node:test";
 
 import worker from "../src/index.js";
-import { callOf, mcpEntry } from "../src/mcp/mcpEntryPoint.js";
+import { callOf, keyClass, mcpEntry } from "../src/mcp/mcpEntryPoint.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
@@ -44,11 +44,42 @@ test("steps are held until the response, then written once, indexed by the works
   assert.equal(mcp.done(response), response);
   mcp.done(response);
   assert.deepEqual(MCP_ENTRY.points, [
-    { blobs: ["mcp", "tools/call:fetch", "session", "ok", "Claude"], doubles: [70, 3], indexes: ["ws_1"] },
-    { blobs: ["mcp", "tools/call:fetch", "open_store", "failed", "Claude"], doubles: [20, 73], indexes: ["ws_1"] },
-    { blobs: ["mcp", "tools/call:fetch", "to_response", "ok", "Claude"], doubles: [93, 0], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "session", "ok", "Claude"], doubles: [70, 3, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "open_store", "failed", "Claude"], doubles: [20, 73, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "to_response", "ok", "Claude"], doubles: [93, 0, 1], indexes: ["ws_1"] },
   ]);
   assert.doesNotMatch(JSON.stringify(MCP_ENTRY.points), /secret|token/);
+});
+
+test("one point per step and state for the whole request: repeated calls are summed and counted, to_response last", async () => {
+  const time = clock();
+  const MCP_ENTRY = dataset();
+  const mcp = mcpEntry({ MCP_ENTRY }, { now: time.now });
+  for (const ms of [5, 7, 9]) {
+    await mcp.step("store:get", async () => {
+      time.tick(ms);
+    });
+  }
+  await assert.rejects(mcp.step("store:get", async () => {
+    time.tick(2);
+    throw new Error("missing");
+  }));
+  mcp.done(new Response("{}"));
+  assert.deepEqual(MCP_ENTRY.points.map((p) => [p.blobs[2], p.blobs[3], ...p.doubles]), [
+    ["store:get", "ok", 21, 0, 3],
+    ["store:get", "failed", 2, 21, 1],
+    ["to_response", "ok", 23, 0, 1],
+  ]);
+});
+
+test("a store call is named by the kind of its key, never the key", () => {
+  assert.equal(keyClass("1-projects/secret plan.md"), "note");
+  assert.equal(keyClass("files/photo.png"), "file");
+  assert.equal(keyClass(".context/audit/2026-11-03-x.json"), ".context/audit");
+  assert.equal(keyClass(".context/collaboration/v1/state/a.json"), ".context/collaboration");
+  assert.equal(keyClass(".context/Weird Name/x"), ".context/other");
+  assert.equal(keyClass({ prefix: "1-projects/" }), "list");
+  assert.equal(keyClass(undefined), "other");
 });
 
 test("a control-plane fetch is timed by its route, never its query or an id in it", async () => {
@@ -73,13 +104,48 @@ test("a watched store's calls are timed by operation and still answer as before"
   assert.equal(mcp.watch(store), store);
   assert.equal(await store.get("a.md"), "body of a.md");
   await store.list({ prefix: "" });
-  assert.deepEqual(mcp.points.map((p) => p.name), ["store:get", "store:list"]);
+  assert.deepEqual(mcp.points.map((p) => p.name), ["store:get:note", "store:list:list"]);
   assert.equal(store.name, "kept");
+});
+
+test("a workspace object call is timed by its op, on a copy of env, and still answers as before", async () => {
+  const mcp = mcpEntry({});
+  const asked = [];
+  const namespace = {
+    idFromName: (name) => ({ name }),
+    get: (id, options) => ({ fetch: async (request) => (asked.push([id.name, options, new URL(request.url).pathname]), Response.json({ ok: true })) }),
+  };
+  const env = { WORKSPACE_STORE: namespace, OTHER: "kept" };
+  const watched = mcp.watchObjects(env);
+  assert.notEqual(watched, env, "a copy: env is shared by every request");
+  assert.equal(env.WORKSPACE_STORE, namespace, "env itself is untouched");
+  assert.equal(watched.OTHER, "kept");
+  const stub = watched.WORKSPACE_STORE.get(watched.WORKSPACE_STORE.idFromName("workspace:w1"), { locationHint: "enam" });
+  assert.deepEqual(await (await stub.fetch(new Request("https://object.test/ws.rows.lookup", { method: "POST", headers: { "x-tex-call": "secret%20plan.md" } }))).json(), { ok: true });
+  await stub.fetch(new Request("https://object.test/get"));
+  await stub.fetch(new Request("https://object.test/not%20an%20op"));
+  assert.deepEqual(asked, [
+    ["workspace:w1", { locationHint: "enam" }, "/ws.rows.lookup"],
+    ["workspace:w1", { locationHint: "enam" }, "/get"],
+    ["workspace:w1", { locationHint: "enam" }, "/not%20an%20op"],
+  ]);
+  assert.deepEqual(mcp.points.map((p) => [p.name, p.state]), [
+    ["obj:ws.rows.lookup", "ok"],
+    ["obj:get", "ok"],
+    ["obj:unknown", "ok"],
+  ]);
+  assert.equal(mcp.watchObjects({}).WORKSPACE_STORE, undefined, "no binding, nothing added");
 });
 
 test("callOf names the call, the tool for a tool call, and nothing a caller wrote", () => {
   assert.equal(callOf({ method: "initialize" }), "initialize");
   assert.equal(callOf({ method: "tools/call", params: { name: "orient", arguments: { q: "secret" } } }), "tools/call:orient");
+  assert.equal(callOf({ method: "tools/call", params: { name: "manage", arguments: { action: "archive", args: { path: "a.md" } } } }), "tools/call:manage:archive");
+  assert.equal(callOf({ method: "tools/call", params: { name: "write", arguments: { action: "save" } } }), "tools/call:write:save");
+  // An action no tool lists is never carried, so a caller cannot write into the timings.
+  assert.equal(callOf({ method: "tools/call", params: { name: "manage", arguments: { action: "secret_words" } } }), "tools/call:manage");
+  assert.equal(callOf({ method: "tools/call", params: { name: "manage", arguments: { action: "toString" } } }), "tools/call:manage");
+  assert.equal(callOf({ method: "tools/call", params: { name: "constructor", arguments: { action: "save" } } }), "tools/call:constructor");
   assert.equal(callOf([{ method: "tools/list" }]), "tools/list");
   assert.equal(callOf([{ method: "a" }, { method: "b" }]), "batch");
   assert.equal(callOf(undefined), "unparsed");
@@ -130,9 +196,10 @@ test("a tool call through the Worker: session, body, store, answer, and the call
   assert.equal(status, 200);
   assert.match(text, /the secret words/, "the call is answered as before");
   const names = steps(points);
-  for (const name of ["session", "read_body", "open_store", "answer", "to_response", "cp:/gateway/session", "cp:/gateway/binding", "store:get"]) {
+  for (const name of ["session", "read_body", "open_store", "answer", "to_response", "cp:/gateway/session", "cp:/gateway/binding"]) {
     assert.ok(names.includes(name), `${name} in ${names.join(", ")}`);
   }
+  assert.ok(names.some((name) => name.startsWith("store:get:")), `a store read in ${names.join(", ")}`);
   assert.equal(names.at(-1), "to_response");
   for (const point of points) {
     assert.equal(point.blobs[1], "tools/call:fetch");

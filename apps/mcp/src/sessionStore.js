@@ -13,11 +13,14 @@
 
 import { gatewayTexStore } from "./texStore/wire.js";
 import { workspaceClient } from "./workspaceStore/api.js";
-import { objectFirstHooks } from "./store/objectLookup.js";
+import { objectFirstFacts, objectFirstHooks, objectFirstNames } from "./store/objectLookup.js";
+import { openedFromObject } from "./store/objectBinding.js";
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
+import { SCOPE_WRITE, TEX_SETUP_CLIENTS, hasScope } from "./session.js";
 import { withPrivacyAuthority } from "./store/privacyAuthority.js";
+import { objectFirstSetAccess } from "./store/objectAccess.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
 
 /**
@@ -53,30 +56,94 @@ export async function storeForSession(session, env, controlPlane) {
 }
 
 /**
+ * The binding and its siblings: from the workspace's object in one call where it may answer (`store/objectBinding.js`),
+ * else from the control plane, whose answer is then kept there for the next request. One log line says which.
+ */
+async function openBinding(session, env, controlPlane, later = () => {}) {
+  const started = Date.now();
+  let fromObject = { opened: null, reason: "object_failed" };
+  try {
+    fromObject = await openedFromObject(session, env, controlPlane);
+  } catch {
+    // Anything unexpected asks the control plane, as before.
+  }
+  const logged = (source, extra = {}) =>
+    console.log(JSON.stringify({ event: "workspace_binding_opened", workspaceId: session.workspaceId, source, reason: fromObject.reason, ms: Date.now() - started, ...extra }));
+  if (fromObject.opened !== null) {
+    logged("object");
+    // A kept copy past fresh was served; the control plane is asked behind the response, for the next request.
+    if (typeof fromObject.refresh === "function") later(refreshBehind(session, controlPlane, fromObject.refresh));
+    return fromObject.opened;
+  }
+  let opened;
+  try {
+    opened = await controlPlane.getStorageBinding(
+      session.accessToken,
+      session.workspaceId,
+      // Tex's own read of its setup in the pin (`session.js` `sessionForSetup`): asked as that, never as the person.
+      ...(session.setupRead === true ? [undefined, { setupRead: true }] : [])
+    );
+  } catch (error) {
+    if (error instanceof ControlPlaneError) throw new StorageUnavailable(`control plane ${error.status ?? error.reason}`);
+    throw error;
+  }
+  const kept = typeof fromObject.keep === "function" ? await fromObject.keep(opened) : null;
+  logged("control_plane", kept === null ? {} : { kept: kept.kept, keptReason: kept.reason });
+  return opened;
+}
+
+/** Ask the control plane for the binding and keep it in the object. Never throws: a failed refresh is tried next time. */
+async function refreshBehind(session, controlPlane, keep) {
+  try {
+    const opened = await controlPlane.getStorageBinding(session.accessToken, session.workspaceId);
+    const kept = await keep(opened);
+    console.log(JSON.stringify({ event: "workspace_binding_refreshed", workspaceId: session.workspaceId, kept: kept?.kept === true, keptReason: kept?.reason ?? null }));
+  } catch {
+    console.log(JSON.stringify({ event: "workspace_binding_refreshed", workspaceId: session.workspaceId, kept: false, keptReason: "refresh_failed" }));
+  }
+}
+
+/**
+ * The door to the request's `ctx.waitUntil`, which `http/requestStore.js` fills only after the store opens. Work handed
+ * to it before then is held and handed across the moment the door is filled; a host that never fills it leaves the
+ * work running unawaited, which is all a refresh behind the response needs.
+ */
+export function deferDoor() {
+  let defer = null;
+  const held = [];
+  return {
+    get defer() {
+      return defer;
+    },
+    set defer(value) {
+      defer = typeof value === "function" ? value : null;
+      if (defer !== null) for (const work of held.splice(0)) defer(work);
+    },
+    later(work) {
+      if (defer !== null) defer(work);
+      else held.push(work);
+    },
+  };
+}
+
+/**
  * The group chat whose Tex notes this session's store may reach: its own chat's key and no other (`store/texRouting.js`).
  * The key is the control plane's, read from the grant under the group client (`session.js` `normalizeSession`), so a
  * person's turn, or another chat's, is built with none.
  */
-/**
- * The per-call "is the object behind?" check (`store/objectLookup.js`), timed: `null` without the control plane's
- * method. Logs how long the question took, with the workspace id as every object log line carries, never a path.
- */
-function behindCheck(controlPlane, workspaceId) {
-  if (typeof controlPlane?.objectBehind !== "function") return null;
-  return async () => {
-    const started = Date.now();
-    let behind = true;
-    try {
-      behind = await controlPlane.objectBehind(workspaceId);
-      return behind;
-    } finally {
-      console.log(JSON.stringify({ event: "workspace_object_behind_check", workspaceId, ms: Date.now() - started, behind }));
-    }
-  };
-}
-
 function texChatsOf(session) {
   return typeof session?.texChatId === "string" && /^[0-9a-f]{64}$/.test(session.texChatId) ? [session.texChatId] : [];
+}
+
+/**
+ * For a person's own session (an AI client, the app's live typing; never Tex, never a chat's turn): whether a group
+ * chat's home is in this workspace, so a note whose row they reached under it opens from that chat's object. Which
+ * of those notes they see is each row's access, sealed to the chat's people; this says only where the text is kept.
+ */
+function texHomeChatOf(session, controlPlane) {
+  if (texChatsOf(session).length > 0 || TEX_SETUP_CLIENTS.has(session?.actorClientId)) return null;
+  if (typeof controlPlane?.texChatHome !== "function") return null;
+  return async (chat) => await controlPlane.texChatHome(session.accessToken, session.workspaceId, chat);
 }
 
 async function openSessionStore(session, env, controlPlane) {
@@ -93,18 +160,10 @@ async function openSessionStore(session, env, controlPlane) {
   // as siblings; reading only the first, and then hunting for the second
   // inside it, is what left fast search dead in production. See
   // `getStorageBinding`.
-  let opened;
-  try {
-    opened = await controlPlane.getStorageBinding(
-      session.accessToken,
-      session.workspaceId,
-      // Tex's own read of its setup in the pin (`session.js` `sessionForSetup`): asked as that, never as the person.
-      ...(session.setupRead === true ? [undefined, { setupRead: true }] : [])
-    );
-  } catch (error) {
-    if (error instanceof ControlPlaneError) throw new StorageUnavailable(`control plane ${error.status ?? error.reason}`);
-    throw error;
-  }
+  // The request's `ctx.waitUntil` is laid on the store only after it opens (`http/requestStore.js`), so the routing
+  // layer, and a binding refresh behind the response, are handed a door to it now.
+  const behind = deferDoor();
+  const opened = await openBinding(session, env, controlPlane, (work) => behind.later(work));
   const { binding, searchIndex, meaningIndex, encryptionKey, rotation, noteCap } = opened;
 
   if (binding === null) throw new StorageUnavailable("not bound");
@@ -137,10 +196,28 @@ async function openSessionStore(session, env, controlPlane) {
 
   // `privacy.md` decided by the control plane's rules where they are the
   // authority, and every write of it reported there (`store/privacyAuthority.js`).
-  const authority =
+  const controlAuthority =
     typeof controlPlane.privacyAuthority === "function"
       ? controlPlane.privacyAuthority({ accessToken: session.accessToken }, session.workspaceId, opened.privacy ?? null)
       : null;
+  // A tier-only change in an object-home workspace is decided there first (`store/objectAccess.js`); the control
+  // plane's `setAccess` is the fallback and what grantee lists still use. The actor is this request's own grant.
+  const authority =
+    controlAuthority === null || typeof controlAuthority.setAccess !== "function"
+      ? controlAuthority
+      : {
+          ...controlAuthority,
+          setAccess: objectFirstSetAccess(controlAuthority.setAccess.bind(controlAuthority), {
+            client: workspaceClient(env, session.workspaceId),
+            home: binding.notesHome ?? null,
+            role: session.role,
+            userId: session.actorUserId ?? null,
+            clientId: session.actorClientId ?? null,
+            canWrite: (session.role === "owner" || session.role === "editor") && hasScope(session, SCOPE_WRITE),
+            workspaceId: session.workspaceId,
+            log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
+          }),
+        };
   // The free plan's cap counts the Convex tree's notes, never the bucket
   // (`store/noteCap.js`); asked only when a capped write would add a note.
   const noteCount =
@@ -149,27 +226,33 @@ async function openSessionStore(session, env, controlPlane) {
       : null;
   // Where the workspace's notes are judged in its object, its row questions go there first (`store/objectLookup.js`).
   const controlHooks = idLayoutHooks(opened.idLayout, session, controlPlane);
-  const hooks =
-    controlHooks === null
-      ? null
-      : objectFirstHooks(controlHooks, {
-          client: workspaceClient(env, session.workspaceId),
-          home: binding.notesHome ?? null,
-          behind: binding.notesBehind === true,
-          // Asked again beside every object call: the binding's answer is from when this store was built.
-          checkBehind: behindCheck(controlPlane, session.workspaceId),
-          scope: session.scope,
-          names: session.grantedGroups,
-          chatNames: session.chatNames ?? null,
-          workspaceId: session.workspaceId,
-          userId: session.actorUserId ?? null,
-          log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
-        });
+  // Who reads, as the workspace's object judges them: its row questions and the agent tools' listing go there first.
+  const objectReading = {
+    client: workspaceClient(env, session.workspaceId),
+    home: binding.notesHome ?? null,
+    behind: binding.notesBehind === true,
+    scope: session.scope,
+    names: session.grantedGroups,
+    chatNames: session.chatNames ?? null,
+    workspaceId: session.workspaceId,
+    userId: session.actorUserId ?? null,
+    // Whether this request may write notes (the grant's `context:write`, clamped by role): the object's moves are asked
+    // only for a caller the control plane would let move (`tools/moves/objectMove.js`).
+    canWrite: hasScope(session, SCOPE_WRITE),
+    log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
+  };
+  const hooks = controlHooks === null ? null : objectFirstHooks(controlHooks, objectReading);
   // A keyed workspace's path objects are frozen copies (`notes-by-id.md`): a store
   // without the id layer would serve them as the note. Refused, never served paths.
   if (opened.keyed === true && hooks === null) throw new StorageUnavailable("keyed workspace needs the id layer");
+  // Until the request fills the door, a backup write is awaited as before.
   const store = withPrivacyAuthority(
     storeForBinding(binding, env, {
+      defer: (work) => {
+        if (typeof behind.defer !== "function") return false;
+        behind.defer(work);
+        return true;
+      },
       noteCap,
       noteCount,
       managedEncryption: managedEncryptionForStore(opened, binding),
@@ -177,6 +260,7 @@ async function openSessionStore(session, env, controlPlane) {
       texStore: gatewayTexStore(env),
       workspaceStore: (workspaceId) => workspaceClient(env, workspaceId),
       texChats: texChatsOf(session),
+      texHomeChat: texHomeChatOf(session, controlPlane),
     }),
     authority,
   );
@@ -187,7 +271,41 @@ async function openSessionStore(session, env, controlPlane) {
   // credential and never an endpoint, and no code branches on it: the whole
   // point of `storeForBinding` is that one `provider` check builds the store
   // and nothing above it asks again.
+  // For the agent tools' listing (`http/routing.js` `treeManifest`, `store/objectManifest.js`). Non-enumerable: it holds
+  // the object's client, which nothing that spreads or logs a store should carry.
+  Object.defineProperty(store, "objectReading", { value: objectReading, enumerable: false, writable: false, configurable: true });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
+  // Where the bucket's backup writes go behind the response, once the request names it (`http/requestStore.js`).
+  Object.defineProperty(store, "backupBehind", { value: behind, enumerable: false, writable: false, configurable: true });
+  // Notes' links and props from the object that holds their text, before the control plane (`http/routing.js` `treeFacts`).
+  // Its word search from the same object (`search/objectSearch.js`), where the notes live there; `SEARCH_FROM_OBJECT=off`
+  // asks the search database as before.
+  Object.defineProperty(store, "objectSearch", {
+    value: objectReading.home === "object" && env?.SEARCH_FROM_OBJECT !== "off" ? objectReading.client : null,
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // And its search by meaning (`search/meaning/objectMeaning.js`); `MEANING_FROM_OBJECT=off` asks Vectorize as before.
+  Object.defineProperty(store, "objectMeaning", {
+    value: objectReading.home === "object" && env?.MEANING_FROM_OBJECT !== "off" ? objectReading.client : null,
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // A writer's "is that name taken?" (`http/routing.js` `treeFacts`), unfiltered and so only where this grant may write.
+  Object.defineProperty(store, "objectNames", {
+    value: objectFirstNames({ ...objectReading, canWrite: (session.role === "owner" || session.role === "editor") && hasScope(session, SCOPE_WRITE) }),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  Object.defineProperty(store, "objectFacts", {
+    value: objectFirstFacts(objectReading),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
 
   /**
    * The search projection's coordinates, where this workspace opted in.

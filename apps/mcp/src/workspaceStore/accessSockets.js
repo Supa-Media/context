@@ -47,7 +47,8 @@ export const ACCESS_READER_HEADER = "x-access-reader";
 const TAG = "access";
 const ROLES = new Set(["owner", "editor", "member"]);
 const SCOPES = new Set(["private", "team"]);
-const MAX_GROUPS = 500;
+/** Group names and row names one reader carries: 100 groups and 1,000 row names (`MAX_ROW_NAMES`), with room. */
+const MAX_GROUPS = 1200;
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const NOTICE_GATHER_MS = 25;
 

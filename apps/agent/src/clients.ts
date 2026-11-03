@@ -17,7 +17,7 @@
  */
 
 import type { GatewayAttachment } from "./attachments";
-import { readTexStyle, type TexStyle } from "./texStyle";
+import { readSettings, type Settings } from "./texStyle";
 import type { Reaction, Tapback } from "./reactions";
 import type { JobReport } from "./jobs";
 import { readPictures, type OutgoingPicture } from "./outgoing";
@@ -25,7 +25,6 @@ import { readChoices, type Choice } from "./pickCard";
 import { readOffers, type Offer } from "./dataCards";
 import { readStartedJobs, readSteers, type JobAsk, type StepHow, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
 import type { TexEvent } from "./events";
-import { readLog } from "./logHold";
 
 /** The gateway seals a warm copy only this large (`apps/mcp/src/agent/warmCopy.js` `WARM_MAX_CHARS`). */
 export const MAX_WARM_CHARS = 1_500_000;
@@ -178,8 +177,8 @@ export async function shareLinqContactCard(fetcher: Fetch, apiKey: string, chatI
 // ── Control plane ─────────────────────────────────────────────────────────
 
 /** `timeZone` is the person's own (their reminders run in it), when the control plane sent one. */
-/** `texStyle`: how their own Tex talks to them (`texStyle.ts`), only what they changed. */
-export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string; texStyle?: TexStyle } | { status: "unlinked" };
+/** `settings`: how their own Tex talks to them (`texStyle.ts`): their instructions and progress updates, only what is set. */
+export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string; settings?: Settings } | { status: "unlinked" };
 
 export async function openSession(
   fetcher: Fetch,
@@ -194,8 +193,8 @@ export async function openSession(
   const body = record(json);
   if (body.status === "linked" && typeof body.accessToken === "string" && body.accessToken) {
     const zone = typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {};
-    const texStyle = readTexStyle(body.texStyle);
-    return { status: "linked", accessToken: body.accessToken, ...zone, ...(texStyle ? { texStyle } : {}) };
+    const settings = readSettings(body);
+    return { status: "linked", accessToken: body.accessToken, ...zone, ...(Object.keys(settings).length > 0 ? { settings } : {}) };
   }
   if (body.status === "unlinked") return { status: "unlinked" };
   throw new ServiceError("control_plane", status);
@@ -236,7 +235,7 @@ export type AgentAnswer =
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; log?: TexEvent[] }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -294,11 +293,10 @@ export async function askAgent(
     covers,
     chat,
     told = [],
-    texStyle,
+    settings = {},
     arrivedAt,
     warm, beside,
     recent,
-    holdsLog,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -318,14 +316,13 @@ export async function askAgent(
     chat?: string;
     /** The fixed texts sent since the last turn, by name, for its history (`told.ts`), sent beside the events that carry them too. */
     told?: readonly string[];
-    /** How this chat asked Tex to talk (`texStyle.ts`), said to the model by the gateway. */
-    texStyle?: TexStyle;
+    /** How this chat asked Tex to talk and its progress updates (`texStyle.ts`), said to the model by the gateway. */
+    settings?: Settings;
     /** When the first text this turn answers came in (`apps/mcp/src/agent/turnLog.js` `waitBefore`). */
     arrivedAt?: number;
     /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
     warm?: string; beside?: readonly string[]; // and what was written to the history beside it (`warm.ts` `keepBeside`)
-    recent?: readonly TexEvent[];
-    holdsLog?: boolean; // `recent` is the chat's whole log (`events.ts` `holdsLog`): the gateway reads none from storage
+    recent?: readonly TexEvent[]; // the outbox: what the gateway has not taken yet, added to the ledger's day (`warmCopy.js` `mergeEvents`)
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -346,11 +343,10 @@ export async function askAgent(
     ...(jobReport ? { jobReport } : {}),
     ...(covers && covers.length > 0 && chat ? { covers, chat } : {}),
     ...(told.length > 0 ? { told } : {}),
-    ...(texStyle ? { texStyle } : {}),
+    ...settings,
     ...(arrivedAt !== undefined ? { arrivedAt } : {}),
     ...(warm ? { warm, ...(beside && beside.length > 0 ? { beside } : {}) } : {}),
     ...(recent && recent.length > 0 ? { recent } : {}),
-    ...(holdsLog === true ? { holdsLog: true } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };
@@ -405,7 +401,6 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
       ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),
-      ...(readLog(body.log).length > 0 ? { log: readLog(body.log) } : {}), // the chat's log the gateway read, held here from now on (`events.ts` `keepLog`)
     };
   }
   if (status === 409) return { kind: "no_model" };

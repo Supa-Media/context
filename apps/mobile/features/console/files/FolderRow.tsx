@@ -24,6 +24,8 @@ import { isGroupVisibility, isListToken } from "./types";
 import { RowOpeningBar, useStillOpening } from "./RowOpening";
 import { isItem, RowExtraLead, RowExtraTrail, useRowExtra, useRowTrailShows } from "./folderPage/rowExtras";
 import type { FileEntry } from "./types";
+import { chatServiceMarker, chatServiceOfIcon, useChatHomeTitles } from "./chatHomeTitles";
+import { ChatServiceMark } from "./ChatServiceMark";
 
 /** How far each level of a folder opened in place sits in from its folder (`NestedRows.tsx`). */
 export const NEST_INDENT = 18;
@@ -96,7 +98,10 @@ export function FolderRow({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const label = displayName(row.name);
+  const chatTitles = useChatHomeTitles();
+  const label = chatTitles.get(row.path)?.title ?? displayName(row.name);
+  const service = chatTitles.get(row.path)?.service ?? null;
+  const icon = service === null ? folderIcon : chatServiceMarker(service);
   const home = card && phone !== undefined ? phone : null;
   // In the List view: the status dot, the count and the faces (`folderPage/rowExtras.tsx`). `undefined` in Notes.
   const extra = useRowExtra(row.path);
@@ -201,7 +206,7 @@ export function FolderRow({
           // A phone's List: a task's status dot takes the icon's slot (board 13).
           <RowExtraLead extra={extra ?? null} />
         ) : card ? (
-          <RowGlyph row={row} icon={folderIcon} size={home === null ? 16 : 20} color={home === null ? colors.muted : colors.text2} emojiStyle={home === null ? styles.cardEmojiPointer : styles.cardEmojiPhone} plainFile />
+          <RowGlyph row={row} icon={icon} size={home === null ? 16 : 20} color={home === null ? colors.muted : colors.text2} emojiStyle={home === null ? styles.cardEmojiPointer : styles.cardEmojiPhone} plainFile />
         ) : row.kind === "folder" && onToggle !== undefined ? (
           /*
             The arrow opens the folder in place, as the tree's does (the owner,
@@ -244,7 +249,7 @@ export function FolderRow({
             // In the List a task's status dot is its icon: the two side by side were one mark too many (the owner, 2026-10-14).
             <RowExtraLead extra={extra ?? null} />
           ) : row.kind === "folder" || isNote(row) ? (
-            <RowGlyph row={row} icon={folderIcon} size={15} color={colors.chromeMuted} emojiStyle={styles.cardEmojiPointer} />
+            <RowGlyph row={row} icon={icon} size={15} color={colors.chromeMuted} emojiStyle={styles.cardEmojiPointer} />
           ) : null}
         </View>
       )}
@@ -378,6 +383,8 @@ function RowGlyph({
     </View>
   );
   if (icon === null) return plainFile || row.kind === "folder" || isNote(row) ? plain : null;
+  const chat = chatServiceOfIcon(icon);
+  if (chat !== null) return <ChatServiceMark service={chat} size={size} />;
   // Sized to the glyph it replaces, so the name beside it does not move.
   return <EmojiGlyph emoji={icon} size={size} textStyle={emojiStyle} fallback={plain} testID="folder-row-emoji" />;
 }

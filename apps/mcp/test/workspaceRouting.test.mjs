@@ -189,3 +189,107 @@ test("object: a saved version the bucket does not hold is kept, not pruned", { s
   assert.equal(await (await object.get(revisionKey("r-unmirrored"))).text(), "only copy");
   assert.equal(await (await routed.get(revisionKey("r-unmirrored"))).text(), "only copy");
 });
+
+const HISTORY = ".context/collaboration/v1/documents/doc1/operations/op1.json";
+
+test("dual: a conditional delete the bucket refuses keeps the object's copy too", { skip }, async () => {
+  const { bucket, object, routed } = setup("dual");
+  await routed.put(HISTORY, "op");
+  // A newer write won the race: the caller's etag no longer matches, so the bucket keeps the key.
+  assert.equal(await routed.delete(HISTORY, { onlyIf: { etagMatches: "an-older-version" } }), null);
+  assert.equal(await (await bucket.get(HISTORY)).text(), "op");
+  assert.equal(await (await object.get(HISTORY)).text(), "op");
+  // The same delete on the current version removes both.
+  const current = await routed.get(HISTORY);
+  await routed.delete(HISTORY, { onlyIf: { etagMatches: current.etag } });
+  assert.equal(await bucket.get(HISTORY), null);
+  assert.equal(await object.get(HISTORY), null);
+});
+
+test("object: a conditional delete is decided by the object, and the bucket's copy follows only when it went", { skip }, async () => {
+  const { bucket, object, routed } = setup("object", 1);
+  await routed.put(HISTORY, "op");
+  assert.equal(await routed.delete(HISTORY, { onlyIf: { etagMatches: "an-older-version" } }), null);
+  assert.equal(await (await object.get(HISTORY)).text(), "op");
+  assert.equal(await (await bucket.get(HISTORY)).text(), "op");
+  // The caller read its etag from the object; the bucket's copy has its own, and is removed all the same.
+  const current = await routed.get(HISTORY);
+  await routed.delete(HISTORY, { onlyIf: { etagMatches: current.etag } });
+  assert.equal(await object.get(HISTORY), null);
+  assert.equal(await bucket.get(HISTORY), null);
+});
+
+// The bucket's backup write in `object` home, with the write held until the test opens `release`, so a test can see
+// what the caller waits for. `defer` is the request's hand-off (`ctx.waitUntil` in production).
+const later = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function gate() {
+  let open = () => {};
+  const promise = new Promise((resolve) => (open = resolve));
+  return { promise, open };
+}
+function backupHeldBy(bucket, release, { hold = (call) => call === 1 } = {}) {
+  const realPut = bucket.put.bind(bucket);
+  let calls = 0;
+  const done = [];
+  bucket.put = async (key, value, options) => {
+    const call = ++calls;
+    if (hold(call)) await release.promise;
+    const answer = await realPut(key, value, options);
+    done.push(key);
+    return answer;
+  };
+  return done;
+}
+function objectHomeWithDefer(defer) {
+  const bucket = sqlStore();
+  const object = sqlStore();
+  const routed = withWorkspaceRouting(bucket, { workspaceId: "ws", client: { bodies: object }, known: { home: "object", backfilledAt: 1 }, defer });
+  return { bucket, object, routed };
+}
+
+test("defer that declines (false): put() does not resolve until the bucket's backup write has finished", { skip }, async () => {
+  const { bucket, routed } = objectHomeWithDefer((work) => { offered.push(work); return false; });
+  const offered = [];
+  const release = gate();
+  const done = backupHeldBy(bucket, release);
+  let resolved = false;
+  const write = routed.put(KEY, "awaited").then((answer) => { resolved = true; return answer; });
+  await later(20);
+  assert.equal(resolved, false, "put resolved before the backup write finished");
+  assert.equal(offered.length, 1, "defer was asked once and declined");
+  release.open();
+  await write;
+  assert.deepEqual(done, [KEY]);
+  assert.equal(await (await bucket.get(KEY)).text(), "awaited");
+});
+
+test("defer that accepts: put() resolves before a slow bucket backup write, and that write's promise is handed to defer", { skip }, async () => {
+  const offered = [];
+  const { bucket, routed } = objectHomeWithDefer((work) => { offered.push(work); return true; });
+  const release = gate();
+  const done = backupHeldBy(bucket, release);
+  const outcome = await Promise.race([routed.put(KEY, "deferred").then(() => "resolved"), later(50).then(() => "pending")]);
+  assert.equal(outcome, "resolved", "put waited for the backup write");
+  assert.equal(done.length, 0, "the backup write finished before the response");
+  assert.equal(offered.length, 1);
+  assert.equal(typeof offered[0]?.then, "function", "defer was not handed a promise");
+  release.open();
+  await offered[0];
+  assert.deepEqual(done, [KEY]);
+  assert.equal(await (await bucket.get(KEY)).text(), "deferred");
+});
+
+test("two deferred puts of one key: the bucket's backup ends with the second value even when the first is slower", { skip }, async () => {
+  const offered = [];
+  const { bucket, object, routed } = objectHomeWithDefer((work) => { offered.push(work); return true; });
+  const release = gate();
+  // The first backup write is slow; the second, made after it, would land first if the two were not chained.
+  backupHeldBy(bucket, release, { hold: (call) => call === 1 });
+  await routed.put(KEY, "first");
+  await routed.put(KEY, "second");
+  assert.equal(await (await object.get(KEY)).text(), "second");
+  release.open();
+  await Promise.all(offered);
+  assert.equal(await (await bucket.get(KEY)).text(), "second", "an older backup write landed last");
+  assert.equal(await (await routed.get(KEY)).text(), "second");
+});

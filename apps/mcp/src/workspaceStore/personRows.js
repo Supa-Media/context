@@ -266,7 +266,11 @@ export function sessionFor(store, tokenHash, now = Date.now()) {
   const withNames = connection.clientId === CONSOLE_CLIENT_ID;
   // The person's own handle is a name they answer to everywhere: their personal workspace's slug.
   const handle = reach.find((row) => row.kind === "personal" && row.role === "owner" && !row.pinned)?.slug ?? null;
-  const namesOf = (row) => (row.pinned ? row.groups : withNames ? [...row.groups, ...(handle === null ? [] : [handle])] : []);
+  // The app's own client also holds the names its grants on rows give it (`rowNames`), as the control plane's session
+  // gives it (`grantedNamesFor`): without them a note shared to the person by name, and a Tex chat's sealed home, open
+  // to no one (2026-11-02).
+  const namesOf = (row) =>
+    row.pinned ? row.groups : withNames ? [...row.groups, ...(row.rowNames ?? []), ...(handle === null ? [] : [handle])] : [];
   const entry = (row) => ({
     workspaceId: row.workspaceId,
     slug: row.slug,

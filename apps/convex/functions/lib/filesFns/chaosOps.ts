@@ -91,7 +91,8 @@ export async function liveChaosScoreOf(
   const extras = new Map<string, { lines: number | null; exempt: boolean; review: boolean }>();
   for (const [path, extra] of found) extras.set(moves.length === 0 ? path : (queuedLogicalPath(path, moves) as string), extra);
   const visibleToTeam = (path: string) => canSee(path, "team", state.rules, state.overrides);
-  const folders = scoreKeys(keys, extras, visibleToTeam);
+  // An owner's count leaves out a sealed folder, as their listing does (`live.js` `scoreKeys`).
+  const folders = scoreKeys(keys, extras, visibleToTeam, (path: string) => canSee(path, "private", state.rules, state.overrides));
   const team = clearance.scope !== "private";
   const visible = (path: string) => canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
   const weekAgo = await source.weekAgo(team ? "team" : "all");

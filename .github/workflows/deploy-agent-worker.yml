@@ -121,25 +121,13 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONTROL_PLANE_ORIGIN
-          # Names the Messages extension on a note's card (src/appCards.ts); cards stay off without it.
-          if [ -n "${APPLE_TEAM_ID:-}" ]; then printf '%s' "$APPLE_TEAM_ID" | pnpm exec wrangler secret put APPLE_TEAM_ID; fi
-          for name in AGENT_WORKER_SECRET LINQ_API_KEY LINQ_WEBHOOK_SECRET SENDBLUE_API_KEY_ID SENDBLUE_API_SECRET SENDBLUE_WEBHOOK_SECRET; do
-            if [ -n "${!name:-}" ]; then
-              printf '%s' "${!name}" | pnpm exec wrangler secret put "$name"
-            else
-              echo "::warning::$name is not set in the production environment; the texting assistant stays inert until it is."
-            fi
-          done
-          # WhatsApp (Whapi.Cloud) is optional: absent, that line is simply off, and
-          # it is a notice rather than a warning because nothing else is broken.
-          for name in WHAPI_TOKEN WHAPI_LINE WHAPI_WEBHOOK_SECRET; do
-            if [ -n "${!name:-}" ]; then
-              printf '%s' "${!name}" | pnpm exec wrangler secret put "$name"
-            else
-              echo "::notice::$name is not set in the production environment; Tex's WhatsApp line stays off until it is."
-            fi
-          done
+          # One request and one new version for every secret; see
+          # scripts/worker-secrets.mjs. `!` ones warn when unset (the texting
+          # assistant stays inert until they are), `?` ones are simply off:
+          # APPLE_TEAM_ID names the Messages extension on a note's card
+          # (src/appCards.ts), and the WHAPI_* trio is Tex's WhatsApp line.
+          node ../../scripts/worker-secrets.mjs CONTROL_PLANE_ORIGIN=CONTROL_PLANE_URL '?APPLE_TEAM_ID' '!AGENT_WORKER_SECRET' '!LINQ_API_KEY' '!LINQ_WEBHOOK_SECRET' '!SENDBLUE_API_KEY_ID' '!SENDBLUE_API_SECRET' '!SENDBLUE_WEBHOOK_SECRET' '?WHAPI_TOKEN' '?WHAPI_LINE' '?WHAPI_WEBHOOK_SECRET' \
+            | pnpm exec wrangler secret bulk
 
       # The same check staging runs: /health reports which settings the Worker
       # holds (booleans only), and its gateway origin must answer `/agent` with

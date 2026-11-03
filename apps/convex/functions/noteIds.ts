@@ -12,7 +12,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { internalQuery, query } from "../_generated/server";
+import { internalQuery, query, type MutationCtx } from "../_generated/server";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { convexNodeTable } from "./lib/nodes/convexTable";
 import { copyIsFresh, idKeyFor, newNoteId } from "./lib/nodes/noteIds";
@@ -25,6 +25,7 @@ import { planGroup, renameSnapshotId, sharedGroupsPage, copyStateOf } from "./li
 import { copyRowOf, nodeAt, scheduleDiagnosis } from "./lib/noteIds/state";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
 import { nodePaths } from "./lib/nodes/paths";
+import { notesInObject } from "./lib/nodes/notesHome";
 
 const diagnosisValidator = v.object({
   checkedAt: v.number(),
@@ -166,26 +167,31 @@ export const pathsForNoteIds = internalQuery({
 export const recordCopy = internalMutation({
   args: { workspaceId: v.id("workspaces"), path: v.string(), key: v.string(), etag: v.string(), keyEtag: v.optional(v.string()) },
   returns: v.boolean(),
-  handler: async (ctx, { workspaceId, path, key, etag, keyEtag }) => {
-    const row = await nodeAt(ctx.db, workspaceId, path);
-    if (row === null || row.kind !== "file" || row.goneAt !== undefined || row.noteId === undefined) return false;
-    // A row the flip keyed after the gateway's lookup: its path write was mirrored to the key, which is now the row's
-    // bytes. The row takes the key's version; nothing else about it changes (no `keyedFrom`: the bytes did not move).
-    if (row.storageKey !== undefined) {
-      if (row.storageKey !== key || keyEtag === undefined) return false;
-      // A seam observation, so the new bytes are logged as a change like any keyed write.
-      await applyObservation(convexNodeTable(ctx, workspaceId), {
-        at: Date.now(),
-        rows: [{ path, etag: keyEtag, keyed: { noteId: row.noteId, storageKey: key } }],
-        gone: [],
-      });
-      return (await nodeAt(ctx.db, workspaceId, path))?.etag === keyEtag;
-    }
-    if (idKeyFor(row.noteId, path) !== key) return false;
-    await ctx.db.patch(row._id, { idCopy: { key, etag, copiedAt: Date.now(), ...(keyEtag === undefined ? {} : { keyEtag }) } });
-    return true;
-  },
+  handler: async (ctx, args) => await recordCopyRow(ctx, args),
 });
+
+export type RecordCopyArgs = { workspaceId: Id<"workspaces">; path: string; key: string; etag: string; keyEtag?: string };
+
+/** `recordCopy`'s body, run with the same ctx by another mutation (`objectRowsMirror.ts`). */
+export async function recordCopyRow(ctx: MutationCtx, { workspaceId, path, key, etag, keyEtag }: RecordCopyArgs): Promise<boolean> {
+  const row = await nodeAt(ctx.db, workspaceId, path);
+  if (row === null || row.kind !== "file" || row.goneAt !== undefined || row.noteId === undefined) return false;
+  // A row the flip keyed after the gateway's lookup: its path write was mirrored to the key, which is now the row's
+  // bytes. The row takes the key's version; nothing else about it changes (no `keyedFrom`: the bytes did not move).
+  if (row.storageKey !== undefined) {
+    if (row.storageKey !== key || keyEtag === undefined) return false;
+    // A seam observation, so the new bytes are logged as a change like any keyed write.
+    await applyObservation(convexNodeTable(ctx, workspaceId), {
+      at: Date.now(),
+      rows: [{ path, etag: keyEtag, keyed: { noteId: row.noteId, storageKey: key } }],
+      gone: [],
+    });
+    return (await nodeAt(ctx.db, workspaceId, path))?.etag === keyEtag;
+  }
+  if (idKeyFor(row.noteId, path) !== key) return false;
+  await ctx.db.patch(row._id, { idCopy: { key, etag, copiedAt: Date.now(), ...(keyEtag === undefined ? {} : { keyEtag }) } });
+  return true;
+}
 
 /** Check one workspace's id copies against its bucket. Missing or differing copies are copied again. */
 export const diagnose = mutation({
@@ -229,6 +235,9 @@ export const keepCurrent = internalMutation({
     for (const workspaceId of await liveBoundWorkspaces(ctx)) {
       const row = await copyRowOf(ctx.db, workspaceId);
       if (row === null || rechecks >= KEYED_RECHECKS_PER_TICK || !keyedRecheckOwed(row)) continue;
+      // An object-home workspace is not diagnosed against its bucket (`checkPass.ts`), so it is not owed a recheck and
+      // takes no place in this tick's budget.
+      if (await notesInObject(ctx.db, workspaceId)) continue;
       await ctx.db.patch(row._id, { keyedRecheckAt: now });
       await scheduleDiagnosis(ctx, workspaceId);
       rechecks += 1;
@@ -281,8 +290,11 @@ export const sharedIdReport = query({
  */
 export const repairSharedIdsPage = internalMutation({
   args: { workspaceId: v.id("workspaces"), after: v.optional(v.string()) },
-  returns: v.object({ repaired: v.number(), needsLook: v.number() }),
+  returns: v.object({ repaired: v.number(), needsLook: v.number(), skipped: v.boolean() }),
   handler: async (ctx, { workspaceId, after }) => {
+    // An object-home workspace's rows and their ids are the object's; the bucket's copies do not decide them
+    // (`docs/decisions/storage-and-credentials/background-tree-writers.md`). Nothing is read or scheduled.
+    if (await notesInObject(ctx.db, workspaceId)) return { repaired: 0, needsLook: 0, skipped: true };
     const page = await sharedGroupsPage(ctx.db, workspaceId, after);
     let repaired = 0;
     let needsLook = 0;
@@ -302,7 +314,7 @@ export const repairSharedIdsPage = internalMutation({
     if (page.next !== undefined) {
       await ctx.scheduler.runAfter(0, internal.functions.noteIds.repairSharedIdsPage, { workspaceId, after: page.next });
     }
-    return { repaired, needsLook };
+    return { repaired, needsLook, skipped: false };
   },
 });
 
@@ -315,6 +327,8 @@ export const repairSharedIds = mutation({
   returns: v.object({ started: v.number() }),
   handler: async (ctx, { workspaceId }) => {
     await staffOnly(ctx);
+    // Nothing to repair in an object-home workspace: its ids are the object's (see `repairSharedIdsPage`).
+    if (await notesInObject(ctx.db, workspaceId)) return { started: 0 };
     await ctx.scheduler.runAfter(0, internal.functions.noteIds.repairSharedIdsPage, { workspaceId });
     return { started: 1 };
   },

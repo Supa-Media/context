@@ -3,6 +3,7 @@ import { useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 
 import { unseenCount, type SharedItem } from "./sharedInbox";
+import { useSharedWithMe } from "./useSharedWithMe";
 
 /**
  * What the account menu needs to draw the @shared row (whether anything is
@@ -23,7 +24,7 @@ export interface SharedEntry {
  * It draws nothing and reports the row's dot upward.
  */
 export function SharedInboxHost({ onEntry }: { onEntry: (entry: SharedEntry) => void }) {
-  const items = useQuery(api.functions.shares.listSharedWithMe) as SharedItem[] | undefined;
+  const items = useSharedWithMe();
   const seenAt = useQuery(api.functions.sharedInbox.sharedSeenAt) as number | null | undefined;
   const unseen = unseenCount(items, seenAt);
   useEffect(() => {

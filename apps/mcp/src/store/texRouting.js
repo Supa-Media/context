@@ -10,9 +10,11 @@
  * here and goes to that object with the rest of the key; every other key goes
  * to the bucket as before.
  *
- * - Only this workspace's own owners: `person:<workspaceId>`, and the group
- *   chats the store was built for. A key naming any other owner is refused, so
- *   a row can never point one workspace's store at another's object.
+ * - Only this workspace's own owners: `person:<workspaceId>`, the group chats
+ *   the store was built for, and, for a store given `homeChat`, a chat the
+ *   control plane says has its home in this workspace (asked once per chat).
+ *   A key naming any other owner is refused, so a row can never point one
+ *   workspace's store at another's object.
  * - Fails closed: with no way to reach the object (no binding, a control plane
  *   that cannot call the gateway), a Tex key is refused, never looked for in
  *   the bucket.
@@ -94,16 +96,33 @@ export function texStateKeyFor(chat, name) {
  * `store` with Tex keys sent to their object.
  *
  * @param {object} store
- * @param {{workspaceId: string, chats?: string[], texStore?: ((owner: string) => object|null)|null}} options
- *   `texStore(owner)` answers a ContextStore over that owner's object, or null.
+ * @param {{workspaceId: string, chats?: string[], homeChat?: ((chat: string) => Promise<boolean>)|null, texStore?: ((owner: string) => object|null)|null}} options
+ *   `texStore(owner)` answers a ContextStore over that owner's object, or null. `homeChat(chat)` answers whether a
+ *   chat outside `chats` has its home in this workspace (a person's store in the pinned workspace,
+ *   `sessionStore.js`); a chat's own turn is built without it, so it reaches its own chat alone.
  */
-export function withTexRouting(store, { workspaceId, chats = [], texStore = null } = {}) {
+export function withTexRouting(store, { workspaceId, chats = [], homeChat = null, texStore = null } = {}) {
   if (!store) return store;
   const allowed = new Set([`person:${workspaceId}`, ...chats.map((chat) => `chat:${chat}`)]);
   const opened = new Map();
+  /** Each chat's answer from `homeChat`, asked once; a failed ask is not kept, so the next call asks again. */
+  const homed = new Map();
+  const homeAllows = async (owner) => {
+    if (typeof homeChat !== "function" || !/^chat:[0-9a-f]{64}$/.test(owner)) return false;
+    const chat = owner.slice("chat:".length);
+    if (!homed.has(chat)) homed.set(chat, Promise.resolve().then(() => homeChat(chat)).then((yes) => yes === true, () => { homed.delete(chat); return false; }));
+    return await homed.get(chat);
+  };
 
   /** The object's store and the key inside it, or `null` for a bucket key. */
-  const route = (key) => {
+  const route = async (key) => {
+    const split = isAgentHomeKey(key) ? null : splitTexKey(key);
+    if (split !== null && !allowed.has(split.owner) && typeof workspaceId === "string" && workspaceId !== "" && (await homeAllows(split.owner))) allowed.add(split.owner);
+    return routeKnown(key);
+  };
+
+  /** `route` for the owners already allowed: synchronous, for the person's own object. */
+  const routeKnown = (key) => {
     const split = isAgentHomeKey(key) ? { owner: `person:${workspaceId}`, key: `state/agent/${key.slice(".context/agent/".length)}` } : splitTexKey(key);
     if (split === null) {
       if (typeof key === "string" && STATE_SHAPED.test(key)) throw new TexStoreUnavailable("not a key a chat's state is kept at");
@@ -124,7 +143,7 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
   // A person's texted turn's first reads, in one call to their object (`texStore/desk.js`); null when the object has no desk.
   Object.defineProperty(wrapped, "texDesk", {
     value: async () => {
-      const { target } = route(".context/agent/history/texts.json");
+      const { target } = routeKnown(".context/agent/history/texts.json");
       return typeof target.desk === "function" ? await target.desk() : null;
     },
     enumerable: false,
@@ -132,11 +151,23 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
     writable: true,
     configurable: false,
   });
+  // The chat's ledger (`texStore/ledger.js`): the person's own (`person:<workspaceId>`), or a group chat's this store was built for; null when the object has none.
+  Object.defineProperty(wrapped, "texLedger", {
+    value: (chat = null) => {
+      const owner = chat === null ? `person:${workspaceId}` : `chat:${chat}`;
+      if (typeof workspaceId !== "string" || workspaceId === "" || !allowed.has(owner)) return null;
+      if (!opened.has(owner)) opened.set(owner, typeof texStore === "function" ? texStore(owner) : null);
+      return opened.get(owner)?.ledger ?? null;
+    },
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
   // The bucket beneath, for the one move of the old bookkeeping into the object (`agent/agentHomeMove.js`) and nothing else.
   Object.defineProperty(wrapped, "agentHomeBucket", { value: store, enumerable: false, writable: false, configurable: false });
 
   const byKey = (method, fallback) => async (key, ...rest) => {
-    const routed = route(key);
+    const routed = await route(key);
     if (routed === null) return await store[method](key, ...rest);
     if (typeof routed.target[method] === "function") return await routed.target[method](routed.key, ...rest);
     return await fallback(routed.target, routed.key, ...rest);
@@ -152,8 +183,8 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
   if (typeof store.copy === "function") {
     // Within one side it is that side's own copy; across the two it is a read and a write.
     wrapped.copy = async (source, destination, options = {}) => {
-      const from = route(source);
-      const to = route(destination);
+      const from = await route(source);
+      const to = await route(destination);
       if (from === null && to === null) return await store.copy(source, destination, options);
       if (from !== null && to !== null && from.target === to.target) return await from.target.copy(from.key, to.key, options);
       if (options?.onlyIf?.absent === true && (await wrapped.head(destination)) !== null) return null;
@@ -175,7 +206,7 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
       const match = /^tex\/((?:person|chat):[A-Za-z0-9_-]{1,64})\/(.*)$/.exec(prefix);
       if (!match) return await store.list(options);
       const head = `tex/${match[1]}/`;
-      const routed = route(`${head}notes/00000000-0000-7000-8000-000000000000.md`);
+      const routed = await route(`${head}notes/00000000-0000-7000-8000-000000000000.md`);
       const page = await routed.target.list({
         ...options,
         prefix: match[2],
@@ -192,7 +223,7 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
   /** A listing under a bookkeeping folder: the person's object's, with the `.context/agent/` names put back. */
   async function listAgentHome(options, prefix) {
     const inner = `state/agent/${prefix.slice(".context/agent/".length)}`;
-    const { target } = route(`${prefix}x`);
+    const { target } = routeKnown(`${prefix}x`);
     const after = typeof options.startAfter === "string" && options.startAfter.startsWith(".context/agent/") ? { startAfter: `state/agent/${options.startAfter.slice(".context/agent/".length)}` } : {};
     const page = await target.list({ ...options, prefix: inner, ...after });
     const back = (key) => `.context/agent/${key.slice("state/agent/".length)}`;

@@ -68,9 +68,10 @@ import type { NoteCardDrawer } from "./noteCards";
 import { isBound, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchFailed } from "./reviewWatch";
-import { addressesTex, groupCommand, unquoted, type Command } from "./groupWords";
+import { addressesTex, groupCommand, namesTex, unquoted, type Command } from "./groupWords";
 import type { JobRun, JobSteer } from "./jobs";
 import { armBy, flushChat, pruneEvents, type Conversation } from "./events";
+import { rememberChatReader } from "./chatRead";
 import { reactionFor } from "./reactEmoji";
 import { runningTurn } from "./steer";
 import { canWait, chatEvent, readChatState, stillGathering } from "./chatState";
@@ -79,7 +80,7 @@ import { chooseStyle } from "./groupChoose";
 import { handedTurnWaits, handOff, TURN_KEY, type HandedTurn } from "./groupTurnRun";
 import { answerBesideTurn } from "./groupBeside";
 import { groupTurn } from "./groupModelTurn";
-import { ENGAGEMENT_QUESTION, engagementChoice, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide } from "./groupStyle";
+import { ENGAGEMENT_QUESTION, engagementChoice, engagementSet, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide } from "./groupStyle";
 import type { TimingDataset } from "./textTiming";
 
 export type GroupDeps = {
@@ -181,8 +182,10 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     if (!kept && !follows) return log("untagged_ignored", "unbound"), "ignored";
     await storage.put(seen, now);
     const ev = logged ?? (await logGroupInbound(storage, message, now));
-    // A reply to Tex that says more than thanks always reaches decide, whatever the style.
-    const reaches = follows || addressesTex(message.text, repliesToTex) || (await reachesDecide(storage, (await groupStyle(storage)).style, await isAsker(storage, message, now)));
+    // A reply to Tex that says more than thanks always reaches decide, whatever the style; so does Tex's name anywhere (`namesTex`).
+    // Off never gets here: a muted chat is unbound, so nothing is kept to decide on (`setChatBound`).
+    const named = message.reaction === undefined && namesTex(message.text);
+    const reaches = follows || named || addressesTex(message.text, repliesToTex) || (await reachesDecide(storage, (await groupStyle(storage)).style, await isAsker(storage, message, now)));
     if (reaches) await enqueue(storage, message, { ev, soft: true, ...(follows ? { joins: true as const } : {}) }, repliesToTex, seen, now);
     log(reaches ? "untagged_to_decide" : "untagged_kept", reaches ? undefined : "style");
     return kept ? "kept" : "queued";
@@ -225,7 +228,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     await storage.put(seen, now);
     return "kept";
   }
-  if (await askedJustNow(storage, message, now)) {
+  if (!byCode && (await askedJustNow(storage, message, now))) { // Code's to answer, never the same ask twice: "Tex, settings" again shows the menu again (Dev2, 2026-10-29).
     await storage.put(seen, now);
     return "duplicate";
   }
@@ -516,7 +519,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
   // Read from the words alone, the same for every tagger linked or not, so it says nothing about who they are (`ackEmoji.ts`).
-  if (command === null && message.reaction === undefined && !item.engagement && !item.setting && !routine && !item.reacted && !("texStyle" in asked && asked.texStyle?.emoji === "less")) await app.react(chat, message.messageId, ackEmoji(message.text));
+  if (command === null && message.reaction === undefined && !item.engagement && !item.setting && !routine && !item.reacted) await app.react(chat, message.messageId, ackEmoji(message.text));
   if (status === "unknown_sender") return asked.tell === true ? void (await fixed(GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await fixed(GROUP_LINES.noShared));
   if (status === "not_allowed") {
@@ -531,6 +534,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (status === "mail_refused") return void (await fixed(GROUP_LINES.mailRefused));
   if (status === "stopped") return void (await fixed(GROUP_LINES.stopped));
   if (status === "started") return void (await fixed(GROUP_LINES.started));
+  if (status === "speaks_up") return await keepStyle(storage, asked.level, true), void (await fixed(engagementSet(asked.level, asked.by)));
   if (status !== "ready") throw new ServiceError("control_plane", null);
   // A routine's run carries no webhook people list (`chatRoutineMessage`): binding to it would bind the chat to nobody,
   // and every untagged text after it would be dropped as said in front of other people.
@@ -546,6 +550,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
   // The chat's events reach its log before the turn reads it, written with the chat's own grant.
   const conversation: Conversation = { group: message.groupId };
+  rememberChatReader(storage, message.groupId, { token: asked.accessToken, conversation, fetch: deps.fetch, gatewayOrigin: deps.gatewayOrigin }); // the next read of this chat asks the ledger (`chatRead.ts`)
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   // The introduction is one-shot (the control plane marks it given), so it goes before anything else.
   if (asked.intro) await fixed(GROUP_LINES.intro(asked.reach ?? []));

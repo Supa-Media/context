@@ -202,7 +202,7 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
 }
 
 /** The most notes one `read_notes` call opens. */
-export const READ_NOTES_MAX = 25;
+export const READ_NOTES_MAX = 100;
 
 /**
  * `read_notes`: several notes in one call. Every path is looked up in the

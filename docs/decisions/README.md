@@ -19,6 +19,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The gateway is a Cloudflare Worker, not Convex
 - Credential retrieval takes two independent proofs
 - Never cache a decrypted credential across requests
+- A binding kept in its workspace's object is sealed to it
 - Scheduling is not calling
 - Credential barriers are enumerated, never inferred
 - The credential graph follows imports, and refuses what it cannot follow
@@ -43,6 +44,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Editing history is filed by note id](./storage-and-credentials/paths-on-read.md#editing-history-is-filed-by-note-id) (2026-10-25)
 - [Pictures and files stay in each workspace's own bucket, and pictures are kept compressed](./storage-and-credentials/files-bucket.md) (2026-11-01)
 - [Every row write reaches the workspace object](./storage-and-credentials/workspace-object-rows.md) (2026-11-01)
+- [Tree writes go to the workspace object first](./storage-and-credentials/object-row-writes.md) (2026-11-02)
+- [Notes' facts live in the workspace object](./storage-and-credentials/facts-in-objects.md) (2026-11-02)
+- [Background tree writers, once the object writes the tree](./storage-and-credentials/background-tree-writers.md) (2026-11-03)
+- [The control plane's tree reads come from the workspace object](./storage-and-credentials/object-tree-reads.md) (2026-11-03)
 - Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id
@@ -195,6 +200,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A drawing merges by element, and by Excalidraw's own rules
 - A new argument reaches a client that a new tool cannot
 - [Six tools that never change, and new capabilities are actions](./gateway-protocol/six-tools.md)
+- [No proposals](./gateway-protocol/no-proposals.md)
 - [An agent sets a workspace up, and only a third party's sign-in needs a browser](./gateway-protocol/workspace-setup.md)
 - [Open CORS on the gateway, and HSTS with nosniff on the control plane](./gateway-protocol/cors-and-headers.md)
 - [URL tokens are counted, then retired route by route](./gateway-protocol/token-transport.md)
@@ -259,7 +265,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 - It is one opinion, on purpose
 - It reports; it never tidies
-- Every write answers with the change
+- Writes do not answer with the score
 - Kept incrementally, proven equal to a full pass
 - Two audiences, and a member learns nothing held back
 - A derivative, like every index
@@ -366,6 +372,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Both indexes fill in tier order: T0 everything else, T1 the Inbox, T2 the Archive
 - A note's passages are filed under its note id, and a move only re-points them
 - Fast search renames a moved note's rows, and reads it only for a new name
+- A workspace object keeps its own word index
+- A workspace object keeps its own meaning index
 
 ## [The mobile app and the console](./app-and-console.md)
 
@@ -409,6 +417,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Folder icons, a workspace's emoji names and the forwarding ledger live in Convex, and the bucket keeps the files](./app-and-console/convex-small-data.md) (2026-10-14)
 - [No full-tree reread on a timer, and no write per save to a row every listing reads](./app-and-console/convex-cost.md) (2026-10-19)
 - [A page is a Markdown note named `<name>.page.md`, with blocks and sealed code boxes](./app-and-console/pages.md) (2026-10-27)
+- [Tex draws a picture for every page that has none](./app-and-console/page-drawings.md) (2026-11-03)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
@@ -761,7 +770,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Group Tex keeps each chat's home in @context-lc, sealed from the people who run it (2026-10-31)](./texting-assistant/chat-homes.md)
 - [A group chat's history has one copy: the memory page in its home, kept in its Durable Object (2026-11-01)](./texting-assistant/group-memory-one-copy.md)
 - [A person's texts with Tex are one record in their Tex object, read with About me in one call (2026-11-01)](./texting-assistant/one-to-one-history.md)
+- [Each chat with Tex has one ledger, and every view is rebuilt from it (2026-11-02)](./texting-assistant/chat-ledger.md)
 - [A person's Tex folder and a group chat's home use the same names (2026-11-01)](./texting-assistant/tex-folders.md)
+- [The advisor's asks, the Mail checker's verdicts and jobs go in the chat's ledger (2026-11-02)](./texting-assistant/ledger-asks.md)
 - [A guest in a group chat opens a shared note with a texted code, and the code makes an account (2026-10-27, 2026-10-31)](./texting-assistant/guest-phone-pass.md)
 - [Tex is on WhatsApp through Whapi.Cloud, a linked-device account; iMessage stays home (2026-10-27)](./texting-assistant/whatsapp.md)
 - [A family chat counts invited numbers as members (2026-10-27)](./texting-assistant/invited-family.md)
@@ -774,11 +785,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A group turn is seen through by a Cloudflare Workflow (Dev2, 2026-10-27)](./texting-assistant/group-turn-workflow.md)
 - [A busy group is answered fast, and only with a reply that still fits (2026-10-30)](./texting-assistant/group-turn-workflow.md#a-busy-group-is-answered-fast-and-only-with-a-reply-that-still-fits-2026-10-30)
 - [How Tex talks: settings per person and per group (Dev2, 2026-10-28)](./texting-assistant/tex-settings.md)
+- [How Tex talks: custom instructions and two switches (Dev2, 2026-11-01)](./texting-assistant/custom-instructions.md)
 - [How Tex sounds in each chat: mirror, language, group voice note, a text not an essay (Dev2, 2026-10-28, 2026-10-29)](./texting-assistant/tex-voice.md)
 - [Tex's chat commands are tools the agent calls (2026-10-31)](./texting-assistant/command-tools.md)
 - [One conversation state per chat, and decide picks when and how Tex replies (2026-11-01)](./texting-assistant/chat-state-machine.md)
 - [Group typing: a WhatsApp experiment before any build (2026-11-01)](./texting-assistant/whapi-presence-probe.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
+- [On Sendblue, every link goes with its picture, and never at either end of its text (2026-11-03)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works
@@ -802,9 +815,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given
 - [The person views and drives Tex's computer at context.lc/tex/<handle>](./texting-assistant/computer.md)
+- [context.lc/tex/<handle> is the person's whole Tex page (Dev2, 2026-11-02)](./texting-assistant/tex-page.md)
 - [Tex downloads a file and emails it (2026-10-22)](./texting-assistant/computer.md#tex-downloads-a-file-and-emails-it-2026-10-22)
 - [A failed browser run is debugged from Browserbase's session log (2026-10-22)](./texting-assistant/computer.md#a-failed-browser-run-is-debugged-from-browserbases-session-log-2026-10-22)
 - [A browser waiting on the person is held fifteen minutes (2026-10-28)](./texting-assistant/computer.md#a-browser-waiting-on-the-person-is-held-fifteen-minutes-2026-10-28)
+- [The Tex page shows each chat's Tex live, from the chat's own box (2026-11-02)](./texting-assistant/tex-page.md)
 - [Tex holds the six tools, each listing only what it was granted (2026-10-16)](./texting-assistant/tool-shelf.md)
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)

@@ -169,6 +169,9 @@ test("Tex's other folders and notes are drawn too, and nowhere else (owner, 2026
   assert.equal(drawn("tex/heartbeat.md"), "💓");
   assert.equal(drawn("tex/attention"), "🔔");
   assert.equal(drawn("tex/jobs.md"), "📋");
+  // The chat's history file, a person's and a group home's (Dev, 2026-11-03: "give it an image").
+  assert.equal(drawn("tex/history.ledger.json"), "📜");
+  assert.equal(iconAsText(texPartIcon("groups/blue-lake-fox/history.ledger.json")), "📜");
   assert.equal(defaultFolderIcon("tex/transcripts/2026-10-21.md"), null);
   assert.equal(defaultFolderIcon("1-projects/transcripts"), null);
   // Inside a Tex folder nested anywhere, by the path below it.
@@ -222,7 +225,7 @@ test("every folder Context files into under tex/ or inbox/ draws a Context part"
   assert.ok(files.length > 100, `read ${files.length} files`);
   const named = new Map();
   for (const file of files) {
-    for (const match of readFileSync(file, "utf8").matchAll(/["'`](tex|inbox)\/([a-z0-9][a-z0-9-]*(?:\.md)?)(?![a-z0-9-])/g)) {
+    for (const match of readFileSync(file, "utf8").matchAll(/["'`](tex|inbox)\/([a-z0-9][a-z0-9-]*(?:\.md|\.ledger\.json)?)(?![a-z0-9-])/g)) {
       const key = `${match[1]}/${match[2]}`;
       if (!named.has(key)) named.set(key, file.slice(repo.length));
     }

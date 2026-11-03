@@ -14,6 +14,8 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { FileBrowserOptions } from "./types";
 import type { FolderIconsValues } from "./useFolderIcons";
+import { useObjectMoves } from "../useObjectMoves";
+import { objectServes } from "./objectServes";
 
 type FileActionsDeps = { options: FileBrowserOptions; folderIcons: FolderIconsValues };
 
@@ -62,6 +64,8 @@ export function useFileActions(deps: FileActionsDeps) {
   const listOldCopiesAction = useAction(api.functions.oldCopies.listForExport);
   const readOldCopiesAction = useAction(api.functions.oldCopies.readForExport);
   const readMessagesLogAction = useAction(api.functions.messagesExport.readLogForExport);
+  const readChatLedgerAction = useAction(api.functions.texLedgerExport.readChatLedgerForExport);
+  const listChatLedgersAction = useAction(api.functions.texLedgerExport.listChatLedgersForExport);
   const writeNote = useAction(api.functions.files.writeNote);
   const submitFormAction = useAction(api.functions.forms.submitForm);
   const storeNoteImageAction = useAction(api.functions.files.storeNoteImage);
@@ -89,20 +93,47 @@ export function useFileActions(deps: FileActionsDeps) {
     screen in step without a second read. A failed call moves nothing and
     rethrows, as the bare action does.
   */
+  // Trash, restore and moves go to the workspace's object when it serves the tree (`useObjectMoves`).
+  const objectMoves = useObjectMoves();
   const moveEntryAction = useAction(api.functions.files.moveEntry);
   const moveEntry = useCallback<typeof moveEntryAction>(
     async (args) => {
-      const result = await moveEntryAction(args);
+      // A rename that also rewrites the note's first heading edits its text, which only the action does.
+      const result =
+        (args.followHeading === true
+          ? null
+          : await objectMoves.move(args.workspaceId, {
+              from: args.from,
+              to: args.to,
+              ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+            })) ?? (await moveEntryAction(args));
       moved(args.from, args.to);
       return result;
     },
-    [moveEntryAction, moved],
+    [moveEntryAction, moved, objectMoves],
   );
   const startContextMoveAction = useAction(api.functions.contextMoves.startContextMove);
   const resumeContextMoveAction = useAction(api.functions.contextMoves.resumeContextMove);
   const dismissContextMoveMutation = useMutation(api.functions.contextMoves.dismissContextMove);
-  const copyEntry = useAction(api.functions.files.copyEntry);
-  const duplicateEntry = useAction(api.functions.files.duplicateEntry);
+  // Copy and Duplicate of a note go to the gateway too, which makes the copy and the object adopts it; a folder, or
+  // anything else the gateway leaves to Convex, answers null and takes the action. A workspace the object does not
+  // serve calls the action at once, exactly as before.
+  const copyEntryAction = useAction(api.functions.files.copyEntry);
+  const copyEntry = useCallback<typeof copyEntryAction>(
+    (args) =>
+      objectServes(args.workspaceId)
+        ? objectMoves.copy(args.workspaceId, { from: args.from, to: args.to }).then((moved) => moved ?? copyEntryAction(args))
+        : copyEntryAction(args),
+    [copyEntryAction, objectMoves],
+  );
+  const duplicateEntryAction = useAction(api.functions.files.duplicateEntry);
+  const duplicateEntry = useCallback<typeof duplicateEntryAction>(
+    (args) =>
+      objectServes(args.workspaceId)
+        ? objectMoves.duplicate(args.workspaceId, { path: args.path }).then((moved) => moved ?? duplicateEntryAction(args))
+        : duplicateEntryAction(args),
+    [duplicateEntryAction, objectMoves],
+  );
   // Archive, trash and restore are moves too: the answer says where the folder went.
   const archiveEntryAction = useAction(api.functions.files.archiveEntry);
   const archiveEntry = useCallback<typeof archiveEntryAction>(
@@ -113,23 +144,35 @@ export function useFileActions(deps: FileActionsDeps) {
     },
     [archiveEntryAction, moved],
   );
+  /*
+    Trash and restore go to the workspace's object through the gateway when it
+    serves the tree (`objectServes`), and to the Convex action otherwise, or when
+    the gateway cannot answer. A refusal from the gateway is thrown as the
+    action's own refusal, so it is not retried against Convex.
+  */
   const trashEntryAction = useAction(api.functions.files.trashEntry);
   const trashEntry = useCallback<typeof trashEntryAction>(
     async (args) => {
-      const result = await trashEntryAction(args);
+      const result =
+        (await objectMoves.trash(args.workspaceId, {
+          path: args.path,
+          ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+        })) ?? (await trashEntryAction(args));
       moved(args.path, result.to);
       return result;
     },
-    [moved, trashEntryAction],
+    [moved, objectMoves, trashEntryAction],
   );
   const restoreTrashEntryAction = useAction(api.functions.files.restoreTrashEntry);
   const restoreTrashEntry = useCallback<typeof restoreTrashEntryAction>(
     async (args) => {
-      const result = await restoreTrashEntryAction(args);
+      const result =
+        (await objectMoves.restore(args.workspaceId, { from: args.from, to: args.to })) ??
+        (await restoreTrashEntryAction(args));
       moved(args.from, args.to);
       return result;
     },
-    [moved, restoreTrashEntryAction],
+    [moved, objectMoves, restoreTrashEntryAction],
   );
   const setNoteVisibility = useAction(api.functions.files.setNoteVisibility);
   const setNoteGroupAction = useAction(api.functions.files.setNoteGroup);
@@ -140,7 +183,7 @@ export function useFileActions(deps: FileActionsDeps) {
   return {
     workspaceId, workspaceGenerationRef, slug, listFiles, readNote, readNotesAction, searchContext, reportSearchScreen, notePathsAction,
     writeNote, submitFormAction, storeNoteImageAction, readNoteImageAction, readRemoteImageAction, readEmojiAction, imageCache, exportAccessAction,
-    listOldCopiesAction, readOldCopiesAction, readMessagesLogAction,
+    listOldCopiesAction, readOldCopiesAction, readMessagesLogAction, readChatLedgerAction, listChatLedgersAction,
     voteFormAction, updateSubmissionAction, retractSubmissionAction, createDirectory, undoNewFolder, moveEntry,
     startContextMoveAction, resumeContextMoveAction, dismissContextMoveMutation,
     copyEntry, duplicateEntry, archiveEntry, trashEntry, restoreTrashEntry, setNoteVisibility,

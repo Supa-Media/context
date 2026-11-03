@@ -1,32 +1,30 @@
 /**
- * TEX'S DAILY TRANSCRIPT, END TO END THROUGH `/agent` (owner, 2026-10-15).
+ * NO DAILY TRANSCRIPT, AND TEXTED PICTURES KEPT IN A NOTE OF THEIR OWN,
+ * END TO END THROUGH `/agent` (owner, 2026-11-02).
  *
- * `agentTranscript.test.mjs` pins the note's shape; these pin the wiring: a
- * texted turn writes `tex/transcripts/<day>.md` in the person's bucket with
- * the text, the thinking, the call and the answer (never the call's result),
- * asks the model for its thinking in words, and keeps going for the next
- * text; a turn from any other client writes nothing.
+ * The daily transcripts (`tex/transcripts/<day>.md`, written from 2026-10-15)
+ * are retired: the chat's ledger is its one record (`chat-ledger.md`). These
+ * pin the wiring: a texted turn writes no transcript note; it still asks the
+ * model for its thinking in words (the ledger keeps it); a texted picture is
+ * stored once in the workspace's images and embedded in the month's
+ * `tex/pictures/` note, which the saved conversation names so a later text
+ * can look again; a turn from any other client writes no pictures note.
  *
  * ## Sabotage record
  *
- * Applied, suite run, named check observed failing, reverted (2026-10-15).
+ * Applied, suite run, named check observed failing, reverted (2026-11-02).
  *
- *  1. `route.js` opening the transcript only when `runner`.
- *     → "a texted turn is written into today's transcript" fails.
- *  2. `route.js` opening it for every client.
- *     → "a turn from another client writes no transcript" fails.
- *  4. `route.js` passing the transcript no attachments.
- *     → "a texted picture is stored in the workspace's images and shown…" fails.
- *  3. The transcript dispatching under the turn's own egress ledger.
- *     → "reading today's transcript to append to it never makes a widening ask" fails.
- *  5. `route.js` calling `attachmentsLine` without the transcript's kept pictures (2026-10-20).
+ *  1. `route.js` calling `attachmentsLine` without the kept pictures.
  *     → "the saved conversation points at a stored picture, never its bytes" fails.
- *  6. `anthropicMessages` dropping a tool result's images (2026-10-20).
+ *  2. `route.js` keeping pictures for every client.
+ *     → "a turn from another client keeps no pictures note" fails.
+ *  3. `anthropicMessages` dropping a tool result's images (2026-10-20).
  *     → "a picture read back with read_image is shown to the model in the tool's answer" fails.
  */
 
 import worker from "../src/index.js";
 import { transcriptPath } from "../src/agent/transcript.js";
+import { picturesPath } from "../src/agent/textedPictures.js";
 import { IMAGE_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
@@ -153,48 +151,17 @@ export async function runAgentTranscriptChecks(check) {
       { text: "Pay rent." },
     ]);
     const first = await ask(env, TOKEN_TEXTS, { question: "what's on my list?", conversation: "texts", timeZone: "UTC" });
-    const written = day();
     check(
-      "a texted turn is written into today's transcript",
-      first.status === 200 &&
-        first.body?.answer === "Pay rent." &&
-        written.includes("**Them:** what's on my list?") &&
-        written.includes("> 💭 They want the to-do list.") &&
-        written.includes("**Tex, while working:** Checking.") &&
-        written.includes('`read_note` `{"path":"todo.md"}` → ok') &&
-        written.includes("**Tex:** Pay rent.") &&
-        !written.includes("working_"),
+      "a texted turn writes no daily transcript",
+      first.status === 200 && first.body?.answer === "Pay rent." && day() === "" &&
+        ![...bucket.keys()].some((key) => key.startsWith("tex/transcripts/")),
     );
-    check("a tool's result never goes in the transcript", written !== "" && !written.includes("RESULT-ONLY-WORDS"));
     check(
       "a texted turn asks the model for its thinking in words",
       model.requests.length > 0 && model.requests.every((request) => request.thinking?.display === "summarized"),
     );
 
-    model.install([{ text: "Anytime." }]);
-    await ask(env, TOKEN_TEXTS, { question: "thanks", conversation: "texts", timeZone: "UTC" });
-    const both = day();
-    check(
-      "the next text goes after the first, in the same day's note",
-      both.indexOf("what's on my list?") !== -1 &&
-        both.indexOf("**Them:** thanks") > both.indexOf("**Tex:** Pay rent.") &&
-        both.includes("**Tex:** Anytime."),
-    );
-
-    /* ---------------- the transcript is not something the model read ---------------- */
-
-    model.install([
-      // A slow first round, so the transcript's own read of today has landed before the widening.
-      { waitMs: 300, toolCalls: [{ name: "set_visibility", args: { path: "todo.md", visibility: "team" } }] },
-      { text: "Shared." },
-    ]);
-    const share = await ask(env, TOKEN_TEXTS, { question: "share my to-do list with the team", conversation: "texts", timeZone: "UTC" });
-    check(
-      "reading today's transcript to append to it never makes a widening ask",
-      share.status === 200 && share.body?.answer === "Shared." && share.body?.asked === 0,
-    );
-
-    /* ---------------- what they sent (after the share check: an earlier attachment makes a later widening ask, which that check is not about) ---------------- */
+    /* ---------------- what they sent ---------------- */
 
     const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
     model.install([{ text: "Cute." }]);
@@ -204,12 +171,13 @@ export async function runAgentTranscriptChecks(check) {
       timeZone: "UTC",
       attachments: [{ name: "IMG_7.png", mediaType: "image/png", data: PNG }],
     });
-    const leaf = /!\[\[(upload-[0-9a-f]{16}\.png)\|IMG_7\.png\]\]/.exec(day())?.[1];
+    const note = picturesPath(Date.now(), "UTC");
+    const album = () => bucket.get(note)?.body ?? "";
+    const leaf = /!\[\[(upload-[0-9a-f]{16}\.png)\|IMG_7\.png\]\]/.exec(album())?.[1];
     check(
-      "a texted picture is stored in the workspace's images and shown in the transcript",
-      pictured.status === 200 && leaf !== undefined && bucket.get(`${IMAGE_PREFIX}${leaf}`) !== undefined,
+      "a texted picture is stored in the workspace's images and shown in the month's pictures note",
+      pictured.status === 200 && leaf !== undefined && bucket.get(`${IMAGE_PREFIX}${leaf}`) !== undefined && day() === "",
     );
-    const note = transcriptPath(Date.now(), "UTC");
     const kept = conversationText(history);
     check(
       "the saved conversation points at a stored picture, never its bytes",
@@ -232,13 +200,12 @@ export async function runAgentTranscriptChecks(check) {
 
     /* ---------------- another client ---------------- */
 
-    const before = day();
+    const before = album();
     model.install([{ text: "Hello." }]);
-    const other = await ask(env, TOKEN_OTHER, { question: "hello from elsewhere" });
+    const other = await ask(env, TOKEN_OTHER, { question: "hello from elsewhere", attachments: [{ name: "IMG_8.png", mediaType: "image/png", data: PNG }] });
     check(
-      "a turn from another client writes no transcript",
-      other.status === 200 && day() === before && !day().includes("hello from elsewhere") &&
-        model.requests.at(-1)?.thinking === undefined,
+      "a turn from another client keeps no pictures note",
+      other.status === 200 && album() === before && !album().includes("IMG_8") && model.requests.at(-1)?.thinking === undefined,
     );
   } finally {
     restoreControlPlane();

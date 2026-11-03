@@ -31,11 +31,13 @@
  *  - a 200-row cap on each side whose overflow marks the answer incomplete:
  *    "hidden backlinkers never change a team reader's answer" fails;
  *  - marking every answer short while any move is queued: the same case
- *    fails on its private move.
+ *    fails on its private move;
+ *  - asking the object's rows without the `visible` filter (2026-11-02): "where
+ *    the notes live in their object" fails at member clearance.
  */
 
 import { seedTreeRows } from "../fixtures.helpers";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { convexTest } from "convex-test";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
@@ -48,6 +50,16 @@ import { hashToken } from "../../functions/lib/crypto";
 import { translateMirror } from "../seededRules.helpers";
 
 type T = ReturnType<typeof convexTest>;
+
+/** What a workspace object answers, where a test says the notes live there; `undefined`: as built (none here). */
+const object = vi.hoisted(() => ({ rows: undefined as undefined | ((request: Record<string, unknown>) => Promise<Record<string, unknown>>) }));
+vi.mock("../../functions/lib/nodes/objectFacts", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../../functions/lib/nodes/objectFacts")>();
+  return { ...real, objectFactRows: async (...args: Parameters<typeof real.objectFactRows>) => (object.rows === undefined ? await real.objectFactRows(...args) : object.rows) };
+});
+afterEach(() => {
+  object.rows = undefined;
+});
 
 const OWNER = token("facts_owner");
 const OWNER_TEAM = token("facts_owner_team");
@@ -454,5 +466,48 @@ describe("POST /gateway/tree/facts", () => {
   test("a note's neighbors before the facts are whole say so", async () => {
     const { t, ws } = await fixture();
     expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...NEIGHBORS })).toEqual({ served: true, neighbors: null });
+  });
+});
+
+describe("where the notes live in their object", () => {
+  /** The object's unfiltered rows: a private note points at the plan, the plan has props, one note is long. */
+  const held = async (request: Record<string, unknown>) => {
+    if (request.ask === "candidates") return { served: true, candidates: { pointing: ["1-projects/later.md", "1-projects/secret/codes.md"], unparsed: [] } };
+    if (request.ask === "props") {
+      const props = ((request.paths as string[]) ?? []).map((path) => ({ path, version: "o", sealed: false, props: JSON.stringify({ properties: { from: "object" }, heading: path }) }));
+      return { served: true, props };
+    }
+    if (request.ask === "neighborRows") {
+      return { served: true, rows: { present: true, current: true, links: [], byPath: ["1-projects/later.md", "1-projects/secret/codes.md"], byName: [] } };
+    }
+    if (request.ask === "chaos") return { served: true, extras: [{ path: "1-projects/secret/codes.md", lines: 2_000, exempt: false, review: false }, { path: "1-projects/plan.md", lines: 1_200, exempt: false, review: false }] };
+    return { served: false };
+  };
+
+  test("the object says what the notes say, and the control plane's rules say who sees it, with no copy of its own", async () => {
+    const { t, ws } = await fixture();
+    object.rows = held;
+    const owner = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...LINKS });
+    expect(owner.candidates.pointing.sort()).toEqual(["1-projects/later.md", "1-projects/secret/codes.md"]);
+    const member = await facts(t, { accessToken: MEMBER, expectedWorkspaceId: ws, ...LINKS });
+    expect(member.candidates.pointing).toEqual(["1-projects/later.md"]);
+
+    const props = await facts(t, { accessToken: MEMBER, expectedWorkspaceId: ws, ask: "props", paths: ["1-projects/plan.md", "1-projects/secret/codes.md"] });
+    expect(props.props).toEqual([{ path: "1-projects/plan.md", version: "o", sealed: false, props: JSON.stringify({ properties: { from: "object" }, heading: "1-projects/plan.md" }) }]);
+
+    const neighbors = await facts(t, { accessToken: MEMBER, expectedWorkspaceId: ws, ...NEIGHBORS });
+    expect(JSON.stringify(neighbors)).not.toContain("secret");
+    expect(neighbors.neighbors).toEqual({ links: [], backlinks: ["1-projects/later.md"], complete: true });
+
+    const chaos = await facts(t, { accessToken: MEMBER, expectedWorkspaceId: ws, ask: "chaos" });
+    expect(chaos.chaos.extras.map((extra: { path: string }) => extra.path)).toEqual(["1-projects/plan.md"]);
+  });
+
+  test("an object that does not answer leaves the control plane's own copy", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    object.rows = async () => ({ served: false });
+    const member = await facts(t, { accessToken: MEMBER, expectedWorkspaceId: ws, ...LINKS });
+    expect(member.candidates.pointing).toEqual(["1-projects/later.md"]);
   });
 });

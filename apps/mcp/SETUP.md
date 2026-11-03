@@ -440,16 +440,15 @@ guessing wrong there silently sends reads and writes to a *different bucket*.
   omitted. `manage` with action `visibility` (`path`, `visibility`, `expected_etag`) changes an existing
   note without moving it, and moves preserve effective privacy. Frontmatter alone
   never grants or removes access.
-- **Correct destination is not writable:** use `write` with action `propose`; an owner reviews
-  it with `fetch` on `proposals:` and `manage` with action `review_proposal`.
+- **Correct destination is not writable:** the write is refused; tell the person.
+  There is no proposal queue (removed 2026-11-03).
 - **Cleanup:** a team connection archives team content into the team archive,
   where it stays team-visible and recoverable. Owner archives safely tighten to
   private. Explicit private visibility is never loosened.
 - **Conversation history:** `archive_chat` stores user-visible transcripts in
   `4-archive/chat-history/<platform>/<ISO timestamp>.md`, defaulting to the
   connection's own tier. A team connection that explicitly asks for private
-  storage creates a hidden proposal for owner approval instead of gaining private
-  write access.
+  storage is refused; it never gains private write access.
 - **Transcript completeness:** agents label archives `full-visible-transcript`,
   `available-context`, or `summary`. The gateway can store what a client sends
   but cannot recover turns the client omitted or compacted. Never archive hidden

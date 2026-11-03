@@ -62,12 +62,12 @@ export function refusalWords(result) {
  * that still could not be written says why in the Worker's log (`job_log`),
  * never with the entry's or the note's words.
  */
-export async function appendLogEntry(dispatch, path, entry, heading) {
-  return (await appendLogEntryWhy(dispatch, path, entry, heading)) === null;
+export async function appendLogEntry(dispatch, path, entry, heading, extra = {}) {
+  return (await appendLogEntryWhy(dispatch, path, entry, heading, extra)) === null;
 }
 
 /** `appendLogEntry`, answering null when the entry landed and otherwise why it didn't, in the refusal's leading words. */
-export async function appendLogEntryWhy(dispatch, path, entry, heading) {
+export async function appendLogEntryWhy(dispatch, path, entry, heading, { images = null } = {}) {
   let why = "unreadable";
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const current = await readWithEtag(dispatch, path);
@@ -81,6 +81,7 @@ export async function appendLogEntryWhy(dispatch, path, entry, heading) {
       path,
       content: `${before.replace(/\n*$/, "\n\n")}${entry}`,
       ...(current.missing ? {} : { expected_etag: current.etag }),
+      ...(Array.isArray(images) && images.length > 0 ? { images } : {}),
     }).catch((error) => {
       threw = error;
       return null;

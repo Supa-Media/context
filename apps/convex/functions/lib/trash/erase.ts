@@ -14,6 +14,8 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import type { FileStore } from "../fileOps/store";
+import { objectFirst } from "../rowWatch/objectFirst";
+import { eraseInObject, type ObjectEraser } from "./objectErase";
 
 /** Erasures one run claims before it hands the rest to tomorrow's pass. */
 export const CLAIMS_PER_RUN = 25;
@@ -42,13 +44,25 @@ function codeOf(error: unknown): string {
   return typeof code === "string" && /^[A-Z_]{1,40}$/.test(code) ? code : "ERASE_FAILED";
 }
 
-export async function eraseWorkspaceTrash(ctx: ActionCtx, workspaceId: Id<"workspaces">, open: OpenStore): Promise<EraseOutcome> {
-  let claimed = 0;
-  while (claimed < CLAIMS_PER_RUN) {
-    const id = await ctx.runMutation(internal.functions.trash.claimErasure, { workspaceId });
-    if (id === null) break;
-    claimed += 1;
-  }
+/** The workspace object's client, where its notes live there; `null` otherwise. Swappable for tests. */
+export type OpenObject = () => Promise<ObjectEraser | null>;
+
+export async function eraseWorkspaceTrash(ctx: ActionCtx, workspaceId: Id<"workspaces">, open: OpenStore, openObject?: OpenObject): Promise<EraseOutcome> {
+  // Where the notes live in the object, the object removes the rows and Convex follows by the mirror (`./objectErase.ts`).
+  // With no way to reach it this pass removes no row at all: Convex is not the writer of those rows.
+  const inObject = (await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId })) === "object";
+  const object = inObject ? ((await openObject?.()) ?? null) : null;
+  // Otherwise claiming removes the rows: the workspace's object hears first (`../rowWatch/objectFirst.ts`), and a
+  // refused mark leaves the trash for the next pass.
+  const claimed = inObject ? (object === null ? 0 : await eraseInObject(ctx, workspaceId, object, CLAIMS_PER_RUN)) : await objectFirst(ctx, workspaceId, async () => {
+    let count = 0;
+    while (count < CLAIMS_PER_RUN) {
+      const id = await ctx.runMutation(internal.functions.trash.claimErasure, { workspaceId });
+      if (id === null) break;
+      count += 1;
+    }
+    return count;
+  });
   const pending = await ctx.runQuery(internal.functions.trash.pendingErasures, { workspaceId });
   if (pending.length === 0) return { claimed, finished: 0, failed: 0 };
 

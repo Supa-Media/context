@@ -227,6 +227,15 @@ describe("rows and who can see", () => {
     expect(objectRowOf({ _id: "r9", path: "x.md", kind: "file", goneAt: 1 }, 5)).toBeNull();
   });
 
+  test("the row carries the object's clock (0 when none), and the digest does not cover it", async () => {
+    const plan = { _id: "r2", path: "projects/plan.md", kind: "file" as const, noteId: "0199a000-0000-7000-8000-00000000000a", storageKey: A, etag: "e1" };
+    expect(objectRowOf(plan, 5)).toMatchObject({ objectAt: 0 });
+    expect(objectRowOf({ ...plan, objectAt: 77 }, 5)).toMatchObject({ objectAt: 77, at: 5 });
+    const withClock = [objectRowOf({ ...plan, objectAt: 77 }, 5)!];
+    const without = [objectRowOf(plan, 5)!];
+    expect((await rowsDigest(withClock)).sha256).toBe((await rowsDigest(without)).sha256);
+  });
+
   test("the digest computed here is byte-for-byte the object's own", async () => {
     const { client } = objectFor();
     await client.rows.snapshot({ epoch: "1", rows, last: true, mode: "replace" });
@@ -280,6 +289,26 @@ describe("rows and who can see", () => {
 });
 
 describe("the switch", () => {
+  test("a workspace a check cannot open is described by kind, storage provider and row count, never by name", async () => {
+    const t = convexTest(schema, modules);
+    const { live, gone } = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {});
+      const live = await ctx.db.insert("workspaces", { slug: "acme-secret", displayName: "Acme", createdBy: userId, kind: "shared", structureTemplate: "para", createdAt: 1, updatedAt: 1 } as never);
+      await ctx.db.insert("nodes", { workspaceId: live, path: "plan.md", name: "plan.md", kind: "file", etag: "e1", size: 3, observedAt: 1, noteId: "0199a000-0000-7000-8000-00000000000a", storageKey: A });
+      const gone = await ctx.db.insert("workspaces", { slug: "gone-one", displayName: "Gone", createdBy: userId, kind: "personal", structureTemplate: "para", createdAt: 1, updatedAt: 1 } as never);
+      await ctx.db.delete(gone);
+      return { live, gone };
+    });
+    const said = await t.query(internal.functions.workspaceObjectsRows.describeUnopened, { workspaceId: live });
+    expect(said).toBe("shared/binding=none/rows=1");
+    expect(said).not.toContain("acme");
+    expect(await t.query(internal.functions.workspaceObjectsRows.describeUnopened, { workspaceId: gone })).toBe("gone/binding=none/rows=0");
+    await t.mutation(internal.functions.workspaceObjectsRows.recordHome, { workspaceId: live, home: "dual", now: 1 });
+    await t.mutation(internal.functions.workspaceObjectsRows.recordHome, { workspaceId: gone, home: "dual", now: 1 });
+    // The deleted one's record stays behind, but is never listed for a check or a switch.
+    expect(await t.query(internal.functions.workspaceObjectsRows.atHome, { home: "dual" })).toEqual([live]);
+  });
+
   test("no record is bucket; the record moves with each set; the binding names no home while bucket", async () => {
     const t = convexTest(schema, modules);
     const workspaceId = await t.run(async (ctx) => {

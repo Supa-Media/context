@@ -43,11 +43,20 @@ export function firstParagraphOf(text) {
  * generated file: the derived structure below it is something we can always
  * rebuild, and the one thing we cannot is what the person considers important.
  */
-export async function readFrontPage(store, scope, rules, overrides, charCap) {
-  if (!canSee("index.md", scope, rules, overrides)) return null;
+/**
+ * `index.md`'s text, read once: `orient` hands the one read to both the front page and the save procedure, which
+ * each read it on their own before (two reads of the same note per orient). `null` where it is absent.
+ */
+export async function readIndexText(store) {
   const object = await getWithLegacyFallback(store, "index.md");
-  if (!object) return null;
-  const text = (await object.text()).trim();
+  return object ? await object.text() : null;
+}
+
+export async function readFrontPage(store, scope, rules, overrides, charCap, indexText = null) {
+  if (!canSee("index.md", scope, rules, overrides)) return null;
+  const read = await (indexText ?? readIndexText(store));
+  if (read === null) return null;
+  const text = read.trim();
   if (!text) return null;
   return text.length > charCap
     ? `${text.slice(0, charCap)}\n\n[truncated — read the whole thing with read_note("index.md")]`
@@ -100,9 +109,9 @@ function normalizeSaveDestination(value) {
   return cleaned;
 }
 
-export async function readSaveProcedure(store, scope, rules, overrides) {
+export async function readSaveProcedure(store, scope, rules, overrides, indexText = null) {
   if (!canSee("index.md", scope, rules, overrides)) return null;
-  const object = await getWithLegacyFallback(store, "index.md");
-  if (!object) return null;
-  return extractSaveProcedure(await object.text());
+  const text = await (indexText ?? readIndexText(store));
+  if (text === null) return null;
+  return extractSaveProcedure(text);
 }

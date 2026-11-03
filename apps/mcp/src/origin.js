@@ -98,6 +98,13 @@ export function isTransportPath(path) {
     // The access socket names members, invitations and connected apps, and writes them: likewise.
     path === "/presence/access" ||
     path === "/collaboration" ||
+    // The app's trash and restore (`live/fileOpsRoute.js`): a page on another origin must not move notes with
+    // somebody else's token.
+    path === "/files/trash" ||
+    path === "/files/restore" ||
+    path === "/files/move" ||
+    path === "/files/copy" ||
+    path === "/files/duplicate" ||
     // Authenticated and read by the console from a browser. It changes
     // nothing, but it names notes, so a page on another origin must not be
     // able to ask it with somebody else's token.
@@ -105,7 +112,10 @@ export function isTransportPath(path) {
     // Authenticated, reached by the console from a browser, and a POST to it
     // releases a write the egress gate held: a page on another origin that
     // could post here would be approving on the person's behalf.
-    path === "/approvals"
+    path === "/approvals" ||
+    // The Tex page (`http/texPage/`): what Tex thought and emailed, its jobs to steer, and a socket that hears them.
+    path === "/tex/page" ||
+    path.startsWith("/tex/page/")
   );
 }
 

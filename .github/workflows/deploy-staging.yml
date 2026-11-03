@@ -45,24 +45,8 @@ permissions:
   contents: read
 
 jobs:
-  # Production deploys beside staging rather than after it (decided by the
-  # owner, 2026-10-23: a Tex change should reach production in about five
-  # minutes). The repository variable AUTO_DEPLOY_PRODUCTION puts staging back
-  # in front: `after-staging` waits for this run and main's CI
-  # (promote-production.yml), `off` leaves production to a manual run.
-  production:
-    name: Start production alongside staging
-    if: ${{ github.event_name == 'push' && vars.AUTO_DEPLOY_PRODUCTION != 'off' && vars.AUTO_DEPLOY_PRODUCTION != 'after-staging' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Start Deploy to Production for main
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: gh workflow run deploy-production.yml --ref main -f alongside_staging=true
+  # Production starts beside staging from deploy-production-start.yml, outside this
+  # workflow's queue, so a merge waiting here for staging never holds it up.
 
   plan:
     name: Choose what to deploy
@@ -313,56 +297,28 @@ jobs:
               # so the first deploy has none. An absent value is skipped
               # rather than set empty; the Worker refuses what it cannot
               # verify, and the health step below says what is missing.
-              printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir apps/agent exec wrangler secret put CONTROL_PLANE_ORIGIN --env staging
-              for name in AGENT_WORKER_SECRET LINQ_API_KEY LINQ_WEBHOOK_SECRET SENDBLUE_API_KEY_ID SENDBLUE_API_SECRET SENDBLUE_WEBHOOK_SECRET; do
-                if [ -n "${!name:-}" ]; then
-                  printf '%s' "${!name}" | pnpm --dir apps/agent exec wrangler secret put "$name" --env staging
-                else
-                  echo "::warning::$name is not set in the staging environment; the texting assistant stays inert until it is."
-                fi
-              done
-              # WhatsApp (Whapi.Cloud) is optional: absent, that line is simply off.
-              for name in WHAPI_TOKEN WHAPI_LINE WHAPI_WEBHOOK_SECRET; do
-                if [ -n "${!name:-}" ]; then
-                  printf '%s' "${!name}" | pnpm --dir apps/agent exec wrangler secret put "$name" --env staging
-                else
-                  echo "::notice::$name is not set in the staging environment; Tex's WhatsApp line stays off until it is."
-                fi
-              done
+              # One request and one new version for all of them; see
+              # scripts/worker-secrets.mjs. `!` ones warn when unset (the
+              # texting assistant stays inert until they are); WhatsApp
+              # (Whapi.Cloud, `?`) is optional, and absent that line is off.
+              node scripts/worker-secrets.mjs CONTROL_PLANE_ORIGIN=CONTROL_PLANE_URL '!AGENT_WORKER_SECRET' '!LINQ_API_KEY' '!LINQ_WEBHOOK_SECRET' '!SENDBLUE_API_KEY_ID' '!SENDBLUE_API_SECRET' '!SENDBLUE_WEBHOOK_SECRET' '?WHAPI_TOKEN' '?WHAPI_LINE' '?WHAPI_WEBHOOK_SECRET' \
+                | pnpm --dir apps/agent exec wrangler secret bulk --env staging
               ;;
             mcp)
-              printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir apps/mcp exec wrangler secret put CONTROL_PLANE_URL --env staging
-              printf '%s' "$GATEWAY_SECRET" | pnpm --dir apps/mcp exec wrangler secret put GATEWAY_SECRET --env staging
-              printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_SECRET --env staging
-              printf '%s' "$TRANSCRIBE_WORKER_URL" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_URL --env staging
-              # Web search for the texting assistant: optional, and with no
-              # key the assistant simply has no search tool.
-              if [ -n "${BRAVE_SEARCH_API_KEY:-}" ]; then
-                printf '%s' "$BRAVE_SEARCH_API_KEY" | pnpm --dir apps/mcp exec wrangler secret put BRAVE_SEARCH_API_KEY --env staging
-              else
-                echo "::warning::BRAVE_SEARCH_API_KEY is not set; the texting assistant has no web search until it is."
-              fi
-              # Maps on Tex's cards: optional; without it they use OpenStreetMap.
-              if [ -n "${GOOGLE_MAPS_KEY:-}" ]; then
-                printf '%s' "$GOOGLE_MAPS_KEY" | pnpm --dir apps/mcp exec wrangler secret put GOOGLE_MAPS_KEY --env staging
-              fi
+              # One request and one new version for all of them; see
+              # scripts/worker-secrets.mjs. Optional (`?`): web search
+              # (without it the assistant has no search tool), maps on Tex's
+              # cards (OpenStreetMap without it), and model routing through
+              # Cloudflare AI Gateway (Workers AI without it).
+              node scripts/worker-secrets.mjs CONTROL_PLANE_URL GATEWAY_SECRET '?TRANSCRIBE_WORKER_SECRET' '?TRANSCRIBE_WORKER_URL' '!BRAVE_SEARCH_API_KEY' '?GOOGLE_MAPS_KEY' '?AI_GATEWAY_ACCOUNT_ID' '?AI_GATEWAY_ID' '?AI_GATEWAY_TOKEN' '?ANTHROPIC_CREDIT_KEY' \
+                | pnpm --dir apps/mcp exec wrangler secret bulk --env staging
               # Tex's Browserbase browser lives in the screenshot Worker:
               # both or neither, and with neither Tex drives Cloudflare's.
               if [ -n "${BROWSERBASE_API_KEY:-}" ] && [ -n "${BROWSERBASE_PROJECT_ID:-}" ]; then
-                printf '%s' "$BROWSERBASE_API_KEY" | pnpm --dir infra/site-shots exec wrangler secret put BROWSERBASE_API_KEY --env staging
-                printf '%s' "$BROWSERBASE_PROJECT_ID" | pnpm --dir infra/site-shots exec wrangler secret put BROWSERBASE_PROJECT_ID --env staging
+                node scripts/worker-secrets.mjs BROWSERBASE_API_KEY BROWSERBASE_PROJECT_ID | pnpm --dir infra/site-shots exec wrangler secret bulk --env staging
               else
                 echo "::notice::Browserbase is not configured in staging; Tex drives Cloudflare's browser."
               fi
-              # Model routing through Cloudflare AI Gateway: optional, and with
-              # any of the first three missing the gateway keeps Workers AI.
-              for name in AI_GATEWAY_ACCOUNT_ID AI_GATEWAY_ID AI_GATEWAY_TOKEN ANTHROPIC_CREDIT_KEY; do
-                if [ -n "${!name:-}" ]; then
-                  printf '%s' "${!name}" | pnpm --dir apps/mcp exec wrangler secret put "$name" --env staging
-                else
-                  echo "::notice::$name is not set in the staging environment; the gateway keeps its current model route."
-                fi
-              done
               ;;
             *)
               echo "No secret list for Worker '$WORKER'; add one before deploying it." >&2

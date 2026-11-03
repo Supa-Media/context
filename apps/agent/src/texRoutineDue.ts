@@ -17,6 +17,7 @@
 
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { runScopedRoutine, textPhone, type RoutineDeps, type RoutineScope } from "./routines";
+import { inboxForPageChat, readPageChat, readPageSteer, type PageJobs } from "./texPage";
 
 /** A person's owner is their personal workspace's id, as the gateway names its Tex store. */
 const PERSON_OWNER = /^person:([A-Za-z0-9_-]{1,128})$/;
@@ -35,6 +36,29 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
     const scope = scopeOf(call);
     if (scope === null) throw new TypeError("an alarm names a person's owner and a routine path");
     return await runScopedRoutine(this.deps(), scope);
+  }
+
+  /** The Tex page's view of a chat's jobs (`texPage.ts`); rejects a chat that names neither a phone nor a group key (`TypeError`). */
+  async pageJobs(call: { chat?: unknown } | null): Promise<PageJobs> {
+    const chat = readPageChat(call?.chat);
+    if (chat === null) throw new TypeError("a page names a chat by its phone or its group key");
+    const inbox = await inboxForPageChat(this.env, chat);
+    if (inbox === null) return { now: Date.now(), jobs: [] };
+    const response = await inbox.fetch("https://inbox/page-jobs", { method: "POST" });
+    if (!response.ok) throw new Error("the chat's inbox did not answer");
+    return (await response.json()) as PageJobs;
+  }
+
+  /** Steers one of a chat's jobs for a page (`texPage.ts`); `taken` is false for a job the chat does not list. */
+  async pageSteer(call: { chat?: unknown; id?: unknown; text?: unknown; stop?: unknown } | null): Promise<{ taken: boolean }> {
+    const chat = readPageChat(call?.chat);
+    const steer = readPageSteer(call);
+    if (chat === null || steer === null) throw new TypeError("a steer names a chat, a job id and its text or a stop");
+    const inbox = await inboxForPageChat(this.env, chat);
+    if (inbox === null) return { taken: false };
+    const response = await inbox.fetch("https://inbox/page-steer", { method: "POST", body: JSON.stringify(steer) });
+    if (!response.ok) throw new Error("the chat's inbox did not answer");
+    return { taken: ((await response.json()) as { taken?: unknown }).taken === true };
   }
 
   private deps(): RoutineDeps {

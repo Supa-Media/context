@@ -37,7 +37,7 @@
  */
 
 import { BUILT_FORM_LINK_ERROR, builtFormLink } from "./pageWalls.js";
-import { thinPageHint } from "./publishedText.js";
+import { READ_FAILED_NEXT, thinPageHint } from "./otherSites.js";
 import { BROWSE_TOOL, browserSession } from "./browse.js";
 export { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./browse.js";
 import { FILL_LOGIN_TOOL, fillLoginTool, savedLoginOn } from "./fillLogin.js";
@@ -71,6 +71,16 @@ export const MAX_PAGES_PER_TURN_OPEN_WEB = 40;
  * saves a whole round of the writing model.
  */
 export const PREFETCH_CONFIDENCE = 0.6;
+
+/**
+ * How long one page may take to open (the owner, 2026-11-01: a minute, timed
+ * per page), so one slow page comes back as "could not be opened" and the
+ * others in the same call still return. The tool's own limit covers a call's
+ * pages, opened together, then the one link guessed after them
+ * (`route.js` `toolTimeouts`; a quick turn's tool budget still cuts it).
+ */
+export const PAGE_OPEN_MS = 60_000;
+export const OPEN_PAGE_TIMEOUT_MS = 2 * PAGE_OPEN_MS + 15_000;
 
 /** How much of a page reaches the model. */
 const MAX_PAGE_CHARS = 12_000;
@@ -208,11 +218,11 @@ export function webPrompt(webNames) {
         ? "You can open search results and web pages the person gives you with send action open_page, and follow links on them."
         : "You can open web pages the person gives you with send action open_page, and follow links on them.",
     );
-    // `publishedText.js`: "Paste them in and I'll quote them" for a Bible chapter (2026-10-27).
+    // `otherSites.js`: one refused page made Tex ask for a Bible chapter to be pasted (2026-10-27).
     lines.push(
-      "Published text (a Bible passage in a named translation, lyrics, an article) is yours to find: when one page won't show it, " +
+      "When a page won't open or doesn't show what you need, " +
         (webNames.has(BROWSE_TOOL) ? "open it with browse or " : "") +
-        "find the same text on another site. Never ask them to paste or send it.",
+        "find the same content on another site; one site failing never means it isn't out there. Never ask them to paste or send something that is published.",
     );
   }
   if (webNames.has(TRAVEL_TIME_TOOL)) {
@@ -325,7 +335,7 @@ function resultsText(query, results) {
  *
  * @returns {{tools: Array, call: (name: string, args: object) => Promise<object>, usage: {decision: number}}}
  */
-export function webSession(computer, question, { decide = null, search = null, addresses = question, opened: openedBefore = [], say = null, store = null, files = null, keep = null, asks = null, handoffRefused = false } = {}) {
+export function webSession(computer, question, { decide = null, search = null, addresses = question, opened: openedBefore = [], say = null, store = null, files = null, keep = null, asks = null, handoffRefused = false, pageOpenMs = PAGE_OPEN_MS } = {}) {
   // `addresses` is the text whose addresses count as vouched for, which is the
   // person's own words and NOT necessarily the prompt. They are the same thing
   // for a texted question and differ for a routine, whose prompt is framing
@@ -338,6 +348,16 @@ export function webSession(computer, question, { decide = null, search = null, a
   const seen = new Set();
   const usage = { decision: 0, searches: 0 };
   let opened = 0;
+  // One page, inside its own minute; a failure is null, logged by its code only (never the address).
+  const readWithin = async (url) => {
+    let timer;
+    const late = new Promise((resolve) => (timer = setTimeout(() => resolve("timeout"), pageOpenMs)));
+    const read = computer.readPage(url).then((page) => page, () => "unreadable");
+    const page = await Promise.race([read, late]).finally(() => clearTimeout(timer));
+    if (typeof page !== "string") return page;
+    console.log(JSON.stringify({ event: "open_page_failed", code: page }));
+    return null;
+  };
   // The question's page budget, larger once the setup opens the web (`trust`).
   const pageCap = () => (allowed.webIsOpen() ? MAX_PAGES_PER_TURN_OPEN_WEB : MAX_PAGES_PER_TURN);
   // Doing things on a page (`browse.js`) shares the guard's addresses and
@@ -456,7 +476,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       }
       opened += wanted.length;
       for (const url of wanted) seen.add(url);
-      const pages = await Promise.all(wanted.map((url) => computer.readPage(url).catch(() => null)));
+      const pages = await Promise.all(wanted.map(readWithin));
       // Links count only after every page in this call has come back: a page
       // opened now cannot vouch for another opened in the same call.
       for (const page of pages) {
@@ -465,15 +485,15 @@ export function webSession(computer, question, { decide = null, search = null, a
           if (href) allowed.add(href);
         }
       }
-      if (pages.every((page) => page === null)) return text("That page could not be opened.", true);
-      const parts = pages.map((page, i) => (page === null ? `${wanted[i]} could not be opened.` : pageText(page, args?.from)));
+      if (pages.every((page) => page === null)) return text(`That page could not be opened. ${READ_FAILED_NEXT}`, true);
+      const parts = pages.map((page, i) => (page === null ? `${wanted[i]} could not be opened. ${READ_FAILED_NEXT}` : pageText(page, args?.from)));
       const next = decide !== null && opened < cap ? await guessNext(decide, question, pages, seen, usage) : null;
       // Already allowed (a link on a page opened now); checked again so the
       // guard stays the one place that decides, whatever picked the link.
       if (next !== null && allowed.has(next)) {
         opened += 1;
         seen.add(next);
-        const page = await computer.readPage(next).catch(() => null);
+        const page = await readWithin(next);
         for (const link of page?.links ?? []) {
           const href = canonicalUrl(link?.href);
           if (href) allowed.add(href);

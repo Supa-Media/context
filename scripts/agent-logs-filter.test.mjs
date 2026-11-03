@@ -91,7 +91,7 @@ test("neither step strips characters out of a value instead of refusing it", () 
 
 test("a state change's codes and a turn's rounds, tokens and timings pass, and a code-like number does not (2026-11-01)", () => {
   for (const show of inlineShows()) {
-    for (const key of ["round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs"]) {
+    for (const key of ["round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting"]) {
       assert.equal(show(key, 4096), "4096");
       assert.equal(show(key, "+1 555 123 4567"), "other");
     }

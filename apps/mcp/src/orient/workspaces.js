@@ -10,7 +10,7 @@
  */
 
 import { accessSentence } from "./access.js";
-import { firstParagraphOf, readFrontPage } from "./frontPage.js";
+import { firstParagraphOf, readFrontPage, readIndexText } from "./frontPage.js";
 import { surveyContext } from "./survey.js";
 import { describeFolders } from "./folderAbout.js";
 import { factJobs } from "../tree/facts.js";
@@ -59,10 +59,11 @@ export function openOnce(store) {
  * back `unreadable`, which the block says rather than drawing a map of nothing.
  */
 export async function surveyOf(listing, facts, scope, rules, overrides) {
+  // Which folder does each built-in job, whatever it is called now; absent where the tree cannot say. Asked beside the
+  // survey and the folder descriptions, which never need it.
+  const asking = factJobs(facts).catch(() => null);
   const survey = await surveyContext(listing, scope, rules, overrides);
-  await describeFolders(facts, survey);
-  // Which folder does each built-in job, whatever it is called now; absent where the tree cannot say.
-  const jobs = await factJobs(facts);
+  const [jobs] = await Promise.all([asking, describeFolders(facts, survey)]);
   if (jobs !== null) survey.jobs = jobs.jobs;
   return survey;
 }
@@ -122,17 +123,25 @@ async function siblingOf(entry, openContext) {
   const head = `### ${entry.name} — ${accessSentence(entry)}`;
   try {
     const opened = await openContext(entry.name);
+    // Every step below is a round trip to that workspace's object. Its front page is read beside its rules and its
+    // map beside its front page, rather than one after another: each used to wait for the last, and four of these
+    // in a row were most of `orient`'s time. The text is held only in this frame, and shown only where
+    // `readFrontPage` finds `index.md` visible under the rules.
+    const indexText = readIndexText(opened.store);
+    indexText.catch(() => {}); // Answered below, or not at all when the rules cannot be read.
     const privacy = await loadPrivacyState(opened.store);
     if (privacy.error) {
       return { section: `${head}\nIts privacy manifest could not be read, so nothing there is readable until its owner repairs it.` };
     }
     const scope = opened.session.scope;
-    const text = await readFrontPage(opened.store, scope, privacy.rules, privacy.overrides, ORIENT_SIBLING_INDEX_CHAR_CAP);
+    const [text, survey] = await Promise.all([
+      readFrontPage(opened.store, scope, privacy.rules, privacy.overrides, ORIENT_SIBLING_INDEX_CHAR_CAP, indexText),
+      // A tree that fails costs this workspace its map, never its front page.
+      surveyOf(servedListingStore(opened.store), opened.store, scope, privacy.rules, privacy.overrides).catch(() =>
+        unreadableSurvey()
+      ),
+    ]);
     const page = firstParagraphOf(text);
-    // A tree that fails costs this workspace its map, never its front page.
-    const survey = await surveyOf(servedListingStore(opened.store), opened.store, scope, privacy.rules, privacy.overrides).catch(
-      () => unreadableSurvey()
-    );
     return { section: `${head}\n${bodyOf({ page: page || null, survey })}` };
   } catch {
     // Named, and honest about why it is thin. Dropping the row would make

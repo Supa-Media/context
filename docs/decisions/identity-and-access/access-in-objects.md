@@ -136,6 +136,31 @@ also records whether the workspace holds a data key (`encryption`: `none` |
 `keyed`; `keyed` sticks, and it is written before the first key is made), so a
 reader knows when it must ask the control plane for the key.
 
+## The names a grant on a row gives travel with reach (2026-11-02)
+
+A grant on a row (a note or folder shared to a person by name, a group, every
+member, or a Tex chat's sealed home naming its people) gives each holder a
+name, `#<noteId>` and `#<noteId>!edit`. The control plane's session gives the
+app's own client these names (`grantedNamesFor`); the person object's session
+gave only the groups, so once access moved into the objects the app opened no
+chat home and no note shared to the person by name inside a workspace they are
+a member of. Each reach row now carries `rowNames` (at most 1,000), copied from
+`grantedNamesFor`, and the person object gives them to the app's client only,
+as before. A grant's change sends its holders' reach again (`record.ts`
+`targetsOf`: the person, the email's account, a group's members, or every
+member). A change to a person's confirmed emails is caught by the next copy.
+
+The app's live sockets (`live/treeRoute.js`, `live/accessRoute.js`) refused
+any reader holding a name that begins `@#`, meant for pin readers and Tex guest
+chats. A row token begins the same way, so they now refuse only those readers'
+markers (`live/readerNames.js`), and carry a member's row names to the object.
+A reader carries at most 1,200 names.
+
+Tests: `apps/convex/__tests__/textGroupHome.test.ts` ("a member of the pin
+named on a home holds its names"), `apps/mcp/test/personObject.test.mjs` ("the
+app's own client holds the names its grants on rows give it"),
+`apps/convex/__tests__/accessHandOff.test.ts`. Each was sabotage-checked.
+
 ## What a simplification would cost
 
 - Keeping a second copy in Convex "for safety" is two answers to who may read,
@@ -145,6 +170,7 @@ reader knows when it must ask the control plane for the key.
   pins each audience.
 - Trusting the token's id, or the person object's `reach`, without the
   workspace object's own membership check, makes a stale or forged locator a
-  way in. `apps/mcp/test/accessContract.test.mjs` pins the token format and
+  way in. Leaving `rowNames` off reach closes every sealed chat home and every
+  note shared by name to the app. `apps/mcp/test/accessContract.test.mjs` pins the token format and
   the write order; the person object's tests pin the tampered-token refusal,
   cross-tenant isolation and revocation on the next request.

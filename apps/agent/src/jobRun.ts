@@ -34,7 +34,7 @@ import { groupLineFor } from "./groupLine";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
-import { JOB_KEPT_MS, JOB_LIMIT_MS, JOB_LINES, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
+import { JOB_SHOWN_MS, JOB_LIMIT_MS, JOB_LINES, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
 import { STEER_TIMEOUT_MS } from "./steer";
@@ -79,7 +79,7 @@ export const PASS_KEY = "jobpass";
 const MAX_STEERS = 5;
 /**
  * A job that ended without finishing (stuck, waiting, stopped, failed) keeps
- * its run here for `JOB_KEPT_MS`, as its chat keeps its entry, so "restart it"
+ * its run here for `JOB_SHOWN_MS`, as its chat keeps its entry, so "restart it"
  * picks it up where it stopped (`resumeJob`) instead of starting a new copy
  * from the restart text (Dev2, 2026-10-31). Dropped once that time is up.
  */
@@ -147,12 +147,22 @@ export async function failJob(storage: InboxStorage, deps: JobDeps): Promise<Job
  * advisor's advice are what the first resumed part starts on, and its limit
  * starts again. `start` starts a new workflow for it (`jobWorkflow.ts`), named
  * by how many times it was resumed. False when nothing ended here in the last
- * `JOB_KEPT_MS`, or a run is still going.
+ * `JOB_SHOWN_MS`, or a run is still going.
  */
-export async function resumeJob(storage: InboxStorage, now: number, start?: (id: string, resumes: number) => Promise<void>): Promise<boolean> {
+export async function resumeJob(
+  storage: InboxStorage,
+  now: number,
+  start?: (id: string, resumes: number) => Promise<void>,
+  steer?: JobSteer,
+): Promise<boolean> {
   if ((await storage.get<JobRun>(RUN_KEY)) !== undefined) return false;
   const ended = await storage.get<Ended>(ENDED_KEY);
-  if (ended === undefined || now - ended.endedAt > JOB_KEPT_MS) return false;
+  if (ended === undefined || now - ended.endedAt > JOB_SHOWN_MS) return false;
+  // The text that restarted it is theirs and newer than the plan ("book with santana"): the first resumed part is shown it.
+  if (steer !== undefined && steer.text.trim() !== "" && steer.text !== PICKED_UP) {
+    const steers = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
+    if (!steers.some((kept) => kept.id === steer.id)) await storage.put(STEERS_KEY, [...steers, { id: steer.id, text: steer.text }].slice(-MAX_STEERS));
+  }
   const resumes = (ended.run.resumes ?? 0) + 1;
   await storage.put<Stored>(RUN_KEY, { ...ended.run, attempt: 1, tries: 0, startedAt: now, resumes, sent: 0, ...(ended.run.draft ? { unfinished: true as const } : {}) });
   await storage.delete(ENDED_KEY);
@@ -196,7 +206,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   if (run === undefined) {
     // The alarm set when a job ended unfinished: its kept run goes once nobody can pick it up any more.
     const ended = await storage.get<Ended>(ENDED_KEY);
-    if (ended !== undefined && deps.now() - ended.endedAt > JOB_KEPT_MS) await storage.delete(ENDED_KEY);
+    if (ended !== undefined && deps.now() - ended.endedAt > JOB_SHOWN_MS) await storage.delete(ENDED_KEY);
     return { kind: "done" };
   }
   let sent = run.sent ?? 0;
@@ -335,7 +345,7 @@ async function finish(
   else {
     const { sent: _s, owed: _o, owedTries: _t, unfinished: _u, idle: _i, ...kept } = run;
     await storage.put<Ended>(ENDED_KEY, { run: kept, endedAt: now });
-    await storage.setAlarm(now + JOB_KEPT_MS + 60_000);
+    await storage.setAlarm(now + JOB_SHOWN_MS + 60_000);
   }
   await storage.delete(RUN_KEY);
   await storage.delete(STEERS_KEY);

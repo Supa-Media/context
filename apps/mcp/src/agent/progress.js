@@ -63,9 +63,11 @@ export function wantsProgress(request) {
 export const PROGRESS_TOOL_DEFINITION = {
   name: PROGRESS_TOOL,
   description:
-    "Text the person one short line now, while you keep working. Only just before a slow step that reaches outside their notes " +
-    "(opening a site, browsing, a long job of many steps), saying what you're doing (\"Opening OpenTable for Friday.\"), or for " +
-    "something they could act on before your answer, like a link they must open. Start it with what you're doing now. Never before " +
+    "Text the person one short line now, while you keep working. For a task you expect to take more than about a minute, the first " +
+    "is your plan in one line (\"Checking OpenTable and Resy for Friday, then the best three.\"), and you start at once. Only just before " +
+    "a slow step that reaches outside their notes (opening a site, browsing, a long job of many steps), saying what you're doing " +
+    "(\"Opening OpenTable for Friday.\"), or for something they could act on before your answer, like a link they must open. Every " +
+    "line must be new to them or something to act on, fewer the longer the task runs. Start it with what you're doing now. Never before " +
     "a search, a note read or asking your advisor, never the answer itself, and never that something is done, sent or booked: " +
     "that is your reply. Never to say you're on it, that it will take a while, or that you'll text when it's done (the person " +
     "called that the most useless text they get), and never to ask a question (ask in your answer and stop).",
@@ -77,11 +79,29 @@ export const PROGRESS_TOOL_DEFINITION = {
   },
 };
 
+/** The chat's progress updates, said up front (Dev2, 2026-11-01). Off says nothing: the tool is not offered. */
+export const NORMAL_LEAD = "This chat gets your progress lines.";
+export const PLAN_ONLY_LEAD = "This chat wants only your plan line: at most one progress line per turn, and none for a quick ask.";
+
+/** The plan line, for a task you expect to run past about a minute. The example must pass `claimsDone`. */
+export const PLAN_EXAMPLE = "Checking OpenTable and Resy for Friday, then the best three.";
+const PLAN_LINE =
+  "For a task you expect to take more than about a minute (opening sites, browsing, a long job of many steps), send with action " +
+  `progress, args { text }, one line with your plan ("${PLAN_EXAMPLE}"), then start at once without asking; they can text to stop you. `;
+const NEVER =
+  "Never the answer itself or that something is done. Never send a line saying you're on it or that you'll text when it's done.";
+
 export const PROGRESS_PROMPT =
-  "\n\nJust before a slow step that reaches outside their notes (opening a site, browsing, a long job of many steps), you may " +
-  "send with action progress, args { text }: what you're doing (\"Opening OpenTable for Friday.\"). Never before a search, a note " +
-  "read or asking your advisor. After that, only what they could act on before your answer. Never the answer itself or that " +
-  "something is done. Never send a line saying you're on it or that you'll text when it's done.";
+  `\n\n${NORMAL_LEAD} ${PLAN_LINE}` +
+  "Just before a slow step that reaches outside their notes (opening a site, browsing, a long job of many steps), you may " +
+  "send a line: what you're doing (\"Opening OpenTable for Friday.\"). Never before a search, a note read or asking your advisor. " +
+  "After that, only what they could act on before your answer or what is new to them, fewer the longer it runs. " +
+  NEVER;
+
+export const PLAN_ONLY_PROMPT = `\n\n${PLAN_ONLY_LEAD} ${PLAN_LINE}${NEVER}`;
+
+/** What a turn is told of progress at a chat's level (`readUpdates`): off is told nothing. */
+export const progressPrompt = (level) => (level === "off" ? "" : level === "planOnly" ? PLAN_ONLY_PROMPT : PROGRESS_PROMPT);
 
 /*
   A line opens with what Tex is doing ("Opening OpenTable for Friday.", "Now
@@ -112,15 +132,26 @@ export const DONE_NOTICE =
   "Not sent: start a progress line with what you're doing now (\"Opening OpenTable for Friday.\"), never with what is done, " +
   "sent or booked. That is your reply, once a tool says it happened.";
 
+/** Said when a chat set progress updates to plan only (Dev2, 2026-11-01) and its one line went. */
+export const PLAN_ONLY_NOTICE = "Not sent: this chat gets one plan line per turn, and that one went. Keep working; your reply says the rest.";
+
 /**
  * The progress tool for one turn, around `send(text)` (which writes a line to
- * the stream). Returns an MCP-shaped result the model reads.
+ * the stream). Returns an MCP-shaped result the model reads. `planOnly`: the
+ * chat's progress updates are plan only, so one line goes and the rest are
+ * refused, a backstop to what the prompt says (part B of the owner's decisions).
+ * `level` (off, planOnly or normal) is the chat's setting; at off the route
+ * keeps the channel for `say` alone, so a sign-in link still goes.
  */
-export function progressChannel(send) {
+export function progressChannel(send, { planOnly = false, level = planOnly ? "planOnly" : "normal" } = {}) {
   let said = 0;
   const lines = [];
+  const plan = level === "planOnly";
   return {
-    tool: PROGRESS_TOOL_DEFINITION,
+    tool: plan ? { ...PROGRESS_TOOL_DEFINITION, description: `${PLAN_ONLY_LEAD} ${PROGRESS_TOOL_DEFINITION.description}` } : PROGRESS_TOOL_DEFINITION,
+    /** Off: the model is not offered the tool, though `say` still texts the gateway's own lines. */
+    offered: level !== "off",
+    prompt: progressPrompt(level),
     /**
      * Text the person a line the gateway wrote, not the model: a browser's
      * live sign-in link the moment it exists, so they can act while the task
@@ -138,6 +169,7 @@ export function progressChannel(send) {
       if (!text) return result("Nothing to send: pass one short line as text.", true);
       if (lines.includes(text)) return result("Not sent: you already sent that line in this turn. Keep working.");
       if (claimsDone(text)) return result(DONE_NOTICE, true);
+      if (plan && lines.length > 0) return result(PLAN_ONLY_NOTICE, true);
       lines.push(text);
       await send(text.length > MAX_PROGRESS_CHARS ? `${text.slice(0, MAX_PROGRESS_CHARS - 1)}…` : text);
       return result("Sent. Keep working.");

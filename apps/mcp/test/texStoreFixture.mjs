@@ -182,6 +182,14 @@ export function withAgentHome(bucket, tex, workspaceId) {
     },
     /** The bucket alone, for a check that nothing of this was written there. */
     bucket,
+    /** Replace the person's one-to-one chat ledger with these entries (a test's starting chat). */
+    seedLedger: (entries) => {
+      const ledger = ensure().ledger;
+      ledger.wipe();
+      if (entries.length > 0) ledger.append("texts", entries);
+    },
+    /** The person's one-to-one chat ledger's entries, newest first (`texStore/ledger.js`), or [] with none. */
+    ledgerEntries: () => held()?.ledger?.read("texts", { before: Number.MAX_SAFE_INTEGER, limit: 5_000 })?.entries ?? [],
   };
   return view;
 }

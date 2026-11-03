@@ -203,6 +203,7 @@ function report() {
 }
 
 const TRIAGE = "functions/texDashboard:triage";
+const TRIAGE_NOW = "functions/texDashboard:triageNow";
 const READ = "functions/texDashboard:readNote";
 const ACT = "functions/texDashboard:act";
 const OPEN_THEME = "areas/tex-reviews/themes/retries-on-errands.md";
@@ -339,6 +340,23 @@ describe("tex.lc/admin", () => {
     act(() => retire!.click());
     await settle();
     expect(mockArgs.get(ACT)).toEqual({ path: BUG, action: "retire", comment: "Duplicate of the reminders fix" });
+  });
+
+  test("the bug desk shows what the notes say now, read from the workspace object, over the rows' copy", async () => {
+    const now = triage();
+    now.bugs[0] = { ...now.bugs[0]!, status: "retired" };
+    mockAnswers.set(TRIAGE_NOW, now);
+    asStaff();
+    await settle();
+    expect(mockArgs.get(TRIAGE_NOW)).toEqual({});
+    expect(find("tex-dashboard-bugs")?.textContent).toContain("0 waiting");
+  });
+
+  test("a desk the object cannot read keeps the rows' answer", async () => {
+    mockAnswers.set(TRIAGE_NOW, new Error("down"));
+    asStaff();
+    await settle();
+    expect(find("tex-dashboard-bugs")?.textContent).toContain("1 waiting");
   });
 
   test("staff who are not on the team context are told why problems and bugs are missing", async () => {

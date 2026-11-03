@@ -15,6 +15,7 @@
  */
 
 import { CHAT_HOMES_FOLDER } from "@context/shared";
+import { HOME_TEX_PARTS } from "@context/shared/src/folderJobInfo.cjs";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { pinnedContextWorkspace } from "./pinnedContext";
@@ -23,6 +24,7 @@ import { chainAt, standFolders } from "./nodes/rowMove";
 import { CHAT_HOMES_CLIENT_ID } from "./nodes/sealedChats";
 import { setAccessRow } from "./nodes/setAccess";
 import { threeWords } from "./threeWords";
+import { withSameNumber } from "./textGroupAccounts";
 
 /** Names tried before a chat goes on without a home this turn. */
 const NAME_TRIES = 12;
@@ -31,8 +33,26 @@ const NAME_TRIES = 12;
  * The pinned workspace, or null. It is found by the name the seal is drawn by (`PINNED_CONTEXT_SLUG`,
  * `sealsChatHomes`), so a home is never made anywhere the homes aren't sealed.
  */
-async function sealedPin(ctx: QueryCtx): Promise<Id<"workspaces"> | null> {
+export async function sealedPin(ctx: QueryCtx): Promise<Id<"workspaces"> | null> {
   return (await pinnedContextWorkspace(ctx))?._id ?? null;
+}
+
+/**
+ * The folders a home holds from the start: every folder a person's Tex folder has, by the same names (the owner,
+ * 2026-11-01: "i would like them to mirror"; 2026-11-02: the homes "still look very empty ... I don't see any of the
+ * scaffolding folders", then "Both with the same type of folders in them? so routines, heartbeats, about, skills,
+ * dreams, etc"). It is one list with a person's (`HOME_TEX_PARTS`, `folderJobInfo.cjs`), so a folder added there
+ * stands here too unless it is named person-only. Its notes are made as Tex writes them;
+ * `docs/decisions/texting-assistant/tex-folders.md` says which of them a chat's turns fill today.
+ */
+export const HOME_FOLDERS = HOME_TEX_PARTS;
+
+/** Whether the home and each of its folders stand as live folders. */
+export async function homeStands(ctx: MutationCtx, pinned: Id<"workspaces">, folder: string): Promise<boolean> {
+  for (const path of [folder, ...HOME_FOLDERS.map((inner) => `${folder}/${inner}`)]) {
+    if ((await liveNodeAt(ctx.db, pinned, path))?.kind !== "folder") return false;
+  }
+  return true;
 }
 
 /** The chat's home folder. */
@@ -71,12 +91,13 @@ export async function makeChatHome(
     if (words === undefined) return { refused: "no_name" };
   }
   const folder = chatHomePath(words);
-  const wanted = peopleList(people);
+  // Each person by every account that holds their number (`withSameNumber`): the chats they are in show in each.
+  const wanted = peopleList(await withSameNumber(ctx, people));
   const kept = chat.homeWords === words && sameList(chat.homeUsers ?? [], wanted);
-  // A home standing and naming the same people is left as it is: no write on an ordinary turn.
-  if (kept && (await liveNodeAt(ctx.db, pinned, folder))?.kind === "folder") return { folder };
-  // `chainAt` of a path inside the home stands every folder down to the home itself.
-  await standFolders(ctx, pinned, await chainAt(ctx.db, pinned, `${folder}/-`), now);
+  // A home standing, with its folders, and naming the same people is left as it is: no write on an ordinary turn.
+  if (kept && (await homeStands(ctx, pinned, folder))) return { folder };
+  // `chainAt` of a path inside each of the home's folders stands every folder down to it, the home's own included.
+  for (const inner of HOME_FOLDERS) await standFolders(ctx, pinned, await chainAt(ctx.db, pinned, `${folder}/${inner}/-`), now);
   const answer = await setAccessRow(ctx, {
     workspaceId: pinned,
     path: folder,

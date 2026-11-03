@@ -139,10 +139,11 @@ test("the second text reads none of it from storage, and still sees the first", 
     assert.match(shown, /Hey Seyi\./);
     assert.deepEqual(two.reads, [], "the chat's log came from the copy and the Worker's newest events");
 
-    // The same text with no copy reads them.
+    // The same text with no copy takes the day from the chat's ledger, never the bucket's old event log.
     world.model.install([{ text: "You said hi." }]);
     const cold = await readsDuring(() => request(world.env, TOKEN_TEXTS, "/agent", { question: "what did I just say?", conversation: "texts", covers: [second.id], chat: CHAT, recent: [first, reply, second], turn: "turn-warm-0003" }));
-    assert.ok(cold.reads.some((key) => key.includes(".context/agent/log/")), cold.reads.join(", "));
+    assert.equal(cold.result.status, 200, JSON.stringify(cold.result.body));
+    assert.deepEqual(cold.reads.filter((key) => key.includes(".context/agent/log/")), [], "never the bucket's old event log");
   } finally {
     world.restore();
   }

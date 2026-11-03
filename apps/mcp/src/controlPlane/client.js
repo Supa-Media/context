@@ -11,6 +11,15 @@
 export const CONTROL_PLANE_TIMEOUT_MS = 8_000;
 
 /**
+ * How long a note save's own bookkeeping may take: a row's access (`/gateway/privacy`) and a keyed note's version
+ * (`/gateway/note-ids/wrote`, `adopt`, `removed`). Each tells the workspace's object first and then waits briefly for
+ * it (`apps/convex/functions/lib/rowWatch/drain.ts` `GATEWAY_SETTLE`), so it is a few calls rather than one lookup.
+ * Under the 8-second lookup timeout, a push that was not landing made every save answer "control plane unavailable:
+ * timed out" although the control plane had taken it (2026-11-02).
+ */
+export const CONTROL_PLANE_WRITE_TIMEOUT_MS = 15_000;
+
+/**
  * How long a website status, check or publish may take. These read the site's
  * pages from the bucket (and a publish writes a copy of each), so they are
  * real work rather than a lookup, and an agent waits for the answer anyway.
@@ -25,6 +34,14 @@ export const CONTROL_PLANE_SITE_TIMEOUT_MS = 30_000;
  * own 60-second limit (`agent/slowMoves.js`), so the gateway's answer arrives first.
  */
 export const CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS = 45_000;
+
+/**
+ * How long one note or folder move may take (`/gateway/moves/start`). The control plane moves the rows, and for
+ * Archive marks and carries the twins, before it answers; an archive took about 10 s in production and every one came
+ * back "could not start the move right now" from under the 8-second lookup timeout, although it had moved
+ * (2026-11-03). Under `move_note`'s and `archive_note`'s own 45-second limit (`agent/slowMoves.js`).
+ */
+export const CONTROL_PLANE_MOVE_TIMEOUT_MS = 30_000;
 
 /**
  * Cap on a control-plane response body.

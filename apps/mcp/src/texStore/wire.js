@@ -10,9 +10,11 @@
  */
 
 import { TexObjectRefused } from "./objects.js";
+import { withHistoryView } from "./historyView.js";
 import { objectByName } from "../objectPlace.js";
 import { OWNER_HEADER, placedName } from "./move.js";
-import { readDesk } from "./desk.js";
+import { mergedName } from "./merge.js";
+import { DESK_LEDGER, readDesk } from "./desk.js";
 import { R2Store } from "../store/r2.js";
 
 const CALL = "x-tex-call";
@@ -21,16 +23,23 @@ const ORIGIN = "https://tex-store.internal";
 
 /**
  * The Durable Object a person's (`person`: their workspace id) or a group
- * chat's (`chat`: its id) Tex notes live in: the one placed in eastern North
- * America (`placedName`), with every call naming its owner, so the first one
- * can copy in the store the owner had under the old name (`move.js`). `null`
- * without the binding.
+ * chat's (`chat`: its id) Tex notes live in, with every call naming its owner.
+ *
+ * A person's is their personal workspace's own object (`workspace:<id>`,
+ * `workspaceStore/texHost.js`; decided by the owner, 2026-11-02: one object
+ * for the workspace and its Tex), whose first Tex call copies in the store
+ * they had before (`merge.js`). A group chat's is its own Tex store, placed in
+ * eastern North America (`placedName`), whose first call copies in the store
+ * under the old name (`move.js`). A deployment without workspace objects keeps
+ * a person's in a Tex store too. `null` without the binding.
  */
 export function texStoreStub(env, owner) {
-  const namespace = env?.TEX_STORE;
-  if (!namespace || typeof namespace.idFromName !== "function") return null;
   const name = ownerName(owner);
-  const stub = objectByName(namespace, placedName(name));
+  const workspaces = env?.WORKSPACE_STORE;
+  const person = typeof owner?.person === "string" && workspaces && typeof workspaces.idFromName === "function";
+  const namespace = person ? workspaces : env?.TEX_STORE;
+  if (!namespace || typeof namespace.idFromName !== "function") return null;
+  const stub = objectByName(namespace, person ? mergedName(name) : placedName(name));
   return {
     fetch(request) {
       request.headers.set(OWNER_HEADER, name);
@@ -49,6 +58,11 @@ export function ownerName(owner) {
 const pack = (value) => encodeURIComponent(JSON.stringify(value ?? null));
 const unpack = (value) => (value ? JSON.parse(decodeURIComponent(value)) : null);
 
+/** What a page shows from a chat's notes: About, routines and check-ins are all notes. */
+const NOTE_SECTIONS = Object.freeze(["about", "routines", "checkins"]);
+/** A note's text, not the object's own bookkeeping (`state/`): only those change what the page shows. */
+const touchesNotes = (key) => typeof key === "string" && key.startsWith("notes/");
+
 const unknownOp = () => Response.json({ error: "unknown_op" }, { status: 400 });
 
 /**
@@ -57,7 +71,9 @@ const unknownOp = () => Response.json({ error: "unknown_op" }, { status: 400 });
  * (`{schedule(alarm), cancel(id)}`, `texStore.js`); without it the alarm
  * calls are unknown.
  */
-export async function serveTexStore(objects, request, timers = null) {
+export async function serveTexStore(stored, request, timers = null, live = null) {
+  // The chat's history file is answered from its ledger, never kept (`historyView.js`).
+  const objects = withHistoryView(stored);
   let call;
   try {
     call = unpack(request.headers.get(CALL));
@@ -93,18 +109,55 @@ export async function serveTexStore(objects, request, timers = null) {
       }
       case "put": {
         const bytes = new Uint8Array(await request.arrayBuffer());
-        return new Response(null, { headers: { [META]: pack(await objects.put(call.key, bytes, call.options ?? {})) } });
+        const written = await objects.put(call.key, bytes, call.options ?? {});
+        if (written !== null && touchesNotes(call.key)) live?.changed(NOTE_SECTIONS);
+        return new Response(null, { headers: { [META]: pack(written) } });
       }
       case "delete":
         objects.delete(call.keys);
+        if ((Array.isArray(call.keys) ? call.keys : [call.keys]).some(touchesNotes)) live?.changed(NOTE_SECTIONS);
+        return Response.json({ ok: true });
+      // The chat's Tex page: views of its one log (`pageRecords.js`), empty until the log provides them.
+      case "page_list":
+        if (!objects.records) return Response.json({ items: [], count: 0 });
+        return Response.json({
+          ...objects.records.list(call.kind, { chat: call.chat ?? undefined, limit: call.limit, cursor: call.cursor, since: call.since }),
+          ...(call.kind === "mailcheck" ? { waiting: objects.records.waiting(call.chat ?? undefined) } : {}),
+        });
+      case "page_poke":
+        live?.changed(Array.isArray(call.sections) ? call.sections : []);
         return Response.json({ ok: true });
       case "list":
         return Response.json(objects.list(call.options ?? {}));
       case "desk":
-        return Response.json(readDesk(objects));
+        return Response.json({ ...readDesk(objects), ...(objects.ledger ? { ledger: objects.ledger.read(DESK_LEDGER.chat, DESK_LEDGER.options) } : {}) });
       case "wipe":
         objects.wipe();
+        objects.ledger?.wipe();
         return Response.json({ ok: true });
+      case "ledger_append":
+      case "ledger_prepend": {
+        if (!objects.ledger) return unknownOp();
+        // The entries ride in the body, so a long tool result never has to fit a header.
+        let entries;
+        try {
+          entries = JSON.parse(await request.text());
+        } catch {
+          throw new TexObjectRefused("not ledger entries");
+        }
+        const added = call.op === "ledger_prepend" ? objects.ledger.prepend(call.chat, entries) : objects.ledger.append(call.chat, entries);
+        if (added.added > 0) objects.ledgerChanged?.(added.kinds);
+        return Response.json(added);
+      }
+      case "ledger_read":
+        if (!objects.ledger) return unknownOp();
+        return Response.json(objects.ledger.read(call.chat, call.options ?? {}));
+      case "ledger_oldest":
+        if (!objects.ledger) return unknownOp();
+        return Response.json({ oldest: objects.ledger.oldest(call.chat) });
+      case "ledger_chats":
+        if (!objects.ledger) return unknownOp();
+        return Response.json({ chats: objects.ledger.chats() });
       default:
         return unknownOp();
     }
@@ -189,9 +242,29 @@ export function texBucket(stub) {
       const page = await (await call("list", { options })).json();
       return { ...page, objects: page.objects.map((meta) => r2Shaped(meta, undefined)) };
     },
-    /** A person's texted turn's reads, in one call (`desk.js`): `{history, notes}`. */
+    /** A person's texted turn's reads, in one call (`desk.js`): `{history, notes, ledger}`. */
     async desk() {
       return await (await call("desk")).json();
+    },
+    /** Add entries to a chat's ledger (`ledger.js`): `{added, seq, kinds}`. */
+    async ledgerAppend(chat, entries) {
+      return await (await call("ledger_append", { chat }, new TextEncoder().encode(JSON.stringify(entries)))).json();
+    },
+    /** Entries put before everything a chat's ledger holds (`ledger.js` `prepend`): `{added, kinds}`. */
+    async ledgerPrepend(chat, entries) {
+      return await (await call("ledger_prepend", { chat }, new TextEncoder().encode(JSON.stringify(entries)))).json();
+    },
+    /** A chat's oldest ledger entry, `{id, at}`, or null. */
+    async ledgerOldest(chat) {
+      return (await (await call("ledger_oldest", { chat })).json()).oldest;
+    },
+    /** A chat's ledger as one document, `{manifest, entries, next?|before?}` (`ledger.js` `read`). */
+    async ledgerRead(chat, options = {}) {
+      return await (await call("ledger_read", { chat, options })).json();
+    },
+    /** The chats this object keeps a ledger for, each a manifest. */
+    async ledgerChats() {
+      return (await (await call("ledger_chats")).json()).chats;
     },
     /** Everything in this Durable Object removed: an account, a phone link or a group chat ending. */
     async wipe() {
@@ -229,6 +302,14 @@ export function texTimers(stub) {
   };
 }
 
+/** A Tex object's store over its bucket-shaped client: notes as R2, and the desk and the chat ledgers beside them. */
+export function texBucketStore(bucket) {
+  return Object.assign(new R2Store(bucket), {
+    desk: () => bucket.desk(),
+    ledger: { append: (chat, entries) => bucket.ledgerAppend(chat, entries), read: (chat, options) => bucket.ledgerRead(chat, options), chats: () => bucket.ledgerChats(), prepend: (chat, entries) => bucket.ledgerPrepend(chat, entries), oldest: (chat) => bucket.ledgerOldest(chat) },
+  });
+}
+
 /**
  * The store over an owner's object, from inside the gateway: `owner` is
  * `person:<workspaceId>` or `chat:<chatId>`, as a Tex key names it
@@ -242,6 +323,6 @@ export function gatewayTexStore(env) {
     if (stub === null) return null;
     const bucket = texBucket(stub);
     // The store, and the desk beside it: one call for what a texted turn reads first (`desk.js`).
-    return Object.assign(new R2Store(bucket), { desk: () => bucket.desk() });
+    return texBucketStore(bucket);
   };
 }

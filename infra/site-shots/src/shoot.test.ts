@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as entry from "./index";
 import {
   MAX_SHOT_HEIGHT,
@@ -185,5 +185,26 @@ describe("the entry module", () => {
       env,
     );
     expect(bad.status).toBe(400);
+  });
+
+  it("logs a failed page read by its codes only, never the address", async () => {
+    const env = { BROWSER: { fetch: () => Promise.reject(new Error("no browser in tests")) } } as never;
+    vi.stubGlobal("fetch", () => Promise.reject(new Error("offline")));
+    const logged = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const response = await entry.default.fetch(
+        new Request("https://shots/read", { method: "POST", body: JSON.stringify({ url: "https://slow.example.com/secret-path" }) }),
+        env,
+      );
+      expect(response.status).toBe(503);
+      const lines = logged.mock.calls.map(([line]) => String(line));
+      const failed = lines.map((line) => JSON.parse(line)).find((line) => line.event === "site_shots_read_failed");
+      expect(failed).toMatchObject({ stage: "launch", refused: true, browserbase: false });
+      expect(lines.join("\n")).not.toContain("slow.example.com");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
   });
 });

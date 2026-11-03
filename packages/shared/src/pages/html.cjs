@@ -89,6 +89,20 @@ function photo(src, ctx, { name = "", cls = "", label = "" } = {}) {
 }
 
 /**
+ * Tex's drawing of a page (`cover.cjs`): the light picture, and the dark one
+ * when there is one, each shown on its own page by the page's tokens
+ * (`--pg-ink-light`, `--pg-ink-dark`, `css.cjs`), so the frame needs no
+ * script to switch them. Both are pictures of the note, read like a photo.
+ */
+function drawing(light, dark, ctx, { name = "" } = {}) {
+  const one = (src, cls) => {
+    const ready = ctx.images && ctx.images.get(src);
+    return ready ? `<img class="${cls}" src="${esc(ready)}" alt="${esc(name)}">` : `<img class="${cls}" data-src="${esc(src)}" alt="${esc(name)}">`;
+  };
+  return `<div class="pg-ph pg-drawing">${one(light, dark ? "pg-ink-light" : "")}${dark ? one(dark, "pg-ink-dark") : ""}</div>`;
+}
+
+/**
  * Where an option's facts came from: its `source:` (or `sources:`, `link:`,
  * `url:`, `site:`) as a link out naming the site ("tagvenue.com ↗"), or "".
  * Only a web address is ever drawn as one (owner, 2026-10-28: "there should
@@ -144,4 +158,4 @@ function faces(names, cls = "") {
 /** The names in a `votes:` field. */
 const voters = (field) => (field ? field.value.text.split(",").map((name) => name.trim()).filter((name) => name && !/^(none|-)$/i.test(name)).slice(0, 40) : []);
 
-module.exports = { esc, SAFE_HREF, SAFE_SRC, runsHtml, plain, part, fieldHtml, setting, itemName, sources, photo, faces, voters, sourceLink, gallery };
+module.exports = { esc, SAFE_HREF, SAFE_SRC, runsHtml, plain, part, fieldHtml, setting, itemName, sources, photo, faces, voters, sourceLink, gallery, drawing };

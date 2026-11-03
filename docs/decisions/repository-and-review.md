@@ -200,6 +200,19 @@ production before main's full run reports it. `AUTO_DEPLOY_PRODUCTION=after-stag
 restores the gated promotion above; `off` makes production manual.
 `production-release.test.mjs` pins both lanes.
 
+**And outside staging's queue (2026-11-02).** The start lived in
+`Deploy Staging`'s first job, so it waited behind that workflow's
+`concurrency: deploy-staging`. With several threads merging, #2710 merged at
+10:07 AM ET, its staging run queued behind a ten-minute full staging deploy
+and was replaced by the next merge's, and production only started at 10:14.
+`deploy-production-start.yml` now presses `Deploy to Production` on every
+push to `main`, with no queue of its own. Production's own queue collapses a
+burst: a dispatch on `main` deploys main as it is when dispatched, and
+`concurrency: deploy-production` keeps one running and the newest pending
+run. `check-workflow-triggers.mjs` counts `gh workflow run deploy-*.yml` as a
+deploy command, and `production-release.test.mjs` pins that the file only
+dispatches.
+
 The import-coverage guard now checks `deploy-staging.yml`; its unfiltered main
 push covers every bundled file, including future packages. Production deploys
 the whole backend when explicitly promoted, so it has no path filter to drift.

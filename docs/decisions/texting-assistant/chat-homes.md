@@ -185,13 +185,52 @@ gets no write), `apps/mcp/test/agentGroupTurn.test.mjs` ("the chat remembers as
 one"), `apps/mcp/test/agentChatVoice.test.mjs` (one voice note per chat), and
 `apps/mcp/test/chatMemoryRecord.test.mjs`.
 
+A write in a home sets no row (2026-11-02). The seal is the home's access, and the control plane refuses any access
+change a chat's grant asks for beneath it, so `write_note` there skips the row tier it sets elsewhere and refuses
+`visibility: private` before writing (`apps/mcp/src/agent/chatHomeSeal.js`; the home's door marks its store). Before
+this, every new note in a home was refused after its text went in, and no chat's history page was reported written.
+Test: `apps/mcp/test/chatHomeWrite.test.mjs`.
+
+## A home is shown by its chat's name (2026-11-02)
+
+The owner, 2026-11-02: "instead of showing the ID, why don't we just show the actual group chat name? ... or the
+group chat name might just be a list of people and then, you know, ellipses when it gets too long", approved on the
+"Group chat names" artboard. The home's folder keeps its three words: they are its path, its id and what every AI
+client and link names. The app draws the home by the chat's iMessage name (`textGroups.chatName`), or, with none, by
+its people (`@bo, @cy +2`, people without an account counted), cut off with an ellipsis where the row is narrow
+(`apps/mobile/features/console/files/chatHomeTitles.tsx`; the tree, the folder page and the breadcrumb).
+
+The texting Worker reads `group_display_name` from each group message and sends it to the control plane beside the
+message (`sendblueGroups.ts` `groupNameOf`, `POST /agent-texts/group/name`), so a rename shows after the chat's next
+message: Sendblue has no rename event. This reverses "a group's display name is never read" only for showing it.
+Anyone in the chat can set it, so it never goes into the group's queue, its log, a turn or a model, and it decides
+nothing: not a path, not who sees what. Only the people named on a home are told its name, and only in the pinned
+workspace (`textGroupNames.homeTitles`).
+
+The home's icon is the app the chat is in (the owner, 2026-11-02: "a drawn green whatsapp logo or a drawn blue
+imessage logo, that way its easy to see whats imessge and whats whatsapp"): a blue tile with a bubble for iMessage, a
+green bubble with a handset for WhatsApp, drawn in the built-in folders' brush like Tex's own parts
+(`ChatServiceMark.tsx`; the owner, of a first cut with the apps' flat logos: "these were supposed to be drawn icons in
+the context/tex style"). A WhatsApp group's name comes from its messages' `chat_name` (Whapi), read the same way as
+Sendblue's, beside the message and never in it (`whapiInbound.ts` `whapiGroupNames`). The Worker reports the chat with every
+message, name or not, and the control plane tells the app by the chat's id (`whapi:<jid>` is WhatsApp;
+`textGroups.chatService`). A chat shows its mark after its next message. The folders inside a home draw the same
+icons as a person's own Tex folders (`texPartIcon`, the owner: "please update the folder icons to be the proper
+logos").
+
+Tests: `apps/agent/src/groupName.test.ts` (the name never in the message; cleaned; sent alone, and the chat reported
+with no name), `apps/convex/__tests__/textGroupHome.test.ts` ("a chat's name on its home"; WhatsApp told from
+iMessage), `apps/mobile/__tests__/chatHomeTitles.test.ts` (the mark on the folder page),
+`apps/mobile/__tests__/contextIconPicker.test.ts` (a home's folders draw their parts).
+
 ## Still to build
 
 Routines, dreams and a heartbeat for a chat need their jobs moved too: a
 chat's routines are still written in its bound workspace's `tex/routines/`
 with `chat:` in their front matter, its check-in is a timer on the chat's
-row, and chats have no dreams yet. Empty folders for them are not made until
-something runs from them. The workspace's playbook stays the workspace's.
+row, and chats have no dreams yet. A home holds `skills/` and `routines/` from the
+start (`HOME_FOLDERS`, 2026-11-02, the owner: the homes "still look very empty"); a home made before then gets
+them on its chat's next turn. The workspace's playbook stays the workspace's.
 Then: the chat reads every workspace everyone in it shares instead of one
 bound workspace. The chats that exist move in as above, and the one copy a
 home cannot retract is left sealed until a delete exists for homes.

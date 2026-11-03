@@ -9,6 +9,7 @@ import { Text } from "../../design/components/Text";
 import { type Colors, useColors, useThemedStyles } from "../../design/theme";
 import { space } from "../../design/tokens";
 import { toFileError } from "../files/browser";
+import { useObjectMoves } from "../files/useObjectMoves";
 import { relativeTime } from "../format";
 import {
   byLine,
@@ -49,6 +50,7 @@ export function TrashPage({
   const colors = useColors();
   const listing = useQuery(api.functions.trash.listTrash, { workspaceId: workspaceId as Id<"workspaces"> });
   const restoreAction = useAction(api.functions.files.restoreTrashEntry);
+  const objectMoves = useObjectMoves();
   const [restoring, setRestoring] = useState<string | null>(null);
   const [restored, setRestored] = useState<TrashItem[]>([]);
   const [failure, setFailure] = useState<string | null>(null);
@@ -62,7 +64,9 @@ export function TrashPage({
     if (restoring !== null) return;
     setRestoring(item.trash);
     setFailure(null);
-    void restoreAction({ workspaceId: workspaceId as Id<"workspaces">, from: item.trash, to: item.path })
+    // The object's gateway route when it serves this workspace, else the action (see `useObjectMoves`).
+    void objectMoves.restore(workspaceId, { from: item.trash, to: item.path })
+      .then((answer) => answer ?? restoreAction({ workspaceId: workspaceId as Id<"workspaces">, from: item.trash, to: item.path }))
       .then(() => setRestored((done) => [...done, item]))
       .catch((error: unknown) => setFailure(toFileError(error).message))
       .finally(() => setRestoring(null));

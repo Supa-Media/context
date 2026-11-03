@@ -248,3 +248,48 @@ test("case 16: a Register a hidden captcha turns away is tried in a fresh browse
     world.close();
   }
 });
+
+test("case 19: a sign-in Tex starts itself is handed over once, then the invites are read", async () => {
+  const model = scripted([
+    browse({ do: "goto", url: "https://invites.example/events" }),
+    browse({ do: "handoff" }),
+    { text: "Invites needs you to sign in: tap the link, sign in with the code it texts you, and text me." },
+    browse({ do: "goto", url: "https://invites.example/events" }),
+    { text: "Still waiting on you: Harvest potluck at Dana's and Sam's housewarming." },
+  ]);
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: model.fetch, sites: await sites() });
+  try {
+    const first = await world.text("which party invites haven't i answered yet? they're on invites.example");
+    assert.match(model.results[0], /Sign in with your phone number/);
+    const second = await world.text("Done, I'm signed in");
+    assert.match(model.results.at(-1), /Harvest potluck at Dana's/);
+    const nineteen = await handbackCase(19);
+    const record = { tools: [...first.tools, ...second.tools].map((c) => c.tool), browser: world.browser() };
+    assert.deepEqual(checkVerdicts(nineteen, record).filter((v) => !v.pass), []);
+  } finally {
+    world.close();
+  }
+});
+
+test("case 20: a Save that fails once goes through when pressed again, and the run's checks pass", async () => {
+  const model = scripted([
+    browse(
+      { do: "goto", url: "https://talentboard.example/profile" },
+      { do: "type", ref: 1, text: "Product designer, accessibility and design systems" },
+      { do: "type", ref: 2, text: "6" },
+      { do: "click", ref: 3 },
+    ),
+    browse({ do: "click", ref: 3 }),
+    { text: "Your Talentboard profile is saved." },
+  ]);
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: model.fetch, sites: await sites() });
+  try {
+    const turn = await world.text("set my profile on talentboard.example: headline 'Product designer, accessibility and design systems', 6 years of experience");
+    assert.match(model.results[0], /Something went wrong saving your profile/);
+    assert.match(model.results[1], /Your profile is saved/);
+    const twenty = await handbackCase(20);
+    assert.deepEqual(checkVerdicts(twenty, { tools: turn.tools.map((c) => c.tool), browser: world.browser() }).filter((v) => !v.pass), []);
+  } finally {
+    world.close();
+  }
+});

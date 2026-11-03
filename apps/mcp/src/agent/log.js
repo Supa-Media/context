@@ -3,6 +3,11 @@
  * one object per thing that happened in a chat, appended by the texting
  * Worker, never edited.
  *
+ * No longer written for a chat that has a ledger (the owner, 2026-11-02;
+ * `docs/decisions/texting-assistant/chat-ledger.md`): `/agent/events` checks
+ * events here (`checkEvents`) and keeps them in the ledger alone. What the
+ * log already holds is read only to copy an old chat in (`ledgerBackfill.js`).
+ *
  * Kept in the customer's bucket at `.context/agent/log/<sha256(chat)>/<id>.json`:
  * a person's own store for a 1:1 chat, and for a group the store of the one
  * shared workspace its grant is bound to. A group session's `store` already is
@@ -96,14 +101,14 @@ export function checkEvent(event, { chat, now }) {
 }
 
 /**
- * Append events to a chat's log. All are checked before any is written; one
- * already kept under its id is left as it was (idempotent by id). Returns the
- * ids now in the log from this call.
+ * A post's events as kept, checked at the door: all of them, or an
+ * `EventRefusal` naming the first wrong field (`events[i].field`). The same
+ * check whichever store they go to (the chat's ledger, or this log).
  */
-export async function appendEvents(store, chat, events, { now = Date.now() } = {}) {
+export function checkEvents(chat, events, { now = Date.now() } = {}) {
   if (!isChatKey(chat)) throw new EventRefusal("chat");
   if (!Array.isArray(events) || events.length === 0 || events.length > MAX_EVENTS_PER_CALL) throw new EventRefusal("events");
-  const checked = events.map((event, index) => {
+  return events.map((event, index) => {
     try {
       return checkEvent(event, { chat, now });
     } catch (error) {
@@ -111,6 +116,15 @@ export async function appendEvents(store, chat, events, { now = Date.now() } = {
       throw error;
     }
   });
+}
+
+/**
+ * Append events to a chat's log. All are checked before any is written; one
+ * already kept under its id is left as it was (idempotent by id). Returns the
+ * ids now in the log from this call.
+ */
+export async function appendEvents(store, chat, events, { now = Date.now() } = {}) {
+  const checked = checkEvents(chat, events, { now });
   const prefix = await logPrefix(chat);
   const written = [];
   for (const event of checked) {

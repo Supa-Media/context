@@ -19,7 +19,7 @@ import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, sha256Hex }
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, resumeJobs, startJobs, steerJobs, threadsLines } from "./jobs";
-import { addEvent, holdsLog, keepLog, kindOf, logAsk, recentEvents } from "./events";
+import { addEvent, kindOf, logAsk, recentEvents } from "./events";
 import { cancelTurn, staleAsks } from "./decide";
 import { startTurn } from "./steer";
 import { recheckDraft } from "./groupRecheck";
@@ -120,10 +120,10 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
         turn: steer.turn,
         arrivedAt, ...(await fixedTimings(storage)), // fixed replies since the last turn, for the chat's note
-        ...(covers.length > 0 ? { covers, chat: message.groupId, ...(await heldLog(storage, message.groupId)) } : {}), // the chat's log, when this object holds it (`events.ts` `holdsLog`)
+        ...(covers.length > 0 ? { covers, chat: message.groupId, ...(await outbox(storage, message.groupId)) } : {}), // the chat's day is the gateway's ledger; the outbox goes on top
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
-        ...(asked.texStyle ? { texStyle: asked.texStyle } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : {}), // a job reporting to this chat's turn (`jobTexts.ts`)
+        ...(asked.instructions ? { instructions: asked.instructions } : {}), ...(asked.updates ? { updates: asked.updates } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : {}), // a job reporting to this chat's turn (`jobTexts.ts`)
         ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now(), { results: true }) } : {}),
         ...(message.reaction !== undefined
           ? { quoted: message.reaction.words, tapback: message.reaction.how }
@@ -139,8 +139,6 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     end();
   }
   const answered = deps.now();
-  // The log the gateway read from storage, held here from now on, so the next turn reads none (`events.ts` `keepLog`).
-  if (answer.kind === "answer" && answer.log && covers.length > 0) await keepLog(storage, message.groupId, answer.log, deps.now());
   // Never sent before decide's verdict, nor after its silent: Tex never spoke, so follow-along and the open ask stay as they were.
   if (await vetoed) {
     if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
@@ -183,7 +181,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // member of it. So a list unread twice holds the answer, as a joiner does.
   if (routine && (answer.quiet || saysSkip(answer.text)) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
   const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
-  const texts = [...textsWithExact(answer.text, answer.verbatim, checkIn || asked.texStyle?.bubbles === "one"), ...(checkIn ? [] : await threadsLines(answer.offers, deps.threadsLink))];
+  const texts = [...textsWithExact(answer.text, answer.verbatim, checkIn), ...(checkIn ? [] : await threadsLines(answer.offers, deps.threadsLink))];
   const now = await readTwice();
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");
@@ -220,8 +218,9 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     });
   }
   // A change to a job still running is handed to it, in the words of whoever texted it.
-  if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, { id: message.eventId, text: message.jobReport ? "" : message.text }, deps.steerJob, deps.now()); // a report's turn passes only its own notes
-  if (answer.steers && deps.steerJob) await resumeJobs(storage, answer.steers, { id: message.eventId }, deps.steerJob, deps.now()); // "restart it": an ended job picks up where it stopped
+  const theirWords = { id: message.eventId, text: message.jobReport ? "" : message.text }; // a report's turn passes only its own notes
+  if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, theirWords, deps.steerJob, deps.now());
+  if (answer.steers && deps.steerJob) await resumeJobs(storage, answer.steers, theirWords, deps.steerJob, deps.now()); // "restart it": an ended job picks up where it stopped, with their words
 }
 
 /** Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them. */
@@ -233,12 +232,8 @@ async function dropSteered(storage: InboxStorage, ids: string[], covers: string[
   }
 }
 
-/**
- * The chat's whole log as this object holds it, for the gateway to read instead of storage (production, 2026-10-31:
- * every group turn read its log one file per event, 275 files and 4 to 6 s before the model). Nothing until the
- * first turn's answer hands the log back (`keepLog`), so that turn reads it from storage once.
- */
-async function heldLog(storage: InboxStorage, chat: string): Promise<{ recent?: unknown[]; holdsLog?: true }> {
-  if (!(await holdsLog(storage, chat))) return {};
-  return { recent: await recentEvents(storage, chat), holdsLog: true };
+/** The events the gateway has not taken yet, for it to add to the chat's day from the ledger (`apps/mcp/src/agent/warmCopy.js` `mergeEvents`). */
+async function outbox(storage: InboxStorage, chat: string): Promise<{ recent?: unknown[] }> {
+  const recent = await recentEvents(storage, chat);
+  return recent.length > 0 ? { recent } : {};
 }

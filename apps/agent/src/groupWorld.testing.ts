@@ -48,9 +48,10 @@ export function setup(
   const asks: Record<string, unknown>[] = [];
   const control: Record<string, unknown>[] = [];
   const engagement: Record<string, unknown>[] = [];
-  /** Each `/agent-texts/group/style` set, and the group's style as the control plane keeps it (`texStyle.ts`). */
+  /** Each `/agent-texts/group/style` change, and the group's instructions as the control plane keeps them (`texStyle.ts`): a pick's line is `<id> line.` here. */
   const styles: Record<string, unknown>[] = [];
-  let groupStyle: Record<string, unknown> = {};
+  let instructions = "";
+  let before: string | undefined;
   /** Each `/agent-texts/review-sharing` asked (`reviewSharing.ts`). */
   const sharing: Record<string, unknown>[] = [];
   const events: { conversation: unknown; events: TexEvent[] }[] = [];
@@ -110,8 +111,11 @@ export function setup(
     }
     if (path === "/agent-texts/group/style") {
       styles.push(body);
-      groupStyle = { ...groupStyle, ...body.style };
-      return Response.json({ ok: true, style: groupStyle });
+      if (body.undo === true && before === undefined) return Response.json({ ok: false, refused: "nothing_to_undo" });
+      const next = body.undo === true ? before! : body.clear === true ? "" : body.pick ? [instructions, `${body.pick} line.`].filter(Boolean).join("\n") : instructions;
+      before = body.undo === true ? undefined : instructions;
+      instructions = next;
+      return Response.json({ ok: true, ...(instructions ? { instructions } : {}) });
     }
     if (path === "/agent-texts/review-sharing") {
       sharing.push(body);
@@ -139,13 +143,15 @@ export function setup(
         ...(opts.control ?? {}),
         // Chosen once a member chose, as the control plane's row says.
         ...(engagement.length > 0 ? { engagementChosen: true } : {}),
-        ...(Object.keys(groupStyle).length > 0 ? { texStyle: groupStyle } : {}),
+        ...(instructions ? { instructions } : {}),
       });
     }
     if (path === "/agent/events") {
       events.push(body);
       return Response.json({ written: body.events.map((event: TexEvent) => event.id) });
     }
+    // The chat's ledger: what was posted to it (`chatRead.ts`).
+    if (path === "/agent/chat") return Response.json({ events: posted().filter((event) => event.chat === body.conversation?.group) });
     if (path === "/agent/steer") {
       steers.push(body);
       return Response.json({ queued: true });
@@ -179,6 +185,12 @@ export function setup(
     hostPicture: async (picture) => `https://agent.example.test/media/${picture.name}`,
     now: () => 1_000,
   };
+  /** Every event posted to the gateway, once each, in order. */
+  function posted(): TexEvent[] {
+    const byId = new Map<string, TexEvent>();
+    for (const post of events) for (const event of post.events as TexEvent[]) if (!byId.has(event.id)) byId.set(event.id, event);
+    return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
   let n = 0;
   const message = (text: string, extra: Partial<GroupMessage> = {}): GroupMessage => ({
     kind: "group-message",
@@ -191,12 +203,19 @@ export function setup(
     text,
     ...extra,
   });
-  return { deps, decided, rechecks, asks, control, engagement, styles, sharing, events, steers, cancels, stale, texts, reactions, release, running, message };
+  return { deps, decided, rechecks, asks, control, engagement, styles, sharing, events, posted, steers, cancels, stale, texts, reactions, release, running, message };
+}
+
+/** The chat as it was logged: what the gateway took, and this object's outbox, oldest first (`chatRead.ts`). */
+export async function chatLog(storage: MemoryStorage, w: { posted: () => TexEvent[] }, groupId: string): Promise<TexEvent[]> {
+  const byId = new Map<string, TexEvent>();
+  for (const event of [...w.posted().filter((one) => one.chat === groupId), ...(await keptEvents(storage, groupId))]) byId.set(event.id, event);
+  return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 /** The words of each candidate decide was shown at the drain (not mid-turn, nor beside an addressed turn). */
 export async function decidedWords(storage: MemoryStorage, w: ReturnType<typeof setup>, groupId: string): Promise<string[]> {
-  const byId = new Map((await keptEvents(storage, groupId)).map((event) => [event.id, event.text ?? ""]));
+  const byId = new Map((await chatLog(storage, w, groupId)).map((event) => [event.id, event.text ?? ""]));
   return w.decided.filter((body) => !body.running && !body.addressed).flatMap((body) => body.candidates.map((id) => byId.get(id) ?? "?"));
 }
 

@@ -162,8 +162,11 @@ export const PARTS: Readonly<Record<ContextPart, Drawing>> = {
   tex_heartbeat: [heart(50, 46, 76), [[18, 54], [36, 54], [42, 42], [50, 62], [56, 50], [82, 50]]],
   tex_attention: SET["bell"],
   tex_jobs: SHARED.clipboard,
+  tex_pictures: SET["camera"],
   tex_chats: [[[12, 18], [62, 18], [62, 52], [32, 52], [20, 64], [22, 52], [12, 52], [12, 16]], [[70, 34], [88, 34], [88, 68], [80, 68], [82, 82], [66, 68], [40, 68], [40, 60]]],
   tex_groups: SET["group"],
+  // An arrow turning back around a clock's hands: the chat's history file.
+  tex_history: [[...arc(50, 50, 37, 37, 180, -90, 16), [36, 14], [22, 22], [13, 33]], [[13, 13], [13, 33], [33, 33]], [[50, 28], [50, 50], [66, 58]]],
   tex_handbacks: [[[84, 20], [84, 54], [26, 54]], [[42, 38], [26, 54], [42, 70]], [[26, 84], [74, 84]]],
   inbox_calendar: SET["calendar"],
   inbox_contacts: [rect(14, 22, 72, 58), circle(36, 46, 9, -100, 375, 10), arc(36, 76, 14, 12, 180, 360, 6), [[58, 42], [76, 42]], [[58, 56], [72, 56]], [[30, 14], [30, 26]], [[70, 14], [70, 26]]],

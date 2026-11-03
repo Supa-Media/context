@@ -1,19 +1,14 @@
 ---
 name: how-we-define-chaos
-description: How Context scores a workspace's chaos, and how to organize notes so it goes down. Use when the user asks you to tidy, organize, clean up or restructure their notes or folders, asks about their chaos score, or when a write or move answer reports the score got messier.
+description: How Context scores a workspace's chaos, and how to organize notes so it goes down. Use when the user asks you to tidy, organize, clean up or restructure their notes or folders, asks about their chaos score, or when orient shows the score got messier.
 ---
 
 # How we define chaos
 
 Every Context workspace has a **chaos score** from 0 to 100. Lower is calmer.
 `orient` shows it under "Chaos score" with the folders that would calm it
-most, and every `write` save and `manage` move or archive answer ends with the
-score before and after:
-
-```
-chaos: 34 → 31 of 100 (calmer; lower is calmer)
-  projects/launch: 14 → 9 items (fine)
-```
+most. Saves, moves and archives do not report it, so call `orient` again to
+see where a change left it.
 
 Nobody tidies for the person automatically. They do it, or they ask you to.
 This skill is the rubric, so you can tell a change that helps from one that
@@ -83,8 +78,8 @@ either.
    with the old opening as its about note. Keep links working by naming the
    new notes after their headings.
 6. **Finished work** goes to Archive with `archive_note`; it stops counting.
-7. Watch the `chaos: X → Y` line on each answer. If a move made things
-   messier, say so, and undo it or try another grouping.
+7. Call `orient` before and after a round of moves to see the score change.
+   If it got messier, say so, and undo it or try another grouping.
 8. Never change what people can see while organizing. A move into a folder
    with wider visibility waits for the person's yes, so ask before you make
    it.

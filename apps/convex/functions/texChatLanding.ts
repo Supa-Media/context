@@ -10,6 +10,7 @@
 
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
+import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { texHomesFor } from "./lib/noteIds/texHome";
 
 export const chatsOfHomes = internalQuery({
@@ -20,5 +21,22 @@ export const chatsOfHomes = internalQuery({
     const keys = new Set<string>();
     for (const owner of homes.values()) if (owner.startsWith("chat:")) keys.add(owner.slice("chat:".length));
     return [...keys];
+  },
+});
+
+/**
+ * Whether `chat`'s home is in `workspaceId`: the pinned workspace, the only one that holds homes, and a chat with a
+ * home. The gateway asks before it opens a chat's object for a note whose row it reached in that workspace
+ * (`lib/gatewayRoutes/texChatHome.ts`), so a row elsewhere never points a store at a chat's object.
+ */
+export const chatHomedIn = internalQuery({
+  args: { workspaceId: v.id("workspaces"), chat: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId, chat }) => {
+    if (!/^[0-9a-f]{64}$/.test(chat)) return false;
+    const pinned = await pinnedContextWorkspace(ctx);
+    if (pinned === null || pinned._id !== workspaceId) return false;
+    const chats = await ctx.db.query("textGroups").withIndex("by_key", (q) => q.eq("groupKey", chat)).take(2);
+    return chats.length === 1 && typeof chats[0].homeWords === "string" && chats[0].homeWords !== "";
   },
 });

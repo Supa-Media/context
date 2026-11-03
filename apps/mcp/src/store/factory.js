@@ -155,7 +155,7 @@ const BUILDERS = new Map([
  *
  * @param {object} binding the binding exactly as the control plane returned it
  * @param {object} [env] the Worker environment, for a native R2 binding only
- * @param {{texStore?: ((owner: string) => unknown)|null, texWorkspaceId?: string, texChats?: string[], fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, sealedObjects?: boolean, noteCap?: number|null, noteCount?: (() => Promise<number|null>)|null, idLayout?: object|null, workspaceStore?: ((workspaceId: string) => object|null)|null, defer?: ((promise: Promise<unknown>) => void)|null, log?: (event: string, fields: object) => void, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
+ * @param {{texStore?: ((owner: string) => unknown)|null, texWorkspaceId?: string, texChats?: string[], texHomeChat?: ((chat: string) => Promise<boolean>)|null, fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, sealedObjects?: boolean, noteCap?: number|null, noteCount?: (() => Promise<number|null>)|null, idLayout?: object|null, workspaceStore?: ((workspaceId: string) => object|null)|null, defer?: ((promise: Promise<unknown>) => void)|null, log?: (event: string, fields: object) => void, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
  *   control plane builds stores from this same table — for the connect probe
  *   and the console file browser — and needs a `fetch` with a timeout on it.
  *   A second switch there would be the third place to forget a new backend,
@@ -212,19 +212,37 @@ export function storeForBinding(binding, env, options = {}) {
   // Tex's notes (`texRouting.js`): a row's key of the Tex form goes to its
   // Durable Object, under the id layer so every holder of a row's key reaches
   // it, and refused when `options.texStore` cannot open one.
-  const texRouted = withTexRouting(withLogicalDelete(probed), { workspaceId: options.texWorkspaceId ?? binding.workspaceId, chats: options.texChats ?? [], texStore: options.texStore ?? null });
+  const texRouted = withTexRouting(withLogicalDelete(probed), { workspaceId: options.texWorkspaceId ?? binding.workspaceId, chats: options.texChats ?? [], homeChat: options.texHomeChat ?? null, texStore: options.texStore ?? null });
   // Note texts and shared-editing history, to the workspace's object by its home (`workspaceRouting.js`). Only when
   // the caller passed `workspaceStore`: a caller that must see the bucket alone (the copy and compare) leaves it out.
-  const routed = typeof options.workspaceStore === "function"
+  const client = typeof options.workspaceStore === "function" ? routingClient(binding, options.workspaceStore) : null;
+  const routed = client !== null
     ? withWorkspaceRouting(texRouted, {
         workspaceId: binding.workspaceId,
-        client: options.workspaceStore(binding.workspaceId),
+        client,
         known: { home: binding.notesHome, backfilledAt: binding.notesBackfilledAt ?? null },
         defer: options.defer ?? null,
-        log: options.log ?? (() => {}),
+        // A failed mirror must be seen: a caller that passes no log still gets the structured line (ids only).
+        log: options.log ?? ((event, fields) => console.log(JSON.stringify({ event, ...fields }))),
       })
     : texRouted;
   return withNoteCap(withNoteLayout(routed, options.idLayout), options.noteCap, options.noteCount ?? null);
+}
+
+/**
+ * The workspace object's client for a binding whose notes live there (`dual` or `object`), or `null` for one on the
+ * bucket. A binding that names such a home and cannot be routed (no workspace on it, or no way to its object) is
+ * refused, never built over the bucket alone: a store built that way writes where no reader of the object looks, which
+ * is how every note the app made in an object-home workspace became unreadable to the gateway until 2026-11-02.
+ */
+function routingClient(binding, workspaceStore) {
+  if (binding.notesHome !== "dual" && binding.notesHome !== "object") return null;
+  if (typeof binding.workspaceId !== "string" || binding.workspaceId === "") {
+    throw new StorageUnavailable("notes live in the workspace object, and the binding names no workspace");
+  }
+  const client = workspaceStore(binding.workspaceId);
+  if (!client) throw new StorageUnavailable("notes live in the workspace object, and it cannot be reached");
+  return client;
 }
 
 /**

@@ -37,6 +37,7 @@ import { attachedFiles } from "./emailAttach.js";
 import { agreedToForward, agreedWordsHold } from "./likedPreview.js";
 import { recordChange } from "../activity/record.js";
 import { offerFor, offerTarget } from "./offerFor.js";
+import { mailVerdict, recordMail } from "../agent/workEntries.js";
 
 export { EMAIL_TOOL };
 
@@ -185,6 +186,7 @@ export async function emailGate(supplied, { store, session, target }) {
       question go (`checkerRefused`, `agent/claimCheck.js`).
     */
     if (checked?.verdict === "no") {
+      recordMail(session, email, mailVerdict(checked));
       return {
         ...toolError(
           `Not sent, and not put to the person: the Mail checker read their texts and says ${checked.reason || "it goes against what they said"}. ` +
@@ -217,6 +219,7 @@ export async function emailGate(supplied, { store, session, target }) {
   if (agreed) {
     await recordChange(store, "approve_action", session.scope, [], { tool: EMAIL_TOOL, by: "yes_to_offer", client_id: session.actorClientId ?? null, team_visible: false }).catch(() => {});
     console.log(JSON.stringify({ event: "yes_to_offer", tool: EMAIL_TOOL, released: true }));
+    recordMail(session, email, mailVerdict(checked, { sent: true }));
     // In a group, a copy someone else refined replaces the one held for them before: that one never goes now (`offerFor.js`).
     if (session.egress?.group) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     return null;
@@ -241,6 +244,7 @@ export async function emailGate(supplied, { store, session, target }) {
     return toolError("Not sent: the person has too many things waiting for their OK. Ask them to clear some first.");
   }
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
+  if (texting) recordMail(session, email, { ...mailVerdict(checked, { held: true }), ask: record.id }); // kept under the held ask's id, so its yes or no names it (`tools/approvals.js`)
   return {
     ...toolError(
       texting
@@ -253,3 +257,4 @@ export async function emailGate(supplied, { store, session, target }) {
     held: true,
   };
 }
+
