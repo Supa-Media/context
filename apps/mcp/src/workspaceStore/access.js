@@ -242,7 +242,7 @@ const rowNames = (value) => Array.isArray(value) && value.length <= MAX_ROW_NAME
  * `rowNames` are the names the person holds there by a grant on a row (`#<noteId>`, and `#<noteId>!edit` for edit),
  * as the control plane's `grantedNamesFor` gives them: what opens a note or folder shared with them by name, and a
  * Tex group chat's sealed home (2026-11-02: without them the app's connection opened none of a person's chat homes).
- * Only the app's own client is given them, as its groups (`personRows.js` `sessionFor`). Left out when there are none.
+ * The app's own client and every AI connection are given them, as its groups (`personRows.js` `sessionFor`). Left out when there are none.
  */
 export function checkReachRow(row) {
   if (!row || typeof row !== "object") refuse("not a reach row");

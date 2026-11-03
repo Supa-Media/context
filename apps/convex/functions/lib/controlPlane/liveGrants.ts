@@ -238,7 +238,10 @@ export async function contextsForGrant(
     homeOnly?: true;
   }>
 > {
-  const includeGrantedNames = live.grant.clientId === CONSOLE_CLIENT_ID;
+  // The app's own client and every AI connection the person makes (Claude, ChatGPT, any OAuth client) hold the names
+  // the person answers to: what opens a note or folder shared with them by name or through a group, and a Tex group
+  // chat's sealed home (Dev, 2026-11-03). Context's own background clients (`context_*`) hold none, as before.
+  const includeGrantedNames = holdsGrantedNames(live.grant.clientId);
   const own: {
     workspaceId: Id<"workspaces">;
     slug: string;
@@ -325,6 +328,15 @@ export async function contextsForGrant(
   }
 
   return rows;
+}
+
+/**
+ * Whether a connection holds the person's granted names: the app's own client, and every client registered through
+ * OAuth (an AI connection), never one of Context's own background clients (`context_*`: Tex, its routines, dreams and
+ * the rest). Mirrored by `apps/mcp/src/workspaceStore/personRows.js` `holdsGrantedNames`.
+ */
+export function holdsGrantedNames(clientId: string): boolean {
+  return clientId === CONSOLE_CLIENT_ID || !clientId.startsWith("context_");
 }
 
 /**

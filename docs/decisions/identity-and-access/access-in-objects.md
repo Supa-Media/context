@@ -145,8 +145,8 @@ app's own client these names (`grantedNamesFor`); the person object's session
 gave only the groups, so once access moved into the objects the app opened no
 chat home and no note shared to the person by name inside a workspace they are
 a member of. Each reach row now carries `rowNames` (at most 1,000), copied from
-`grantedNamesFor`, and the person object gives them to the app's client only,
-as before. A grant's change sends its holders' reach again (`record.ts`
+`grantedNamesFor`, and the person object gives them to the app's client and,
+since 2026-11-03, every AI connection ([ai-connection-names](../privacy-and-sharing/ai-connection-names.md)). A grant's change sends its holders' reach again (`record.ts`
 `targetsOf`: the person, the email's account, a group's members, or every
 member). A change to a person's confirmed emails is caught by the next copy.
 
