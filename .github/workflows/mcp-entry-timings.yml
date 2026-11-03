@@ -1,5 +1,5 @@
 # How long each named step of an MCP call takes in production or staging, read from the gateway's
-# `mcp_entry` dataset (`apps/mcp/src/mcp/mcpEntryPoint.js`): per data center that served the call and per step, how many, the median and the 95th
+# `mcp_entry` dataset (`apps/mcp/src/mcp/mcpEntryPoint.js`): per step, how many, the median and the 95th
 # percentile of its total milliseconds per request, and how many times it ran per request. Names, routes and times only: the dataset holds no path and no words, and this
 # prints no workspace. Read-only, manual only.
 name: MCP entry timings

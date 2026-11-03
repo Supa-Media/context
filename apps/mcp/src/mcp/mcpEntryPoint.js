@@ -28,8 +28,7 @@
  * person's calls and everyone's both add up. Dataset `mcp_entry` (binding
  * `MCP_ENTRY`): blobs = "mcp", the call (`tools/call:orient`, `initialize`,
  * `notifications/initialized`, ...), the step, its state (ok, failed), the
- * client's name, the Cloudflare data center that served it (`IAD`; its distance from the workspace objects is
- * every `obj:` step's floor); doubles = its milliseconds, when it first started (from the
+ * client's name; doubles = its milliseconds, when it first started (from the
  * request's start) and how many times it ran: one point per step and state,
  * summed over the request (`totals`). A `to_response` point is the whole request. Names, routes
  * and times only, never a path, a query or a word anyone wrote. Without the
