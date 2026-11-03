@@ -121,6 +121,16 @@ test("a page waits for the old log: copied only once the chat's old log is in", 
   assert.equal(ledger.oldest(KEY).id, GROUP_PAGE_COPIED);
 });
 
+test("a page whose chat's old log is nowhere goes in without it when asked", async () => {
+  const ledger = texLedger(durableSql());
+  ledger.append(KEY, [{ id: "e1", kind: "text", at: 5_000, from: { kind: "person" }, text: "hi" }]);
+  const turns = [{ role: "user", text: "q" }, { role: "assistant", text: "a" }];
+  assert.equal((await copyGroupPageIn(ledger, KEY, turns, { dryRun: true, withoutLog: true })).state, "would");
+  assert.equal(ledger.oldest(KEY).id, "e1", "a dry run changes nothing");
+  assert.equal((await copyGroupPageIn(ledger, KEY, turns, { withoutLog: true })).state, "copied");
+  assert.equal(ledger.oldest(KEY).id, GROUP_PAGE_COPIED);
+});
+
 test("a group's texts read back as the page kept them: the chatter in its block, then the ask, each named", () => {
   const texts = [
     { from: { kind: "person", name: "bo" } },
