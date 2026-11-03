@@ -17,6 +17,7 @@
  *   drop the job rows from the plan (root folders only)            1
  *   no pin before the rename (unkeyed file refuses it)             1
  *   no unpin after a refused rename                                1
+ *   no object-home skip in run (both object-home tests)            2
  */
 
 import { describe, expect, test } from "vitest";
@@ -238,5 +239,69 @@ describe("taking the numbers off built-in folders", () => {
     const page = await f.t.query(internal.functions.folderNumbers.workspacePage, { limit: 10 });
     expect(page.workspaceIds).toContain(f.ws);
     expect(page.done).toBe(true);
+  });
+});
+
+describe("the run leaves a workspace whose notes live in its object alone", () => {
+  // A second workspace, its notes in its object (`workspaceObjectHomes` home "object"), with a numbered folder and an
+  // unkeyed file under it: the rename would pin the file and move the folder, and neither may happen there.
+  async function objectWorkspace(f: Fixture): Promise<Id<"workspaces">> {
+    return await f.t.run(async (ctx) => {
+      const now = Date.now();
+      const ws = await ctx.db.insert("workspaces", {
+        slug: "object-home",
+        displayName: "Object home",
+        createdBy: f.ownerId,
+        kind: "shared",
+        structureTemplate: "para",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("workspaceObjectHomes", { workspaceId: ws, home: "object", since: now });
+      const folderId = await ctx.db.insert("nodes", {
+        workspaceId: ws,
+        path: "1-projects",
+        name: "1-projects",
+        kind: "folder",
+        observedAt: 1,
+      } as never);
+      await ctx.db.insert("nodes", {
+        workspaceId: ws,
+        path: "1-projects/old.md",
+        parentId: folderId,
+        name: "old.md",
+        kind: "file",
+        etag: "e",
+        observedAt: 1,
+      } as never);
+      return ws;
+    });
+  }
+
+  test("an object-home workspace is skipped before anything is pinned or renamed, and counted as left", async () => {
+    const f = await keyedFixture();
+    const ws = await objectWorkspace(f);
+
+    const counts = await f.t.action(internal.functions.folderNumbers.run, { dryRun: false });
+
+    expect(counts.left).toEqual({ object: 1 });
+    expect(counts.workspaces).toBe(2);
+    const rows = await f.t.run(async (ctx) =>
+      await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws)).collect(),
+    );
+    expect(rows.find((row) => row.path === "1-projects")?.goneAt).toBeUndefined();
+    expect(rows.find((row) => row.path === "projects")).toBeUndefined();
+    expect(rows.find((row) => row.path === "1-projects/old.md")?.storageKey).toBeUndefined();
+  });
+
+  test("a bucket workspace in the same run is still planned and counted", async () => {
+    const f = await keyedFixture();
+    await objectWorkspace(f);
+
+    const counts = await f.t.action(internal.functions.folderNumbers.run, { dryRun: true });
+
+    expect(counts.left).toEqual({ object: 1 });
+    expect(counts.wouldRename).toBe(2);
+    expect(await liveAt(f, "1-projects")).toBe(true);
   });
 });

@@ -149,13 +149,3 @@ export const purgeSmallData = internalMutation({
     return null;
   },
 });
-
-/** The workspace's storage now names a different bucket: its tree describes the old one. */
-export const resetForStorage = internalMutation({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.null(),
-  handler: async (ctx, { workspaceId }): Promise<null> => {
-    await forgetWorkspaceTree(ctx, workspaceId, { storageMoved: true });
-    return null;
-  },
-});

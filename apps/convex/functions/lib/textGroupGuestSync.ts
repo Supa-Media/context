@@ -70,8 +70,9 @@ async function syncGroupRows(
 
 /**
  * The outsiders named on the chat's folder row: the ones the chat named before come off, the ones in it now go on,
- * and everything else on the list stays. Waits for the row to exist and to have had the group's grant, so the first
- * write of the list is `ensureChatFolderGrant`'s.
+ * and everything else on the list stays. Waits for the row to exist and to have had the group's grant
+ * (`guestFolderGranted`, set by the legacy guest mode's grant, which is gone); a chat without it keeps its folder list as
+ * it is.
  */
 async function syncFolderPeople(ctx: MutationCtx, chat: Doc<"textGroups">, actor: Id<"users">, wanted: Id<"users">[]): Promise<void> {
   if (chat.workspaceId === undefined || chat.guestFolder === undefined || chat.guestFolderGranted !== true) return;
