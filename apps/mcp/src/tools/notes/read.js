@@ -16,6 +16,7 @@ import { normalizePath } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { splitMessageAnchor } from "../../search/commsIndex.js";
 import { toolError, toolText } from "../results.js";
+import { ownHistoryRead, toolReadOwnHistory } from "./historyRead.js";
 import comments from "../../../../../packages/shared/src/comments.cjs";
 import mail from "../../../../../packages/shared/src/mail.cjs";
 
@@ -41,6 +42,8 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
   // message is the one key `read_note` answers "not found" for.
   const requested = splitMessageAnchor(named).path;
   if (!requested) return toolError("invalid path");
+  // The person's own chat with Tex, from its ledger, whether or not its history row was made (`historyRead.js`).
+  if (ownHistoryRead(store, requested)) return await toolReadOwnHistory(store);
   /*
     **THE REFUSAL MUST COST WHAT THE OTHER REFUSAL COSTS.**
 
