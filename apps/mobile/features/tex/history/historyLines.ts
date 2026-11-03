@@ -9,6 +9,7 @@
  */
 
 import type { LedgerEntry, LedgerKind } from "../page/texPageTypes";
+import type { TurnTimingSource } from "./turnTiming";
 
 /** What the view can show or hide, and the ledger kinds each one is. */
 export const SHOWS = ["texts", "tools", "thinking", "background"] as const;
@@ -42,9 +43,10 @@ export const SHOW_KINDS: Record<Show, LedgerKind[]> = {
  */
 export const DEFAULT_SHOWN: Record<Show, boolean> = { texts: true, tools: true, thinking: false, background: true };
 
-/** The ledger kinds to ask for; every kind the view shows when all four are on. */
-export function kindsFor(shown: Record<Show, boolean>): LedgerKind[] {
-  return SHOWS.filter((s) => shown[s]).flatMap((s) => SHOW_KINDS[s]);
+/** The ledger kinds to ask for; every kind the view shows when all four are on. `timing`: @context-lc editors also read each turn's `reply`, for where its time went (`turnTiming.ts`), and the calls it times. */
+export function kindsFor(shown: Record<Show, boolean>, { timing = false }: { timing?: boolean } = {}): LedgerKind[] {
+  const kinds = SHOWS.filter((s) => shown[s]).flatMap((s) => SHOW_KINDS[s]);
+  return timing && shown.texts ? [...kinds, "reply", ...(shown.tools ? [] : (["tool"] as LedgerKind[]))] : kinds;
 }
 
 /** Which day the view shows. */
@@ -85,6 +87,8 @@ export interface HistoryLine {
   calls?: HistoryLine[];
   /** A background job's line: its work, folded under it (`foldJobs`). */
   run?: HistoryJob;
+  /** On a turn's first text from Tex, for @context-lc editors: where the turn's time went (`turnTiming.ts`). */
+  timing?: TurnTimingSource;
   entry: LedgerEntry;
 }
 
@@ -280,7 +284,8 @@ export function dayTitle(key: string, now: Date): string {
  * turn is a turn of its own, but a person's text joins the turn just after it. `group` names people by name rather
  * than "You".
  */
-export function historyDays(entries: readonly LedgerEntry[], now: Date, { group = false, thinking = false, fold = true }: { group?: boolean; thinking?: boolean; /** Fold each job's work under its line; off on one job's own page, where all of it is that job's. */ fold?: boolean } = {}): HistoryDay[] {
+export function historyDays(entries: readonly LedgerEntry[], now: Date, { group = false, thinking = false, fold = true, timing = false, tools = true }: { group?: boolean; thinking?: boolean; /** Fold each job's work under its line; off on one job's own page, where all of it is that job's. */ fold?: boolean; /** Staff: each turn's first text from Tex carries where the turn's time went. */ timing?: boolean; /** Tool calls are drawn; off, they were read only for the timing. */ tools?: boolean } = {}): HistoryDay[] {
+  const timed = timing ? timingByTurn(entries) : new Map<string, TurnTimingSource>();
   const byEventId = new Map<string, LedgerEntry>();
   for (const e of entries) if (e.kind === "text" && typeof e.eid === "string") byEventId.set(e.eid, e);
   // Reactions go under the text they are on, never on a line of their own, as in the mock; one whose text isn't in view stays a line.
@@ -301,7 +306,8 @@ export function historyDays(entries: readonly LedgerEntry[], now: Date, { group 
   }
   const days: HistoryDay[] = [];
   for (const e of entries) {
-    if (folded.has(e.id)) continue;
+    // A reply is the same words as Tex's texts: only its timing is drawn, on the first of them.
+    if (folded.has(e.id) || e.kind === "reply" || (!tools && e.kind === "tool")) continue;
     const key = dayKey(e.at);
     let day = days.at(-1);
     if (day?.key !== key) {
@@ -317,6 +323,14 @@ export function historyDays(entries: readonly LedgerEntry[], now: Date, { group 
       day.turns.push(turn);
     }
     const line = lineOf(e, group);
+    if (e.kind === "text" && line.tone === "tex" && typeof e.turn === "string") {
+      // Newest first: the last one met is the turn's first text out.
+      const source = timed.get(e.turn);
+      if (source !== undefined) {
+        for (const other of turn.lines) delete other.timing;
+        line.timing = source;
+      }
+    }
     const answered = typeof e.replyTo === "string" ? byEventId.get(e.replyTo) : undefined;
     if (answered !== undefined) line.replyTo = `${whoOf(answered, group)}: ${short(textWords(answered), 60)}`;
     const on = reactions.get(e.id);
@@ -334,6 +348,19 @@ export function historyDays(entries: readonly LedgerEntry[], now: Date, { group 
     if (fold) foldJobs(day, jobStates(entries));
   }
   return days;
+}
+
+/** Each turn's reply, the texts Tex sent and the calls it made, for the turns whose reply kept timing. */
+function timingByTurn(entries: readonly LedgerEntry[]): Map<string, TurnTimingSource> {
+  const out = new Map<string, TurnTimingSource>();
+  for (const e of entries) if (e.kind === "reply" && typeof e.turn === "string" && e.timing && !out.has(e.turn)) out.set(e.turn, { reply: e, sent: [], tools: [] });
+  for (const e of entries) {
+    const source = typeof e.turn === "string" ? out.get(e.turn) : undefined;
+    if (source === undefined) continue;
+    if (e.kind === "text" && str(record(e.from)?.kind) === "tex") source.sent.push(e);
+    else if (e.kind === "tool") source.tools.push(e);
+  }
+  return out;
 }
 
 /** Which job a line is the work of: the job its turn ran for, or the job a `job` entry is about. */
