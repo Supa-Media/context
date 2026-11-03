@@ -39,7 +39,8 @@ export const BUDGETS = Object.freeze({
   // 250 -> 205 after #2806 (archive asks the object first, reading no body or history): about 165 ms median.
   "tools/call:manage:archive": 205,
   // 400 -> 250 after #2825 and #2828 (no twin listing before a move the object makes): about 190 ms for 107 notes.
-  "tools/call:manage:move_folder": 250,
+  // 250 -> 185 after #2844 (the object's move reads its rows by index, not by scanning them): 149 ms for 107 notes.
+  "tools/call:manage:move_folder": 185,
   "tools/call:search": 800,
   // 900 -> 850 after #2834 and #2838 (faster key sort; each workspace draws its own map): 679 ms median.
   "tools/call:orient": 850,
