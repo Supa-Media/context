@@ -76,14 +76,15 @@ function nodeRowOf(row: NonNullable<FilesAnswer["rows"]>[number]): NodeRow {
 
 type Options = { client?: WorkspaceObjectClient | null };
 
-/** The object's tree as a served store, or `null` where Convex's rows must answer (see the header). */
-export async function objectServedStore(
+/**
+ * The object's client where it may answer this workspace's tree reads now, or `null` where Convex's rows must (see the
+ * header). Its own answer can still say `behind`, which the caller treats the same way.
+ */
+export async function objectTreeClient(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
-  base: FileStore,
-  audience: Audience = "member",
   options: Options = {},
-): Promise<FileStore | null> {
+): Promise<WorkspaceObjectClient | null> {
   const home = await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId }).catch(() => null);
   if (home !== "object") return null;
   const client = options.client !== undefined ? options.client : consoleWorkspaceClient(ctx, workspaceId);
@@ -93,6 +94,19 @@ export async function objectServedStore(
   if (await ctx.runQuery(internal.functions.workspaceObjectPush.waitingSince, { workspaceId, at: Number.MAX_SAFE_INTEGER })) return null;
   const moves = await ctx.runQuery(internal.functions.nodeRowMoves.drawn, { workspaceId });
   if (moves.length > 0) return null;
+  return client;
+}
+
+/** The object's tree as a served store, or `null` where Convex's rows must answer (see the header). */
+export async function objectServedStore(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  base: FileStore,
+  audience: Audience = "member",
+  options: Options = {},
+): Promise<FileStore | null> {
+  const client = await objectTreeClient(ctx, workspaceId, options);
+  if (client === null) return null;
   let first: FilesAnswer;
   try {
     first = (await client.rows.files({ limit: 1, audience })) as FilesAnswer;
@@ -112,4 +126,27 @@ export async function objectServedStore(
     return { rows: answer.rows.map(nodeRowOf), cursor: answer.cursor ?? null };
   };
   return nodesPagedStore(base, page, mirror, []);
+}
+
+/**
+ * One folder's listing from the object (`ws.rows.listing`) at the clearance the barrier resolved, as the live tree
+ * socket draws it (`apps/convex/__tests__/workspaceObjectListing.test.ts` proves the two listings equal), or `null`
+ * where Convex's rows must answer.
+ */
+export async function objectFolderListing(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  request: { path: string; scope: "private" | "team"; grantedNames: readonly string[]; audience: Audience },
+  options: Options = {},
+): Promise<Record<string, unknown> | null> {
+  const client = await objectTreeClient(ctx, workspaceId, options);
+  if (client === null) return null;
+  let answer: { served?: boolean; behind?: boolean; listing?: Record<string, unknown> };
+  try {
+    answer = (await client.rows.listing({ path: request.path, scope: request.scope, groups: [...request.grantedNames], audience: request.audience })) as typeof answer;
+  } catch {
+    return null;
+  }
+  if (answer?.served !== true || answer.behind === true || answer.listing === null || typeof answer.listing !== "object") return null;
+  return answer.listing;
 }

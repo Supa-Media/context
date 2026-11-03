@@ -20,7 +20,8 @@ import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.
 import { manifestPage } from "./manifest.js";
 import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
 import { BindingRowRefused, serveBindingCall } from "./bindingRows.js";
-import { folderVisibleAtScope } from "./listing.js";
+import { treeRows } from "./treeRows.js";
+import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 
 const CALL = "x-tex-call";
 
@@ -155,6 +156,24 @@ function answerFacts(store, fields) {
   return store.facts[fields.ask](fields, sees, folderSees);
 }
 
+/**
+ * One folder's listing for the control plane's own `list` (`ws.rows.listing`, through the door): at the clearance the
+ * control plane already resolved (`scope`, its granted `groups`) and by the audience's rules, as the live tree socket
+ * lists it (`treeSockets.js`). `{served: false}` where no rules are held for the audience: the control plane answers.
+ */
+function listingAnswer(store, fields) {
+  if (!SCOPES.has(fields.scope)) throw new WorkspaceRowRefused("a listing needs its scope");
+  if (!READERS.has(fields.audience ?? "member") || fields.audience === "chat") throw new WorkspaceRowRefused("not an audience");
+  const folder = folderPathOf(fields.path);
+  if (folder === null) throw new WorkspaceRowRefused("not a folder path");
+  const held = store.rows.rules(fields.audience ?? "member");
+  if (held === null) return { served: false };
+  const tree = treeRows(store.sql);
+  const { rows: children, more } = tree.children(folder);
+  const clearance = { scope: fields.scope, names: new Set(Array.isArray(fields.groups) ? fields.groups.filter((group) => typeof group === "string") : []) };
+  return { served: true, listing: listFolderFromRows({ folder, clearance, held, children, more, own: tree.own(folder), roots: tree.jobRows() }) };
+}
+
 /** The paths a row change touches, before and after, for a tree watcher (`store.onTreeChange`). */
 function pathsTouched(rows, ids, incoming = []) {
   const before = rows.get(ids).map((row) => row.path);
@@ -261,6 +280,9 @@ export async function serveWorkspaceStore(store, request) {
         // settled like a lookup, so a reader there falls back to its own rows only while this object is behind.
         if (rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
         return Response.json(await settledAnswer(store, () => ({ served: true, ...rows.filesPage(fields), rules: rows.rules(fields.audience ?? "member") })));
+      case "ws.rows.listing":
+        if (rows.home() !== HOMES.OBJECT || !store.sql) return Response.json({ served: false });
+        return Response.json(await settledAnswer(store, () => listingAnswer(store, fields)));
       case "ws.rows.list":
         return Response.json(rows.list(fields));
       case "ws.rules.put": {

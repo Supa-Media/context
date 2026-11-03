@@ -43,6 +43,7 @@ import { folderNotesFromNodes } from "../filesFns/folderNotes";
 import { liveChaosScoreOf, NO_CHAOS, type ChaosSource } from "../filesFns/chaosOps";
 import { factChaosSource, factPropSource } from "./factSources";
 import { objectChaosSource, objectFactRows, objectLinkTable, objectPropSource } from "./objectFacts";
+import { objectFolderListing } from "./objectTreeStore";
 import { scheduleFactFill } from "./factFill";
 import { attachLinkTable, convexLinkTable } from "./linkTable";
 import { notServed, servedStoreOrNotServed } from "./treeGate";
@@ -91,6 +92,14 @@ async function oneFolder(ctx: ActionCtx, args: ReadArgs): Promise<OperationResul
   } catch (error) {
     throw toConvexError(error);
   }
+  // A workspace on its object lists there (`objectTreeStore.ts`); Convex's rows only while the object cannot answer.
+  const fromObject = await objectFolderListing(ctx, args.workspaceId, {
+    path,
+    scope: args.scope,
+    grantedNames: args.grantedNames ?? [],
+    audience: audienceOfNames(args.grantedNames),
+  });
+  if (fromObject !== null) return { kind: "listing", ...fromObject } as OperationResult;
   const listing = await ctx.runQuery(internal.functions.nodesListing.listServed, {
     workspaceId: args.workspaceId,
     path,
