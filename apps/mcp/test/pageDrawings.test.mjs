@@ -229,6 +229,20 @@ test("a page with a picture of its own is never sent back for a drawing", async 
   }
 });
 
+test("a status page with no number is drawn like any other page, and its cover is the drawing, not an empty band", async () => {
+  // Tex's seven-day status page (2026-11-03) had `kind: status` and no `number:`: no drawing was asked for, and its
+  // cover was the number band with no number in it, so the page and its link picture came out bare.
+  const page = PAGE.replace("kind: plan", "kind: status");
+  const shots = siteShots();
+  const { callTool } = workspace(page);
+  const asked = await withPictureMaker(pictureMaker(shots, { outgoing: outgoingPictures({ enabled: true }) }), callTool)(VISUAL_TOOL, { template: "page", data: { path: "projects/concert.page.md" } });
+  assert.equal(asked.content[0].text, SCENE_ASK);
+  const drawn = renderPage(parsePage(withDrawingFields(page, "upload-1111111111111111.png", "upload-2222222222222222.png")), { cover: true }).html;
+  assert.doesNotMatch(drawn, /pg-cover-num/);
+  assert.match(drawn, /pg-cover-drawn/);
+  assert.match(renderPage(parsePage(PAGE.replace("kind: plan", "kind: status\nnumber: 12 of 40")), { cover: true }).html, /pg-cover-num/, "a numbered status page keeps its number");
+});
+
 test("a turn that cannot draw one still ends with the cover", async () => {
   const shots = siteShots();
   const { state, callTool } = workspace(PAGE);
