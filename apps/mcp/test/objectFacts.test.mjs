@@ -127,6 +127,7 @@ test("nothing is served until the notes live here", { skip }, async () => {
 
 test("asks the object does not answer are not served, and a bad ask is refused", { skip }, async () => {
   const { ws } = await seeded();
+  // A chaos ask that wants the score's history (orient's) is the control plane's.
   assert.deepEqual(await ws.facts({ ask: "chaos", ...team }), { served: false });
   await assert.rejects(ws.facts({ ask: "props", paths: [42], ...team }));
 });
@@ -225,9 +226,14 @@ test("the gateway asks the object first for props, links and neighbors, and pass
   const facts = objectFirstFacts(READING(client, { names: ["@team-a"], userId: "u1" }));
   assert.deepEqual(await facts({ ask: "props", paths: ["a.md"] }), { served: true, props: [] });
   assert.deepEqual(asked[0], { ask: "props", paths: ["a.md"], scope: "team", groups: ["@team-a"], audience: "member", userId: "u1" });
+  // Orient's chaos ask wants the score a week ago (and may keep today's): the control plane's history.
   assert.equal(await facts({ ask: "chaos" }), null);
+  assert.equal(await facts({ ask: "chaos", history: false, today: { all: 1 } }), null);
   assert.equal(await facts({ ask: "names", paths: ["a.md"] }), null);
   assert.equal(asked.length, 1);
+  // A write's report wants none of it, so the object answers it.
+  await facts({ ask: "chaos", history: false });
+  assert.deepEqual(asked[1], { ask: "chaos", history: false, scope: "team", groups: ["@team-a"], audience: "member", userId: "u1" });
 });
 
 test("no object reading where the notes do not live there, the binding says behind, or a chat has no names", () => {
@@ -280,6 +286,31 @@ test("the control plane's readers get unfiltered rows through the door: props, e
   const chaos = await ws.factRows({ ask: "chaos" });
   assert.deepEqual(chaos.extras.map((extra) => extra.path), ["projects/notes.md"]);
   assert.ok(chaos.extras[0].lines > 1000);
+});
+
+test("a write's chaos report is served here: the long notes the reader may see, and no history", { skip }, async () => {
+  const { ws } = await seeded();
+  const long = Array.from({ length: 1200 }, (_, n) => `line ${n}`).join("\n");
+  await ws.bodies.put(`notes/${ID(4)}.md`, `# Notes\n\n${long}\n`);
+  await ws.bodies.put(`notes/${ID(3)}.md`, `# Secret\n\n${long}\n`);
+  const asTeam = await ws.facts({ ask: "chaos", history: false, ...team });
+  assert.equal(asTeam.served, true);
+  assert.deepEqual(asTeam.chaos.extras.map((extra) => extra.path), ["projects/notes.md"], "a private long note is named to a team reader");
+  assert.equal(asTeam.chaos.weekAgo, null);
+  const asOwner = await ws.facts({ ask: "chaos", history: false, ...owner });
+  assert.deepEqual(asOwner.chaos.extras.map((extra) => extra.path).sort(), ["projects/notes.md", "projects/secret/hidden.md"]);
+});
+
+test("a write's chaos report is not served before the notes live here, or with no rules held", { skip }, async () => {
+  for (const home of [HOMES.BUCKET, HOMES.DUAL]) {
+    const { ws } = await seeded({ home });
+    assert.deepEqual(await ws.facts({ ask: "chaos", history: false, ...team }), { served: false });
+  }
+  const env = { WORKSPACE_STORE: namespace() };
+  const bare = workspaceClient(env, "ws_bare");
+  await bare.rows.put(ROWS);
+  await bare.setHome(HOMES.OBJECT);
+  assert.deepEqual(await bare.facts({ ask: "chaos", history: false, ...team }), { served: false });
 });
 
 test("the door's rows are not served before the notes live here, and an unknown ask is not served", { skip }, async () => {
