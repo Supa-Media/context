@@ -33,6 +33,7 @@ import { meaningEmbedderFor } from "./store.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
 import { createD1Client } from "../d1/client.js";
 import { passageSnippets } from "../d1/passages.js";
+import { phase } from "../../mcp/phase.js";
 
 /**
  * The closeness below which a match is noise rather than "the same topic".
@@ -110,14 +111,15 @@ export async function meaningMatches(
   const floor = typeof minScore === "number" ? minScore : searchSettingsOf(store).minScore;
   if (!meaningSearchable(store) || typeof query !== "string" || !query.trim()) return null;
   try {
-    const [vector] = await (embed ?? meaningEmbedderFor(store, { fetchImpl }))([query.trim()]);
+    // Timed as `phase:meaning_embed` and `phase:meaning_query` beside the word search (`mcp/phase.js`).
+    const [vector] = await phase(store, "meaning_embed", () => (embed ?? meaningEmbedderFor(store, { fetchImpl }))([query.trim()]));
     const client = createMeaningClient(store.meaningIndex, { fetchImpl });
     // A team caller with no group grants sees team notes only, so asking the
     // index for anything else would only crowd the top of the list. One who
     // answers to a group can see some notes indexed as `private` (a group
     // note's tier), so asks for every tier and lets `isVisible` decide.
     const tiers = scope === "private" || grantedGroups ? null : ["team"];
-    const raw = await client.query(vector, { tiers });
+    const raw = await phase(store, "meaning_query", () => client.query(vector, { tiers }));
     return rankMeaningMatches(raw).filter(
       (match) =>
         match.score >= floor &&
@@ -327,7 +329,7 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
 
 /** Word search and search by meaning, asked together and merged. */
 export async function searchBothWays(store, wordSearch, options, shape = {}) {
-  const [found, matches] = await Promise.all([wordSearch(), meaningMatches(store, options)]);
-  return await withMeaning(store, found, matches, shape);
+  const [found, matches] = await Promise.all([phase(store, "word_search", wordSearch), phase(store, "meaning", () => meaningMatches(store, options))]);
+  return await phase(store, "merge", () => withMeaning(store, found, matches, shape));
 }
 
