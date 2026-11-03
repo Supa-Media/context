@@ -203,6 +203,7 @@ test/managedDecryption.test.mjs
 test/meaningSnippetsFromDatabase.test.mjs
 test/moveWithoutConditionalDelete.test.mjs
 test/searchEverywhere.test.mjs
+test/searchPriors.test.mjs
 test/searchSettings.test.mjs
 test/tokens.test.mjs
 test/presence/movedNotice.test.mjs
