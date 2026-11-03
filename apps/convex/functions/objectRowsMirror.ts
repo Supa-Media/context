@@ -119,7 +119,7 @@ export const mirrorTreeValidator = v.object({
   trash: v.boolean(),
   erase: v.optional(v.boolean()),
   /** Who asked for this change, when a person did through the app (`apps/mcp/src/live/fileOpsRoute.js`): recorded as their audit line. */
-  audit: v.optional(v.object({ actorUserId: v.string(), action: v.union(v.literal("trash"), v.literal("restore")), files: v.number() })),
+  audit: v.optional(v.object({ actorUserId: v.string(), action: v.union(v.literal("trash"), v.literal("restore"), v.literal("move")), files: v.number() })),
 });
 
 export const tree = internalMutationMirrored({
@@ -153,7 +153,9 @@ async function auditTreeChange(ctx: MutationCtx, workspaceId: Id<"workspaces">, 
     details:
       audit.action === "trash"
         ? { files: audit.files, recoverable: true, trash: true }
-        : { files: audit.files, restoredFromTrash: true },
+        : audit.action === "restore"
+          ? { files: audit.files, restoredFromTrash: true }
+          : { files: audit.files },
   });
 }
 

@@ -225,3 +225,19 @@ carries it. A batch is judged move by move. Each move uses the rules left by the
 gets one minted version and one `narrowBases` mirror change. A tree op that moves rows calls `narrowForMoves` inside
 its own transaction and hands both changes to the mirror in order as `changes` (`serveWrites.js`).
 `apps/mcp/test/accessMove.test.mjs` fails if a widening move is left unpinned.
+
+## Moves and renames in the object (2026-11-03)
+
+`ws.write.move` (`apps/mcp/src/workspaceStore/moveWrites.js`) moves or renames a note or folder in one object
+transaction: `treeOps.move` decides every refusal first without writing (`check`), then the access narrowing the move
+needs (`accessMove.js` `narrowForMoves`) is written, then the rows move, and the mirror gets the narrowing before the
+tree change. The app sends a move there through `POST /files/move` when the object serves the workspace, except a
+rename that also rewrites the note's first heading, which edits text and stays with the control plane.
+
+The object takes only the plain case and answers `DEFER` for the rest, which the app sends to `files.moveEntry`: a
+folder with a job or holding one, a folder inside a job's folder (the Inbox's and Tex's own folders), a folder moved to
+the top level (its name can give it a job), a destination twinned by case, and any workspace whose access set the
+object may not yet decide by. Moving those here would skip the control plane's refusals for them. Like access writes,
+a move does not wait for the mirror (`WAIT_FOR_MIRROR`). `trash: true` is accepted only into `.context/old-copies/`, for
+hiding old copies. Removing the check-first order would let a refused move keep its narrowing; the test is
+`moveWrites.test.mjs` ("a move that would narrow to a taken name").

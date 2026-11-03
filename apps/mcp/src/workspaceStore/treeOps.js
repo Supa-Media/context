@@ -214,6 +214,11 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
   const fileInChain = (path) => chainOf(path).some((folder) => liveAt(folder)?.kind === "file");
 
   const ops = {
+    /** The folders doing a job now (the Inbox, Tex, the archive, ...), by path. */
+    jobFolders() {
+      return Object.values(jobsNow().jobs).filter((path) => typeof path === "string");
+    },
+
     /**
      * Moves or renames the file or folder at `from` to `to`, and everything under it. Refused, with nothing
      * written: `invalid` (a name into itself, a trash flag with neither end in the trash, the trash named without
@@ -221,10 +226,11 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
      * `hidden` (something under it `judge` hides), `archive_stays` / `built_in_archived`, `changed` (the file's
      * etag is not `expectedEtag`, or its files are not `plannedFiles`), `unkeyed`, `taken`.
      *
+     * `check`: decide every refusal and write nothing; the answer then names the rows that would move.
      * `judge(path)`: whether the caller may see a path; absent, everything is seen (a caller that judged already).
      * `sealsChatHomes`: this workspace keeps Tex's group chat homes. `meetingsPath`: the meetings setting's folder.
      */
-    move({ from, to, now, trash = false, expectedEtag, plannedFiles, judge, sealsChatHomes = false, meetingsPath = null }) {
+    move({ from, to, now, trash = false, expectedEtag, plannedFiles, judge, sealsChatHomes = false, meetingsPath = null, check = false }) {
       const refuse = (reason, extra = {}) => ({ ok: false, reason, ...extra });
       if (!validPath(from) || !validPath(to) || !Number.isFinite(now)) return refuse("invalid");
       if (from === to || under(to, from) || under(from, to)) return refuse("invalid");
@@ -256,6 +262,8 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
       // Every destination must be free: nothing live at it or under it, and no live file where a folder must stand.
       if (liveAt(to) !== null || liveBelow(to).length > 0 || fileInChain(to)) return refuse("taken");
       if (trash && MAIN_ROLES.includes(jobOfRow(root, jobs))) return refuse("invalid");
+      // `check`: every refusal decided, nothing written, so a caller can make writes of its own before the move.
+      if (check) return { ok: true, kind: root.kind, rows: rows.map((row) => ({ path: row.path, kind: row.kind, role: row.role ?? null })) };
 
       // Writes. Nothing above wrote, so every refusal left the rows as they were.
       // A built-in folder writes its job down before its name changes, so the job goes with it (`claimJobBeforeMove`).

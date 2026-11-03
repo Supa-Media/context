@@ -22,13 +22,13 @@ const groupList = (value) => Array.isArray(value) && value.every((group) => type
 const under = (path, folder) => path === folder || path.startsWith(`${folder}/`);
 
 /** The caller's judge over the object's rules: `sees(path)`, as `serve.js` judges a read. Refuses a scope it does not know. */
-function judgeOf(ctx, body) {
+export function judgeOf(ctx, body) {
   if (body.scope !== "private" && body.scope !== "team") throw new WriteOpRefused("a write names its scope: private or team");
   return judgeFor(ctx.rows, { scope: body.scope, groups: body.groups, audience: "member", userId: body.userId ?? null }, ctx.members ?? null);
 }
 
 /** Refusals are `treeOps`' reasons, named as the wire names them (`NOT_FOUND`, `HIDDEN`, `CHANGED`, `INVALID`, `TAKEN`...). */
-function refused(reason) {
+export function refused(reason) {
   const answer = { ok: false, code: reason.reason.toUpperCase(), ...(reason.currentEtag ? { currentEtag: reason.currentEtag } : {}) };
   return { answer, change: null, narrows: false };
 }
@@ -36,7 +36,7 @@ function refused(reason) {
 const NOT_FOUND = Object.freeze({ answer: Object.freeze({ ok: false, code: "NOT_FOUND" }), change: null, narrows: false });
 
 /** The mirror's change for a tree move: the moved row by id, the folders it stood up, and the ids it removed. */
-function treeChange(moved, folders, removed, audit = null) {
+export function treeChange(moved, folders, removed, audit = null, trash = true) {
   const clocks = [moved.at, ...folders.map((folder) => folder.at), ...removed.map((entry) => entry.at)];
   return {
     op: "tree",
@@ -44,7 +44,7 @@ function treeChange(moved, folders, removed, audit = null) {
       moves: [moved],
       folders: folders.map((folder) => ({ id: folder.id, noteId: folder.noteId, path: folder.path, role: folder.role, at: folder.at })),
       removed,
-      trash: true,
+      trash,
       // Who asked, so the control plane writes their audit line as its own trash and restore do.
       ...(audit === null ? {} : { audit }),
     },
@@ -53,7 +53,7 @@ function treeChange(moved, folders, removed, audit = null) {
 }
 
 /** The audit line's actor, for a call that named the person it acts for; none for a call that acts for nobody. */
-const auditOf = (body, action, files) => (typeof body.userId === "string" ? { actorUserId: body.userId, action, files } : null);
+export const auditOf = (body, action, files) => (typeof body.userId === "string" ? { actorUserId: body.userId, action, files } : null);
 
 /** `ws.write.trash`: moves a file or folder into the trash, judged as the caller sees it now. */
 function trash(ctx, body) {

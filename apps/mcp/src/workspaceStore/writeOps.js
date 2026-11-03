@@ -10,6 +10,7 @@ import { writeAccess } from "./accessWrite.js";
 import { dropGrantee } from "./accessDrop.js";
 import { narrowMoves } from "./accessMove.js";
 import { TREE_WRITE_OPS } from "./treeWrites.js";
+import { MOVE_WRITE_OPS } from "./moveWrites.js";
 import { WriteOpRefused } from "./writeRefusal.js";
 import { effectiveVisibility, isPlumbing, PrivacyOverrides } from "../privacy/engine.js";
 import { idKeyFor, isNoteId } from "../store/noteIdKeys.js";
@@ -109,4 +110,5 @@ export const WRITE_OPS = Object.freeze({
   "ws.write.narrowMoves": narrowMoves,
   "ws.write.adopt": adopt,
   ...TREE_WRITE_OPS,
+  ...MOVE_WRITE_OPS,
 });

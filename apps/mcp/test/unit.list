@@ -331,6 +331,7 @@ test/serveWrites.test.mjs
 test/treeOpsMove.test.mjs
 test/treeOpsTrash.test.mjs
 test/treeWrites.test.mjs
+test/moveWrites.test.mjs
 test/fileOpsRoute.test.mjs
 test/treeErase.test.mjs
 test/workspaceReaders.test.mjs

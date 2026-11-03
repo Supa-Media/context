@@ -345,3 +345,28 @@ describe("objectRowsMirror.tree, the audit line of a change made for a person", 
     expect(line.actorUserId).toBeUndefined();
   });
 });
+
+describe("objectRowsMirror.tree, a move made for a person", () => {
+  test("is a file.move audit line with its file count, and the row moves", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "tree-audit-move");
+    await objectHome(t, ws);
+    const { plan } = await seedTree(t, ws);
+    const actor = await t.run((ctx) => ctx.db.query("users").first());
+    const before = await t.run(async (ctx) => (await ctx.db.query("auditEvents").collect()).filter((event) => event.workspaceId === ws).length);
+    const answer = await t.mutation(internal.functions.objectRowsMirror.tree, {
+      workspaceId: ws,
+      objectAt: 100,
+      record: {
+        ...change({ moves: [{ id: plan, kind: "file", from: "1-projects/plan.md", to: "1-projects/renamed.md", at: 100 }] }),
+        audit: { actorUserId: String(actor?._id), action: "move", files: 1 },
+      },
+    });
+    expect(answer).toEqual({ applied: true });
+    expect(await rowById(t, plan)).toMatchObject({ name: "renamed.md" });
+    const lines = await t.run(async (ctx) => (await ctx.db.query("auditEvents").collect()).filter((event) => event.workspaceId === ws));
+    expect(lines.slice(before)).toEqual([
+      expect.objectContaining({ actorUserId: actor?._id, action: "file.move", paths: ["1-projects/plan.md", "1-projects/renamed.md"], details: { files: 1 } }),
+    ]);
+  });
+});

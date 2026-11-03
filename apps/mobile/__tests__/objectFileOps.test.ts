@@ -3,6 +3,7 @@ import { ConvexError } from "convex/values";
 
 import {
   OBJECT_FILE_OP_TIMEOUT_MS,
+  objectMove,
   objectRestore,
   objectTrash,
   type ObjectMoveTarget,
@@ -219,5 +220,26 @@ describe("restore through the gateway", () => {
     const error = await refusalOf(objectRestore(target(), { from: ".context/trash/s/a.md", to: "a.md" }));
     expect(error.data.code).toBe("DESTINATION_EXISTS");
     expect(sent).toHaveLength(1);
+  });
+});
+
+describe("moves through the gateway", () => {
+  test("a 200 returns the moved result, posted to /files/move with the expected etag", async () => {
+    const moved = { kind: "moved", from: "1-projects/a.md", to: "1-projects/b.md", paths: ["1-projects/b.md"], etag: "e2" };
+    replies = [{ status: 200, body: moved }];
+    await expect(objectMove(target(), { from: "1-projects/a.md", to: "1-projects/b.md", expectedEtag: "e2" })).resolves.toEqual(moved);
+    expect(sent[0]!.url).toBe(`${ORIGIN}/files/move`);
+    expect(JSON.parse(sent[0]!.init.body!)).toEqual({ from: "1-projects/a.md", to: "1-projects/b.md", expectedEtag: "e2" });
+  });
+
+  test("a move the object leaves to Convex (409 not_object) falls back", async () => {
+    replies = [{ status: 409, body: { error: "not_object" } }];
+    await expect(objectMove(target(), { from: "a.md", to: "b.md" })).resolves.toBeNull();
+  });
+
+  test("409 changed is CONFLICT with the current etag", async () => {
+    replies = [{ status: 409, body: { error: "changed", currentEtag: "e3" } }];
+    const error = await refusalOf(objectMove(target(), { from: "a.md", to: "b.md", expectedEtag: "e1" }));
+    expect(error.data).toMatchObject({ code: "CONFLICT", currentEtag: "e3" });
   });
 });

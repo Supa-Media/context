@@ -92,14 +92,24 @@ export function useFileActions(deps: FileActionsDeps) {
     screen in step without a second read. A failed call moves nothing and
     rethrows, as the bare action does.
   */
+  // Trash, restore and moves go to the workspace's object when it serves the tree (`useObjectMoves`).
+  const objectMoves = useObjectMoves();
   const moveEntryAction = useAction(api.functions.files.moveEntry);
   const moveEntry = useCallback<typeof moveEntryAction>(
     async (args) => {
-      const result = await moveEntryAction(args);
+      // A rename that also rewrites the note's first heading edits its text, which only the action does.
+      const result =
+        (args.followHeading === true
+          ? null
+          : await objectMoves.move(args.workspaceId, {
+              from: args.from,
+              to: args.to,
+              ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+            })) ?? (await moveEntryAction(args));
       moved(args.from, args.to);
       return result;
     },
-    [moveEntryAction, moved],
+    [moveEntryAction, moved, objectMoves],
   );
   const startContextMoveAction = useAction(api.functions.contextMoves.startContextMove);
   const resumeContextMoveAction = useAction(api.functions.contextMoves.resumeContextMove);
@@ -122,7 +132,6 @@ export function useFileActions(deps: FileActionsDeps) {
     the gateway cannot answer. A refusal from the gateway is thrown as the
     action's own refusal, so it is not retried against Convex.
   */
-  const objectMoves = useObjectMoves();
   const trashEntryAction = useAction(api.functions.files.trashEntry);
   const trashEntry = useCallback<typeof trashEntryAction>(
     async (args) => {
