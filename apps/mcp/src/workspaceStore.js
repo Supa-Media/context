@@ -32,6 +32,8 @@ import { workspaceRows } from "./workspaceStore/rows.js";
 import { bindingRows } from "./workspaceStore/bindingRows.js";
 import { workspaceFacts } from "./workspaceStore/facts.js";
 import { workspaceSearch } from "./workspaceStore/searchIndex.js";
+import { workspaceMeaning } from "./workspaceStore/meaningIndex.js";
+import { bindingEmbedder } from "./search/meaning/embed.js";
 import { personRows } from "./workspaceStore/personRows.js";
 import { tokenIndexClient } from "./workspaceStore/tokenIndex.js";
 import { serveWorkspaceStore } from "./workspaceStore/serve.js";
@@ -97,6 +99,8 @@ export class WorkspaceStore {
       facts: workspaceFacts(sql, objects),
       // A word index over that text, so a search is one call here (`workspaceStore/searchIndex.js`).
       search: workspaceSearch(sql, { rows, objects }),
+      // Its own meaning index (`workspaceStore/meaningIndex.js`), built with the model this Worker is bound to.
+      meaning: workspaceMeaning(sql, { rows, objects, embed: bindingEmbedder(this.env?.AI) }),
       // "A change is coming" (`workspaceStore/marks.js`): left by a writer before it changes the tree in Convex.
       marks: workspaceMarks(sql),
       // Who each note and folder is open to, and the rules rendered from it (`workspaceStore/accessRows.js`).

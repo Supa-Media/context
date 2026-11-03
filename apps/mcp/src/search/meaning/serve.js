@@ -28,6 +28,7 @@ import { isPlumbing } from "../../privacy/engine.js";
 import { extractFields } from "../indexer.js";
 import { noteTitle } from "../resultText.js";
 import { createMeaningClient } from "./client.js";
+import { objectMeaningMatches } from "./objectMeaning.js";
 import { meaningPassages, rankMeaningMatches } from "./project.js";
 import { meaningEmbedderFor } from "./store.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
@@ -119,7 +120,8 @@ export async function meaningMatches(
     // answers to a group can see some notes indexed as `private` (a group
     // note's tier), so asks for every tier and lets `isVisible` decide.
     const tiers = scope === "private" || grantedGroups ? null : ["team"];
-    const raw = await phase(store, "meaning_query", () => client.query(vector, { tiers }));
+    // The workspace's object first, where it holds the notes and has built its index; Vectorize otherwise.
+    const raw = await phase(store, "meaning_query", async () => (await objectMeaningMatches(store, vector, { tiers })) ?? (await client.query(vector, { tiers })));
     return rankMeaningMatches(raw).filter(
       (match) =>
         match.score >= floor &&

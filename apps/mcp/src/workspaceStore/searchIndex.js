@@ -24,12 +24,9 @@ import { deleteStatements, FTS_TABLE, projectNote, upsertStatements } from "../s
 import { searchParams, searchSql } from "../search/d1/query.js";
 import { parsedRules } from "./serve.js";
 import { TEX_TABLES, texObjects } from "../texStore/objects.js";
+import { changeLog, PERSON_TEX_KEY } from "./changeLog.js";
 
 /** A person's own Tex note key (`store/texRouting.js`): its text is in this object's Tex tables, at the key's rest. */
-/** Where a person's Tex keys start (a storage key, not a folder: `["tex", "person"]`, as `texRouting.js` spells them). */
-const PERSON_TEX = ["tex", "person"].join("/");
-const PERSON_TEX_KEY = /^tex\/person:[A-Za-z0-9_-]{1,64}\/(notes\/[^/]+\.md)$/;
-
 /**
  * Where a live row's text is in this object: its own notes (`notes/<id>.md`), or the person's Tex tables for a Tex note
  * of theirs; `null` for anything else (a group chat's home note, kept in that chat's own object, is not indexed here).
@@ -56,8 +53,6 @@ export const QUERY_BYTES = 32 * 1024;
  */
 export const BUILD_ROWS = 400;
 export const BUILD_BYTES = 64 * 1024;
-/** Changed note keys turned into changed rows in one call. */
-const KEY_BATCH = 500;
 /** The index's own layout; an index from an earlier one is emptied and built again. */
 const LAYOUT = "3";
 /** Queries one search sends (a strict and a relaxed expression, over at most both tables). */
@@ -66,12 +61,6 @@ const MAX_ASKS = 4;
 const MAX_LIMIT = 500;
 /** Longest match expression or prefix taken. */
 const MAX_TEXT = 4096;
-
-/**
- * A trigger's insert into a change table. Never `INSERT OR IGNORE`: a trigger takes the conflict handling of the
- * statement that fired it, so under the rows' upsert an ignore would turn into an abort.
- */
-const dirtyRow = (row) => `INSERT INTO ws_search_dirty_rows (id) SELECT ${row}.id WHERE NOT EXISTS (SELECT 1 FROM ws_search_dirty_rows WHERE id = ${row}.id)`;
 
 /** The search database's own schema (`apps/convex/functions/lib/d1.ts` `SCHEMA_STATEMENTS`), less its `index_state`. */
 const SCHEMA = [
@@ -95,25 +84,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS ws_search_chunks (path TEXT NOT NULL, tbl TEXT NOT NULL, id INTEGER NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS ws_search_chunks_path ON ws_search_chunks (path)`,
   `CREATE INDEX IF NOT EXISTS ws_search_held_row ON ws_search_held (row_id)`,
-  // What changed since the index last caught up, written by the triggers below whatever wrote it.
-  `CREATE TABLE IF NOT EXISTS ws_search_dirty_rows (id TEXT PRIMARY KEY)`,
-  `CREATE TABLE IF NOT EXISTS ws_search_dirty_keys (key TEXT NOT NULL, tex INTEGER NOT NULL, PRIMARY KEY (key, tex))`,
-  `CREATE INDEX IF NOT EXISTS ws_search_rows_key ON ws_rows (storage_key)`,
-  `CREATE TRIGGER IF NOT EXISTS ws_search_row_in AFTER INSERT ON ws_rows BEGIN ${dirtyRow("NEW")}; END`,
-  `CREATE TRIGGER IF NOT EXISTS ws_search_row_up AFTER UPDATE ON ws_rows BEGIN ${dirtyRow("NEW")}; ${dirtyRow("OLD")}; END`,
-  `CREATE TRIGGER IF NOT EXISTS ws_search_row_out AFTER DELETE ON ws_rows BEGIN ${dirtyRow("OLD")}; END`,
 ];
-
-/** Triggers that note a changed note text in `table` (`objects`, or the person's Tex objects: `tex` 1). */
-const textTriggers = (table, tex) => {
-  const note = (row) => `INSERT INTO ws_search_dirty_keys (key, tex) SELECT ${row}.key, ${tex} WHERE ${row}.key >= 'notes/' AND ${row}.key < 'notes0'
-    AND NOT EXISTS (SELECT 1 FROM ws_search_dirty_keys WHERE key = ${row}.key AND tex = ${tex})`;
-  return [
-    `CREATE TRIGGER IF NOT EXISTS ws_search_${table}_in AFTER INSERT ON ${table} BEGIN ${note("NEW")}; END`,
-    `CREATE TRIGGER IF NOT EXISTS ws_search_${table}_up AFTER UPDATE ON ${table} BEGIN ${note("NEW")}; ${note("OLD")}; END`,
-    `CREATE TRIGGER IF NOT EXISTS ws_search_${table}_out AFTER DELETE ON ${table} BEGIN ${note("OLD")}; END`,
-  ];
-};
 
 const FTS_TABLES = Object.values(FTS_TABLE);
 const TABLES = new Set(FTS_TABLES);
@@ -136,41 +107,34 @@ const all = (cursor) => (typeof cursor?.toArray === "function" ? cursor.toArray(
  * @param {{rows: ReturnType<typeof import("./rows.js").workspaceRows>, objects: {get(key: string): object|null}}} held
  */
 export function workspaceSearch(sql, { rows, objects }) {
-  const exists = (table) => all(sql.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table)).length > 0;
+  const log = changeLog(sql, "ws_search");
   const meta = (name) => all(sql.exec("SELECT value FROM ws_search_meta WHERE name = ?", name))[0]?.value ?? null;
   const setMeta = (name, value) => sql.exec("INSERT INTO ws_search_meta (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value", name, value);
-  const count = (table) => Number(all(sql.exec(`SELECT COUNT(*) AS n FROM ${table}`))[0]?.n ?? 0);
   /** Every note row to look at again: on a new layout, and when the member rules change every note's tier. */
-  const allRowsDirty = () => {
-    sql.exec("INSERT OR IGNORE INTO ws_search_dirty_rows (id) SELECT id FROM ws_rows WHERE kind = 'file' AND gone = 0");
-    sql.exec("INSERT OR IGNORE INTO ws_search_dirty_rows (id) SELECT row_id FROM ws_search_held");
-  };
+  const allRowsDirty = () => log.markAll("SELECT row_id FROM ws_search_held");
 
   let ready = false;
-  let texReady = false;
   const schema = () => {
     if (!ready) {
-      for (const statement of [...SCHEMA, ...textTriggers("objects", 0)]) sql.exec(statement);
+      for (const statement of SCHEMA) sql.exec(statement);
+      log.ensure();
       if (meta("layout") !== LAYOUT) {
         // An index from an earlier layout has no held paths to drop by: empty it and look at every row again.
-        for (const table of ["notes", FTS_TABLE.private, FTS_TABLE.team, "ws_search_held", "ws_search_chunks", "ws_search_dirty_keys"]) sql.exec(`DELETE FROM ${table}`);
+        for (const table of ["notes", FTS_TABLE.private, FTS_TABLE.team, "ws_search_held", "ws_search_chunks"]) sql.exec(`DELETE FROM ${table}`);
+        log.clearKeys();
         sql.exec("DELETE FROM ws_search_meta");
         allRowsDirty();
         setMeta("layout", LAYOUT);
       }
       ready = true;
     }
-    // The person's Tex tables are made on first use (`texHost.js`), perhaps after this; their notes are rows like any.
-    if (!texReady && exists(TEX_TABLES.objects)) {
-      for (const statement of textTriggers(TEX_TABLES.objects, 1)) sql.exec(statement);
-      texReady = true;
-    }
+    log.ensure();
   };
   let texHeld = null;
   const texNotes = () => (texHeld ??= texObjects(sql, { tables: TEX_TABLES }));
   const etagOf = (where) => {
     const table = where.tex ? TEX_TABLES.objects : "objects";
-    if (where.tex && !texReady) return undefined;
+    if (where.tex && !log.texReady) return undefined;
     const held = all(sql.exec(`SELECT etag, size FROM ${table} WHERE key = ?`, where.key))[0];
     return held === undefined ? undefined : { etag: held.etag, size: Number(held.size ?? 0) };
   };
@@ -193,24 +157,6 @@ export function workspaceSearch(sql, { rows, objects }) {
   const drop = (path) => {
     run(path, deleteStatements(path));
     sql.exec("DELETE FROM ws_search_held WHERE path = ?", path);
-  };
-
-  /** Changed note texts, as the rows that name them. */
-  const keysToRows = () => {
-    const keys = all(sql.exec("SELECT key, tex FROM ws_search_dirty_keys LIMIT ?", KEY_BATCH));
-    let texRows = null;
-    for (const { key, tex } of keys) {
-      if (Number(tex) === 1) {
-        texRows ??= all(sql.exec("SELECT id, storage_key FROM ws_rows WHERE storage_key >= ? AND storage_key < ?", `${PERSON_TEX}:`, `${PERSON_TEX};`));
-        for (const held of texRows) if (PERSON_TEX_KEY.exec(held.storage_key)?.[1] === key) sql.exec("INSERT OR IGNORE INTO ws_search_dirty_rows (id) VALUES (?)", held.id);
-      } else {
-        const noteId = /^notes\/([^/]+)\.md$/.exec(key)?.[1] ?? null;
-        // Two lookups, each by its own index: an `OR` of the two can scan every row.
-        sql.exec("INSERT OR IGNORE INTO ws_search_dirty_rows (id) SELECT id FROM ws_rows WHERE storage_key = ?", key);
-        if (noteId !== null) sql.exec("INSERT OR IGNORE INTO ws_search_dirty_rows (id) SELECT id FROM ws_rows WHERE note_id = ?", noteId);
-      }
-      sql.exec("DELETE FROM ws_search_dirty_keys WHERE key = ? AND tex = ?", key, tex);
-    }
   };
 
   /**
@@ -245,7 +191,7 @@ export function workspaceSearch(sql, { rows, objects }) {
     return read;
   };
 
-  const waiting = () => count("ws_search_dirty_rows") + count("ws_search_dirty_keys");
+  const waiting = () => log.pending();
 
   /**
    * Bring the index up to the notes, spending at most `rows` changed rows and `bytes` of note text, and say how many
@@ -261,14 +207,14 @@ export function workspaceSearch(sql, { rows, objects }) {
       setMeta("rules", stamp);
     }
     const { rules, overrides } = parsedRules(held);
-    keysToRows();
+    log.keysToRows();
     let spent = 0;
     let done = 0;
     while (done < maxRows && spent < bytes) {
-      const ids = all(sql.exec("SELECT id FROM ws_search_dirty_rows LIMIT ?", Math.min(50, maxRows - done)));
+      const ids = log.take(Math.min(50, maxRows - done));
       if (ids.length === 0) break;
       let full = false;
-      for (const { id } of ids) {
+      for (const id of ids) {
         // A note longer than a build's whole budget is indexed alone in its call; a search never takes one inline.
         const room = whole && spent === 0 ? Infinity : bytes - spent;
         const read = refresh(id, rules, overrides, room);
@@ -277,7 +223,7 @@ export function workspaceSearch(sql, { rows, objects }) {
           break;
         }
         spent += read;
-        sql.exec("DELETE FROM ws_search_dirty_rows WHERE id = ?", id);
+        log.done(id);
         done += 1;
         if (spent >= bytes) break;
       }

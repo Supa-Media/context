@@ -283,6 +283,13 @@ async function openSessionStore(session, env, controlPlane) {
     writable: false,
     configurable: true,
   });
+  // And its search by meaning (`search/meaning/objectMeaning.js`); `MEANING_FROM_OBJECT=off` asks Vectorize as before.
+  Object.defineProperty(store, "objectMeaning", {
+    value: objectReading.home === "object" && env?.MEANING_FROM_OBJECT !== "off" ? objectReading.client : null,
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   Object.defineProperty(store, "objectFacts", {
     value: objectFirstFacts(objectReading),
     enumerable: false,
