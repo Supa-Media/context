@@ -263,6 +263,8 @@ async function openSessionStore(session, env, controlPlane) {
       texHomeChat: texHomeChatOf(session, controlPlane),
     }),
     authority,
+    // Every tool judges a path as this session reads it: with the names the control plane gave it (`READER_NAMES`).
+    { names: session.grantedGroups },
   );
   // The backend's name, for the search trace and nothing else. Latency is a
   // property of which backend this is — a native R2 binding and an S3 endpoint

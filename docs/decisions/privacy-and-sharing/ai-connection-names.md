@@ -33,6 +33,17 @@ passed a guest's names on and dropped everyone else's. After the change above,
 a member's AI connection held a chat home's names in its session and still got
 an empty listing there. It now passes every name the session carries.
 
+**The note tools judge by the same names.** Even with both halves above
+live, every note tool (`list_notes`, `read_note`, `fetch`, search and the
+rest) called `canSee` with the rules alone, so the names the session held
+reached no tool and the homes still read as empty. The store a session opens
+now carries the session's names on the rules it serves (`READER_NAMES` in
+`apps/mcp/src/privacy/engine.js`, set by `store/privacyAuthority.js`), and
+`canSee` uses them only when its caller leaves the names out. A caller that
+judges somebody else (a live room's recipient) or the members at large (who may
+see a moved note's new name, the team score in a tidiness check, a guest
+chat's own reads) passes its own names or `null`, never the reader's.
+
 **Why this is not a widening of tier.** The names open only what the person
 could already open in the app; a connection's scopes and visibility tier are
 clamped exactly as before (`effectiveScopes`, `visibilityTierForGrant`), so a
@@ -58,4 +69,4 @@ connection hold the names its grants on rows give it"),
 `apps/convex/__tests__/pinnedReaders.test.ts` ("the gateway's tree manifest
 lists a member's AI connection what its names open"), and
 `apps/convex/__tests__/nodes/gatewayManifest.test.ts` ("a member's names are
-passed on").
+passed on"), and `apps/mcp/test/readerNames.test.mjs` (the note tools).
