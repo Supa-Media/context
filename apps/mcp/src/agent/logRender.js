@@ -9,7 +9,12 @@
  *   [12:19 PM] Ada: are you thinking straight?   (not answered)
  *
  * Times and day breaks are in the person's time zone. "You" is Tex. An
- * inbound message no delivered answer of Tex's `covers` is "(not answered)".
+ * inbound message no delivered answer `covers`, and no older than the newest
+ * message a delivered answer covers, is "(not answered)". One older than what
+ * Tex has since answered is history, not a to-do (Dev, 2026-11-03: a 9:14 ask
+ * still tagged at 10:47 took a new "send me a link" for itself). A text that
+ * lands while Tex answers an earlier one is newer than all it covered, so it
+ * stays tagged.
  * A fixed Worker text (`told`) is shown in the gateway's own words for it
  * (`conversation.js` `TOLD`).
  *
@@ -72,6 +77,13 @@ export function words(event) {
 }
 
 
+/** When the newest of these answered messages came in, `-Infinity` for none. */
+export function newestAt(events, answered) {
+  let newest = -Infinity;
+  for (const event of events) if (answered.has(event.id) && Number.isFinite(event.at) && event.at > newest) newest = event.at;
+  return newest;
+}
+
 /**
  * Render events (oldest first) as transcript lines, "" when there are none.
  * `answeredBy` is every event that may cover another (the whole log), so an
@@ -82,7 +94,9 @@ export function words(event) {
 export function renderEvents(events, { timeZone = "UTC", answeredBy = events, tools = null } = {}) {
   const day = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", month: "short", day: "numeric" });
   const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true });
-  const answered = new Set(answeredBy.filter((event) => event.from?.kind === "tex" && event.delivered !== false).flatMap((event) => event.covers ?? []));
+  const all = [...answeredBy, ...events];
+  const answered = new Set(all.filter((event) => event.from?.kind === "tex" && event.delivered !== false).flatMap((event) => event.covers ?? []));
+  const newestAnswered = newestAt(all, answered);
   const lines = [];
   const named = new Set();
   let lastDay = null;
@@ -94,7 +108,7 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
       lastDay = thisDay;
     }
     let line = `[${time.format(date).replace(/ /g, " ")}] ${speaker(event.from)}: ${words(event)}`;
-    if (event.from?.kind === "person" && INBOUND.has(event.kind) && !answered.has(event.id)) line += "   (not answered)";
+    if (event.from?.kind === "person" && INBOUND.has(event.kind) && event.at >= newestAnswered && !answered.has(event.id)) line += "   (not answered)";
     lines.push(line);
     if (event.delivered === false) lines.push(`${NOTE_INDENT}(not delivered: ${REASON_WORDS[event.reason] ?? "it didn't go out"})`);
     const used = event.from?.kind === "tex" && typeof event.turn === "string" && !named.has(event.turn) ? tools?.get(event.turn) : undefined;

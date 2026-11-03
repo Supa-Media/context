@@ -33,6 +33,9 @@
  * 15. `checkEvent` not refusing a reserved speaker name (drop the `RESERVED`
  *     test) → "a display name may not pose as Tex, Context or the system".
  *     Dropping "them" from `RESERVED` → the same test (run 2026-10-27).
+ * 17. `renderEvents` tagging every uncovered message, however old (drop the
+ *     `newestAnswered` check) → "an ask older than what Tex has since answered
+ *     is history, not answered" (run 2026-11-03).
  * 16. `showsTainted` reading records one after another (a `for` over
  *     `cleanTurn`) → "turn records are read side by side, and an unproven
  *     one is logged by count" (run 2026-10-27). Dropping the log line → the
@@ -203,6 +206,35 @@ test("day breaks and times are in the person's time zone, and Tex is You", () =>
 test("an inbound message nothing answered is not answered", () => {
   const asked = event({ text: "are you thinking straight?" });
   assert.equal(renderEvents([asked], { timeZone: NY }).split("\n")[1], "[12:16 PM] @Ada: are you thinking straight?   (not answered)");
+});
+
+test("an ask older than what Tex has since answered is history, not answered", () => {
+  // 2026-11-03: a 9:14 ask stayed tagged through the day, and at 10:47 "a link, not a card", sent right after a job's
+  // church results (which cover nothing), was read as that old ask.
+  const old = event({ text: "send me a link to my ice cream note" });
+  const later = event({ at: NOW + 30_000, text: "book my haircut" });
+  const reply = event({ at: NOW + 40_000, from: { kind: "tex" }, text: "Booked", covers: [later.id] });
+  const job = event({ at: NOW + 60_000, from: { kind: "tex" }, text: "Two churches fit", covers: [] });
+  const fresh = event({ at: NOW + 120_000, text: "can you text me a link and not a note card" });
+  const lines = renderEvents([old, later, reply, job, fresh], { timeZone: NY }).split("\n");
+  assert.equal(lines[1], "[12:16 PM] @Ada: send me a link to my ice cream note");
+  assert.equal(lines.at(-1), "[12:18 PM] @Ada: can you text me a link and not a note card   (not answered)");
+});
+
+test("a text that lands while Tex answers an earlier one stays not answered", () => {
+  const first = event({ text: "what time is dinner" });
+  const during = event({ at: NOW + 5_000, text: "and who's coming" });
+  const reply = event({ at: NOW + 20_000, from: { kind: "tex" }, text: "7 PM", covers: [first.id] });
+  assert.match(renderEvents([first, during, reply], { timeZone: NY }).split("\n")[2], /who's coming {3}\(not answered\)$/);
+});
+
+test("what Tex answered counts from the whole log, and an undelivered answer answers nothing", () => {
+  const old = event({ text: "where is it" });
+  const later = event({ at: NOW + 30_000, text: "never mind" });
+  const reply = event({ at: NOW + 60_000, from: { kind: "tex" }, text: "OK", covers: [later.id] });
+  assert.doesNotMatch(renderEvents([old], { timeZone: NY, answeredBy: [old, later, reply] }), /not answered/, "an answer outside the slice still counts");
+  const failed = { ...reply, delivered: false, reason: "failed" };
+  assert.match(renderEvents([old, later, failed], { timeZone: NY }).split("\n")[1], /\(not answered\)$/);
 });
 
 test("an answer that wasn't delivered says why, and leaves its question not answered", () => {
