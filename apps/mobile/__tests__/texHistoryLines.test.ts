@@ -21,6 +21,12 @@
  *     → "a person's own file reads their own chat" fails (read twice).
  *  6. `collapseCalls` left out → "tool calls in a row are one line" fails.
  *  7. Reactions not folded → "a reaction sits under the text it is on" fails.
+ *
+ * Applied, run, named test seen failing, reverted (2026-11-03):
+ *  8. `HistoryFileLines` drawing `history.days` unreversed → "reads as a
+ *     chat" fails.
+ *  9. The filters moved inside the scroller → same test fails.
+ * 10. `away` never set → "scrolled up, a Latest button" fails.
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -28,6 +34,8 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { dayAsked, dayTitle, DEFAULT_SHOWN, historyDays, kindsFor, timeOf } from "../features/tex/history/historyLines";
 import { groupChatAt, historyFileChat } from "../features/tex/history/historyFile";
+import { displayName } from "../features/console/files/paths";
+import { PARTS } from "../features/console/files/contextIcons/drawings";
 import { fixtureSource } from "../features/tex/page/texPageFixture";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 
@@ -134,6 +142,14 @@ describe("the history's lines", () => {
 });
 
 describe("the history file opened in the app", () => {
+  test("is called History wherever its name is shown, and has a drawing of its own", () => {
+    // Dev, 2026-11-03: "view history.ledger.json as “history” and also give it an image".
+    expect(displayName("history.ledger.json")).toBe("History");
+    expect(displayName("history.md")).toBe("history");
+    expect(displayName("notes.ledger.json")).toBe("notes.ledger.json");
+    expect(PARTS.tex_history.length).toBeGreaterThan(0);
+  });
+
   const own = { id: "ws_me", slug: "seyi" };
   test("the file names its chat: the viewer's own, a group home's, or none", () => {
     expect(historyFileChat("tex/history.ledger.json", own, own)).toEqual({ kind: "me" });
@@ -154,6 +170,7 @@ describe("the history file opened in the app", () => {
 });
 
 let mockSource = fixtureSource();
+jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => async () => ({ accessToken: "t" }) }));
 // A new source each call, as the real one is: a view that builds it again reads again.
 jest.mock("../features/tex/page/texPageSource", () => ({ gatewaySource: () => ({ ...mockSource }) }));
@@ -204,7 +221,8 @@ describe("the history file's view", () => {
     act(() => root.render(createElement(HistoryFileView, { path: "tex/groups/blue-lake-fox/history.ledger.json", workspace: { id: "ws_cl", slug: "context-lc" }, own })));
     await tick();
     expect(asked.at(-1)).toBe("g-team");
-    expect(container.textContent).toContain("History · Team Night");
+    expect(document.querySelector('[data-testid="history-file-title"]')?.textContent).toBe("History");
+    expect(document.querySelector('[data-testid="history-file-head"]')?.textContent).toContain("Team Night");
     expect(container.textContent).toContain("Ada");
 
     asked.length = 0;
@@ -217,5 +235,48 @@ describe("the history file's view", () => {
     await tick();
     expect(asked).toEqual([]);
     expect(document.querySelector('[data-testid="history-file-not-yours"]')).not.toBeNull();
+  });
+
+  test("reads as a chat: oldest day at the top, newest at the bottom, the title and filters above the scroller", async () => {
+    // Dev, 2026-11-03: "start scrolled all the way to the bottom of the page ... keep the filters sticky".
+    const base = fixtureSource();
+    mockSource = { ...base, ledger: (chat, q) => base.ledger(chat, { ...q, day: undefined }) };
+    const own = { id: "ws_me", slug: "seyi" };
+    act(() => root.render(createElement(HistoryFileView, { path: "tex/history.ledger.json", workspace: own, own })));
+    await tick();
+    const scroll = document.querySelector('[data-testid="history-file-scroll"]')!;
+    const head = document.querySelector('[data-testid="history-file-head"]')!;
+    expect(scroll.contains(head)).toBe(false);
+    expect(head.querySelector('[data-testid="tex-history-show-texts"]')).not.toBeNull();
+    const days = [...scroll.querySelectorAll('[data-testid^="tex-history-day-"]')].map((d) => d.getAttribute("data-testid")!.slice("tex-history-day-".length));
+    expect(days.length).toBeGreaterThan(1);
+    expect(days).toEqual([...days].sort());
+  });
+
+  test("scrolled up, a Latest button goes back down; at the newest line there is none", async () => {
+    const base = fixtureSource();
+    mockSource = { ...base, ledger: (chat, q) => base.ledger(chat, { ...q, day: undefined }) };
+    const own = { id: "ws_me", slug: "seyi" };
+    act(() => root.render(createElement(HistoryFileView, { path: "tex/history.ledger.json", workspace: own, own })));
+    await tick();
+    expect(document.querySelector('[data-testid="history-file-latest"]')).toBeNull();
+    const scroll = document.querySelector('[data-testid="history-file-scroll"]') as HTMLElement;
+    const at = (top: number) => {
+      Object.defineProperty(scroll, "scrollHeight", { configurable: true, value: 2000 });
+      Object.defineProperty(scroll, "clientHeight", { configurable: true, value: 500 });
+      Object.defineProperty(scroll, "offsetHeight", { configurable: true, value: 500 });
+      scroll.scrollTop = top;
+      act(() => {
+        scroll.dispatchEvent(new Event("scroll"));
+      });
+    };
+    at(200);
+    await tick();
+    expect(document.querySelector('[data-testid="history-file-latest"]')).not.toBeNull();
+    // Past the scroller's throttle, so the second scroll is heard.
+    await act(() => new Promise((r) => setTimeout(r, 120)));
+    at(1500);
+    await tick();
+    expect(document.querySelector('[data-testid="history-file-latest"]')).toBeNull();
   });
 });

@@ -1,0 +1,95 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNow } from "../page/TexPageParts";
+import { DEFAULT_SHOWN, dayAsked, historyDays, kindsFor, type DayChoice, type HistoryDay, type Show } from "./historyLines";
+import type { Read, TexPageSource } from "../page/texPageSource";
+import { LATEST, type LedgerEntry, type LedgerPage } from "../page/texPageTypes";
+
+/** What a history view reads and which filters it reads with: shared by the Tex page's lines and the history file's. */
+export interface HistoryRead {
+  day: DayChoice;
+  setDay: (day: DayChoice) => void;
+  picked: string;
+  setPicked: (picked: string) => void;
+  shown: Record<Show, boolean>;
+  toggle: (show: Show) => void;
+  /** The first page's answer, `null` while it is read. */
+  read: Read<LedgerPage> | null;
+  /** Nothing is asked while a day is still being typed, or with every kind off. */
+  waiting: boolean;
+  /** Newest day first, each day in the order it happened (`historyDays`). */
+  days: HistoryDay[];
+  /** More is kept before what is shown. */
+  hasOlder: boolean;
+  loadingMore: boolean;
+  /** Reads the page before the oldest shown, and adds it. */
+  more: () => Promise<void>;
+}
+
+/**
+ * A chat's history read from the gateway, a page at a time, with its filters:
+ * which day, and which kinds. Nothing here keeps a copy.
+ */
+export function useHistoryRead({ source, chat, group, job }: { source: TexPageSource; chat: string; group: boolean; job?: string }): HistoryRead {
+  const [day, setDay] = useState<DayChoice>("today");
+  const [picked, setPicked] = useState("");
+  const [shown, setShown] = useState<Record<Show, boolean>>(DEFAULT_SHOWN);
+  const [read, setRead] = useState<Read<LedgerPage> | null>(null);
+  const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const now = new Date(useNow());
+  const asked = dayAsked(day, picked, now);
+  const kinds = kindsFor(shown);
+  const kindsKey = kinds.join(",");
+  const waiting = (day === "pick" && asked === undefined) || kinds.length === 0;
+  const jobsShown = shown.jobs;
+  const query = useMemo(
+    () => ({ kinds: kindsKey.split(",").filter(Boolean) as typeof kinds, ...(asked ? { day: asked } : {}), ...(job !== undefined ? { job } : jobsShown ? {} : { jobs: false as const }) }),
+    [kindsKey, asked, job, jobsShown],
+  );
+
+  // A "Show older" still reading when a filter changes is dropped, never added to the new list.
+  const asking = useRef(query);
+  asking.current = query;
+
+  useEffect(() => {
+    let live = true;
+    setRead(null);
+    setEntries([]);
+    if (waiting) return;
+    void source.ledger(chat, { ...query, before: LATEST }).then((r) => {
+      if (!live) return;
+      setRead(r);
+      setEntries(r.kind === "ok" ? r.value.entries : []);
+    });
+    return () => {
+      live = false;
+    };
+  }, [source, chat, query, waiting]);
+
+  const older = read?.kind === "ok" ? read.value.older : undefined;
+  const more = async () => {
+    if (older === undefined || loadingMore) return;
+    setLoadingMore(true);
+    const was = query;
+    const r = await source.ledger(chat, { ...query, before: older });
+    setLoadingMore(false);
+    if (r.kind !== "ok" || asking.current !== was) return;
+    setRead(r);
+    setEntries((kept) => [...kept, ...r.value.entries]);
+  };
+
+  return {
+    day,
+    setDay,
+    picked,
+    setPicked,
+    shown,
+    toggle: (s) => setShown((was) => ({ ...was, [s]: !was[s] })),
+    read,
+    waiting,
+    days: historyDays(entries, now, { group, thinking: shown.thinking }),
+    hasOlder: older !== undefined && !waiting,
+    loadingMore,
+    more,
+  };
+}
