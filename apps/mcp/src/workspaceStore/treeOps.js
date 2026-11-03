@@ -219,6 +219,12 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
       return Object.values(jobsNow().jobs).filter((path) => typeof path === "string");
     },
 
+    /** The folder doing Archive's job, or null. */
+    archiveFolder() {
+      const archive = jobsNow().jobs.archive;
+      return typeof archive === "string" ? archive : null;
+    },
+
     /**
      * Moves or renames the file or folder at `from` to `to`, and everything under it. Refused, with nothing
      * written: `invalid` (a name into itself, a trash flag with neither end in the trash, the trash named without

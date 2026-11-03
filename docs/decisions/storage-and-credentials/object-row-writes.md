@@ -236,8 +236,18 @@ rename that also rewrites the note's first heading, which edits text and stays w
 
 The object takes only the plain case and answers `DEFER` for the rest, which the app sends to `files.moveEntry`: a
 folder with a job or holding one, a folder inside a job's folder (the Inbox's and Tex's own folders), a folder moved to
-the top level (its name can give it a job), a destination twinned by case, and any workspace whose access set the
+the top level (its name can give it a job), a destination twinned by case, a move into Archive (the control plane
+marks the twins on its way, `archiveFollow.ts`), and any workspace whose access set the
 object may not yet decide by. Moving those here would skip the control plane's refusals for them. Like access writes,
 a move does not wait for the mirror (`WAIT_FOR_MIRROR`). `trash: true` is accepted only into `.context/old-copies/`, for
 hiding old copies. Removing the check-first order would let a refused move keep its narrowing; the test is
 `moveWrites.test.mjs` ("a move that would narrow to a taken name").
+
+AI clients' `move_note` and `move_folder` take the same path (`apps/mcp/src/tools/moves/objectMove.js`, called first by
+`queuedFolder.js`). The object judges the caller by this request's session (`store.objectReading`: its scope, groups,
+user id, and whether it may write), never by the tool call, and a caller that names its own scope (a system sweep) goes
+to the control plane. `DEFER`, `UNKEYED`, an unreachable object or an unknown answer fall back to
+`/gateway/moves/start` unchanged; nothing moved in any of them. What the control plane's row move did beside the rows is
+done in the gateway: open editors are told, the change is recorded, and the forwarding ledger and folder icons follow
+behind the answer; links follow when the mirror takes the move. `archive_note` lands in Archive, so it defers today.
+The tests are `apps/mcp/test/objectMove.test.mjs`.

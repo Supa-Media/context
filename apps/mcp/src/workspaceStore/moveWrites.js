@@ -4,8 +4,9 @@
  *
  * Only the plain case is taken here. A move the control plane decides with more than the rows (a folder doing a job,
  * or one inside one, such as the Inbox's or Tex's own folders; a top-level folder, whose name can give it a job; a
- * name that twins another but for case) answers `DEFER`, and so does a workspace whose access set the object may not
- * yet decide by (`NOT_READY` from the narrowing). The caller then sends the move to the control plane as before.
+ * name that twins another but for case; a move into Archive, whose twins the control plane marks) answers `DEFER`,
+ * and so does a workspace whose access set the object may not yet decide by (`NOT_READY` from the narrowing). The
+ * caller then sends the move to the control plane as before.
  *
  * `trash: true` is the one hidden move a caller may ask for by name: hiding a note among the old copies
  * (`.context/old-copies/...`). The trash itself is `ws.write.trash`. A hidden move changes nobody's access, so it is
@@ -49,6 +50,9 @@ function deferred(ctx, ops, { from, to, trash, rows }) {
   const jobs = ops.jobFolders();
   if (jobs.some((folder) => under(folder, from))) return true;
   if (root.kind === "folder" && (jobs.includes(parentOf(from)) || !to.includes("/"))) return true;
+  // A move into Archive marks the twins on its way there (`archiveFollow.ts`), which the control plane does.
+  const archive = ops.archiveFolder();
+  if (archive !== null && under(to, archive)) return true;
   return twinsByCase(ctx.sql, to);
 }
 

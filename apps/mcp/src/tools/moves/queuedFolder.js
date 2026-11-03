@@ -24,6 +24,7 @@ import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { announceMoves } from "../../moves/keyedCollaboration.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
+import { startObjectMove } from "./objectMove.js";
 
 /**
  * A keyed row move's open editors: each moved note's room is told where it went (`keyedCollaboration.js`).
@@ -87,6 +88,9 @@ export async function startKeyedNoteMove(store, scope, source, destination, expe
   if (store?.keyedLayout !== true || typeof store.startQueuedMove !== "function") return null;
   const version = await rowVersionOf(store, source, expectedEtag);
   if (version.conflict) return toolError("conflict: the note changed since you read it; re-read and retry");
+  // A workspace whose notes live in its object moves the row there, in one transaction (`objectMove.js`).
+  const inObject = await startObjectMove(store, scope, source, destination, version.etag, { kind: "note", action: "move_note", privacy });
+  if (inObject !== null) return inObject;
   let answer;
   try {
     answer = await store.startQueuedMove(source, destination, version.etag);
@@ -216,6 +220,8 @@ export async function startKeyedBatchMove(store, scope, rules, overrides, moves)
 }
 
 export async function startQueuedFolderMove(store, scope, source, destination, privacy) {
+  const inObject = await startObjectMove(store, scope, source, destination, undefined, { kind: "folder", action: "move_folder", privacy });
+  if (inObject !== null) return inObject;
   if (typeof store?.startQueuedMove !== "function") return null;
   let answer;
   try {
