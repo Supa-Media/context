@@ -9,6 +9,7 @@ import { sha256Hex } from "./client.js";
 import { parseToken } from "../workspaceStore/access.js";
 import { workspaceClient } from "../workspaceStore/api.js";
 import { timedAccessStep } from "../workspaceStore/personClient.js";
+import { holdOpened } from "../store/openedHere.js";
 
 /**
  * A token that names its person object (`workspaceStore/access.js`) is answered there, with its hash and nothing else,
@@ -20,7 +21,14 @@ async function sessionFromObject(env, sessionObjects, parsed, accessToken) {
   const client = (sessionObjects ?? workspaceClient)(env, parsed.personalWorkspaceId);
   if (client === null) return null;
   try {
-    return await timedAccessStep(env, "person.session", parsed.personalWorkspaceId, async () => await client.access.session(await sha256Hex(accessToken)));
+    return await timedAccessStep(env, "person.session", parsed.personalWorkspaceId, async () => {
+      const hash = await sha256Hex(accessToken);
+      if (typeof client.access.sessionWithOpen !== "function") return await client.access.session(hash);
+      // The store's open rides back beside the session where both are this object's (`store/openedHere.js`).
+      const { session, open } = await client.access.sessionWithOpen(hash);
+      if (session !== null && open !== null) holdOpened(session, open);
+      return session;
+    });
   } catch {
     throw new ControlPlaneError("person object unreachable");
   }

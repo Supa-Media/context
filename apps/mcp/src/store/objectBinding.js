@@ -34,6 +34,7 @@ import { bindingAnswerOf } from "../controlPlane/session.js";
 import { BindingSealRefused, openBinding, sealBinding } from "../workspaceStore/bindingSeal.js";
 import { workspaceClient } from "../workspaceStore/api.js";
 import { audienceOf } from "./objectLookup.js";
+import { takeOpened } from "./openedHere.js";
 
 /**
  * How long a kept binding is used. Under the five minutes before a temporary bucket credential expires that the
@@ -116,11 +117,13 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   if (object === null) return fail("no_object");
   let held;
   let behind;
+  // Answered beside the session already, for this workspace and this person (`openedHere.js`): no second trip.
+  const opened = takeOpened(session);
   try {
     // One object call, which waits for an open mark and says `behind` while one is still out; the control plane's
     // own behind question beside it only where switched back on.
     [held, behind] = await Promise.all([
-      object.open(session.actorUserId),
+      opened ?? object.open(session.actorUserId),
       askBehind(env) ? controlPlane.objectBehind(session.workspaceId).catch(() => true) : false,
     ]);
   } catch {
