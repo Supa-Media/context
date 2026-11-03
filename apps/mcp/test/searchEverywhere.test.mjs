@@ -9,6 +9,9 @@
  *   the loose penalty dropped                           → "a loose any-word hit never outranks a real match" fails
  *   loose word evidence counted beside a real match     → "a note holding every word outranks another workspace's loose hit that meaning also found" fails
  *   the path prior dropped from the fused score         → "an archived or log note ranks below a live note…" and "a workspace prefix is read through…" fail
+ *   the meaning-only budget removed                     → "meaning-only extras are three across every workspace…" fails
+ *   the 0.5 floor removed from the strict-hit case      → "…under the 0.5 floor is left out even when the budget has room" fails
+ *   the no-strict budget replaced by `extraNotes`       → "with no strict word hit anywhere, six…" fails
  */
 
 import test from "node:test";
@@ -64,6 +67,53 @@ test("a note holding every word outranks another workspace's loose hit that mean
   // With no note holding every word anywhere, loose hits still rank by their words.
   const allLoose = fuseEverywhere([[hit("a.md", { wordRank: 0, loose: true })], [hit("@x/b.md", { wordRank: 1, loose: true })]]).map((entry) => entry.key);
   assert.deepEqual(allLoose, ["a.md", "@x/b.md"]);
+});
+
+/**
+ * Meaning-only extras are one budget for the whole search, not one per
+ * workspace: five workspaces used to show up to fifteen "Same topic" rows
+ * beside the word hits. Production, 2026-11-03: the wanted note sat below
+ * filler of exactly this kind.
+ */
+test("meaning-only extras are three across every workspace, at the 0.5 floor, once any word hit is strict", () => {
+  const lists = [
+    [hit("todo.md", { wordRank: 0 })],
+    [hit("@a/m1.md", { meaningScore: 0.7 }), hit("@a/m2.md", { meaningScore: 0.45 })],
+    [hit("@b/m3.md", { meaningScore: 0.65 }), hit("@b/m4.md", { meaningScore: 0.6 })],
+    [hit("@c/m5.md", { meaningScore: 0.55 })],
+    [hit("@d/m6.md", { meaningScore: 0.52 }), hit("@d/m7.md", { meaningScore: 0.51 })],
+  ];
+  const kept = fuseEverywhere(lists).map((entry) => entry.key);
+  // The three closest above the floor; m2 is under it and the word hit stays.
+  assert.deepEqual(kept, ["todo.md", "@a/m1.md", "@b/m3.md", "@b/m4.md"]);
+});
+
+test("with a strict word hit, a meaning-only hit under the 0.5 floor is left out even when the budget has room", () => {
+  const lists = [[hit("todo.md", { wordRank: 0 })], [hit("@a/loose-meaning.md", { meaningScore: 0.45 })], [hit("@b/close.md", { meaningScore: 0.52 })]];
+  assert.deepEqual(fuseEverywhere(lists).map((entry) => entry.key), ["todo.md", "@b/close.md"]);
+});
+
+test("with no strict word hit anywhere, six meaning-only extras at the old floor", () => {
+  const scores = [0.9, 0.8, 0.7, 0.6, 0.5, 0.45, 0.44, 0.43];
+  const lists = [
+    [hit("team.md", { wordRank: 0, loose: true })],
+    ...scores.map((score, i) => [hit(`@w${i % 4}/n${i}.md`, { meaningScore: score })]),
+  ];
+  const kept = fuseEverywhere(lists).map((entry) => entry.key);
+  assert.equal(kept.filter((key) => key !== "team.md").length, 6);
+  // 0.45 is kept here: the 0.5 floor is for a search where the words found a note.
+  assert.ok(kept.includes("@w1/n5.md"));
+  assert.ok(!kept.includes("@w2/n6.md"));
+});
+
+test("the extra budget is a setting, and a meaning-only hit in the answer is marked", () => {
+  const hits = [hit("@a/m1.md", { meaningScore: 0.7 }), hit("@b/m2.md", { meaningScore: 0.6 })];
+  const lists = [[hit("todo.md", { wordRank: 0 })], hits];
+  const kept = fuseEverywhere(lists, 12, { extraNotes: 1 });
+  assert.deepEqual(kept.map((entry) => entry.key), ["todo.md", "@a/m1.md"]);
+  assert.equal(hits[0].meaningOnly, true);
+  // Dropped by the budget, so not in the answer and not marked.
+  assert.notEqual(hits[1].meaningOnly, true);
 });
 
 /**

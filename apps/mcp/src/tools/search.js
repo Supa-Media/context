@@ -9,9 +9,15 @@ import { NOTE_INDEX_CHAR_CAP } from "../search/maintain.js";
 import { noteTitle, splitReducedRecallNotes } from "../search/visible.js";
 import { probeWithLegacyFallback } from "../notes/storage.js";
 import { searchVisibleNotes } from "../search/visibleNotes.js";
-import { MEANING_ONLY_LABEL, meaningSearchable, searchBothWays } from "../search/meaning/serve.js";
+import {
+  MEANING_EXTRA_FLOOR_WITH_WORDS,
+  MEANING_ONLY_LABEL,
+  MEANING_SNIPPET_READS_LOOSE,
+  meaningSearchable,
+  searchBothWays,
+} from "../search/meaning/serve.js";
 import { meaningEmbedderFor } from "../search/meaning/store.js";
-import { searchSettingsOf } from "../search/settings.js";
+import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../search/settings.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { folderPrefix } from "../search/indexable.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
@@ -45,17 +51,33 @@ const LOOSE_PENALTY = 10;
  * holding all four words (2026-11-03). Such a hit then places by its meaning
  * alone.
  *
+ * Meaning-only hits (no word rank: found by what the note is about) are one
+ * budget for the whole answer, not one per workspace. Once any workspace has a
+ * strict word hit, a meaning-only hit must reach `MEANING_EXTRA_FLOOR_WITH_WORDS`
+ * and at most `extraNotes` of them are kept, the closest ones; otherwise at
+ * most `MEANING_SNIPPET_READS_LOOSE`. A kept meaning-only hit is marked
+ * `meaningOnly: true`, as `withMeaning` marks them.
+ *
  * @param {Array<Array<object>>} lists hits per workspace, this workspace's first, each hit
  *   carrying `wordRank`, `loose` and `meaningScore` (`search/meaning/serve.js`)
+ * @param {number} [most] how many hits the answer shows
+ * @param {{extraNotes?: number}} [options] the store's `extraNotes` setting (`search/settings.js`)
  */
-export function fuseEverywhere(lists, most = EVERYWHERE_HITS) {
+export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEFAULT_SEARCH_SETTINGS.extraNotes } = {}) {
   const all = lists.flatMap((hits, list) => hits.map((hit, order) => ({ hit, list, order })));
-  const byMeaning = all
+  const anyWhole = all.some(({ hit }) => typeof hit.wordRank === "number" && !hit.loose);
+  const isMeaningOnly = ({ hit }) => typeof hit.wordRank !== "number";
+  // Meaning-only hits must be close to be worth a row once the words found a note with every word.
+  const eligible = all.filter(
+    (entry) => !(anyWhole && isMeaningOnly(entry) && !(typeof entry.hit.meaningScore === "number" && entry.hit.meaningScore >= MEANING_EXTRA_FLOOR_WITH_WORDS)),
+  );
+  // The meaning ranking is over the eligible hits; the budget below only removes
+  // meaning-only hits from the answer, after the ranks are set.
+  const byMeaning = eligible
     .filter(({ hit }) => typeof hit.meaningScore === "number")
     .sort((a, b) => b.hit.meaningScore - a.hit.meaningScore);
   const meaningRank = new Map(byMeaning.map((entry, rank) => [entry, rank]));
-  const anyWhole = all.some(({ hit }) => typeof hit.wordRank === "number" && !hit.loose);
-  const scored = all.map((entry) => {
+  const scored = eligible.map((entry) => {
     const { hit } = entry;
     const counted = typeof hit.wordRank === "number" && !(hit.loose && anyWhole);
     const word = counted ? 1 / (RRF_K + hit.wordRank + 1 + (hit.loose ? LOOSE_PENALTY : 0)) : 0;
@@ -64,8 +86,16 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS) {
     // what the same evidence does on a live note. Hit keys carry `@name/`, which it reads through.
     return { ...entry, score: (word + meaning) * notePrior(hit.key) };
   });
-  scored.sort((a, b) => b.score - a.score || a.list - b.list || a.order - b.order);
-  return scored.slice(0, most).map(({ hit }) => hit);
+  const byScore = (a, b) => b.score - a.score || a.list - b.list || a.order - b.order;
+  const budget = anyWhole ? extraNotes : MEANING_SNIPPET_READS_LOOSE;
+  const extras = scored.filter(isMeaningOnly).sort(byScore);
+  const overBudget = new Set(extras.slice(budget));
+  const answer = scored
+    .filter((entry) => !overBudget.has(entry))
+    .sort(byScore)
+    .slice(0, most);
+  for (const entry of answer) if (isMeaningOnly(entry)) entry.hit.meaningOnly = true;
+  return answer.map(({ hit }) => hit);
 }
 
 /** Word search and search by meaning in one workspace, as `search_notes` has always asked. */
@@ -132,7 +162,11 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
   const elsewhere = answers.filter(Boolean);
   const annotated = (found, name = null) =>
     found.hits.map((hit) => ({ ...hit, ...(found.evidence?.[hit.key] ?? {}), key: name ? `${name}/${hit.key}` : hit.key }));
-  const hits = fuseEverywhere([annotated(here), ...elsewhere.map(({ name, found }) => annotated(found, name))]);
+  const hits = fuseEverywhere(
+    [annotated(here), ...elsewhere.map(({ name, found }) => annotated(found, name))],
+    EVERYWHERE_HITS,
+    { extraNotes: searchSettingsOf(store).extraNotes },
+  );
   return {
     ...here,
     hits,
