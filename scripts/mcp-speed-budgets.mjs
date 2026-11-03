@@ -36,8 +36,10 @@ export const BUDGETS = Object.freeze({
   // A save names no action, so its calls are `tools/call:write` (`callOf`).
   // 250 -> 210 after #2820 (a new note's bytes and row in one call): 167 ms median.
   "tools/call:write": 210,
-  "tools/call:manage:archive": 250,
-  "tools/call:manage:move_folder": 400,
+  // 250 -> 205 after #2806 (archive asks the object first, reading no body or history): about 165 ms median.
+  "tools/call:manage:archive": 205,
+  // 400 -> 250 after #2825 and #2828 (no twin listing before a move the object makes): about 190 ms for 107 notes.
+  "tools/call:manage:move_folder": 250,
   "tools/call:search": 800,
   "tools/call:orient": 900,
 });
