@@ -51,7 +51,7 @@ import { statusAdvice } from "./statusList.js";
 import { frontMatterChanged } from "../../activity/changes.js";
 import { aboutMeTooLong } from "../../agent/aboutMe.js";
 import { isAboutNotePath, stampAboutLines } from "../../agent/aboutLines.js";
-import { phase } from "../../mcp/phase.js";
+import { phase, phaseTook } from "../../mcp/phase.js";
 
 /** The `share` values that mint a link; anything else publishes nothing. */
 const SHARE_REQUESTS = new Set(["members", "anyone", "collect"]);
@@ -469,6 +469,8 @@ export async function toolWriteNote(writer, scope, rules, overrides, args, optio
           ...(existing || sealedHome ? {} : { tier: desiredVisibility }),
         }),
       );
+  // A new note made in the workspace object in one call says how long the object spent on it (`inside:create`).
+  if (Number.isFinite(put?.took)) phaseTook(store, "create", put.took);
   if (!put) {
     if (!existing && desiredVisibility === "private" && !sealedHome) {
       // Remove only an ACL whose path is still absent. If another writer won

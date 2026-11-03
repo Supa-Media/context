@@ -438,7 +438,8 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
       return null;
     }
     if (answer === null || answer === undefined || typeof answer.etag !== "string" || answer.etag === "") return null;
-    const result = { key, etag: answer.etag, ...(Number.isFinite(answer.size) ? { size: answer.size } : {}) };
+    // `took`: the object's own time on it, beside the call's whole trip (`obj:ws.create`), for the save's timings.
+    const result = { key, etag: answer.etag, ...(Number.isFinite(answer.size) ? { size: answer.size } : {}), ...(Number.isFinite(answer.took) ? { took: answer.took } : {}) };
     return { result, adopted: answer.adopted === true };
   };
 
