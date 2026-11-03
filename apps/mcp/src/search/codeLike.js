@@ -46,6 +46,12 @@ const IDENTIFIER_SHARE = 0.1;
 // own, if it has enough words to be a list rather than a single name.
 const IDENTIFIER_ONLY_SHARE = 0.5;
 const IDENTIFIER_ONLY_MIN_WORDS = 3;
+// Operators prose never writes. Two of them beside an identifier are code even
+// when the passage is word-heavy: the second production row (2026-11-03,
+// "ientId || state.tokenUrl) && !canRefresh) { print(...") had only about 5%
+// code punctuation, under `SYMBOL_SHARE`, because its string literal is prose.
+const CODE_OPERATORS = /&&|\|\||=>|!=|===|\);|\)\s*\{|\breturn\b|\bfunction\b/g;
+const CODE_OPERATOR_MIN = 2;
 
 // Query tokens that only code has: a call or member `(` `.`, an identifier
 // `_`, an assignment or option `=`, a path `/`, a camelCase boundary, or a
@@ -81,6 +87,7 @@ export function looksLikeCode(text) {
   const symbolShare = symbols / nonSpace;
 
   if (symbolShare >= SYMBOL_SHARE && identifierShare >= IDENTIFIER_SHARE) return true;
+  if (identifiers > 0 && (trimmed.match(CODE_OPERATORS) ?? []).length >= CODE_OPERATOR_MIN) return true;
   return identifierShare >= IDENTIFIER_ONLY_SHARE && words.length >= IDENTIFIER_ONLY_MIN_WORDS;
 }
 

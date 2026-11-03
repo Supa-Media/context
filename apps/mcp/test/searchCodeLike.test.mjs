@@ -20,6 +20,8 @@
  *       its characters" fails
  *   the table's `|` and `/` counted as symbols → "a Markdown table of scores is not
  *       code" fails
+ *   the code-operator rule removed            → "code whose string literal is prose is
+ *       still code" fails
  *   `queryLooksLikeCode` always false         → "a query with a dotted call", "a camelCase
  *       identifier query", "a snake_case query" and "the other code-ish query tokens"
  *       fail
@@ -125,4 +127,13 @@ test("the other code-ish query tokens count: parens, equals, slash, scope", () =
 test("an empty or non-string query is not code-ish", () => {
   assert.equal(queryLooksLikeCode(""), false);
   assert.equal(queryLooksLikeCode(undefined), false);
+});
+
+test("code whose string literal is prose is still code (production, 2026-11-03)", () => {
+  assert.equal(
+    looksLikeCode('ientId || state.tokenUrl) && !canRefresh) { print("ZAP_MCP_REFRESH_OFF incomplete or off-origin refresh settings; the token will expire after an hour"); } function form(value) { return URLEncoder.enco'),
+    true,
+  );
+  // Prose that says "and/or" in words, or names one function, is not.
+  assert.equal(looksLikeCode("We agreed the renewal starts on December 13, and the broker will call back with quotes for both plans before Friday."), false);
 });
