@@ -20,7 +20,7 @@ the gateway cannot be reached from the deployment. A walk whose later page finds
 The gateway's facts ask `jobs` (which folder does each built-in job, and the root folders a reader may see) is
 answered by the object itself (`workspaceStore/jobsAnswer.js`), judged with the listing's `folderVisibleAtScope`.
 
-A check-in's changed-since read (`changedNodesStore`) and the device change feed (`nodesFeed.head`/`changes`) stays on Convex for now: answering "not served" there would
+A check-in's changed-since read (`changedNodesStore`) and the device change feed (`nodesFeed.head`/`changes`) stay on Convex for now: answering "not served" there would
 leave a device copy refreshing every five minutes instead of on each change, until the object offers a change
 signal of its own.
 
