@@ -167,15 +167,61 @@ test("a folder is answered as a folder", async () => {
   assert.deepEqual((await hooks.lookup(["plans"])).notes, { plans: { state: "folder" } });
 });
 
-test("resolve: a note's path from the object; under a dot folder, or not found, from the control plane", async () => {
+test("resolve: a note's path from the object; under a dot folder from the control plane; a miss the object judged is null, with no control-plane call", async () => {
   const cp = control();
   const hidden = "0199a000-0000-7000-8000-00000000000d";
   const rows = { "plans/a.md": seen, ".trash/b.md": { ...seen, path: ".trash/b.md", noteId: hidden } };
   const hooks = objectFirstHooks(cp.hooks, { client: object(rows).client, home: "object", scope: "team", names: [], workspaceId: "w1" });
   const missing = "0199a000-0000-7000-8000-00000000000e";
   const answer = await hooks.resolve([NOTE, hidden, missing]);
-  assert.deepEqual(cp.asked.resolve, [[hidden, missing]]);
+  // The dot-folder id is found by the object but filtered by the gateway, so it falls through; the miss does not.
+  assert.deepEqual(cp.asked.resolve, [[hidden]]);
   assert.deepEqual(answer.paths, { [NOTE]: "plans/a.md", [hidden]: null, [missing]: null });
+});
+
+// An id the object does not find, while it is not behind, is the object's answer: `null`, which the control plane also
+// gives for a gone row, a trashed note, a note the reader may not see, and an id with no row. Sabotage: drop the
+// not-found branch in objectLookup.js and the first case here fails, since the control plane is then asked.
+const MISSING = "0199a000-0000-7000-8000-00000000000e";
+
+test("an id the object does not find, and is not behind, is null with no control-plane call", async () => {
+  const cp = control();
+  const hooks = objectFirstHooks(cp.hooks, { client: object({ "plans/a.md": seen }).client, home: "object", scope: "team", names: [], workspaceId: "w1" });
+  assert.deepEqual(await hooks.resolve([MISSING]), { paths: { [MISSING]: null } });
+  assert.deepEqual(await hooks.resolve([NOTE, MISSING]), { paths: { [NOTE]: "plans/a.md", [MISSING]: null } });
+  assert.deepEqual(cp.asked.resolve, []);
+});
+
+test("behind sends a not-found id to the control plane as well", async () => {
+  const cp = control();
+  const ob = object({});
+  const behind = { rows: { resolve: async (fields) => ({ ...(await ob.client.rows.resolve(fields)), behind: true }) } };
+  const hooks = objectFirstHooks(cp.hooks, { client: behind, home: "object", scope: "team", names: [], workspaceId: "w1" });
+  assert.deepEqual(await hooks.resolve([MISSING]), { paths: { [MISSING]: null } });
+  assert.deepEqual(cp.asked.resolve, [[MISSING]]);
+});
+
+// The object returns no path for a note the reader may not see; a path on a not-found row is never read. Sabotage:
+// take `row.path` from a found:false row, and this fails.
+test("a note the reader may not see is never returned, even when the object's row carries a path", async () => {
+  const cp = control();
+  const client = { rows: { resolve: async () => ({ rows: [{ noteId: NOTE, found: false, path: "secret/plan.md" }], accessVersion: 3 }) } };
+  const hooks = objectFirstHooks(cp.hooks, { client, home: "object", scope: "team", names: [], workspaceId: "w1" });
+  const answer = await hooks.resolve([NOTE]);
+  assert.deepEqual(answer, { paths: { [NOTE]: null } });
+  assert.equal(JSON.stringify(answer).includes("secret/plan.md"), false);
+  assert.deepEqual(cp.asked.resolve, []);
+});
+
+// Two live rows hold one note id: the object names neither (`ambiguous`), and the control plane answers, as it does for
+// an id held twice. Sabotage: treat ambiguous as not found, and the control plane's answer is replaced by null.
+test("two live rows for one note id fall through to the control plane, and neither object path is returned", async () => {
+  const asked = [];
+  const cp = { hooks: { resolve: async (ids) => { asked.push(ids); return { paths: { [NOTE]: "from/control.md" } }; } } };
+  const client = { rows: { resolve: async () => ({ rows: [{ noteId: NOTE, found: false, ambiguous: true, path: "plans/a.md" }], accessVersion: 3 }) } };
+  const hooks = objectFirstHooks(cp.hooks, { client, home: "object", scope: "team", names: [], workspaceId: "w1" });
+  assert.deepEqual(await hooks.resolve([NOTE]), { paths: { [NOTE]: "from/control.md" } });
+  assert.deepEqual(asked, [[NOTE]]);
 });
 
 // Behind by the object's own word: a writer that may narrow left a mark there, and its change has not landed. The

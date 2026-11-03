@@ -123,6 +123,9 @@ function lookUp(rows, fields, by, members = null) {
   return {
     accessVersion: judge.accessVersion,
     rows: asked.map((value) => {
+      // Several live rows for one note id: no single one is its path, so none is named (the control plane answers, as
+      // it does for an id held twice). Says nothing else, and not whether any of them is one the reader may see.
+      if (by === "noteId" && typeof value === "string" && rows.liveNoteIdCount(value) > 1) return { noteId: value, found: false, ambiguous: true };
       const row = typeof value === "string" ? (by === "path" ? rows.byPath(value) : rows.byNoteId(value)) : null;
       if (!judge.sees(row)) return { [by === "path" ? "path" : "noteId"]: value, found: false };
       return { found: true, path: row.path, noteId: row.noteId, key: row.storageKey ?? (row.noteId ? `notes/${row.noteId}.md` : null), etag: row.etag, kind: row.kind, collaborates: row.collaborates };

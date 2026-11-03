@@ -269,6 +269,20 @@ test("lookup by path and resolve by note id answer like a read: one the caller m
   assert.deepEqual(resolved.rows.map((row) => row.path), ["1-projects/open.md", "1-projects/held.md"]);
 });
 
+// Two live rows for one note id: the object names neither, not even the newer one, and says nothing else about them.
+// Once one is gone the id resolves to the other again. Sabotage: drop the liveNoteIdCount check in serve.js and the first
+// assertion fails (the newer row's path comes back).
+test("a note id held by two live rows resolves as ambiguous, with no path, for every reader", { skip }, async () => {
+  const { ws } = await seeded();
+  await ws.rows.put([{ id: "dup-a", noteId: ID(7), path: "1-projects/a7.md", kind: "file", at: 40 }]);
+  await ws.rows.put([{ id: "dup-b", noteId: ID(7), path: "1-projects/b7.md", kind: "file", at: 50 }]);
+  for (const scope of ["private", "team"]) {
+    assert.deepEqual((await ws.rows.resolve({ noteIds: [ID(7)], scope })).rows, [{ noteId: ID(7), found: false, ambiguous: true }]);
+  }
+  await ws.rows.remove(["dup-b"], 60);
+  assert.equal((await ws.rows.resolve({ noteIds: [ID(7)], scope: "private" })).rows[0].path, "1-projects/a7.md");
+});
+
 test("a push of a note read before its folder moved lands after the move and is ignored, so the note stays under the new folder", { skip }, async () => {
   const { ws } = await seeded();
   await ws.rows.put([{ id: "f1", path: "1-projects", kind: "folder", at: 10 }]);
