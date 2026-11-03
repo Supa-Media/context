@@ -34,7 +34,7 @@ type BindingTable = (typeof BINDING_TABLES)[number];
 const BINDING_QUIET = new Set(["scaffoldQueuedAt", "leftBehind"]);
 
 /** Fields of a `nodes` row that only say which version of the bytes it is at: no rule changes with them. */
-const BYTES_ONLY = new Set(["etag", "size", "uploaded", "observedAt", "idCopy", "keyedFrom", "storageKey", "noteId"]);
+const BYTES_ONLY = new Set(["etag", "size", "uploaded", "observedAt", "objectAt", "idCopy", "keyedFrom", "storageKey", "noteId"]);
 
 /**
  * Fields of a `nodes` row that place it or decide who sees it: a patch naming one may narrow. Everything else on the

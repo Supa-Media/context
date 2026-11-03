@@ -115,6 +115,7 @@ import * as googleChatRead from "./functions/lib/gatewayRoutes/googleChatRead";
 import * as site from "./functions/lib/gatewayRoutes/site";
 import { gatewayPageCoverHandler, MAX_COVER_REQUEST_BYTES } from "./functions/lib/gatewayRoutes/pageCover";
 import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
+import { gatewayRowsMirrorHandler } from "./functions/lib/gatewayRoutes/rowsMirror";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as texReview from "./functions/lib/gatewayRoutes/texReview";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
@@ -932,6 +933,8 @@ http.route({ path: "/gateway/workspaces/connect-google", method: "POST", handler
 http.route({ path: "/gateway/workspaces/invite", method: "POST", handler: gatewayWorkspacesInvite });
 http.route({ path: "/gateway/access/profiles", method: "POST", handler: gatewayRoute(workspaceRoutes.gatewayAccessProfilesHandler) }); // names for a workspace object's members (`functions/accessProfiles.ts`)
 http.route({ path: "/gateway/access/mirror", method: "POST", handler: gatewayRoute(workspaceRoutes.gatewayAccessMirrorHandler) }); // Convex written behind an object's access write (`functions/accessMirror.ts`)
+// Convex written behind an object's note writes, a batch in order (`functions/objectRowsMirror.ts`, `lib/gatewayRoutes/rowsMirror.ts`)
+http.route({ path: "/gateway/rows/mirror", method: "POST", handler: gatewayRoute(gatewayRowsMirrorHandler) });
 /* Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`). */
 export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler);
 http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });
