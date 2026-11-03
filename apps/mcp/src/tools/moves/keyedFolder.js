@@ -21,6 +21,7 @@ import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
 import { nameTwinRefusal, protectedFolderRefusal } from "../../tree/twins.js";
 import { destinationRefusal } from "./destination.js";
 import { startQueuedFolderMove } from "./queuedFolder.js";
+import { phase } from "../../mcp/phase.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 /** What the control plane says when the folder holds something this caller cannot see (`rowMoveStart.ts`). */
@@ -30,9 +31,9 @@ export async function toolMoveKeyedFolder(store, scope, rules, overrides, source
   // No control plane to move the rows, no move: and no preflight, which would list the frozen copies.
   if (typeof store?.startQueuedMove !== "function") return toolError(KEYED_PATH_REFUSAL);
   // The same two checks a move the old way makes first, asked of the tree (`tree/twins.js`).
-  const locked = await protectedFolderRefusal(store, scope, rules, overrides, source);
+  const locked = await phase(store, "move_locked", () => protectedFolderRefusal(store, scope, rules, overrides, source));
   if (locked) return toolError(locked);
-  const twin = await nameTwinRefusal(store, scope, rules, overrides, destination, { kind: "folder", ignore: source });
+  const twin = await phase(store, "move_twins", () => nameTwinRefusal(store, scope, rules, overrides, destination, { kind: "folder", ignore: source }));
   if (twin) return toolError(twin);
   if (dryRun) return await keyedFolderPreflight(store, scope, rules, overrides, source, destination);
   const moved = await startQueuedFolderMove(store, scope, source, destination, { rules, overrides });
