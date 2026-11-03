@@ -66,6 +66,7 @@ export async function flushRowChanges(
     await ctx.db.insert("workspaceObjectOutbox", {
       workspaceId,
       nodeIds: all ? [] : ids,
+      ...(all || change.goneObjectIds.size === 0 ? {} : { goneObjectIds: [...change.goneObjectIds] }),
       access: change.access,
       ...(all ? { all: true } : {}),
       ...(unmarked ? { unmarked: true } : {}),

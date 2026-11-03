@@ -61,6 +61,8 @@ export type WorkspaceChange = {
   born: Set<string>;
   /** Their paths, as inserted. */
   bornPaths: Set<string>;
+  /** The object's ids (`nodes.objectId`) of rows deleted outright: the push names them, since their `_id` is gone. */
+  goneObjectIds: Set<string>;
 };
 
 export type RowWatch = {
@@ -87,7 +89,7 @@ function accessTableOf(db: MutationCtx["db"], id: string): AccessSource | null {
 function changeFor(changes: Map<Id<"workspaces">, WorkspaceChange>, workspaceId: Id<"workspaces">): WorkspaceChange {
   let change = changes.get(workspaceId);
   if (change === undefined) {
-    change = { nodeIds: new Set(), access: false, narrows: false, binding: false, born: new Set(), bornPaths: new Set() };
+    change = { nodeIds: new Set(), access: false, narrows: false, binding: false, born: new Set(), bornPaths: new Set(), goneObjectIds: new Set() };
     changes.set(workspaceId, change);
   }
   return change;
@@ -133,6 +135,7 @@ function record(
   }
   const nodeId = id as Id<"nodes">;
   change.nodeIds.add(nodeId);
+  if (op === "delete" && typeof doc?.objectId === "string" && doc.objectId !== "") change.goneObjectIds.add(doc.objectId);
   if (op === "insert") {
     change.born.add(id);
     if (typeof doc?.path === "string") change.bornPaths.add(doc.path);
