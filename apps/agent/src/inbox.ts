@@ -606,8 +606,7 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
     // The model only names the job: what the job is handed is always their own text.
     onSteers: async (asks) => {
       if (!deps.steerJob) return;
-      const said = { id: message.eventId, text: message.event ? "" : message.text.trim() }; // a turn by code passes only its own notes
-      await steerJobs(storage, asks, said, deps.steerJob, deps.now());
+      const said = { id: message.eventId, text: message.event ? "" : message.text.trim() }; await steerJobs(storage, asks, said, deps.steerJob, deps.now()); // a turn by code passes only its own notes
       return notResumedText(await resumeJobs(storage, asks, said, deps.steerJob, deps.now())); // "restart it" picks an ended job back up, with their words
     },
   };
