@@ -25,6 +25,33 @@ async function buildBehind(object) {
   }
 }
 
+/** The request stores whose build loop is already deferred: one loop per request, however many triggers name it. */
+const BUILDS_DEFERRED = new WeakSet();
+
+/**
+ * Catch the object's meaning index up behind the request's response. Called after a note is written, moved or removed
+ * (`writeProjection.js`) and by a search (`objectMeaningMatches`). Nothing else starts a build: a note saved with no
+ * search after it had no meaning fingerprint until a later search, and that search ranked it without meaning evidence
+ * (production benchmark, 2026-11-03). One loop per request store, so a save and a search in the same request do not
+ * stack two. Never throws; a no-op where the store is not object-homed or has no `defer` to run it behind the response.
+ *
+ * @returns {Promise<void>} the loop's promise where one was deferred, otherwise one already resolved
+ */
+export function meaningBuildBehind(store) {
+  const object = store?.objectMeaning ?? null;
+  if (object === null || typeof object.meaningBuild !== "function") return Promise.resolve();
+  if (typeof store.defer !== "function" || BUILDS_DEFERRED.has(store)) return Promise.resolve();
+  const loop = buildBehind(object);
+  try {
+    store.defer(loop);
+  } catch {
+    // A host that refuses waitUntil leaves the catch-up to the next trigger, and never fails the request.
+    return Promise.resolve();
+  }
+  BUILDS_DEFERRED.add(store);
+  return loop;
+}
+
 /**
  * @param {object} store the request's store; `store.objectMeaning` is the object's client where it may answer
  * @param {number[]} vector the query's fingerprint
@@ -34,7 +61,7 @@ async function buildBehind(object) {
 export async function objectMeaningMatches(store, vector, { tiers = null } = {}) {
   const object = store?.objectMeaning ?? null;
   if (object === null || typeof object.meaningQuery !== "function") return null;
-  if (typeof store.defer === "function" && typeof object.meaningBuild === "function") store.defer(buildBehind(object));
+  meaningBuildBehind(store);
   try {
     const answer = await object.meaningQuery(vector, { tiers });
     return answer?.served === true && Array.isArray(answer.matches) ? answer.matches : null;
