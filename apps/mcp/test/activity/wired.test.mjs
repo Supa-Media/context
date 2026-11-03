@@ -16,6 +16,7 @@ import {
   parseFile,
   worker,
 } from "./fixtures.mjs";
+import { createWorkerCtx } from "../workerCtx.mjs";
 
 export async function runActivityWiredChecks(check) {
   const objects = new Map();
@@ -116,6 +117,7 @@ export async function runActivityWiredChecks(check) {
 
   let id = 0;
   async function call(token, name, args = {}) {
+    const invocation = createWorkerCtx();
     const res = await worker.fetch(
       new Request("https://x/mcp", {
         method: "POST",
@@ -131,9 +133,12 @@ export async function runActivityWiredChecks(check) {
         }),
       }),
       env,
-      { waitUntil() {} },
+      invocation.ctx,
     );
-    return (await res.json()).result;
+    const result = (await res.json()).result;
+    // The audit entry and the activity line land behind the response (`keepBookkeeping`), inside the same invocation.
+    await invocation.settle();
+    return result;
   }
   const textOf = (result) => result?.content?.[0]?.text ?? "";
   const read = (key) => {

@@ -41,12 +41,49 @@ export async function recordChange(store, action, actorScope, paths, details = {
     entry.actor_client_id = store.actor.clientId;
     entry.workspace_id = store.actor.workspaceId;
   }
-  await phase(store, "record_audit", () => store.put(`${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, JSON.stringify(entry)));
-  await phase(store, "record_activity", () => recordActivity(store, { action, paths, details, at }));
+  await keepBookkeeping(store, `${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, entry, { action, paths, details, at });
   announceTreeChange(store, action, paths, details);
   announceWebsiteChange(store, action, paths);
   announceRoutineChange(store, paths);
   await indexChangedNotes(store, action, paths, details);
+}
+
+/** Each store's last bookkeeping, so one request's changes reach `activity.md` in order and never race each other. */
+const BOOKKEEPING_TAIL = new WeakMap();
+
+/**
+ * Changes whose audit entry is the whole point, so it lands before the answer and its failure fails the call: a routing
+ * suggestion writes nothing else, and `suggestDestination.js` refuses to suggest what it could not record.
+ */
+export const AUDITED_BEFORE_ANSWER = new Set(["route_suggestion"]);
+
+/**
+ * The audit entry and the activity line, behind the response where the host can defer.
+ *
+ * Neither is the change: the note has landed when this runs, and both were already unable to fail it
+ * (`recordActivity` catches everything). Awaited in front of the answer they cost two or three storage round trips on
+ * every save, which is most of a save's budget. Deferred, they still finish inside the same invocation
+ * (`ctx.waitUntil`), audit first, and a store's entries run one after another so two changes in one request do not
+ * contend for `activity.md`. On a host with no `defer` (the suite's direct calls, a self-host shim) both are awaited
+ * here exactly as before, and an audit put that fails still fails the change there.
+ */
+function keepBookkeeping(store, auditKey, entry, change) {
+  const keep = async (timed) => {
+    const run = (name, work) => (timed ? phase(store, name, work) : work());
+    await run("record_audit", () => store.put(auditKey, JSON.stringify(entry)));
+    await run("record_activity", () => recordActivity(store, change));
+  };
+  if (typeof store.defer !== "function" || AUDITED_BEFORE_ANSWER.has(change.action)) return keep(true);
+  const before = BOOKKEEPING_TAIL.get(store) ?? Promise.resolve();
+  const work = before.then(() => keep(false)).catch(() => {});
+  BOOKKEEPING_TAIL.set(store, work);
+  try {
+    store.defer(work);
+    return undefined;
+  } catch {
+    // A host whose `waitUntil` refuses the work: wait for it here instead.
+    return work;
+  }
 }
 
 /**

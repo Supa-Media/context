@@ -239,3 +239,19 @@ note id or path or by the bucket state's path, has no live row; anything else is
 **What a simplification would cost.** Letting the factory fall back to the bucket store again brings the silent
 split back. `apps/convex/__tests__/consoleObjectWrites.test.ts` creates and saves a note through the console in an
 object-home workspace and finds it in the object; `apps/mcp/test/storeFactory.test.mjs` holds the refusal.
+
+## A save's audit entry and activity line are written behind the answer (2026-11-03)
+
+Production timings after the phase timers went live (2026-11-03, 16 saves) put the audit put at 0.36 s p50 and the
+activity line, a read and a conditional write of `activity.md`, after it, both awaited in front of every save's answer.
+Neither is the change: the note has landed when they run, and the activity line was already unable to fail it.
+
+**Decision.** `recordChange` hands both to `store.defer` (`ctx.waitUntil`), audit first, so they finish inside the
+same invocation after the answer has gone. One store's bookkeeping runs one change after another, so two changes in
+one request never race for `activity.md`. A deferred audit put that fails is not the change failing. Where there is
+no `defer`, both are awaited as before. A routing suggestion (`route_suggestion`) keeps its audit in front: that entry
+is the only thing the call writes, and `suggest_destination` refuses to suggest what it could not record.
+
+**What a simplification would cost.** Awaiting them again puts two to three storage round trips back on every save.
+Dropping the per-store chain lets two changes in one request lose an activity line. `apps/mcp/test/bookkeepingBehind.test.mjs`
+holds all three, and its ordering check fails when the chain is removed.
