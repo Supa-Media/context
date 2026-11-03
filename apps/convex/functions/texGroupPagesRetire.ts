@@ -82,11 +82,17 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">, chats: s
   }) as unknown as TexStore;
 }
 
+/** The person-chat mark (`apps/mcp/src/agent/ledger.js` `BACKFILLED`), named here so this file reaches no more of the agent. */
+const BACKFILLED = "backfilledv1";
+
 type Counts = {
   chats: number;
   noPage: number;
   notAPage: number;
   waiting: number;
+  /** Of `waiting`, the ones whose ledger starts with the person-chat mark (`backfilledv1`), and with anything else. */
+  waitingOldV1: number;
+  waitingOldOther: number;
   would: number;
   copied: number;
   already: number;
@@ -105,6 +111,8 @@ export const run = internalAction({
     noPage: v.number(),
     notAPage: v.number(),
     waiting: v.number(),
+    waitingOldV1: v.number(),
+    waitingOldOther: v.number(),
     would: v.number(),
     copied: v.number(),
     already: v.number(),
@@ -116,7 +124,7 @@ export const run = internalAction({
     done: v.boolean(),
   }),
   handler: async (ctx, args): Promise<Counts> => {
-    const counts: Counts = { chats: 0, noPage: 0, notAPage: 0, waiting: 0, would: 0, copied: 0, already: 0, files: 0, trashed: 0, failed: 0, failedCodes: {}, cursor: "", done: false };
+    const counts: Counts = { chats: 0, noPage: 0, notAPage: 0, waiting: 0, waitingOldV1: 0, waitingOldOther: 0, would: 0, copied: 0, already: 0, files: 0, trashed: 0, failed: 0, failedCodes: {}, cursor: "", done: false };
     const plan: { pin: Id<"workspaces"> | null; chats: { groupKey: string; folder: string }[] } = await ctx.runQuery(internal.functions.texGroupPagesRetire.homes, {});
     const start = Math.max(0, Number.parseInt(args.cursor ?? "0", 10) || 0);
     const batch = plan.chats.slice(start, start + CHATS_PER_CALL);
@@ -153,7 +161,13 @@ export const run = internalAction({
           }
           state = (await copyGroupPageIn(ledger, chat.groupKey, turns, { dryRun: args.dryRun })).state;
         }
-        if (state === "waiting") counts.waiting += 1;
+        if (state === "waiting") {
+          counts.waiting += 1;
+          // What the ledger starts with, as a fixed count only: why the page waits (Crystal Care Agency's, 2026-11-03).
+          const oldest = (await (ledger as { oldest?: (chat: string) => Promise<{ id: string } | null> } | null)?.oldest?.(chat.groupKey)) ?? null;
+          if (oldest?.id === BACKFILLED) counts.waitingOldV1 += 1;
+          else counts.waitingOldOther += 1;
+        }
         else if (state === "would") counts.would += 1;
         else if (state === "copied") counts.copied += 1;
         else if (state === "done") counts.already += 1;
