@@ -107,6 +107,15 @@ describe("a quiet group chat's old log is found and copied into its ledger", () 
     expect(await groupsInStore(store, [OTHER], new Set([groupKey]))).toEqual({ found: [], unmatched: 2 });
   });
 
+  test("its log is looked for in the pin too, where a group with a home and no bound workspace texted", async () => {
+    // Crystal Care Agency's, 2026-11-03: its log was never read, so its memory page waited.
+    const { logPlaces } = await import("../functions/texLedgerBackfillGroups");
+    const id = (name: string) => name as never;
+    const plan = { pin: id("pin"), chats: [{ groupKey: "a", bound: null, homed: true }, { groupKey: "b", bound: id("team"), homed: false }], workspaces: [{ id: id("team"), slug: "team", paths: [] }] };
+    expect(logPlaces(plan).sort()).toEqual(["pin", "team"]);
+    expect(logPlaces({ ...plan, pin: null })).toEqual(["team"]);
+  });
+
   test("its log goes into its own ledger under the group's mark, once", async () => {
     const { store, ledgers, groupKey } = await sharedStore();
     expect(await copyChatIn(store, { dryRun: false, group: groupKey, logChat: GROUP_ID })).toMatchObject({ state: "finished" });
