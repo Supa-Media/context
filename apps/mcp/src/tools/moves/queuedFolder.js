@@ -94,7 +94,11 @@ export async function startKeyedNoteMove(store, scope, source, destination, expe
   let answer;
   try {
     answer = await store.startQueuedMove(source, destination, version.etag);
-  } catch {
+  } catch (error) {
+    // A move the gateway gave up waiting on may still land: the caller looks before sending it again.
+    if (error?.reason === "timed out") {
+      return toolError(`the move is taking longer than expected and may still finish; check whether ${destination} exists before sending it again`);
+    }
     return toolError("could not start the move right now; try again in a moment");
   }
   if (!answer || answer.queued !== true) {

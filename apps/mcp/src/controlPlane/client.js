@@ -36,6 +36,14 @@ export const CONTROL_PLANE_SITE_TIMEOUT_MS = 30_000;
 export const CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS = 45_000;
 
 /**
+ * How long one note or folder move may take (`/gateway/moves/start`). The control plane moves the rows, and for
+ * Archive marks and carries the twins, before it answers; an archive took about 10 s in production and every one came
+ * back "could not start the move right now" from under the 8-second lookup timeout, although it had moved
+ * (2026-11-03). Under `move_note`'s and `archive_note`'s own 45-second limit (`agent/slowMoves.js`).
+ */
+export const CONTROL_PLANE_MOVE_TIMEOUT_MS = 30_000;
+
+/**
  * Cap on a control-plane response body.
  *
  * Small on purpose: every documented payload is a few hundred bytes, and the

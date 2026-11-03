@@ -236,8 +236,7 @@ rename that also rewrites the note's first heading, which edits text and stays w
 
 The object takes only the plain case and answers `DEFER` for the rest, which the app sends to `files.moveEntry`: a
 folder with a job or holding one, a folder inside a job's folder (the Inbox's and Tex's own folders), a folder moved to
-the top level (its name can give it a job), a destination twinned by case, a move into Archive (the control plane
-marks the twins on its way, `archiveFollow.ts`), and any workspace whose access set the
+the top level (its name can give it a job), a destination twinned by case, and any workspace whose access set the
 object may not yet decide by. Moving those here would skip the control plane's refusals for them. Like access writes,
 a move does not wait for the mirror (`WAIT_FOR_MIRROR`). `trash: true` is accepted only into `.context/old-copies/`, for
 hiding old copies. Removing the check-first order would let a refused move keep its narrowing; the test is
@@ -249,8 +248,15 @@ user id, and whether it may write), never by the tool call, and a caller that na
 to the control plane. `DEFER`, `UNKEYED`, an unreachable object or an unknown answer fall back to
 `/gateway/moves/start` unchanged; nothing moved in any of them. What the control plane's row move did beside the rows is
 done in the gateway: open editors are told, the change is recorded, and the forwarding ledger and folder icons follow
-behind the answer; links follow when the mirror takes the move. `archive_note` lands in Archive, so it defers today.
-The tests are `apps/mcp/test/objectMove.test.mjs`.
+behind the answer; links follow when the mirror takes the move. The tests are `apps/mcp/test/objectMove.test.mjs`.
+
+A move into Archive, `archive_note` included, is taken in the object too (2026-11-03): the tree mirror marks the
+Archive twins of the built-in folders on its way (`markArchiveTwins` in `lib/nodes/mirrorTree.ts`), as a row move into
+Archive does, and a trash marks nothing. Carrying a built-in folder's twin after it is still the control plane's: a
+folder with a job defers. Before this, an archive asked of the control plane took about 10 s in production and the
+gateway gave up at the 8-second lookup timeout, so every one answered "could not start the move right now" though it
+had moved. A move asked of the control plane now waits `CONTROL_PLANE_MOVE_TIMEOUT_MS` (30 s), and one it gives up on
+is told as one that may still finish. Removing the mark fails `objectRowsMirrorTree.test.ts` ("a move into Archive").
 
 ## Copies in the object (2026-11-03)
 
