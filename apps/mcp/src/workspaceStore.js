@@ -186,7 +186,11 @@ export class WorkspaceStore {
     if ((request.headers.get("Upgrade") || "").toLowerCase() === "websocket") {
       return new URL(request.url).pathname === "/access" ? this.access.accept(request) : this.tree.accept(request);
     }
-    const response = await serveWorkspaceStore(store, request);
+    // Whether this is the first call this instance answers: a woken object, for the gateway's log line.
+    const cold = this.answered !== true;
+    this.answered = true;
+    const served = await serveWorkspaceStore(store, request);
+    const response = opOf(request) === "ws.open" && served.ok ? Response.json({ ...(await served.json()), cold }) : served;
     // Where the tree is read from changed: watchers of a workspace switched back are told to read Convex.
     if (opOf(request) === "ws.home" && response.ok) this.tree.notice({ all: true });
     // A build behind a search that left changes waiting: the alarm builds on (`workspaceStore/indexBuild.js`).
