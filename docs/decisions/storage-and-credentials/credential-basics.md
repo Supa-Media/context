@@ -69,8 +69,18 @@ to prevent:
   (`storageBindings`, `managedEncryptionWorkspaces`, `workspaceObjectHomes`,
 `workspaceDataKeys`, `workspaceKeyRotations`) is
   watched like a row write (`lib/rowWatch/watch.ts` `BINDING_TABLES`): the
-  workspace reads as behind until the push clears the copy, and a clear moves an
-  epoch on so an answer read before it can never be put back. A copy is fresh
+  push clears the copy, and a clear moves an epoch on so an answer read before
+  it can never be put back. Whether a change is still coming is the object's
+  own word since 2026-11-03 (Dev's "every read and write under 0.1 s"): `ws.open`
+  waits for an open mark and answers `behind` while one is out
+  (`workspaceStore/marks.js`), as every other object read has since 2026-11-02.
+  The control plane's `/gateway/objects/behind` (90 to 220 ms, the floor of
+  every store open) is no longer asked per request;
+  `OBJECT_BEHIND_FROM_CONTROL_PLANE=on` asks it beside the object again. What
+  that gives up: a change to the binding's own rows reaches a request when its
+  push clears the copy (scheduled at once, usually under a second), not when it
+  commits. Narrowing access is not in that gap, because every narrowing writer
+  opens its mark before it commits. A copy is fresh
   for `FRESH_MS` (4 minutes), under the 5-minute margin before a temporary
   bucket credential expires.
 - **Past fresh, served and refreshed behind** (2026-11-03, for Dev's "every

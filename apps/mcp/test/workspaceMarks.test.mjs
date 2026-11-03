@@ -143,3 +143,19 @@ test("a folder listing while a change is coming says behind once its wait runs o
   await object.call("ws.mark.close", { tokens: ["mark-gggggggg"] });
   assert.equal((await object.call("ws.rows.manifest", { folder: "plans", scope: "team", groups: [] })).body.behind, undefined);
 });
+
+// `ws.open` (the call a request's store is opened from, `bindingRows.js`) answers the object's own word on whether a
+// change is coming, so the gateway need not ask the control plane before a read (`store/objectBinding.js`).
+// Sabotage: answer `ws.open` without waiting for marks, or drop its `behind`, and both cases here fail.
+test("ws.open waits for a coming change and says behind only while it is still out", { skip }, async () => {
+  const object = await seeded();
+  assert.equal((await object.call("ws.open", { userId: "u1" })).body.behind, false, "no mark open: not behind");
+
+  await object.call("ws.mark.open", { token: "mark-eeeeeeee" });
+  const opening = object.call("ws.open", { userId: "u1" });
+  await object.call("ws.apply", { rows: [], removed: [], at: 20, rules: { member: rules(2) }, close: ["mark-eeeeeeee"] });
+  assert.equal((await opening).body.behind, false, "the push landed within the wait");
+
+  await object.call("ws.mark.open", { token: "mark-ffffffff" });
+  assert.equal((await object.call("ws.open", { userId: "u1" })).body.behind, true, "a push that never comes reads as behind");
+});

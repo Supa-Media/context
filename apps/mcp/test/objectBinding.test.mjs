@@ -10,6 +10,7 @@ import { texObjects } from "../src/texStore/objects.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { workspaceMembers } from "../src/workspaceStore/members.js";
 import { bindingRows } from "../src/workspaceStore/bindingRows.js";
+import { workspaceMarks } from "../src/workspaceStore/marks.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { workspaceClient } from "../src/workspaceStore/api.js";
 import { openBinding, sealBinding } from "../src/workspaceStore/bindingSeal.js";
@@ -47,7 +48,7 @@ function namespace() {
     get(id) {
       if (!objects.has(id.name)) {
         const sql = durableSql();
-        const store = { objects: texObjects(sql), rows: workspaceRows(sql), members: workspaceMembers(sql), binding: bindingRows(sql) };
+        const store = { objects: texObjects(sql), rows: workspaceRows(sql), members: workspaceMembers(sql), binding: bindingRows(sql), marks: workspaceMarks(sql) };
         objects.set(id.name, { store, fetch: (request) => serveWorkspaceStore(store, request) });
       }
       return objects.get(id.name);
@@ -229,9 +230,25 @@ test("ATTACK: a guest, a Tex chat, Tex's setup read and a session naming nobody 
   }
 });
 
-test("a change the control plane has not pushed yet sends the request to the control plane", { skip }, async () => {
+test("a change still coming (an open mark in the object) sends the request to the control plane, which is not asked otherwise", { skip }, async () => {
   const w = await world();
   await open(w);
+  const served = await open(w);
+  assert.equal(served.source, "object");
+  assert.equal(w.calls.behind, 0, "the control plane is not asked whether the object is behind");
+  // A writer that may narrow opened a mark and its push never came: the object answers behind after its wait.
+  w.object.store.marks.open("mark-behind-01");
+  const next = await open(w);
+  assert.equal(next.source, "control_plane");
+  assert.equal(next.reason, "behind");
+  assert.equal(w.calls.behind, 0);
+});
+
+test("switched back on, the control plane's behind question is asked beside the object again", { skip }, async () => {
+  const w = await world();
+  w.env.OBJECT_BEHIND_FROM_CONTROL_PLANE = "on";
+  await open(w);
+  assert.equal((await open(w)).source, "object");
   w.controlPlane.behind = true;
   const next = await open(w);
   assert.equal(next.reason, "behind");
@@ -239,6 +256,7 @@ test("a change the control plane has not pushed yet sends the request to the con
     throw new Error("down");
   };
   assert.equal((await open(w)).reason, "behind", "a behind question that fails reads as behind");
+  assert.ok(w.calls.behind >= 1);
 });
 
 const DATA_KEY = { current: "g2", keys: { g1: "data-key-one", g2: "data-key-two" } };
