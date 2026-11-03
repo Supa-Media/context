@@ -12,6 +12,8 @@ import { narrowMoves } from "./accessMove.js";
 import { TREE_WRITE_OPS } from "./treeWrites.js";
 import { MOVE_WRITE_OPS } from "./moveWrites.js";
 import { WriteOpRefused } from "./writeRefusal.js";
+import { treeOps } from "./treeOps.js";
+import folderRoles from "../../../../packages/shared/src/folderRoles.cjs";
 import { effectiveVisibility, isPlumbing, PrivacyOverrides } from "../privacy/engine.js";
 import { idKeyFor, isNoteId } from "../store/noteIdKeys.js";
 
@@ -82,14 +84,21 @@ function adopt(ctx, body) {
   const { path, noteId, key } = body;
   if (isPlumbing(path) || key !== idKeyFor(noteId, path)) return { ...DEFER };
   const parent = parentOf(path);
-  if (parent !== "") {
-    const folder = ctx.lookupLive(parent);
-    if (folder === null || folder.kind !== "folder") return { ...DEFER };
-  }
+  const folder = parent === "" ? null : ctx.lookupLive(parent);
+  if (folder !== null && folder.kind !== "folder") return { ...DEFER };
+  // A missing folder is stood up here, unless the path's first name is a built-in folder's that no root folder has:
+  // Convex reads that name as the folder doing the job now (`folderJobs.ts` `canonicalJobPath`), so it is its to place.
+  if (parent !== "" && folder === null && (typeof ctx.sql?.exec !== "function" || reroutedByJob(ctx, path))) return { ...DEFER };
   if (ctx.lookupLive(path) !== null || ctx.rows.byNoteId(noteId) !== null) return { ...DEFER };
   const held = ctx.rows.rules("member");
   if (held === null) return { ...DEFER };
   if (body.tier === "private" && heldVisibility(held, path) !== "private") return { ...DEFER };
+
+  let stood = null;
+  if (parent !== "" && folder === null) {
+    stood = treeOps(ctx.sql, { mintId: ctx.mintId }).createFolder({ path: parent, now: ctx.now });
+    if (stood.ok !== true || stood.created !== true) return { ...DEFER };
+  }
 
   const row = ctx.rows.originateNew(
     { id: ctx.mintId(), noteId, path, kind: "file", storageKey: key, etag: body.etag, ...(body.size !== undefined ? { size: body.size } : {}) },
@@ -99,7 +108,20 @@ function adopt(ctx, body) {
   // (`accessRows.js` `takePending`): the rule is then held by the note, not by its path alone.
   ctx.access?.takePending?.(path, "file", noteId, ctx.now);
   const record = { path, noteId, key, etag: body.etag, ...(body.size !== undefined ? { size: body.size } : {}), at: body.at, objectId: row.id };
-  return { answer: { ok: true, adopted: true, at: row.at }, change: { op: "adopt", record, objectAt: row.at }, narrows: false };
+  const adopted = { op: "adopt", record, objectAt: row.at };
+  if (stood === null) return { answer: { ok: true, adopted: true, at: row.at }, change: adopted, narrows: false };
+  // The folders first, so Convex holds them (by the object's ids) before the note it adopts beneath them.
+  const folders = stood.folders.map((made) => ({ id: made.id, noteId: made.noteId, path: made.path, role: made.role, at: made.at }));
+  const tree = { op: "tree", record: { moves: [], folders, removed: [], trash: false }, objectAt: Math.max(...folders.map((made) => made.at)) };
+  return { answer: { ok: true, adopted: true, at: row.at }, changes: [tree, adopted], narrows: false };
+}
+
+/** Whether Convex would read `path` through a built-in folder's job (`lookupMiss.js` asks the same of a read). */
+function reroutedByJob(ctx, path) {
+  const first = path.slice(0, path.indexOf("/"));
+  if (folderRoles.jobOfName(first) === null) return false;
+  const root = ctx.lookupLive(first);
+  return root === null || root.kind !== "folder";
 }
 
 /** The write ops by name. Every name starts with `ws.write.`. */
