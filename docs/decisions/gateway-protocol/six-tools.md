@@ -15,7 +15,7 @@ until call logs show nobody uses them. They are no longer in `tools/list`.
   [`search` and `fetch` exist because ChatGPT's chats can call nothing else](../gateway-protocol.md))
   and the ids `fetch` accepts are the one vocabulary for reading anything.
 - **`write`** adds or changes content: a note, a comment, mail, a remembered
-  fact, a proposal, a form answer, a saved session, a problem report.
+  fact, a form answer, a saved session, a problem report.
 - **`manage`** changes what Context can undo: where something lives, who sees
   it, whether it is encrypted, a share link, a vault link.
 - **`send`** does what Context cannot take back: a call to an outside API with

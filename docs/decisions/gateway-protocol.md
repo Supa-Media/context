@@ -403,7 +403,8 @@ measured:
 ## The agent's tool list is enforced at the call, and `readOnlyHint` does not decide it
 
 `/agent` runs a model against the caller's own connection: `toolsForSession`
-builds the list, `agentTools` narrows it to the read tools plus `propose_note`,
+builds the list, `agentTools` narrows it to the read tools (plus, for the
+app's own assistant and a text, the client's write tools; see "No proposals"),
 and `callToolForSession` — the client's dispatcher, not a copy — runs each call.
 Two things were wrong with that and both were the same mistake, which is
 believing a list is a control when the *model* picks from it.
@@ -411,8 +412,8 @@ believing a list is a control when the *model* picks from it.
 **The narrowed list is now enforced where the call is made.** `runTurn` builds a
 set of the names in `tools` and refuses anything else in band, before dispatch,
 the way it already refuses a tool that threw. Before, the name came out of the
-provider's response and went straight into the dispatcher, so "writes are
-proposals" held only for a model that read the prompt and agreed: one that named
+provider's response and went straight into the dispatcher, so "only what was
+offered" held only for a model that read the prompt and agreed: one that named
 `write_note` had the write carried out under the person's own grant. That is not
 a hypothetical about model behaviour. A personal context ingests email into
 `0-inbox/`, so the text the agent reads is text a stranger can author, and a
@@ -424,9 +425,9 @@ past.
 **And `readOnlyHint` is not the axis.** `export_encryption_keys` mutates nothing
 and is annotated accordingly; it also returns the workspace data key(s) in the
 clear, and `agentTools` was reading "does this mutate?" as "may a model call
-this?". The consequence is not the answer on the screen. The agent also holds
-`propose_note`, which writes its content into the bucket, so export-then-propose
-lands the key that opens every encrypted note in this context in plaintext
+this?". The consequence is not the answer on the screen. An agent that can also
+write (a proposal, when this was written; a text's or the app's write tools now)
+could export, then write the key that opens every encrypted note in this context in plaintext
 beside those notes — the exact thing non-negotiable #1 forbids, produced without
 a single tool doing anything it was not annotated to do. The two key-material
 tools are named in `WITHHELD_FROM_AGENT`, both of them, because a list of "the
@@ -440,6 +441,36 @@ the agent was never offered writes nothing` and `...and does not run at all,
 whatever the model named`, in `apps/mcp/test/agent.test.mjs`, entries 5 and 6 of
 that file's sabotage record. The middle one asserts the damage rather than the
 mechanism: with the dispatch guard gone, the note really is in the bucket.
+
+## No proposals
+
+Decided by the owner on 2026-11-03 ("let's get rid of proposals entirely"). A
+proposal was a note queued under `.context/proposals/` for a folder the caller
+could not write, until an owner approved it: the tools `propose_note`,
+`list_proposals`, `read_proposal` and `review_proposal`, the v2 actions `write
+propose` and `manage review_proposal`, `fetch "proposals:"`, and orient's
+"pending proposals" section. The app never showed the queue, AI clients edit
+notes directly, and orient listed the bucket twice on every call to count it
+(about 750 ms, one of orient's two slowest parts).
+
+What replaced each use:
+
+- A write outside the caller's write surface is refused with the same
+  permission error as before, and the error no longer points at a queue.
+- `save_context` from a team connection asking for a private archive is
+  refused; it never gains private write access.
+- The app's own assistant (`context_console`) is offered the client's write
+  tools, as a text is (the owner chose "Edit directly, like texting" the same
+  day). Any other `/agent` client and a routine's own run are offered only
+  reads, and the desktop's local assistant reads only.
+- Proposals already stored under `.context/proposals/` are left where they
+  are: nothing reads them, and Download as folders still carries them.
+
+Bringing a queue back would mean a screen to review it; the test that fails if
+a proposal tool returns is `propose_note is no longer a tool` (and its three
+siblings) in `apps/mcp/test/archiveAndChatHistory.test.mjs`, and the app's
+assistant losing its writes fails `the app's own assistant is offered the same
+writes a text is` in `apps/mcp/test/agent.test.mjs`.
 
 ## Presence is a read that happens to be a socket
 

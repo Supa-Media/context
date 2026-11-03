@@ -74,35 +74,6 @@ test("a connected app's answer marks the turn, a change's included, and asking f
   assert.equal(link.untrusted, false, "a connect link");
 });
 
-/*
-  A proposal is filed by a connection that may not write — that is what
-  `propose_note` is for — so its reason and its content are somebody else's
-  words. `list_proposals` is already in `UNTRUSTED_LISTINGS` for the reason
-  alone ("a proposal's reason off whichever agent filed it"); `read_proposal`
-  hands the model the reason *and* the whole proposed note, so it marks the
-  turn for the same reason and more.
-*/
-test("reading a proposal marks the turn, as listing one already does", () => {
-  const proposal = newLedger();
-  recordRead(proposal, {
-    name: "read_proposal",
-    args: { id: "p_1" },
-    result: {
-      content: [
-        {
-          type: "text",
-          text: "proposal: p_1\nintended path: 1-projects/x.md\nsubmitted by: @someone\ncreated: 2026-10-21\nreason: tidying\n\nThe proposed note's words.",
-        },
-      ],
-    },
-  });
-  assert.equal(proposal.untrusted, true, "the words whichever connection proposed");
-
-  const listed = newLedger();
-  recordRead(listed, { name: "list_proposals", args: {}, result: { content: [{ type: "text", text: "p_1 · tidying" }] } });
-  assert.equal(listed.untrusted, true, "and the listing still does too");
-});
-
 test("mightWiden says yes to the calls that can widen, and no to the rest", () => {
   // Widening shapes, judged without a manifest.
   assert.equal(mightWiden("create_link", { path: "a.md" }), true);
@@ -129,7 +100,7 @@ test("mightWiden says yes to the calls that can widen, and no to the rest", () =
   assert.equal(mightWiden("save_context", { visibility: "private" }), false);
   assert.equal(mightWiden("move_note", { source: "a.md", destination: "b.md" }), false, "a move without the publish ask");
   assert.equal(mightWiden("move_folder", { source: "a", destination: "b", confirm_team_publish: false }), false);
-  for (const name of ["remember", "propose_note", "submit_form", "update_submission"]) {
+  for (const name of ["remember", "submit_form", "update_submission"]) {
     assert.equal(mightWiden(name, { content: "x" }), false, `${name} inside this workspace`);
   }
   assert.equal(mightWiden("read_note", { path: "a.md", visibility: "team" }), false, "a read");
@@ -145,14 +116,13 @@ test("mightWiden never admits a dry run, and an addressed workspace makes every 
 
   assert.equal(mightWiden("write_note", { path: "a.md", content: "" }, { into: "@elsewhere" }), true);
   assert.equal(mightWiden("remember", { content: "x" }, { into: "@elsewhere" }), true);
-  assert.equal(mightWiden("propose_note", { path: "a.md" }, { into: "@elsewhere" }), true);
   assert.equal(mightWiden("move_note", { source: "a.md", destination: "b.md" }, { into: "@elsewhere" }), true);
   assert.equal(mightWiden("read_note", { path: "a.md" }, { into: "@elsewhere" }), false, "a read into another workspace is no widening");
   assert.equal(mightWiden("report_problem", { message: "hi" }, { into: "@elsewhere" }), false);
 });
 
 test("a listing that carries a stranger's words marks the turn, and a plain one still does not", () => {
-  for (const name of ["list_meetings", "list_contacts", "list_proposals", "list_plugins"]) {
+  for (const name of ["list_meetings", "list_contacts", "list_plugins"]) {
     const ledger = newLedger();
     recordRead(ledger, { name, args: {}, scope: "private", workspaceId: "ws", result: { content: [{ type: "text", text: "x" }] } });
     assert.equal(ledger.untrusted, true, name);
