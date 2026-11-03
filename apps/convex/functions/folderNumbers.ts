@@ -19,6 +19,7 @@ import { pinUnkeyed, unpin } from "./lib/oldCopies/folders";
 import { type FolderNumbersCounts, dropFolderNumbersIn, folderNumbersPlanValidator, planFolderNumbers } from "./lib/nodes/folderNumbers";
 import type { OperationResult } from "./lib/filesFns/operationTypes";
 import { rowsAfter } from "./lib/nodes/paths";
+import type { NotesHome } from "./workspaceObjectsRows";
 
 const DEFAULT_PAGE = 25;
 /** Rows under a folder read per pin page: well inside one mutation's reads. */
@@ -72,6 +73,8 @@ const countsValidator = v.object({
   wouldRename: v.number(),
   twins: v.number(),
   refused: v.record(v.string(), v.number()),
+  /** Workspaces this pass left alone, by reason: `object` is one whose notes live in its object (the object writes its tree). */
+  left: v.record(v.string(), v.number()),
   cursor: v.string(),
   done: v.boolean(),
 });
@@ -84,8 +87,24 @@ export const run = internalAction({
       internal.functions.folderNumbers.workspacePage,
       { ...(cursor === undefined ? {} : { cursor }), ...(limit === undefined ? {} : { limit }) },
     );
-    const totals = { workspaces: 0, changed: 0, renamed: 0, wouldRename: 0, twins: 0, refused: {} as Record<string, number> };
+    const totals = {
+      workspaces: 0,
+      changed: 0,
+      renamed: 0,
+      wouldRename: 0,
+      twins: 0,
+      refused: {} as Record<string, number>,
+      left: {} as Record<string, number>,
+    };
     for (const workspaceId of page.workspaceIds) {
+      // A workspace whose notes live in its object is left before anything is pinned: the object writes its tree
+      // (`docs/decisions/storage-and-credentials/background-tree-writers.md`), and a rename there is its own transaction.
+      const home: NotesHome = await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId });
+      if (home === "object") {
+        totals.workspaces += 1;
+        totals.left.object = (totals.left.object ?? 0) + 1;
+        continue;
+      }
       const move = async (from: string, to: string): Promise<OperationResult> =>
         (await ctx.runAction(internal.functions.files.runFileOperation, {
           workspaceId,

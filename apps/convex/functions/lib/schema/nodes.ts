@@ -47,6 +47,12 @@ export const nodeTables = {
     observedAt: v.number(),
     goneAt: v.optional(v.number()),
     /**
+     * The workspace object's clock (`at`) of the last change the object itself made to this row and that Convex
+     * has taken behind it (`functions/objectRowsMirror.ts`). Not part of the object's digest: it orders the object's
+     * own writes against a push Convex still sends (`functions/lib/workspaceObjects/rows.ts`).
+     */
+    objectAt: v.optional(v.number()),
+    /**
      * What a note's text says about it, read by the facts fill
      * (`lib/nodes/facts.ts`, decided by the owner, 2026-10-13): `props` is its
      * front matter, first heading, first paragraph, inline tags and length as

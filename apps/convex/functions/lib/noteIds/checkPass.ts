@@ -5,6 +5,10 @@
  * the bucket says is missing or differs is cleared from its row, so the next
  * pass copies it again.
  *
+ * A workspace whose notes live in its object is not checked at all: its bucket
+ * holds only a backup copy written behind, so the rows are not compared with it
+ * and nothing is written to them (`docs/decisions/storage-and-credentials/background-tree-writers.md`).
+ *
  * A keyed row has no copy to compare: its bytes are its key's. Its key's HEAD
  * is read instead (`keyHeads`, metadata only). A key that is missing is only
  * counted, because the path it came from is a frozen old copy and must not be
@@ -21,6 +25,7 @@ import { applyObservation } from "../nodes/observe";
 import { convexNodeTable } from "../nodes/convexTable";
 import { runNoteIdPageOnMover } from "../storageMover";
 import { nodeAt } from "./state";
+import { notesInObject } from "../nodes/notesHome";
 
 const STATES = new Set(["same", "missing", "source_missing", "differs"]);
 
@@ -77,6 +82,8 @@ export async function recordKeyedCheckPage(
   answers: KeyedAnswer[],
 ): Promise<{ checked: number; missing: number; differs: number }> {
   const counted = { checked: 0, missing: 0, differs: 0 };
+  // An object-home workspace's rows are the object's to write; the bucket's answers are not about them.
+  if (await notesInObject(ctx.db, workspaceId)) return counted;
   for (const answer of answers) {
     const node = await nodeAt(ctx.db, workspaceId, answer.path);
     if (node === null || node.kind !== "file" || node.goneAt !== undefined || node.noteId === undefined) continue;
@@ -124,6 +131,8 @@ export async function recordCheckPage(
   answers: CheckAnswer[],
 ): Promise<{ checked: number; missing: number; differs: number }> {
   const counted = { checked: 0, missing: 0, differs: 0 };
+  // An object-home workspace's rows are the object's to write; the bucket's answers are not about them.
+  if (await notesInObject(ctx.db, workspaceId)) return counted;
   for (const answer of answers) {
     const node = await nodeAt(ctx.db, workspaceId, answer.path);
     if (node === null || node.kind !== "file" || node.goneAt !== undefined) continue;
@@ -143,6 +152,9 @@ export async function runCheckChain(ctx: ActionCtx, args: CheckArgs, deps: Check
   const { workspaceId } = args;
   const streak = args.streak ?? 0;
   try {
+    // Asked on every page, so a workspace that moved home mid-pass stops at its next page. Nothing is read or written then,
+    // and the diagnosis is left as it was.
+    if (!(await ctx.runQuery(internal.functions.noteIdsCopy.checkHome, { workspaceId }))) return;
     const page = await ctx.runQuery(internal.functions.noteIdsCopy.checkPage, {
       workspaceId,
       ...(args.after === undefined ? {} : { after: args.after }),

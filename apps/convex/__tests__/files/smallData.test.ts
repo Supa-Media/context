@@ -268,7 +268,10 @@ describe("the rows leave with the workspace", () => {
 
   test("a storage move keeps the icons and ledger, and imports the new bucket's emoji", async () => {
     const f = await populated();
-    await f.t.mutation(internal.functions.nodesPurge.resetForStorage, { workspaceId: f.workspaceId });
+    await f.t.run(async (ctx) => {
+      const { forgetWorkspaceTree } = await import("../../functions/nodesPurge");
+      await forgetWorkspaceTree(ctx, f.workspaceId, { storageMoved: true });
+    });
     const after = await held(f);
     expect(after).toEqual({ icons: 1, emoji: 0, ledger: 1, state: 1 });
     await settle(f);
