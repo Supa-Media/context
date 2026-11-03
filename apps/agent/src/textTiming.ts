@@ -7,8 +7,9 @@
  * Worker, and ends when the first bubble of the answer went out. So every
  * answered text writes one point to Workers Analytics Engine (`TEX_TEXTS`,
  * dataset `tex_text_timing`, read with the account's SQL API): its kind
- * ("one" or "group") and milliseconds only (`TEXT_COLUMNS`), never a phone
- * number, a chat or a word. Without the binding (self-hosting, tests) nothing
+ * ("one" or "group"), the turn's id (the chat ledger's `turn`, so one turn's
+ * row lines up with the gateway's) and milliseconds only (`TEXT_COLUMNS`),
+ * never a phone number, a chat or a word. Without the binding (self-hosting, tests) nothing
  * is written; a binding that throws never costs the reply.
  */
 
@@ -26,19 +27,19 @@ export const TEXT_COLUMNS = ["queueMs", "gatewayMs", "beforeSendMs", "sendMs", "
 export type TextTimingRow = Partial<Record<(typeof TEXT_COLUMNS)[number], number>>;
 
 /** The point for one answered text: a missing or negative step is -1. */
-export function textTimingPoint(kind: "one" | "group", row: TextTimingRow): { blobs: string[]; doubles: number[]; indexes: string[] } {
+export function textTimingPoint(kind: "one" | "group", row: TextTimingRow, turn = ""): { blobs: string[]; doubles: number[]; indexes: string[] } {
   const doubles = TEXT_COLUMNS.map((name) => {
     const value = row[name];
     return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : -1;
   });
-  return { blobs: [kind], doubles, indexes: [kind] };
+  return { blobs: [kind, turn.slice(0, 64)], doubles, indexes: [kind] };
 }
 
 /** Writes the point, best effort. False without a binding. */
-export function writeTextTiming(dataset: TimingDataset | undefined, kind: "one" | "group", row: TextTimingRow): boolean {
+export function writeTextTiming(dataset: TimingDataset | undefined, kind: "one" | "group", row: TextTimingRow, turn = ""): boolean {
   if (!dataset || typeof dataset.writeDataPoint !== "function") return false;
   try {
-    dataset.writeDataPoint(textTimingPoint(kind, row));
+    dataset.writeDataPoint(textTimingPoint(kind, row, turn));
   } catch {
     // Diagnostics never fail a reply.
   }

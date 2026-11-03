@@ -25,7 +25,7 @@ import { sha256Hex } from "./groupChat";
 import { writeTextTiming, type TimingDataset } from "./textTiming";
 
 /** When a turn's time went, in ms: read by `logTurnTiming` once its bookkeeping is done. `arrived`: when its oldest text came in; `firstSent`: when its first part went. */
-export type TurnTiming = { started: number; arrived?: number; answered?: number; sendStart?: number; firstSent?: number; sendEnd?: number };
+export type TurnTiming = { started: number; arrived?: number; answered?: number; sendStart?: number; firstSent?: number; sendEnd?: number; /** The turn's id, as the gateway's timing has it. */ turn?: string };
 
 const deferred = new WeakMap<InboxStorage, Promise<void>>();
 /** The last session's token, in memory only, so what a turn sent is written to the log once it went (`events.ts`). */
@@ -100,5 +100,5 @@ export function logTurnTiming(timing: TurnTiming, parts: number, bookedAt: numbe
     afterSendMs: bookedAt - sendEnd,
   };
   console.log(JSON.stringify({ event: "inbox_turn_timing", ...row, totalMs: bookedAt - started }));
-  writeTextTiming(dataset, "one", row);
+  writeTextTiming(dataset, "one", row, timing.turn ?? "");
 }

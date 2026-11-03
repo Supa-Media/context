@@ -573,7 +573,8 @@ describe("the work after a reply", () => {
     await afterRepliesSettled(storage);
     expect(sent).toHaveLength(1);
     expect(points).toHaveLength(1);
-    expect(points[0].blobs).toEqual(["one"]);
+    expect(points[0].blobs![0]).toBe("one");
+    expect(points[0].blobs![1]).toMatch(/^\S{8,64}$/); // the turn's id, as the gateway's timing has it
     const row = Object.fromEntries(TEXT_COLUMNS.map((name, i) => [name, points[0].doubles![i]]));
     expect(row.parts).toBe(1);
     expect(row.queueMs).toBeGreaterThan(4_000);
@@ -590,6 +591,7 @@ describe("the work after a reply", () => {
     expect(row.gatewayMs).toBe(2_400);
     expect(row.toFirstTextMs).toBe(-1);
     expect(row.sendMs).toBe(-1);
-    expect(point.blobs).toEqual(["group"]);
+    expect(point.blobs).toEqual(["group", ""]);
+    expect(textTimingPoint("one", {}, "turn-1").blobs).toEqual(["one", "turn-1"]);
   });
 });

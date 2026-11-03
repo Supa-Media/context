@@ -29,17 +29,32 @@ test("a step is one point: its name, state, milliseconds and start, indexed by w
     return { question: "a secret" };
   });
   assert.deepEqual(value, { question: "a secret" });
+  assert.deepEqual(TEX_ENTRY.points, [], "a point waits for the turn's id");
+  tex.turn = "turn-1";
   await assert.rejects(tex.step("history", async () => {
     time.tick(10);
     throw new Error("boom");
   }));
   tex.responded();
   assert.deepEqual(TEX_ENTRY.points, [
-    { blobs: ["gateway", "one", "read_request", "ok"], doubles: [40, 5], indexes: ["ws_1"] },
-    { blobs: ["gateway", "one", "history", "failed"], doubles: [10, 45], indexes: ["ws_1"] },
-    { blobs: ["gateway", "one", "to_response", "ok"], doubles: [55, 0], indexes: ["ws_1"] },
+    { blobs: ["gateway", "one", "read_request", "ok", "turn-1"], doubles: [40, 5], indexes: ["ws_1"] },
+    { blobs: ["gateway", "one", "history", "failed", "turn-1"], doubles: [10, 45], indexes: ["ws_1"] },
+    { blobs: ["gateway", "one", "to_response", "ok", "turn-1"], doubles: [55, 0], indexes: ["ws_1"] },
   ]);
   assert.doesNotMatch(JSON.stringify(TEX_ENTRY.points), /secret/);
+});
+
+test("a turn that ends before its id is read still writes its points, with no id; a later id never relabels them", async () => {
+  const TEX_ENTRY = dataset();
+  const tex = texEntry({ TEX_ENTRY }, { who: "ws_1" });
+  await tex.step("read_request", () => "x");
+  tex.responded();
+  assert.deepEqual(TEX_ENTRY.points.map((point) => point.blobs.slice(2)), [["read_request", "ok", ""], ["to_response", "ok", ""]]);
+  tex.turn = "late";
+  await tex.step("after:usage", () => "y");
+  assert.equal(TEX_ENTRY.points.at(-1).blobs[4], "late", "work after the response carries it once known");
+  tex.turn = "other";
+  assert.equal(tex.turn, "late", "the first id holds");
 });
 
 test("an off step is skipped only on a chat's text on a lean deployment, and still logs as off", async () => {
@@ -54,6 +69,7 @@ test("an off step is skipped only on a chat's text on a lean deployment, and sti
     const TEX_ENTRY = dataset();
     const tex = texEntry({ ...env, TEX_ENTRY });
     tex.kind = kind;
+    tex.turn = "t";
     let ran = false;
     const value = await tex.step(name, () => ((ran = true), "read"), "fallback");
     assert.equal(ran, !skipped, `${kind} ${JSON.stringify(env)}`);
@@ -72,6 +88,7 @@ test("after-work waits for the response; a promise already running is handed ove
   const TEX_ENTRY = dataset();
   const later = [];
   const tex = texEntry({ TEX_ENTRY }, { later });
+  tex.turn = "t";
   let ran = false;
   await tex.after("usage", () => (ran = true));
   let settle;
@@ -89,16 +106,18 @@ test("after-work waits for the response; a promise already running is handed ove
 test("ahead never leaves a rejection unhandled, and wait times how long it held the turn", async () => {
   const TEX_ENTRY = dataset();
   const tex = texEntry({ TEX_ENTRY });
+  tex.turn = "t";
   const started = tex.ahead("tools_list", async () => {
     throw new Error("no tools");
   });
   await assert.rejects(tex.wait("tools_list", started), /no tools/);
-  assert.deepEqual(TEX_ENTRY.points.map((point) => point.blobs.slice(2)), [["tools_list", "failed"], ["wait:tools_list", "failed"]]);
+  assert.deepEqual(TEX_ENTRY.points.map((point) => point.blobs.slice(2, 4)), [["tools_list", "failed"], ["wait:tools_list", "failed"]]);
 });
 
 test("points stop at the cap and a dataset that throws never fails a turn", async () => {
   const TEX_ENTRY = dataset();
   const tex = texEntry({ TEX_ENTRY });
+  tex.turn = "t";
   for (let i = 0; i < 250; i += 1) await tex.step("note_read", () => i);
   assert.equal(TEX_ENTRY.points.length, 100);
   const broken = texEntry({ TEX_ENTRY: { writeDataPoint: () => { throw new Error("down"); } } });
@@ -120,6 +139,7 @@ test("a tool waits for the allowed check, and none runs when it says no", async 
 test("a person's own Tex bookkeeping and their desk are timed as object calls: the one-to-one reads that live in their object", async () => {
   const TEX_ENTRY = dataset();
   const tex = texEntry({ TEX_ENTRY }, { who: "ws_1" });
+  tex.turn = "t";
   let desks = 0;
   const store = {
     get: async () => null,
@@ -134,7 +154,7 @@ test("a person's own Tex bookkeeping and their desk are timed as object calls: t
   assert.deepEqual(await store.texDesk(), { history: null, notes: {} });
   await store.get(".context/agent/settings.json");
   assert.equal(desks, 1);
-  assert.deepEqual(TEX_ENTRY.points.map((point) => point.blobs.slice(2)), [
+  assert.deepEqual(TEX_ENTRY.points.map((point) => point.blobs.slice(2, 4)), [
     ["store:get:object", "ok"],
     ["store:put:object", "ok"],
     ["store:list:object", "ok"],
@@ -146,6 +166,7 @@ test("a person's own Tex bookkeeping and their desk are timed as object calls: t
 test("each store call is timed by operation and by where it went, a Tex object or the bucket, never by key", async () => {
   const TEX_ENTRY = dataset();
   const tex = texEntry({ TEX_ENTRY }, { who: "ws_1" });
+  tex.turn = "t";
   const store = {
     get: async (key) => ({ key }),
     head: async () => null,
@@ -158,7 +179,7 @@ test("each store call is timed by operation and by where it went, a Tex object o
   await store.get("notes/abc.md");
   await store.head(".context/collaboration/abc/state.json");
   await assert.rejects(store.put("notes/abc.md", "x"));
-  assert.deepEqual(TEX_ENTRY.points.map((point) => point.blobs.slice(2)), [
+  assert.deepEqual(TEX_ENTRY.points.map((point) => point.blobs.slice(2, 4)), [
     ["store:get:object", "ok"],
     ["store:get:bucket", "ok"],
     ["store:head:bucket", "ok"],

@@ -226,6 +226,7 @@ export function texLedger(sql, { now = Date.now, guard = () => {} } = {}) {
           delete entry.args;
           delete entry.result;
           if (entry.kind === "reply") delete entry.text; // its words are the chat's text events; a reader wants its turn and `clean`
+          delete entry.timing; // where a reply's time went is for the history view, never a turn's reads
         }
         return entry;
       });

@@ -360,6 +360,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   let turn: Answered;
   try {
     turn = await answering(message, work, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, arrivedAt: timing.arrived }, storage, covers, presence, timing);
+    if (typeof turn.turn === "string") timing.turn = turn.turn; // its timing row lines up with the gateway's (`textTiming.ts`)
   } catch (error) {
     if (!(error instanceof TryLater)) throw error;
     // Nothing ran, so these texts and the ones behind them wait; later ones keep their order.

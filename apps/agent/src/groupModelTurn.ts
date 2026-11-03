@@ -203,7 +203,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho, askLine(answer));
   await texSpoke(storage);
   log("answered");
-  logTiming({ arrivedAt, asking, answered, firstSent, sent: deps.now(), parts: texts.length }, deps.textTiming);
+  logTiming({ arrivedAt, asking, answered, firstSent, sent: deps.now(), parts: texts.length, turn: meta.turn ?? "" }, deps.textTiming);
   await routineDone(deps, message, "answered", texts.length > 0 ? 1 : 0);
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
   await watchConversation(storage, { kind: "group", message, people }, deps.now());

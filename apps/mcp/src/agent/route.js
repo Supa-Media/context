@@ -13,6 +13,7 @@ import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
 import { keepTextedPictures } from "./textedPictures.js"; import { jobTagged, ledgerObserver, wordsEntry } from "./ledger.js"; import { exchangeEntries } from "./ledgerConversation.js";
 import { groupTimingLine, turnKind, turnReport, waitBefore } from "./turnLog.js";
+import { turnTiming } from "./turnTiming.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
 import { openLearnedSkills, withLearnedSkills } from "./learnedSkills.js";
@@ -468,7 +469,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   // Their zone: a routine's own, else the one the texting Worker sent (`localNow.js`).
   const timeZone = runner ? routineTimeZone(routine.settings, body.routine.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE;
-  const chatLog = texting || group !== null || ownConversation !== null ? store.ledger : null, ledgerTurn = typeof body.turn === "string" && body.turn !== "" ? body.turn : `gw${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`, ledgerAt = { turn: ledgerTurn, ownSlug: session.workspaceSlug }; // a turn the Worker named none for gets one, so its steps and reply are its own (`ledgerConversation.js`) // the chat's one record of everything (`ledger.js`); the pictures they texted are kept below under an egress ledger of its own
+  const chatLog = texting || group !== null || ownConversation !== null ? store.ledger : null, ledgerTurn = typeof body.turn === "string" && body.turn !== "" ? body.turn : `gw${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`, ledgerAt = { turn: ledgerTurn, ownSlug: session.workspaceSlug }; tex.turn = ledgerTurn; if (stages) stages.turn = ledgerTurn; // every timing point carries it (`texEntryPoint.js`, `turnStages.js`) // a turn the Worker named none for gets one, so its steps and reply are its own (`ledgerConversation.js`) // the chat's one record of everything (`ledger.js`); the pictures they texted are kept below under an egress ledger of its own
   const unseen = { ...session, egress: { ...session.egress, ledger: newLedger() } };
   Object.defineProperty(unseen, "accessToken", { value: session.accessToken, enumerable: false }); // as `sessionForContext`
   // The pictures they texted, kept in a note of their own (`textedPictures.js`) as the turn is saved: the daily transcripts that kept them are no longer written.
@@ -621,7 +622,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
     // What the person's chat rebuilt from the ledger shows beside this answer (`ledgerConversation.js`): the files they sent and where a picture is kept, the pages it read, the thread it was typed in.
     const attached = attachmentsLine(attachments, attachments.length > 0 ? ((await tex.step("pictures_kept", keepPictures)) ?? []) : []), sources = turn.steps.flatMap((step) => step.sources ?? []);
-    chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), wordsEntry("reply", sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, clean: ledger.untrusted !== true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`)
+    chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), wordsEntry("reply", sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, timing: turnTiming({ steps: tex.steps, trace: turn.timing?.trace, waitMs: waitBefore(body.arrivedAt, received), replyMs: Date.now() - received }), clean: ledger.untrusted !== true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`)
     // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
     const replaced = (job !== null && steer !== null && (await tex.step("steer_pending", () => steer.pending()))) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
     if (steer !== null) await tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear()));
