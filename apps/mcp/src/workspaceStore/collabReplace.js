@@ -39,7 +39,7 @@ const NOTE_ID = /^[A-Za-z0-9-]{1,128}$/;
 class NotHeldHere extends Error {}
 
 /** Whether `error`, or anything it was caused by (the engine wraps storage errors), is `NotHeldHere`. */
-function notHeldHere(error) {
+export function notHeldHere(error) {
   for (let seen = error, depth = 0; seen && depth < 8; seen = seen.cause, depth += 1) if (seen instanceof NotHeldHere) return true;
   return false;
 }

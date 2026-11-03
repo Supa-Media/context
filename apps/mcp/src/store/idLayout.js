@@ -369,6 +369,16 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
       return { key: entry.key, etag: entry.etag, noteId: typeof entry.noteId === "string" ? entry.noteId : null };
     });
     define("prime", (paths) => ask.prime((Array.isArray(paths) ? paths : []).filter(mirroredPath)));
+    // The keyed note at `path`, its Markdown and its editing history's text in one call to the workspace object
+    // (`workspaceRouting.js` `readInObject`), from this read's one lookup; `null` where that is not how it is read.
+    if (typeof store.readInObject === "function") {
+      define("readInObject", async (path) => {
+        if (!mirroredPath(path)) return null;
+        const { entry } = await resolveWith(ask, path);
+        if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
+        return await store.readInObject({ path, key: entry.key, noteId: entry.noteId });
+      });
+    }
     // A read that hands its view on (`read_notes` to `read_note`) keeps the one it has.
     define("oneRead", () => view);
     return view;

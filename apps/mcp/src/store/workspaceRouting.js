@@ -244,6 +244,22 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
    * `null` when the object did not serve it (not held there, the row moved, a version only the bucket keeps): the
    * caller then runs the engine through this store, as before.
    */
+  /**
+   * Every write the object's engine made (`collabReplace.js`, `collabRead.js`), copied to the bucket behind the
+   * response exactly as `put` copies one, and a document state it wrote prunes the object's older versions the same way.
+   */
+  const copyHandedBack = async (answer) => {
+    for (const write of Array.isArray(answer?.writes) ? answer.writes : []) {
+      if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
+      await mirror("put", write.key, () => store.put(write.key, write.body));
+      const documentId = documentStateId(write.key);
+      if (documentId !== null) await mirror("prune", write.key, () => pruneRevisions(documentId, write.body));
+    }
+    for (const removed of Array.isArray(answer?.deletes) ? answer.deletes : []) {
+      if (typeof removed === "string") await mirror("delete", removed, () => store.delete(removed));
+    }
+  };
+
   if (typeof client.collab?.replace === "function") {
     wrapped.replaceInObject = async ({ path, key, noteId, legacyEtag = null, rowEtag = null, expectedEtag, text, record = null }) => {
       if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
@@ -253,18 +269,28 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
         expectedEtag, text,
         ...(Number.isFinite(record?.at) ? { record: { at: record.at } } : {}),
       });
-      for (const write of Array.isArray(answer?.writes) ? answer.writes : []) {
-        if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
-        await mirror("put", write.key, () => store.put(write.key, write.body));
-        const documentId = documentStateId(write.key);
-        if (documentId !== null) await mirror("prune", write.key, () => pruneRevisions(documentId, write.body));
-      }
-      for (const removed of Array.isArray(answer?.deletes) ? answer.deletes : []) {
-        if (typeof removed === "string") await mirror("delete", removed, () => store.delete(removed));
-      }
+      await copyHandedBack(answer);
       if (answer?.served === true) return answer;
       // Why the save ran the engine from here instead: a short code from the object, never the path.
       log("workspace_object_collab_not_served", { workspaceId, reason: typeof answer?.reason === "string" ? answer.reason : null });
+      return null;
+    };
+  }
+
+  /**
+   * A note's Markdown and its editing history's text in one call (`workspaceStore/collabRead.js`), for `read_note` in
+   * an object-home workspace the object holds whole: `{markdown, collaboration|error, took}`. `null` when the object
+   * did not serve it, and the caller reads the Markdown and the history through this store, as before.
+   */
+  if (typeof client.collab?.read === "function") {
+    wrapped.readInObject = async ({ path, key, noteId }) => {
+      if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
+      const answer = await client.collab.read({ path, key, noteId });
+      await copyHandedBack(answer);
+      const markdown = answer?.markdown;
+      if (answer?.served === true && typeof markdown?.etag === "string" && typeof markdown.text === "string") return answer;
+      // Why the read went the long way instead: a short code from the object, never the path.
+      log("workspace_object_read_not_served", { workspaceId, reason: typeof answer?.reason === "string" ? answer.reason : null });
       return null;
     };
   }
