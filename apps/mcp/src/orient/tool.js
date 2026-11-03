@@ -33,6 +33,7 @@ import { HOW_TO_WORK, inToolNames } from "./howToWork.js";
 import { actionManual, actionNames, findAction, toolsManual } from "./manual.js";
 import { connectedBlock, openOnce, surveyOf, surveyOtherContexts } from "./workspaces.js";
 import { orientMailSection, readMailHealth } from "../agent/mailHealth.js";
+import { phase } from "../mcp/phase.js";
 
 export { ORIENT_OTHER_WORKSPACE_WAIT_MS, surveyOtherContexts } from "./workspaces.js";
 
@@ -150,22 +151,26 @@ async function overview(store, scope, rules, overrides) {
   const open = openOnce(store);
   // When the app's copy is behind, the reconnect steps: read before anything else is awaited.
   const news = toolNewsSection(store.actor?.toolsListedAt, undefined, appOf(store));
+  // Each part timed as `phase:orient_<part>` (`mcp/phase.js`), so the slowest one shows in the entry's timings.
+  const timed = (name, run) => phase(store, `orient_${name}`, run);
   const [survey, page, procedure, privateIndex, pendingProposals, globalNote, others, mailboxes] = await Promise.all([
-    surveyOf(store, store, scope, rules, overrides),
-    frontParagraphOf(store, scope, rules, overrides),
-    readSaveProcedure(store, scope, rules, overrides),
-    scope === "private" ? getWithLegacyFallback(store, "index-private.md") : Promise.resolve(null),
-    scope === "private" ? listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
-    readGlobalOrientNote({
-      contexts: store.contexts,
-      openPinned: open.openPinned,
-      here: { store, scope, rules, overrides },
-    }),
+    timed("survey", () => surveyOf(store, store, scope, rules, overrides)),
+    timed("front_page", () => frontParagraphOf(store, scope, rules, overrides)),
+    timed("save_procedure", () => readSaveProcedure(store, scope, rules, overrides)),
+    scope === "private" ? timed("private_index", () => getWithLegacyFallback(store, "index-private.md")) : Promise.resolve(null),
+    scope === "private" ? timed("proposals", () => listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX)) : Promise.resolve([]),
+    timed("global_note", () =>
+      readGlobalOrientNote({
+        contexts: store.contexts,
+        openPinned: open.openPinned,
+        here: { store, scope, rules, overrides },
+      }),
+    ),
     // Alongside the connected workspace's own work rather than after it: each
     // other workspace is a control-plane round trip and bucket reads of its own.
-    surveyOtherContexts(store, open.openContext),
+    timed("other_contexts", () => surveyOtherContexts(store, open.openContext)),
     // Their own mailboxes, said only when one needs them (`agent/mailHealth.js`); the control plane answers the owner alone.
-    scope === "private" && currentEntryOf(store)?.kind !== "shared" ? readMailHealth(store) : Promise.resolve([]),
+    scope === "private" && currentEntryOf(store)?.kind !== "shared" ? timed("mail_health", () => readMailHealth(store)) : Promise.resolve([]),
   ]);
 
   const parts = [CONTEXT_INTRO];

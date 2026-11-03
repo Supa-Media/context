@@ -57,18 +57,23 @@ export function indexBuilder(store, { now = Date.now } = {}) {
         return;
       }
       if (home !== HOMES.OBJECT) return;
-      let waiting = 0;
+      const started = now();
+      let words = 0;
+      let meaning = 0;
       let failed = false;
       try {
-        waiting += waitingOf(store.search?.catchUp());
+        words = waitingOf(store.search?.catchUp());
       } catch {
         failed = true;
       }
       try {
-        waiting += waitingOf(await store.meaning?.catchUp());
+        meaning = waitingOf(await store.meaning?.catchUp());
       } catch {
         failed = true;
       }
+      const waiting = words + meaning;
+      // Counts and a duration only: whether an index ever finishes is otherwise invisible in production.
+      console.log(JSON.stringify({ event: "index_build", wordsWaiting: words, meaningWaiting: meaning, failed, ms: now() - started }));
       if (failed) wakeAt = now() + BACKOFF_MS;
       else if (waiting > 0) wakeAt = now() + GAP_MS;
     },
