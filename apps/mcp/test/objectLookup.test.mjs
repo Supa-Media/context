@@ -16,10 +16,14 @@ const NOTE = "0199a000-0000-7000-8000-00000000000c";
 const KEY = `notes/${NOTE}.md`;
 
 function control() {
-  const asked = { lookup: [], resolve: [], wrote: [] };
+  const asked = { lookup: [], resolve: [], wrote: [], adopt: [] };
   return {
     asked,
     hooks: {
+      adopt: async (note) => {
+        asked.adopt.push(note);
+        return { adopted: "control", taken: null };
+      },
       lookup: async (paths) => {
         asked.lookup.push(paths);
         return { keyed: true, notes: Object.fromEntries(paths.map((path) => [path, { state: "gone" }])), texHomes: { "tex/new.md": "person:w1" } };
@@ -164,6 +168,29 @@ test("a row that is not plainly this path's note is the control plane's to answe
   const hooks = objectFirstHooks(cp.hooks, { client: object(cases).client, home: "object", scope: "team", names: [], workspaceId: "w1" });
   await hooks.lookup(Object.keys(cases));
   assert.deepEqual(cp.asked.lookup, [Object.keys(cases)]);
+});
+
+test("a path the object answers absent is made without the control plane: all absent never calls hooks.lookup", async () => {
+  const cp = control();
+  const absent = { "plans/a.md": { path: "plans/a.md", found: false, absent: true }, "plans/b.md": { path: "plans/b.md", found: false, absent: true } };
+  const ob = object(absent);
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: [], workspaceId: "w1" });
+  const answer = await hooks.lookup(["plans/a.md", "plans/b.md"]);
+  assert.deepEqual(answer, { keyed: true, notes: {}, texHomes: {} });
+  assert.deepEqual(cp.asked.lookup, [], "no control-plane call for a path the object judged absent");
+  assert.equal(ob.asked.length, 1, "the object was asked once, for both paths");
+});
+
+test("a mix: only the path the object does not call absent goes to hooks.lookup", async () => {
+  const cp = control();
+  const ob = object({
+    "plans/a.md": { path: "plans/a.md", found: false, absent: true },
+    "secret/b.md": { path: "secret/b.md", found: false },
+  });
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: [], workspaceId: "w1" });
+  const answer = await hooks.lookup(["plans/a.md", "secret/b.md"]);
+  assert.deepEqual(cp.asked.lookup, [["secret/b.md"]], "a plain found:false is not absent: the control plane judges it");
+  assert.deepEqual(answer, { keyed: true, notes: { "secret/b.md": { state: "gone" } }, texHomes: { "tex/new.md": "person:w1" } });
 });
 
 test("a folder is answered as a folder", async () => {
@@ -345,6 +372,111 @@ test("without an object write client, or without an object, wrote is the control
   assert.equal(noObject.wrote, cp.hooks.wrote);
 });
 
+// ---- adopt: a member's create that names its tier goes to the object's `ws.write.adopt` first -----------------------
+
+/** A new note as the id layer hands it to `hooks.adopt`: a plain `team` create, unless a case overrides it. */
+const CREATE = { path: "plans/new.md", noteId: "01890a5d-ac96-7c4e-8f3a-1b2c3d4e5f60", key: "notes/01890a5d-ac96-7c4e-8f3a-1b2c3d4e5f60.md", etag: "e-new", size: 5, at: 300, tier: "team" };
+
+/** An object with a `write.adopt` that answers `answer(fields)`, or throws when `answer` is an Error. */
+function objectAdopting(answer) {
+  const asked = [];
+  const client = {
+    rows: {
+      lookup: async () => {
+        throw new Error("not used by adopt");
+      },
+      resolve: async () => {
+        throw new Error("not used by adopt");
+      },
+    },
+    write: {
+      adopt: async (fields) => {
+        asked.push(fields);
+        if (answer instanceof Error) throw answer;
+        return typeof answer === "function" ? answer(fields) : answer;
+      },
+    },
+  };
+  return { asked, client };
+}
+
+test("a member's create with a tier is adopted by the object: {adopted, taken: null}, and the control plane is not asked", async () => {
+  const cp = control();
+  const ob = objectAdopting({ ok: true, adopted: true, at: 999 });
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: ["@design"], workspaceId: "w1" });
+  assert.notEqual(hooks.adopt, cp.hooks.adopt);
+  assert.deepEqual(await hooks.adopt(CREATE), { adopted: true, taken: null });
+  assert.deepEqual(ob.asked, [{ path: CREATE.path, noteId: CREATE.noteId, key: CREATE.key, etag: "e-new", size: 5, at: 300, tier: "team" }]);
+  assert.deepEqual(cp.asked.adopt, [], "hooks.adopt is not called when the object adopts");
+});
+
+test("the tier and a private create are passed to the object as the writer named them, and a missing size is left out", async () => {
+  const cp = control();
+  const ob = objectAdopting({ ok: true, adopted: true, at: 1 });
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: [], workspaceId: "w1" });
+  const { size: _size, ...noSize } = CREATE;
+  await hooks.adopt({ ...noSize, tier: "private" });
+  assert.equal(ob.asked[0].tier, "private");
+  assert.equal("size" in ob.asked[0], false);
+});
+
+test("an object that answers DEFER falls back to hooks.adopt, and its answer is the control plane's", async () => {
+  for (const answer of [{ ok: false, code: "DEFER" }, { ok: true, adopted: false }, {}, undefined]) {
+    const cp = control();
+    const ob = objectAdopting(answer);
+    const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: ["@design"], workspaceId: "w1" });
+    assert.deepEqual(await hooks.adopt(CREATE), { adopted: "control", taken: null }, JSON.stringify(answer));
+    assert.deepEqual(cp.asked.adopt, [CREATE], JSON.stringify(answer));
+    assert.equal(ob.asked.length, 1, "the object was asked first");
+  }
+});
+
+test("an object that throws on the adopt falls back to hooks.adopt, logged", async () => {
+  const cp = control();
+  const logged = [];
+  const ob = objectAdopting(new Error("down"));
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: ["@design"], workspaceId: "w1", log: (event) => logged.push(event) });
+  assert.deepEqual(await hooks.adopt(CREATE), { adopted: "control", taken: null });
+  assert.deepEqual(cp.asked.adopt, [CREATE]);
+  assert.deepEqual(logged, ["workspace_object_adopt_failed"]);
+});
+
+test("a create without a tier, or with a tier that is neither private nor team, never calls the object", async () => {
+  for (const override of [{ tier: undefined }, { tier: "public" }, { tier: null }]) {
+    const cp = control();
+    const ob = objectAdopting({ ok: true, adopted: true, at: 1 });
+    const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: ["@design"], workspaceId: "w1" });
+    const note = { ...CREATE, ...override };
+    if (override.tier === undefined) delete note.tier;
+    assert.deepEqual(await hooks.adopt(note), { adopted: "control", taken: null }, JSON.stringify(override));
+    assert.deepEqual(cp.asked.adopt, [note], JSON.stringify(override));
+    assert.deepEqual(ob.asked, [], "the object is never asked for a create without a tier it can judge");
+  }
+});
+
+test("a guest's or a chat's create is never adopted by the object: hooks.adopt is the control plane's own", async () => {
+  const readers = [
+    { names: ["@#reads-as-guest", "@#0199a000-0000-7000-8000-00000000000c"] },
+    { names: ["@#reads-as-chat"], chatNames: [] },
+  ];
+  for (const { names, chatNames = null } of readers) {
+    const cp = control();
+    const ob = objectAdopting({ ok: true, adopted: true, at: 1 });
+    const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names, chatNames, userId: "u1", workspaceId: "w1" });
+    assert.equal(hooks.adopt, cp.hooks.adopt, "the control plane's own hook");
+    assert.deepEqual(await hooks.adopt(CREATE), { adopted: "control", taken: null });
+    assert.deepEqual(cp.asked.adopt, [CREATE]);
+    assert.deepEqual(ob.asked, [], "the object is never asked to adopt it");
+  }
+});
+
+test("without an object write client for adopt, or without an object, adopt is the control plane's", async () => {
+  const cp = control();
+  const noWrite = objectFirstHooks(cp.hooks, { client: object({}).client, home: "object", scope: "team", names: [], workspaceId: "w1" });
+  assert.equal(noWrite.adopt, cp.hooks.adopt);
+  const noObject = objectFirstHooks(cp.hooks, { client: null, home: "object", scope: "team", names: [], workspaceId: "w1" });
+  assert.equal(noObject.adopt, cp.hooks.adopt);
+});
 test("a read's lookup: a path the object does not find, while not behind, is no note, with no control-plane call", async () => {
   const cp = control();
   const ob = object({ "plans/a.md": seen });

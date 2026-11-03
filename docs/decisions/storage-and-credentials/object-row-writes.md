@@ -139,3 +139,27 @@ lists it with the narrowings. Share links, websites, "shared with me" and the co
 Convex's rows and read the body by key, so for up to the mirror's lag they may still serve a note the person just
 trashed, only to people who could open it a moment earlier. Nobody gains access. Moves, which can change who sees a
 note, still wait.
+
+## New notes and missing paths in the object (2026-11-03)
+
+The owner's bar, 2026-11-03: every read and every write answers in under 0.1 s in production, so nothing on a save's
+path waits on Convex.
+
+- **A new note's row is made in the object** (`ws.write.adopt`, `workspaceStore/writeOps.js`), with an `o_` id, and
+  Convex takes it behind through the mirror's `adopt` op (`objectRowsMirror.adopt`, which keeps `nodes.objectId`).
+  Only the plain case is taken: the note's own id key, a live parent folder, nothing live at the path or holding the
+  note id. Everything else answers `DEFER` and the control plane adopts it as before.
+- **A note meant to be private is adopted only where the object's rules already make it private.** The writer names
+  the tier it wrote for (`tier` on the put, `tools/notes/write.js`). The narrowing it persisted first may not have
+  reached the object yet, and without that check a member reading the object could see the note before its rule
+  lands. A `team` note may be adopted under narrower rules, since its own `team` rule is written right after.
+- **A lookup miss is answered by the object** (`absent: true`, `workspaceStore/lookupMiss.js`) when nothing live is
+  at the path and nothing reroutes it: no built-in folder's default name standing for another folder, and no Tex folder
+  or group chat home, whose new notes are kept in Tex's store under a key only the control plane names. A row the
+  reader may not see is never "absent".
+- **Known gap:** if Convex makes a row at the same path before the object's adoption reaches it, the mirror answers
+  `taken` and drops the change. Both rows then live in the object until the owner of the clash is settled by hand.
+  This needs a row made in Convex, not yet pushed, within the same second.
+
+Reversing the tier check fails `writeOps.test.mjs` "a private tier where the held rules make the path team is DEFER". Reversing
+the folder-job or Tex check fails `lookupMiss.test.mjs`.

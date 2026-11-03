@@ -461,6 +461,8 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
           onlyIf: existing
             ? { etagMatches: existing.etag }
             : { absent: true },
+          // A new note's tier, so the workspace object may adopt it first (`store/objectLookup.js` adopt).
+          ...(existing || sealedHome ? {} : { tier: desiredVisibility }),
         }),
       );
   if (!put) {

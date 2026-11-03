@@ -142,6 +142,8 @@ export function objectFirstHooks(hooks, options) {
     paths.forEach((path, at) => {
       const row = answer?.rows?.[at];
       const entry = row?.found === true && row.path === path ? entryOf(row) : null;
+      // Absent in the object (`workspaceStore/lookupMiss.js`): no note there, and no Tex home, without asking Convex.
+      if (entry === null && row?.found === false && row.absent === true && row.path === path) return;
       if (entry === null) missing.push(path);
       else notes[path] = entry;
     });
@@ -173,6 +175,30 @@ export function objectFirstHooks(hooks, options) {
       };
 
   /**
+   * A new note's row, made in the object first (`workspaceStore/writeOps.js` `ws.write.adopt`) and mirrored to Convex
+   * behind. Only a member's create that names its tier goes there; the object answers DEFER for anything but the
+   * plain case, and that, a failure, or a call without a tier is adopted by the control plane as before.
+   */
+  const adopt = typeof hooks.adopt !== "function" || typeof client.write?.adopt !== "function" || judged.audience !== "member"
+    ? hooks.adopt
+    : async (note) => {
+        if (note?.tier !== "private" && note?.tier !== "team") return await hooks.adopt(note);
+        let answer;
+        try {
+          answer = await client.write.adopt({
+            path: note.path, noteId: note.noteId, key: note.key, etag: note.etag,
+            ...(Number.isFinite(note.size) ? { size: note.size } : {}), at: note.at, tier: note.tier,
+          });
+        } catch (error) {
+          log("workspace_object_adopt_failed", { workspaceId, error: String(error?.message ?? error) });
+          return await hooks.adopt(note);
+        }
+        if (answer?.ok === true && answer.adopted === true) return { adopted: true, taken: null };
+        return await hooks.adopt(note);
+      };
+
+
+  /**
    * The same lookup for a read: a path the object answers "not found" for, while not behind, is no note for this
    * reader, as the control plane would say (no row, gone, hidden from them), so it is not asked. A new note's Tex home
    * (`texHomes`) matters only to a write, which keeps `lookup`. A notes-home object is keyed by its own layout.
@@ -199,7 +225,7 @@ export function objectFirstHooks(hooks, options) {
     return { keyed: rest.keyed === true, notes: { ...rest.notes, ...notes }, texHomes: rest.texHomes ?? {} };
   };
 
-  if (typeof hooks.resolve !== "function") return { ...hooks, lookup, lookupRead, wrote };
+  if (typeof hooks.resolve !== "function") return { ...hooks, lookup, lookupRead, wrote, adopt };
   const resolve = async (noteIds) => {
     let answer;
     try {
@@ -224,5 +250,5 @@ export function objectFirstHooks(hooks, options) {
     const rest = await hooks.resolve(missing);
     return { paths: { ...rest.paths, ...paths } };
   };
-  return { ...hooks, lookup, lookupRead, resolve, wrote };
+  return { ...hooks, lookup, lookupRead, resolve, wrote, adopt };
 }

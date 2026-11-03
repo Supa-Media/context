@@ -19,10 +19,11 @@ import { membersState, serveMembersCall } from "./serveMembers.js";
 import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.js";
 import { manifestPage } from "./manifest.js";
 import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
-import { BindingRowRefused, serveBindingCall } from "./bindingRows.js";
+import { BINDING_OPS, BindingRowRefused, serveBindingCall } from "./bindingRows.js";
 import { accessCall, applyAccess } from "./serveAccess.js";
 import { isWriteOp, serveWrites } from "./serveWrites.js";
 import { treeRows } from "./treeRows.js";
+import { absentHere } from "./lookupMiss.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 
 const CALL = "x-tex-call";
@@ -129,6 +130,8 @@ function lookUp(rows, fields, by, members = null) {
       // it does for an id held twice). Says nothing else, and not whether any of them is one the reader may see.
       if (by === "noteId" && typeof value === "string" && rows.liveNoteIdCount(value) > 1) return { noteId: value, found: false, ambiguous: true };
       const row = typeof value === "string" ? (by === "path" ? rows.byPath(value) : rows.byNoteId(value)) : null;
+      // Nothing at all at the path, and nothing reroutes it (`lookupMiss.js`): the gateway may make the note without asking.
+      if (by === "path" && row === null && absentHere(rows, value)) return { path: value, found: false, absent: true };
       if (!judge.sees(row)) return { [by === "path" ? "path" : "noteId"]: value, found: false };
       return { found: true, path: row.path, noteId: row.noteId, key: row.storageKey ?? (row.noteId ? `notes/${row.noteId}.md` : null), etag: row.etag, kind: row.kind, collaborates: row.collaborates };
     }),
@@ -210,7 +213,10 @@ export async function serveWorkspaceStore(store, request) {
     const membership = await serveMembersCall(store, op, fields);
     if (membership !== null) return membership;
     // The sealed binding and the one call a request's store is opened from (`bindingRows.js`).
-    const opened = serveBindingCall(store, op, fields, ACCESS_HOMES.OBJECT);
+    // `ws.open` waits for an open mark like every read, and says whether one is still open (`marks.js`), so the
+    // gateway need not ask the control plane whether the object is behind before a read (`store/objectBinding.js`).
+    const behind = op === BINDING_OPS.OPEN ? await waitForMarks(store.marks ?? null) : false;
+    const opened = serveBindingCall(store, op, fields, ACCESS_HOMES.OBJECT, { behind });
     if (opened !== null) return opened;
     // The grant rows and the rules rendered from them (`serveAccess.js`).
     const access = accessCall(store, op, fields);

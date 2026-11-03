@@ -35,7 +35,7 @@ export async function gatewayRowsMirrorHandler(ctx: ActionCtx, body: Record<stri
   for (const change of changes) {
     const entry = (change !== null && typeof change === "object" ? change : {}) as Record<string, unknown>;
     const seq = entry.seq ?? null;
-    if (entry.op !== "wrote" && entry.op !== "tree") {
+    if (entry.op !== "wrote" && entry.op !== "tree" && entry.op !== "adopt") {
       skipped.push({ seq, reason: "unknown op" });
       continue;
     }
@@ -46,6 +46,8 @@ export async function gatewayRowsMirrorHandler(ctx: ActionCtx, body: Record<stri
       const answer =
         entry.op === "tree"
           ? await ctx.runMutation(internal.functions.objectRowsMirror.tree, args)
+          : entry.op === "adopt"
+          ? await ctx.runMutation(internal.functions.objectRowsMirror.adopt, args)
           : await ctx.runMutation(internal.functions.objectRowsMirror.wrote, args);
       if (answer.applied) applied.push(seq);
       else skipped.push({ seq, reason: answer.reason });

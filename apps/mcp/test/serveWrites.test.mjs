@@ -8,6 +8,7 @@ import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { workspaceMembers } from "../src/workspaceStore/members.js";
 import { mirrorOutbox } from "../src/workspaceStore/mirrorOutbox.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
+import { serveWrites } from "../src/workspaceStore/serveWrites.js";
 import { durableSqlite } from "./durableSqlite.mjs";
 
 /**
@@ -123,6 +124,42 @@ test("an unknown ws.write op is 400, and writes nothing", async () => {
   assert.equal(response.status, 400);
   assert.equal(mirror.count(), 0);
   assert.deepEqual(originated, []);
+});
+
+// End to end over the real rows store: a folder row is live and the member rules hold the folder `team`, so a `team`
+// create is adopted. The row lands at the minted id, and one adopt change is queued in the same transaction.
+// Sabotage: drop `adopt` from WRITE_OPS and the call is 400 with nothing queued.
+test("ws.write.adopt through serveWrites makes the row and queues one adopt change for the mirror", async () => {
+  const { store, mirror, enqueued, soon } = objectStore();
+  store.rows.put([{ id: "f-plans", path: "plans", kind: "folder", at: 1 }]);
+  store.rows.putRules({ folders: [{ prefix: "plans", visibility: "team" }], notes: [], accessVersion: 4 });
+  const NOTE = "01890a5d-ac96-7c4e-8f3a-1b2c3d4e5f60";
+  const mintId = () => "o_" + "a".repeat(32);
+  const body = { workspaceId: "ws_one", path: "plans/a.md", noteId: NOTE, key: `notes/${NOTE}.md`, etag: "e-1", size: 7, at: 500, tier: "team" };
+
+  const response = await serveWrites(store, "ws.write.adopt", body, 5_000, mintId);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, adopted: true, at: 5_000 });
+
+  const row = store.rows.byNoteId(NOTE);
+  assert.deepEqual(
+    { id: row.id, path: row.path, kind: row.kind, noteId: row.noteId, storageKey: row.storageKey, etag: row.etag, size: row.size, at: row.at },
+    { id: mintId(), path: "plans/a.md", kind: "file", noteId: NOTE, storageKey: `notes/${NOTE}.md`, etag: "e-1", size: 7, at: 5_000 },
+  );
+
+  assert.deepEqual(mirror.pending(), [
+    {
+      seq: 1,
+      workspaceId: "ws_one",
+      change: {
+        op: "adopt",
+        record: { path: "plans/a.md", noteId: NOTE, key: `notes/${NOTE}.md`, etag: "e-1", size: 7, at: 500, objectId: mintId() },
+        objectAt: 5_000,
+      },
+    },
+  ]);
+  assert.deepEqual(enqueued, [{ inTransaction: true }]);
+  assert.equal(soon(), 1, "a flush is scheduled, not awaited");
 });
 
 test("a workspace id that is missing or not a plain id is 400, and nothing is written", async () => {

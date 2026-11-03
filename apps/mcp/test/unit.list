@@ -341,6 +341,7 @@ test/texEntryPoint.test.mjs
 test/workspaceTree.test.mjs
 test/workspaceRowsOwnership.test.mjs
 test/objectLookup.test.mjs
+test/lookupMiss.test.mjs
 test/agentHomeMove.test.mjs
 test/accessSockets.test.mjs
 test/accessContract.test.mjs
@@ -357,6 +358,7 @@ test/objectFacts.test.mjs
 test/chatLedger.test.mjs
 test/objectManifest.test.mjs
 test/objectBinding.test.mjs
+test/bindingRefreshBehind.test.mjs
 test/chatLedgerWrites.test.mjs
 test/chatLedgerReads.test.mjs
 test/chatLedgerBackfill.test.mjs
@@ -374,3 +376,4 @@ test/ledgerConversation.test.mjs
 test/workspaceAccessRows.test.mjs
 
 test/savePhases.test.mjs
+test/bookkeepingBehind.test.mjs
