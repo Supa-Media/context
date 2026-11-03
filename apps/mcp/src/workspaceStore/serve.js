@@ -18,6 +18,7 @@ import { isTokenIndexCall, serveTokenIndex } from "./tokenIndex.js";
 import { membersState, serveMembersCall } from "./serveMembers.js";
 import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.js";
 import { childrenPage, manifestPage } from "./manifest.js";
+import { orientSurvey } from "./orientSurvey.js";
 import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
 import { BINDING_OPS, BindingRowRefused, serveBindingCall } from "./bindingRows.js";
 import { accessCall, applyAccess } from "./serveAccess.js";
@@ -296,6 +297,13 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(await settledAnswer(store, () => namesTaken(rows, store.sql, fields)));
       case "ws.facts":
         return Response.json(await settledAnswer(store, () => answerFacts(store, fields)));
+      case "ws.orient.survey":
+        // `orient`'s map of this workspace for one reader, drawn here (`orientSurvey.js`): the listing and the facts it
+        // takes are this object's own `ws.rows.manifest` and `ws.facts`, judged the same way.
+        if (!store.facts || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json(
+          await settledAnswer(store, () => orientSurvey(rows, judgeFor(rows, fields, store.members ?? null), (request) => answerFacts(store, { ...fields, ...request })))
+        );
       case "ws.search":
         // The gateway's search, over this object's own word index (`searchIndex.js`); its `canSee` filters the rows.
         if (!store.search || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });

@@ -100,6 +100,8 @@ export function workspaceStub(env, workspaceId) {
  * - `facts({ask, ..., scope, groups, audience})`: a note facts ask (`props`, `links`, `neighbors`) answered from the
  *   text held here (`workspaceStore/facts.js`), in the control plane's `/gateway/tree/facts` shape; `{served: false}`
  *   before the notes live here
+ * - `orientSurvey({scope, groups, audience})` → `{served: true, survey}` or `{served: false}`: `orient`'s map of the
+ *   workspace for that reader, drawn in the object (`workspaceStore/orientSurvey.js`)
  * - `factRows({ask: "props"|"links"|"chaos"|"candidates"|"linking", paths?})`: the same facts unfiltered, for the control plane's own readers
  *   through the door, which judge every path themselves
  * - `rows.files({after, limit, root, audience})` → `{served, rows, cursor, rules, behind?}`: live file rows in path order and
@@ -143,6 +145,7 @@ export function workspaceClient(env, workspaceId) {
       names: async ({ paths, canWrite }) => await ask("ws.rows.names", { paths, canWrite: canWrite === true }),
     },
     facts: async (request) => await ask("ws.facts", request),
+    orientSurvey: async (request) => await ask("ws.orient.survey", request),
     factRows: async (request) => await ask("ws.facts.rows", request),
     rules: {
       put: async (rules, audience = "member") => await ask("ws.rules.put", { rules, audience }),

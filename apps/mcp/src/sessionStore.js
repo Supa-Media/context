@@ -13,7 +13,7 @@
 
 import { gatewayTexStore } from "./texStore/wire.js";
 import { workspaceClient } from "./workspaceStore/api.js";
-import { objectFirstFacts, objectFirstHooks, objectFirstNames } from "./store/objectLookup.js";
+import { objectFirstFacts, objectFirstHooks, objectFirstNames, objectFirstSurvey } from "./store/objectLookup.js";
 import { openedFromObject } from "./store/objectBinding.js";
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { treeNoteCount } from "./tree/names.js";
@@ -302,6 +302,13 @@ async function openSessionStore(session, env, controlPlane) {
   });
   Object.defineProperty(store, "objectFacts", {
     value: objectFirstFacts(objectReading),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // Orient's map of this workspace, drawn in its object (`workspaceStore/orientSurvey.js`) where its notes live there.
+  Object.defineProperty(store, "objectSurvey", {
+    value: objectFirstSurvey(objectReading),
     enumerable: false,
     writable: false,
     configurable: true,
