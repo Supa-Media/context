@@ -184,8 +184,16 @@ async function openSessionStore(session, env, controlPlane) {
   // A keyed workspace's path objects are frozen copies (`notes-by-id.md`): a store
   // without the id layer would serve them as the note. Refused, never served paths.
   if (opened.keyed === true && hooks === null) throw new StorageUnavailable("keyed workspace needs the id layer");
+  // The request's `ctx.waitUntil` is laid on the store only after it opens (`http/requestStore.js`), so the routing
+  // layer is handed a door to it now: until the request fills it, a backup write is awaited as before.
+  const behind = { defer: null };
   const store = withPrivacyAuthority(
     storeForBinding(binding, env, {
+      defer: (work) => {
+        if (typeof behind.defer !== "function") return false;
+        behind.defer(work);
+        return true;
+      },
       noteCap,
       noteCount,
       managedEncryption: managedEncryptionForStore(opened, binding),
@@ -208,6 +216,8 @@ async function openSessionStore(session, env, controlPlane) {
   // the object's client, which nothing that spreads or logs a store should carry.
   Object.defineProperty(store, "objectReading", { value: objectReading, enumerable: false, writable: false, configurable: true });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
+  // Where the bucket's backup writes go behind the response, once the request names it (`http/requestStore.js`).
+  Object.defineProperty(store, "backupBehind", { value: behind, enumerable: false, writable: false, configurable: true });
   // Notes' links and props from the object that holds their text, before the control plane (`http/routing.js` `treeFacts`).
   Object.defineProperty(store, "objectFacts", {
     value: objectFirstFacts(objectReading),
