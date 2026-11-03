@@ -682,7 +682,7 @@ describe("switching context leaves the other context's note behind", () => {
     await settle();
     await settle();
 
-    expect(browser.notice).toBe("That file does not exist.");
+    expect([browser.notFound, browser.notice]).toEqual([THEIRS, null]); // The not-found page, not a notice (`NotFoundNote`).
     expect(browser.editor.path).toBeNull();
     // The URL still names what was asked for, and was not written to on the
     // way to the refusal: a person can correct it, or press Back.

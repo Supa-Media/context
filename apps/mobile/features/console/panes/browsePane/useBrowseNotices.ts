@@ -28,11 +28,14 @@ export function useBrowseNotices({
   files,
   current,
   compact,
+  quiet = false,
 }: {
   data: ConsoleData;
   files: FileBrowser;
   current: ReturnType<typeof selectedContext>;
   compact: boolean;
+  /** A page that is the only message on screen (`NotFoundNote`): the intro line steps aside for it. */
+  quiet?: boolean;
 }) {
   /*
     `=== null`, and never `!== undefined`. A binding that has not answered is
@@ -241,7 +244,7 @@ export function useBrowseNotices({
     one, and the conservative half is here.
   */
   const introVisible =
-    intro !== null && (data.demo === true || compact || introAnswer.visible);
+    !quiet && intro !== null && (data.demo === true || compact || introAnswer.visible);
 
   /*
     MOVES INTO ANOTHER CONTEXT, WHICH FINISH AFTER THE PRESS THAT STARTED THEM.

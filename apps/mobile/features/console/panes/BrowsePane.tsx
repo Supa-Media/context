@@ -15,6 +15,7 @@ import { selectedContext } from "../types";
 import { NEW_WORKSPACE_ROUTE } from "../../workspace/create";
 import { classifyCommsPath } from "../communications/paths";
 import { BrowseDocument } from "./browsePane/BrowseDocument";
+import { notFoundOnScreen } from "../files/notFound";
 import { BrowseNoteHead } from "./browsePane/BrowseNoteHead";
 import { BrowseNotices } from "./browsePane/BrowseNotices";
 import { BrowsePathBar } from "./browsePane/BrowsePathBar";
@@ -284,7 +285,14 @@ export function BrowsePane({
     setDismissedMoves,
     moveNotices,
     hasNotice,
-  } = useBrowseNotices({ data, files, current, compact });
+  } = useBrowseNotices({
+    data,
+    files,
+    current,
+    compact,
+    // The not-found page is the one message on screen (Dev, 2026-11-03).
+    quiet: notFoundOnScreen(files.notFound, files.selectedPath, pendingNote),
+  });
 
   /**
    * What this pane has to say about the note, above it.
@@ -390,6 +398,7 @@ export function BrowsePane({
       notices={notices}
       pathBar={pathBar}
       layingOut={layingOut}
+      onNavigate={onNavigate}
       holding={holding}
     />
   );
