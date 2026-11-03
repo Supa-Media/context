@@ -13,7 +13,7 @@ import { bindingRows } from "../src/workspaceStore/bindingRows.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { workspaceClient } from "../src/workspaceStore/api.js";
 import { openBinding, sealBinding } from "../src/workspaceStore/bindingSeal.js";
-import { FRESH_MS, openedFromObject } from "../src/store/objectBinding.js";
+import { FRESH_MS, SERVE_STALE_MS, openedFromObject } from "../src/store/objectBinding.js";
 import { READS_AS_CHAT, READS_AS_GUEST } from "../src/privacy/engine.js";
 
 let DatabaseSync = null;
@@ -117,7 +117,7 @@ async function world({ workspaceId = "ws_one", behind = false } = {}) {
 /** What `sessionStore.js` does: the object first, else the control plane, then kept. */
 async function open(w, session = w.session, now = Date.now) {
   const first = await openedFromObject(session, w.env, w.controlPlane, { now });
-  if (first.opened !== null) return { source: "object", opened: first.opened, reason: null };
+  if (first.opened !== null) return { source: "object", opened: first.opened, reason: first.reason, refresh: first.refresh };
   const opened = await w.controlPlane.getStorageBinding();
   const kept = typeof first.keep === "function" ? await first.keep(opened) : null;
   return { source: "control_plane", opened, reason: first.reason, kept };
@@ -291,16 +291,52 @@ test("a workspace whose object does not know its keying, or whose notes are not 
   assert.equal((await open(v)).reason, "notes_not_in_object");
 });
 
-test("a binding older than FRESH_MS is not used, and the fresh answer replaces it", { skip }, async () => {
+test("a binding older than FRESH_MS is served from the object and refreshed behind, and stale past SERVE_STALE_MS", { skip }, async () => {
   const w = await world();
   await open(w);
+  // A clock the test can move: `now` is what the gateway reads, and a refresh stamps the moment it is called.
+  const clock = { shift: 0 };
+  const now = () => Date.now() + clock.shift;
+  clock.shift = FRESH_MS + 1;
+  const served = await open(w, w.session, now);
+  assert.equal(served.source, "object");
+  assert.equal(served.reason, "stale_served");
+  assert.equal(typeof served.refresh, "function");
+  assert.equal(w.calls.binding, 1, "the control plane is not asked for a copy that is served");
+  clock.shift = 0;
+  assert.deepEqual(await served.refresh(answerFor("ws_one")), { kept: true, reason: null });
+  const fresh = await open(w);
+  assert.equal(fresh.source, "object");
+  assert.equal(fresh.reason, null);
+  // A refresh stamped 5 min ahead of the clock is not trusted: the control plane is asked, and keeps its answer again.
+  clock.shift = 5 * 60 * 1000;
+  assert.deepEqual(await served.refresh(answerFor("ws_one")), { kept: true, reason: null });
+  clock.shift = 0;
+  const ahead = await open(w);
+  assert.equal(ahead.source, "control_plane");
+  assert.equal(ahead.reason, "stale", "a copy stamped ahead of the clock is not trusted");
+  assert.equal(ahead.kept.kept, true);
+  // Past SERVE_STALE_MS the copy is not served at all.
+  clock.shift = SERVE_STALE_MS + 1;
+  const old = await open(w, w.session, now);
+  assert.equal(old.source, "control_plane");
+  assert.equal(old.reason, "stale");
+  assert.equal(old.kept.kept, true);
+  assert.equal(w.calls.binding, 3);
+});
+
+test("ATTACK: a temporary credential is never served past FRESH_MS, and the control plane is asked", { skip }, async () => {
+  const w = await world();
+  w.controlPlane.extra = { binding: { ...answerFor("ws_one").binding, sessionToken: "temp-token" } };
+  const first = await open(w);
+  assert.equal(first.reason, "none_kept");
+  assert.deepEqual(first.kept, { kept: true, reason: null });
   const later = () => Date.now() + FRESH_MS + 1;
   const next = await open(w, w.session, later);
+  assert.equal(next.source, "control_plane");
   assert.equal(next.reason, "stale");
   assert.equal(next.kept.kept, true);
-  assert.equal((await open(w, w.session, later)).source, "object");
-  const early = () => Date.now() - 5 * 60 * 1000;
-  assert.equal((await open(w, w.session, early)).reason, "stale", "a copy stamped far ahead of the clock is not trusted");
+  assert.equal(w.calls.binding, 2);
 });
 
 test("a clear while the control plane was being asked: the answer read before it is not kept", { skip }, async () => {

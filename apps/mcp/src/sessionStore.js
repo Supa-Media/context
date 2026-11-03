@@ -58,7 +58,7 @@ export async function storeForSession(session, env, controlPlane) {
  * The binding and its siblings: from the workspace's object in one call where it may answer (`store/objectBinding.js`),
  * else from the control plane, whose answer is then kept there for the next request. One log line says which.
  */
-async function openBinding(session, env, controlPlane) {
+async function openBinding(session, env, controlPlane, later = () => {}) {
   const started = Date.now();
   let fromObject = { opened: null, reason: "object_failed" };
   try {
@@ -70,6 +70,8 @@ async function openBinding(session, env, controlPlane) {
     console.log(JSON.stringify({ event: "workspace_binding_opened", workspaceId: session.workspaceId, source, reason: fromObject.reason, ms: Date.now() - started, ...extra }));
   if (fromObject.opened !== null) {
     logged("object");
+    // A kept copy past fresh was served; the control plane is asked behind the response, for the next request.
+    if (typeof fromObject.refresh === "function") later(refreshBehind(session, controlPlane, fromObject.refresh));
     return fromObject.opened;
   }
   let opened;
@@ -87,6 +89,40 @@ async function openBinding(session, env, controlPlane) {
   const kept = typeof fromObject.keep === "function" ? await fromObject.keep(opened) : null;
   logged("control_plane", kept === null ? {} : { kept: kept.kept, keptReason: kept.reason });
   return opened;
+}
+
+/** Ask the control plane for the binding and keep it in the object. Never throws: a failed refresh is tried next time. */
+async function refreshBehind(session, controlPlane, keep) {
+  try {
+    const opened = await controlPlane.getStorageBinding(session.accessToken, session.workspaceId);
+    const kept = await keep(opened);
+    console.log(JSON.stringify({ event: "workspace_binding_refreshed", workspaceId: session.workspaceId, kept: kept?.kept === true, keptReason: kept?.reason ?? null }));
+  } catch {
+    console.log(JSON.stringify({ event: "workspace_binding_refreshed", workspaceId: session.workspaceId, kept: false, keptReason: "refresh_failed" }));
+  }
+}
+
+/**
+ * The door to the request's `ctx.waitUntil`, which `http/requestStore.js` fills only after the store opens. Work handed
+ * to it before then is held and handed across the moment the door is filled; a host that never fills it leaves the
+ * work running unawaited, which is all a refresh behind the response needs.
+ */
+export function deferDoor() {
+  let defer = null;
+  const held = [];
+  return {
+    get defer() {
+      return defer;
+    },
+    set defer(value) {
+      defer = typeof value === "function" ? value : null;
+      if (defer !== null) for (const work of held.splice(0)) defer(work);
+    },
+    later(work) {
+      if (defer !== null) defer(work);
+      else held.push(work);
+    },
+  };
 }
 
 /**
@@ -123,7 +159,10 @@ async function openSessionStore(session, env, controlPlane) {
   // as siblings; reading only the first, and then hunting for the second
   // inside it, is what left fast search dead in production. See
   // `getStorageBinding`.
-  const opened = await openBinding(session, env, controlPlane);
+  // The request's `ctx.waitUntil` is laid on the store only after it opens (`http/requestStore.js`), so the routing
+  // layer, and a binding refresh behind the response, are handed a door to it now.
+  const behind = deferDoor();
+  const opened = await openBinding(session, env, controlPlane, (work) => behind.later(work));
   const { binding, searchIndex, meaningIndex, encryptionKey, rotation, noteCap } = opened;
 
   if (binding === null) throw new StorageUnavailable("not bound");
@@ -184,9 +223,7 @@ async function openSessionStore(session, env, controlPlane) {
   // A keyed workspace's path objects are frozen copies (`notes-by-id.md`): a store
   // without the id layer would serve them as the note. Refused, never served paths.
   if (opened.keyed === true && hooks === null) throw new StorageUnavailable("keyed workspace needs the id layer");
-  // The request's `ctx.waitUntil` is laid on the store only after it opens (`http/requestStore.js`), so the routing
-  // layer is handed a door to it now: until the request fills it, a backup write is awaited as before.
-  const behind = { defer: null };
+  // Until the request fills the door, a backup write is awaited as before.
   const store = withPrivacyAuthority(
     storeForBinding(binding, env, {
       defer: (work) => {
