@@ -130,8 +130,17 @@ const KEYWORDS = {
 /** `apps:<app>`: one connected app's tools, or with `tool`, one read through it. */
 const APP_PREFIX = "apps:";
 
+/**
+ * A chat's history file (`tex/history.ledger.json`, or `history.ledger.json` in a group chat's home): the chat's
+ * ledger as it is now, answered by the chat's Tex object (`texStore/historyView.js`). It is a row like any Tex note
+ * and `read_note` reads it with that note's access; only its name is not `.md`, so without this it fell through to a
+ * folder listing and answered "no visible notes" (Dev, 2026-11-03: agents should be able to read the history files).
+ */
+const HISTORY_FILE_ID = /(?:^|\/)history\.ledger\.json$/i;
+
 /** Ids that name something other than a note, which only the table below can route. */
 function routedId(id) {
+  if (HISTORY_FILE_ID.test(id)) return true;
   return Object.hasOwn(KEYWORDS, id) || [APP_PREFIX, TEXTS_ID_PREFIX, EMAIL_ID_PREFIX, GOOGLE_CHAT_ID_PREFIX].some((prefix) => id.startsWith(prefix));
 }
 
@@ -174,6 +183,11 @@ export function translateFetch(call, app = {}) {
   }
   if (id.startsWith(EMAIL_ID_PREFIX)) {
     return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment", "from", "summary"] });
+  }
+
+  // A chat's history file reads as the note it is, with that note's access.
+  if (HISTORY_FILE_ID.test(id)) {
+    return target(label, a, { name: "read_note", action: "note", fixed: { path: id } });
   }
 
   // A message anchor from search (`<note>.md#<anchor>`) is the note itself.
