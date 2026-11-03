@@ -49,8 +49,10 @@ notes-by-id cleanup rather than gated here.
   this clears Convex's copy.
 - `nodeFactsDrop.drop`: clears Convex's copy of facts for an object-home workspace.
 - `accessMirror.apply`: applies the object's member, invite and connection changes. A member removal also deletes
-  that person's grants through `removeUserGrantsIn`, which opens a row outbox entry back to the object; that echo is
-  closed by the mirror's rowWatch skip, which the foundation work owns.
+  that person's grants through `removeUserGrantsIn`, which opens a row outbox entry back to the object. That push is
+  not a pure echo yet: the object holds rendered rules, not grant rows, so it is how the object's rules lose that
+  person's grants. It moves to `internalMutationMirrored` (no outbox) once the object keeps grant rows and drops a
+  removed member's grants itself (the access workstream).
 
 ## What a simplification would cost
 
