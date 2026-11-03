@@ -12,13 +12,17 @@
  * error. A change that names a row outside the object's own workspace, or one the object would itself refuse (removing
  * or demoting the owner), is refused here too, so a fault on the other side cannot widen into Convex.
  *
- * Built with `internalMutationWriteBehind`: its access writes are never refused by the switch and never pushed back
- * to the object (`lib/accessHandOff/flush.ts`).
+ * Built with `internalMutationMirrored`: its access writes are never refused by the switch and never pushed back
+ * to the object (`lib/accessHandOff/flush.ts`), and it opens no row outbox entry. Where the notes live in the object it
+ * writes no tree row either: a removed member's grants are the object's to drop (`accessMirrorGrants.ts`); elsewhere
+ * there is no outbox to open.
  */
 
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
-import { internalMutationWriteBehind } from "./lib/rowWatch/mutations";
+import { internal } from "../_generated/api";
+import { internalMutationMirrored } from "./lib/rowWatch/mutations";
+import { notesInObject } from "./lib/nodes/notesHome";
 import { recordAudit } from "./lib/audit";
 import { getMembership } from "./lib/workspaceAuth";
 import { deleteMemberPlaces } from "./lib/places";
@@ -49,7 +53,7 @@ export const accessChangeValidator = v.union(
 
 export type MirrorAnswer = { applied: boolean; refused?: "NOT_FOUND" | "OWNER" | "WRONG_WORKSPACE" };
 
-export const apply = internalMutationWriteBehind({
+export const apply = internalMutationMirrored({
   args: { workspaceId: v.id("workspaces"), change: accessChangeValidator },
   returns: v.object({ applied: v.boolean(), refused: v.optional(v.union(v.literal("NOT_FOUND"), v.literal("OWNER"), v.literal("WRONG_WORKSPACE"))) }),
   handler: async (ctx, { workspaceId, change }): Promise<MirrorAnswer> => {
@@ -76,7 +80,16 @@ export const apply = internalMutationWriteBehind({
       }
       await ctx.db.delete(target._id);
       await deleteMemberPlaces(ctx, workspaceId, userId);
-      if (actor !== null) await removeUserGrantsIn(ctx, { workspaceId, userId, actorUserId: actor });
+      if (actor !== null) {
+        // Where the notes live in the object, its grant rows are the record: the object drops them, and its change
+        // comes back through the access mirror (`accessMirrorGrants.ts`). Elsewhere Convex is the record.
+        if (await notesInObject(ctx.db, workspaceId)) {
+          const actorRole = (await getMembership(ctx, workspaceId, actor))?.role ?? "member";
+          await ctx.scheduler.runAfter(0, internal.functions.accessMirrorGrants.drop, { workspaceId, userId, actorUserId: actor, actorRole });
+        } else {
+          await removeUserGrantsIn(ctx, { workspaceId, userId, actorUserId: actor });
+        }
+      }
       await recordAudit(ctx, {
         workspaceId,
         actorUserId: actor ?? undefined,
