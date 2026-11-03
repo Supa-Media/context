@@ -3,7 +3,8 @@
  * `{ applied: [seq…], skipped: [{ seq, reason }] }`, behind the gateway's secret only (`gatewayRoute`).
  *
  * The caller is a workspace object that has just taken note writes; this writes Convex behind it, one change at a
- * time and in the order sent (`functions/objectRowsMirror.ts`). An op this does not know is skipped, and so is a
+ * time and in the order sent: op `wrote` is `functions/objectRowsMirror.ts` `wrote`, op `tree` is its `tree`
+ * (`lib/nodes/mirrorTree.ts`). An op this does not know is skipped, and so is a
  * change whose shape the mutation refuses ("bad change"); a refused change is dropped, not retried, and so are the
  * ones the mutation answers `applied: false` for. A transient failure stops the batch: the answer then carries
  * `stopped: true`, with what was applied and skipped so far, and the caller sends the rest again. A body that is not
@@ -34,16 +35,18 @@ export async function gatewayRowsMirrorHandler(ctx: ActionCtx, body: Record<stri
   for (const change of changes) {
     const entry = (change !== null && typeof change === "object" ? change : {}) as Record<string, unknown>;
     const seq = entry.seq ?? null;
-    if (entry.op !== "wrote") {
+    if (entry.op !== "wrote" && entry.op !== "tree") {
       skipped.push({ seq, reason: "unknown op" });
       continue;
     }
     try {
-      const answer = await ctx.runMutation(internal.functions.objectRowsMirror.wrote, {
-        workspaceId: workspaceId as Id<"workspaces">,
-        objectAt: entry.objectAt as number,
-        record: entry.record as never,
-      });
+      // Each op names its mutation written out, so the credential-reachability check can follow it
+      // (`__tests__/structure/reachability.test.ts`).
+      const args = { workspaceId: workspaceId as Id<"workspaces">, objectAt: entry.objectAt as number, record: entry.record as never };
+      const answer =
+        entry.op === "tree"
+          ? await ctx.runMutation(internal.functions.objectRowsMirror.tree, args)
+          : await ctx.runMutation(internal.functions.objectRowsMirror.wrote, args);
       if (answer.applied) applied.push(seq);
       else skipped.push({ seq, reason: answer.reason });
     } catch (error) {

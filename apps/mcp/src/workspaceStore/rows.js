@@ -93,7 +93,14 @@ const objectAtOf = (row) => (Number.isFinite(row.objectAt) ? row.objectAt : 0);
  */
 function ownedAgainst(held, row) {
   if (held === null || Number(held.own_at) <= objectAtOf(row)) return null;
-  return new Set(ownFieldsOf(held));
+  const owned = ownFieldsOf(held);
+  // A push that already says what the object wrote (Convex took the object's change, as with a folder's children,
+  // whose paths Convex builds from the moved folder) has nothing left to keep from: it takes the row whole.
+  const values = storedValues(row);
+  const agrees = owned.every((field) =>
+    field === "gone" ? Number(held.gone) === 0 : !Object.hasOwn(COLUMN, field) || values[COLUMN[field]] === held[COLUMN[field]],
+  );
+  return agrees ? null : new Set(owned);
 }
 
 /** Thrown for a row or rule write the object will not keep. */
@@ -215,6 +222,8 @@ export function workspaceRows(sql) {
         const held = heldRow(row.id);
         if (held && Number(held.at) > row.at) continue;
         const owned = ownedAgainst(held, row);
+        // A row the object removed (a trash emptied, a folder a move left empty) stays removed against an older push.
+        if (owned?.has("gone") && Number(held.gone) === 1) continue;
         const path = owned?.has("path") ? held.path : row.path;
         // A folder that moved carries everything under it: the tree's move is one row (paths are built on read), so
         // the object rewrites its descendants' paths in the same call, or they would be judged under the old folder.
@@ -330,10 +339,27 @@ export function workspaceRows(sql) {
       // (`writeRow`, as `put` does), with no skip and no folder rewrite: the copy is the whole truth, not a push.
       const held = new Map(all(sql.exec("SELECT * FROM ws_rows WHERE own_at > 0")).map((row) => [row.id, row]));
       sql.exec("DELETE FROM ws_rows");
+      // A row the object holds as its own, written back exactly as it was held.
+      const keep = (row) =>
+        sql.exec(
+          `INSERT INTO ws_rows (id, note_id, path, kind, storage_key, etag, size, collaborates, uploaded, role, ord, archive_of, at, own_at, own_fields, gone)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          row.id, row.note_id, row.path, row.kind, row.storage_key, row.etag, row.size, row.collaborates, row.uploaded, row.role, row.ord,
+          row.archive_of, row.at, row.own_at, row.own_fields, row.gone,
+        );
+      const copied = new Set();
       for (const row of staged) {
         const before = held.get(row.id) ?? null;
-        writeRow(row, before, ownedAgainst(before, row));
+        const owned = ownedAgainst(before, row);
+        copied.add(row.id);
+        // A row the object removed and Convex has not yet seen removed stays removed.
+        if (owned?.has("gone") && Number(before.gone) === 1) keep(before);
+        else writeRow(row, before, owned);
       }
+      // A row the object made or changed that Convex has not confirmed yet (its ownership is still held) is not in a
+      // copy read before the mirror took it: it stays. Once a push confirms it, its ownership clears and a later copy
+      // that leaves it out drops it as usual.
+      for (const [id, before] of held) if (!copied.has(id)) keep(before);
       sql.exec("DELETE FROM ws_stage");
       return { staged: page.length, swapped: true, rows: staged.length };
     },

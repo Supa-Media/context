@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { workspaceRows, WorkspaceRowRefused } from "../src/workspaceStore/rows.js";
+import { treeOps, trashStamp } from "../src/workspaceStore/treeOps.js";
 
 let DatabaseSync = null;
 try {
@@ -203,4 +204,124 @@ test("originateNew adds a row at the object's clock and refuses an id that exist
 
   rows.put([{ id: "n9", path: "renamed.md", kind: "file", at: 12, etag: "e0", objectAt: 0 }]);
   assert.equal(rows.get(["n9"]).length, 1);
+});
+
+// The tree's own writes (`treeOps`: move, trash, remove, folder stand-up) record what they own, and the pushes that
+// follow them: an agreeing push takes the row whole, a trashed note removed by the object stays gone against an older
+// push, a moved folder's child keeps its new path, and a snapshot keeps what the object owns and drops what it does not.
+
+const NOW = Date.UTC(2026, 10, 3, 1, 2, 3, 456);
+const TRASH = `.context/trash/${trashStamp(NOW)}`;
+
+/** A fresh object with its rows and the tree's ops over the same SQLite; the ids the object mints are `o_new<n>`. */
+function treeWorld() {
+  const db = new DatabaseSync(":memory:");
+  const sql = sqlOver(db);
+  const rows = workspaceRows(sql);
+  let minted = 0;
+  const ops = treeOps(sql, { mintId: () => `o_new${++minted}` });
+  return { rows, ops };
+}
+
+/** A file row as Convex pushes it: its clock `at`, and an `objectAt` only when the push names one. */
+const pushedNote = (id, path, at, extra = {}) => ({ id, noteId: `n-${id}`, path, kind: "file", storageKey: `notes/${id}.md`, etag: `e-${id}`, at, ...extra });
+
+/** A note the object trashed and then removed for good: its row is a tombstone at NOW + 1, owned as gone. */
+function removedFromTrash() {
+  const world = treeWorld();
+  world.rows.put([pushedNote("f1", "a.md", 100)]);
+  assert.equal(world.ops.trash({ path: "a.md", now: NOW }).ok, true);
+  assert.equal(world.ops.remove({ path: `${TRASH}/a.md`, now: NOW + 1 }).ok, true);
+  assert.deepEqual(world.rows.get(["f1"]), []);
+  assert.equal(world.rows.ownership("f1").ownAt, NOW + 1);
+  return world;
+}
+
+test("a push agreeing with every owned field clears ownership, even when its objectAt is older than own_at", { skip }, () => {
+  const { rows } = treeWorld();
+  rows.put([{ id: "n1", path: "a.md", kind: "file", at: 5, etag: "e1", size: 10 }]);
+  rows.originate({ id: "n1", fields: { etag: "e2", size: 20 } }, 10);
+  assert.deepEqual(rows.ownership("n1"), { ownAt: 10, ownFields: ["etag", "size"] });
+
+  rows.put([{ id: "n1", path: "a.md", kind: "file", at: 11, etag: "e2", size: 20, objectAt: 3 }]);
+  assert.deepEqual(rows.ownership("n1"), { ownAt: 0, ownFields: null });
+  assert.equal(rows.get(["n1"])[0].at, 11);
+});
+
+test("a push disagreeing on an owned field keeps the object's value and its ownership", { skip }, () => {
+  const { rows } = treeWorld();
+  rows.put([{ id: "n1", path: "a.md", kind: "file", at: 5, etag: "e1", size: 10 }]);
+  rows.originate({ id: "n1", fields: { etag: "e2", size: 20 } }, 10);
+
+  rows.put([{ id: "n1", path: "renamed.md", kind: "file", at: 11, etag: "e9", size: 20, objectAt: 3 }]);
+  const row = rows.get(["n1"])[0];
+  assert.equal(row.path, "renamed.md", "the unowned path is taken");
+  assert.equal(row.etag, "e2", "the owned etag is kept");
+  assert.deepEqual(rows.ownership("n1"), { ownAt: 10, ownFields: ["etag", "size"] });
+});
+
+test("a push older than the object's removal of a trashed note leaves it gone; one that reaches the removal brings it back", { skip }, () => {
+  for (const objectAt of [undefined, NOW]) {
+    const { rows } = removedFromTrash();
+    rows.put([pushedNote("f1", "a.md", NOW + 5, { objectAt })]);
+    assert.deepEqual(rows.get(["f1"]), [], `objectAt ${objectAt}`);
+  }
+
+  const { rows } = removedFromTrash();
+  rows.put([pushedNote("f1", "a.md", NOW + 5, { objectAt: NOW + 1 })]);
+  const row = rows.get(["f1"]);
+  assert.equal(row.length, 1);
+  assert.equal(row[0].path, "a.md");
+});
+
+test("a moved folder's child keeps its new path against an old push, and a push with the new path clears ownership", { skip }, () => {
+  const { rows, ops } = treeWorld();
+  rows.put([
+    { id: "d1", path: "projects", kind: "folder", at: 100 },
+    { id: "d2", path: "projects/launch", kind: "folder", at: 100 },
+    pushedNote("f1", "projects/launch/brief.md", 100),
+  ]);
+  assert.equal(ops.move({ from: "projects/launch", to: "areas/launch", now: NOW }).ok, true);
+
+  rows.put([pushedNote("f1", "projects/launch/brief.md", NOW + 10)]);
+  assert.equal(rows.get(["f1"])[0].path, "areas/launch/brief.md");
+  assert.equal(rows.ownership("f1").ownAt, NOW);
+
+  rows.put([pushedNote("f1", "areas/launch/brief.md", NOW + 11)]);
+  assert.equal(rows.get(["f1"])[0].path, "areas/launch/brief.md");
+  assert.deepEqual(rows.ownership("f1"), { ownAt: 0, ownFields: null });
+});
+
+test("a snapshot that omits a row the object made and not yet confirmed keeps it with its fields", { skip }, () => {
+  const { rows } = treeWorld();
+  rows.originateNew({ id: "o_new1", path: "notes/new.md", kind: "file", noteId: "note-new", etag: "e1", size: 3 }, 10);
+
+  rows.snapshot({ epoch: "e1", last: true, rows: [{ id: "c1", path: "copy.md", kind: "file", at: 1 }] });
+  const row = rows.get(["o_new1"]);
+  assert.equal(row.length, 1);
+  assert.equal(row[0].path, "notes/new.md");
+  assert.equal(row[0].noteId, "note-new");
+  assert.equal(row[0].etag, "e1");
+  assert.equal(row[0].size, 3);
+  assert.deepEqual(rows.ownership("o_new1"), { ownAt: 10, ownFields: ["path", "kind", "noteId", "etag", "size"] });
+});
+
+test("a snapshot drops a row whose ownership an agreeing push cleared, when the copy leaves it out", { skip }, () => {
+  const { rows } = treeWorld();
+  rows.originateNew({ id: "o_new2", path: "notes/gone.md", kind: "file", noteId: "note-gone", etag: "e2", size: 4 }, 20);
+  rows.put([{ id: "o_new2", path: "notes/gone.md", kind: "file", noteId: "note-gone", etag: "e2", size: 4, at: 21 }]);
+  assert.deepEqual(rows.ownership("o_new2"), { ownAt: 0, ownFields: null });
+
+  rows.snapshot({ epoch: "e3", last: true, rows: [{ id: "c2", path: "other.md", kind: "file", at: 1 }] });
+  assert.deepEqual(rows.get(["o_new2"]), []);
+});
+
+test("a snapshot naming a row the object removed stays gone against a staged row with no objectAt, and is live with objectAt >= own_at", { skip }, () => {
+  const { rows } = removedFromTrash();
+  rows.snapshot({ epoch: "e4", last: true, rows: [pushedNote("f1", `${TRASH}/a.md`, NOW + 10)] });
+  assert.deepEqual(rows.get(["f1"]), [], "no objectAt: stays gone");
+
+  const live = removedFromTrash();
+  live.rows.snapshot({ epoch: "e5", last: true, rows: [pushedNote("f1", `${TRASH}/a.md`, NOW + 10, { objectAt: NOW + 1 })] });
+  assert.equal(live.rows.get(["f1"]).length, 1, "objectAt >= own_at: live");
 });

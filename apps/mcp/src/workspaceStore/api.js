@@ -143,7 +143,11 @@ export function workspaceClient(env, workspaceId) {
     },
     apply: async ({ rows = [], removed = [], at = null, rules = {} }) => await ask("ws.apply", { rows, removed, at, rules }),
     // Write ops (`workspaceStore/writeOps.js`); `ask` names the workspace in every body.
-    write: { wrote: async (record) => await ask("ws.write.wrote", record) },
+    write: {
+      wrote: async (record) => await ask("ws.write.wrote", record),
+      trash: async (body) => await ask("ws.write.trash", body),
+      restore: async (body) => await ask("ws.write.restore", body),
+    },
     ...membershipClient(ask),
     state: async () => await ask("ws.state"),
     setHome: async (home) => await ask("ws.home", { home }),
