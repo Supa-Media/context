@@ -29,6 +29,7 @@ export async function serveMcp(request, workerEnv, ctx, { slug, pathToken, origi
   if (request.method !== "POST") return new Response(null, { status: 405 });
   // MCP ENTRY POINT: begin
   const mcp = mcpEntry(workerEnv);
+  mcp.colo = request.cf?.colo;
   // Every workspace object call this request makes, timed as `obj:<op>` beside the control plane's `cp:` routes.
   const env = mcp.watchObjects(workerEnv);
   const controlPlane = createControlPlane(env, { fetchImpl: mcp.fetchFor("cp") });
