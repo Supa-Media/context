@@ -218,6 +218,23 @@ describe("after the migration, a real member", () => {
     expect(await visibleToPerson(w, w.mel)).toEqual([...OPEN_TO_ACCOUNTS, BENCH, OLD_BUG, PLAN].sort());
   });
 
+  test("the gateway's tree manifest lists a member's AI connection what its names open, and no private note", async () => {
+    // 2026-11-03: the tree routes dropped every non-guest's names, so a note opened by a grant was missing there.
+    const w = await pinnedWorld();
+    await migrate(w);
+    const list = async () => {
+      const answer = (await (
+        await gatewayPost(w.t, "/gateway/tree/manifest", { accessToken: MEL_TOKEN, expectedWorkspaceId: w.pinned })
+      ).json()) as { served?: boolean; entries?: Array<{ path: string }> };
+      expect(answer.served).toBe(true);
+      return (answer.entries ?? []).map((entry) => entry.path);
+    };
+    expect(await list()).not.toContain(SECRET);
+    // Shared with Mel by name: her names open it, and the manifest now judges by them.
+    await setRow(w, SECRET, "private", [{ kind: "user", userId: w.mel, role: "view" }]);
+    expect(await list()).toContain(SECRET);
+  });
+
   test("an ordinary MCP session reads a note under the folder that was in the Members position, and no private one", async () => {
     const w = await pinnedWorld();
     await migrate(w);
