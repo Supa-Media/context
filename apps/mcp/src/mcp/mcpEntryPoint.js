@@ -13,8 +13,8 @@
  *
  * - `cp:<route>`: each control-plane request, by route (`/gateway/session`,
  *   `/gateway/binding`, ...), through the control plane's `fetchImpl`.
- * - `store:<op>`: each call the request's stores make (get, head, put,
- *   delete, list), for the default
+ * - `store:<op>:<kind>`: each call the request's stores make (get, head, put,
+ *   delete, list), by the kind of key (`keyClass`), for the default
  *   workspace and every other one a call opens (`open_other_context`).
  * - `obj:<op>`: each call to a workspace object (`ws.open`, `ws.rows.lookup`,
  *   a body's `get`, ...), through the request's `WORKSPACE_STORE` (`watchObjects`),
@@ -112,7 +112,7 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
         const inner = store[op];
         if (typeof inner !== "function") continue;
         store[op] = function (...args) {
-          return timed(`store:${op}`, () => inner.apply(this, args));
+          return timed(`store:${op}:${keyClass(args[0])}`, () => inner.apply(this, args));
         };
       }
       return store;
@@ -161,6 +161,20 @@ export function callOf(body) {
   if (method !== "tools/call") return method || "unparsed";
   const tool = typeof body.params?.name === "string" ? body.params.name.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 40) : "";
   return `tools/call:${tool || "unnamed"}`;
+}
+
+/**
+ * What kind of key a store call is about, never the key: `note` (a Markdown path), `file` (any other path), or
+ * `.context/<area>` for the workspace's own records (`.context/audit`, `.context/collaboration`, ...), so a request's
+ * store calls can be told apart without naming anything anyone wrote. A listing's options object is `list`.
+ */
+export function keyClass(key) {
+  if (typeof key !== "string") return key && typeof key === "object" ? "list" : "other";
+  if (key.startsWith(".context/")) {
+    const area = key.slice(".context/".length).split("/")[0];
+    return /^[a-z][a-z0-9-]{0,23}$/.test(area) ? `.context/${area}` : ".context/other";
+  }
+  return key.toLowerCase().endsWith(".md") ? "note" : "file";
 }
 
 /** A request's route: the path only, ids that look like ids folded to `#`. */
