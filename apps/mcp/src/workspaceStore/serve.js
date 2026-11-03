@@ -25,6 +25,7 @@ import { isWriteOp, serveWrites } from "./serveWrites.js";
 import { serveCollabReplace } from "./collabReplace.js";
 import { treeRows } from "./treeRows.js";
 import { absentHere } from "./lookupMiss.js";
+import { namesTaken } from "./namesTaken.js";
 import { SearchAskRefused } from "./searchIndex.js";
 import { MeaningAskRefused } from "./meaningIndex.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
@@ -288,6 +289,10 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "path", store.members ?? null)));
       case "ws.rows.resolve":
         return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "noteId", store.members ?? null)));
+      case "ws.rows.names":
+        // A writer's "is that name taken?", unfiltered (`namesTaken.js`); before the notes live here, the control plane's.
+        if (rows.home() !== HOMES.OBJECT || !store.sql) return Response.json({ served: false });
+        return Response.json(await settledAnswer(store, () => namesTaken(rows, store.sql, fields)));
       case "ws.facts":
         return Response.json(await settledAnswer(store, () => answerFacts(store, fields)));
       case "ws.search":

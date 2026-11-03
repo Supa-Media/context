@@ -212,7 +212,15 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   // workspace's object, their links and props are asked there first (`store/objectLookup.js` `objectFirstFacts`).
   Object.defineProperty(store, "treeFacts", {
     value: async (request) => {
-      const fromObject = typeof store.objectFacts === "function" ? await store.objectFacts(request) : null;
+      // A writer's names ask goes to the object first too (`objectFirstNames`); the note cap's count stays the control plane's.
+      const fromObject =
+        request?.ask === "names"
+          ? typeof store.objectNames === "function"
+            ? await store.objectNames(request)
+            : null
+          : typeof store.objectFacts === "function"
+            ? await store.objectFacts(request)
+            : null;
       return fromObject ?? (await controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request));
     },
     enumerable: false,

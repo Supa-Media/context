@@ -93,6 +93,8 @@ export function workspaceStub(env, workspaceId) {
  *   or `{served: false}`: the agent tools' listing, judged the same way (`workspaceStore/manifest.js`)
  * - `rows.put(rows)`, `rows.remove(ids, at)`, `rows.get(ids)`, `rows.list({after, limit})`
  * - `rows.snapshot({epoch, rows, last, mode})`: a whole copy in pages; `replace` swaps on the last page, `merge` upserts
+ * - `rows.names({paths, canWrite})` → `{served, files, folders, behind?}`: a writer's "is that name taken?", unfiltered,
+ *   only for a call the gateway attests is a writer's (`workspaceStore/namesTaken.js`)
  * - `rows.digest()` → `{rows, sha256}` over the live rows in id order (fields: id, noteId, path, kind, storageKey, etag, size, collaborates, uploaded, role, order, archiveOf)
  * Every `ws.*` call names its workspace; the object pins the first it sees and refuses any other.
  * - `facts({ask, ..., scope, groups, audience})`: a note facts ask (`props`, `links`, `neighbors`) answered from the
@@ -136,6 +138,7 @@ export function workspaceClient(env, workspaceId) {
         await ask("ws.rows.manifest", { folder, ...(cursor ? { cursor } : {}), scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
       snapshot: async ({ epoch, rows, last = false, mode = "replace" }) => await ask("ws.rows.snapshot", { epoch, rows, last, mode }),
       digest: async () => await ask("ws.rows.digest"),
+      names: async ({ paths, canWrite }) => await ask("ws.rows.names", { paths, canWrite: canWrite === true }),
     },
     facts: async (request) => await ask("ws.facts", request),
     factRows: async (request) => await ask("ws.facts.rows", request),

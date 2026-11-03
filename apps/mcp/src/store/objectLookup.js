@@ -118,6 +118,36 @@ export function objectFirstFacts(options) {
 }
 
 /**
+ * A writer's "is that name taken?" (`ask: "names"`, `tree/names.js`) asked of the object before the control plane
+ * (`workspaceStore/namesTaken.js`). The answer is unfiltered, so only a session that may write here asks: `canWrite`
+ * is the control plane's own rule (owner or editor, with `context:write`), decided by the gateway and attested to the
+ * object. `null` where this session does not ask the object; otherwise a function answering `{served, files, folders}`,
+ * or `null` for an ask it did not serve (a count, a failure, the object behind), and the caller asks the control plane.
+ *
+ * @param {Parameters<typeof objectReader>[0] & {canWrite?: boolean}} options
+ * @returns {((request: {ask: string, paths?: string[], count?: boolean}) => Promise<object|null>) | null}
+ */
+export function objectFirstNames(options) {
+  if (options?.canWrite !== true) return null;
+  const reader = objectReader(options);
+  if (reader === null || reader.judged.audience !== "member" || typeof reader.client.rows?.names !== "function") return null;
+  const { client, workspaceId, log, settledBehind } = reader;
+  return async (request) => {
+    // The note cap's count stays the control plane's (`servedCount.ts`).
+    if (request?.ask !== "names" || request.count === true || !Array.isArray(request.paths) || request.paths.length === 0) return null;
+    let answer;
+    try {
+      answer = await client.rows.names({ paths: request.paths, canWrite: true });
+    } catch (error) {
+      log("workspace_object_names_failed", { workspaceId, error: String(error?.message ?? error) });
+      return null;
+    }
+    if (settledBehind(answer) || answer?.served !== true || !Array.isArray(answer.files) || !Array.isArray(answer.folders)) return null;
+    return { served: true, files: answer.files, folders: answer.folders };
+  };
+}
+
+/**
  * The `lookup` and `resolve` hooks for `withIdLayout`, object first. `hooks` are the control plane's.
  *
  * @param {{lookup: (paths: string[]) => Promise<object>, resolve?: (ids: string[]) => Promise<object>}} hooks
