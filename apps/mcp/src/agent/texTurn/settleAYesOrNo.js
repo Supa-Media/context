@@ -1,10 +1,10 @@
-/** A texted yes or no settles a waiting approval before any model runs; otherwise lists the approvals still open. One step of Tex's turn (`../texTurn.js`). */
+/** A texted yes or no settles a waiting approval before any model runs; otherwise keeps the Worker's fixed texts and reads no approval. One step of Tex's turn (`../texTurn.js`). */
 
 import { json } from "../../http/responses.js";
 import { SCOPE_WRITE, hasScope } from "../../session.js";
-import { conversationPath } from "../conversation.js";
+import { appendTold, conversationPath, readTold } from "../conversation.js";
 import { deferred } from "../deferred.js";
-import { mayAnswerAsk, waitingAsks } from "../frontDoor.js";
+import { mayAnswerAsk } from "../frontDoor.js";
 import { keepGroupSettled, withoutTexName } from "../groupTurn.js";
 import { readTimeZone } from "../localNow.js";
 import { thumbsDownIsNo, thumbsUpIsYes } from "../textedApprovals.js";
@@ -21,7 +21,10 @@ export async function settleAYesOrNo(t) {
   const front = env.TEX_FRONT_DOOR !== "off" && (await tex.wait("setup", setupRead))?.frontDoor !== false; // Haiku as the front door (`frontDoor.js`): only a yes or no is matched before it, and no reply checks after
   const ownConversation = group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null, askChat = group?.key ?? null; // an ask, and the yes to it, belong to the chat it was made in (`approvals.js` `chatOfAsk`)
   if (store.ledger === null && ownConversation !== null) store.ledger = chatLedger(store, session); // any caller that keeps the person's texts keeps them in their chat's one record (`ledgerConversation.js`)
-  if (front && (session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true && !mayAnswerAsk(group !== null ? withoutTexName(question) : question, quoted, sent.length > 0)) ({ setAside = [], dropped = [] } = (await tex.step("waiting_asks", () => waitingAsks(store, session, { conversation: ownConversation, told: body.told, now: received, chat: askChat }), null)) ?? {});
+  if (front && (session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true && !mayAnswerAsk(group !== null ? withoutTexName(question) : question, quoted, sent.length > 0)) {
+    // Not a yes or no: no waiting ask is listed or disarmed (owner, 2026-11-03: it cost ~5 s a text; `front-door.md`). The Worker's fixed texts still go in the history.
+    if (ownConversation !== null && readTold(body.told).length > 0) await tex.step("keep_told", () => appendTold(store, ownConversation, readTold(body.told)));
+  }
   else if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true) {
     thumbsUp = await tex.step("thumbs_up", () => thumbsUpIsYes(store, session, quoted, { who: group?.from || null, chat: askChat })); // a 👍 on the ask is that yes
     const thumbsDown = !thumbsUp && (await tex.step("thumbs_down", () => thumbsDownIsNo(store, session, quoted, { who: group?.from || null, chat: askChat }))); // and a 👎 the no

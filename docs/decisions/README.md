@@ -755,6 +755,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Every reaction in a chat is input, a reaction on Tex's question its answer (2026-11-01)](./texting-assistant/reactions-as-input.md)
 - [Tex's front door: a text in, Haiku answers, the reply out (2026-10-31)](./texting-assistant/front-door.md)
 - [The front door keeps one check: "I can't open it" with nothing tried (2026-11-03)](./texting-assistant/front-door.md#one-check-stays-i-cant-open-it-with-nothing-tried-2026-11-03)
+- [No waiting asks step (2026-11-03)](./texting-assistant/front-door.md#no-waiting-asks-step-2026-11-03)
 - [Tex's warm copy, sealed in the sender's object (2026-10-31)](./texting-assistant/warm-copy.md)
 - [Tex's notes live in Durable Objects, not the bucket (2026-10-31)](./texting-assistant/tex-durable-objects.md)
 - The Worker decides nothing about access

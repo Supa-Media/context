@@ -81,7 +81,7 @@ test("the block keeps names and numbers, moves the loop's offsets onto the turn'
   const timing = turnTiming({
     steps: [
       { name: "read_request", at: 2, ms: 3, state: "ok" },
-      { name: "waiting_asks", at: 5, ms: 0, state: "off" },
+      { name: "kept_files_again", at: 5, ms: 0, state: "off" },
       { name: "model", at: 1_000, ms: 4_000, state: "ok" },
       { name: "to_response", at: 0, ms: 5_100, state: "ok" },
       { name: "after:usage", at: 5_200, ms: 30, state: "ok" },
@@ -95,7 +95,7 @@ test("the block keeps names and numbers, moves the loop's offsets onto the turn'
     waitMs: 1_200,
     replyMs: 5_050.4,
   });
-  assert.deepEqual(timing.steps, [{ name: "read_request", at: 2, ms: 3 }, { name: "waiting_asks", at: 5, ms: 0, state: "off" }, { name: "model", at: 1_000, ms: 4_000 }]);
+  assert.deepEqual(timing.steps, [{ name: "read_request", at: 2, ms: 3 }, { name: "kept_files_again", at: 5, ms: 0, state: "off" }, { name: "model", at: 1_000, ms: 4_000 }]);
   assert.deepEqual(timing.router, { at: 1_000, ms: 300, model: "anthropic/claude-haiku-5-5" });
   assert.deepEqual(timing.rounds, [
     { at: 1_300, ms: 50, model: "b", fallback: true },

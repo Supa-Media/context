@@ -41,7 +41,6 @@
  * instead of before it).
  */
 export const OFF_IN_CHATS = new Set([
-  "waiting_asks", // the open approvals listed for the model before it answers; a texted yes still settles them
   "kept_files_again", // files from earlier texts shown again
   "learned_skills", // the index of skills Tex wrote itself
   "google_offer", // the once-only "connect Google" line, and its mail-health call
