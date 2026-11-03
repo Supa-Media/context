@@ -227,6 +227,15 @@ describe("rows and who can see", () => {
     expect(objectRowOf({ _id: "r9", path: "x.md", kind: "file", goneAt: 1 }, 5)).toBeNull();
   });
 
+  test("the row carries the object's clock (0 when none), and the digest does not cover it", async () => {
+    const plan = { _id: "r2", path: "projects/plan.md", kind: "file" as const, noteId: "0199a000-0000-7000-8000-00000000000a", storageKey: A, etag: "e1" };
+    expect(objectRowOf(plan, 5)).toMatchObject({ objectAt: 0 });
+    expect(objectRowOf({ ...plan, objectAt: 77 }, 5)).toMatchObject({ objectAt: 77, at: 5 });
+    const withClock = [objectRowOf({ ...plan, objectAt: 77 }, 5)!];
+    const without = [objectRowOf(plan, 5)!];
+    expect((await rowsDigest(withClock)).sha256).toBe((await rowsDigest(without)).sha256);
+  });
+
   test("the digest computed here is byte-for-byte the object's own", async () => {
     const { client } = objectFor();
     await client.rows.snapshot({ epoch: "1", rows, last: true, mode: "replace" });

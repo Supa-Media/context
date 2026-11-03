@@ -932,8 +932,8 @@ http.route({ path: "/gateway/workspaces/connect-google", method: "POST", handler
 http.route({ path: "/gateway/workspaces/invite", method: "POST", handler: gatewayWorkspacesInvite });
 http.route({ path: "/gateway/access/profiles", method: "POST", handler: gatewayRoute(workspaceRoutes.gatewayAccessProfilesHandler) }); // names for a workspace object's members (`functions/accessProfiles.ts`)
 http.route({ path: "/gateway/access/mirror", method: "POST", handler: gatewayRoute(workspaceRoutes.gatewayAccessMirrorHandler) }); // Convex written behind an object's access write (`functions/accessMirror.ts`)
-/* Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`). */
-export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler);
+http.route({ path: "/gateway/rows/mirror", method: "POST", handler: gatewayRoute(workspaceRoutes.gatewayRowsMirrorHandler) }); // Convex written behind an object's note writes (`functions/objectRowsMirror.ts`)
+export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler); // Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`)
 http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });
 for (const [path, handler] of texStyleRoutes.TEX_ROUTES) http.route({ path, method: "POST", handler: gatewayRoute(handler) }); // the agent's chat commands on its own grant, and the Tex page's two calls on the console's (`texCommands.ts`, `texPage.ts`)
 /* Who is texting Tex, for the turns Tex answers for one person (`lib/texIdentity/identity.ts`). */

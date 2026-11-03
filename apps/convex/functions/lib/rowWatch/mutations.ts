@@ -90,7 +90,13 @@ function definedAt(): string {
   return frame.replace(/^at\s+/, "").slice(0, 200) || "unknown";
 }
 
-function watched<T>(definition: T, options: { writeBehind: WriteBehind } = { writeBehind: false }): T {
+/**
+ * `mirror`: the write is a copy of a change the workspace object already took, so no outbox entry or push follows
+ * (`internalMutationMirrored`).
+ */
+type WatchOptions = { writeBehind: WriteBehind; mirror?: boolean };
+
+function watched<T>(definition: T, options: WatchOptions = { writeBehind: false }): T {
   const source = definedAt();
   const def = (typeof definition === "function" ? { handler: definition as Handler } : definition) as AnyDefinition;
   const handler = def.handler;
@@ -99,7 +105,7 @@ function watched<T>(definition: T, options: { writeBehind: WriteBehind } = { wri
     handler: async (ctx: MutationCtx, args: never) => {
       const watch = watchDb(ctx.db);
       const result = await handler({ ...ctx, db: watch.db }, args);
-      await flushRowChanges(ctx, watch.changes, source);
+      if (options.mirror !== true) await flushRowChanges(ctx, watch.changes, source);
       await flushAccessWrites(ctx, watch.accessWrites, options);
       return result;
     },
@@ -120,6 +126,16 @@ export const internalMutation = ((definition: unknown) =>
  */
 export const internalMutationWriteBehind = ((definition: unknown) =>
   convexInternalMutation(watched(definition, { writeBehind: true }) as never)) as typeof convexInternalMutation;
+
+/**
+ * An `internalMutation` that copies a row change the workspace object already took (`functions/objectRowsMirror.ts`,
+ * the gateway's `POST /gateway/rows/mirror`). It is written behind like `internalMutationWriteBehind`, and it does NOT
+ * open an outbox entry or schedule a push. The object already holds the change, so an entry here would send it back
+ * to the object, and mark the workspace behind, on every save: a mirror that opened an outbox entry would bounce each
+ * change back and never let the workspace read as settled.
+ */
+export const internalMutationMirrored = ((definition: unknown) =>
+  convexInternalMutation(watched(definition, { writeBehind: true, mirror: true }) as never)) as typeof convexInternalMutation;
 
 /**
  * An `internalMutation` run after the objects already took a take-away (`functions/accessTakeAway.ts`): its writes to
