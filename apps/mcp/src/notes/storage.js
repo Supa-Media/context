@@ -62,10 +62,10 @@ export async function listAllKeys(store, prefix) {
 
 /** List current plumbing plus its pre-v1 location, presenting both as v1 keys. */
 export async function listAllKeysWithLegacy(store, prefix) {
-  const current = await listAllKeys(store, prefix);
   const legacyPrefix = legacyStorageKey(prefix);
-  if (!legacyPrefix) return current;
-  const legacy = await listAllKeys(store, legacyPrefix);
+  if (!legacyPrefix) return await listAllKeys(store, prefix);
+  // Both listings at once: neither needs the other, and each is a bucket round trip.
+  const [current, legacy] = await Promise.all([listAllKeys(store, prefix), listAllKeys(store, legacyPrefix)]);
   const byKey = new Map(current.map((object) => [object.key, object]));
   for (const object of legacy) {
     const key = `${prefix}${object.key.slice(legacyPrefix.length)}`;

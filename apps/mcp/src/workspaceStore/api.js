@@ -155,6 +155,9 @@ export function workspaceClient(env, workspaceId) {
     setEncryption: async (state) => await ask("ws.encryption", { state }),
     markBackfilled: async (at) => await ask("ws.backfilled", { at }),
     open: async (userId) => await ask("ws.open", { userId }),
+    // The object's own word index (`searchIndex.js`): a search's queries, and a catch-up pass behind a response.
+    search: async (asks) => await ask("ws.search", { asks }),
+    searchBuild: async () => await ask("ws.search.build"),
     binding: {
       put: async ({ sealed, at, epoch }) => await ask("ws.binding.put", { sealed, at, epoch }),
       clear: async () => await ask("ws.binding.clear"),

@@ -121,6 +121,8 @@ export async function runSearchPacingControlPlaneChecks(check) {
       // subtraction that must never be RENDERED. `index.docs` is already in
       // this trace on the same terms (`visible.js`: "Never rendered").
       "fast", "fastCandidates", "fastVisible", "fastError",
+      // Which way the workspace object's own index went (`search/objectSearch.js`): one of four fixed words.
+      "objectSearch",
     ]);
     const INDEX_KEYS = new Set([
       "shardCount", "occupiedShards", "shardsRead", "routed", "docs", "pending",
@@ -131,7 +133,7 @@ export async function runSearchPacingControlPlaneChecks(check) {
     // keys are as unbounded as the top level's were. Measured — a field
     // planted inside `ms` passed the whole suite while the two sets below
     // were being called "both levels".
-    const MS_KEYS = new Set(["answer", "scan", "fast", "total"]);
+    const MS_KEYS = new Set(["answer", "scan", "fast", "object", "total"]);
     const strayTop = Object.keys(traced[0]).filter((key) => !TRACE_KEYS.has(key));
     const strayIndex = Object.keys(traced[0].index ?? {}).filter((key) => !INDEX_KEYS.has(key));
     const strayMs = Object.keys(traced[0].ms ?? {}).filter((key) => !MS_KEYS.has(key));

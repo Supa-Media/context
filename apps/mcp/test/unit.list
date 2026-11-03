@@ -373,6 +373,7 @@ test/ledgerJobsAndThinking.test.mjs
 test/ledgerWorkEntries.test.mjs
 test/ledgerConversation.test.mjs
 test/workspaceAccessRows.test.mjs
+test/workspaceSearchIndex.test.mjs
 
 test/savePhases.test.mjs
 test/bookkeepingBehind.test.mjs
