@@ -8,6 +8,7 @@
 
 import { writeAccess } from "./accessWrite.js";
 import { dropGrantee } from "./accessDrop.js";
+import { narrowMoves } from "./accessMove.js";
 import { TREE_WRITE_OPS } from "./treeWrites.js";
 import { WriteOpRefused } from "./writeRefusal.js";
 import { effectiveVisibility, isPlumbing, PrivacyOverrides } from "../privacy/engine.js";
@@ -105,6 +106,7 @@ export const WRITE_OPS = Object.freeze({
   "ws.write.wrote": wrote,
   "ws.write.access": writeAccess,
   "ws.write.dropGrantee": dropGrantee,
+  "ws.write.narrowMoves": narrowMoves,
   "ws.write.adopt": adopt,
   ...TREE_WRITE_OPS,
 });

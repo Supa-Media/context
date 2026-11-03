@@ -215,3 +215,13 @@ workspace in one minted version, with the rules re-rendered once. An owner may d
 when it leaves. It mirrors to `objectAccessMirror.dropGrantee`, which calls the same `removeUserGrantsIn` the control
 plane uses, so the audit row is the same. There is no cap: a grant left behind would reach an outsider. Email grants
 stay, as in `removeUserGrants.ts`. `apps/mcp/test/accessDrop.test.mjs` fails if a held grant survives the drop.
+
+### A move's narrowing in the object (2026-11-03)
+
+`ws.write.narrowMoves` (`accessMove.js`) does what `narrowRowsForMoves` does in the control plane, but in the object.
+For each move it computes carry = the narrower of the effective tier at `from` and the folder tier at `to`. When the
+move would widen the row, the moved row is pinned to that base on its own record, before the move, so the move
+carries it. A batch is judged move by move. Each move uses the rules left by the moves before it, so the whole batch
+gets one minted version and one `narrowBases` mirror change. A tree op that moves rows calls `narrowForMoves` inside
+its own transaction and hands both changes to the mirror in order as `changes` (`serveWrites.js`).
+`apps/mcp/test/accessMove.test.mjs` fails if a widening move is left unpinned.

@@ -47,7 +47,8 @@ export async function serveWrites(store, op, fields, now = Date.now(), mintId = 
         },
         fields,
       );
-      if (result.change) store.mirror.enqueue(fields.workspaceId, result.change, now);
+      // An op that makes more than one change (a move and its narrowing) hands them over in order as `changes`.
+      for (const change of result.changes ?? (result.change ? [result.change] : [])) store.mirror.enqueue(fields.workspaceId, change, now);
       return result;
     });
   } catch (error) {
@@ -67,7 +68,7 @@ export async function serveWrites(store, op, fields, now = Date.now(), mintId = 
     // The change landed and stays queued; its answer goes back beside the code, for a caller that must keep what it
     // says (an erase's files, which the bucket half deletes).
     if (!flushed.done) return Response.json({ ok: false, code: "MIRROR_PENDING", answer: outcome.answer }, { status: 503 });
-  } else if (outcome.change) {
+  } else if (outcome.change || outcome.changes?.length > 0) {
     store.mirrorSoon();
   }
   return Response.json(outcome.answer);

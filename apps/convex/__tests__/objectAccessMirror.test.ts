@@ -632,3 +632,115 @@ describe("objectAccessMirror.dropGrantee", () => {
     expect(await outbox(w.t)).toEqual([]);
   });
 });
+
+describe("objectAccessMirror.narrowBases", () => {
+  type Pin = { rowId: string; base: "private" | "team" };
+  const narrowRecord = (rows: Pin[], extra: { baseVersion?: number; version?: number } = {}) => ({
+    rows,
+    baseVersion: extra.baseVersion ?? 3,
+    version: extra.version ?? 4,
+  });
+
+  test("two live rows pinned private: applied, both take private, and each row's objectAt is the one passed", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    const planId = await rowIdOf(w.t, w.ws, PLAN);
+    const groupId = await rowIdOf(w.t, w.ws, GROUP_VIEW);
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.narrowBases, {
+      workspaceId: w.ws,
+      objectAt: 70,
+      record: narrowRecord([
+        { rowId: planId, base: "private" },
+        { rowId: groupId, base: "private" },
+      ]),
+    });
+    expect(answer).toEqual({ applied: true });
+    for (const path of [PLAN, GROUP_VIEW]) {
+      const row = await rowOf(w.t, w.ws, path);
+      expect(row?.access?.base).toBe("private");
+      expect(row?.objectAt).toBe(70);
+    }
+  });
+
+  test("a row already at that base: applied, and the base is left as it was", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    const rowId = await rowIdOf(w.t, w.ws, PLAN);
+    await w.t.run((ctx) => ctx.db.patch(rowId as Id<"nodes">, { access: { base: "private" } }));
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.narrowBases, {
+      workspaceId: w.ws,
+      objectAt: 71,
+      record: narrowRecord([{ rowId, base: "private" }]),
+    });
+    expect(answer).toEqual({ applied: true });
+    expect((await rowOf(w.t, w.ws, PLAN))?.access).toEqual({ base: "private" });
+  });
+
+  test("the version is the object's when Convex held the object's version: it becomes record.version, and no outbox opens", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    await objectHome(w.t, w.ws);
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.narrowBases, {
+      workspaceId: w.ws,
+      objectAt: 72,
+      record: narrowRecord([{ rowId: await rowIdOf(w.t, w.ws, PLAN), base: "private" }], { baseVersion: 3, version: 4 }),
+    });
+    expect(answer).toEqual({ applied: true });
+    expect((await stateOf(w.t, w.ws))?.version).toBe(4);
+    expect(await outbox(w.t)).toEqual([]);
+  });
+
+  test("a version the object did not see: the version is one above the object's, and an access push is queued", async () => {
+    const w = await world();
+    // Convex is at 4 and the object decided from 3: Convex took its own access change in between.
+    await seedState(w.t, w.ws, 4);
+    await objectHome(w.t, w.ws);
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.narrowBases, {
+      workspaceId: w.ws,
+      objectAt: 73,
+      record: narrowRecord([{ rowId: await rowIdOf(w.t, w.ws, PLAN), base: "private" }], { baseVersion: 3, version: 4 }),
+    });
+    expect(answer).toEqual({ applied: true });
+    expect((await stateOf(w.t, w.ws))?.version).toBe(5);
+    expect(await outbox(w.t)).toContainEqual(expect.objectContaining({ workspaceId: w.ws, access: true, nodeIds: [] }));
+  });
+
+  test("a row id that names no live row here is skipped: applied, the live row is pinned, and another workspace's row is unchanged", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    const elsewhere = await w.t.run((ctx) =>
+      ctx.db.insert("nodes", { workspaceId: w.other, path: PLAN, name: "plan.md", kind: "file", observedAt: 1 }),
+    );
+    const answer = await w.t.mutation(internal.functions.objectAccessMirror.narrowBases, {
+      workspaceId: w.ws,
+      objectAt: 74,
+      record: narrowRecord([
+        { rowId: elsewhere, base: "private" },
+        { rowId: await rowIdOf(w.t, w.ws, GROUP_VIEW), base: "private" },
+      ]),
+    });
+    expect(answer).toEqual({ applied: true });
+    expect((await rowOf(w.t, w.ws, GROUP_VIEW))?.access).toEqual({ base: "private" });
+    const otherRow = await w.t.run((ctx) => ctx.db.get(elsewhere));
+    expect(otherRow?.access).toBeUndefined();
+    expect(otherRow?.objectAt).toBeUndefined();
+  });
+
+  test("more than 500 rows answers bad_record, and writes nothing", async () => {
+    const w = await world();
+    await seedState(w.t, w.ws, 3);
+    const planId = await rowIdOf(w.t, w.ws, PLAN);
+    const rows: Pin[] = Array.from({ length: 501 }, () => ({ rowId: planId, base: "private" as const }));
+    expect(
+      await w.t.mutation(internal.functions.objectAccessMirror.narrowBases, {
+        workspaceId: w.ws,
+        objectAt: 75,
+        record: narrowRecord(rows),
+      }),
+    ).toEqual({ applied: false, reason: "bad_record" });
+    expect((await rowOf(w.t, w.ws, PLAN))?.access).toBeUndefined();
+    expect((await rowOf(w.t, w.ws, PLAN))?.objectAt).toBeUndefined();
+    expect((await stateOf(w.t, w.ws))?.version).toBe(3);
+    expect(await outbox(w.t)).toEqual([]);
+  });
+});

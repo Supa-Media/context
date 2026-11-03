@@ -35,6 +35,7 @@ import { MAX_GRANTEES, writeRowAccess, wantedOf, type GranteeInput } from "./lib
 import { livePending, PENDING_MAX } from "./lib/nodes/pendingAccess";
 import { liveNodeAt } from "./lib/nodes/paths";
 import { removeUserGrantsIn } from "./lib/grants/removeUserGrants";
+import { refreshSnapshot } from "./lib/nodes/accessBackfill";
 
 export const accessGranteeValidator = v.object({
   kind: v.union(v.literal("user"), v.literal("group"), v.literal("email"), v.literal("members"), v.literal("accounts")),
@@ -224,6 +225,44 @@ export const dropGrantee = internalMutationMirrored({
       .unique();
     const heldVersion = state?.version ?? 0;
     await removeUserGrantsIn(ctx, { workspaceId, userId, actorUserId });
+    await settleVersion(ctx, workspaceId, heldVersion, record);
+    return { applied: true };
+  },
+});
+
+/**
+ * A move's narrowing the object made (`accessMove.js`): each moved row that would have widened takes the base the
+ * object pinned, as `narrowRowsForMoves` pins it here, and the snapshot is rebuilt once. Versions as `access`. A row
+ * this workspace does not hold live is skipped: the move that follows names it again.
+ */
+export const narrowBases = internalMutationMirrored({
+  args: {
+    workspaceId: v.id("workspaces"),
+    objectAt: v.number(),
+    record: v.object({
+      rows: v.array(v.object({ rowId: v.string(), base: v.union(v.literal("private"), v.literal("team")) })),
+      baseVersion: v.number(),
+      version: v.number(),
+    }),
+  },
+  returns: answerValidator,
+  handler: async (ctx, { workspaceId, objectAt, record }): Promise<MirrorAccessAnswer> => {
+    if (record.rows.length > 500) return refused("bad_record");
+    const state = await ctx.db
+      .query("nodeAccessState")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    const heldVersion = state?.version ?? 0;
+    let changed = false;
+    for (const pin of record.rows) {
+      const row = await liveRow(ctx, workspaceId, pin.rowId);
+      if (row === null) continue;
+      const next = Math.max(row.objectAt ?? 0, objectAt);
+      if (row.access?.base === pin.base && next === row.objectAt) continue;
+      await ctx.db.patch(row._id, { access: { ...(row.access ?? {}), base: pin.base }, objectAt: next });
+      changed = true;
+    }
+    if (changed) await refreshSnapshot(ctx, workspaceId);
     await settleVersion(ctx, workspaceId, heldVersion, record);
     return { applied: true };
   },
