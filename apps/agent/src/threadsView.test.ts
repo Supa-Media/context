@@ -93,16 +93,22 @@ describe("offering the view", () => {
 
   it("is the link in words, inside the first text, where cards are off, and in a group (the owner, 2026-11-03)", async () => {
     const parts = await withAnswerCards(["On it.", "More."], { texts: ["On it.", "More."], choices: [], offers: ["threads"] }, null, mint);
-    expect(parts).toEqual([`On it.\n\nWatch it live: ${link}`, "More."]);
+    expect(parts).toEqual([`On it.\n\nWatch it live at ${link} while I work.`, "More."]);
     const noApp = await withAnswerCards(["On it."], { texts: ["On it."], choices: [], offers: ["threads"] }, { ...CONFIG, onlyWhereApp: true }, mint);
-    expect(noApp).toEqual([`On it.\n\nWatch it live: ${link}`]);
-    expect(await withThreadsLine(["On it.", "More."], ["threads"], mint)).toEqual([`On it.\n\nWatch it live: ${link}`, "More."]);
+    expect(noApp).toEqual([`On it.\n\nWatch it live at ${link} while I work.`]);
+    expect(await withThreadsLine(["On it.", "More."], ["threads"], mint)).toEqual([`On it.\n\nWatch it live at ${link} while I work.`, "More."]);
+  });
+
+  it("never ends its text with the link, so Sendblue adds no \"(tap the link)\"", async () => {
+    const { tappable } = await import("./linkPreviews");
+    const [first] = await withThreadsLine(["On it."], ["threads"], mint);
+    expect(tappable(first!)).toBe(first);
   });
 
   it("never rides in a text that must go exactly as written, and goes alone when there is no other", async () => {
     const ask = "Send this email to Bo? Reply YES to send.";
-    expect(await withThreadsLine([ask], ["threads"], mint, [ask])).toEqual([ask, `Watch it live: ${link}`]);
-    expect(await withThreadsLine([], ["threads"], mint)).toEqual([`Watch it live: ${link}`]);
+    expect(await withThreadsLine([ask], ["threads"], mint, [ask])).toEqual([ask, `Watch it live at ${link} while I work.`]);
+    expect(await withThreadsLine([], ["threads"], mint)).toEqual([`Watch it live at ${link} while I work.`]);
   });
 
   it("sends nothing when it wasn't offered, or the link could not be made", async () => {
@@ -157,7 +163,7 @@ describe("the Tex page instead of the view (the owner, 2026-11-03)", () => {
     const parts = await withAnswerCards(["On it."], { texts: ["On it."], choices: [], offers: ["threads"] }, CONFIG, hub);
     expect(parts[1]).toMatchObject({ card: { url: "https://context.lc/tex/@seyi", layout: { caption: "What Tex is working on", subcaption: "Tap to open your Tex page" } } });
     const group = await withThreadsLine(["On it: summary of this chat."], ["threads"], viewLink("https://context.lc/tex/group/brave-otter-lamp", mint));
-    expect(group).toEqual(["On it: summary of this chat.\n\nWatch it live: https://context.lc/tex/group/brave-otter-lamp"]);
+    expect(group).toEqual(["On it: summary of this chat.\n\nWatch it live at https://context.lc/tex/group/brave-otter-lamp while I work."]);
   });
 });
 

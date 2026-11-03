@@ -487,7 +487,9 @@ export function viewLink(hub: string | null | undefined, mint: (() => Promise<st
 
 /** The words that carry the view where there is no card to: a group, or a phone without the Context app. Short (the owner, 2026-11-03: "shorter link, and put it in the first text"). */
 export function threadsLine(link: string): string {
-  return `Watch it live: ${link}`;
+  // The link sits inside the sentence, never at its end: a text ending in a link gets "(tap the link)" on Sendblue
+  // (`linkPreviews.ts` `tappable`), which the owner asked not to see here (2026-11-03).
+  return `Watch it live at ${link} while I work.`;
 }
 
 /**

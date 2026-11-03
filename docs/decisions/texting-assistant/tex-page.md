@@ -101,7 +101,8 @@ of random thread pages, and maybe link to sub pages".
   `readHub`: https, one of those two paths, nothing else) and sends it as the
   card's address where cards go, and as words everywhere else, which on
   Sendblue go tappable with any picture sent beside them (`linkPreviews.ts`).
-  The words are short ("Watch it live: <link>") and ride inside the answer's
+  The words are short ("Watch it live at <link> while I work.", the link
+  mid-sentence so Sendblue adds no "(tap the link)") and ride inside the answer's
   first text rather than a bubble of their own (the owner, the same day:
   "shorter link, and put it in the first text"; `jobs.ts` `withViewLine`),
   never inside an ask that has to go exactly as written.
