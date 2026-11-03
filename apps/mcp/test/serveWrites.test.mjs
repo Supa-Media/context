@@ -162,6 +162,42 @@ test("ws.write.adopt through serveWrites makes the row and queues one adopt chan
   assert.equal(soon(), 1, "a flush is scheduled, not awaited");
 });
 
+// A new note in folders that do not exist yet: the object stands them up in the same transaction and queues them as one
+// tree change ahead of the adoption, so Convex holds the folders (by the object's ids) before the note beneath them.
+// Sabotage: return DEFER for a missing parent again and the row is not made.
+test("ws.write.adopt stands up missing folders and queues them as a tree change before the adoption", async () => {
+  const { store, mirror } = objectStore();
+  store.rows.putRules({ folders: [], notes: [], accessVersion: 4 });
+  const NOTE = "01890a5d-ac96-7c4e-8f3a-1b2c3d4e5f61";
+  let minted = 0;
+  const mintId = () => `o_${String(++minted).padStart(32, "0")}`;
+  const body = { workspaceId: "ws_one", path: "ideas/2026/a.md", noteId: NOTE, key: `notes/${NOTE}.md`, etag: "e-1", at: 500, tier: "team" };
+
+  const response = await serveWrites(store, "ws.write.adopt", body, 5_000, mintId);
+  assert.deepEqual(await response.json(), { ok: true, adopted: true, at: 5_000 });
+  assert.equal(store.rows.byPath("ideas")?.kind, "folder");
+  assert.equal(store.rows.byPath("ideas/2026")?.kind, "folder");
+  assert.equal(store.rows.byNoteId(NOTE)?.path, "ideas/2026/a.md");
+
+  const changes = mirror.pending().map((entry) => entry.change);
+  assert.deepEqual(changes.map((change) => change.op), ["tree", "adopt"]);
+  assert.deepEqual(changes[0].record.folders.map((made) => made.path), ["ideas", "ideas/2026"]);
+  assert.deepEqual(changes[0].record.moves, []);
+  assert.equal(changes[0].record.trash, false);
+  assert.equal(changes[1].record.objectId, store.rows.byNoteId(NOTE).id);
+});
+
+test("ws.write.adopt leaves a note under a built-in folder's name that no root folder has to the control plane", async () => {
+  const { store, mirror } = objectStore();
+  store.rows.putRules({ folders: [], notes: [], accessVersion: 4 });
+  const NOTE = "01890a5d-ac96-7c4e-8f3a-1b2c3d4e5f62";
+  const body = { workspaceId: "ws_one", path: "inbox/a.md", noteId: NOTE, key: `notes/${NOTE}.md`, etag: "e-1", at: 500, tier: "team" };
+  const response = await serveWrites(store, "ws.write.adopt", body, 5_000, () => `o_${"c".repeat(32)}`);
+  assert.deepEqual(await response.json(), { ok: false, code: "DEFER" });
+  assert.equal(store.rows.byPath("inbox"), null);
+  assert.equal(mirror.count(), 0);
+});
+
 test("a workspace id that is missing or not a plain id is 400, and nothing is written", async () => {
   for (const workspaceId of [undefined, "", "has space", "a/b", "x".repeat(65), 7]) {
     const { store, mirror, originated } = objectStore();
