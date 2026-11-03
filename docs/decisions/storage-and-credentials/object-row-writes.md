@@ -123,3 +123,18 @@ While the mirror is in flight, Convex may still push rows the move just changed.
 the fields it changed (`own_at`, `own_fields`); a push that disagrees with a claim is skipped, a push that agrees
 releases it, a row the object retired stays retired, and a snapshot never drops a row with a live claim
 (`rows.js`, tested in `workspaceRowsOwnership.test.mjs`). Dropping any of these lets a stale push undo a move.
+
+## The app trashes and restores through the object (2026-11-03)
+
+For a workspace its object serves, the app sends trash and restore to the gateway (`POST /files/trash`,
+`/files/restore`, `apps/mcp/src/live/fileOpsRoute.js`) instead of Convex's `files.trashEntry` /
+`files.restoreTrashEntry`. The gateway judges the caller by the scope, groups and user id its session resolved and
+nothing in the body; the object answers; Convex follows through the tree mirror, which also writes the person's audit
+line (`record.audit`). Any other workspace answers `409 not_object`, and the app falls back to the Convex action, as
+it does on a network failure. A refusal is never sent to Convex as well, and neither is `mirror_pending` (the trash
+is in the object and lands in Convex on its own).
+
+Trash still waits for the mirror: share links, websites, "shared with me" and the console's search resolve a path
+through Convex's rows and read the body by key, so answering first would let them serve a note for up to the
+mirror's lag after the person trashed it. Whether that wait is worth its 0.1 to 0.3 s is the owner's call, asked on
+2026-11-03.

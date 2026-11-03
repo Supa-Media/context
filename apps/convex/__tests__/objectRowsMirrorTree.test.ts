@@ -289,3 +289,59 @@ describe("POST /gateway/rows/mirror, op tree", () => {
     expect(await rowById(t, plan)).toMatchObject({ path: TRASH_PATH });
   });
 });
+
+describe("objectRowsMirror.tree, the audit line of a change made for a person", () => {
+  const events = (t: T, ws: Id<"workspaces">) =>
+    t.run(async (ctx) => (await ctx.db.query("auditEvents").collect()).filter((event) => event.workspaceId === ws));
+
+  test("a trash made for a person writes the line the control plane's own trash writes; one made for nobody writes none", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "tree-audit");
+    await objectHome(t, ws);
+    const { plan } = await seedTree(t, ws);
+    const actor = await t.run((ctx) => ctx.db.query("users").first());
+    const before = (await events(t, ws)).length;
+    await t.mutation(internal.functions.objectRowsMirror.tree, {
+      workspaceId: ws,
+      objectAt: 100,
+      record: {
+        ...change({ folders: trashFolders(100), moves: [{ id: plan, kind: "file", from: "1-projects/plan.md", to: TRASH_PATH, at: 100 }], trash: true }),
+        audit: { actorUserId: String(actor?._id), action: "trash", files: 1 },
+      },
+    });
+    const written = (await events(t, ws)).slice(before);
+    expect(written).toHaveLength(1);
+    expect(written[0]).toMatchObject({
+      actorUserId: actor?._id,
+      action: "file.archive",
+      paths: ["1-projects/plan.md", TRASH_PATH],
+      details: { files: 1, recoverable: true, trash: true },
+    });
+
+    await t.mutation(internal.functions.objectRowsMirror.tree, {
+      workspaceId: ws,
+      objectAt: 200,
+      record: change({ moves: [{ id: plan, kind: "file", from: TRASH_PATH, to: "1-projects/plan.md", at: 200 }] }),
+    });
+    expect((await events(t, ws)).slice(before)).toHaveLength(1);
+  });
+
+  test("a restore made for a person is a file.move restored from the trash; an actor id that is not a user is left off", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "tree-audit-restore");
+    await objectHome(t, ws);
+    const { plan } = await seedTree(t, ws, { path: TRASH_PATH });
+    const before = (await events(t, ws)).length;
+    await t.mutation(internal.functions.objectRowsMirror.tree, {
+      workspaceId: ws,
+      objectAt: 100,
+      record: {
+        ...change({ moves: [{ id: plan, kind: "file", from: TRASH_PATH, to: "1-projects/plan.md", at: 100 }] }),
+        audit: { actorUserId: "not-a-user", action: "restore", files: 1 },
+      },
+    });
+    const [line] = (await events(t, ws)).slice(before);
+    expect(line).toMatchObject({ action: "file.move", details: { files: 1, restoredFromTrash: true } });
+    expect(line.actorUserId).toBeUndefined();
+  });
+});

@@ -247,3 +247,14 @@ test("a body that is not a write is 422 for both ops, and queues nothing", async
     assert.equal(counts.flushes + counts.soon, 0);
   }
 });
+
+test("a trash and restore made for a person carry their audit line to the mirror; one for nobody carries none", async () => {
+  const { store, mirror } = objectStore();
+  const trashed = await (await call(store, "ws.write.trash", { path: "projects/launch/brief.md", ...OWNER, userId: "user_1" })).json();
+  await call(store, "ws.write.restore", { from: trashed.to, to: "projects/launch/brief.md", ...OWNER, userId: "user_1" });
+  await call(store, "ws.write.trash", { path: "projects/plan.md", ...OWNER });
+  const [trash, restore, anonymous] = mirror.pending().map((entry) => entry.change.record.audit);
+  assert.deepEqual(trash, { actorUserId: "user_1", action: "trash", files: 1 });
+  assert.deepEqual(restore, { actorUserId: "user_1", action: "restore", files: 1 });
+  assert.equal(anonymous, undefined);
+});

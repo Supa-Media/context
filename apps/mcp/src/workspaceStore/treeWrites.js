@@ -3,8 +3,9 @@
  * in the object's rows; this module judges the caller first, with the audience's rules as `serve.js` `judgeFor` holds
  * them, and turns the answer into the op's `{answer, change, narrows}` (`writeOps.js`).
  *
- * A trash hides what it moves, so its answer waits for the mirror (`narrows`). A restore brings a note back, so it
- * does not. Judgement is by the caller's own scope, groups and user id, never by a value the caller sends about
+ * A trash hides what it moves, so its answer waits for the mirror (`narrows`): share links, websites and the
+ * console's search still resolve a path through Convex's rows and read the body by key, so until the mirror lands
+ * they would serve a note the person just trashed. A restore puts a note back only where it was, so it does not wait. Judgement is by the caller's own scope, groups and user id, never by a value the caller sends about
  * itself beyond those: the gateway resolved them.
  */
 
@@ -34,7 +35,7 @@ function refused(reason) {
 const NOT_FOUND = Object.freeze({ answer: Object.freeze({ ok: false, code: "NOT_FOUND" }), change: null, narrows: false });
 
 /** The mirror's change for a tree move: the moved row by id, the folders it stood up, and the ids it removed. */
-function treeChange(moved, folders, removed) {
+function treeChange(moved, folders, removed, audit = null) {
   const clocks = [moved.at, ...folders.map((folder) => folder.at), ...removed.map((entry) => entry.at)];
   return {
     op: "tree",
@@ -43,10 +44,15 @@ function treeChange(moved, folders, removed) {
       folders: folders.map((folder) => ({ id: folder.id, noteId: folder.noteId, path: folder.path, role: folder.role, at: folder.at })),
       removed,
       trash: true,
+      // Who asked, so the control plane writes their audit line as its own trash and restore do.
+      ...(audit === null ? {} : { audit }),
     },
     objectAt: clocks.reduce((latest, at) => Math.max(latest, at), 0),
   };
 }
+
+/** The audit line's actor, for a call that named the person it acts for; none for a call that acts for nobody. */
+const auditOf = (body, action, files) => (typeof body.userId === "string" ? { actorUserId: body.userId, action, files } : null);
 
 /** `ws.write.trash`: moves a file or folder into the trash, judged as the caller sees it now. */
 function trash(ctx, body) {
@@ -72,7 +78,7 @@ function trash(ctx, body) {
   const { moved, folders, removed, count, to } = result;
   return {
     answer: { ok: true, to, count, at: moved.at },
-    change: treeChange(moved, folders, removed),
+    change: treeChange(moved, folders, removed, auditOf(body, "trash", count)),
     narrows: true,
   };
 }
@@ -108,7 +114,7 @@ function restore(ctx, body) {
   const { moved, folders, removed, count } = result;
   return {
     answer: { ok: true, count, at: moved.at },
-    change: treeChange(moved, folders, removed),
+    change: treeChange(moved, folders, removed, auditOf(body, "restore", count)),
     narrows: false,
   };
 }

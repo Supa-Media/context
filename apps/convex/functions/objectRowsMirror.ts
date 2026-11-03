@@ -17,7 +17,8 @@
  * change back to the object.
  */
 
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
+import { recordAudit } from "./lib/audit";
 import type { Id } from "../_generated/dataModel";
 import { internalMutationMirrored } from "./lib/rowWatch/mutations";
 import { nodeAt } from "./lib/noteIds/state";
@@ -73,6 +74,8 @@ export const mirrorTreeValidator = v.object({
   removed: v.array(v.object({ id: v.string(), at: v.number() })),
   trash: v.boolean(),
   erase: v.optional(v.boolean()),
+  /** Who asked for this change, when a person did through the app (`apps/mcp/src/live/fileOpsRoute.js`): recorded as their audit line. */
+  audit: v.optional(v.object({ actorUserId: v.string(), action: v.union(v.literal("trash"), v.literal("restore")), files: v.number() })),
 });
 
 export const tree = internalMutationMirrored({
@@ -82,9 +85,33 @@ export const tree = internalMutationMirrored({
     if (record.moves.length > MIRROR_TREE_MAX || record.folders.length > MIRROR_TREE_MAX || record.removed.length > MIRROR_TREE_MAX) {
       return { applied: false, reason: "bad_record" };
     }
-    return await mirrorTree(ctx, { workspaceId, objectAt, record });
+    const answer = await mirrorTree(ctx, { workspaceId, objectAt, record });
+    if (record.audit !== undefined) await auditTreeChange(ctx, workspaceId, record);
+    return answer;
   },
 });
+
+/**
+ * The audit line the control plane's own trash and restore write (`lib/filesFns/entries.ts`), for one the object
+ * made. Written whether or not the rows applied: the object made the move either way, and this mutation runs once
+ * per change.
+ */
+async function auditTreeChange(ctx: MutationCtx, workspaceId: Id<"workspaces">, record: Infer<typeof mirrorTreeValidator>): Promise<void> {
+  const audit = record.audit;
+  const moved = record.moves[0];
+  if (audit === undefined || moved === undefined) return;
+  const actorUserId = ctx.db.normalizeId("users", audit.actorUserId) ?? undefined;
+  await recordAudit(ctx, {
+    workspaceId,
+    actorUserId,
+    action: audit.action === "trash" ? "file.archive" : "file.move",
+    paths: [moved.from, moved.to],
+    details:
+      audit.action === "trash"
+        ? { files: audit.files, recoverable: true, trash: true }
+        : { files: audit.files, restoredFromTrash: true },
+  });
+}
 
 /** The row at `path` takes the object's clock when the record applied; a missing row or a refused record says why. */
 async function settle(ctx: MutationCtx, workspaceId: Id<"workspaces">, path: string, objectAt: number, applied: boolean): Promise<MirrorWroteAnswer> {
