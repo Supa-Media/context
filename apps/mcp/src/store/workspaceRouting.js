@@ -276,8 +276,10 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
       await copyHandedBack(answer);
       if (answer?.served === true) return answer;
       // Why the save ran the engine from here instead: a short code from the object, never the path.
-      log("workspace_object_collab_not_served", { workspaceId, reason: typeof answer?.reason === "string" ? answer.reason : null });
-      return null;
+      const reason = typeof answer?.reason === "string" && /^[a-z_]{1,32}$/.test(answer.reason) ? answer.reason : null;
+      log("workspace_object_collab_not_served", { workspaceId, reason });
+      // Said to the save too, with the object's time on it, so its timings show why (`tools/notes/replaceInObject.js`).
+      return { served: false, reason, ...(Number.isFinite(answer?.took) ? { took: answer.took } : {}) };
     };
   }
 
