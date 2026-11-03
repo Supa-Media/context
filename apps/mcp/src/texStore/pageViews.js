@@ -228,6 +228,8 @@ export function sectionsForKinds(kinds) {
     if (kind === "advisor" || kind === "tool") sections.add("advisor");
     if (kind === "mail_check") sections.add("mailcheck");
   }
-  if (sections.size > 0) sections.add("behind");
+  // Every append is a new line in the chat's history, which an open history view reads again on it
+  // (Dev, 2026-11-03: "this page doesn't seem to realtime update").
+  if ((Array.isArray(kinds) ? kinds : []).length > 0) sections.add("behind");
   return [...sections];
 }

@@ -29,7 +29,7 @@ export function HistoryFilters({ history, job, slide = false }: { history: Histo
       style={styles.toggle}
       testID={`tex-history-show-${s}`}
     >
-      <T size={14} weight={shown[s] ? "600" : "400"} tone={shown[s] ? "text" : "muted"} style={shown[s] ? null : styles.off}>
+      <T size={14} weight={slide ? "500" : shown[s] ? "600" : "400"} tone={shown[s] ? "text" : "muted"} style={shown[s] ? null : styles.off}>
         {SHOW_LABEL[s]}
       </T>
     </Pressable>

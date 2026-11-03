@@ -113,7 +113,7 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   // The live map open over Browse, on invented data. See its own header.
   if (first(params.screen) === "live-map") return <LiveMapFixture />;
   if (first(params.screen) === "setup-done") return <SetupDoneFixture />;
-  if (first(params.screen) === "history-file") return <HistoryFileFixture />;
+  if (first(params.screen) === "history-file") return <HistoryFileFixture phone={first(params.at) === "phone"} />;
   if (first(params.screen) === "tex-page") return <TexPageFixture params={params as Record<string, string | string[] | undefined>} />;
   // The phone check; `at=code` opens on the code step. Nothing is sent until a button is pressed.
   if (first(params.screen) === "phone-check") {
