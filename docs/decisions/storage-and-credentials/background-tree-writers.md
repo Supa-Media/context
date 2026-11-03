@@ -72,11 +72,16 @@ nothing a restore could still want. A narrowing that answers `503 MIRROR_PENDING
 - `nodesPurge.purge` / `forgetWorkspaceTree`: workspace and account deletion. The object goes with the workspace;
   this clears Convex's copy.
 - `nodeFactsDrop.drop`: clears Convex's copy of facts for an object-home workspace.
-- `accessMirror.apply`: applies the object's member, invite and connection changes. A member removal also deletes
-  that person's grants through `removeUserGrantsIn`, which opens a row outbox entry back to the object. That push is
-  not a pure echo yet: the object holds rendered rules, not grant rows, so it is how the object's rules lose that
-  person's grants. It moves to `internalMutationMirrored` (no outbox) once the object keeps grant rows and drops a
-  removed member's grants itself (the access workstream).
+- `accessMirror.apply`: applies the object's member, invite and connection changes, and is `internalMutationMirrored`
+  (no row outbox entry) since 2026-11-03. Where the notes live in the object, a member removal no longer deletes that
+  person's grants in Convex: it schedules `accessMirrorGrants.drop`, which asks the object to drop them
+  (`ws.write.dropGrantee`, with the remover as the actor, so the audit names who acted), and the object's change comes back through
+  the access mirror (`objectAccessMirror.dropGrantee`, the same `removeUserGrantsIn` and audit row). Every answer but
+  the object's `ok` (`NOT_READY`, a refusal, an object out of reach, no client) takes them out in Convex with a watched
+  write, so the row push carries it: a grant left behind would still reach someone the owner removed. Between the
+  removal and the drop there is one scheduled call in which the grant still stands. Elsewhere the mirror takes them
+  out itself, as before. Tests: `__tests__/accessMirrorGrants.test.ts` (sabotage-checked: ignoring the home fails the
+  mirror case, taking any answer as the drop fails the four fallbacks).
 
 ## What a simplification would cost
 
