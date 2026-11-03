@@ -102,8 +102,6 @@ export function objectFirstFacts(options) {
   const { client, workspaceId, log, judged, settledBehind } = reader;
   return async (request) => {
     if (!OBJECT_FACT_ASKS.has(request?.ask)) return null;
-    // A chaos ask that wants the score a week ago, or keeps today's, is the control plane's history (`orient`).
-    if (request.ask === "chaos" && (request.history !== false || request.today !== undefined)) return null;
     const started = Date.now();
     let answer;
     try {

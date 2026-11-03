@@ -53,12 +53,11 @@ export async function factCandidates(store, renames) {
  * @param {{all: number, team: number}} [today]
  * @returns {Promise<{ extras: Map<string, {lines: number | null, exempt: boolean, review: boolean}>, weekAgo: number | null } | null>}
  */
-export async function factChaos(store, today, { history = true } = {}) {
+export async function factChaos(store, today) {
   if (typeof store?.treeFacts !== "function") return null;
   let answer;
   try {
-    // `history: false`: no score a week ago is wanted (a write's report), so the workspace object may answer it.
-    answer = await store.treeFacts({ ask: "chaos", ...(today ? { today } : {}), ...(history === false ? { history: false } : {}) });
+    answer = await store.treeFacts({ ask: "chaos", ...(today ? { today } : {}) });
   } catch {
     return null;
   }
