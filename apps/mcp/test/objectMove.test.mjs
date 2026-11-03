@@ -406,11 +406,41 @@ test("archive through the object: a team archive without expected_etag is refuse
   assert.deepEqual(queued, []);
 });
 
-test("archive through the object: the archive folder's job is asked beside the probe, not after it", async () => {
+/** Records every probe of `key` (`objectExists` lists the key on this store). */
+function probesOf(store, key) {
+  const probes = [];
+  const realList = store.list;
+  store.list = async (options, ...rest) => {
+    if (options?.prefix === key) probes.push(key);
+    return realList.call(store, options, ...rest);
+  };
+  return probes;
+}
+
+test("archive through the object: the object's move says whether the note is there, so no probe goes first", async () => {
   const { store, sent } = await archiveStore({ ok: true, files: [{ from: "1-projects/a.md", to: "4-archive/1-projects/a.md" }] });
+  const probes = probesOf(store, "1-projects/a.md");
+  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.deepEqual(probes, []);
+  assert.equal(sent.length, 1);
+});
+
+test("archive through the object: a refusal before the move still says 'not found' for an absent note", async () => {
+  const { store, sent } = await archiveStore({ ok: true, files: [] }, {});
+  const probes = probesOf(store, "1-projects/gone.md");
+  // A team archive without expected_etag is refused, but of a note that is not there the answer is "not found".
+  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/gone.md");
+  assert.equal(result.content[0].text, "not found");
+  assert.deepEqual(probes, ["1-projects/gone.md"]);
+  assert.equal(sent.length, 0);
+});
+
+test("archive off the object: the archive folder's job is asked beside the probe, not after it", async () => {
+  const { store } = memory();
+  await store.put("1-projects/a.md", "# A\n");
   let probeAnswered = false;
   let askedBeforeProbeAnswered = false;
-  // The probe asks whether the note is there (`objectExists`: a listing of its key, on this store).
   const realList = store.list;
   store.list = async (options, ...rest) => {
     if (options?.prefix !== "1-projects/a.md") return realList.call(store, options, ...rest);
@@ -423,11 +453,10 @@ test("archive through the object: the archive folder's job is asked beside the p
     if (ask === "jobs" && !probeAnswered) askedBeforeProbeAnswered = true;
     return { served: true, jobs: { archive: "4-archive" }, roots: ["1-projects", "4-archive"] };
   };
-  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
-  assert.notEqual(result.isError, true, result.content[0].text);
+  // Only the order of the two reads is asked here; the archive after them is the bucket's, tested elsewhere.
+  await toolArchiveNote(store, "private", ARCHIVE_RULES, new Map(), "1-projects/a.md");
+  assert.equal(probeAnswered, true);
   assert.equal(askedBeforeProbeAnswered, true, "the jobs were asked only after the probe answered");
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].to, "4-archive/1-projects/a.md");
 });
 
 test("archive through the object: a note this caller may not see asks no facts", async () => {
