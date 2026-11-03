@@ -252,6 +252,18 @@ export function flushChat(...args: Parameters<typeof flushChatNow>): Promise<voi
   return next;
 }
 
+/**
+ * The chat's waiting events sent on their own, in the same line as a turn's flush: what a group says between Tex's
+ * turns reaches the ledger as it is said, so the history shows it (Dev, 2026-11-03: "the history is not staying up
+ * to date"). Nothing else is owed here: stale asks go only with the session of the person they belong to.
+ */
+export function flushEventsInLine(...args: Parameters<typeof flushEvents>): Promise<void> {
+  const [storage] = args;
+  const next = (flushing.get(storage) ?? Promise.resolve()).catch(() => {}).then(() => flushEvents(...args));
+  flushing.set(storage, next);
+  return next;
+}
+
 async function flushChatNow(
   storage: InboxStorage,
   deps: { fetch: Fetch; gatewayOrigin: string; now: () => number },

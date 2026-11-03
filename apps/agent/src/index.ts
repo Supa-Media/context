@@ -42,6 +42,7 @@ import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told }
 import { parseSendblueInbound, repliedToText, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
 import { groupNameOf, parseSendblueGroup, sendGroupName, type GroupMessage } from "./sendblueGroups";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
+import { flushWithReader } from "./chatRead";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { sha256Hex } from "./groupChat";
 import type { DueRoutine } from "./clients";
@@ -519,6 +520,8 @@ export class SenderInbox implements DurableObject {
       const { routine: _routine, ...message } = (await request.json()) as GroupMessage;
       await this.keepWhere(message);
       const outcome = await acceptGroup(this.state.storage, message, Date.now());
+      // What the chat just said goes to its ledger now, not at Tex's next turn, so its history keeps up (`chatRead.ts`).
+      if (outcome === "kept" || outcome === "queued") this.handOff(flushWithReader(this.state.storage, message.groupId, () => Date.now()));
       // The group-typing experiment: ask Whapi for this group's presences once a day (`whapi.ts`); never blocks a message.
       const whapi = whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE);
       if (whapi !== null && !message.sms) await watchGroupPresenceDaily(this.state.storage, (input, init) => fetch(input, init), whapi, message.groupId, Date.now());
