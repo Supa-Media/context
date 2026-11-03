@@ -6,7 +6,8 @@ searches".
 
 `MCP Speed Budgets` (`.github/workflows/mcp-speed-budgets.yml`) runs every hour
 and 20 minutes after each production deploy. It reads the gateway's own
-`mcp_entry` timings for the last window and goes red when a call's median
+`mcp_entry` timings for the last window (the last 24 hours on the hourly run,
+the last 20 minutes after a deploy) and goes red when a call's median
 `to_response`, the whole request measured at the server, is over its bar in
 `scripts/mcp-speed-budgets.mjs`.
 
@@ -24,8 +25,9 @@ and 20 minutes after each production deploy. It reads the gateway's own
   future projects improve the numbers make sure the new bar is updated"). The
   new bar is the measured median after the fix, plus about 25% headroom,
   never above the old bar.
-- **A quiet hour is not judged.** A call with fewer than 20 requests in the
-  window is shown and not judged.
+- **A quiet window is not judged.** A call with fewer than 20 requests in the
+  window is shown and not judged. The first production run (2026-11-03) saw
+  6 to 17 requests per call in an hour, so the hourly run reads the last day.
 - **A red run is a report.** It changes nothing, the same way Gateway Health
   never redeploys.
 
