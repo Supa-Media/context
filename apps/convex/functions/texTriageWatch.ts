@@ -25,9 +25,10 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalQuery } from "../_generated/server";
+import { internalAction, internalQuery, type ActionCtx } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
-import { triageFolders, triageRows } from "./lib/adminFns/texTriage";
+import { deskNotes, deskNotesValidator, triageFolders } from "./lib/adminFns/texTriage";
+import { deskFromObject } from "./lib/adminFns/texTriageFacts";
 import { validAppOrigin } from "./lib/invitationEmail";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
@@ -53,17 +54,25 @@ export function waitingOf(
   return { waiting: at.length, oldest: at.length === 0 ? null : Math.min(...at) };
 }
 
-export const waiting = internalQuery({
-  args: { now: v.number() },
-  returns: v.object({ waiting: v.number(), oldest: v.union(v.number(), v.null()) }),
-  handler: async (ctx, { now }) => {
+/** The desk's notes, for the watch; what each says is read after, from the workspace object where they live there. */
+export const deskNotesNow = internalQuery({
+  args: {},
+  returns: v.union(v.null(), v.object({ workspaceId: v.id("workspaces"), notes: deskNotesValidator })),
+  handler: async (ctx) => {
     const pinned = await pinnedContextWorkspace(ctx);
-    if (pinned === null) return { waiting: 0, oldest: null };
+    if (pinned === null) return null;
     const folders = triageFolders((await folderJobsOf(ctx.db, pinned._id)).jobs.areas ?? null);
     // Counted for the team inbox only, so every row counts; nothing about a row leaves but its time.
-    return waitingOf(await triageRows(ctx.db, pinned._id, folders, () => true), now);
+    return { workspaceId: pinned._id, notes: await deskNotes(ctx.db, pinned._id, folders, () => true) };
   },
 });
+
+/** How many reviews wait past the limit now, read from the notes' facts at their current text. */
+async function waitingNow(ctx: ActionCtx, now: number): Promise<{ waiting: number; oldest: number | null }> {
+  const found = await ctx.runQuery(internal.functions.texTriageWatch.deskNotesNow, {});
+  if (found === null) return { waiting: 0, oldest: null };
+  return waitingOf(await deskFromObject(ctx, found.workspaceId, found.notes), now);
+}
 
 /** True when this stall may be mailed now. */
 export const claimAlert = internalMutation({
@@ -94,7 +103,7 @@ export const check = internalAction({
     const apiKey = process.env.RESEND_API_KEY;
     const origin = validAppOrigin();
     if (to === null || typeof apiKey !== "string" || apiKey.length === 0 || origin === null) return null;
-    const found = await ctx.runQuery(internal.functions.texTriageWatch.waiting, { now: Date.now() });
+    const found = await waitingNow(ctx, Date.now());
     if (found.waiting === 0 || found.oldest === null) return null;
     if (!(await ctx.runMutation(internal.functions.texTriageWatch.claimAlert, {}))) {
       log("already_told", { waiting: found.waiting });

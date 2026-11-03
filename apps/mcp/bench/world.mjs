@@ -27,7 +27,6 @@ import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
 import { createWeb } from "./sites.mjs";
 import { createBenchSite } from "./siteStub.mjs";
-import { PROPOSAL_PENDING_PREFIX } from "../src/tools/proposals.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
 import { rmSync } from "node:fs";
 
@@ -577,22 +576,6 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         const now = snapshot(s3.bucketFor(`bench-${name}`));
         for (const [path, text] of now) {
           if (was.get(path) === text) continue;
-          if (path.startsWith(PROPOSAL_PENDING_PREFIX)) {
-            // A proposal is what the person would be asked to accept.
-            let proposal = null;
-            try {
-              proposal = JSON.parse(text);
-            } catch {
-              proposal = null;
-            }
-            out.push({
-              workspace: name,
-              path: String(proposal?.intended_path ?? "unreadable proposal"),
-              kind: "proposed",
-              detail: `${String(proposal?.reason ?? "").slice(0, 200)} | ${String(proposal?.content ?? "").replace(/\s+/g, " ").trim().slice(0, 400)}`,
-            });
-            continue;
-          }
           // Plumbing a turn writes for itself (history, reads, audit, and the
           // privacy manifest and activity log the gateway rewrites on every
           // save) is not something it did. Round two failed six change questions

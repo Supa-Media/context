@@ -27,6 +27,7 @@ import { privateClearance } from "./lib/clearance";
 import { hashToken } from "./lib/crypto";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import { startRowTrash } from "./lib/nodes/rowTrash";
+import { objectFirst } from "./lib/rowWatch/objectFirst";
 import type { GatewayCredential } from "./lib/storage/shapes";
 import { consoleTexBuckets, consoleTexRouting } from "./lib/texStore";
 import { OLD_NOTE, type SweepPlan } from "./texGroupMigrationRows";
@@ -124,7 +125,8 @@ export const sweep = internalAction({
       }
       for (const path of due) {
         try {
-          await startRowTrash(ctx, { workspaceId: workspace.id, store, path, clearance: privateClearance(), now: Date.now() });
+          // A trash takes the note away from whoever saw it: the workspace's object hears first.
+          await objectFirst(ctx, workspace.id, () => startRowTrash(ctx, { workspaceId: workspace.id, store, path, clearance: privateClearance(), now: Date.now() }));
           result.trashed += 1;
         } catch (error) {
           count(failed, (error as { code?: string })?.code ?? "trash_failed");

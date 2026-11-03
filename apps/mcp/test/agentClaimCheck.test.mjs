@@ -31,6 +31,7 @@ import { test } from "node:test";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { CLAIM_NOTICE, MUTE_NOTICE, TRY_NOTICE, asksToMute, claimCheck, claimsAChange, offerNotice, offeredKinds, offersAHeldChange, saysItCouldNot } from "../src/agent/claimCheck.js";
 import { runTurn } from "../src/agent/turn.js";
+import { otherSitesNotice } from "../src/agent/otherSites.js";
 
 const MAIN = "@cf/acme/main-model";
 const WRITE = {
@@ -157,7 +158,7 @@ test("an answer that says it couldn't open or read something is read as one; one
   assert.equal(saysItCouldNot("I couldn't find that in your notes."), false);
 });
 
-test("\"I couldn't open it\" with the web untried gets one more round; after a try, or with no web, it goes", async () => {
+test("\"I couldn't open it\" with the web untried gets one more round; after three sites, or with no web, it goes", async () => {
   const said = "I couldn't open the LSB text for 28 or 29 from here.";
   const web = { tools: [], usage: {}, call: async () => ({ content: [{ type: "text", text: "That page could not be opened." }], isError: true }) };
 
@@ -165,9 +166,15 @@ test("\"I couldn't open it\" with the web untried gets one more round; after a t
   untried.wrapWeb(web);
   assert.equal(untried.check(said), TRY_NOTICE);
 
+  // One failed site is not an honest can't since 2026-10-27 (`otherSites.js`): the same text is on other sites.
   const tried = claimCheck({ question: "write the overview" });
   await tried.wrapWeb(web).call("open_page", { urls: ["https://example.org/deut-28"] });
-  assert.equal(tried.check(said), null, "a try that failed is an honest can't");
+  assert.equal(tried.check(said), otherSitesNotice({ sites: 1, canBrowse: false }), "one failed site sends it to others");
+
+  const triedThree = claimCheck({ question: "write the overview" });
+  const wrapped = triedThree.wrapWeb(web);
+  for (const site of ["a.example", "b.example", "c.example"]) await wrapped.call("open_page", { url: `https://${site}/deut-28` });
+  assert.equal(triedThree.check(said), null, "three sites that failed are an honest can't");
 
   const offline = claimCheck({ question: "write the overview" });
   assert.equal(offline.wrapWeb(null), null);

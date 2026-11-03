@@ -81,7 +81,9 @@ export type Target =
   | { kind: "workspace"; workspaceId: Id<"workspaces">; table: ObjectTable }
   | { kind: "person"; userId: Id<"users">; table: ObjectTable }
   /** A `noteShares` recipient by handle or email: resolved to an account, if any, at flush. */
-  | { kind: "recipient"; recipientKind: string; recipient: string; table: ObjectTable };
+  | { kind: "recipient"; recipientKind: string; recipient: string; table: ObjectTable }
+  /** Everyone a grant on a row names by group, or as every member (`members`, `accounts`): resolved at flush. */
+  | { kind: "holders"; workspaceId: Id<"workspaces">; groupId: Id<"workspaceGroups"> | null; table: ObjectTable };
 
 const str = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
 
@@ -115,8 +117,23 @@ export function targetsOf(write: AccessWrite): Target[] {
       return [{ kind: "recipient", recipientKind, recipient, table: "sharedToMe" }];
     }
     case "nodeAccess": {
+      // A grant on a row gives its holders a name (`grantedNamesFor`), which the person object keeps on their reach row
+      // (`rowNames`, 2026-11-02), so each holder's reach is sent again; a person named directly also sees it in Shared.
       const grantee = str(doc.granteeUserId) as Id<"users"> | null;
-      return doc.granteeKind === "user" && grantee !== null ? [{ kind: "person", userId: grantee, table: "sharedToMe" }] : [];
+      if (doc.granteeKind === "user") {
+        return grantee === null ? [] : [{ kind: "person", userId: grantee, table: "sharedToMe" }, { kind: "person", userId: grantee, table: "reach" }];
+      }
+      if (doc.granteeKind === "email") {
+        const email = str(doc.granteeEmail);
+        return email === null ? [] : [{ kind: "recipient", recipientKind: "email", recipient: email, table: "reach" }];
+      }
+      if (workspaceId === null) return [];
+      if (doc.granteeKind === "group") {
+        const groupId = str(doc.granteeGroupId) as Id<"workspaceGroups"> | null;
+        return groupId === null ? [] : [{ kind: "holders", workspaceId, groupId, table: "reach" }];
+      }
+      if (doc.granteeKind === "members" || doc.granteeKind === "accounts") return [{ kind: "holders", workspaceId, groupId: null, table: "reach" }];
+      return [];
     }
   }
 }

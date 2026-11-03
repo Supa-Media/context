@@ -58,7 +58,9 @@ import { huntPhotos, shooterFor } from "./visuals/hunt.js";
 import { storableDownload, withPagePictures } from "./visuals/pagePhotos.js";
 import { fillDistances, geocoderFor } from "./visuals/distance.js";
 import { PAGE_TEMPLATE, coverPictures, pageCover } from "./visuals/page.js";
+import { ensurePageDrawing } from "./visuals/pageDrawing.js";
 import { readTexNote } from "./aboutMe.js";
+import { isPagePath } from "../pages.js";
 import { MAX_HELD, cardCheckFor } from "./cardCheck.js";
 
 export const DRAW_TOOL = "draw_picture";
@@ -207,6 +209,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
   let web = null; // the turn's search_web, set by `useWeb`
   let kept; // undefined until read
   let earlier; // likewise
+  const drawingTries = new Map(); // per page, how often this turn was sent back to draw its picture
 
   const tools = [...(shots ? [VISUAL_DEFINITION, DRAW_DEFINITION] : []), ...(gateway ? [MAKE_DEFINITION] : [])];
   if (tools.length === 0) return null;
@@ -275,7 +278,15 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     // A page's cover is drawn from the note, read as this turn may read it (`./visuals/page.js`).
     if (args?.template === PAGE_TEMPLATE) {
       const path = typeof args?.data?.path === "string" ? args.data.path.trim() : "";
-      const text = path && typeof callTool === "function" ? await readTexNote(callTool, path) : "";
+      let text = path && typeof callTool === "function" ? await readTexNote(callTool, path) : "";
+      // A page with no picture gets Tex's drawing of it first (`./visuals/pageDrawing.js`).
+      let drawingNote = "";
+      if (text.trim() !== "" && isPagePath(path)) {
+        const drawing = await ensurePageDrawing({ path, text, scene: args?.data?.scene, shots, callTool, tries: drawingTries });
+        if (drawing.error) return say(drawing.error, true);
+        text = drawing.text;
+        drawingNote = drawing.saved ? " Your drawing is saved in the page as its picture." : drawing.note ? ` ${drawing.note}` : "";
+      }
       // Its photos, each read through the page's own note as this turn may read it, and drawn in as bytes.
       const images = new Map();
       for (const src of coverPictures(text)) {
@@ -289,7 +300,8 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
       // Kept for the page's link card (`/gateway/page-cover`); a page in another context is not this turn's to keep.
       const png = drawn.isError ? null : drawn.content?.find((part) => part.type === "image")?.data;
       if (png && typeof keepCover === "function" && !path.startsWith("@")) await keepCover(path, png).catch(() => false);
-      return drawn;
+      if (!drawingNote || drawn.isError) return drawn;
+      return { ...drawn, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text}${drawingNote}` } : part)) };
     }
     // Photos and logos the model left out, from the pages this turn read; then every one downloaded here (`./visuals/photos.js`).
     const { data: pictured, filled } = fillPictures(args?.template, args?.data, outgoing?.read?.() ?? "");

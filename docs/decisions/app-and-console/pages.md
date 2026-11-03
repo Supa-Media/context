@@ -75,7 +75,10 @@ the picture is texted rather than left to the link.
 A linked page's preview is the same cover, for a team link as well as a link
 for anyone (owner, 2026-10-27): the gateway keeps each cover it draws in the
 person's bucket and the link's card shows it. The privacy trade is in
-[page covers](../privacy-and-sharing/page-covers.md).
+[page covers](../privacy-and-sharing/page-covers.md). A page with no picture of
+its own gets Tex's ink drawing of its topic first, and its cover is then the
+wide card of its title and drawing
+([page drawings](./page-drawings.md), 2026-11-03).
 
 **What a simplification would cost.**
 

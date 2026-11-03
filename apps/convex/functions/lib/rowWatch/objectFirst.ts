@@ -15,19 +15,21 @@
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-import { randomOpaqueToken } from "../gatewayAuth";
 import { objectDoor } from "./objectDoor";
-import { MARK_TTL_MS } from "./markRules";
-import { objectSettled } from "./drain";
+import { MARK_TTL_MS, markToken } from "./markRules";
+import { objectSettled, type SettleOptions } from "./drain";
 
-type Options = Parameters<typeof objectDoor>[2];
+/** The door's own options, and how long the write waits for the object afterwards (`./drain.ts` `GATEWAY_SETTLE`). */
+type Options = Parameters<typeof objectDoor>[2] & { settle?: SettleOptions };
 
 /**
  * File operations (`lib/filesFns/operationValidators.ts`) that may take something away from someone who could see
  * it: a move (into a private folder), a trash, a delete, a visibility change, a hide. The file-operation barrier runs
- * these inside `objectFirst`, after its own checks. One that only adds (a write, a copy, a new folder, a restore) never narrows, and its
- * row reaches the object by the ordinary push. A narrowing write this list misses is logged by the row watch
- * (`workspace_object_unmarked_narrowing`).
+ * these inside `objectFirst`, after its own checks. One that only adds (a write, a copy, a new folder) never narrows,
+ * and its row reaches the object by the ordinary push. A restore is here although it only brings a note back: in a
+ * keyed workspace it is a row move out of the trash (`lib/nodes/rowTrash.ts` `restoreRowTrash`), and a row move is a
+ * change of place the row watch cannot tell from one that hides. A narrowing write this list misses is logged by the
+ * row watch (`workspace_object_unmarked_narrowing`).
  */
 export const NARROWING_OPERATIONS: ReadonlySet<string> = new Set([
   "move",
@@ -52,25 +54,22 @@ export const NARROWING_OPERATIONS: ReadonlySet<string> = new Set([
   "emojiRemove",
   "emojiRename",
   "migrateStorage",
+  "restoreTrash",
 ]);
-
-/** A mark's token: random, URL-safe, and nothing else (`marks.js` takes 8 to 128 of `[A-Za-z0-9_-]`). */
-function markToken(): string {
-  return `m${randomOpaqueToken().replace(/[^A-Za-z0-9_-]/g, "").slice(0, 63)}`;
-}
 
 /**
  * Run `write` (the action's mutation or mutations for this workspace) with a mark open in the workspace's object
  * from before it starts until its change has reached the object. Answers what `write` answered.
  */
 export async function objectFirst<T>(ctx: ActionCtx, workspaceId: Id<"workspaces">, write: () => Promise<T>, options: Options = {}): Promise<T> {
+  const { settle, ...doorOptions } = options;
   const token = markToken();
   if (!(await ctx.runMutation(internal.functions.workspaceObjectMarks.open, { workspaceId, token, now: Date.now() }))) {
     const result = await write();
-    await objectSettled(ctx, workspaceId);
+    await objectSettled(ctx, workspaceId, settle);
     return result;
   }
-  const call = objectDoor(ctx, workspaceId, options);
+  const call = objectDoor(ctx, workspaceId, doorOptions);
   try {
     await call("ws.mark.open", { token, ttlMs: MARK_TTL_MS });
   } catch (error) {
@@ -85,7 +84,7 @@ export async function objectFirst<T>(ctx: ActionCtx, workspaceId: Id<"workspaces
     // mark closes only once what committed is in the object. Settled: every change written before now is there.
     // Not settled: the push goes on retrying and closes the mark when it lands; until then the object says behind.
     await ctx.runMutation(internal.functions.workspaceObjectMarks.done, { token, at: Date.now() });
-    if (await objectSettled(ctx, workspaceId)) await closeMark(ctx, call, workspaceId, token);
+    if (await objectSettled(ctx, workspaceId, settle)) await closeMark(ctx, call, workspaceId, token);
   }
 }
 

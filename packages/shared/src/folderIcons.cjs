@@ -159,13 +159,16 @@ const TEX_PART_ICONS = Object.freeze({
   "heartbeat.md": contextPartMarker("tex_heartbeat"),
   housekeeping: contextPartMarker("tex_housekeeping"),
   "jobs.md": contextPartMarker("tex_jobs"),
+  // The pictures they texted Tex, a note a month (`apps/mcp/src/agent/textedPictures.js`): a camera.
+  pictures: contextPartMarker("tex_pictures"),
   routines: contextPartMarker("tex_routines"),
   skills: contextPartMarker("tex_skills"),
   transcripts: contextPartMarker("tex_transcripts"),
   // How they talk (`personVoice.js`, a chat's `chatVoice.js`): a speech bubble, as the chats are.
   "voice.md": contextPartMarker("tex_chats"),
-  // Everything the chat's ledger keeps, read only (`texStore/historyView.js`): the chats' bubble too.
-  "history.ledger.json": contextPartMarker("tex_chats"),
+  // Everything the chat's ledger keeps, read only (`texStore/historyView.js`), shown as "History": an arrow
+  // turning back around a clock (Dev, 2026-11-03: "view history.ledger.json as “history” and also give it an image").
+  "history.ledger.json": contextPartMarker("tex_history"),
 });
 const CADENCE_ICONS = Object.freeze({
   once: contextPartMarker("cadence_once"),
@@ -184,6 +187,10 @@ const YEARLY_ICON = contextPartMarker("cadence_year");
  */
 function texPartIcon(inside) {
   if (typeof inside !== "string") return null;
+  // A group chat's home holds the same folders as a person's Tex (HOME_TEX_PARTS), so they draw the same icons
+  // (the owner, 2026-11-02: "please update the folder icons to be the proper logos").
+  const home = /^groups\/[^/]+\/(.+)$/.exec(inside);
+  if (home !== null) return home[1].startsWith("groups/") ? null : texPartIcon(home[1]);
   if (Object.prototype.hasOwnProperty.call(TEX_PART_ICONS, inside)) return TEX_PART_ICONS[inside];
   const segments = inside.split("/");
   if (segments.length !== 2 || segments[0] !== "routines") return null;

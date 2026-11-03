@@ -5,8 +5,9 @@ link, repeated "Here's the graphic" with nothing attached, and answered three
 complaints one by one. Contracts: `docs/design/tex-event-log/CONTRACT.md`.
 
 **One record of the chat.** Every message in and every part Tex sends goes
-into an append-only event log in the customer's bucket
-(`.context/agent/log/<chat>/`): its time, who sent it, what kind it is, and,
+into an append-only event log, since 2026-11-02 the chat's ledger
+([chat-ledger](./chat-ledger.md)); before it, the customer's bucket
+(`.context/agent/log/<chat>/`), which is no longer written: its time, who sent it, what kind it is, and,
 for Tex's parts, whether it was delivered and why not. The model sees that log
 rendered as a timestamped transcript with day breaks, "(not answered)" on
 messages no delivered answer covered, and a note on anything that didn't

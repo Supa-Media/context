@@ -60,18 +60,25 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
   if (held.home === HOMES.BUCKET) return store;
   const state = async () => held;
 
+  // One key's backup writes land in the order they were made: written behind the response, two saves of one note
+  // in a request would otherwise race, and the older could land last.
+  const queued = new Map();
   const mirror = (label, key, work) => {
-    const running = (async () => {
+    const before = queued.get(key) ?? Promise.resolve();
+    const running = before.then(async () => {
       try {
         await work();
       } catch (error) {
         log("workspace_mirror_failed", { workspaceId, op: label, key, error: String(error?.message ?? error) });
       }
-    })();
-    if (typeof defer === "function") {
-      defer(running);
-      return Promise.resolve();
-    }
+    });
+    queued.set(key, running);
+    running.then(() => {
+      if (queued.get(key) === running) queued.delete(key);
+    });
+    // `defer` answers `false` when it has nothing to hand the work to yet (a session store opened before its
+    // request's `ctx` was laid on it, `sessionStore.js`): the write is then awaited, never dropped.
+    if (typeof defer === "function" && defer(running) !== false) return Promise.resolve();
     return running;
   };
 
@@ -227,6 +234,38 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
       // (an export, a purge) is the bucket's, which every version is written to.
       if (home === HOMES.OBJECT && typeof backfilledAt === "number" && !coversRevisions(options?.prefix)) return await object.list(options);
       return await store.list(options);
+    };
+  }
+
+  /**
+   * A whole-note save's editing history, run in the object in one call (`workspaceStore/collabReplace.js`), for an
+   * object-home workspace the object holds whole. Every write it made is copied to the bucket behind the response,
+   * exactly as `put` copies one, and a document state it wrote prunes the object's older versions the same way.
+   * `null` when the object did not serve it (not held there, the row moved, a version only the bucket keeps): the
+   * caller then runs the engine through this store, as before.
+   */
+  if (typeof client.collab?.replace === "function") {
+    wrapped.replaceInObject = async ({ path, key, noteId, legacyEtag = null, rowEtag = null, expectedEtag, text, record = null }) => {
+      if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
+      const answer = await client.collab.replace({
+        path, key, noteId,
+        ...(typeof legacyEtag === "string" && typeof rowEtag === "string" ? { legacyEtag, rowEtag } : {}),
+        expectedEtag, text,
+        ...(Number.isFinite(record?.at) ? { record: { at: record.at } } : {}),
+      });
+      for (const write of Array.isArray(answer?.writes) ? answer.writes : []) {
+        if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
+        await mirror("put", write.key, () => store.put(write.key, write.body));
+        const documentId = documentStateId(write.key);
+        if (documentId !== null) await mirror("prune", write.key, () => pruneRevisions(documentId, write.body));
+      }
+      for (const removed of Array.isArray(answer?.deletes) ? answer.deletes : []) {
+        if (typeof removed === "string") await mirror("delete", removed, () => store.delete(removed));
+      }
+      if (answer?.served === true) return answer;
+      // Why the save ran the engine from here instead: a short code from the object, never the path.
+      log("workspace_object_collab_not_served", { workspaceId, reason: typeof answer?.reason === "string" ? answer.reason : null });
+      return null;
     };
   }
 

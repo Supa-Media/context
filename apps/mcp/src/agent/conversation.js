@@ -5,9 +5,9 @@
  * The texting assistant (`apps/agent`) answers one text at a time, and a text
  * like "and the second one?" means nothing without the one before it. The
  * history is the workspace's, in the workspace's own Tex object, never in the
- * Worker that relays the texts. Every day's texts are also written, as they
- * happen, into the person's `tex/transcripts/` notes (`transcript.js`), which
- * are exported with everything else.
+ * Worker that relays the texts. The whole chat is kept, as it happens, in
+ * its ledger (`ledger.js`), shown as `tex/history.ledger.json` and exported
+ * with everything else.
  *
  * Only the words go in: what the person asked and what was answered. Never a
  * tool's result, which can quote a note the next turn's grant might no longer
@@ -26,6 +26,7 @@
 
 import { eventKey, idOfKey, newExchange } from "./events.js";
 import { appendHistory, readHistory } from "./history.js";
+import { copiedIn, readLedgerConversation } from "./ledgerConversation.js";
 import { ONE_TO_ONE_CHAT, ledgerWriter, wordsEntry } from "./ledger.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isNoteSource, isReadSource, sourcesOf } from "./sources.js";
 
@@ -40,7 +41,7 @@ const CONVERSATIONS = {
   thread it was texted in ("send this email now", Dev, 2026-10-20), and the
   owner chose the whole history over a cap that day. A turn is shown
   everything kept up to about twenty thousand tokens; `earlier_texts` reads
-  the rest that is kept, and every day's texts are in `tex/transcripts/`.
+  the rest that is kept, and the whole chat is in its ledger (`tex/history.ledger.json`).
   A setup's `history:` line can still narrow what a turn is shown.
 */
 export const MAX_HISTORY_TURNS = 300;
@@ -146,15 +147,20 @@ function newestExchanges(turns, entries) {
 }
 
 /**
- * Read a conversation: the person's one history record (`history.js`), in
- * one call, or its newest `entries` exchanges when a caller needs only the
- * last few. An unreadable history is an empty conversation: this is a
- * convenience, and a corrupt record must not stop the person getting an
- * answer.
+ * Read a conversation: the person's chat rebuilt from its ledger
+ * (`ledgerConversation.js`; the owner, 2026-11-02: one record per chat), or
+ * its newest `entries` exchanges when a caller needs only the last few. Only
+ * a store that keeps no ledger for them still reads the old history record
+ * (`history.js`), counted as `tex_history_from_record`. An unreadable history
+ * is an empty conversation: this is a convenience, and a corrupt one must not
+ * stop the person getting an answer.
  */
 export async function readConversation(store, name, { entries } = {}) {
   if (conversationPath(name) === null) return [];
   try {
+    const rebuilt = await readLedgerConversation(store);
+    if (rebuilt !== null) return newestExchanges(rebuilt, entries);
+    console.log(JSON.stringify({ event: "tex_history_from_record" })); // no ledger, or its old chat not copied in yet
     return newestExchanges(keep(await readHistory(store, HISTORY)), entries);
   } catch (error) {
     console.log(JSON.stringify({ event: "tex_history_unread", reason: error?.code ?? error?.name ?? "error" }));
@@ -180,7 +186,7 @@ export const EARLIER_TEXTS_DEFINITION = {
   description:
     "Read your earlier texts with this person, oldest first: what they said and what you answered. " +
     "Use it when a text refers to something said before that isn't in front of you (\"like I said\", \"that place\", \"the second one\"). " +
-    "Older than that, every day's texts are in tex/transcripts/<date>.md.",
+    "Older than that, the whole chat is in tex/history.ledger.json.",
   inputSchema: { type: "object", properties: {} },
 };
 
@@ -241,7 +247,8 @@ export async function appendConversation(store, name, question, answer, { tainte
   if (conversationPath(name) === null) return null;
   const exchange = typeof chosen === "string" ? { at, id: chosen } : tag !== null ? { at, id: idOfKey(eventKey(at, tag)) } : newExchange(at);
   const id = exchange.id;
-  await appendHistory(
+  // The old record only while the chat's ledger does not hold its whole past: once it is copied in, the ledger is the one copy.
+  if (!(await copiedIn(store))) await appendHistory(
     store,
     [
       keptTurn({ role: "user", text: question, id, at: exchange.at, ...(thread ? { thread } : {}), theirs }),
@@ -251,7 +258,7 @@ export async function appendConversation(store, name, question, answer, { tainte
   );
   // A text Tex sent outside a chat turn (a check-in, a ping, a job's update, a settled yes) into the chat's one record too
   // (`ledger.js`); a chat turn writes its own steps and reply there, and passes `ledger: false`.
-  if (ledger && name === "texts") await ledgerWriter(typeof store?.texLedger === "function" ? store.texLedger() : null, ONE_TO_ONE_CHAT)?.write(wordsEntry("note", answer, { at: exchange.at, about: String(question ?? "").slice(0, 2_000), ...(tainted ? { tainted: true } : {}) }));
+  if (ledger && name === "texts") await ledgerWriter(typeof store?.texLedger === "function" ? store.texLedger() : null, ONE_TO_ONE_CHAT)?.write(wordsEntry("note", answer, { at: exchange.at, about: String(question ?? "").slice(0, 2_000), ...(tainted ? { tainted: true } : {}), ...(theirs === true ? { theirs: true } : {}), ...(typeof thread === "string" && thread !== "" ? { thread } : {}), ...(sourcesOf(sources).length > 0 ? { sources: sourcesOf(sources) } : {}) }));
   return id;
 }
 
@@ -274,7 +281,7 @@ export function wordsOfTurn(history, question) {
   answers (@context-lc tex-bugs, 2026-10-19: "Done with what? I don't have
   anything earlier in this chat").
 */
-const TOLD_QUESTION = "(Not a text from them. Context sent this text by itself, with no model.)";
+export const TOLD_QUESTION = "(Not a text from them. Context sent this text by itself, with no model.)";
 export const TOLD = {
   setup:
     "They texted Context's number and were set up by text: they picked their handle, and their account and personal workspace were made. " +
@@ -310,8 +317,11 @@ export async function appendTold(store, name, told) {
   try {
     const at = Date.now();
     for (const [index, key] of told.entries()) {
-      await appendConversation(store, name, TOLD_QUESTION, TOLD[key], { at: at + index, ledger: false }); // the Worker's own `told` event is the ledger's copy
+      await appendConversation(store, name, TOLD_QUESTION, TOLD[key], { at: at + index, ledger: false });
     }
+    // In the chat's ledger too, before the turn reads it: the Worker's own `told` event is posted beside the turn, and may
+    // land after. Its id is no event's, so the log's views skip it; the rebuilt conversation keeps one of the two (`ledgerConversation.js`).
+    if (name === ONE_TO_ONE_CHAT) await ledgerWriter(typeof store?.texLedger === "function" ? store.texLedger() : null, ONE_TO_ONE_CHAT)?.write(told.map((key, index) => ({ v: 1, id: `told${at + index}${key.replace(/[^a-z]/g, "")}`, at: at + index, kind: "text", event: "text", from: { kind: "system" }, told: key, text: "" })));
   } catch {
     // See above.
   }

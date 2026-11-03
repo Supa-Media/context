@@ -105,16 +105,16 @@ async function consolePerson(ctx: QueryCtx, hashedAccessToken: string): Promise<
 }
 
 /** A person's handle: their personal workspace's slug, or "" when they have none. */
-async function handleFor(ctx: QueryCtx, userId: Id<"users">): Promise<string> {
+export async function handleFor(ctx: QueryCtx, userId: Id<"users">): Promise<string> {
   const personal = await personalWorkspaceOf(ctx, userId);
   return personal === null ? "" : ((await ctx.db.get(personal))?.slug ?? "");
 }
 
 /**
- * A group chat as the page names it: by the people in it (`@bo, @cy +2`). A
- * chat keeps no name of its own: the iMessage group's display name is never
- * read, since anyone in the chat can set it, and the chat home's folder words
- * are random, so they would name nothing the person knows.
+ * A group chat with no name of its own, as the page names it: by the people in
+ * it (`@bo, @cy +2`). A chat with an iMessage name is shown by it
+ * (`textGroupNames.ts`, the owner, 2026-11-02); the home's folder words are
+ * random, so they would name nothing the person knows.
  */
 export function groupName(peopleNames: readonly string[]): string {
   const others = peopleNames.filter((name) => name !== "You").map((name) => (name === "Someone" ? name : `@${name}`));
@@ -229,7 +229,7 @@ export const pageFor = internalQuery({
         const homed = chat.homeWords !== undefined && pinned !== null;
         return {
           key: chat.groupKey,
-          name: groupName(peopleNames),
+          name: chat.chatName ?? groupName(peopleNames),
           people: Math.max(1, homeUsers.length),
           peopleNames: homeUsers.length > 0 ? peopleNames : ["You"],
           homeWords: chat.homeWords ?? null,

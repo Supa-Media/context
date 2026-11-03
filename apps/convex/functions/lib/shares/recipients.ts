@@ -16,7 +16,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import { handleForUser, identifiersForUser } from "../identities";
 import { getMembership, roleAtLeast } from "../workspaceAuth";
 import { grantedItemValidator, grantedItemsFor, itemKey } from "./grantedInbox";
-import { shareableRules, sharedNoteTitle, sharerName } from "./inboxTitle";
+import { shareableRules, sharedNoteTitle, sharerName, type TitleAsk } from "./inboxTitle";
 import { MAX_SHARES_RETURNED, isLive, shareStillStands } from "./standing";
 import { liveEntryOf } from "./entryNote";
 
@@ -145,9 +145,10 @@ export async function listSharedWithMeHandler(
 /**
  * The list itself, for `userId`. Also what the access copy compares a person
  * object's "shared with me" against (`functions/accessObjectsRows.ts`), so the
- * copy and the screen read one truth.
+ * copy and the screen read one truth. With `asks`, every listed note whose title
+ * may be told is named there too, for `sharedTitles.ts` to read from its object.
  */
-export async function sharedWithUser(ctx: QueryCtx, userId: Id<"users">, now: number) {
+export async function sharedWithUser(ctx: QueryCtx, userId: Id<"users">, now: number, asks?: TitleAsk[]) {
 
   const identifiers = await identifiersForUser(ctx, userId);
 
@@ -210,13 +211,13 @@ export async function sharedWithUser(ctx: QueryCtx, userId: Id<"users">, now: nu
       sharedBy: row.createdBy,
       sharedByHandle: sharer?.handle ?? null,
       sharedByName: sharer?.name ?? null,
-      title: await sharedNoteTitle(ctx, workspace._id, row.entryPath, rules.get(workspace._id) ?? null),
+      title: await sharedNoteTitle(ctx, workspace._id, row.entryPath, rules.get(workspace._id) ?? null, asks),
       createdAt: row.createdAt,
     });
   }
 
   // The grants I hold in other people's workspaces, minus any note a share already lists. Then one list, newest first.
-  const granted = await grantedItemsFor(ctx, userId, new Set(summaries.map((item) => itemKey(item.workspaceId, item.entryPath))));
+  const granted = await grantedItemsFor(ctx, userId, new Set(summaries.map((item) => itemKey(item.workspaceId, item.entryPath))), asks);
   return [...summaries, ...granted].sort((a, b) => b.createdAt - a.createdAt);
 }
 

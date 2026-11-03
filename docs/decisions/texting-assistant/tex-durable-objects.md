@@ -13,8 +13,10 @@ living in a durable object and not a bucket".
 Tex's own notes (its chats and transcripts, About me, the jobs list, learned
 skills, routines and heartbeat, dreams, attention, handbacks, housekeeping,
 style and voice, a group chat's memory) keep their text in a Durable Object:
-one per person, named by their personal workspace, and one per group chat
-(`apps/mcp/src/texStore.js`, binding `TEX_STORE`). Each object keeps its
+a person's in their personal workspace's own object (`workspace:<workspaceId>`,
+`apps/mcp/src/workspaceStore/texHost.js`), and each group chat's in a Tex
+store of its own (`apps/mcp/src/texStore.js`, binding `TEX_STORE`). Both run
+the same code (`texStore/engine.js`). Each object keeps its
 notes in its own SQLite, shaped like a bucket (`texStore/objects.js`), and
 the gateway reaches it with its ordinary R2 adapter (`texStore/wire.js`).
 
@@ -44,6 +46,51 @@ Notes Tex writes *for* the person (a packing list, a meeting's notes) are
 ordinary notes in their bucket. Tex reads and writes the bucket as it always
 did.
 
+## One object for a person's workspace and their Tex
+
+Decided by the owner, 2026-11-02: "@seyi is my personal workspace, the tex
+has a folder in there, and this all lives in 1 durable object. for group
+chats we create a new durable object that has the same folder structure",
+then "lets do one object then please".
+
+A person's Tex (its notes and records, the bookkeeping under `state/agent/`,
+the one-to-one ledger, the Tex page's sockets and the routine alarms) lives in
+their personal workspace's object. Its notes sit in tables of their own,
+`tex_objects` and `tex_chunks`, never among the workspace's own notes
+(`objects`), so no workspace read, listing, fact, backfill or copy-and-compare
+check sees them; the ledger, alarms and page state keep the tables a Tex store
+keeps them in, which the workspace object did not have. Rows and keys do not
+change: `tex/person:<workspaceId>/notes/<noteId>.md` still routes through
+`store/texRouting.js`, and only where that owner resolves changed
+(`texStore/wire.js` `texStoreStub`). A call for a person's Tex names its owner
+(`x-tex-owner`), the workspace object answers only that one person (its own
+name, and the first owner it saw), and refuses every call one Tex store makes
+to another. A deployment without workspace objects keeps a person's Tex in a
+Tex store, as before.
+
+The object has one runtime alarm: the earliest of a routine, an open page's
+poll, and the workspace's own retry of a member write it still owes.
+
+**How it moved** (`texStore/merge.js`): copy, check, switch, retire, on the
+first Tex call to the workspace object, before it answers anything.
+The person's placed Tex store (`enam:person:<workspaceId>`) is asked to merge
+out; from then it keeps no write and passes every call on, so a gateway on the
+old code during a deploy loses nothing. The notes are copied in pages (each
+body checked against its etag), the ledger row by row as kept (chat, seq, id,
+time, kind, entry), and the alarms. Parity is every key's etag and size, every
+alarm, and each ledger's manifest, row count, first entry (a one-to-one chat's
+`backfilledv1`) and a digest of every row in order. A difference throws the
+copy away and the call fails with nothing kept; the next call starts again.
+Only a clean copy answers, and only then is the old store told the copy is
+confirmed; it clears its copy three days after that, never before, and at once
+when the person's Tex is wiped (which now also clears its routine alarms).
+Every merge is logged as `tex_store_merge` with counts, never a key.
+
+Cost of reversing it: a person's turn calls two objects again, and the 10 GB
+ceiling of one object is shared by the workspace's notes and its Tex, so a
+heavy Tex user's workspace reaches it sooner. Tests:
+`apps/mcp/test/texMerge.test.mjs`.
+
 ## Which object a turn may reach
 
 A group chat's object is named by its key (`chat:<groupKey>`, the chat's
@@ -56,10 +103,26 @@ reaches no other's. A new note under a chat's home in the pinned workspace is
 keyed to that chat, and nowhere else: the home is found by its three words and
 only in the pin (`lib/noteIds/texHome.ts`).
 
+A person reading a home's notes from an AI client, or typing in one in the
+app, is not a chat's turn, and since 2026-11-02 reaches that chat's object for
+those notes. The app's store is built with the chats its paths' homes name
+(`fileOperationBarrier.ts`, `chatHomePaths.ts`); a person's gateway store asks
+the control plane, once per chat, whether that chat's home is in the
+workspace it reads (`POST /gateway/tex/chat-home`, `texChatLanding.chatHomedIn`:
+the pinned workspace, a chat with a home), and opens it only on a yes
+(`sessionStore.js` `texHomeChatOf`, `texRouting.js` `homeChat`). Which notes
+they see is still each row's access, sealed to the chat's people. Tex's own
+clients and a chat's turn never ask: a turn still reaches its own chat alone.
+Tests: `apps/mcp/test/texRouting.test.mjs` (asked once, a no never opens the
+object, Tex's clients and another chat's turn never widened),
+`apps/convex/__tests__/textGroupHome.test.ts` ("where a chat's home is").
+
 ## What changes in the non-negotiables
 
-- **#1**: a note body lives in the workspace's bucket, *except* a note whose
-  row says it lives in Tex's Durable Object. Leaving still takes everything:
+- **#1**: a note body lives in the workspace's object (or its bucket, until it
+  is switched over), *except* a note whose row says it lives in Tex's store: a
+  person's in their workspace's object, in tables of its own, a group chat's
+  in its Tex Durable Object. Leaving still takes everything:
   export reads these as it reads any note.
 - **#2**: the Cloudflare account that holds customer data now also holds
   these Durable Objects, beside the buckets, the search databases and the
@@ -161,5 +224,5 @@ by earlier sets of people stay in the bucket for a later merge.
 Tex's state goes back to many bucket reads per turn (a second each through
 the adapter), which is what made "hi Tex" take a minute before the warm copy.
 
-Tests: `apps/mcp/test/texStore.test.mjs`, `apps/mcp/test/texAlarms.test.mjs` and
-`apps/mcp/test/chatMemoryRecord.test.mjs`.
+Tests: `apps/mcp/test/texStore.test.mjs`, `apps/mcp/test/texAlarms.test.mjs`,
+`apps/mcp/test/texMerge.test.mjs` and `apps/mcp/test/chatMemoryRecord.test.mjs`.

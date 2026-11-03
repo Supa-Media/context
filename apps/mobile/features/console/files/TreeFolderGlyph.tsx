@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-n
 import { Icon } from "../../design/components/Icon";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
 import { JobIcon } from "./jobIcons/JobIcon";
+import { ChatServiceMark } from "./ChatServiceMark";
+import { chatServiceOfIcon } from "./chatHomeTitles";
 import { isNestedJobIcon, jobOfIcon, twinJobOfIcon } from "./jobIcons/marker";
 import { contextIconOf, contextPartOf } from "@context/shared/src/contextIcons.cjs";
 import { pointerType, radii } from "../../design/tokens";
@@ -55,6 +57,9 @@ export function TreeFolderGlyph({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const ref = useRef<View>(null);
+  // A group chat's home draws its app, iMessage or WhatsApp, and only draws it: there is no icon to pick.
+  const chat = chatServiceOfIcon(icon);
+  if (chat !== null) return <ChatServiceMark service={chat} size={16} />;
   const job = jobOfIcon(icon);
   if (job !== null) return <JobIcon job={job} size={16} nested={isNestedJobIcon(icon)} testID="tree-folder-job" />;
   // Archive's copy of a built-in folder: drawn, like the folder it mirrors, so no picker either.

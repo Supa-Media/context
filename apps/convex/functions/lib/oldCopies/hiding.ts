@@ -20,7 +20,10 @@ import { carryRowHistory } from "../nodes/rowHistory";
 import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import { normalizePath } from "../fileOps/paths";
 import { OLD_COPIES_ROOT, type FileStore } from "../fileOps/store";
-import { bodyVerdict, dayOf } from "./classify";
+import { objectFactRows, objectPropsAt } from "../nodes/objectFacts";
+import { bodyVerdict, dayOf, rowVerdict } from "./classify";
+import { hideInObject, type OldCopyMover } from "./hideInObject";
+import { consoleWorkspaceClient } from "../workspaceObjects/door";
 
 /** Rows one mutation hides: each is a row move, with its access and links followed. */
 export const HIDE_BATCH = 25;
@@ -52,6 +55,33 @@ async function textAt(store: FileStore, path: string): Promise<string | null> {
   }
 }
 
+type Candidate = { path: string; verdict: "day" | "attachment" | "read" | "facts"; key?: string };
+
+/**
+ * Each note the page left to the object (`facts`) decided by its props there, as `rowVerdict` decides a row by the
+ * control plane's: a copied day, one to read, or the person's (dropped). A note the object does not answer for is
+ * decided by its name alone, as a row with no facts is.
+ */
+export async function decidedByObject(
+  facts: Parameters<typeof objectPropsAt>[0],
+  rows: readonly Candidate[],
+): Promise<Array<Candidate & { verdict: "day" | "attachment" | "read" }>> {
+  const asked = rows.filter((row) => row.verdict === "facts").map((row) => row.path);
+  const held = asked.length === 0 ? null : await objectPropsAt(facts, asked);
+  const decided: Array<Candidate & { verdict: "day" | "attachment" | "read" }> = [];
+  for (const row of rows) {
+    if (row.verdict !== "facts") {
+      decided.push({ ...row, verdict: row.verdict });
+      continue;
+    }
+    const props = held?.get(row.path)?.props ?? undefined;
+    // Read at the note's current text, so its own version vouches for it.
+    const verdict = rowVerdict({ path: row.path, kind: "file", ...(props === undefined || props === null ? {} : { props, parsed: "object", etag: "object" }) }, []);
+    if (verdict === "day" || verdict === "read") decided.push({ ...row, verdict });
+  }
+  return decided;
+}
+
 /** One page of the workspace's rows looked at, and its copies hidden. */
 export async function hideOldCopiesPass(
   ctx: ActionCtx,
@@ -59,13 +89,24 @@ export async function hideOldCopiesPass(
   store: FileStore,
   projection: ProjectionClient | null,
   cursor: string | null,
+  openMover: () => OldCopyMover | null = () => consoleWorkspaceClient(ctx, workspaceId),
 ): Promise<HidePass> {
-  const page = await ctx.runQuery(internal.functions.oldCopies.candidatePage, { workspaceId, cursor });
-  const looked = { rows: page.rows.length, unread: 0, theirs: 0 };
+  // Where the notes live in their object, the object hides each copy (`hideInObject.ts`), and with no way to reach it
+  // nothing is hidden this pass: Convex's row move would push the move back to the object.
+  const inObject = (await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId }).catch(() => null)) === "object";
+  const mover = inObject ? openMover() : null;
+  if (inObject && mover === null) {
+    return { kind: "oldCopiesHidden", cursor, days: 0, contacts: 0, files: 0, stopped: "not_served" };
+  }
+  // Where the notes live in their object, it says what each note's front matter is, read at its current text.
+  const facts = await objectFactRows(ctx, workspaceId);
+  const page = await ctx.runQuery(internal.functions.oldCopies.candidatePage, { workspaceId, cursor, ...(facts === null ? {} : { everyNote: true }) });
+  const rows = await decidedByObject(facts, page.rows);
+  const looked = { rows: rows.length, unread: 0, theirs: 0 };
   const pass: HidePass = { kind: "oldCopiesHidden", cursor: page.done ? null : page.cursor, days: 0, contacts: 0, files: 0, looked };
 
   const hide: { path: string; as: "day" | "contact" | "file" }[] = [];
-  for (const row of page.rows) {
+  for (const row of rows) {
     if (row.verdict === "day") hide.push({ path: row.path, as: "day" });
     else if (row.verdict === "attachment") hide.push({ path: row.path, as: "file" });
     else {
@@ -80,11 +121,9 @@ export async function hideOldCopiesPass(
 
   for (let at = 0; at < hide.length; at += HIDE_BATCH) {
     const batch = hide.slice(at, at + HIDE_BATCH);
-    const answer = await ctx.runMutation(internal.functions.oldCopies.hideRows, {
-      workspaceId,
-      paths: batch.map((entry) => entry.path),
-      now: Date.now(),
-    });
+    const paths = batch.map((entry) => entry.path);
+    const answer =
+      mover !== null ? await hideInObject(mover, paths) : await ctx.runMutation(internal.functions.oldCopies.hideRows, { workspaceId, paths, now: Date.now() });
     const moved = new Set(answer.moved.map((pair) => pair.from));
     for (const entry of batch) {
       if (!moved.has(entry.path)) continue;
@@ -96,8 +135,9 @@ export async function hideOldCopiesPass(
       } else if (entry.as === "contact") pass.contacts += 1;
       else pass.files += 1;
     }
-    await carryRowHistory(store, answer.moved);
-    if (projection !== null && answer.moved.length > 0) {
+    // In the object, the tree mirror follows the moved files and a head is filed by note id: nothing to carry here.
+    if (mover === null) await carryRowHistory(store, answer.moved);
+    if (mover === null && projection !== null && answer.moved.length > 0) {
       await followInProjection(store, { written: [], gone: answer.moved.map((pair) => pair.from) }, projection);
     }
     if (answer.stopped !== null) {

@@ -80,6 +80,9 @@ export function draftFor(email) {
   ].join("\n");
 }
 
+/** The most of the checker's own answer the history keeps. */
+const MAX_ANSWER = 2_000;
+
 const VERDICTS = new Set(["yes", "no", "unasked", "unsure"]);
 
 /** The checker's answer read strictly: anything but a verdict it named is "unsure". */
@@ -120,7 +123,9 @@ export function mailCheckerFor({ history, question, config, request = requestVia
         config,
         { metadata },
       );
-      return readVerdict(answer?.text);
+      // Its whole answer is kept with its verdict in the chat's history (`workEntries.js` `mailEntry`).
+      const said = typeof answer?.text === "string" ? answer.text.trim().slice(0, MAX_ANSWER) : "";
+      return { ...readVerdict(answer?.text), ...(said ? { answer: said } : {}) };
     } catch {
       return { verdict: "unsure", reason: "the Mail checker could not run just now" };
     }

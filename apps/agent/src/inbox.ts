@@ -534,7 +534,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
     covers,
     (ids) => dropSteered(storage, ids, covers),
     async (token) => {
-      rememberSession(storage, token);
+      rememberSession(storage, token, { chat: message.chatId, fetch: deps.fetch, gatewayOrigin: deps.gatewayOrigin });
       void flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(message.from)).catch(() => {}); // beside the turn, not before: it is handed the same events (`warm.ts`)
     },
   );
@@ -604,8 +604,8 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
     // The model only names the job: what the job is handed is always their own text.
     onSteers: async (asks) => {
       if (!deps.steerJob) return;
-      await steerJobs(storage, asks, { id: message.eventId, text: message.event ? "" : message.text.trim() }, deps.steerJob, deps.now()); // a turn by code passes only its own notes
-      return notResumedText(await resumeJobs(storage, asks, { id: message.eventId }, deps.steerJob, deps.now())); // "restart it" picks an ended job back up
+      const said = { id: message.eventId, text: message.event ? "" : message.text.trim() }; await steerJobs(storage, asks, said, deps.steerJob, deps.now()); // a turn by code passes only its own notes
+      return notResumedText(await resumeJobs(storage, asks, said, deps.steerJob, deps.now())); // "restart it" picks an ended job back up, with their words
     },
   };
 }

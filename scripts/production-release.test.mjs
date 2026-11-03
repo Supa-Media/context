@@ -45,9 +45,15 @@ test('a release started beside staging skips the staging and CI wait, and only t
 
 test('a merge starts production beside staging unless the variable puts staging first', () => {
   const dir = new URL('../.github/workflows/', import.meta.url);
+  const start = readFileSync(new URL('deploy-production-start.yml', dir), 'utf8');
+  assert.match(start, /on:\n  push:\n    branches: \[main\]\n/);
+  assert.match(start, /  production:\n    name: Start production alongside staging\n    if: \$\{\{ vars\.AUTO_DEPLOY_PRODUCTION != 'off' && vars\.AUTO_DEPLOY_PRODUCTION != 'after-staging' \}\}/);
+  assert.match(start, /run: gh workflow run deploy-production\.yml --ref main -f alongside_staging=true/);
+  // Never behind staging's queue again (2026-11-02): no concurrency group, and
+  // staging no longer starts production itself, so there is one lane.
+  assert.doesNotMatch(start, /^concurrency:/m);
   const staging = readFileSync(new URL('deploy-staging.yml', dir), 'utf8');
-  assert.match(staging, /  production:\n    name: Start production alongside staging\n    if: \$\{\{ github\.event_name == 'push' && vars\.AUTO_DEPLOY_PRODUCTION != 'off' && vars\.AUTO_DEPLOY_PRODUCTION != 'after-staging' \}\}/);
-  assert.match(staging, /run: gh workflow run deploy-production\.yml --ref main -f alongside_staging=true/);
+  assert.doesNotMatch(staging, /gh workflow run deploy-production/);
   const production = readFileSync(new URL('deploy-production.yml', dir), 'utf8');
   assert.match(production, /ALONGSIDE_STAGING: \$\{\{ inputs\.alongside_staging \}\}/);
   const promote = readFileSync(new URL('promote-production.yml', dir), 'utf8');
@@ -77,6 +83,15 @@ test('only staging can deploy automatically; production services share one manua
     const triggers = parseOnBlock(text);
     if (name === 'deploy-staging.yml') {
       assert.deepEqual(triggers.get('push'), { branches: ['main'] });
+      continue;
+    }
+    // A merge's other lane deploys nothing itself: it only presses Deploy to
+    // Production, whose own entry point above checks the release.
+    if (name === 'deploy-production-start.yml') {
+      assert.deepEqual([...triggers.keys()], ['push']);
+      assert.deepEqual(triggers.get('push'), { branches: ['main'] });
+      assert.deepEqual([...text.matchAll(/^\s+run: (.*)$/gm)].map(m => m[1]), ['gh workflow run deploy-production.yml --ref main -f alongside_staging=true']);
+      assert.doesNotMatch(text, /secrets\./);
       continue;
     }
     for (const trigger of triggers.keys()) assert.ok(['workflow_call', 'workflow_dispatch'].includes(trigger), `${name} may not deploy on ${trigger}`);

@@ -91,16 +91,30 @@ export function advisorTools({ model, effort, history, question, request, meter 
     const transcript = Array.isArray(live?.messages) ? live.messages : [...history, { role: "user", text: question }];
     let answer;
     try {
-      answer = await request({ model, system: ADVISOR_PROMPT, messages: [{ role: "user", text: advisorBrief(live, transcript) }], tools: [], ...(effort ? { effort } : {}) });
+      // `display: "summarized"`: its thinking comes back in words, kept with its answer in the chat's
+      // history (Dev, 2026-11-02: "'Its private reasoning isn't kept.' - why?"). It never goes to Tex.
+      answer = await request({ model, system: ADVISOR_PROMPT, messages: [{ role: "user", text: advisorBrief(live, transcript) }], tools: [], display: "summarized", ...(effort ? { effort } : {}) });
     } catch {
       await meter(null, true, model, false);
       return text("Your advisor couldn't be reached. Answer with what you have.", true);
     }
     await meter(answer?.usage ?? null, false, model, false);
     const words = typeof answer?.text === "string" ? answer.text.trim() : "";
-    return words ? text(words, false) : text("Your advisor had nothing to add. Answer with what you have.", false);
+    const thought = advisorThinking(answer);
+    const result = words ? text(words, false) : text("Your advisor had nothing to add. Answer with what you have.", false);
+    return thought ? { ...result, thinking: thought } : result;
   };
   return [{ tool: ADVISOR_DEFINITION, call }];
+}
+
+/** The advisor's thinking in words (`aiGateway.js` hands back the answer's blocks when it thought), or "". */
+export function advisorThinking(answer) {
+  const blocks = Array.isArray(answer?.content) ? answer.content : [];
+  return blocks
+    .filter((block) => block?.type === "thinking" && typeof block.thinking === "string")
+    .map((block) => block.thinking.trim())
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /**

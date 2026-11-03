@@ -39,7 +39,7 @@ import { located } from "./lib/nodes/paths";
  * now (`folderJobs.ts`), and a name a chunked move is carrying reaches the row wherever it is mid-move
  * (`rowMoveChunks.ts`), so a note is found once at either name.
  */
-async function keyedPathOf(
+export async function keyedPathOf(
   db: DatabaseReader,
   workspaceId: Id<"workspaces">,
   path: string,
@@ -181,15 +181,30 @@ export const recordKeyed = internalMutation({
     at: v.number(),
   },
   returns: v.boolean(),
-  handler: async (ctx, { workspaceId, path: asked, key, etag, size, at }) => {
-    const path = await keyedPathOf(ctx.db, workspaceId, asked);
-    const row = await nodeAt(ctx.db, workspaceId, path);
-    if (row === null || row.goneAt !== undefined || row.storageKey !== key || row.noteId === undefined) return false;
-    await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId: row.noteId, storageKey: key }));
-    await markNestedSiteWrite(ctx, workspaceId, path);
-    return (await nodeAt(ctx.db, workspaceId, path))?.etag === etag;
-  },
+  handler: async (ctx, args) => await recordKeyedRow(ctx, args),
 });
+
+export type RecordKeyedArgs = {
+  workspaceId: Id<"workspaces">;
+  path: string;
+  key: string;
+  etag: string;
+  size?: number;
+  at: number;
+};
+
+/** `recordKeyed`'s body, run with the same ctx by another mutation (`objectRowsMirror.ts`). */
+export async function recordKeyedRow(
+  ctx: MutationCtx,
+  { workspaceId, path: asked, key, etag, size, at }: RecordKeyedArgs,
+): Promise<boolean> {
+  const path = await keyedPathOf(ctx.db, workspaceId, asked);
+  const row = await nodeAt(ctx.db, workspaceId, path);
+  if (row === null || row.goneAt !== undefined || row.storageKey !== key || row.noteId === undefined) return false;
+  await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId: row.noteId, storageKey: key }));
+  await markNestedSiteWrite(ctx, workspaceId, path);
+  return (await nodeAt(ctx.db, workspaceId, path))?.etag === etag;
+}
 
 /**
  * Retires a keyed note: its row is gone from `at`, when the live row at `path`

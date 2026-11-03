@@ -37,6 +37,7 @@ import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
 import { siteLens } from "../websites/siteLens";
 import { mayRelocateRoutines, mayTouchNestedRoutines, routinePathsTouched } from "../routines/changes";
 import { texFolderOf } from "../routines/texFolder";
+import { chatHomePaths } from "./chatHomePaths";
 import { executeOperation } from "./executeOperation";
 import { announceTreeChange } from "./treeOps";
 import { searchDatabaseClient } from "../fastSearchFns/client";
@@ -412,11 +413,9 @@ export async function runFileOperationHandler(
   let store: FileStore;
   // The owner's Download of old copies reads each at the key its row names, a pinned path included, so past the id layer (`lib/oldCopies/folders.ts`).
   let keyStore: FileStore | null = null;
-  // A move landing notes under a chat's home keeps them in that chat's object, so the ticket and the store name it.
-  const landingChats: string[] =
-    args.operation.kind === "contextMoveImport"
-      ? await ctx.runQuery(internal.functions.texChatLanding.chatsOfHomes, { workspaceId: args.workspaceId, paths: args.operation.objects.map((object) => object.destination) })
-      : [];
+  // A note under a chat's home is kept in that chat's object, so the ticket and the store name it (`chatHomePaths.ts`).
+  const homePaths = chatHomePaths(args.operation);
+  const landingChats: string[] = homePaths.length === 0 ? [] : await ctx.runQuery(internal.functions.texChatLanding.chatsOfHomes, { workspaceId: args.workspaceId, paths: homePaths });
   try {
     // One table decides which backend this workspace got — the same table
     // the gateway uses, so the console reads and writes exactly what an AI
@@ -480,7 +479,8 @@ export async function runFileOperationHandler(
   attachSmallData(ctx, args.workspaceId, store);
 
   if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
-  if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store, projection);
+  const move = isMoveOperation(args.operation) ? { ...args, operation: args.operation } : null;
+  if (move !== null) return await markedIfNarrowing(ctx, args, () => runMoveOperation(ctx, move, store, projection));
   if (args.operation.kind === "pruneIndex") {
     // Its census decides which rows are gone, so it reads the tree's names too: a bucket listing of uuid keys would delete every keyed row.
     attachTreeListing(ctx, args.workspaceId, store);

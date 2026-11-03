@@ -194,9 +194,16 @@ export function TexHome({
           <BehindCard
             testID="tex-behind-history"
             title="History"
-            line="Everything said and done here, and what Tex sees"
+            line="Everything said and done here"
             wide={wide}
             onPress={() => go({ view: "history" })}
+          />
+          <BehindCard
+            testID="tex-behind-sees"
+            title="What Tex sees"
+            line="The chat as Tex reads it on the next text"
+            wide={wide}
+            onPress={() => go({ view: "sees" })}
           />
         </View>
       </View>

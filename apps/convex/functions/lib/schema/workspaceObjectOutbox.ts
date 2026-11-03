@@ -13,6 +13,8 @@ export const workspaceObjectOutboxTables = {
     workspaceId: v.id("workspaces"),
     /** `nodes` rows written: pushed as they now stand, or removed if gone. */
     nodeIds: v.array(v.id("nodes")),
+    /** Object ids (`nodes.objectId`) of rows the object made that this change deleted outright: pushed as removed. */
+    goneObjectIds: v.optional(v.array(v.string())),
     /** The access rules may have changed: render them and send them. */
     access: v.boolean(),
     /** More rows changed than an entry names: push the workspace's rows whole. */
@@ -54,5 +56,17 @@ export const workspaceObjectOutboxTables = {
   workspaceObjectPushLeases: defineTable({
     workspaceId: v.id("workspaces"),
     until: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * Each workspace's last failed push: when, and a short code for why (an op and status such as `ws.apply: 422`, or
+   * an error's class), so a push that keeps failing can be read from the marks report without the deployment's logs.
+   * One row a workspace, deleted once a push lands. No path, no words.
+   */
+  workspaceObjectPushFailures: defineTable({
+    workspaceId: v.id("workspaces"),
+    reason: v.string(),
+    at: v.number(),
+    count: v.number(),
   }).index("by_workspace", ["workspaceId"]),
 };

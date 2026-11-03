@@ -61,12 +61,13 @@ describe("the Sendblue line with cards on", () => {
     expect(calls[0].body.content).toBeUndefined();
   });
 
+  // With no card, the link is kept tappable rather than left last in its text (`linkPreviews.ts`).
   it("sends the plain link where the line refuses cards, and words as words", async () => {
     const calls: Call[] = [];
     const line = lineFor({ fetch: fake(calls, 403), linqApiKey: "", sendblue: KEYS, appCard: CONFIG }, chatId);
     await line.sendText(chatId, LINK, "k");
     expect(calls.map((call) => Boolean(call.body.app_card))).toEqual([true, false]);
-    expect(calls[1].body.content).toBe(LINK);
+    expect(calls[1].body.content).toBe(`Link: ${LINK} (tap the link)`);
     calls.length = 0;
     await line.sendText(chatId, "Saved it.", "k");
     expect(calls.map((call) => call.body.content)).toEqual(["Saved it."]);
@@ -76,6 +77,6 @@ describe("the Sendblue line with cards on", () => {
     const calls: Call[] = [];
     const line = lineFor({ fetch: fake(calls), linqApiKey: "", sendblue: KEYS, appCard: null }, chatId);
     await line.sendText(chatId, LINK, "k");
-    expect(calls.map((call) => call.body.content)).toEqual([LINK]);
+    expect(calls.map((call) => call.body.content)).toEqual([`Link: ${LINK} (tap the link)`]);
   });
 });

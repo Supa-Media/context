@@ -11,7 +11,7 @@
 import { coreToolDefinitions } from "./schemas/core.js";
 import { communicationsToolDefinitions } from "./schemas/communications.js";
 import { noteWriteToolDefinitions } from "./schemas/notes.js";
-import { proposalToolDefinitions } from "./schemas/proposals.js";
+import { pluginToolDefinitions } from "./schemas/plugins.js";
 import { searchAndMoveToolDefinitions } from "./schemas/moves.js";
 import { saveAndLinkToolDefinitions } from "./schemas/links.js";
 import { formToolDefinitions } from "./schemas/forms.js";
@@ -35,7 +35,7 @@ export function baseToolDefinitions() {
     ...coreToolDefinitions(),
     ...communicationsToolDefinitions(),
     ...noteWriteToolDefinitions(),
-    ...proposalToolDefinitions(),
+    ...pluginToolDefinitions(),
     ...searchAndMoveToolDefinitions(),
     ...saveAndLinkToolDefinitions(),
     ...formToolDefinitions(),

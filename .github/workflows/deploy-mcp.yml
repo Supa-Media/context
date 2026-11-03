@@ -251,8 +251,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${BROWSERBASE_API_KEY:-}" ] && [ -n "${BROWSERBASE_PROJECT_ID:-}" ]; then
-            printf '%s' "$BROWSERBASE_API_KEY" | pnpm exec wrangler secret put BROWSERBASE_API_KEY --env=""
-            printf '%s' "$BROWSERBASE_PROJECT_ID" | pnpm exec wrangler secret put BROWSERBASE_PROJECT_ID --env=""
+            node ../../scripts/worker-secrets.mjs BROWSERBASE_API_KEY BROWSERBASE_PROJECT_ID | pnpm exec wrangler secret bulk --env=""
             echo "OK — Browserbase is configured for Tex."
           else
             echo "OK — no Browserbase key; Tex drives Cloudflare's browser."
@@ -307,8 +306,6 @@ jobs:
           ANTHROPIC_CREDIT_KEY: ${{ secrets.ANTHROPIC_CREDIT_KEY }}
         run: |
           set -euo pipefail
-          printf '%s' "$GATEWAY_SECRET" | pnpm exec wrangler secret put GATEWAY_SECRET --config "$MCP_WRANGLER_CONFIG"
-          printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONTROL_PLANE_URL --config "$MCP_WRANGLER_CONFIG"
 
           # Transcription: both, or neither, and absent is a working state.
           #
@@ -321,46 +318,25 @@ jobs:
           # here. A URL with no secret would post meeting audio to an endpoint
           # unauthenticated, so a half-configured pair is refused rather than
           # deployed.
-          if [ -n "${TRANSCRIBE_WORKER_URL:-}" ] && [ -n "${TRANSCRIBE_WORKER_SECRET:-}" ]; then
-            printf '%s' "$TRANSCRIBE_WORKER_URL" | pnpm exec wrangler secret put TRANSCRIBE_WORKER_URL --config "$MCP_WRANGLER_CONFIG"
-            printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm exec wrangler secret put TRANSCRIBE_WORKER_SECRET --config "$MCP_WRANGLER_CONFIG"
-            echo "OK — transcription is configured for this gateway."
-          elif [ -n "${TRANSCRIBE_WORKER_URL:-}" ] || [ -n "${TRANSCRIBE_WORKER_SECRET:-}" ]; then
+          if [ "${TRANSCRIBE_WORKER_URL:+set}" != "${TRANSCRIBE_WORKER_SECRET:+set}" ]; then
             echo "ERROR: TRANSCRIBE_WORKER_URL and TRANSCRIBE_WORKER_SECRET must be set together."
             exit 1
-          else
-            echo "OK — no transcription configured; meetings on the desktop will be typed."
           fi
 
-          # Web search for the texting assistant (src/agent/search.js):
-          # optional, and absent means the assistant has no search tool.
-          if [ -n "${BRAVE_SEARCH_API_KEY:-}" ]; then
-            printf '%s' "$BRAVE_SEARCH_API_KEY" | pnpm exec wrangler secret put BRAVE_SEARCH_API_KEY --config "$MCP_WRANGLER_CONFIG"
-            echo "OK — web search is configured for this gateway."
-          else
-            echo "OK — no web search key; the texting assistant searches nothing."
-          fi
-
-          # Maps on Tex's cards (src/agent/visuals/map.js): optional. With the
-          # key the map is Google's; without it, OpenStreetMap's tiles.
-          if [ -n "${GOOGLE_MAPS_KEY:-}" ]; then
-            printf '%s' "$GOOGLE_MAPS_KEY" | pnpm exec wrangler secret put GOOGLE_MAPS_KEY --config "$MCP_WRANGLER_CONFIG"
-            echo "OK — Google Maps draws Tex's card maps."
-          else
-            echo "OK — no Google Maps key; Tex's card maps use OpenStreetMap."
-          fi
-
-          # Model routing through Cloudflare AI Gateway (src/agent/aiGateway.js):
-          # optional. The account id, gateway id and token are all needed to
-          # route; with any missing the gateway keeps using Workers AI.
-          for name in AI_GATEWAY_ACCOUNT_ID AI_GATEWAY_ID AI_GATEWAY_TOKEN ANTHROPIC_CREDIT_KEY; do
-            if [ -n "${!name:-}" ]; then
-              printf '%s' "${!name}" | pnpm exec wrangler secret put "$name" --config "$MCP_WRANGLER_CONFIG"
-              echo "OK — $name is set for this gateway."
-            else
-              echo "OK — $name is not set; the gateway keeps its current model route."
-            fi
-          done
+          # One request and one new version for every secret, rather than a
+          # `wrangler secret put` (and a version) each, which took about 24
+          # seconds of this job; see scripts/worker-secrets.mjs. Optional ones
+          # (`?`) are skipped when unset, and each says what stays off then:
+          # - BRAVE_SEARCH_API_KEY: web search for the texting assistant
+          #   (src/agent/search.js); without it the assistant searches nothing.
+          # - GOOGLE_MAPS_KEY: maps on Tex's cards (src/agent/visuals/map.js);
+          #   without it they use OpenStreetMap's tiles.
+          # - AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID, AI_GATEWAY_TOKEN and
+          #   ANTHROPIC_CREDIT_KEY: model routing through Cloudflare AI Gateway
+          #   (src/agent/aiGateway.js); with any of the first three missing the
+          #   gateway keeps using Workers AI.
+          node ../../scripts/worker-secrets.mjs GATEWAY_SECRET CONTROL_PLANE_URL '?TRANSCRIBE_WORKER_URL' '?TRANSCRIBE_WORKER_SECRET' '?BRAVE_SEARCH_API_KEY' '?GOOGLE_MAPS_KEY' '?AI_GATEWAY_ACCOUNT_ID' '?AI_GATEWAY_ID' '?AI_GATEWAY_TOKEN' '?ANTHROPIC_CREDIT_KEY' \
+            | pnpm exec wrangler secret bulk --config "$MCP_WRANGLER_CONFIG"
           echo "OK — the Worker's secrets match this repository's."
 
       # A deploy that reports success without the endpoint answering is exactly

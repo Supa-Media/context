@@ -17,6 +17,8 @@ import type { Id } from "../_generated/dataModel";
 import { internalAction, internalQuery } from "../_generated/server";
 import { folderRole } from "@context/shared/src/folderRoles.cjs";
 import { errorWords } from "./lib/nodes/folderNumbers";
+import { markedRowMovePage } from "./nodeRowMovesMarked";
+import type { NotesHome } from "./workspaceObjectsRows";
 
 /** A move this long without a page is stopped, not slow: the watchdog's lease is thirty seconds. */
 const STOPPED_MS = 10 * 60_000;
@@ -86,15 +88,22 @@ export const nudge = internalAction({
     );
     const moves: NudgePage["moves"] = [];
     for (const move of page.moves) {
+      // A move in a workspace whose notes live in its object is the object's to finish: its page writes rows the
+      // object writes (`docs/decisions/storage-and-credentials/background-tree-writers.md`), so it is left alone.
+      const workspaceId = await ctx.runQuery(internal.functions.nodeRowMoves.moveWorkspace, { id: move.id });
+      const home: NotesHome | null =
+        workspaceId === null ? null : await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId });
+      if (home === "object") {
+        moves.push({ from: move.from, to: move.to, result: "left, object" });
+        continue;
+      }
       if (dryRun) {
         moves.push({ from: move.from, to: move.to, result: "stopped" });
         continue;
       }
       try {
-        const answer = await ctx.runMutation(
-          internal.functions.nodeRowMoves.rowMovePage,
-          { id: move.id },
-        );
+        // Told to the workspace's object first, as the watchdog's own pages are (`nodeRowMovesMarked.ts`).
+        const answer = await markedRowMovePage(ctx, move.id);
         // Back to the watchdog: the page just ran, so it waits a lease and goes on.
         await ctx.runMutation(internal.functions.nodeRowMoves.continueRowMove, {
           id: move.id,

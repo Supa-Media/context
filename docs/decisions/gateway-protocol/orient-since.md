@@ -10,8 +10,8 @@ control-plane round trip, and the agent already held all of it.
 
 Every overview ends with `orient_mark: <ISO time>`. `orient { since: <mark> }`
 answers with only what changed in the connected workspace after that time:
-notes touched since, the arrived-mail lines whose newest item is newer, a
-pending proposal count, and the tool notice when the app's copy is behind.
+notes touched since, the arrived-mail lines whose newest item is newer, and
+the tool notice when the app's copy is behind.
 It reads the connected workspace's map and nothing else, and ends with a new
 mark. It is an argument on `orient`, not a new tool
 ([six tools](./six-tools.md)).

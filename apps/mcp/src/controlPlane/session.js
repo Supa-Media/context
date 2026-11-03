@@ -3,7 +3,7 @@
  * session or a storage binding, and asking whether a turn may spend the
  * built-in model.
  */
-import { CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS, CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
+import { CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS, CONTROL_PLANE_MOVE_TIMEOUT_MS, CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
 import { TREE_RESPONSE_BYTE_CAP } from "./tree.js";
 import { sha256Hex } from "./client.js";
 import { parseToken } from "../workspaceStore/access.js";
@@ -138,7 +138,8 @@ export function createSessionMethods({ post, required, env = null, sessionObject
       const body = { accessToken, expectedWorkspaceId, from, to };
       // A note asked against the version the caller read; absent for a folder or an online press.
       if (typeof expectedEtag === "string") body.expectedEtag = expectedEtag;
-      return required(await post("/gateway/moves/start", body), "move");
+      // Longer than a lookup (`CONTROL_PLANE_MOVE_TIMEOUT_MS`); a timeout is worded as "may still finish" by the caller.
+      return required(await post("/gateway/moves/start", body, { timeoutMs: CONTROL_PLANE_MOVE_TIMEOUT_MS }), "move");
     },
 
     /**

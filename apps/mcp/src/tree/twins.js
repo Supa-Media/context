@@ -10,7 +10,9 @@
  *    another folder plays (`siblingTwin`). The refusal names the path to use,
  *    so an agent's retry lands in the folder that is already there.
  *
- * Both read the Convex tree (`servedListingStore`), never the bucket, and only
+ * Both read the tree, never the bucket: the workspace object's one key per
+ * child (`store.treeChildren`) where the notes live there, else the served
+ * listing (`servedListingStore`). They read only
  * what this connection can see: a twin it cannot see is not refused on, since
  * that refusal would name it. A tree that cannot answer yet skips the twin
  * check (the write is not held hostage to a listing) and keeps a role-shaped
@@ -30,27 +32,61 @@ import { canSee, isPlumbing } from "../privacy/engine.js";
 import { listAllKeys } from "../notes/storage.js";
 import { servedListingStore } from "./served.js";
 
-/** The names one level holds, files and folders, from the visible keys under it. */
-async function visibleChildren(listing, parent, scope, rules, overrides) {
-  const prefix = parent === "" ? "" : `${parent}/`;
-  const files = new Set();
-  const folders = new Set();
-  for (const { key } of await listAllKeys(listing, prefix)) {
-    if (isPlumbing(key) || !canSee(key, scope, rules, overrides)) continue;
-    const rest = key.slice(prefix.length);
-    const slash = rest.indexOf("/");
-    if (slash === -1) files.add(rest);
-    else folders.add(rest.slice(0, slash));
+/** Folders one `treeChildren` call may name (`workspaceStore/manifest.js` `CHILDREN_FOLDERS`). */
+const CHILDREN_PER_ASK = 8;
+
+/**
+ * Where the guards read a level from: the workspace object's one-level answer (`store.treeChildren`, one key per
+ * visible child) where this session reads the object, else the served listing's subtrees. Either way every key is
+ * judged here again with `canSee`, as a listing is. An object that does not serve an ask hands the rest of the call
+ * to the listing.
+ */
+function levelsOf(store) {
+  let listing = null;
+  const viaListing = () => (listing ??= servedListingStore(store));
+  const children = typeof store?.treeChildren === "function" ? store.treeChildren : null;
+  const held = new Map();
+  let objectServes = children !== null;
+
+  /** The visible keys under `folder` (`""`: the root) that say what it holds: every one, or one per child. */
+  async function keysUnder(folder, scope, rules, overrides, prefetch = []) {
+    if (objectServes) {
+      if (!held.has(folder)) {
+        const wanted = [folder, ...prefetch.filter((other) => other !== folder && !held.has(other))].slice(0, CHILDREN_PER_ASK);
+        const answer = await children(wanted);
+        if (answer === null) objectServes = false;
+        else for (const asked of wanted) held.set(asked, answer[asked]);
+      }
+      if (objectServes) return visibleKeys(held.get(folder).map((key) => ({ key })), folder, scope, rules, overrides);
+    }
+    return visibleKeys(await listAllKeys(viaListing(), folder === "" ? "" : `${folder}/`), folder, scope, rules, overrides);
   }
-  return { files, folders };
+
+  return {
+    /** The names one level holds, files and folders, from the visible keys under it. */
+    async children(parent, scope, rules, overrides, prefetch) {
+      const prefix = parent === "" ? "" : `${parent}/`;
+      const files = new Set();
+      const folders = new Set();
+      for (const key of await keysUnder(parent, scope, rules, overrides, prefetch)) {
+        const rest = key.slice(prefix.length);
+        const slash = rest.indexOf("/");
+        if (slash === -1) files.add(rest);
+        else folders.add(rest.slice(0, slash));
+      }
+      return { files, folders };
+    },
+    /** Does this connection see anything under `folder`? */
+    async seen(folder, scope, rules, overrides, prefetch) {
+      return (await keysUnder(folder, scope, rules, overrides, prefetch)).length > 0;
+    },
+  };
 }
 
-/** Does this connection see anything under `folder`? Reads that folder's subtree only. */
-async function folderSeen(listing, folder, scope, rules, overrides) {
-  for (const { key } of await listAllKeys(listing, `${folder}/`)) {
-    if (!isPlumbing(key) && canSee(key, scope, rules, overrides)) return true;
-  }
-  return false;
+/** The keys under `folder` this connection may see, plumbing never. */
+function visibleKeys(objects, folder, scope, rules, overrides) {
+  const prefix = folder === "" ? "" : `${folder}/`;
+  return objects.map(({ key }) => key).filter((key) => key.startsWith(prefix) && !isPlumbing(key) && canSee(key, scope, rules, overrides));
 }
 
 /**
@@ -60,15 +96,17 @@ async function folderSeen(listing, folder, scope, rules, overrides) {
  */
 export async function nameTwinRefusal(store, scope, rules, overrides, path, { kind = "file", ignore } = {}) {
   if (isPlumbing(path)) return null;
-  const listing = servedListingStore(store);
+  const levels = levelsOf(store);
   const segments = path.split("/");
+  // Every folder on the way down, asked of the object in one call; the root only if the walk reaches it.
+  const below = segments.slice(0, -1).map((_, index) => segments.slice(0, index + 1).join("/"));
   try {
     for (let index = 0; index < segments.length; index += 1) {
       const last = index === segments.length - 1;
       const here = segments.slice(0, index + 1).join("/");
-      if (!last && here !== ignore && (await folderSeen(listing, here, scope, rules, overrides))) continue;
+      if (!last && here !== ignore && (await levels.seen(here, scope, rules, overrides, below))) continue;
       const parent = segments.slice(0, index).join("/");
-      const { files, folders } = await visibleChildren(listing, parent, scope, rules, overrides);
+      const { files, folders } = await levels.children(parent, scope, rules, overrides, below);
       const siblings = [...files, ...folders].filter((name) => (parent === "" ? name : `${parent}/${name}`) !== ignore);
       const name = segments[index];
       if (last && siblings.includes(name)) return null;
@@ -97,7 +135,7 @@ export async function protectedFolderRefusal(store, scope, rules, overrides, pat
   if (!isMainFolder(path) && !inboxPart && !texPart) return null;
   let folders;
   try {
-    folders = [...(await visibleChildren(servedListingStore(store), "", scope, rules, overrides)).folders];
+    folders = [...(await levelsOf(store).children("", scope, rules, overrides)).folders];
   } catch {
     folders = [];
   }

@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { objectCandidates, objectChaosSource, objectLinkTable, objectPropSource, objectPropsAt, type FactRows } from "../../functions/lib/nodes/objectFacts";
+import { objectCandidates, objectChaosSource, objectLinking, objectLinkTable, objectPropSource, objectPropsAt, type FactRows } from "../../functions/lib/nodes/objectFacts";
 import type { FileStore } from "../../functions/lib/fileOps/store";
 
 const convexProps = (rows: Record<string, string>) => ({
@@ -78,5 +78,19 @@ describe("object facts for the control plane's readers", () => {
     expect(await objectCandidates(async () => ({ served: true, candidates: null }), ["a.md"], [])).toBeNull();
     expect(await objectCandidates(async () => ({ served: false }), ["a.md"], [])).toBeUndefined();
     expect(await objectCandidates(null, ["a.md"], [])).toBeUndefined();
+  });
+
+  it("which moved notes hold links: the object's answer, undefined when it does not serve, so the control plane answers", async () => {
+    const asked: unknown[] = [];
+    const rows: FactRows = async (request) => {
+      asked.push(request);
+      return { served: true, linking: ["a.md"] };
+    };
+    expect(await objectLinking(rows, ["a.md", "b.md"])).toEqual(["a.md"]);
+    expect(asked).toEqual([{ ask: "linking", paths: ["a.md", "b.md"] }]);
+    expect(await objectLinking(async () => ({ served: false }), ["a.md"])).toBeUndefined();
+    expect(await objectLinking(async () => ({ served: true }), ["a.md"])).toBeUndefined();
+    expect(await objectLinking(async () => { throw new Error("down"); }, ["a.md"])).toBeUndefined();
+    expect(await objectLinking(null, ["a.md"])).toBeUndefined();
   });
 });

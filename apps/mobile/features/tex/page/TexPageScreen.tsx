@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { View } from "react-native";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useConvexAuth, useQuery } from "convex/react";
@@ -37,7 +37,11 @@ export function TexPageScreen() {
   const view = resolveTexPage({ handle: firstParam(params.handle), auth, workspaces });
   const ready = view.kind === "ready" ? view : null;
   const place = readPlace(params);
+  // Read through a ref: the minter changes identity when the sign-in token is
+  // refreshed, and a new source would read the whole page again from the top.
   const mint = useConsoleGrant();
+  const minting = useRef(mint);
+  minting.current = mint;
   const workspaceId = ready?.workspaceId ?? null;
   const handle = ready?.handle ?? null;
 
@@ -46,9 +50,9 @@ export function TexPageScreen() {
     return gatewaySource({
       endpoint: MCP_ENDPOINT,
       handle,
-      token: async (refresh) => (await mint({ workspaceId: workspaceId as Id<"workspaces"> }, refresh)).accessToken,
+      token: async (refresh) => (await minting.current({ workspaceId: workspaceId as Id<"workspaces"> }, refresh)).accessToken,
     });
-  }, [handle, mint, workspaceId]);
+  }, [handle, workspaceId]);
   const page = useTexPage(source, place.chat);
   // The computer is read only while something on screen shows it.
   const showsComputer = place.view === "computer" || place.job !== undefined;

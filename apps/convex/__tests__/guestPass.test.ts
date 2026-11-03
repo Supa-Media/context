@@ -34,7 +34,7 @@ import type { MutationCtx } from "../_generated/server";
 import { setAccessRow } from "../functions/lib/nodes/setAccess";
 import { guestPhoneHash, syncChatPhones } from "../functions/lib/guestPhones";
 import { hashToken } from "../functions/lib/crypto";
-import { clearGuests, ensureChatFolderGrant } from "../functions/lib/textGroupGuests";
+import { clearGuests } from "../functions/lib/textGroupGuests";
 import { drainScheduled, seedTreeRows } from "./fixtures.helpers";
 import { PLAN, PLAN_MARKER, SALARIES, SECRET, TEAM_MARKER, TEAM_NOTE, setBase, world, type World } from "./grants/outsider.helpers";
 
@@ -81,6 +81,26 @@ function withTwilio(w: World) {
 }
 
 /** A guest chat bound to @acme with FRIEND in it, and PLAN shared with the chat's group. */
+/**
+ * The group's edit grant on the chat's folder, under the owner's hand and audited as the group texting client. No writer
+ * sets it any more, so the test sets it to start from a folder that has it.
+ */
+async function grantChatFolder(w: World, chatId: Id<"textGroups">): Promise<void> {
+  await w.t.run(async (ctx) => {
+    const chat = (await ctx.db.get(chatId)) as Doc<"textGroups">;
+    const answer = await setAccessRow(ctx as MutationCtx, {
+      workspaceId: w.ws,
+      path: FOLDER,
+      base: "inherit",
+      grantees: [{ kind: "group", groupId: chat.guestGroupId!, role: "edit" }],
+      kind: "folder",
+      actor: { userId: w.owner, role: "owner", clientId: "context_texts_group" },
+    });
+    if (!answer.ok) throw new Error(`setAccessRow refused: ${answer.code}`);
+    await ctx.db.patch(chatId, { guestFolderGranted: true });
+  });
+}
+
 async function guestChat(w: World) {
   withTwilio(w);
   const ids = await w.t.run(async (ctx) => {
@@ -196,11 +216,9 @@ describe("a guest in the chat with no account", () => {
   test("is named on the chat's folder to edit, as an outsider is, once the folder has its grant", async () => {
     const w = await world();
     const { chatId } = await guestChat(w);
-    // The chat's first note is written in its folder, then the folder gets the group's grant (`ensureChatFolderGrant`).
+    // The chat's first note is written in its folder, then the folder gets the group's grant.
     await seedTreeRows(w.t, w.ws, [`${FOLDER}/flights.md`]);
-    await w.t.run(async (ctx) => {
-      await ensureChatFolderGrant(ctx as MutationCtx, (await ctx.db.get(chatId)) as Doc<"textGroups">, w.owner);
-    });
+    await grantChatFolder(w, chatId);
     expect((await w.t.run((ctx) => ctx.db.get(chatId)))?.guestFolderGranted).toBe(true);
     await signIn(w, FRIEND, await codeFor(w, FRIEND));
     const [account] = await accountsWith(w, FRIEND);
@@ -216,9 +234,7 @@ describe("a guest in the chat with no account", () => {
     const w = await world();
     const { chatId } = await guestChat(w);
     await seedTreeRows(w.t, w.ws, [`${FOLDER}/flights.md`]);
-    await w.t.run(async (ctx) => {
-      await ensureChatFolderGrant(ctx as MutationCtx, (await ctx.db.get(chatId)) as Doc<"textGroups">, w.owner);
-    });
+    await grantChatFolder(w, chatId);
     // Taken off the workspace since: the chat row still says guest mode, and says they turned it on.
     await w.t.run(async (ctx) => {
       const membership = await ctx.db

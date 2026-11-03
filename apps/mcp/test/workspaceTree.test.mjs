@@ -368,6 +368,18 @@ test("the tree route refuses no token, a read-less grant, a guest's names, and a
   assert.equal(unbound.status, 501);
 });
 
+test("the tree route carries a member's row names to the object, and still refuses a Tex guest chat's", async () => {
+  // 2026-11-02: a Tex chat home is sealed to row tokens. Refusing every `@#` name sent a member who holds one to the
+  // Convex tree, and the person object's session, which held none, hid every chat home from the app.
+  const { ask, forwarded } = routeWorld(session("owner", ["design", "#home1234abcd", "#home1234abcd!edit"]));
+  assert.equal((await ask()).status, 101);
+  assert.deepEqual(JSON.parse(forwarded[0].request.headers.get(TREE_READER_HEADER)).groups.sort(), ["@#home1234abcd", "@#home1234abcd!edit", "@design"]);
+  const chat = await routeWorld(session("member", ["#reads-as-chat", "#home1234abcd"])).ask();
+  assert.equal(chat.status, 403);
+  const pinGuest = await routeWorld(session("member", ["#reads-as-guest", "#home1234abcd"])).ask();
+  assert.equal(pinGuest.status, 403);
+});
+
 test("the tree socket is origin-checked, as every socket a browser can open", () => {
   assert.equal(isTransportPath(TREE_SOCKET_PATH), true);
 });

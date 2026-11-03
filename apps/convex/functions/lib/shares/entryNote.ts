@@ -49,8 +49,8 @@ export async function entryNoteIdAt(db: DatabaseReader, workspaceId: Id<"workspa
  * a live path could hand the link to whatever moved away from it.
  *
  * The id answers when exactly one live row of the share's kind holds it. A
- * queued move leaves its tombstone holding the id beside the live target
- * (`carryIdentity`), so gone rows are not counted. Otherwise, for a row with
+ * gone row may still hold the id beside a live one (a tombstone from an older
+ * move), so gone rows are not counted. Otherwise, for a row with
  * no stamp, an id no live row holds, or one two live rows hold (a duplicate the
  * repair tool has not fixed yet), the answer is the minted path for the ledger
  * to forward, exactly as before ids existed. That is not a widening: a move in

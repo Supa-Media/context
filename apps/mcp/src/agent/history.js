@@ -151,20 +151,20 @@ export async function appendHistory(store, added, { keep, chars }) {
   throw new Error("the history record changed under every append");
 }
 
+/** The keys of the notes the desk reads, kept by themselves: the record is retired, these are not (`texStore/desk.js`). */
+export const DESK_KEYS = ".context/agent/history/desk.json";
+
 /**
  * Keep the keys of the notes the desk reads (`direct`: `{about, jobs}`, each
- * a `notes/<id>.md` key in this object or false for none) in the record, when
- * they changed. Behind the reply, after the turn's own write; best effort, as
- * a desk with no key reads that note the old way.
+ * a `notes/<id>.md` key in this object or false for none) beside the record,
+ * in their own key, when they changed. Behind the reply, after the turn's own
+ * write; best effort, as a desk with no key reads that note the old way.
  */
 export async function keepDeskKeys(store, direct) {
-  for (let tried = 0; tried < APPEND_TRIES; tried += 1) {
-    const record = await readRecord(store);
-    if (record === null) return;
-    const same = Object.keys(direct).length === Object.keys(record.direct ?? {}).length && Object.entries(direct).every(([name, key]) => record.direct?.[name] === key);
-    if (same) return;
-    desks.delete(store);
-    const written = await store.put(HISTORY_KEY, bodyOf({ direct }, record.turns), { onlyIf: { etagMatches: record.etag } });
-    if (written !== null) return;
-  }
+  const object = await store.get(DESK_KEYS);
+  const kept = object === null || object === undefined ? (await readRecord(store))?.direct ?? null : JSON.parse(await object.text())?.direct ?? null;
+  const same = kept !== null && Object.keys(direct).length === Object.keys(kept).length && Object.entries(direct).every(([name, key]) => kept[name] === key);
+  if (same) return;
+  desks.delete(store);
+  await store.put(DESK_KEYS, JSON.stringify({ v: 1, direct }));
 }

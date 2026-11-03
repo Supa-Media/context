@@ -27,6 +27,7 @@ import { pinnedContextRow } from "../pinnedContext";
 import { pinReaderNames } from "../pinnedReaders";
 import { sharedWithUser } from "../shares/recipients";
 import { CONVEX_ONLY_CLIENTS } from "../accessHandOff/record";
+import { grantedNamesFor } from "../grantedNames";
 
 export type AccessTable = "members" | "invites" | "reach" | "sharedToMe" | "connections";
 export const WORKSPACE_TABLES: readonly AccessTable[] = ["members", "invites"];
@@ -72,6 +73,21 @@ export async function groupNames(ctx: QueryCtx, workspaceId: Id<"workspaces">, u
     if (group !== null && group.workspaceId === workspaceId) names.add(group.name);
   }
   return [...names].sort();
+}
+
+/** The most row names one reach row carries (`MAX_ROW_NAMES` in `apps/mcp/src/workspaceStore/access.js`). */
+export const MAX_ROW_NAMES = 1000;
+
+/**
+ * The names `userId` holds in `workspaceId` by a grant on a row (`#<noteId>`, `#<noteId>!edit`), sorted: the row-token
+ * part of `grantedNamesFor`, which the control plane's session gives the app's own client. The person object keeps them
+ * on the reach row so its session gives the same (2026-11-02: without them the app opened none of a person's Tex chat
+ * homes, nor a note shared to them by name). Past `MAX_ROW_NAMES` the copy throws, never cuts short.
+ */
+export async function rowNamesOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">): Promise<string[]> {
+  const held = (await grantedNamesFor(ctx, workspaceId, userId)).filter((name) => name.startsWith("#")).sort();
+  if (held.length > MAX_ROW_NAMES) throw new Error("access rows: too many row names");
+  return held;
 }
 
 /** One page of `workspaceId`'s members; a member with no personal workspace is skipped. */
@@ -155,12 +171,14 @@ export async function reachOf(ctx: QueryCtx, userId: Id<"users">, now: number): 
     const workspace = await ctx.db.get(membership.workspaceId);
     if (workspace === null) continue;
     covered.add(workspace._id);
+    const rowNames = await rowNamesOf(ctx, workspace._id, userId);
     rows.push({
       workspaceId: String(workspace._id),
       slug: workspace.slug.toLowerCase(),
       kind: workspace.kind,
       role: membership.role,
       groups: await groupNames(ctx, workspace._id, userId),
+      ...(rowNames.length > 0 ? { rowNames } : {}),
       pinned: false,
       at: now,
     });

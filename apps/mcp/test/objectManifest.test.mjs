@@ -1,6 +1,7 @@
 // The agent tools' listing, answered by the workspace's object where its notes live there
 // (src/workspaceStore/manifest.js, src/store/objectManifest.js), with the control plane's answer kept for everything
-// the object cannot answer and compared behind the response while this is new.
+// the object cannot answer. A page the object serves is never read from the control plane (the parity check that
+// compared the two behind each page is retired, 2026-11-03).
 //
 // Sabotage, each confirmed to fail a case here: drop the `canSee` filter (a held note is listed), let the cursor be ignored (a page repeats), skip the behind check (a share just taken back is
 // listed from the object), send `changedSince` to the object, or take an object answer with no rules held.
@@ -12,7 +13,7 @@ import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { workspaceMembers } from "../src/workspaceStore/members.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { workspaceClient } from "../src/workspaceStore/api.js";
-import { objectFirstManifest, manifestDifference } from "../src/store/objectManifest.js";
+import { objectFirstManifest } from "../src/store/objectManifest.js";
 
 let DatabaseSync = null;
 try {
@@ -201,17 +202,14 @@ test("a workspace whose notes are not at home in its object, or that is behind, 
   }
 });
 
-test("a share taken back and not yet pushed: the behind check sends the listing to the control plane", async () => {
+test("a share taken back and not yet pushed: the object's own behind sends the listing to the control plane", async () => {
   const cp = controlRead();
-  const ob = objectClient(OBJECT_PAGE);
+  const ob = objectClient({ ...OBJECT_PAGE, behind: true });
   const logged = [];
-  const manifest = objectFirstManifest(cp.read, reading(ob.client, { checkBehind: async () => true, log: (event) => logged.push(event) }));
+  const manifest = objectFirstManifest(cp.read, reading(ob.client, { log: (event) => logged.push(event) }));
   assert.deepEqual(paths(await manifest({})), ["from/control.md"]);
   assert.equal(cp.asked.length, 1);
   assert.ok(logged.includes("workspace_object_behind"));
-  // A behind check that fails counts as behind.
-  const failing = objectFirstManifest(cp.read, reading(ob.client, { checkBehind: async () => { throw new Error("down"); } }));
-  assert.deepEqual(paths(await failing({})), ["from/control.md"]);
 });
 
 test("a check-in's changed-since listing, an object failure and an unserved answer all go to the control plane", async () => {
@@ -223,50 +221,32 @@ test("a check-in's changed-since listing, an object failure and an unserved answ
   ]) {
     const cp = controlRead();
     const ob = objectClient(answer);
-    const manifest = objectFirstManifest(cp.read, reading(ob.client, { checkBehind: async () => false }));
+    const manifest = objectFirstManifest(cp.read, reading(ob.client));
     assert.deepEqual(paths(await manifest(page, { timeoutMs: 9 })), ["from/control.md"]);
     assert.deepEqual(cp.asked, [{ page, options: { timeoutMs: 9 } }]);
     if (page.changedSince !== undefined) assert.deepEqual(ob.asked, [], "a changed-since listing never asks the object");
   }
 });
 
-test("behind the response, the control plane's page is compared to the object's, counts only", async () => {
-  const cp = controlRead();
-  const ob = objectClient({ served: true, entries: [{ path: "a.md", etag: "1" }, { path: "from/object.md", etag: "o" }, { path: "b.md", etag: "2" }], cursor: null });
-  const deferred = [];
+test("a page the object serves is never read from the control plane, even when the control plane would fail", async () => {
+  const failing = async () => { throw new Error("timed out"); };
   const lines = [];
-  const manifest = objectFirstManifest(cp.read, reading(ob.client, { checkBehind: async () => false, log: (event, fields) => lines.push({ event, ...fields }) }), {
-    defer: () => (work) => deferred.push(work),
-  });
-  await manifest({});
-  assert.equal(cp.asked.length, 0, "the answer does not wait for the control plane");
-  assert.equal(deferred.length, 1);
-  await deferred[0]();
-  const parity = lines.find((line) => line.event === "tree_manifest_parity");
-  assert.deepEqual(
-    { objectOnly: parity.objectOnly, controlOnly: parity.controlOnly, changed: parity.changed, cursorSame: parity.cursorSame },
-    { objectOnly: 3, controlOnly: 1, changed: 0, cursorSame: true },
-  );
-  assert.ok(!JSON.stringify(lines).includes(".md"), "no path is logged");
-});
-
-test("the difference counts names on one side only and versions that differ", () => {
-  const a = { entries: [{ path: "x", etag: "1" }, { path: "y", etag: "2", noteId: "n" }], cursor: null };
-  const b = { entries: [{ path: "x", etag: "1" }, { path: "y", etag: "3", noteId: "n" }, { path: "z" }], cursor: "z" };
-  assert.deepEqual(manifestDifference(a, b), { objectOnly: 0, controlOnly: 1, changed: 1, cursorSame: false });
-});
-
-test("a control-plane failure behind the response is logged by its fixed phrase and time, never by anything else it carries", async () => {
-  const lines = [];
-  const deferred = [];
-  for (const error of [Object.assign(new Error("timed out"), { name: "ControlPlaneError" }), Object.assign(new Error("Note at 1-projects/x.md"), { name: "ControlPlaneError" })]) {
-    const manifest = objectFirstManifest(async () => { throw error; }, reading(objectClient(OBJECT_PAGE).client, { checkBehind: async () => false, log: (event, fields) => lines.push({ event, ...fields }) }), {
-      defer: () => (work) => deferred.push(work),
-    });
-    await manifest({});
+  const ob = objectClient({ served: true, entries: [{ path: "a.md", etag: "1" }], cursor: "a.md" });
+  const manifest = objectFirstManifest(failing, reading(ob.client, { log: (event, fields) => lines.push({ event, ...fields }) }));
+  for (const page of [{}, { cursor: "a.md" }, { folder: "1-projects" }]) {
+    assert.deepEqual(await manifest(page), { served: true, entries: [{ path: "a.md", etag: "1" }], cursor: "a.md" });
   }
-  for (const work of deferred) await work();
-  const failed = lines.filter((line) => line.event === "tree_manifest_parity").map((line) => line.controlFailed);
-  assert.deepEqual(failed, ["timed out", "ControlPlaneError"]);
-  assert.ok(lines.every((line) => line.event !== "tree_manifest_parity" || Number.isFinite(line.controlMs)));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(ob.asked.length, 3);
+  assert.equal(lines.filter((line) => line.event === "tree_manifest_object").length, 3);
+  assert.ok(lines.every((line) => !String(line.event).startsWith("tree_manifest_parity")), "no parity line is logged");
+});
+
+test("a served page's listing is a plain copy of the object's answer, with no control-plane read scheduled after it", async () => {
+  const cp = controlRead();
+  const ob = objectClient({ served: true, entries: [{ path: "a.md", etag: "1" }, { path: "b.md", etag: "2" }], cursor: null });
+  const manifest = objectFirstManifest(cp.read, reading(ob.client));
+  assert.deepEqual(paths(await manifest({})), ["a.md", "b.md"]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(cp.asked, []);
 });

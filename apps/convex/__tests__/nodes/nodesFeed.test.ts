@@ -20,9 +20,11 @@ import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
+import type { MutationCtx } from "../../_generated/server";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
 import { seqAt } from "../../functions/lib/nodes/log";
+import { forgetWorkspaceTree } from "../../functions/nodesPurge";
 import { translateMirror } from "../seededRules.helpers";
 import { withSession } from "../session.helpers";
 
@@ -152,7 +154,7 @@ describe("writing the log", () => {
 
   test("forgetting the tree forgets its log", async () => {
     const { t, ws } = await fixture();
-    await t.mutation(internal.functions.nodesPurge.resetForStorage, { workspaceId: ws });
+    await t.run((ctx) => forgetWorkspaceTree(ctx as unknown as MutationCtx, ws, { storageMoved: true }));
     expect(await logRows(t)).toEqual([]);
   });
 });

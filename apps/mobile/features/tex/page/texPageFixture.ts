@@ -312,17 +312,50 @@ function groupCopy(key: string, name: string): Copy {
   };
 }
 
-/** The chat's history file, as the gateway keeps it: a few of the morning's entries. */
+/** A day as the gateway reads one, on this device's calendar. */
+const dayOf = (ms: number) => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+/** The chat's history file, as the gateway keeps it: yesterday's check-in and a few of the morning's entries. */
 function ledgerOf(chat: string): LedgerEntry[] {
   const turn = `${chat}-t1`;
   const from = chat === "me" ? { kind: "person" } : { kind: "person", name: "Ada" };
+  const yesterday = [
+    { v: 1, seq: 1, id: `${chat}-y1`, at: at(7, 58, -1), kind: "note", turn: `${chat}-t0`, text: "morning check-in ran" },
+    { v: 1, seq: 2, id: `${chat}-y2`, at: at(7, 58, -1), kind: "text", from: { kind: "tex" }, turn: `${chat}-t0`, text: "Morning. Your water bill is due Tuesday." },
+  ];
+  // A group's people react and answer one another, Tex or not.
+  const people =
+    chat === "me"
+      ? []
+      : [
+          { v: 1, seq: 9, id: `${chat}-e7`, at: at(9, 4), kind: "text", event: "reaction", from: { kind: "person", name: "Cy" }, text: "👍" },
+          { v: 1, seq: 10, id: `${chat}-e8`, at: at(9, 5), kind: "text", eid: `${chat}-w8`, replyTo: `${chat}-w1`, from: { kind: "person", name: "Bo" }, text: "I'll bring snacks to standup" },
+        ];
+  // A job's turn writes into the chat's history like any turn, each entry marked with the job; the history folds it under the job's line.
+  const jobTag = { turn: `${chat}-tj`, jobId: "maritime", jobTitle: "Research maritime.sh" };
+  const jobWork =
+    chat === "me"
+      ? [
+          { v: 1, seq: 11, id: "me-j1", at: at(9, 10), kind: "thinking", ...jobTag, text: "Read their docs, then compare pricing." },
+          { v: 1, seq: 12, id: "me-j2", at: at(9, 10), kind: "tool", ...jobTag, name: "browse", ok: true, ms: 900 },
+          { v: 1, seq: 13, id: "me-j3", at: at(9, 11), kind: "tool", ...jobTag, name: "browse", ok: false, ms: 900 },
+          { v: 1, seq: 14, id: "me-j4", at: at(9, 12), kind: "tool", ...jobTag, name: "ask_advisor", ok: true, ms: 4000, result: "Pricing page is the one to read; skip the blog.", thinking: "They want cost first. The blog is old." },
+          { v: 1, seq: 15, id: "me-j5", at: at(9, 12), kind: "job", ...jobTag, job: "maritime", title: "Research maritime.sh", state: "keep_going" },
+        ]
+      : [];
   return [
-    { v: 1, seq: 1, id: `${chat}-e1`, at: at(9, 2), kind: "text", from, text: "what's on my calendar today?" },
+    ...yesterday.map((e) => ({ ...e, seq: e.seq - 2 })),
+    { v: 1, seq: 1, id: `${chat}-e1`, at: at(9, 2), kind: "text", eid: `${chat}-w1`, from, text: "what's on my calendar today?" },
     { v: 1, seq: 2, id: `${chat}-e2`, at: at(9, 2), kind: "thinking", turn, text: "Look at today's calendar, then answer in a line." },
     { v: 1, seq: 3, id: `${chat}-e3`, at: at(9, 2), kind: "tool", turn, name: "calendar_events", args: { day: "today" }, ok: true, ms: 420, result: "2 events" },
     { v: 1, seq: 4, id: `${chat}-e4`, at: at(9, 3), kind: "tool", turn, name: "read_note", args: { context: "@elsewhere" }, ok: true, ms: 180, withheld: "other_workspace" },
     { v: 1, seq: 5, id: `${chat}-e5`, at: at(9, 3), kind: "reply", turn, text: "Standup at 10 and the dentist at 3.", ms: 2100, clean: true },
     { v: 1, seq: 6, id: `${chat}-e6`, at: at(9, 3), kind: "text", from: { kind: "tex" }, turn, text: "Standup at 10 and the dentist at 3.", delivered: true },
+    ...people,
+    ...jobWork,
   ];
 }
 
@@ -356,7 +389,13 @@ export function fixtureSource(): TexPageSource {
     },
     async ledger(chat, query) {
       if (!copies.has(chat)) return { kind: "notYours" };
-      const entries = ledgerOf(chat).filter((e) => (!query.kinds || query.kinds.includes(e.kind as never)) && (!query.day || query.day === "2026-11-02"));
+      const entries = ledgerOf(chat).filter(
+        (e) =>
+          (!query.kinds || query.kinds.includes(e.kind as never)) &&
+          (!query.day || query.day === dayOf(e.at)) &&
+          (query.job === undefined || e.jobId === query.job || (e.kind === "job" && e.job === query.job)) &&
+          (query.jobs !== false || e.jobId === undefined),
+      );
       // As the gateway reads with `before`: newest first.
       const before = query.before ?? Number.MAX_SAFE_INTEGER;
       return ok({ manifest: { schema: "tex-ledger", version: 1, count: 6, created: at(9, 2), updated: at(9, 3) }, entries: entries.filter((e) => (e.seq ?? 0) < before).reverse() });

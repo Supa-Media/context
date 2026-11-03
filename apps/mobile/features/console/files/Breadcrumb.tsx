@@ -15,6 +15,7 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useRightClick } from "./rightClick";
 import { crumbsFor, type Crumb } from "./crumbs";
 import { NameField } from "./NameField";
+import { useChatHomeTitles, withChatHomeTitles } from "./chatHomeTitles";
 
 /**
  * Where the open note lives.
@@ -155,7 +156,7 @@ export function Breadcrumb({
   /*
     The whole path, leaf included — `crumbs.ts` decides what each crumb is.
   */
-  const crumbs = crumbsFor(path, { title });
+  const crumbs = withChatHomeTitles(crumbsFor(path, { title }), useChatHomeTitles());
 
   /*
     THE POINTER LINE IS THE NOTE'S FOLDERS, AND NOTHING THE PAGE ALREADY SAYS.

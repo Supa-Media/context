@@ -88,11 +88,12 @@ export function DocumentSurface({
    *    anchored message on open, which is the whole reason it has one); the
    *    Inbox, a channel and a contact page do not;
    *  - otherwise a file — `ConflictResolver` and `NoteEditor` both own one, and
-   *    they are the only two things a `file` selection can draw.
+   *    they are the only two things a `file` selection can draw, besides a
+   *    chat's history file, which opens as its history (`HistoryFileView`)
+   *    and owns one too, so its title and filters stay above the lines and
+   *    it can open at the newest (Dev, 2026-11-03).
    */
-  const documentOwnsScroller =
-    selected !== null &&
-    (commsRoute === null ? selected.kind === "file" : commsRoute.kind === "channel-day");
+  const documentOwnsScroller = selected !== null && (commsRoute === null ? selected.kind === "file" : commsRoute.kind === "channel-day");
 
   const pageKey = selected?.path ?? topPage;
   const restoredOffset = usePageScroll(pageKey);

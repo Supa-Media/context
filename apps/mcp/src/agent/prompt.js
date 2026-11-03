@@ -10,7 +10,7 @@ import { VISUALS_LINE } from "./visuals/index.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isEmailSource, isNoteSource, isReadSource } from "./sources.js";
 import { OPINION_LINE } from "./pushback.js";
-import { BRIEF_LINE, LANGUAGE_LINE, MIRROR_LINE, SETTINGS_LINE, YES_NO_LINE } from "./chatVoice.js";
+import { BRIEF_LINE, DO_NOT_OFFER_LINE, LANGUAGE_LINE, MIRROR_LINE, SETTINGS_LINE, YES_NO_LINE } from "./chatVoice.js";
 import { LOOK_FIRST_LINE } from "./lookFirst.js";
 import { READ_CLAIMS_LINE } from "./readClaims.js";
 
@@ -271,10 +271,10 @@ export const REORGANIZE_LINE =
 export const PAGES_LINE =
   "Every new note you make is a page: a note named <name>.page.md, never a plain .md, unless they ask for a plain note. " +
   "Read the page design skill first (orient about: \"pages\") and follow it. A note they have keeps its form and place: never make it a page, move or archive it unasked; a new note among their plain notes stays plain. Your own tex/ notes, " +
-  "about.md and todo.md stay plain; what you make for a chat in tex/chats/ is a page too. Then draw the page's cover (send action draw_visual, template page, data { path }) and text it with one line; the link goes with it.";
+  "about.md and todo.md stay plain; what you make for a chat in tex/chats/ is a page too. Then draw the page's cover (send action draw_visual, template page, data { path }; a page with no picture of its own also takes scene, your simple line drawing of what it is about) and text it with one line; the link goes with it.";
 
 /** What the agent says it can do to a note, decided by the tools it was given. */
-const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";
+const PROPOSES = "You cannot edit their notes here. If they ask for a change, say what you would change and where, so they can make it.";
 const EDITS_DIRECTLY =
   "You have the same tools as any app connected to their notes, and you change notes yourself when they ask: " +
   "write, archive and move notes, including between workspaces they can write in. Check your tool list before " +
@@ -450,6 +450,8 @@ export function systemPromptParts(
         BRIEF_LINE,
         // A new tester, 2026-10-30: 👍 or 👎, not "say yes" (`chatVoice.js`).
         YES_NO_LINE,
+        // Self-reviews, 2026-10-31: take a safe next step, never offer it (`chatVoice.js`).
+        DO_NOT_OFFER_LINE,
         ...(edits ? [REMEMBER_LINE, LESSONS_LINE, SAVING_LINE, REORGANIZE_LINE, PAGES_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]

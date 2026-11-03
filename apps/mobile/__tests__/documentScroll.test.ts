@@ -47,6 +47,11 @@ jest.mock("react-native-safe-area-context", () => ({
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// The history file's own view reads the gateway; here it is only something tall to scroll.
+jest.mock("../features/tex/history/HistoryFileView", () => ({
+  HistoryFileView: () => require("react").createElement("div", { "data-testid": "history-file" }, "history"),
+}));
+
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowsePane } from "../features/console/panes/BrowsePane";
@@ -212,6 +217,29 @@ describe("the document region on a pointer layout", () => {
     expect(scroll).not.toBeNull();
     expect(scroll!.querySelector('[data-testid="folder-column"]')).not.toBeNull();
     expect(container.textContent).toContain("meetings");
+  });
+
+  test("leaves a chat's history file out of the page scroller: it brings its own, under its title and filters", () => {
+    // Dev, 2026-11-02: "the page doesnt scroll"; 2026-11-03: start at the bottom, keep the filters sticky.
+    const HISTORY = "tex/history.ledger.json";
+    const container = mount(
+      createElement(BrowsePane, {
+        data: consoleWith({
+          selectedPath: HISTORY,
+          listings: {
+            tex: {
+              path: "tex",
+              folderDefault: "private",
+              entries: [{ kind: "file", path: HISTORY, name: "history.ledger.json", visibility: "private", inherited: "private", exception: false, readOnly: true }],
+              truncated: false,
+              manifestUsable: true,
+            },
+          },
+        } as Partial<FileBrowser>),
+      }),
+    );
+    expect(container.querySelector('[data-testid="history-file"]')).not.toBeNull();
+    expect(scroller(container)).toBeNull();
   });
 
   test("leaves a note alone, because the editor brings its own", () => {

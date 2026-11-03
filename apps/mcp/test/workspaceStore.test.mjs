@@ -264,9 +264,39 @@ test("lookup by path and resolve by note id answer like a read: one the caller m
   const looked = await ws.rows.lookup({ paths: ["1-projects/open.md", "1-projects/held.md", "nope.md"], scope: "team" });
   assert.equal(looked.rows[0].noteId, ID(1));
   assert.equal(looked.rows[0].key, `notes/${ID(1)}.md`);
-  assert.deepEqual(looked.rows.slice(1), [{ path: "1-projects/held.md", found: false }, { path: "nope.md", found: false }]);
+  // "nope.md" has no row and nothing reroutes it, so the object says it is absent (`lookupMiss.js`); the held note has a row
+  // the reader may not see, so it is a plain miss the control plane judges.
+  assert.deepEqual(looked.rows.slice(1), [{ path: "1-projects/held.md", found: false }, { path: "nope.md", found: false, absent: true }]);
   const resolved = await ws.rows.resolve({ noteIds: [ID(1), ID(2)], scope: "private" });
   assert.deepEqual(resolved.rows.map((row) => row.path), ["1-projects/open.md", "1-projects/held.md"]);
+});
+
+// A path lookup with no live row answers absent:true only when nothing reroutes it; a row the reader may not see never
+// does, and a reader who may see a missing path's neighbours still gets absent for it. Sabotage: drop the `absentHere`
+// branch in serve.js lookUp and the first assertion has no `absent`; answer absent for a row that exists (drop the
+// `row === null` guard) and the second fails.
+test("a path lookup says absent only for a path with no row and no reroute; a row the reader cannot see is not absent", { skip }, async () => {
+  const { ws } = await seeded();
+  // `1-projects` plays the projects job, so a miss under it is rerouted and not absent (`lookupMiss.js`).
+  const looked = await ws.rows.lookup({ paths: ["ideas/nothing-here.md", "1-projects/secret/plan.md", "tex/groups/abc/x.md", "1-projects/nothing-here.md"], scope: "team" });
+  assert.deepEqual(looked.rows[0], { path: "ideas/nothing-here.md", found: false, absent: true });
+  assert.deepEqual(looked.rows[3], { path: "1-projects/nothing-here.md", found: false }, "a job-named folder reroutes the miss, so it is not absent");
+  assert.deepEqual(looked.rows[1], { path: "1-projects/secret/plan.md", found: false }, "a private-folder row exists, so it is not absent");
+  assert.deepEqual(looked.rows[2], { path: "tex/groups/abc/x.md", found: false }, "a group chat's home is the control plane's to name");
+});
+
+// Two live rows for one note id: the object names neither, not even the newer one, and says nothing else about them.
+// Once one is gone the id resolves to the other again. Sabotage: drop the liveNoteIdCount check in serve.js and the first
+// assertion fails (the newer row's path comes back).
+test("a note id held by two live rows resolves as ambiguous, with no path, for every reader", { skip }, async () => {
+  const { ws } = await seeded();
+  await ws.rows.put([{ id: "dup-a", noteId: ID(7), path: "1-projects/a7.md", kind: "file", at: 40 }]);
+  await ws.rows.put([{ id: "dup-b", noteId: ID(7), path: "1-projects/b7.md", kind: "file", at: 50 }]);
+  for (const scope of ["private", "team"]) {
+    assert.deepEqual((await ws.rows.resolve({ noteIds: [ID(7)], scope })).rows, [{ noteId: ID(7), found: false, ambiguous: true }]);
+  }
+  await ws.rows.remove(["dup-b"], 60);
+  assert.equal((await ws.rows.resolve({ noteIds: [ID(7)], scope: "private" })).rows[0].path, "1-projects/a7.md");
 });
 
 test("a push of a note read before its folder moved lands after the move and is ignored, so the note stays under the new folder", { skip }, async () => {

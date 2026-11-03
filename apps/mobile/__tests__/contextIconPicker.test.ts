@@ -73,6 +73,14 @@ describe("Tex's own folders draw their parts wherever Tex's folder is", () => {
     expect(texPartIconUnder(jobs, "Assistant/tex/about-me.md")).toBe(contextPartMarker("tex_about"));
     expect(texPartIconUnder(jobs, "Assistant/tex/routines/every-day")).toBe(contextPartMarker("cadence_day"));
   });
+  test("a group chat's home draws the same parts, and the home itself is left to its chat", () => {
+    expect(texPartIconUnder(jobs, "Assistant/tex/groups/ivory-pine-tundra/attention")).toBe(texPartIconUnder(jobs, "Assistant/tex/attention"));
+    expect(texPartIconUnder(jobs, "Assistant/tex/groups/ivory-pine-tundra/skills")).toBe(contextPartMarker("tex_skills"));
+    expect(texPartIconUnder(jobs, "Assistant/tex/groups/ivory-pine-tundra/routines/every-day")).toBe(contextPartMarker("cadence_day"));
+    expect(texPartIconUnder(jobs, "Assistant/tex/groups/ivory-pine-tundra")).toBeNull();
+    expect(texPartIconUnder(jobs, "Assistant/tex/groups/ivory-pine-tundra/recipes")).toBeNull();
+    expect(texPartIconUnder(jobs, "Assistant/tex/groups/a/groups/b/skills")).toBeNull();
+  });
   test("a folder of the person's own, or outside Tex's folder, draws nothing", () => {
     expect(texPartIconUnder(jobs, "Assistant/tex/recipes")).toBeNull();
     expect(texPartIconUnder(jobs, "Assistant/skills")).toBeNull();

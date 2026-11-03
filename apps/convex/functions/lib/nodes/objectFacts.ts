@@ -23,7 +23,8 @@ import { servedKeys } from "./manifestStore";
 
 type Ctx = ActionCtx;
 export type FactRows = (request: {
-  ask: "props" | "links" | "chaos" | "candidates";
+  ask: "props" | "links" | "chaos" | "candidates" | "linking" | "neighborRows";
+  path?: string;
   paths?: string[];
   sources?: string[];
   names?: string[];
@@ -129,4 +130,36 @@ export async function objectCandidates(
   if (answer?.served !== true) return undefined;
   const candidates = answer.candidates as { pointing: string[]; unparsed: string[] } | null;
   return candidates === null ? null : { pointing: candidates.pointing, unparsed: candidates.unparsed };
+}
+
+/**
+ * Which of `paths` hold links of their own, from the object (`nodeLinkSources.linking`'s answer, unfiltered), with
+ * every note it cannot vouch for counted as linking. `undefined` where the object is not asked or does not answer,
+ * and the caller asks the control plane.
+ */
+export async function objectLinking(rows: FactRows | null, paths: readonly string[]): Promise<string[] | undefined> {
+  if (rows === null) return undefined;
+  const answer = await rows({ ask: "linking", paths: [...paths] }).catch(() => null);
+  if (answer?.served !== true || !Array.isArray(answer.linking)) return undefined;
+  return answer.linking.filter((path): path is string => typeof path === "string");
+}
+
+/** A note's link rows as the object holds them now, in `nodeFacts.neighbors`' shape (unfiltered). */
+export interface NeighborRows {
+  present: boolean;
+  current: boolean;
+  links: Array<{ kind: "path" | "name"; target: string }>;
+  byPath: string[];
+  byName: string[];
+}
+
+/**
+ * One note's neighbor rows from the object: its links, and the notes pointing at it by path and by bare name.
+ * `undefined` where the object is not asked or does not answer, and the caller asks the control plane.
+ */
+export async function objectNeighborRows(rows: FactRows | null, path: string): Promise<NeighborRows | undefined> {
+  if (rows === null) return undefined;
+  const answer = await rows({ ask: "neighborRows", path }).catch(() => null);
+  if (answer?.served !== true || answer.rows === null || typeof answer.rows !== "object") return undefined;
+  return answer.rows as NeighborRows;
 }

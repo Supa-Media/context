@@ -21,13 +21,16 @@ import { decorateRequestStore } from "./requestStore.js";
 import { attachLinkCalls } from "./routing.js";
 import { handleMcp } from "../mcp/handlers.js";
 import { callOf, mcpEntry } from "../mcp/mcpEntryPoint.js";
+import { laySavePhase } from "../mcp/phase.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { judgeFor } from "../privacy/judge.js";
 
-export async function serveMcp(request, env, ctx, { slug, pathToken, origin }) {
+export async function serveMcp(request, workerEnv, ctx, { slug, pathToken, origin }) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
   // MCP ENTRY POINT: begin
-  const mcp = mcpEntry(env);
+  const mcp = mcpEntry(workerEnv);
+  // Every workspace object call this request makes, timed as `obj:<op>` beside the control plane's `cp:` routes.
+  const env = mcp.watchObjects(workerEnv);
   const controlPlane = createControlPlane(env, { fetchImpl: mcp.fetchFor("cp") });
   const session = await mcp.step("session", () => sessionOrRefusal(request, { pathToken, slug, controlPlane, origin }));
   if (session instanceof Response) return mcp.done(session);
@@ -38,7 +41,7 @@ export async function serveMcp(request, env, ctx, { slug, pathToken, origin }) {
   mcp.call = callOf(body);
   const refusal = scopeRefusal(session, origin);
   if (refusal) return mcp.done(refusal);
-  const openOnce = onceEach((target) => mcp.step("open_other_context", () => storeForSession(target, env, controlPlane)).then(mcp.watch));
+  const openOnce = onceEach((target) => mcp.step("open_other_context", () => storeForSession(target, env, controlPlane)).then((opened) => laySavePhase(mcp.watch(opened), mcp)));
   prefetchNamedContexts(session, namedContextsIn(body), openOnce);
   const store = await mcp.step("open_store", () => storeOrRefusal(session, env, controlPlane));
   if (store instanceof Response) return mcp.done(store);
@@ -94,7 +97,8 @@ async function storeOrRefusal(session, env, controlPlane) {
 
 /** Everything the request's store carries for the tools, laid on in one place; the other workspaces it opens are timed too. */
 function equip(store, { session, env, controlPlane, ctx, request, origin, openOnce, mcp }) {
+  laySavePhase(store, mcp);
   decorateRequestStore(store, { session, env, controlPlane, ctx, request, origin });
   attachContextOpener(store, session, { env, controlPlane, origin, openOnce, pinnedName: PINNED_CONTEXT_NAME });
-  attachPinnedDoors(store, session, (sibling) => mcp.step("open_pinned_context", () => storeForSession(sibling, env, controlPlane)).then(mcp.watch), (opened, sibling) => attachLinkCalls(opened, sibling, controlPlane, env));
+  attachPinnedDoors(store, session, (sibling) => mcp.step("open_pinned_context", () => storeForSession(sibling, env, controlPlane)).then((opened) => laySavePhase(mcp.watch(opened), mcp)), (opened, sibling) => attachLinkCalls(opened, sibling, controlPlane, env));
 }

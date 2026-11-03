@@ -10,8 +10,9 @@
  * `context_dreams` client on their personal workspace, and the Worker asks
  * `/agent` to dream. This file is that turn:
  *
- *   1. It finds the day's transcripts (`tex/transcripts/`, `transcript.js`)
- *      written since the last dream, and reads `tex/about.md` (`aboutMe.js`).
+ *   1. It reads the person's chat with Tex since the last dream from the
+ *      chat's ledger (`ledgerDays.js`; the daily transcript notes it read
+ *      before are no longer written), and reads `tex/about.md` (`aboutMe.js`).
  *      With no note yet it is a first look: it also looks around their
  *      workspace and always starts the note (`FIRST_LOOK`).
  *   2. A model reads them and rewrites `tex/about.md`, under the same
@@ -23,7 +24,7 @@
  *   4. The gateway reads the note again and writes `tex/dreams/YYYY-MM-DD.md`:
  *      the lines it added and removed, the model's own account of why, and
  *      every step it took (its thinking and tool calls, never a tool's result),
- *      the same way a day's transcript is written.
+ *      the same lines the chat's history renders a turn's steps with.
  *
  * Everything goes through the session's own dispatcher, so the privacy engine,
  * the note's history and the audit trail see it like any other write, and it
@@ -32,7 +33,9 @@
 
 import { ABOUT_ME_PATH, readAboutMe } from "./aboutMe.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
-import { TRANSCRIPTS_FOLDER, eventLines } from "./transcript.js";
+import { eventLines } from "./transcript.js";
+import { HISTORY_PATH } from "./historyFile.js";
+import { chatTurns, readChatSince, renderChatDays } from "./ledgerDays.js";
 import { AgentRefusal, openProvider, runTurn } from "./turn.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
@@ -53,8 +56,6 @@ export const DREAMS_CLIENT_ID = "context_dreams";
 
 export const DREAMS_FOLDER = "tex/dreams";
 
-/** The most transcript notes one dream is pointed at, newest kept. */
-export const MAX_DREAM_TRANSCRIPTS = 6;
 /** A first dream (or one whose `since` is unknown) looks back this many days. */
 export const FIRST_DREAM_DAYS = 3;
 const DREAM_ROUNDS = 12;
@@ -70,25 +71,6 @@ const DREAM_WRITE_ARGS = new Set(["path", "content", "expected_etag"]);
 /** Tonight's log: `tex/dreams/2026-10-16.md`, dated the night it ran, in their zone. */
 export function dreamPath(now, timeZone) {
   return `${DREAMS_FOLDER}/${dayOf(now, timeZone)}.md`;
-}
-
-/**
- * The transcript notes a dream reads, from a `list_notes` answer: the days
- * from `since` (or the last `FIRST_DREAM_DAYS`) to today, oldest first, at
- * most `MAX_DREAM_TRANSCRIPTS`, newest kept.
- */
-export function transcriptsToRead(listing, { since, now, timeZone }) {
-  const from = dayOf(typeof since === "number" ? since : now - (FIRST_DREAM_DAYS - 1) * DAY_MS, timeZone);
-  const to = dayOf(now, timeZone);
-  const found = [];
-  const pattern = new RegExp(`^(${TRANSCRIPTS_FOLDER}/(\\d{4}-\\d{2}-\\d{2})(?:-(\\d+))?\\.md) \\(`);
-  for (const line of String(listing ?? "").split("\n")) {
-    const match = pattern.exec(line.trim());
-    if (!match || match[2] < from || match[2] > to) continue;
-    found.push({ path: match[1], day: match[2], part: Number(match[3] ?? 1) });
-  }
-  found.sort((a, b) => (a.day === b.day ? a.part - b.part : a.day < b.day ? -1 : 1));
-  return found.slice(-MAX_DREAM_TRANSCRIPTS).map((entry) => entry.path);
 }
 
 function refused(text) {
@@ -128,11 +110,11 @@ export function dreamTools(offered) {
  * The dream's own words when `ai/production/dream.md` is missing or does not
  * validate. The note's body replaces these (the owner, 2026-10-17: "move the
  * prompt into a note for me"); what tonight is about (the days and the
- * transcripts) is always added below them by `dreamQuestion`.
+ * texts) is always added below them by `dreamQuestion`.
  */
 export const DREAM_INSTRUCTIONS = [
   "This is your nightly dream, not a text from a person. Nobody is waiting, and nothing you say is texted to anyone.",
-  `Your one job: bring ${ABOUT_ME_PATH} up to date with what you learned about them in the transcripts listed under Tonight.`,
+  `Your one job: bring ${ABOUT_ME_PATH} up to date with what you learned about them in your texts with them under Tonight.`,
   "Keep what lasts: who they are, the people in their life and how they relate, what they're working on, the goals they're working toward (health, money, work) and decisions they've made with why, preferences, how they like you to answer, corrections they gave you, places and routines. " +
     "Leave out one-off requests, anything already done and finished, anything they asked you to forget, and every secret (passwords, codes, card or account numbers): never write those.",
   "Write the whole note back once with write: fetch it first and pass its etag as expected_etag. Short headings, one short line per fact, duplicates merged, stale or contradicted lines dropped, never more than 500 lines. If nothing new is worth keeping, don't write it.",
@@ -158,13 +140,13 @@ export const FIRST_LOOK = [
  * What the dream is asked to do: the setup's words (`instructions`, the
  * production note's body) or the built-in ones, then tonight's facts.
  */
-export function dreamQuestion({ transcripts, memories = [], first, since, timeZone, instructions = null }) {
+export function dreamQuestion({ chat = "", memories = [], first, since, timeZone, instructions = null }) {
   const when = first || typeof since !== "number" ? "lately" : `since ${dayOf(since, timeZone)}`;
   const tonight = [
     `Bring ${ABOUT_ME_PATH} up to date with what you learned about them ${when}.`,
-    transcripts.length > 0
-      ? `Read these transcripts of your texts with them (tool calls and thinking included, never what a tool returned):\n${transcripts.map((path) => `- ${path}`).join("\n")}`
-      : "There are no transcripts of your texts with them yet.",
+    chat !== ""
+      ? `Your texts with them ${when}, from your chat's history (${HISTORY_PATH}; tool calls and thinking included, never what a tool returned):\n\n${chat}`
+      : "There are no texts with them to read yet.",
     memoriesLine(memories), // what their other AI apps saved (`dreamMemories.js`)
     first ? FIRST_LOOK : "",
   ].filter(Boolean);
@@ -209,12 +191,13 @@ function heading(now, timeZone) {
 const asCode = (line) => `\`${line.replace(/`/g, "'")}\``;
 
 /** One dream's part of the night's log. */
-export function dreamEntry({ now, timeZone, transcripts, model, changes, why, events, outcome, retired = [] }) {
+export function dreamEntry({ now, timeZone, texts = 0, read = [], model, changes, why, events, outcome, retired = [] }) {
   const lines = [`## ${clock(now, timeZone)}`, ""];
+  const named = [...(texts > 0 ? [`${texts} ${texts === 1 ? "entry" : "entries"} of \`${HISTORY_PATH}\``] : []), ...read.map((path) => `\`${path}\``)];
   lines.push(
-    transcripts.length > 0
-      ? `_Read ${transcripts.map((path) => `\`${path}\``).join(", ")}${model ? `, on ${model}` : ""}._`
-      : `_No transcripts to read${model ? `; on ${model}` : ""}._`,
+    named.length > 0
+      ? `_Read ${named.join(", ")}${model ? `, on ${model}` : ""}._`
+      : `_Nothing new to read${model ? `; on ${model}` : ""}._`,
     "",
     `### What changed in \`${ABOUT_ME_PATH}\``,
     "",
@@ -267,16 +250,16 @@ export async function handleDream(request, env, store, session, controlPlane) {
   const timeZone = readTimeZone(body.dream.timeZone) ?? DEFAULT_TIME_ZONE;
   const since = typeof body.dream.since === "number" && Number.isFinite(body.dream.since) ? body.dream.since : null;
   const started = Date.now();
-  const listed = await dispatch("list_notes", { prefix: TRANSCRIPTS_FOLDER }).catch(() => null);
-  const listing = listed?.isError === true ? "" : (listed?.content ?? []).map((part) => part?.text ?? "").join("\n");
-  const transcripts = transcriptsToRead(listing, { since, now: started, timeZone });
+  // Their chat with Tex since the last dream (or the last few days), from its ledger: the one record of it.
+  const entries = await readChatSince(store, session, { since: since ?? started - (FIRST_DREAM_DAYS - 1) * DAY_MS });
+  const chat = renderChatDays(entries, { timeZone });
   const memories = await findMemories(store, dispatch, { since, now: started, timeZone });
   const before = await readAboutMe(dispatch);
   // No note yet is a first dream, whatever `since` says: an earlier first dream
   // that wrote nothing must not leave them without one.
   const first = before === "";
   // Nothing new to read and a note already started: tonight is quiet, and costs no model turn.
-  if (transcripts.length === 0 && memories.length === 0 && !first) return json({ outcome: "nothing_new" });
+  if (chat === "" && memories.length === 0 && !first) return json({ outcome: "nothing_new" });
 
   try {
     await openProvider(controlPlane, session, undefined, env);
@@ -300,7 +283,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
   let turn = null;
   try {
     turn = await runTurn({
-      question: dreamQuestion({ transcripts, memories, first, since, timeZone, instructions: setup?.prompt ?? null }),
+      question: dreamQuestion({ chat, memories, first, since, timeZone, instructions: setup?.prompt ?? null }),
       tools: dreamTools(offered),
       grants: { write: ["save"] }, // its one write is the note's own text (`dreamCallTool`)
       callTool: dreamCallTool(dispatch),
@@ -341,7 +324,8 @@ export async function handleDream(request, env, store, session, controlPlane) {
   const entry = dreamEntry({
     now,
     timeZone,
-    transcripts: [...transcripts, ...memories], // the log names every note it read
+    texts: chat === "" ? 0 : entries.length,
+    read: memories, // the log names everything it read
     model: turn?.model ?? null,
     changes,
     why: turn?.answer ?? "",
@@ -357,7 +341,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
       grant: session.grantId,
       provider: BUILTIN_PROVIDER,
       outcome,
-      transcripts: transcripts.length,
+      texts: chat === "" ? 0 : entries.length,
       memories: memories.length,
       added: changes.added.length,
       removed: changes.removed.length,
@@ -370,7 +354,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
   if (env.HANDBACK_JUDGE === "on") {
     await mineHandbacks({
       dispatch,
-      transcripts,
+      turns: chatTurns(entries),
       since,
       now,
       timeZone,

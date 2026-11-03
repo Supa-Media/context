@@ -70,7 +70,7 @@ export function readsOtherWorkspace(args, ownSlug) {
 }
 
 /** A tool call's entry. `result` is the text the model was shown. */
-export function toolEntry({ name, args, ok, ms, held = false, reason = null, result = null }, { ownSlug, turn = null, at = Date.now() } = {}) {
+export function toolEntry({ name, args, ok, ms, held = false, reason = null, result = null, thinking = null }, { ownSlug, turn = null, at = Date.now() } = {}) {
   const entry = { v: 1, id: newId(), at, kind: "tool", ...(turn ? { turn } : {}), name: String(name ?? "").slice(0, 64), args: keptArgs(args ?? {}), ok: ok === true, ms: Number.isFinite(ms) ? Math.round(ms) : 0 };
   if (held) entry.held = true;
   if (typeof reason === "string" && reason !== "") entry.reason = reason.slice(0, 400);
@@ -80,6 +80,8 @@ export function toolEntry({ name, args, ok, ms, held = false, reason = null, res
     entry.result = kept.text;
     if (kept.cut !== undefined) entry.cut = kept.cut;
   }
+  // The advisor's thinking, beside its answer (`advisor.js`): what the tool thought, never Tex's own.
+  if (typeof thinking === "string" && thinking.trim() !== "" && entry.withheld === undefined) entry.thinking = cutText(thinking, MAX_WORDS_CHARS).text;
   return entry;
 }
 
@@ -134,6 +136,9 @@ export function ledgerWriter(ledger, chat) {
 }
 
 const GROUP_KEY = /^[0-9a-f]{64}$/;
+const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
+/** The entry that says a person's whole old chat is copied in, kept first: once it is, nothing is copied again (`ledgerBackfill.js`). */
+export const BACKFILLED = "backfilledv1";
 /** A person's one-to-one chat with Tex is one ledger, whichever line they text on, as their history record is. */
 export const ONE_TO_ONE_CHAT = "texts";
 
@@ -145,6 +150,8 @@ export const ONE_TO_ONE_CHAT = "texts";
  */
 export function ledgerPlace(session) {
   if (typeof session?.texChatId === "string" && GROUP_KEY.test(session.texChatId)) return { owner: { chat: session.texChatId }, chat: session.texChatId };
+  // A group grant that names no chat keeps none: never the person's own one-to-one ledger, which a group's words must not reach.
+  if (session?.actorClientId === TEXTS_GROUP_CLIENT_ID) return null;
   if (session?.workspaceKind === "personal" && typeof session.workspaceId === "string" && session.workspaceId !== "") return { owner: { person: session.workspaceId }, chat: ONE_TO_ONE_CHAT };
   return null;
 }
@@ -165,6 +172,22 @@ export function storeLedger(store, session) {
   const place = ledgerPlace(session);
   if (place === null || typeof store?.texLedger !== "function") return null;
   return ledgerWriter(store.texLedger(place.owner.chat ?? null), place.chat);
+}
+
+/**
+ * A writer that marks every entry with the background job whose turn wrote it
+ * (`jobId`, `jobTitle`), so the chat's one record says which work was a job's
+ * (the owner, 2026-11-02: sub-agent work "in the chat's history, tagged").
+ * `job` entries keep their own `job` field; this never replaces it.
+ */
+export function jobTagged(writer, job) {
+  if (writer === null || !job || typeof job.id !== "string") return writer;
+  const tag = { jobId: job.id, ...(typeof job.title === "string" && job.title ? { jobTitle: job.title } : {}) };
+  return {
+    ...writer,
+    write: (entries) => writer.write((Array.isArray(entries) ? entries : [entries]).filter(Boolean).map((entry) => ({ ...entry, ...tag }))),
+    flush: () => writer.flush(),
+  };
 }
 
 /**

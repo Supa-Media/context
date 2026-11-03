@@ -76,8 +76,12 @@ const WORKFLOWS_DIR = join(ROOT, ".github/workflows");
 // never in the prose about them.
 const PNPM_EXEC = String.raw`\bpnpm\s+(?:--dir\s+\S+\s+)?exec\s+wrangler\s+`;
 /** Any of the three commands, however invoked — the coverage floor's half. */
-const LOOSE_COMMAND = /wrangler\s+(?:secret\s+put|(?:pages\s+)?deploy|versions\s+upload)\b/;
-const SECRET_PUT = new RegExp(`${PNPM_EXEC}secret\\s+put\\b`);
+//
+// `secret bulk` counts as a push: it is how a deploy sends several secrets in
+// one request (scripts/worker-secrets.mjs), and it acts on the live version
+// exactly as `secret put` does.
+const LOOSE_COMMAND = /wrangler\s+(?:secret\s+(?:put|bulk)|(?:pages\s+)?deploy|versions\s+upload)\b/;
+const SECRET_PUT = new RegExp(`${PNPM_EXEC}secret\\s+(?:put|bulk)\\b`);
 const DEPLOYS_LIVE = new RegExp(
   `${PNPM_EXEC}(?:pages\\s+)?deploy\\b|${PNPM_EXEC}versions\\s+upload\\b`,
 );
@@ -279,6 +283,16 @@ function selfTest() {
     "      - run: pnpm exec wrangler secret put X",
   ].join("\n");
   expect("prose narrating the bug is not itself flagged", findOutOfOrderSecretPut(narratedButFixed) === null);
+
+  // `secret bulk`, the one-request form, is a push like `secret put`.
+  const bulkBad = [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - run: node scripts/worker-secrets.mjs X | pnpm exec wrangler secret bulk",
+    "      - run: pnpm exec wrangler deploy",
+  ].join("\n");
+  expect("secret bulk before deploy is flagged", findOutOfOrderSecretPut(bulkBad)?.secretPutLine === 4);
 
   // A file with only one of the two commands has nothing to order.
   const deployOnly = "jobs:\n  d:\n    steps:\n      - run: pnpm exec wrangler deploy\n";

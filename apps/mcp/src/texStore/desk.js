@@ -4,8 +4,8 @@
  * nothing read from storage on a text).
  *
  * The object answers the person's history record (`agent/history.js`) and,
- * by the keys that record keeps (`direct`), the notes every texted turn is
- * shown: About me and the jobs list (`agent/texDesk.js`). Only keys of notes
+ * by the keys kept beside it (`direct`, `DESK_KEYS_KEY`; an older record
+ * keeps them inside it), the notes every texted turn is shown: About me and the jobs list (`agent/texDesk.js`). Only keys of notes
  * in this same object (`notes/<id>.md`), so a record can never point the
  * desk anywhere else; a key with nothing under it answers null, which the
  * turn reads the old way.
@@ -13,6 +13,8 @@
 
 /** The history record's key inside the object (`store/texRouting.js` maps `.context/agent/history/texts.json` here). */
 export const DESK_HISTORY_KEY = "state/agent/history/texts.json";
+/** The keys of the notes the desk reads (`direct`), kept by themselves (`.context/agent/history/desk.json`); an older record keeps them inside it. */
+export const DESK_KEYS_KEY = "state/agent/history/desk.json";
 /** The notes a desk may name: an id key of a note kept in this object. */
 const NOTE_KEY = /^notes\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.md$/;
 /** The names of the notes a desk carries. */
@@ -43,9 +45,10 @@ function held(objects, key) {
 export function readDesk(objects) {
   const history = held(objects, DESK_HISTORY_KEY);
   const notes = {};
+  const keys = held(objects, DESK_KEYS_KEY);
   let direct = null;
   try {
-    direct = history === null ? null : JSON.parse(history.text)?.direct ?? null;
+    direct = keys !== null ? JSON.parse(keys.text)?.direct ?? null : history === null ? null : JSON.parse(history.text)?.direct ?? null;
   } catch {
     direct = null;
   }

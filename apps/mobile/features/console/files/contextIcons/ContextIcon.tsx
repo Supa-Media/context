@@ -22,6 +22,7 @@ export const ContextIcon = memo(function ContextIcon({
   name,
   part,
   size,
+  tint,
   testID,
 }: {
   /** A Context icon's name; or */
@@ -29,13 +30,15 @@ export const ContextIcon = memo(function ContextIcon({
   /** a built-in part's. */
   part?: ContextPart;
   size: number;
+  /** Ink other than the text's, where a design names one (the history file's title). */
+  tint?: string;
   testID?: string;
 }) {
   const colors = useColors();
   const drawing = part !== undefined ? PARTS[part] : name !== undefined ? ICONS[name] : undefined;
   if (drawing === undefined) return null;
   const strokes = drawnStrokes(part !== undefined ? `part:${part}` : `icon:${name}`, part ?? name ?? "", drawing);
-  const ink = colors.text;
+  const ink = tint ?? colors.text;
   const { width, dryWidth, dryOpacity } = inkFor(size);
   return (
     <Svg width={size} height={size} viewBox={JOB_ICON_VIEW_BOX} fill="none" {...(testID === undefined ? {} : { testID })}>

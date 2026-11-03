@@ -1,5 +1,16 @@
 # Tex keeps a daily transcript in the person's own tex/ folder (2026-10-15)
 
+**Retired (the owner, 2026-11-02).** The transcripts are no longer written:
+each chat's [ledger](./chat-ledger.md) is its one record, with the same
+thinking and tool calls, open in the app as `tex/history.ledger.json` and
+carried whole by Download as folders. The nightly dream and the hand-back
+miner read the ledger (`ledgerDays.js`). Pictures people text Tex, which only
+the transcript embedded, go in `tex/pictures/YYYY-MM.md`, one note a month,
+each under the day and time it came (`textedPictures.js`; the owner picked
+this over keeping them as files or keeping transcripts for pictures alone),
+so `read_image` reaches them through that note. Transcripts already written
+stay in the person's folder. What follows is the decision as it stood.
+
 The owner asked for "a daily transcript of people's Tex conversations to their
 tex folder … updated in real time … save the thinking and tool calls as well",
 to make Tex better. So every texted turn, every routine run and every texted

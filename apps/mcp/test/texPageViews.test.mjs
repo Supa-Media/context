@@ -113,7 +113,9 @@ test("sections an append changes", () => {
   assert.deepEqual(sectionsForKinds(["text"]), ["thinking", "behind"]);
   assert.deepEqual(sectionsForKinds(["tool"]).sort(), ["advisor", "behind", "thinking"]);
   assert.deepEqual(sectionsForKinds(["mail_check"]), ["mailcheck", "behind"]);
-  assert.deepEqual(sectionsForKinds(["note"]), []);
+  // A note is still a line in the history: an open history view hears of it.
+  assert.deepEqual(sectionsForKinds(["note"]), ["behind"]);
+  assert.deepEqual(sectionsForKinds([]), []);
 });
 
 test("in the Tex object: an append to the chat's log reaches an open page, and page_list answers from the log", async () => {

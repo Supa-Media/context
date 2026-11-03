@@ -13,6 +13,7 @@ import { TexObjectRefused } from "./objects.js";
 import { withHistoryView } from "./historyView.js";
 import { objectByName } from "../objectPlace.js";
 import { OWNER_HEADER, placedName } from "./move.js";
+import { mergedName } from "./merge.js";
 import { DESK_LEDGER, readDesk } from "./desk.js";
 import { R2Store } from "../store/r2.js";
 
@@ -22,16 +23,23 @@ const ORIGIN = "https://tex-store.internal";
 
 /**
  * The Durable Object a person's (`person`: their workspace id) or a group
- * chat's (`chat`: its id) Tex notes live in: the one placed in eastern North
- * America (`placedName`), with every call naming its owner, so the first one
- * can copy in the store the owner had under the old name (`move.js`). `null`
- * without the binding.
+ * chat's (`chat`: its id) Tex notes live in, with every call naming its owner.
+ *
+ * A person's is their personal workspace's own object (`workspace:<id>`,
+ * `workspaceStore/texHost.js`; decided by the owner, 2026-11-02: one object
+ * for the workspace and its Tex), whose first Tex call copies in the store
+ * they had before (`merge.js`). A group chat's is its own Tex store, placed in
+ * eastern North America (`placedName`), whose first call copies in the store
+ * under the old name (`move.js`). A deployment without workspace objects keeps
+ * a person's in a Tex store too. `null` without the binding.
  */
 export function texStoreStub(env, owner) {
-  const namespace = env?.TEX_STORE;
-  if (!namespace || typeof namespace.idFromName !== "function") return null;
   const name = ownerName(owner);
-  const stub = objectByName(namespace, placedName(name));
+  const workspaces = env?.WORKSPACE_STORE;
+  const person = typeof owner?.person === "string" && workspaces && typeof workspaces.idFromName === "function";
+  const namespace = person ? workspaces : env?.TEX_STORE;
+  if (!namespace || typeof namespace.idFromName !== "function") return null;
+  const stub = objectByName(namespace, person ? mergedName(name) : placedName(name));
   return {
     fetch(request) {
       request.headers.set(OWNER_HEADER, name);

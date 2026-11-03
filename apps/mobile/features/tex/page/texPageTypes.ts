@@ -14,6 +14,8 @@ export interface ChatRef {
   name: string;
   /** How many people are in a group chat. */
   people?: number;
+  /** A group chat's home: its workspace as `@slug` and its folder (`tex/groups/<words>`). */
+  home?: { context: string; folder: string };
 }
 
 export type ActionKind = "advisor" | "job" | "mailcheck" | "tool";
@@ -203,7 +205,8 @@ export type SubView =
   | "jobs"
   | "advisor"
   | "mailcheck"
-  | "history";
+  | "history"
+  | "sees";
 
 export const SUB_VIEWS: readonly SubView[] = [
   "routines",
@@ -216,6 +219,7 @@ export const SUB_VIEWS: readonly SubView[] = [
   "advisor",
   "mailcheck",
   "history",
+  "sees",
 ];
 
 /**
@@ -252,6 +256,10 @@ export interface LedgerQuery {
   day?: string;
   /** The newest entries before this `seq`, newest first (`LATEST` for the newest of all). */
   before?: number;
+  /** Only this job's work (its page). */
+  job?: string;
+  /** `false`: none of any job's work (the Jobs filter off). */
+  jobs?: false;
 }
 
 export interface LedgerPage {

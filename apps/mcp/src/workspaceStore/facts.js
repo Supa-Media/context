@@ -27,6 +27,7 @@ import { indexableText } from "../encryption/format.js";
 import { isIndexableNote } from "../search/indexable.js";
 import { isWorkspaceObjectKey } from "./api.js";
 import { chaosExtraOf } from "../tree/chaosExtra.js";
+import { folderJobsAnswer } from "./jobsAnswer.js";
 
 /** Paths one props ask names (the control plane's `PROPS_AT_PATHS`). */
 export const PROPS_ASK_PATHS = 100;
@@ -178,11 +179,17 @@ export function workspaceFacts(sql, objects) {
      * - `links`: `{links: [[source, kind, target]], unparsed}`, every link of every live note, at their paths now.
      * - `chaos`: `{extras: [{path, lines, exempt, review}]}`, the notes the score needs more than a key for.
      * - `candidates` with `sources` and `names`: a move's link candidates, as the `links` ask answers them, unfiltered.
+     * - `linking` with `paths`: `{linking: [path]}`, the named notes that hold links of their own (the control plane's
+     *   `nodeLinkSources.linking`), and every named note whose facts cannot be trusted, so a move still reads it.
+     * - `neighborRows` with `path`: `{rows: {present, current, links, byPath, byName}}`, that note's links and the notes
+     *   pointing at it by path and by bare name, unfiltered (the control plane's `nodeFacts.neighbors`).
      * `{served: false}` when more changed than one ask reads.
      */
     rows(fields) {
       if (fields.ask === "props") return { served: true, ...this.props({ paths: fields.paths }, () => true) };
       if (fields.ask === "candidates") return this.links({ sources: fields.sources, names: fields.names }, () => true);
+      if (fields.ask === "linking") return { served: true, linking: this.linking({ paths: fields.paths }) };
+      if (fields.ask === "neighborRows") return this.neighborRows({ path: fields.path });
       const byPath = current();
       if (byPath === null) return NOT_SERVED;
       if (fields.ask === "links") {
@@ -228,6 +235,24 @@ export function workspaceFacts(sql, objects) {
     },
 
     /**
+     * Which of `paths` hold links of their own, read at their current text: what a move's rewrite asks of the notes
+     * it moved, whose relative links change with them. A named note whose facts cannot be trusted (its text is
+     * elsewhere, or it holds more than one note keeps) is answered as linking, so it is read rather than skipped.
+     * Unfiltered: only the control plane's readers ask it, and they judge every path.
+     */
+    linking({ paths }) {
+      const asked = pathList(paths, LINK_ASK_NAMES);
+      const found = [];
+      for (const path of asked) {
+        const note = notes("AND r.path = ?", path).get(path);
+        if (!note) continue;
+        if (stale(note)) read(note);
+        if (!parsed(note) || all(sql.exec("SELECT 1 AS one FROM ws_links WHERE key = ? LIMIT 1", note.key)).length > 0) found.push(path);
+      }
+      return found;
+    },
+
+    /**
      * `{ask: "links", sources, names}`: the notes pointing at what a move renamed, by path or bare name, and every
      * note whose facts cannot be trusted (`unparsed`: its text is elsewhere, or it holds more than one note keeps).
      * `candidates: null` past `UNPARSED_CAP`, and the rewrite reads every note.
@@ -245,6 +270,30 @@ export function workspaceFacts(sql, objects) {
       for (const target of paths) for (const path of pointing(byKey, "path", target)) found.add(path);
       for (const target of bare) for (const path of pointing(byKey, "name", target)) found.add(path);
       return { served: true, candidates: { pointing: [...found].filter(sees), unparsed: unparsed.filter(sees) } };
+    },
+
+    /**
+     * The rows a neighbors answer is resolved from, unfiltered, in the control plane's `nodeFacts.neighbors` shape:
+     * the control plane judges each path itself (`lib/nodes/gatewayFacts.ts`), when it answers for a reader the
+     * object is behind for.
+     */
+    neighborRows({ path }) {
+      const [seed] = pathList([path], 1);
+      const byPath = notes();
+      if (!catchUp(byPath)) return NOT_SERVED;
+      const byKey = keyed(byPath);
+      const own = byPath.get(seed) ?? null;
+      const links = own === null ? [] : all(sql.exec("SELECT kind, target FROM ws_links WHERE key = ? LIMIT ?", own.key, NEIGHBOR_ROWS));
+      return {
+        served: true,
+        rows: {
+          present: own !== null,
+          current: own !== null && parsed(own),
+          links: links.map(({ kind, target }) => ({ kind, target })),
+          byPath: pointing(byKey, "path", seed, NEIGHBOR_ROWS),
+          byName: pointing(byKey, "name", bareNameOf(seed), NEIGHBOR_ROWS),
+        },
+      };
     },
 
     /**
@@ -270,15 +319,25 @@ export function workspaceFacts(sql, objects) {
       if (!visible.has(seed)) return { served: true, neighbors: { links: [], backlinks: [], complete: true } };
       return { served: true, neighbors: { ...found, complete: parsed(own) } };
     },
+
+    /**
+     * `{ask: "jobs"}`: which folder does each built-in job, and the root folders, as the reader may see them
+     * (`jobsAnswer.js`, Convex's `gatewayFacts` `jobs` branch). `folderSees` is the reader's `folderVisibleAtScope`.
+     */
+    jobs(_fields, _sees, folderSees) {
+      const rows = all(sql.exec("SELECT path, kind, role FROM ws_rows WHERE gone = 0 AND kind = 'folder'"));
+      return folderJobsAnswer(rows.map((row) => ({ path: row.path, kind: row.kind, role: typeof row.role === "string" ? row.role : null })), folderSees);
+    },
   };
 }
 
 /** The asks a workspace object answers itself. Every other ask is the control plane's. */
-export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors"]);
+export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors", "jobs"]);
 
 /**
  * The asks the control plane's own readers make through the door (`ws.facts.rows`): unfiltered, like the control
- * plane's internal queries they stand in for (`nodeFacts.propsAt`, `nodeFacts.page`, `nodeChaos.extras`), because
+ * plane's internal queries they stand in for (`nodeFacts.propsAt`, `nodeFacts.page`, `nodeChaos.extras`,
+ * `nodeFacts.neighbors`, `nodeLinkSources.linking`), because
  * every caller judges each path itself. Never sent on a person's behalf by the gateway.
  */
-export const OBJECT_FACT_ROW_ASKS = new Set(["props", "links", "chaos", "candidates"]);
+export const OBJECT_FACT_ROW_ASKS = new Set(["props", "links", "chaos", "candidates", "linking", "neighborRows"]);

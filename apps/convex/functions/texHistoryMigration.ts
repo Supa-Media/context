@@ -65,7 +65,10 @@ async function describeFailure(ctx: ActionCtx, workspaceId: Id<"workspaces">, er
 
 /** A failure as a fixed code: the error's own code or name when it is a plain word, never its message. */
 export function failureCode(error: unknown): string {
-  const named = error as { code?: unknown; name?: unknown; message?: unknown } | null;
+  const named = error as { code?: unknown; name?: unknown; message?: unknown; data?: unknown } | null;
+  // A ConvexError says what it is in its data's code (`KEY_UNAVAILABLE`, say): that, never its message.
+  const data = named?.data as { code?: unknown } | null | undefined;
+  if (typeof data?.code === "string" && /^[A-Z][A-Z0-9_]{0,47}$/.test(data.code)) return `ConvexError_${data.code}`;
   // A bucket's refusal (`apps/mcp/src/store/s3.js` `s3Error`): its operation and status, never the key it names.
   const s3 = typeof named?.message === "string" ? /^S3 ([A-Za-z]{1,24}) .* failed with (\d{3})\b/s.exec(named.message) : null;
   if (s3) return `S3_${s3[1]}_${s3[2]}`;

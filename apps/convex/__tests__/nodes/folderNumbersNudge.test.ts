@@ -2,6 +2,9 @@
  * Nudging a stopped chunked move of a built-in folder (`functions/folderNumbersNudge.ts`):
  * a move whose pages stopped is found, one page runs, and the watchdog has it
  * again. What it prints never carries a path or quoted text.
+ *
+ * Sabotage (temporary local edits, reverted): dropping the object-home check in `nudge` → "a stopped move in a
+ * workspace whose notes live in its object is left as it is" fails (its page runs and its row is touched).
  */
 
 import { describe, expect, test } from "vitest";
@@ -68,6 +71,36 @@ describe("nudging a stopped built-in folder move", () => {
       ),
     );
     expect(Date.now() - (after?.updatedAt ?? 0)).toBeLessThan(HOUR);
+  });
+
+  test("a stopped move in a workspace whose notes live in its object is left as it is", async () => {
+    const f = await keyedFixture();
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("workspaceObjectHomes", { workspaceId: f.ws, home: "object", since: Date.now() });
+      await ctx.db.insert("rowMoves", {
+        workspaceId: f.ws,
+        from: "4-archive",
+        to: "archive",
+        trash: false,
+        state: "moving",
+        scope: "private",
+        grantedNames: [],
+        privacyEtag: null,
+        pass: 1,
+        moved: 1,
+        left: 0,
+        now: 1,
+        createdAt: 1,
+        updatedAt: Date.now() - HOUR,
+      } as never);
+    });
+    const before = await f.t.run(async (ctx) => (await ctx.db.query("rowMoves").collect())[0].updatedAt);
+
+    const nudged = await f.t.action(internal.functions.folderNumbersNudge.nudge, { dryRun: false });
+
+    expect(nudged.moves).toEqual([{ from: "4-archive", to: "archive", result: "left, object" }]);
+    const after = await f.t.run(async (ctx) => (await ctx.db.query("rowMoves").collect())[0].updatedAt);
+    expect(after).toBe(before);
   });
 
   test("an error's words lose their paths and quoted text", () => {

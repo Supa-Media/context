@@ -27,12 +27,22 @@
  *     has waited three hours counts" fails.
  *  8. `waitingOf` counting bugs still `open` again. → "a desk nobody has read
  *     for three hours mails the team inbox once" fails: 3 waiting, not 1.
+ *  9. `deskFrom` ignoring what the object holds (2026-11-02). → "where the
+ *     notes live in their object, the desk reads what each says there" fails:
+ *     the review still reads `new`, and the watch mails.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
 
 vi.setConfig({ testTimeout: 30_000 });
+
+/** What the pinned context's workspace object answers, where a test says its notes live there; `undefined`: as built. */
+const object = vi.hoisted(() => ({ rows: undefined as undefined | ((request: { ask: string; paths?: string[] }) => Promise<Record<string, unknown>>) }));
+vi.mock("../../functions/lib/nodes/objectFacts", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../../functions/lib/nodes/objectFacts")>();
+  return { ...real, objectFactRows: async (...args: Parameters<typeof real.objectFactRows>) => (object.rows === undefined ? await real.objectFactRows(...args) : object.rows) };
+});
 
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
@@ -63,6 +73,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  object.rows = undefined;
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -267,5 +278,63 @@ describe("the watch on the desk", () => {
     expect(mails[0]!.subject).toBe("Tex triage has stalled: 1 waiting");
     expect(mails[0]!.text).toContain("https://app.example.invalid/admin");
     expect(mails[0]!.text).not.toMatch(/calendar|Blank reply|Card number|long note/i);
+  });
+});
+
+describe("where the notes live in their object", () => {
+  /** The object's props for the desk's notes: the review triaged since the control plane last read it. */
+  const triagedReview = async (request: { ask: string; paths?: string[] }) => ({
+    served: true,
+    props: (request.paths ?? []).filter((path) => path === REVIEW).map((path) => ({
+      path,
+      version: "o",
+      sealed: false,
+      props: JSON.stringify({ heading: "Saving a long note failed", properties: { status: "triaged", task: "notes", theme: "note-saves-time-out" } }),
+    })),
+  });
+
+  test("the desk reads what each note says there, at its current text, and the rows still decide who sees what", async () => {
+    const { t, staff, otherStaff, pinned } = await world();
+    object.rows = triagedReview;
+    const desk = await asUser(t, staff).action(api.functions.texDashboard.triageNow, {});
+    if (!desk.available) throw new Error(`desk unavailable: ${desk.reason}`);
+    expect(desk.reviews.map((review) => [review.path, review.status])).toEqual([[REVIEW, "triaged"]]);
+    // A note the object has no answer for keeps the control plane's facts.
+    expect(desk.bugs.find((row) => row.path === BUG)).toMatchObject({ status: "open", title: "Calendar made two events" });
+    // A member is still not listed the held-back report, whatever the object holds.
+    await addMember(t, pinned, otherStaff, "member", staff);
+    const member = await asUser(t, otherStaff).action(api.functions.texDashboard.triageNow, {});
+    expect(JSON.stringify(member)).not.toContain(PRIVATE_BUG);
+    // And the locks are the query's: staff who are not on the context are told so.
+    const outsider = await createUser(t, "bob@example.invalid");
+    await expect(asUser(t, outsider).action(api.functions.texDashboard.triageNow, {})).rejects.toThrow();
+  });
+
+  test("an object that does not answer leaves the desk as the rows have it", async () => {
+    const { t, staff } = await world();
+    object.rows = async () => ({ served: false });
+    const desk = await asUser(t, staff).action(api.functions.texDashboard.triageNow, {});
+    if (!desk.available) throw new Error(`desk unavailable: ${desk.reason}`);
+    expect(desk.reviews.map((review) => review.status)).toEqual(["new"]);
+  });
+
+  test("the watch counts what the object says: a review triaged there is not waiting", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2026, 9, 25, 12));
+    const { t } = await world();
+    vi.stubEnv("SIGNUP_ALERTS_EMAIL", "team@example.invalid");
+    vi.stubEnv("RESEND_API_KEY", "re_fake_0123456789");
+    vi.stubEnv("APP_ORIGIN", "https://app.example.invalid");
+    const mails: unknown[] = [];
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      if (String(input).startsWith("https://api.resend.com/")) {
+        mails.push(init?.body);
+        return new Response("{}", { status: 200 });
+      }
+      return await backend.fetchImpl(input, init);
+    });
+    object.rows = triagedReview;
+    await t.action(internal.functions.texTriageWatch.check, {});
+    expect(mails).toHaveLength(0);
   });
 });

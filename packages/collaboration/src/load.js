@@ -245,10 +245,30 @@ async function reload(store, path) {
   return { head, state: validateState(stored.value, head, path), stateEtag: stored.etag };
 }
 
-export async function finalizePending(store, path, loaded) {
+/**
+ * Write the accepted state's Markdown and record it, or check it is already written.
+ *
+ * `committed`: the caller has just committed `loaded.state` itself (`commitSnapshot`), so the pending revision is the
+ * one in `loaded.revision` and the Markdown was last seen at `pending.previousRawEtag`. The first attempt then writes
+ * the Markdown on that condition without reading it or the revision first, and takes the version the conditional
+ * write answers instead of reading it back: two round trips fewer on every save. A refused condition is the
+ * Markdown having changed meanwhile, and goes the ordinary way, from a fresh read.
+ */
+export async function finalizePending(store, path, loaded, { committed = false } = {}) {
   let current = loaded;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     const { state, stateEtag, head } = current;
+    if (committed && attempt === 0 && state.pending && current.revision?.value?.revision === state.pending.revision) {
+      const pending = state.pending;
+      const written = await put(store, path, pending.text, { etagMatches: pending.previousRawEtag });
+      if (written) {
+        const next = { ...state, revision: pending.revision, text: pending.text, rawMarkdownEtag: written.etag, pending: null };
+        const recorded = await put(store, head.stateKey, JSON.stringify(next), { etagMatches: stateEtag });
+        if (recorded) return { head, state: next, stateEtag: recorded.etag, revision: current.revision };
+      }
+      current = await reload(store, path);
+      continue;
+    }
     // The accepted revisions and the Markdown are independent reads, asked together.
     const noteRead = readObject(store, path);
     noteRead.catch(() => {});
@@ -263,6 +283,16 @@ export async function finalizePending(store, path, loaded) {
         return { ...current, revision };
       }
       if (!eligible(path, note.text)) throw fail("MATERIALIZATION_CONFLICT", "the Markdown generation is no longer eligible for collaboration");
+      // The Markdown already says what the accepted state says, under a new version (the note was copied, moved to
+      // another store, or rewritten with the same bytes): only the version is recorded. Rewriting the same text
+      // would be a note write on a read, with its bookkeeping, for nothing.
+      if (note.text === revision.value.text && note.text === state.text) {
+        const recorded = { ...state, rawMarkdownEtag: note.etag };
+        const kept = await put(store, head.stateKey, JSON.stringify(recorded), { etagMatches: stateEtag });
+        if (kept) return { head, state: recorded, stateEtag: kept.etag, revision };
+        current = await reload(store, path);
+        continue;
+      }
       const repaired = await put(store, path, revision.value.text, { etagMatches: note.etag });
       if (!repaired) {
         current = await reload(store, path);

@@ -24,6 +24,7 @@ import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { announceMoves } from "../../moves/keyedCollaboration.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
+import { startObjectMove } from "./objectMove.js";
 
 /**
  * A keyed row move's open editors: each moved note's room is told where it went (`keyedCollaboration.js`).
@@ -63,7 +64,7 @@ const COLLABORATION_ETAG = "c2.";
  *
  * @returns {Promise<{etag?: string, conflict?: true}>}
  */
-async function rowVersionOf(store, path, expected) {
+export async function rowVersionOf(store, path, expected) {
   if (typeof expected !== "string" || !expected.startsWith(COLLABORATION_ETAG)) return { etag: expected };
   let current;
   try {
@@ -81,16 +82,26 @@ async function rowVersionOf(store, path, expected) {
  * control plane moves the row and says so; nothing is copied here. `null`
  * means the workspace is not keyed yet, and the note moves the old way. A
  * keyed refusal is an answer, never `null`, because the old way would move
- * the frozen copies the bucket still holds.
+ * the frozen copies the bucket still holds. `objectAsked` says the caller
+ * already asked the object (`archive.js`), so it is not asked twice.
  */
-export async function startKeyedNoteMove(store, scope, source, destination, expectedEtag, privacy) {
+export async function startKeyedNoteMove(store, scope, source, destination, expectedEtag, privacy, { objectAsked = false } = {}) {
   if (store?.keyedLayout !== true || typeof store.startQueuedMove !== "function") return null;
   const version = await rowVersionOf(store, source, expectedEtag);
   if (version.conflict) return toolError("conflict: the note changed since you read it; re-read and retry");
+  // A workspace whose notes live in its object moves the row there, in one transaction (`objectMove.js`).
+  const inObject = objectAsked
+    ? null
+    : await startObjectMove(store, scope, source, destination, version.etag, { kind: "note", action: "move_note", privacy });
+  if (inObject !== null) return inObject;
   let answer;
   try {
     answer = await store.startQueuedMove(source, destination, version.etag);
-  } catch {
+  } catch (error) {
+    // A move the gateway gave up waiting on may still land: the caller looks before sending it again.
+    if (error?.reason === "timed out") {
+      return toolError(`the move is taking longer than expected and may still finish; check whether ${destination} exists before sending it again`);
+    }
     return toolError("could not start the move right now; try again in a moment");
   }
   if (!answer || answer.queued !== true) {
@@ -216,11 +227,18 @@ export async function startKeyedBatchMove(store, scope, rules, overrides, moves)
 }
 
 export async function startQueuedFolderMove(store, scope, source, destination, privacy) {
+  const inObject = await startObjectMove(store, scope, source, destination, undefined, { kind: "folder", action: "move_folder", privacy });
+  if (inObject !== null) return inObject;
   if (typeof store?.startQueuedMove !== "function") return null;
   let answer;
   try {
     answer = await store.startQueuedMove(source, destination);
-  } catch {
+  } catch (error) {
+    // A folder move the gateway gave up waiting on may still be moving every note (93 notes took 9.2 s,
+    // 2026-11-03): saying "nothing was changed", or moving it the old way on top, would both be wrong.
+    if (error?.reason === "timed out") {
+      return toolError(`the folder move is taking longer than expected and may still finish; list ${destination}/ before sending it again`);
+    }
     // The control plane is out of reach: the caller decides what the old way does.
     return null;
   }

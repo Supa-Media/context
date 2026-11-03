@@ -29,6 +29,7 @@ import { NOTE_ID, keyedFixture, privacyEtag, rowOf, treeOf } from "./keyedFixtur
 import { ROW_MOVE_PAGE } from "../../functions/lib/nodes/rowMoveChunks";
 import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 import { storedPathsOnly } from "./treeRows.helpers";
+import { drainScheduled } from "../fixtures.helpers";
 
 // Paged moves and the parent check that sets parents from stored paths exist only on stored paths.
 storedPathsOnly();
@@ -237,6 +238,8 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
     for (let pass = 0; pass < 40 && (await records(f))[0]?.state === "moving"; pass += 1) {
       await f.t.run(async (ctx) => await ctx.db.patch(id, { updatedAt: 0 }));
       await f.t.mutation(internal.functions.nodeRowMoves.continueRowMove, { id });
+      // The watchdog's page runs from an action, which tells the workspace's object first (`nodeRowMovesMarked.ts`).
+      await drainScheduled(f.t);
     }
     expect((await records(f))[0]).toMatchObject({ state: "moved", left: 0 });
     expect((await treeOf(f)).filter((row) => row.live && row.path.startsWith(`${TO}/`) && row.kind === "file")).toHaveLength(FILES);

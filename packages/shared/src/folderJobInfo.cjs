@@ -124,7 +124,20 @@ function isInboxPart(path, inboxPath) {
  * Context's icons (`folderIcons.cjs`), and a person adds notes and folders of
  * their own beside them.
  */
-const TEX_PARTS = Object.freeze(["attention", "chats", "dreams", "groups", "handbacks", "heartbeat", "housekeeping", "routines", "skills", "transcripts"]);
+const TEX_PARTS = Object.freeze(["attention", "chats", "dreams", "groups", "handbacks", "heartbeat", "housekeeping", "pictures", "routines", "skills", "transcripts"]);
+
+/**
+ * The folders a person's Tex has that a group chat's home cannot: `chats` and
+ * `groups` hold the chats themselves, and `transcripts` is no longer written
+ * (2026-11-02). Every other Tex folder stands in every home
+ * (`HOME_TEX_PARTS`), so a folder added to `TEX_PARTS` reaches the homes
+ * unless it is named here (owner, 2026-11-02: "I want 1:1 tex and group tex
+ * to start mirroring each other and not diverging so much").
+ */
+const PERSON_ONLY_TEX_PARTS = Object.freeze(["chats", "groups", "transcripts"]);
+
+/** The folders every group chat's home holds: Tex's own, less the person-only ones. */
+const HOME_TEX_PARTS = Object.freeze(TEX_PARTS.filter((part) => !PERSON_ONLY_TEX_PARTS.includes(part)));
 
 /**
  * Whether `path` is one of Tex's own folders, given the path of the folder
@@ -246,6 +259,8 @@ module.exports = {
   topOnly,
   isInboxPart,
   TEX_PARTS,
+  PERSON_ONLY_TEX_PARTS,
+  HOME_TEX_PARTS,
   isTexPart,
   nameWords,
   nameSays,

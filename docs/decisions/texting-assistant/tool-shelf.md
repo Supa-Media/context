@@ -50,7 +50,7 @@ can't it just see everything? arbitrary cutoffs don't work"). The kept history
 and what a turn is shown are now bounded by characters, not texts (120,000
 kept, about 80,000 shown, roughly 20,000 tokens); the production setup's
 `history: 4` line was removed, `earlier_texts` reads the rest that is kept,
-and `tex/transcripts/` holds every day's texts beyond that. The history is
+and the chat's ledger holds every text beyond that (`tex/transcripts/` did until 2026-11-02). The history is
 read from the log newest first, a batch at a time, until the budget is spent
 (`events.js`). Tests: "a turn is shown every kept text up to the character
 budget, not a count" and "a thread is shown its own texts past a setup's

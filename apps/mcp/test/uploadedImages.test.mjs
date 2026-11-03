@@ -182,6 +182,8 @@ export async function runUploadedImageChecks() {
       "---",
       `skill: ${PAGE_SKILL_STAMP}`,
       "cover: logo.png",
+      "drawing: logo.png",
+      "drawing-dark: ./logo.png",
       "---",
       "# Venues",
       "",
@@ -198,6 +200,9 @@ export async function runUploadedImageChecks() {
     "a page's photo fields naming an attached picture point at the stored copy, and nothing is appended",
     !pageWrite.isError &&
       pageBody?.includes(`cover: ${leaf}\n`) &&
+      // Tex's drawing of a page (`docs/decisions/app-and-console/page-drawings.md`) is named the same way.
+      pageBody?.includes(`drawing: ${leaf}\n`) &&
+      pageBody?.includes(`drawing-dark: ${leaf}\n`) &&
       pageBody?.includes(`  photos: ${leaf}, other.png\n`) &&
       !pageBody?.includes("![[")
   );

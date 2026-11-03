@@ -55,6 +55,7 @@ import { handleTexPage, TEX_PAGE_PATHS } from "./texPage/serve.js";
 import { handleTexPageLive, TEX_PAGE_SOCKET_PATH } from "./texPage/live.js";
 import { ACCESS_SOCKET_PATH, handleAccess, handleAgentActivity, handlePresence, handleTree, TREE_SOCKET_PATH } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
+import { FILE_OP_PATHS, handleFileOp } from "../live/fileOpsRoute.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
 import {
   handleMeetings,
@@ -234,6 +235,8 @@ export async function route(request, env, ctx) {
     // batch, or one file. A path under the file route that is not one is
     // still this route, refused below rather than read as anything else.
     const messagesBackupRoute = isMessagesBackupPath(path);
+    // The app's trash and restore, answered by the workspace's object (`live/fileOpsRoute.js`).
+    const fileOpRoute = FILE_OP_PATHS.has(path);
     if (
       summaryRoute ||
       path === "/inbox" ||
@@ -242,6 +245,7 @@ export async function route(request, env, ctx) {
       TEXTING_ROUTES.has(path) ||
       path === "/agent/review" ||
       path === "/collaboration" ||
+      fileOpRoute ||
       appRoute ||
       texPageRoute ||
       messagesBackupRoute ||
@@ -291,7 +295,7 @@ export async function route(request, env, ctx) {
       // connection's default workspace may clamp the person to `member` where
       // they are an `editor` in the one they asked to write into. Clamping
       // the route here would 403 them there, and they could never approve it.
-      const needed = summaryRoute || messagesBackupRoute
+      const needed = summaryRoute || messagesBackupRoute || fileOpRoute
         ? SCOPE_WRITE
         : appRoute
         ? SCOPE_READ
@@ -345,6 +349,7 @@ export async function route(request, env, ctx) {
         store.actor = actorFor(session);
         return handleCollaboration(request, store, session, origin);
       }
+      if (fileOpRoute) return handleFileOp(request, path, store, session);
 
       // Capture is anchored to the context its grant was approved for, so the
       // inbox store is built without the opener at all rather than with one

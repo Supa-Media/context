@@ -12,6 +12,8 @@
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
+import { GATEWAY_SETTLE } from "../rowWatch/drain";
+import { objectFirst } from "../rowWatch/objectFirst";
 import { badRequest, json, randomOpaqueToken, stringField } from "../gatewayAuth";
 import { ENGAGEMENT_STYLES, groupKeyOf, MAX_GROUP_PARTICIPANTS, TEXTS_GROUP_GRANT_TTL_MS, type Engagement, type GroupAnswer } from "../../textGroups";
 
@@ -69,9 +71,12 @@ export async function agentTextsGroupHandler(ctx: ActionCtx, body: Record<string
   const listed = participants.map((entry) => (typeof entry === "string" ? entry.slice(0, 320) : "?"));
   const mint = body.mint === true && command === undefined;
   const accessToken = `cat_${randomOpaqueToken(32)}`;
-  const answer: GroupAnswer = await ctx.runMutation(internal.functions.textGroups.applyGroupTurn, {
+  const groupKey = await groupKeyOf(line, groupId);
+  // A turn that may take people off a folder or a home: each object it touches hears it first (`textGroupsMarked.ts`).
+  const marked = await ctx.runQuery(internal.functions.textGroupsMarked.turnWorkspaces, { groupKey });
+  const turn = async (): Promise<GroupAnswer> => await ctx.runMutation(internal.functions.textGroups.applyGroupTurn, {
     line,
-    groupKey: await groupKeyOf(line, groupId),
+    groupKey,
     sender,
     participants: listed,
     ...(command !== undefined ? { command } : {}),
@@ -82,6 +87,8 @@ export async function agentTextsGroupHandler(ctx: ActionCtx, body: Record<string
     hashedRefreshToken: await hashToken(`unissued_${randomOpaqueToken(32)}`),
     expiresAt: Date.now() + TEXTS_GROUP_GRANT_TTL_MS,
   });
+  const run = marked.reduceRight<() => Promise<GroupAnswer>>((inner, workspaceId) => () => objectFirst(ctx, workspaceId, inner, { settle: GATEWAY_SETTLE }), turn);
+  const answer = await run();
   if (answer.status === "ready" && answer.minted) return json({ ...answer, accessToken });
   return json(answer);
 }

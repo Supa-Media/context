@@ -119,6 +119,7 @@ export async function runActivitySubstanceChecks(check) {
   check(
     "Tex's own transcript of a day's texts is never a line",
     entryFor(change("update_note", ["tex/transcripts/2026-10-15.md"], { team_visible: false })) === null &&
+      entryFor(change("update_note", ["tex/pictures/2026-11.md"], { team_visible: false })) === null &&
       entryFor(change("update_note", ["tex/about-me.md"], { team_visible: false })) !== null,
   );
 

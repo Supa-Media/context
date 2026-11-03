@@ -49,7 +49,6 @@ export function scopeInfoText(scope, rules, reach = null) {
       "A note reads as team, or it does not; what holds a note back is not disclosed here. " +
     "The owner may separately have handed out an unlisted link to a note; you are not told which. " +
       "A link you add to a note can widen one already sent, because such a link also serves what the note links to. " +
-      "Personal reviewers can process queued proposals." +
       "\n\n## Forms and links, on write_note\n" +
       "A fenced ```form block in a note IS a form: writing the note validates it and creates its answers note in the same call. write_note's own description carries the block's grammar. " +
       "Pass share=anyone, share=members or share=collect on the same write_note call to hand out a link to it — share=collect is what lets people with NO account fill in the form — and share_short for a memorable address under this handle. " +
@@ -70,7 +69,7 @@ export function scopeInfoText(scope, rules, reach = null) {
     "Explicitly published team notes may also exist inside private-default folders and remain individually visible. " +
     "Reads outside the visible surface return not found to avoid leaking private-path existence. " +
     "Write and move destinations outside the surface return permission denied without confirming whether anything exists there.\n\n" +
-    "If the PARA-correct destination is not writable, use propose_note. A personal connection must approve it before the note is filed. " +
+    "If the right destination is not writable, tell the person; do not file the note somewhere else. " +
     "Archive paths never encode visibility. Exact archive visibility is enforced through privacy.md. " +
     "A note reads as team, or it does not; what holds a note back is not disclosed here. " +
     "The owner may separately have handed out an unlisted link to a note; you are not told which. " +
