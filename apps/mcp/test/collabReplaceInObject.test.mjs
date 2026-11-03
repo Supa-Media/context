@@ -13,6 +13,7 @@ import { withIdLayout } from "../src/store/idLayout.js";
 import { replaceNoteText } from "../src/tools/notes/replaceInObject.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
+import { mirrorOutbox } from "../src/workspaceStore/mirrorOutbox.js";
 import { durableSqlite } from "./durableSqlite.mjs";
 
 const PATH = "1-projects/plan.md";
@@ -20,9 +21,30 @@ const NOTE_ID = "0199a000-0000-7000-8000-000000000001";
 const KEY = `notes/${NOTE_ID}.md`;
 const COLLAB = ".context/collaboration/";
 
-function objectSide({ home = "object", backfilled = true, rowKey = KEY } = {}) {
-  const { sql, transact } = durableSqlite();
-  const store = { sql, transact, objects: texObjects(sql), rows: workspaceRows(sql) };
+function objectSide({ home = "object", backfilled = true, rowKey = KEY, mirrored = true } = {}) {
+  const { sql, transact: run } = durableSqlite();
+  let depth = 0;
+  const transact = (work) => {
+    depth += 1;
+    try {
+      return run(work);
+    } finally {
+      depth -= 1;
+    }
+  };
+  const store = { sql, transact, objects: texObjects(sql), rows: workspaceRows(sql), soon: 0, queued: [] };
+  if (mirrored) {
+    const mirror = mirrorOutbox(sql);
+    const enqueue = mirror.enqueue;
+    mirror.enqueue = (...args) => {
+      store.queued.push({ change: args[1], inTransaction: depth > 0 });
+      return enqueue(...args);
+    };
+    store.mirror = mirror;
+    store.mirrorSoon = () => {
+      store.soon += 1;
+    };
+  }
   store.rows.pinWorkspace("ws");
   store.rows.put([{ id: "row-1", noteId: NOTE_ID, path: PATH, kind: "file", at: 1, storageKey: rowKey }]);
   store.rows.setHome(home);
@@ -136,17 +158,19 @@ test("a saved version only the bucket keeps sends the save back to the gateway",
 });
 
 /** The routed store under the id layer, as a session's store has it: the tree names the note's key and id. */
-function layered(routed, client) {
+function layered(routed, client, { inObject = false } = {}) {
   const reports = [];
+  const wrote = async (record) => {
+    reports.push(record);
+    return { recorded: true };
+  };
+  if (inObject) wrote.inObject = true;
   const store = withIdLayout(routed, {
     lookup: async (paths) => {
       const head = await client.bodies.head(KEY);
       return { keyed: true, notes: Object.fromEntries(paths.filter((path) => path === PATH).map((path) => [path, { state: "keyed", key: KEY, noteId: NOTE_ID, etag: head?.etag ?? "" }])) };
     },
-    wrote: async (record) => {
-      reports.push(record);
-      return { recorded: true };
-    },
+    wrote,
     adopt: async () => assert.fail("a save of an existing note adopts nothing"),
     removed: async () => assert.fail("a save removes nothing"),
   });
@@ -184,4 +208,60 @@ test("an object that cannot be reached for the save leaves it to the engine here
   const result = await replaceNoteText(store, PATH, { expectedEtag: saved.etag, onlyCurrent: true, text: "# Plan\n\nThird words.\n" });
   assert.equal(result.text, "# Plan\n\nThird words.\n");
   assert.equal(await text(client.bodies, KEY), "# Plan\n\nThird words.\n");
+});
+
+const rowEtag = (store) => store.sql.exec("SELECT etag FROM ws_rows WHERE path = ? AND gone = 0", PATH).toArray()[0]?.etag ?? null;
+
+test("a save that brings its record has the new version on its row and queued for the mirror, in the same call", async () => {
+  const { routed, store, calls, saved } = await started();
+  const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n", record: { at: 5 } });
+  assert.equal(answer?.recorded, true);
+  assert.deepEqual(calls.map((call) => JSON.parse(call).op), ["ws.collab.replace"]);
+  assert.equal(rowEtag(store), answer.markdown.etag, "the row does not name the new version");
+  const wroteChanges = store.queued.filter((entry) => entry.change?.op === "wrote");
+  assert.equal(wroteChanges.length, 1, "the version was not queued for the mirror exactly once");
+  assert.equal(wroteChanges[0].inTransaction, true);
+  assert.equal(wroteChanges[0].change.record.etag, answer.markdown.etag);
+  assert.equal(wroteChanges[0].change.record.at, 5);
+  assert.equal(store.soon, 1);
+});
+
+test("a save without its record leaves the row alone and says so", async () => {
+  const { routed, store, saved } = await started();
+  const before = rowEtag(store);
+  const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
+  assert.equal(answer?.recorded, false);
+  assert.equal(rowEtag(store), before);
+  assert.equal(store.queued.length, 0);
+});
+
+test("a conflicting save records nothing", async () => {
+  const { routed, store, saved } = await started();
+  await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
+  const before = rowEtag(store);
+  const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nOverwrite.\n", record: { at: 6 } });
+  assert.equal(answer?.error?.code, "CONFLICT");
+  assert.notEqual(answer.recorded, true);
+  assert.equal(rowEtag(store), before);
+  assert.equal(store.queued.length, 0);
+});
+
+test("a member's save through the id layer is recorded by the object, with no second call and no report", async () => {
+  const { routed, client, store, calls, saved } = await started();
+  const { store: layeredStore, reports } = layered(routed, client, { inObject: true });
+  calls.length = 0;
+  const result = await replaceNoteText(layeredStore, PATH, { expectedEtag: saved.etag, onlyCurrent: true, text: "# Plan\n\nThird words.\n" });
+  assert.equal(result.text, "# Plan\n\nThird words.\n");
+  // (The fake tree's lookup reads a head; the save itself is one call.)
+  assert.deepEqual(calls.map((call) => JSON.parse(call).op).filter((op) => op !== "head"), ["ws.collab.replace"]);
+  assert.deepEqual(reports, [], "the version was reported a second time");
+  assert.equal(rowEtag(store), (await client.bodies.head(KEY)).etag);
+});
+
+test("an object that cannot record the version leaves the report to the id layer", async () => {
+  const { routed, client, saved } = await started({ mirrored: false });
+  const { store: layeredStore, reports } = layered(routed, client, { inObject: true });
+  await replaceNoteText(layeredStore, PATH, { expectedEtag: saved.etag, onlyCurrent: true, text: "# Plan\n\nThird words.\n" });
+  const head = await client.bodies.head(KEY);
+  assert.deepEqual(reports.map((record) => [record.key, record.etag]), [[KEY, head.etag]]);
 });

@@ -17,10 +17,19 @@
  * then is handed back too, so the gateway still copies it to the bucket.
  *
  * Every write is handed back (`writes`, `deletes`) for the bucket's backup copy, which only the gateway can reach.
+ *
+ * A call that brings `record: {at}` (a member's save, whose version report would have come to this object anyway:
+ * `store/objectLookup.js` `wrote`) also has the new Markdown version recorded on its row here, as `ws.write.wrote`
+ * records it, with the change queued for the control plane's mirror in the same transaction (`serveWrites.js`). The
+ * answer says `recorded: true`, and the gateway sends no second call. Anything short of that answers `recorded: false`
+ * and the gateway reports the version as before.
  */
 
 import { CollaborationError, replaceText } from "@context/collaboration";
 import { HOMES, isRevisionKey } from "./api.js";
+import { liveRowByPath } from "./rowsByPath.js";
+import { objectRowId } from "./treeOps.js";
+import { WRITE_OPS, WriteOpRefused } from "./writeOps.js";
 
 const COLLABORATION_ROOT = ".context/collaboration/";
 const NOTE_KEY = /^notes\/[A-Za-z0-9-]{1,128}\.md$/;
@@ -103,10 +112,32 @@ export function engineStore(objects, { path, key, noteId, legacyEtag = null, row
   return { store, writes, deletes };
 }
 
+/** Record the save's new Markdown version on its row, as `ws.write.wrote` does: whether it was. Never fails the save. */
+function recordVersion(store, fields, markdown) {
+  const { rows, sql, transact, mirror } = store;
+  if (typeof transact !== "function" || typeof mirror?.enqueue !== "function") return false;
+  const body = { path: fields.path, key: fields.key, etag: markdown.etag, size: markdown.size, at: fields.record.at, keyed: true };
+  const now = Date.now();
+  try {
+    const outcome = transact(() => {
+      const result = WRITE_OPS["ws.write.wrote"]({ rows, sql, members: store.members ?? null, now, lookupLive: (path) => liveRowByPath(sql, path), mintId: objectRowId }, body);
+      if (result.change) mirror.enqueue(fields.workspaceId, result.change, now);
+      return result;
+    });
+    if (outcome.change && typeof store.mirrorSoon === "function") store.mirrorSoon();
+    return outcome.answer?.ok === true;
+  } catch (error) {
+    if (error instanceof WriteOpRefused) return false;
+    throw error;
+  }
+}
+
+const wantsRecord = (fields) => typeof fields.workspaceId === "string" && Number.isFinite(fields.record?.at);
+
 /**
  * Serve one replacement. `store` is the object's ready store (`{rows, sql, objects}`); `fields` is
- * `{path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text}`: the row's version and its old name, as the id layer
- * resolved them.
+ * `{path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text, record?}`: the row's version and its old name, as the
+ * id layer resolved them, and `record: {at}` to record the new version here too.
  */
 export async function serveCollabReplace(store, fields) {
   const { path, key, noteId, expectedEtag, text } = fields ?? {};
@@ -125,7 +156,8 @@ export async function serveCollabReplace(store, fields) {
   try {
     const result = await replaceText(engine.store, path, { expectedEtag, onlyCurrent: true, text });
     const markdown = engine.writes.filter((write) => write.key === key).at(-1) ?? null;
-    return { served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, ...handedBack() };
+    const recorded = markdown !== null && wantsRecord(fields) && recordVersion(store, fields, markdown);
+    return { served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, recorded, ...handedBack() };
   } catch (error) {
     if (notHeldHere(error)) return { served: false, reason: "not_held", ...handedBack() };
     if (error instanceof CollaborationError) return { served: true, error: { code: error.code, message: error.message }, ...handedBack() };

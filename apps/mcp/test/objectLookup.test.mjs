@@ -302,6 +302,8 @@ test("a member's keyed write with its size and time is recorded in the object, n
   const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: ["@design"], workspaceId: "w1" });
   assert.equal(typeof hooks.wrote, "function");
   assert.notEqual(hooks.wrote, cp.hooks.wrote);
+  // So a save run in the object may record its version there in the same call (`workspaceStore/collabReplace.js`).
+  assert.equal(hooks.wrote.inObject, true);
   assert.deepEqual(await hooks.wrote({ ...KEYED, keyEtag: "k1" }), { recorded: true });
   assert.deepEqual(ob.asked, [{ op: "wrote", path: "plans/a.md", key: KEY, etag: "e2", size: 10, at: 99, keyed: true }]);
   assert.deepEqual(cp.asked.wrote, [], "the control plane is not asked when the object takes the write");
@@ -357,6 +359,7 @@ test("a guest's or a chat's keyed write is never recorded in the object: the con
     const ob = object({}, () => ({ ok: true }));
     const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names, chatNames, userId: "u1", workspaceId: "w1" });
     assert.equal(hooks.wrote, cp.hooks.wrote, "the control plane's own hook");
+    assert.notEqual(hooks.wrote.inObject, true, "a guest's save must not be recorded in the object");
     assert.deepEqual(await hooks.wrote(KEYED), { recorded: "control" });
     assert.deepEqual(cp.asked.wrote, [KEYED]);
     assert.deepEqual(ob.asked, [], "the object is never asked to record it");
