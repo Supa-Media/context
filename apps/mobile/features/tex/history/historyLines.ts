@@ -11,7 +11,7 @@
 import type { LedgerEntry, LedgerKind } from "../page/texPageTypes";
 
 /** What the view can show or hide, and the ledger kinds each one is. */
-export const SHOWS = ["texts", "tools", "thinking", "background", "jobs"] as const;
+export const SHOWS = ["texts", "tools", "thinking", "background"] as const;
 export type Show = (typeof SHOWS)[number];
 
 /**
@@ -20,7 +20,7 @@ export type Show = (typeof SHOWS)[number];
  * answer given in another app, the advisor, the Mail checker and jobs, and
  * each of its lines now says which.
  */
-export const SHOW_LABEL: Record<Show, string> = { texts: "Texts", tools: "Tool calls", thinking: "Thinking", background: "Background", jobs: "Jobs" };
+export const SHOW_LABEL: Record<Show, string> = { texts: "Texts", tools: "Tool calls", thinking: "Thinking", background: "Background" };
 
 /**
  * `reply` is left out of Texts: it is Tex's answer as it left the gateway, the
@@ -32,13 +32,15 @@ export const SHOW_KINDS: Record<Show, LedgerKind[]> = {
   tools: ["tool"],
   thinking: ["thinking", "said"],
   background: ["note", "advisor", "mail_check", "job"],
-  // Not a kind: what a job's turns wrote, of any kind, each marked with the job (asked as `jobs: false` when off).
-  jobs: [],
 };
 
 /** Thinking is off until asked for: it is the longest and the least often wanted. */
-/** Jobs are off too: a job's work is long, and its own page shows it (decided by the owner, 2026-11-02: "In the chat's history, tagged"). */
-export const DEFAULT_SHOWN: Record<Show, boolean> = { texts: true, tools: true, thinking: false, background: true, jobs: false };
+/**
+ * There is no Jobs filter: a job's work is always read, folded under its own
+ * line (Dev, 2026-11-03: "why can't i see the background jobs thinking and
+ * actions", then the Jobs artboard approved).
+ */
+export const DEFAULT_SHOWN: Record<Show, boolean> = { texts: true, tools: true, thinking: false, background: true };
 
 /** The ledger kinds to ask for; every kind the view shows when all four are on. */
 export function kindsFor(shown: Record<Show, boolean>): LedgerKind[] {
@@ -81,7 +83,25 @@ export interface HistoryLine {
   job?: string;
   /** A run of tool calls drawn as one line (`text` sums them up); these are the calls, opened on a tap. */
   calls?: HistoryLine[];
+  /** A background job's line: its work, folded under it (`foldJobs`). */
+  run?: HistoryJob;
   entry: LedgerEntry;
+}
+
+/**
+ * A background job as one line of the day, its work under it: who is `Tex ·
+ * Minion 1`, numbered in the order the day's jobs began (Dev, 2026-11-03: "i
+ * like the mock, maybe label it as Tex · Minion 1/2/3").
+ */
+export interface HistoryJob {
+  key: string;
+  minion: number;
+  /** `done`, `running`, `waiting` or `stuck`, from its newest `job` entry; null when none is in view. */
+  state: string | null;
+  /** How many turns the job took at it. */
+  tries: number;
+  /** Its thinking, calls and checks, in the order they happened. */
+  steps: HistoryLine[];
 }
 
 export interface HistoryTurn {
@@ -260,7 +280,7 @@ export function dayTitle(key: string, now: Date): string {
  * turn is a turn of its own, but a person's text joins the turn just after it. `group` names people by name rather
  * than "You".
  */
-export function historyDays(entries: readonly LedgerEntry[], now: Date, { group = false, thinking = false }: { group?: boolean; thinking?: boolean } = {}): HistoryDay[] {
+export function historyDays(entries: readonly LedgerEntry[], now: Date, { group = false, thinking = false, fold = true }: { group?: boolean; thinking?: boolean; /** Fold each job's work under its line; off on one job's own page, where all of it is that job's. */ fold?: boolean } = {}): HistoryDay[] {
   const byEventId = new Map<string, LedgerEntry>();
   for (const e of entries) if (e.kind === "text" && typeof e.eid === "string") byEventId.set(e.eid, e);
   // Reactions go under the text they are on, never on a line of their own, as in the mock; one whose text isn't in view stays a line.
@@ -311,6 +331,70 @@ export function historyDays(entries: readonly LedgerEntry[], now: Date, { group 
   for (const day of days) {
     day.turns.reverse();
     for (const turn of day.turns) turn.lines = collapseCalls(turn.lines);
+    if (fold) foldJobs(day, jobStates(entries));
   }
   return days;
+}
+
+/** Which job a line is the work of: the job its turn ran for, or the job a `job` entry is about. */
+function jobKey(e: LedgerEntry): string | null {
+  if (typeof e.jobId === "string" && e.jobId) return e.jobId;
+  return e.kind === "job" && typeof e.job === "string" && e.job ? e.job : null;
+}
+
+const STATE_WORDS: Record<string, string> = { started: "running", keep_going: "running", waiting: "waiting", done: "done", stuck: "stuck" };
+
+/** Each job's newest state and title, from its `job` entries (newest first, as read). */
+function jobStates(entries: readonly LedgerEntry[]): Map<string, { state: string; title: string }> {
+  const out = new Map<string, { state: string; title: string }>();
+  for (const e of entries) {
+    if (e.kind !== "job" || typeof e.job !== "string") continue;
+    const was = out.get(e.job);
+    const title = oneLine(e.title);
+    if (was === undefined) out.set(e.job, { state: STATE_WORDS[str(e.state)] ?? str(e.state).replace(/_/g, " "), title });
+    else if (!was.title && title) was.title = title;
+  }
+  return out;
+}
+
+/**
+ * A day's job work folded under one line a job, where the job began: its
+ * thinking, calls and checks open under it. What a job texted the person stays
+ * in the chat, from `Tex · Minion N`; its `job` entries are its state.
+ */
+function foldJobs(day: HistoryDay, states: Map<string, { state: string; title: string }>): void {
+  const runs = new Map<string, HistoryLine>();
+  for (const turn of day.turns) {
+    const kept: HistoryLine[] = [];
+    for (const line of turn.lines) {
+      const key = jobKey(line.entry);
+      if (key === null) {
+        kept.push(line);
+        continue;
+      }
+      let head = runs.get(key);
+      if (head === undefined) {
+        const known = states.get(key);
+        const title = known?.title || oneLine(line.entry.jobTitle) || oneLine(line.entry.title) || "A job";
+        const run: HistoryJob = { key, minion: runs.size + 1, state: known?.state ?? null, tries: 0, steps: [] };
+        head = { id: `job:${day.key}:${key}`, time: timeOf(line.entry.at), who: `Tex · Minion ${run.minion}`, tone: "tex", text: title, entry: line.entry, run };
+        runs.set(key, head);
+        kept.push(head);
+      }
+      if (line.entry.kind === "text") kept.push({ ...line, job: undefined, who: head.who, tone: "tex" });
+      else if (line.entry.kind !== "job") head.run!.steps.push({ ...line, job: undefined, ...(line.calls ? { calls: line.calls.map((c) => ({ ...c, job: undefined })) } : {}) });
+    }
+    turn.lines = kept;
+  }
+  for (const head of runs.values()) {
+    const run = head.run!;
+    run.tries = new Set(run.steps.flatMap((s) => s.calls ?? [s]).map((s) => s.entry.turn).filter((t) => typeof t === "string" && t)).size;
+  }
+  day.turns = day.turns.filter((turn) => turn.lines.length > 0);
+}
+
+/** `3 tries · 14 steps`: what a job's line says it holds. */
+export function jobCount(run: HistoryJob): string {
+  const steps = run.steps.reduce((n, s) => n + (s.calls?.length ?? 1), 0);
+  return [run.tries > 1 ? `${run.tries} tries` : "", steps === 1 ? "1 step" : `${steps} steps`].filter(Boolean).join(" · ");
 }

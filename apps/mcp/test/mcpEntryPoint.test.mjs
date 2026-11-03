@@ -140,6 +140,12 @@ test("a workspace object call is timed by its op, on a copy of env, and still an
 test("callOf names the call, the tool for a tool call, and nothing a caller wrote", () => {
   assert.equal(callOf({ method: "initialize" }), "initialize");
   assert.equal(callOf({ method: "tools/call", params: { name: "orient", arguments: { q: "secret" } } }), "tools/call:orient");
+  assert.equal(callOf({ method: "tools/call", params: { name: "manage", arguments: { action: "archive", args: { path: "a.md" } } } }), "tools/call:manage:archive");
+  assert.equal(callOf({ method: "tools/call", params: { name: "write", arguments: { action: "save" } } }), "tools/call:write:save");
+  // An action no tool lists is never carried, so a caller cannot write into the timings.
+  assert.equal(callOf({ method: "tools/call", params: { name: "manage", arguments: { action: "secret_words" } } }), "tools/call:manage");
+  assert.equal(callOf({ method: "tools/call", params: { name: "manage", arguments: { action: "toString" } } }), "tools/call:manage");
+  assert.equal(callOf({ method: "tools/call", params: { name: "constructor", arguments: { action: "save" } } }), "tools/call:constructor");
   assert.equal(callOf([{ method: "tools/list" }]), "tools/list");
   assert.equal(callOf([{ method: "a" }, { method: "b" }]), "batch");
   assert.equal(callOf(undefined), "unparsed");

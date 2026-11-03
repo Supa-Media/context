@@ -1,102 +1,68 @@
 import { useEffect, useState } from "react";
-import { Image, Pressable, View } from "react-native";
+import { Image, Pressable, TextInput, View } from "react-native";
 import { writeClipboard } from "../../design/clipboard";
 import { useColors } from "../../design/theme";
-import { DEFAULT_HUMOR, TEX_SETTINGS } from "../../console/settings/panels/TexSettings";
+import { texPageType } from "../../design/tokens";
+import { useFieldFont } from "../../design/fieldFont";
 import type { TexComputerState } from "../useTexComputer";
 import type { ViewProps } from "./TexPageBody";
-import { ListBox, ListRow, SubPage, T } from "./TexPageParts";
+import { ListBox, ListRow, SubPage, T, pageStyles } from "./TexPageParts";
 import { TexSelect, type SelectOption } from "./TexSelect";
 import { useTexList } from "./useTexPage";
 
-type Values = Record<string, string | number>;
-
-/** Tex's dial, 0% to 100% in tens. */
-const HUMOR: readonly SelectOption[] = Array.from({ length: 11 }, (_, index) => ({
-  key: String(index * 10),
-  label: `${index * 10}%`,
-}));
+/** The control plane's limit on the text (`apps/convex/functions/lib/texInstructions.ts` `MAX_INSTRUCTIONS`). */
+const MAX_INSTRUCTIONS = 1_500;
 
 const ANSWERS: readonly SelectOption[] = [
   { key: "named", label: "When named or asked" },
   { key: "every", label: "Every message" },
 ];
 
-const GROUP_TONES: readonly SelectOption[] = [
-  { key: "default", label: "Default" },
-  { key: "friendly", label: "Friendly" },
-  { key: "efficient", label: "Efficient" },
-];
-
 /**
- * The values as the list read gave them, with a pick shown at once. A pick the
- * gateway refuses is taken back; the overlay is dropped whenever a new read
- * arrives, so the server's copy is what stays on screen.
+ * How Tex talks, in their own words (Dev2, 2026-11-01; custom-instructions.md): the text as the list read gave it,
+ * saved when the box loses focus and only when it changed, and the quick picks, each of which adds its line there.
+ * The control plane keeps the catalog and writes the line; the next read shows it.
  */
-function useChoices(server: Values | undefined, save: (key: string, value: string | number) => Promise<{ ok: boolean }>) {
-  const [local, setLocal] = useState<Values>({});
-  useEffect(() => {
-    setLocal((was) => (Object.keys(was).length === 0 ? was : {}));
-  }, [server]);
-  const pick = (key: string, value: string | number) => {
-    setLocal((was) => ({ ...was, [key]: value }));
-    void save(key, value).then((answer) => {
-      if (answer.ok) return;
-      setLocal((was) => {
-        const next = { ...was };
-        delete next[key];
-        return next;
-      });
-    });
-  };
-  return { current: { ...(server ?? {}), ...local } as Values, pick };
+function Instructions({ text, picks, save, testID }: { text: string; picks: readonly { id: string; label: string }[]; save: (values: Record<string, string>) => void; testID: string }) {
+  const colors = useColors();
+  const field = useFieldFont(texPageType.field);
+  const [draft, setDraft] = useState(text);
+  useEffect(() => setDraft(text), [text]);
+  return (
+    <ListBox>
+      <TextInput
+        value={draft}
+        onChangeText={setDraft}
+        onBlur={() => (draft.trim() !== text.trim() ? save({ instructions: draft }) : undefined)}
+        multiline
+        maxLength={MAX_INSTRUCTIONS}
+        placeholder="How should Tex talk?"
+        placeholderTextColor={colors.muted}
+        accessibilityLabel="How Tex talks"
+        style={[pageStyles(colors).input, field, { minHeight: 88, paddingVertical: 10 }]}
+        testID={`${testID}-instructions`}
+      />
+      <ListRow
+        title="Quick picks"
+        testID={`${testID}-row-picks`}
+        right={<TexSelect look="sel" label="Add a quick pick" options={picks.map(({ id, label }) => ({ key: id, label }))} selected="" onPick={(pick) => save({ pick })} testID={`${testID}-picks`} />}
+      />
+    </ListBox>
+  );
 }
 
 /** Settings › Tex: how Tex talks to this person, its number, and the websites it is signed in to. */
 export function SettingsPage({ source, page, chat }: ViewProps) {
   const colors = useColors();
   const { read } = useTexList(source, chat, "settings", page.changes);
-  const values = read?.kind === "ok" ? read.value.values : undefined;
-  const number = read?.kind === "ok" ? read.value.number : undefined;
-  const { current, pick } = useChoices(values, (key, value) => page.act({ type: "settings", values: { [key]: value } }));
+  const value = read?.kind === "ok" ? read.value : undefined;
+  const number = value?.number;
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
   return (
     <SubPage title="Tex settings" lead="How Tex talks to you. Changes apply to the next text." testID="tex-settings">
-      <ListBox>
-        {TEX_SETTINGS.map((row) => (
-          <ListRow
-            key={row.key}
-            title={row.label}
-            testID={`tex-settings-row-${row.key}`}
-            right={
-              <TexSelect
-                look="sel"
-                label={row.label}
-                options={row.options}
-                selected={String(current[row.key] ?? row.fallback)}
-                onPick={(key) => pick(row.key, key)}
-                testID={`tex-settings-${row.key}`}
-              />
-            }
-          />
-        ))}
-        <ListRow
-          title="Humor"
-          testID="tex-settings-row-humor"
-          right={
-            <TexSelect
-              look="sel"
-              label="Humor"
-              options={HUMOR}
-              selected={String(current.humor ?? DEFAULT_HUMOR)}
-              onPick={(key) => pick("humor", Number(key))}
-              testID="tex-settings-humor"
-            />
-          }
-        />
-      </ListBox>
+      <Instructions text={value?.instructions ?? ""} picks={value?.picks ?? []} save={(values) => void page.act({ type: "settings", values })} testID="tex-settings" />
       <ListBox>
         {number ? (
           <ListRow
@@ -148,10 +114,12 @@ export function SettingsPage({ source, page, chat }: ViewProps) {
 /** Group settings: how Tex behaves in one group chat. Changed here, not in the person's own chat. */
 export function GroupSettingsPage({ source, page, chat, group }: ViewProps) {
   const { read } = useTexList(source, chat, "settings", page.changes);
-  const values = read?.kind === "ok" ? read.value.values : undefined;
-  const approver = read?.kind === "ok" ? read.value.approver : undefined;
-  const people = read?.kind === "ok" ? (read.value.people ?? []) : [];
-  const { current, pick } = useChoices(values, (key, value) => page.act({ type: "group.settings", values: { [key]: value } }));
+  const value = read?.kind === "ok" ? read.value : undefined;
+  const approver = value?.approver;
+  const people = value?.people ?? [];
+  const [answers, setAnswers] = useState<string | null>(null);
+  useEffect(() => setAnswers(null), [value]);
+  const save = (values: Record<string, string>) => void page.act({ type: "group.settings", values });
 
   return (
     <SubPage title="Group settings" lead={`How Tex behaves in ${group ?? "this chat"}.`} testID="tex-group-settings">
@@ -164,8 +132,8 @@ export function GroupSettingsPage({ source, page, chat, group }: ViewProps) {
               look="sel"
               label="When Tex answers"
               options={ANSWERS}
-              selected={String(current.answers ?? "named")}
-              onPick={(key) => pick("answers", key)}
+              selected={answers ?? String(value?.values?.answers ?? "named")}
+              onPick={(key) => (setAnswers(key), save({ answers: key }))}
               testID="tex-group-answers"
             />
           }
@@ -182,21 +150,8 @@ export function GroupSettingsPage({ source, page, chat, group }: ViewProps) {
             ) : null
           }
         />
-        <ListRow
-          title="Tone"
-          testID="tex-group-row-tone"
-          right={
-            <TexSelect
-              look="sel"
-              label="Tone"
-              options={GROUP_TONES}
-              selected={String(current.tone ?? "default")}
-              onPick={(key) => pick("tone", key)}
-              testID="tex-group-tone"
-            />
-          }
-        />
       </ListBox>
+      <Instructions text={value?.instructions ?? ""} picks={value?.picks ?? []} save={save} testID="tex-group" />
       <ListBox>
         <ListRow
           title="People here"

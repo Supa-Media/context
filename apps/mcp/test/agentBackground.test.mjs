@@ -345,6 +345,23 @@ test("a running job is shown in one line, and job_status gives its steps, check 
   assert.match(all, /Logo in green[^]*Apply to a16z/);
   assert.match(all, /<<<\nGot to the sign-in page\.\n>>>/);
   assert.equal(jobStatusText(ended, NOW).includes("vouch for nothing"), true);
+  assert.match(jobStatusText(ended, NOW), /no step gave a reason, so don't guess one or blame a site/);
+  assert.doesNotMatch(jobStatusText(live, NOW), /When you tell them it stopped/, "a running job hasn't stopped");
+
+  // 2026-11-03, the theCut job: a failed step's reason reaches job_status, so "why did it stop?" is answered from it.
+  const [failed] = runningJobsOf([
+    {
+      ...running("Book the haircut", { id: "job-cut-ended-1", state: "failed", finishedAt: NOW - 60_000 }),
+      steps: [
+        { at: NOW - 60_000, text: "fill_login: theCut (failed)", failed: true, why: "That login is saved for thecut.com; this page is thecut.co." },
+        { at: NOW - 30_000, text: "search: q", why: "not failed, never shown" },
+      ],
+    },
+  ]);
+  const why = jobStatusText(failed, NOW);
+  assert.match(why, /fill_login: theCut \(failed\) — why: That login is saved for thecut\.com; this page is thecut\.co\./);
+  assert.doesNotMatch(why, /never shown/);
+  assert.match(why, /say why in plain words from the failed steps' reasons/);
   assert.equal((await dispatch(JOB_STATUS_TOOL, { title: "Quarterly taxes" })).isError, true);
 
   assert.match(words(await dispatch(STEER_JOB_TOOL, { title: "Logo in green" })), /Passed their text/);

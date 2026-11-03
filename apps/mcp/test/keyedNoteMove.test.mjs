@@ -361,3 +361,41 @@ test("one move waits longer than a lookup, inside move_note's and archive_note's
   assert.ok(CONTROL_PLANE_MOVE_TIMEOUT_MS < MOVE_TIMEOUTS.move_note && CONTROL_PLANE_MOVE_TIMEOUT_MS < MOVE_TIMEOUTS.archive_note);
   assert.ok(error instanceof ControlPlaneError && error.reason === "timed out");
 });
+
+/*
+  A folder of 93 notes took 9.2 s in the control plane and the gateway gave up
+  waiting, yet every note moved; the answer said "Nothing was changed" (production,
+  2026-11-03). A timed-out folder move is told as maybe landed, and nothing is
+  moved the old way on top of it.
+*/
+test("a keyed folder move the gateway gave up on is told as maybe landed, never as nothing changed", async () => {
+  const timedOut = new ControlPlaneError("timed out", { reason: "timed out" });
+  timedOut.reason = "timed out";
+  const made = keyed({ "1-projects/a/x.md": { body: "x", etag: "e1" } }, () => { throw timedOut; });
+
+  const answer = await toolMoveFolder(made.store, "private", [], new Map(), "1-projects/a", "2-areas/a", false);
+
+  assert.equal(answer.isError, true);
+  assert.match(answer.content[0].text, /may still finish; list 2-areas\/a\/ before sending it again/);
+  assert.doesNotMatch(answer.content[0].text, /Nothing was changed/);
+  assert.deepEqual(noteWrites(made.writes), []);
+});
+
+test("a folder move whose control plane timed out is not copied the old way on top", async () => {
+  const timedOut = new ControlPlaneError("timed out", { reason: "timed out" });
+  timedOut.reason = "timed out";
+  const made = keyed({ "1-projects/a/x.md": { body: "x", etag: "e1" } }, () => { throw timedOut; }, { keyedLayout: false });
+
+  const answer = await toolMoveFolder(made.store, "private", [], new Map(), "1-projects/a", "2-areas/a", false);
+
+  assert.match(answer.content[0].text, /may still finish/);
+  assert.deepEqual(noteWrites(made.writes), []);
+});
+
+test("a folder move whose control plane is unreachable (not timed out) still says nothing changed", async () => {
+  const made = keyed({ "1-projects/a/x.md": { body: "x", etag: "e1" } }, () => { throw new Error("offline"); });
+
+  const answer = await toolMoveFolder(made.store, "private", [], new Map(), "1-projects/a", "2-areas/a", false);
+
+  assert.match(answer.content[0].text, /Nothing was changed/);
+});

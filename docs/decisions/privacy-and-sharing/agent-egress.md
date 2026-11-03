@@ -209,9 +209,10 @@ mailbox day, a contact page, a meeting, a saved chat, a web page, a search).
 A widening then asks only when the turn read something the new audience
 could not already see, or anything untrusted; a turn that read nothing is the
 person's own words and runs. A listing (`list_notes`, `scope_info`) is names,
-not content, and marks nothing; the three listings that carry words a stranger
-chose (`list_meetings`, `list_contacts`, `list_proposals`: an invite's title, a
-sender's name, a filing agent's reason) mark the turn untrusted without marking
+not content, and marks nothing; the listings that carry words a stranger
+chose (`list_meetings`, `list_contacts`, `list_plugins`: an invite's title, a
+sender's name, a plugin's manifest; `list_proposals` was one until proposals
+were removed on 2026-11-03) mark the turn untrusted without marking
 anything read. The ledger does not end with the turn: the texting thread's
 history remembers which answers were written after an outside read, and a turn
 that opens with one of them in its history starts untrusted, because the model

@@ -25,6 +25,7 @@ import { mayOpenToGuests } from "../textGroupGuests";
 import { invitationsStillCount } from "../textGroupInvited";
 import { READS_AS_CHAT_NAME } from "../nodes/chatFolders";
 import { chatHomeOf } from "../textGroupHome";
+import { speaksUpOf } from "../texChatRules";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
 export interface LiveGrant {
@@ -146,7 +147,7 @@ async function groupStillShares(ctx: QueryCtx, grant: Doc<"oauthGrants">): Promi
   const texGroup = grant.texGroup;
   if (texGroup === undefined) return false;
   const group = await ctx.db.get(texGroup.groupId);
-  if (group === null || group.mutedAt !== undefined) return false;
+  if (group === null || speaksUpOf(group) === "off") return false;
   if (await phoneSignInPaused(ctx, grant.userId)) return false;
   // A home-only grant (`lib/textGroupHomeOnly.ts`): the chat is not muted, and the sponsor who minted it still may text.
   // Its chat is bound to nothing: the workspaces it reaches are re-checked per person, per workspace, on every request

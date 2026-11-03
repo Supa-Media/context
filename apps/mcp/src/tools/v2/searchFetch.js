@@ -119,7 +119,6 @@ const KEYWORDS = {
   "contacts:": { name: "list_contacts", action: "contacts", copy: ["limit"] },
   "activity:": { name: "read_activity", action: "activity", copy: ["limit"] },
   "changes:": { name: "list_changes", action: "changes", copy: ["limit", "reads"] },
-  "proposals:": { name: "list_proposals", action: "proposals", copy: [] },
   "links:": { name: "list_links", action: "links", copy: [] },
   "vault:": { name: "vault_list", action: "vault", copy: [] },
   "plugins:": { name: "list_plugins", action: "plugins", copy: [] },
@@ -133,7 +132,7 @@ const APP_PREFIX = "apps:";
 
 /** Ids that name something other than a note, which only the table below can route. */
 function routedId(id) {
-  return Object.hasOwn(KEYWORDS, id) || [APP_PREFIX, TEXTS_ID_PREFIX, EMAIL_ID_PREFIX, GOOGLE_CHAT_ID_PREFIX, "proposals:"].some((prefix) => id.startsWith(prefix));
+  return Object.hasOwn(KEYWORDS, id) || [APP_PREFIX, TEXTS_ID_PREFIX, EMAIL_ID_PREFIX, GOOGLE_CHAT_ID_PREFIX].some((prefix) => id.startsWith(prefix));
 }
 
 /** `fetch` in the v2 shape. */
@@ -175,10 +174,6 @@ export function translateFetch(call, app = {}) {
   }
   if (id.startsWith(EMAIL_ID_PREFIX)) {
     return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment", "from", "summary"] });
-  }
-  if (id.startsWith("proposals:")) {
-    const proposalId = id.slice("proposals:".length).trim();
-    return target(label, a, { name: "read_proposal", action: "proposal", fixed: { id: proposalId } });
   }
 
   // A message anchor from search (`<note>.md#<anchor>`) is the note itself.

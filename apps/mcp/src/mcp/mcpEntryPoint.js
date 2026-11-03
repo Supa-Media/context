@@ -35,6 +35,8 @@
  * binding nothing is written.
  */
 
+import { ACTIONS } from "../tools/v2/actions.js";
+
 /** Analytics Engine takes 250 points a request. */
 const MAX_POINTS = 240;
 /** A store's own calls, timed by `watch`. */
@@ -153,13 +155,21 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
   return mcp;
 }
 
-/** Which call a JSON-RPC body is: `tools/call:<tool>` for a tool, the method otherwise, `batch` for an array. */
+/**
+ * Which call a JSON-RPC body is: `tools/call:<tool>` for a tool, the method otherwise, `batch` for an array. A
+ * `write`, `manage` or `send` call names its action too (`tools/call:manage:archive`), so one action's time is not
+ * averaged with the others' (2026-11-03: archive could not be told from a save). Only a name `ACTIONS` lists is
+ * kept, never what a caller wrote.
+ */
 export function callOf(body) {
   if (Array.isArray(body)) return body.length === 1 ? callOf(body[0]) : "batch";
   if (!body || typeof body !== "object" || typeof body.method !== "string") return "unparsed";
   const method = body.method.replace(/[^A-Za-z0-9_/.-]/g, "").slice(0, 48);
   if (method !== "tools/call") return method || "unparsed";
   const tool = typeof body.params?.name === "string" ? body.params.name.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 40) : "";
+  const action = body.params?.arguments?.action;
+  const actions = Object.hasOwn(ACTIONS, tool) ? ACTIONS[tool] : null;
+  if (actions !== null && typeof action === "string" && Object.hasOwn(actions, action)) return `tools/call:${tool}:${action}`;
   return `tools/call:${tool || "unnamed"}`;
 }
 

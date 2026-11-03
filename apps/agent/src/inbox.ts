@@ -69,7 +69,7 @@ import { MAX_CANDIDATES, staleAsks } from "./decide";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
-import { closeMenu, isSettingsText, keepTexStyle, keptTexStyle, menuState, openMenu } from "./texStyle";
+import { closeMenu, isSettingsText, menuState, openMenu } from "./texStyle";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
@@ -313,8 +313,6 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     const acksOnly = pending.every(([, item]) => item.message.chatId !== first.chatId || (!item.force && pureAck(item.message)));
     if (acksOnly) await line?.markRead(first.chatId, first.messageId);
     const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first, { aimLater: true });
-    // Emoji: less (`texStyle.ts`): no quick tapback, the answer is the only sign.
-    if ((await keptTexStyle(storage)).emoji === "less") presence?.dropTapback();
     try {
       const choice = await chooseTurn(storage, deps, pending);
       for (const [key] of choice.drop) await storage.delete(key);
@@ -556,9 +554,9 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       onPictures: (sent, offered) => void ((pictures = sent), (choices = offered)),
       onOffers: (offered) => void (offers = offered),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
-      // "Tex, settings" and the style it keeps (`texStyle.ts`).
+      // "Tex, settings" (`texStyle.ts`).
       settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
-      onTexStyle: (style) => keepTexStyle(storage, style), warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
+      warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
       onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
     },
@@ -606,8 +604,8 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
     // The model only names the job: what the job is handed is always their own text.
     onSteers: async (asks) => {
       if (!deps.steerJob) return;
-      await steerJobs(storage, asks, { id: message.eventId, text: message.event ? "" : message.text.trim() }, deps.steerJob, deps.now()); // a turn by code passes only its own notes
-      return notResumedText(await resumeJobs(storage, asks, { id: message.eventId }, deps.steerJob, deps.now())); // "restart it" picks an ended job back up
+      const said = { id: message.eventId, text: message.event ? "" : message.text.trim() }; await steerJobs(storage, asks, said, deps.steerJob, deps.now()); // a turn by code passes only its own notes
+      return notResumedText(await resumeJobs(storage, asks, said, deps.steerJob, deps.now())); // "restart it" picks an ended job back up, with their words
     },
   };
 }

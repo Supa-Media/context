@@ -1,18 +1,14 @@
 /**
  * Text written for the older tools, in the six tools' words. The gate's
- * refusals and the write-surface section were written when `write_note`,
- * `propose_note` and `scope_info` were what every app held, and they stay that
+ * refusals and the write-surface section were written when `write_note`
+ * and `scope_info` were what every app held, and they stay that
  * way for the texting assistant, which still is (`tools/advertised.js`). An app
  * offered the six is told the same thing in calls it can make: a translated
  * call's answer passes through `inV2Names`, and so does orient's access text.
  * The reverse, for the assistant, is `orient/howToWork.js`'s `inToolNames`.
  */
 const V2_NAMES = [
-  [
-    "Call scope_info for the authorized write surface or use propose_note for the correct destination.",
-    'Call orient with about: "access" for the authorized write surface, or write with action propose for the correct destination.',
-  ],
-  ["use propose_note", "use write with action propose"],
+  ["Call scope_info for the authorized write surface.", 'Call orient with about: "access" for the authorized write surface.'],
   ["## Forms and links, on write_note", "## Forms and links, on write"],
   [
     "write_note's own description carries the block's grammar",

@@ -19,18 +19,22 @@
  */
 
 import { recordChange } from "../../activity/record.js";
+import { phase } from "../../mcp/phase.js";
 import { recordForwarding } from "../../forwarding.js";
 import { withActivityHint } from "../../live/activityHint.js";
 import { announceMoves } from "../../moves/keyedCollaboration.js";
 import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { toolError, toolText } from "../results.js";
 
+/** A destination something already holds, in the control plane's words; `archive.js` asks the next numbered name. */
+export const TAKEN_REFUSAL = "conflict: destination already exists";
+
 /** The object's refusals, in the words the control plane's move uses. */
 const REFUSALS = new Map([
   ["NOT_FOUND", "not found"],
   ["HIDDEN", "not found"],
   ["CHANGED", "conflict: the note changed since you read it; re-read and retry"],
-  ["TAKEN", "conflict: destination already exists"],
+  ["TAKEN", TAKEN_REFUSAL],
   ["ARCHIVE_STAYS", "that folder stays where it is"],
   ["BUILT_IN_ARCHIVED", "that folder stays where it is"],
   ["INVALID", "invalid path"],
@@ -38,6 +42,11 @@ const REFUSALS = new Map([
 
 /** The line the keyed row move ends with: the links follow behind it. */
 const FOLLOWING_LINE = "\nreferences: updated in the background (old links forward to the new path meanwhile)";
+
+/** Whether this request's object would be asked a move for a caller of `scope` (it may still leave it to Convex). */
+export function objectServesMoves(store, scope) {
+  return objectFor(store, scope) !== null;
+}
 
 /** This request's object, when it serves moves for a caller of `scope`; otherwise null. */
 function objectFor(store, scope) {
@@ -93,18 +102,23 @@ export async function startObjectMove(store, scope, source, destination, expecte
   }
 
   const files = Array.isArray(answer.files) ? answer.files : [{ from: source, to: destination }];
-  await announceMoves(store, files, privacy);
-  await recordChange(store, action, scope, [source, destination], { rowed: true, object: true, ...(kind === "folder" ? { count: files.length } : {}) });
+  // Each step after the object's answer is timed on its own (`phase:move_*`), so a move over 0.1 s says where.
+  await phase(store, "move_announce", () => announceMoves(store, files, privacy));
+  await phase(store, "move_record", () =>
+    recordChange(store, action, scope, [source, destination], { rowed: true, object: true, ...(kind === "folder" ? { count: files.length } : {}) }),
+  );
   const pair = [{ from: source, to: destination }];
-  await behind(store, async () => {
+  await phase(store, "move_behind", () => behind(store, async () => {
     await Promise.all([
       recordForwarding(store, [{ from: source, to: destination, kind }]),
       remapIcons(store, pair),
     ]);
-  });
+  }));
   const text =
     kind === "folder"
       ? `moved folder: ${source}/ → ${destination}/ (${files.length} objects)\nEvery app shows it at the new name now.`
+      : action === "archive_note"
+      ? `archived: ${source} → ${destination}`
       : `moved note: ${source} → ${destination}`;
   return withActivityHint(toolText(text + FOLLOWING_LINE), { moves: pair });
 }

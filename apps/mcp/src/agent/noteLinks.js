@@ -123,7 +123,7 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/i;
 const MAX_SENT_LINKS = 3;
 
 /** The notes a text links to, as `{ slug, path }`, read off this deployment's own addresses only. */
-export function sentNoteLinks(text, origin) {
+export function sentNoteLinks(text, origin, { limit = MAX_SENT_LINKS } = {}) {
   if (origin === null || typeof text !== "string") return [];
   const host = new URL(origin).host;
   const found = [];
@@ -151,7 +151,7 @@ export function sentNoteLinks(text, origin) {
     }
     if (!slug || !SLUG.test(slug) || !path || path.length > 512 || path.split("/").some((part) => part === "" || part === "." || part === "..")) continue;
     if (!found.some((link) => link.slug === slug && link.path === path)) found.push({ slug, path });
-    if (found.length === MAX_SENT_LINKS) break;
+    if (found.length === limit) break;
   }
   return found;
 }

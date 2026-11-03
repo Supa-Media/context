@@ -2,7 +2,9 @@
 # `apps/convex/functions/texGroupMigration.ts`). Manual only. `step` picks
 # `homes` (make a home in @context-lc for each chat that has none) or `sweep`
 # (trash old memory notes in workspace folders whose words the chat's record
-# carried). `dry_run` counts what would happen and writes nothing. It prints
+# carried), or `settings` (write each old style dial as its custom
+# instructions line, and mute and style as when Tex speaks up:
+# `apps/convex/functions/texSettingsMigration.ts`). `dry_run` counts what would happen and writes nothing. It prints
 # counts and fixed codes only, never an id, a path or a name, because this
 # repository is public and so is this job's log.
 name: Tex group chats migration
@@ -11,9 +13,9 @@ on:
   workflow_dispatch:
     inputs:
       step:
-        description: "homes or sweep"
+        description: "homes, sweep or settings"
         type: choice
-        options: [homes, sweep]
+        options: [homes, sweep, settings]
         default: homes
       dry_run:
         description: "Count only, write nothing"
@@ -44,6 +46,7 @@ jobs:
           case "$STEP" in
             homes) fn=texGroupMigrationRows:homeEveryChat ;;
             sweep) fn=texGroupMigration:sweep ;;
+            settings) fn=texSettingsMigration:moveToInstructions ;;
             *) echo "unknown step"; exit 1 ;;
           esac
           case "$DRY_RUN" in

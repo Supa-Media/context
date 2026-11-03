@@ -52,6 +52,38 @@ const plain = (call) => ({ ...(call.args || {}) });
 export const ACTIONS = {
   write: {
     save: { tool: "write_note", summary: "Create or replace a note (the default).", take: (call) => withNote(call) },
+    save_many: {
+      tool: "write_notes",
+      summary: "Create or replace up to 100 notes in one call, each saved exactly as save saves it.",
+      take: plain,
+      // Never a listed tool: `callToolForSession` turns the call into one `write` per note (`saveMany.js`).
+      // This is only the shape `orient` describes its arguments from.
+      carrier: {
+        name: "write_notes",
+        description:
+          "Save up to 100 notes in one call: args { notes: [{ path, content, expected_etag? }] }. Each note is saved exactly as " +
+          "write saves one (new or replaced, with expected_etag catching a concurrent edit), and the answer has one outcome line " +
+          "per note, in order. A note that is refused is reported beside the ones that saved; nothing is rolled back. " +
+          "A call that runs long stops starting saves and marks the rest NOT_STARTED: send just those again. " +
+          "Name each path once; to change visibility or add images, use save on that note.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            notes: {
+              type: "array",
+              minItems: 1,
+              maxItems: 100,
+              items: {
+                type: "object",
+                properties: { path: { type: "string" }, content: { type: "string" }, expected_etag: { type: "string" } },
+                required: ["path", "content"],
+              },
+            },
+          },
+          required: ["notes"],
+        },
+      },
+    },
     comment: { tool: "write_note", summary: "Comment on words in a note, reply, resolve or delete.", take: nested("comment") },
     mail: { tool: "write_note", summary: "Join a note's mail or send mail to agents working on it.", take: nested("mail") },
     upload: {
@@ -61,7 +93,6 @@ export const ACTIONS = {
       take: (call) => ({ ...(call.path !== undefined ? { path: call.path } : {}), upload: call.args?.files }),
     },
     remember: { tool: "remember", summary: "Save one durable fact about the person.", take: plain },
-    propose: { tool: "propose_note", summary: "Queue a note for a folder you cannot write.", take: (call) => withNote(call) },
     answer: { tool: "submit_form", summary: "Answer a Markdown form.", take: (call) => withNote(call) },
     update_answer: { tool: "update_submission", summary: "Replace your answer to a form.", take: (call) => withNote(call) },
     retract_answer: { tool: "retract_submission", summary: "Delete your answer to a form.", take: (call) => withNote(call) },
@@ -77,7 +108,6 @@ export const ACTIONS = {
     visibility: { tool: "set_visibility", summary: "Make one note private or team, or name people who may open it.", take: plain },
     folder_visibility: { tool: "set_folder_visibility", summary: "Make a folder private, team or inherited.", take: plain },
     encrypt: { tool: "set_encryption", summary: "Encrypt or decrypt one note.", take: plain },
-    review_proposal: { tool: "review_proposal", summary: "Approve or reject a proposed note.", take: plain },
     suggest_destination: { tool: "suggest_destination", summary: "Rank which workspace a note belongs in.", take: plain },
     website: { tool: "write_note", summary: "Check, publish, screenshot or roll back the website, or set its domain.", take: website },
     share_link: { tool: "create_link", summary: "Make a link to a note or folder (owners only).", take: plain },

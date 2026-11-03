@@ -10,7 +10,7 @@
  *  - list every textGroups row instead of those whose homeUsers hold the person: "another person's chat is absent" fails;
  *  - accept any client's grant (drop the CONSOLE_CLIENT_ID check): "a grant from another client is refused" fails;
  *  - answer a chat the person is not in with its settings: "a chat not theirs answers as a missing one" fails;
- *  - write the style before the rate-limit check in a chat change: "a limited call changes neither setting" fails.
+ *  - write the instructions before the rate-limit check in a chat change: "a limited call changes neither setting" fails.
  */
 
 import { describe, expect, test } from "vitest";
@@ -153,22 +153,25 @@ describe("the Tex page's data", () => {
 });
 
 describe("the Tex page's settings", () => {
-  test("a person's own style is written and reads back on the page", async () => {
+  // Since 2026-11-01 the page edits the person's own words and adds quick picks (`lib/texInstructions.ts`), no dials.
+  test("a person's own instructions are written and read back on the page, with the quick picks", async () => {
     const t = setupTest();
     const { adaToken } = await world(t);
-    const written = await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: "me", values: { tone: "candid", humor: 60 } });
-    expect(written).toEqual({ status: "done", style: { tone: "candid", humor: 60 } });
+    expect(await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: "me", values: { instructions: "Answer in French." } })).toEqual({ status: "done", instructions: "Answer in French." });
+    const picked = await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: "me", values: { pick: "emoji_none" } });
+    expect(picked).toEqual({ status: "done", instructions: "Answer in French.\nUse no emoji." });
     const page = await post(t, "/gateway/tex/page", { accessToken: adaToken });
-    expect(page.style).toEqual({ tone: "candid", humor: 60 });
+    expect(page.instructions).toBe("Answer in French.\nUse no emoji.");
+    expect(page.picks).toContainEqual({ id: "emoji_none", label: "No emoji" });
   });
 
-  test("a chat's style and when Tex speaks up are written, and the page reads them back", async () => {
+  test("a chat's instructions and when Tex speaks up are written, and the page reads them back", async () => {
     const t = setupTest();
     const { adaToken } = await world(t);
-    const written = await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: ADA_CHAT, values: { tone: "quirky", answers: "named" } });
-    expect(written).toEqual({ status: "done", style: { tone: "quirky" }, engagement: "attentive" });
+    const written = await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: ADA_CHAT, values: { pick: "quirky", answers: "named" } });
+    expect(written).toMatchObject({ status: "done", instructions: expect.stringMatching(/^Be quirky\./), engagement: "attentive" });
     const chat = ((await post(t, "/gateway/tex/page", { accessToken: adaToken })).chats as Array<Record<string, unknown>>)[0]!;
-    expect(chat).toMatchObject({ style: { tone: "quirky" }, engagement: "attentive" });
+    expect(chat).toMatchObject({ instructions: expect.stringMatching(/^Be quirky\./), engagement: "attentive" });
     expect(await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: ADA_CHAT, values: { answers: "every" } })).toMatchObject({
       status: "done",
       engagement: "helpful",
@@ -178,42 +181,44 @@ describe("the Tex page's settings", () => {
   test("a chat the person is not in answers exactly as a missing key does", async () => {
     const t = setupTest();
     const { adaToken } = await world(t);
-    const notMine = await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: BO_CHAT, values: { tone: "candid" } });
-    const missing = await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: MISSING, values: { tone: "candid" } });
+    const notMine = await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: BO_CHAT, values: { pick: "candid" } });
+    const missing = await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: MISSING, values: { pick: "candid" } });
     expect(notMine).toEqual({ status: "not_found" });
     expect(notMine).toEqual(missing);
   });
 
-  test("values off their closed sets, and an unknown answer, are refused whole", async () => {
+  test("a pick nobody made, a dial, a text past the limit, and an unknown answer are refused whole", async () => {
     const t = setupTest();
     const { adaToken } = await world(t);
     const bad = { status: "bad_request" };
-    expect(await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: "me", values: { tone: "snarky" } })).toEqual(bad);
+    expect(await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: "me", values: { pick: "snarky" } })).toEqual(bad);
+    expect(await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: "me", values: { tone: "candid" } })).toEqual(bad);
+    expect(await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: "me", values: { instructions: "x".repeat(1_501) } })).toEqual(bad);
     expect(await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: "me", values: { answers: "named" } })).toEqual(bad);
     expect(await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: ADA_CHAT, values: { answers: "loud" } })).toEqual(bad);
     expect(await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: "not-a-key", values: {} })).toEqual(bad);
-    expect((await post(t, "/gateway/tex/page", { accessToken: adaToken })).style).toEqual({});
+    expect((await post(t, "/gateway/tex/page", { accessToken: adaToken })).instructions).toBeNull();
   });
 
   test("a limited chat change changes neither setting", async () => {
     const t = setupTest();
     const { adaToken } = await world(t);
-    // The hourly budget for one chat's style (`lib/texChatRules.ts`), spent in full.
+    // The hourly budget for one chat's settings (`lib/texChatRules.ts`), spent in full.
     for (let i = 0; i < 120; i += 1) {
-      const tone = i % 2 === 0 ? "candid" : "quirky";
-      expect((await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: ADA_CHAT, values: { tone } })).status).toBe("done");
+      const pick = i % 2 === 0 ? "candid" : "quirky";
+      expect((await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: ADA_CHAT, values: { pick } })).status).toBe("done");
     }
-    expect(await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: ADA_CHAT, values: { tone: "nerdy", answers: "every" } })).toEqual({
+    expect(await post(t, "/gateway/tex/page/settings", { accessToken: adaToken, chat: ADA_CHAT, values: { pick: "nerdy", answers: "every" } })).toEqual({
       status: "rate_limited",
     });
     const chat = ((await post(t, "/gateway/tex/page", { accessToken: adaToken })).chats as Array<Record<string, unknown>>)[0]!;
-    expect(chat).toMatchObject({ engagement: "followAlong", style: { tone: "quirky" } });
+    expect(chat).toMatchObject({ engagement: "followAlong", instructions: expect.stringMatching(/^Be quirky\./) });
   });
 
   test("a dead or foreign grant changes nothing", async () => {
     const t = setupTest();
     await world(t);
-    expect(await post(t, "/gateway/tex/page/settings", { accessToken: "cat_nobody", chat: "me", values: { tone: "candid" } })).toEqual({
+    expect(await post(t, "/gateway/tex/page/settings", { accessToken: "cat_nobody", chat: "me", values: { pick: "candid" } })).toEqual({
       status: "refused",
     });
   });

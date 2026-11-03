@@ -94,6 +94,15 @@ for snippets instead of three. Hits that held every word still fuse evenly.
 `meaningServe.test.mjs` ("a loose word hit comes after every meaning match…")
 fails if this is reversed.
 
+Across workspaces (`fuseEverywhere`, `apps/mcp/src/tools/search.js`) a loose
+hit's words count only while no workspace found a note holding every word;
+otherwise it places by its meaning alone. Each workspace retries loosely on
+its own, so one workspace's any-word hits are not comparable with another's
+real matches: on 2026-11-03 the person's own note holding all of "speed
+benchmark test note" placed tenth, under other workspaces' index pages that
+held one word. `searchEverywhere.test.mjs` ("a note holding every word
+outranks another workspace's loose hit…") fails if this is reversed.
+
 The pass diffs a census (`[path, version]` for every note) against a map of
 what it last embedded, kept at `.context/search/meaning/v1/state.json`. That
 is a **new file in the on-bucket layout**, and it is allowed for the reason

@@ -24,8 +24,6 @@ import { timestampSlug } from "../notes/paths.js";
 import { sendsTreeHint, treeHintOf } from "./changes.js";
 import { followChangeAfterResponse, indexWrittenNotesAfterResponse } from "../search/writeProjection.js";
 import { treeEditsOf, treeTouchOf } from "../tree/record.js";
-import { rememberChaos, within } from "../chaos/report.js";
-import { CHAOS_ACTIONS, changeChaos } from "../chaos/change.js";
 import { keepHistoryActivityLater } from "../history/record.js";
 import { phase } from "../mcp/phase.js";
 
@@ -125,7 +123,6 @@ export const INDEX_ON_CHANGE = new Map([
   ["remember_fact", "written"],
   ["save_context", "written"],
   ["meeting_note", "written"],
-  ["propose_note", "written"],
   ["rewrite_references", "written"],
   ["inbox_capture", "written"],
   // The app's Copy and Duplicate made by the gateway (`live/fileCopy.js`): the copy is a new note to follow.
@@ -271,14 +268,7 @@ function announceTreeChange(store, action, paths, details) {
   const edited = treeEditsOf(action, paths, details);
   const reports = sendsTreeHint(action, details) && typeof store.reportTreeChange === "function";
   if (touch === null && edited.length === 0 && !reports) return;
-  // Started now, so the tool's answer can report the chaos score
-  // (`chaos/report.js`). It counts from the tree's keys as they were before
-  // this change, so the control plane is told only once it has answered, or
-  // once the answer has waited as long as a tool's would.
-  const scored = CHAOS_ACTIONS.has(action) ? changeChaos(store, touch).catch(() => null) : null;
-  if (scored !== null) rememberChaos(store, scored);
   const work = (async () => {
-    if (scored !== null) await within(scored);
     // The Convex tree re-checks what the change named (`reportTreeTouch`).
     if (touch !== null && typeof store.reportTreeTouch === "function") {
       // A visibility change rewrote the manifest, whatever path it recorded:

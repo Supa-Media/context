@@ -41,7 +41,9 @@ import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { rewriteReferencesAfterMove } from "./references.js";
 import { destinationRefusal } from "./destination.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
-import { startKeyedNoteMove } from "./queuedFolder.js";
+import { rowVersionOf, startKeyedNoteMove } from "./queuedFolder.js";
+import { phase } from "../../mcp/phase.js";
+import { TAKEN_REFUSAL, objectServesMoves, startObjectMove } from "./objectMove.js";
 
 const ARCHIVE_TAKEN = "conflict: archive destination already exists";
 
@@ -88,6 +90,36 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   // in `5-archive/` must not be moved into `4-archive/` because the resolver
   // preferred the latter.
   if (insideArchive(path, roots)) return toolText("already archived");
+  if (scope !== "private" && !expectedEtag) {
+    return toolError("expected_etag is required when a team connection archives a note; read the note and retry");
+  }
+  if (scope !== "private" && visibilityOf(archiveDestination(root, path), rules) !== "team") {
+    return writePermissionError("archive destination");
+  }
+
+  // A workspace whose notes live in its object archives there, in one transaction (`objectMove.js`): nothing here
+  // reads the note's text or editing history, and a taken name is the object's own answer, so the next numbered name
+  // is asked of it in turn. Archiving took about 2.5 s through the reads below (2026-11-03).
+  const objectAsked = objectServesMoves(store, scope);
+  if (objectAsked) {
+    const version = await phase(store, "archive_version", () => rowVersionOf(store, path, expectedEtag));
+    if (version.conflict) return toolError("conflict: the note changed since you read it; re-read and retry");
+    let answered = null;
+    const landed = await firstFreePath(archiveDestination(root, path), async (candidate) => {
+      const result = await startObjectMove(store, scope, path, candidate, version.etag, {
+        kind: "note",
+        action: "archive_note",
+        privacy: { rules, overrides },
+      });
+      if (result?.isError === true && result.content?.[0]?.text === TAKEN_REFUSAL) return true;
+      answered = result;
+      return false;
+    });
+    if (answered !== null) return answered;
+    if (landed === null) return toolError(ARCHIVE_TAKEN);
+    // The object left this archive to the control plane (`DEFER`, or it could not be asked): the way below.
+  }
+
   const obj = await getWithLegacyFallback(store, path);
   if (!obj) return toolError("not found");
   const sourceText = await obj.text();
@@ -107,9 +139,6 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
       }
     }
   }
-  if (scope !== "private" && !expectedEtag) {
-    return toolError("expected_etag is required when a team connection archives a note; read the note and retry");
-  }
   const currentEtag = collaborationBase?.etag ?? obj.etag;
   if (expectedEtag && !versionMatches(expectedEtag, { document: collaborationBase, rawEtag: obj.etag })) {
     return toolError(
@@ -117,9 +146,6 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
     );
   }
   const destinationVisibility = scope === "private" ? "private" : "team";
-  if (scope !== "private" && visibilityOf(archiveDestination(root, path), rules) !== "team") {
-    return writePermissionError("archive destination");
-  }
   // The first free name, asked of the Convex tree (`tree/names.js`); the write is conditional.
   let unanswered = null;
   const dest = await firstFreePath(archiveDestination(root, path), async (candidate) => {
@@ -133,7 +159,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   if (dest === null) return toolError(ARCHIVE_TAKEN);
 
   // A keyed workspace archives the note as a row change, never as a copy (`queuedFolder.js`).
-  const keyedArchive = await startKeyedNoteMove(store, scope, path, dest, expectedEtag, { rules, overrides });
+  const keyedArchive = await startKeyedNoteMove(store, scope, path, dest, expectedEtag, { rules, overrides }, { objectAsked });
   if (keyedArchive !== null) return keyedArchive;
 
   if (collaborationBase) {

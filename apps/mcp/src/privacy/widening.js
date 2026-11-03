@@ -294,7 +294,6 @@ async function classify(name, args, { into, privacy }) {
         : null;
     }
     case "remember":
-    case "propose_note":
     case "submit_form":
     case "update_submission":
       return elsewhere ? { audience: "team", summary: `write into ${into}`, elsewhereOnly: true } : null;

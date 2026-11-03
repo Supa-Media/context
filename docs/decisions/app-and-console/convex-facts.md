@@ -93,8 +93,8 @@ gone, and since 2026-10-13 a reader the facts cannot answer yet never falls
 back to the bucket either: a List shows its gaps, the map draws every note
 and says it is behind on links, and the chaos score is counted from the
 tree's keys alone and kept out of the history until the facts are whole. A
-write's chaos report is counted from the tree's keys and the facts
-(`apps/mcp/src/chaos/change.js`). The gateway's agent tools likewise (owner,
+write's chaos report, counted from the tree's keys and the facts, was retired
+on 2026-11-03 ([chaos-score](../chaos-score.md)). The gateway's agent tools likewise (owner,
 2026-10-13: nothing but opening a note reads storage): a note with no props
 is listed as "(details still loading)", a List leaves it out and says
 `pending`, a rewrite whose candidates are not whole reads every note the tree

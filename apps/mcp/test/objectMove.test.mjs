@@ -18,7 +18,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { startObjectMove } from "../src/tools/moves/objectMove.js";
 import { startKeyedNoteMove, startQueuedFolderMove } from "../src/tools/moves/queuedFolder.js";
+import { toolArchiveNote } from "../src/tools/moves/archive.js";
 import { ControlPlaneError } from "../src/controlPlane/client.js";
+import { toolMoveKeyedFolder } from "../src/tools/moves/keyedFolder.js";
+import { withServedTree } from "./servedTree.mjs";
 
 function memory() {
   const objects = new Map();
@@ -312,4 +315,175 @@ test("startQueuedFolderMove on DEFER asks the control plane once", async () => {
   await startQueuedFolderMove(store, "team", "a", "b", PRIVACY);
   assert.equal(queued.length, 1);
   assert.deepEqual(queued[0], ["a", "b", undefined]);
+});
+
+/* -- archive_note through the object (`toolArchiveNote` on an object-served workspace) ------------------------------ */
+
+const ARCHIVE_RULES = [
+  { prefix: "1-projects", vis: "team" },
+  { prefix: "4-archive", vis: "team" },
+];
+
+/** An object-served store holding `notes`, with every get recorded in `gets`. */
+async function archiveStore(answer, notes = { "1-projects/a.md": "# A\n" }) {
+  const made = objectStore(answer);
+  for (const [key, body] of Object.entries(notes)) await made.store.put(key, body);
+  const gets = [];
+  const realGet = made.store.get;
+  made.store.get = async (key, ...rest) => {
+    gets.push(key);
+    return realGet.call(made.store, key, ...rest);
+  };
+  return { ...made, gets };
+}
+
+test("archive through the object: an ok answer archives at the archive root, with no body read and no control plane", async () => {
+  const { store, sent, queued, gets } = await archiveStore({
+    ok: true,
+    files: [{ from: "1-projects/a.md", to: "4-archive/1-projects/a.md" }],
+  });
+  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.ok(
+    result.content[0].text.startsWith("archived: 1-projects/a.md → 4-archive/1-projects/a.md"),
+    result.content[0].text
+  );
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].from, "1-projects/a.md");
+  assert.equal(sent[0].to, "4-archive/1-projects/a.md");
+  assert.equal(sent[0].expectedEtag, "e1");
+  assert.deepEqual(queued, []);
+  assert.equal(gets.includes("1-projects/a.md"), false, `the body was read: ${JSON.stringify(gets)}`);
+});
+
+test("archive through the object: TAKEN at the archive root asks the next numbered name, which is what firstFreePath makes", async () => {
+  const { store, sent, queued } = await archiveStore((body) =>
+    body.to === "4-archive/1-projects/a.md"
+      ? { ok: false, code: "TAKEN" }
+      : { ok: true, files: [{ from: body.from, to: body.to }] }
+  );
+  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
+  assert.notEqual(result.isError, true, result.content[0].text);
+  // `numberedName` writes "<stem> (<n>)<ext>", so the second name is "a (2).md", not "a 2.md".
+  assert.deepEqual(
+    sent.map((body) => body.to),
+    ["4-archive/1-projects/a.md", "4-archive/1-projects/a (2).md"]
+  );
+  assert.ok(
+    result.content[0].text.startsWith("archived: 1-projects/a.md → 4-archive/1-projects/a (2).md"),
+    result.content[0].text
+  );
+  assert.deepEqual(queued, []);
+});
+
+test("archive through the object: NOT_FOUND is answered as not found, one move sent, no control plane", async () => {
+  const { store, sent, queued } = await archiveStore({ ok: false, code: "NOT_FOUND" });
+  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
+  assert.equal(result.isError, true);
+  assert.equal(result.content[0].text, "not found");
+  assert.equal(sent.length, 1);
+  assert.deepEqual(queued, []);
+});
+
+test("archive through the object: DEFER falls through to the control plane, which is asked once, and the object once", async () => {
+  const { store, sent, queued } = await archiveStore({ ok: false, code: "DEFER" });
+  // The fall-through checks the destination against the tree's names (`destinationRefusal`), so the tree must answer.
+  store.treeListing = { taken: async () => ({ files: [], folders: [] }) };
+  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
+  assert.notEqual(result, undefined);
+  assert.equal(queued.length, 1, JSON.stringify(result));
+  assert.deepEqual(queued[0], ["1-projects/a.md", "4-archive/1-projects/a.md", "e1"]);
+  // The fall-through does not ask the object the same move a second time (`objectAsked`).
+  assert.equal(sent.length, 1);
+});
+
+test("archive through the object: a team archive without expected_etag is refused before the object is asked", async () => {
+  const { store, sent, queued } = await archiveStore({ ok: true, files: [] });
+  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md");
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /expected_etag/);
+  assert.equal(sent.length, 0);
+  assert.deepEqual(queued, []);
+});
+
+test("archive through the object: a note already inside the archive is 'already archived', with no move", async () => {
+  const { store, sent, queued } = await archiveStore(
+    { ok: true, files: [] },
+    { "4-archive/x.md": "# X\n" }
+  );
+  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "4-archive/x.md", "e1");
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, "already archived");
+  assert.equal(sent.length, 0);
+  assert.deepEqual(queued, []);
+});
+
+test("each step after the object's answer is timed on its own, so a slow move says where its time went", async () => {
+  const { store } = objectStore({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }] });
+  const timed = [];
+  store.phase = (name, run) => {
+    timed.push(name);
+    return run();
+  };
+  await startObjectMove(store, "team", "a/x.md", "b/x.md", undefined, NOTE);
+  for (const name of ["move_announce", "move_record", "move_behind"]) assert.ok(timed.includes(name), `${name} in ${timed}`);
+});
+
+/* -- a folder's check left until the object passes the move on (`keyedFolder.js`'s full twin check) --------------- */
+
+test("startQueuedFolderMove asks beforeControlPlane only on DEFER, and a refusal there asks the control plane nothing", async () => {
+  const deferred = objectStore({ ok: false, code: "DEFER" });
+  let asked = 0;
+  const refused = await startQueuedFolderMove(deferred.store, "team", "a", "b", PRIVACY, {
+    beforeControlPlane: async () => {
+      asked += 1;
+      return "Plans is already here";
+    },
+  });
+  assert.equal(asked, 1);
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /Plans is already here/);
+  assert.deepEqual(deferred.queued, []);
+
+  const moved = objectStore({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }] });
+  asked = 0;
+  const answer = await startQueuedFolderMove(moved.store, "team", "a", "b", PRIVACY, {
+    beforeControlPlane: async () => {
+      asked += 1;
+      return "never";
+    },
+  });
+  assert.notEqual(answer.isError, true);
+  assert.equal(asked, 0);
+  assert.deepEqual(moved.queued, []);
+});
+
+test("a keyed folder move the object makes lists only the top level for twins; one it defers is judged in full first", async () => {
+  const rules = [{ prefix: "Projects", vis: "team" }, { prefix: "old", vis: "team" }];
+  const seed = async (store) => {
+    for (const key of ["Projects/Plans/Sub/a.md", "old/x.md"]) await store.put(key, "# x\n");
+    withServedTree(store);
+    const listed = [];
+    const list = store.list.bind(store);
+    store.list = async (options = {}) => {
+      listed.push(options.prefix ?? "");
+      return list(options);
+    };
+    return listed;
+  };
+
+  // Moved in the object: only the top level is looked at, never the destination's own folder ("Projects/Plans/").
+  const moved = objectStore({ ok: true, files: [{ from: "old/x.md", to: "Projects/Plans/sub/x.md" }] });
+  const listed = await seed(moved.store);
+  const answer = await toolMoveKeyedFolder(moved.store, "team", rules, new Map(), "old", "Projects/Plans/sub", false);
+  assert.notEqual(answer.isError, true, answer.content[0].text);
+  assert.ok(!listed.includes("Projects/Plans/"), JSON.stringify(listed));
+
+  // Deferred: the twin by case below the root is refused before the control plane is asked.
+  const deferred = objectStore({ ok: false, code: "DEFER" });
+  await seed(deferred.store);
+  const refused = await toolMoveKeyedFolder(deferred.store, "team", rules, new Map(), "old", "Projects/Plans/sub", false);
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /Sub is already here/);
+  assert.deepEqual(deferred.queued, []);
 });

@@ -58,7 +58,6 @@ test/agentTurnLimits.test.mjs
 test/agentHeldEcho.test.mjs
 test/agentWorkspaces.test.mjs
 test/appOriginMetadata.test.mjs
-test/chaosChange.test.mjs
 test/chaosLive.test.mjs
 test/chaosReport.test.mjs
 test/chaosRubric.test.mjs
@@ -290,7 +289,7 @@ test/agentSilentSubmit.test.mjs
 test/staleEtagWrite.test.mjs
 test/oneVersion.test.mjs
 test/outcome.test.mjs
-test/agentTexStyle.test.mjs
+test/agentCustomInstructions.test.mjs
 test/agentChatVoice.test.mjs
 test/groupDirectNotes.test.mjs
 test/agentCommandTools.test.mjs
@@ -396,3 +395,6 @@ test/savePhases.test.mjs
 test/bookkeepingBehind.test.mjs
 test/collabReplaceInObject.test.mjs
 test/createInObject.test.mjs
+test/bulkNotes.test.mjs
+test/pageDrawings.test.mjs
+test/agentLinkCheck.test.mjs

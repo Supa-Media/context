@@ -14,6 +14,7 @@ import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
 import { cardsOn, noteCard, type AppCard, type AppCardConfig } from "./appCards";
 import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import { isRefusal } from "./carousel";
+import { linkPictureFinder, sendWithLinkPictures } from "./linkPreviews";
 import {
   isSendblueChat,
   parseSendblueChat,
@@ -133,11 +134,18 @@ function sendblueLine(deps: LineDeps): Line {
           await sendSendblueMedia(fetch, keys(), chatId, drawn.address, replyTo);
           return await sendSendblueText(fetch, keys(), chatId, linkAfterCard(drawn.link), replyTo);
         } catch (error) {
-          // A picture the line would not take: the link alone, as before.
+          // A picture the line would not take: the link in its sentence alone, with no second try at a picture.
           if (!isRefusal(error)) throw error;
+          return await sendSendblueText(fetch, keys(), chatId, linkAfterCard(drawn.link), replyTo);
         }
       }
-      return await sendSendblueText(fetch, keys(), chatId, text, replyTo);
+      // Any other link: its picture, then the words with the link tappable (`linkPreviews.ts`).
+      return await sendWithLinkPictures(
+        text,
+        linkPictureFinder(fetch, deps.hostPicture, deps.noteCardPicture),
+        (address) => sendSendblueMedia(fetch, keys(), chatId, address, replyTo),
+        (words) => sendSendblueText(fetch, keys(), chatId, words, replyTo),
+      );
     },
     sendMedia: async (chatId, media, _key, replyTo) => {
       // Only an address: an uploaded attachment id is Linq's.

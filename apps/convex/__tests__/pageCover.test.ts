@@ -11,6 +11,7 @@
  *  2. `cardLocation` checking the cover before `titleInPreview` → "turning the title off takes the cover off too".
  *  3. `livePageRow` without the `.page.md` check → "a note that is not a page never has a cover".
  *  4. `coverBytes` without the PNG check → "the gateway's report must be a PNG, and not a big one".
+ *  5. `coverVersion` without the `-w` for a `card-` leaf → "a wide card is named for its shape, and its version says so".
  */
 
 import { describe, expect, test } from "vitest";
@@ -18,7 +19,7 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { coverVersion } from "../functions/lib/shares/pageCover";
 import { titleFromPath } from "../functions/lib/shareTitle";
-import { coverBytes, coverLeaf, MAX_COVER_BYTES } from "../functions/lib/gatewayRoutes/pageCover";
+import { coverBytes, coverLeaf, isWide, MAX_COVER_BYTES } from "../functions/lib/gatewayRoutes/pageCover";
 import { asUser, setupTest, type TestConvex } from "./fixtures.helpers";
 import { scenario, teamLink } from "./teamShare/fixtures.helpers";
 
@@ -147,5 +148,25 @@ describe("the gateway's report", () => {
     expect(leaf).toMatch(/^cover-[0-9a-f]{16}-[0-9a-f]{8}\.png$/);
     expect(leaf).not.toContain("note-page");
     expect(await coverLeaf("workspace-1", "note-page-0001", coverBytes(png(65))!)).not.toBe(leaf);
+  });
+
+  test("a wide card is named for its shape, and its version says so", async () => {
+    // A PNG header sized 1200 x 630: the card of a page Tex drew a picture for.
+    const sized = (width: number, height: number) => {
+      const bytes = new Uint8Array(64);
+      bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      const view = new DataView(bytes.buffer);
+      view.setUint32(16, width);
+      view.setUint32(20, height);
+      return coverBytes(btoa(String.fromCharCode(...bytes)))!;
+    };
+    expect(isWide(sized(1200, 630))).toBe(true);
+    expect(isWide(sized(1080, 1350))).toBe(false);
+    const wide = await coverLeaf("workspace-1", "note-page-0001", sized(1200, 630));
+    expect(wide).toMatch(/^card-[0-9a-f]{16}-[0-9a-f]{8}\.png$/);
+    expect(coverVersion(wide)).toMatch(/^[0-9a-f]{8}-w$/);
+    const tall = await coverLeaf("workspace-1", "note-page-0001", sized(1080, 1350));
+    expect(tall).toMatch(/^cover-/);
+    expect(coverVersion(tall)).toMatch(/^[0-9a-f]{8}$/);
   });
 });

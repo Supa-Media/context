@@ -79,7 +79,7 @@ function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?
     if (path === "/api/mark-read" || (parsed.host === "gate.whapi.cloud" && init?.method === "PUT" && path.startsWith("/messages/") && !path.endsWith("/reaction"))) calls.push("read");
     if (/typing|presences/.test(path)) calls.push("typing");
     if (path === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "tok" });
-    if (path === "/agent-texts/style") return (styles.push(body.style), Response.json({ ok: true, style: body.style }));
+    if (path === "/agent-texts/style") return (styles.push(body), Response.json({ ok: true, ...(body.pick ? { instructions: `${body.pick} line.` } : {}), ...(body.updates ? { updates: body.updates } : {}) }));
     if (path === "/agent-texts/decide") {
       calls.push("decide");
       decided.push(body);
@@ -436,15 +436,15 @@ describe("\"Tex, settings\" in a person's own chat", () => {
     const storage = new MemoryStorage();
     const w = world(act("silent"));
     const chat = LINES[0].chatId;
-    for (const [n, text] of ["Tex, settings", "3", "1"].entries()) {
+    for (const [n, text] of ["Tex, settings", "1", "2"].entries()) {
       await accept(storage, msg(chat, `s${n}`, text), 1_000 + n);
       await drain(storage, w.deps);
     }
     expect(w.decided).toEqual([]);
     expect(w.asks).toEqual([]);
     expect(w.texts[0]).toMatch(/^My settings here:/);
-    expect(w.texts[1]).toMatch(/^Warmth \(now Default\)/);
-    expect(w.styles).toEqual([{ warmth: "more" }]);
-    expect(w.texts[2]).toBe("Warmth set to More.");
+    expect(w.texts[1]).toMatch(/^Progress updates \(now Normal\)/);
+    expect(w.styles).toEqual([{ phone: PHONE, updates: "planOnly" }]);
+    expect(w.texts[2]).toBe("Progress updates set to Plan only.");
   });
 });

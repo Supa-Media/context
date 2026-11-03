@@ -10,15 +10,16 @@
  * can do exactly what the same person could by text, and nothing more.
  *
  * Who may do what:
- *  - anyone in the chat: mute Tex, read the settings, change the chat's style
- *    and when Tex speaks up;
+ *  - anyone in the chat: mute Tex, read the settings, change the chat's
+ *    instructions, progress updates and when Tex speaks up;
  *  - a guest (no account, in a home-only chat) or an invited person tagging through someone else:
  *    only those. Their grant stands on another person's account, so nothing
  *    that acts as a person (mail, their own review sharing) is theirs;
  *  - the mailbox's own person: share or stop sharing their mail here, by the
  *    same check as "Tex, share my mail" (a chat bound to a shared workspace
  *    they can edit);
- *  - in a person's own chat: their own settings and review sharing.
+ *  - in a person's own chat: their own instructions, progress updates and
+ *    review sharing. Their instructions never reach a group, nor a group's them.
  */
 
 import { v } from "convex/values";
@@ -26,25 +27,28 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { type MutationCtx } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import { resolveLiveGrant } from "./lib/controlPlane/liveGrants";
-import { mergeTexStyle, readTexStyle, texStyleValidator, type TexStyle } from "./lib/texStyle";
-import { muteChat, setChatEngagement, setChatStyle, setPersonStyle, type Engagement } from "./lib/texChatRules";
+import { MAX_INSTRUCTIONS, TEX_UPDATES, texUpdatesValidator, type InstructionsChange, type TexUpdates } from "./lib/texInstructions";
+import { muteChat, personRow, setChatSettings, setPersonSettings, setSpeaksUp, settingsOf, speaksUpOf, type Settings, type SettingsRefusal } from "./lib/texChatRules";
 import { cleanAddress, cleanShareQuery, shareMail, unshareMail } from "./lib/textGroupMail";
 import { TEXTS_CLIENT_ID } from "./textLinks";
-import { TEXTS_GROUP_CLIENT_ID, ENGAGEMENT_STYLES } from "./textGroups";
+import { TEXTS_GROUP_CLIENT_ID, ENGAGEMENT_STYLES, type Engagement } from "./textGroups";
 import { handleOf } from "./lib/textGroupAccounts";
 import { setSharing } from "./texReviews";
 
-export const TEX_COMMANDS = ["mute", "status", "settings", "style", "engagement", "share_mail", "unshare_mail", "review_sharing"] as const;
+export const TEX_COMMANDS = ["mute", "status", "settings", "instructions", "updates", "engagement", "share_mail", "unshare_mail", "review_sharing"] as const;
 export type TexCommandKind = (typeof TEX_COMMANDS)[number];
 
 /** Commands a guest or an invited tagger may use: none acts as a person. */
-export const GUEST_COMMANDS: ReadonlySet<TexCommandKind> = new Set(["mute", "status", "settings", "style", "engagement"]);
+export const GUEST_COMMANDS: ReadonlySet<TexCommandKind> = new Set(["mute", "status", "settings", "instructions", "updates", "engagement"]);
 /** Commands a person's own chat has: there is no chat to mute or share into. */
-export const OWN_CHAT_COMMANDS: ReadonlySet<TexCommandKind> = new Set(["settings", "style", "review_sharing"]);
+export const OWN_CHAT_COMMANDS: ReadonlySet<TexCommandKind> = new Set(["settings", "instructions", "updates", "review_sharing"]);
 
 const commandValidator = v.object({
   kind: v.string(),
-  style: v.optional(v.any()),
+  /** `instructions`: one of `add` (a line), `remove` (a line), `replace` (the whole text), or `clear`. */
+  action: v.optional(v.string()),
+  text: v.optional(v.string()),
+  updates: v.optional(v.string()),
   engagement: v.optional(v.string()),
   address: v.optional(v.string()),
   query: v.optional(v.string()),
@@ -58,12 +62,16 @@ const answerValidator = v.object({
     v.literal("not_allowed"),
     v.literal("bad_request"),
     v.literal("mail_refused"),
+    v.literal("too_long"),
+    v.literal("nothing_to_undo"),
   ),
   /** What happened, as data for the tool to word: never another person's number. */
   muted: v.optional(v.boolean()),
   slug: v.optional(v.string()),
   guest: v.optional(v.boolean()),
-  style: v.optional(texStyleValidator),
+  instructions: v.optional(v.string()),
+  updates: v.optional(texUpdatesValidator),
+  setBy: v.optional(v.string()),
   engagement: v.optional(v.string()),
   engagementChosen: v.optional(v.boolean()),
   address: v.optional(v.string()),
@@ -96,9 +104,22 @@ async function actorOf(ctx: MutationCtx, hashedAccessToken: string): Promise<Act
   return { kind: "group", group, person, slug: texGroup.homeOnly === true ? "" : workspace.slug, setBy };
 }
 
-function styleOf(group: Doc<"textGroups">): TexStyle {
-  return mergeTexStyle(group.texStyle, {});
+/** The tool's change, read against its closed set; null when it names none. */
+function changeOf(command: { action?: string; text?: string }): InstructionsChange | null {
+  const text = command.text ?? "";
+  if (text.length > MAX_INSTRUCTIONS) return null;
+  if (command.action === "clear") return { clear: true };
+  if (text.trim() === "") return null;
+  return command.action === "add" ? { add: text } : command.action === "remove" ? { remove: text } : command.action === "replace" ? { replace: text } : null;
 }
+
+/** A settings change's answer: what is saved now, or why nothing was. */
+function saved(result: Settings | SettingsRefusal, setBy?: string): Answer {
+  if ("refused" in result) return { status: result.refused };
+  return { status: "done", ...result, ...(setBy !== undefined ? { setBy } : {}) };
+}
+
+const updatesOf = (value: string | undefined): TexUpdates | null => ((TEX_UPDATES as readonly string[]).includes(value ?? "") ? (value as TexUpdates) : null);
 
 export const applyTexCommand = internalMutation({
   args: { hashedAccessToken: v.string(), command: commandValidator },
@@ -115,14 +136,13 @@ export const applyTexCommand = internalMutation({
         if (args.command.share === undefined) return { status: "bad_request" };
         return { status: "done", sharing: args.command.share, changed: await setSharing(ctx, actor.person, args.command.share) };
       }
-      const row = await ctx.db
-        .query("texStylePreferences")
-        .withIndex("by_user", (q) => q.eq("userId", actor.person))
-        .unique();
-      if (kind === "settings") return { status: "done", style: row?.texStyle ?? {} };
-      const patch = readTexStyle(args.command.style);
-      if (patch === null) return { status: "bad_request" };
-      return { status: "done", style: await setPersonStyle(ctx, actor.person, patch) };
+      if (kind === "settings") return { status: "done", ...settingsOf((await personRow(ctx, actor.person)) ?? {}) };
+      if (kind === "updates") {
+        const updates = updatesOf(args.command.updates);
+        return updates === null ? { status: "bad_request" } : saved(await setPersonSettings(ctx, actor.person, { updates }));
+      }
+      const change = changeOf(args.command);
+      return change === null ? { status: "bad_request" } : saved(await setPersonSettings(ctx, actor.person, { change }));
     }
 
     const { group, person, slug, setBy } = actor;
@@ -130,22 +150,27 @@ export const applyTexCommand = internalMutation({
     const now = Date.now();
     switch (kind) {
       case "mute":
-        await muteChat(ctx, group, person, now);
+        await muteChat(ctx, group, setBy);
         return { status: "done", muted: true };
       case "status":
         // A home-only chat (someone here has no account) reads only its own home: no workspace to name.
         return { status: "done", slug, guest: slug === "" };
-      case "settings":
-        return { status: "done", style: styleOf(group), ...(group.engagement !== undefined ? { engagement: group.engagement } : {}), engagementChosen: group.engagement !== undefined };
-      case "style": {
-        const patch = readTexStyle(args.command.style);
-        if (patch === null) return { status: "bad_request" };
-        return { status: "done", style: await setChatStyle(ctx, group, patch, setBy) };
+      case "settings": {
+        const level = speaksUpOf(group);
+        return { status: "done", ...settingsOf(group), ...(level !== undefined ? { engagement: level } : {}), engagementChosen: level !== undefined };
+      }
+      case "instructions": {
+        const change = changeOf(args.command);
+        return change === null ? { status: "bad_request" } : saved(await setChatSettings(ctx, group, { change }, setBy), setBy);
+      }
+      case "updates": {
+        const updates = updatesOf(args.command.updates);
+        return updates === null ? { status: "bad_request" } : saved(await setChatSettings(ctx, group, { updates }, setBy), setBy);
       }
       case "engagement": {
         const style = args.command.engagement;
         if (style === undefined || !(ENGAGEMENT_STYLES as readonly string[]).includes(style)) return { status: "bad_request" };
-        await setChatEngagement(ctx, group, style as Engagement, setBy);
+        await setSpeaksUp(ctx, group, style as Engagement, setBy);
         return { status: "done", engagement: style };
       }
       case "share_mail": {
