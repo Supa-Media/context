@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { before, test } from "node:test";
 
 import worker from "../src/index.js";
-import { callOf, mcpEntry } from "../src/mcp/mcpEntryPoint.js";
+import { callOf, keyClass, mcpEntry } from "../src/mcp/mcpEntryPoint.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
@@ -72,6 +72,16 @@ test("one point per step and state for the whole request: repeated calls are sum
   ]);
 });
 
+test("a store call is named by the kind of its key, never the key", () => {
+  assert.equal(keyClass("1-projects/secret plan.md"), "note");
+  assert.equal(keyClass("files/photo.png"), "file");
+  assert.equal(keyClass(".context/audit/2026-11-03-x.json"), ".context/audit");
+  assert.equal(keyClass(".context/collaboration/v1/state/a.json"), ".context/collaboration");
+  assert.equal(keyClass(".context/Weird Name/x"), ".context/other");
+  assert.equal(keyClass({ prefix: "1-projects/" }), "list");
+  assert.equal(keyClass(undefined), "other");
+});
+
 test("a control-plane fetch is timed by its route, never its query or an id in it", async () => {
   const MCP_ENTRY = dataset();
   const mcp = mcpEntry({ MCP_ENTRY });
@@ -94,7 +104,7 @@ test("a watched store's calls are timed by operation and still answer as before"
   assert.equal(mcp.watch(store), store);
   assert.equal(await store.get("a.md"), "body of a.md");
   await store.list({ prefix: "" });
-  assert.deepEqual(mcp.points.map((p) => p.name), ["store:get", "store:list"]);
+  assert.deepEqual(mcp.points.map((p) => p.name), ["store:get:note", "store:list:list"]);
   assert.equal(store.name, "kept");
 });
 
@@ -180,9 +190,10 @@ test("a tool call through the Worker: session, body, store, answer, and the call
   assert.equal(status, 200);
   assert.match(text, /the secret words/, "the call is answered as before");
   const names = steps(points);
-  for (const name of ["session", "read_body", "open_store", "answer", "to_response", "cp:/gateway/session", "cp:/gateway/binding", "store:get"]) {
+  for (const name of ["session", "read_body", "open_store", "answer", "to_response", "cp:/gateway/session", "cp:/gateway/binding"]) {
     assert.ok(names.includes(name), `${name} in ${names.join(", ")}`);
   }
+  assert.ok(names.some((name) => name.startsWith("store:get:")), `a store read in ${names.join(", ")}`);
   assert.equal(names.at(-1), "to_response");
   for (const point of points) {
     assert.equal(point.blobs[1], "tools/call:fetch");
