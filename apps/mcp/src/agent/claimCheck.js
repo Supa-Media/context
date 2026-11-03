@@ -67,6 +67,7 @@ import { KEEPS_A_PROMISE, givesUp, laterNotice, otherRoutesNotice, saysSourceIsD
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
 import { figureCheck } from "./sourcedFigures.js";
 import { browserWalls } from "./browserWalls.js";
+import { noteLinkCheck, unknownLinkNotice } from "./linkCheck.js";
 export { CAPTCHA_NOTICE, handsOverACaptcha } from "./browserWalls.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
@@ -407,7 +408,7 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [], detailed = false }) {
+export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [], detailed = false, origin = null }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
   const shape = replyChecks({ question, waiting, pictures, history, detailed });
   let wrote = false;
@@ -464,6 +465,9 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
   const steps = [];
   let judged = false;
+  // A note link in the answer that no tool gave (`linkCheck.js`).
+  const links = noteLinkCheck({ origin, question, history });
+  let linkNoticed = false;
   return {
     /** The turn's web (`turnWeb.js`), watched for whether anything on it was tried. */
     wrapWeb(web) {
@@ -495,6 +499,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         if (readsAKeptFile(name, args)) keptRead = true;
         const result = refused ?? (await callTool(name, args));
         figures.read(result, { args });
+        if (result?.isError !== true) links.read(result);
         const images = args?.images ?? args?.args?.images;
         // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
         steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...noteStep(name, args, isWrite(name)) });
@@ -535,6 +540,12 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   function firstNotice(answer) {
     const shaped = shape(answer, steps);
     if (shaped !== null) return shaped;
+    // A note link nobody gave: a shortened or retyped name opens "That file does not exist".
+    const unknown = linkNoticed ? [] : links.unknown(answer);
+    if (unknown.length > 0) {
+      linkNoticed = true;
+      return unknownLinkNotice(unknown, links.known());
+    }
     // "I hadn't checked your calendar" when it had: check the reads before agreeing.
     const confessed = confessNoticed ? null : contradictedConfession(answer, { history, steps });
     if (confessed !== null) {

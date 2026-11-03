@@ -396,3 +396,4 @@ test/bookkeepingBehind.test.mjs
 test/collabReplaceInObject.test.mjs
 test/bulkNotes.test.mjs
 test/pageDrawings.test.mjs
+test/agentLinkCheck.test.mjs
