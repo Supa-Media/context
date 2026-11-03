@@ -61,3 +61,38 @@ export function objectFirstManifest(readControl, options) {
     return { served: true, entries: answer.entries, cursor: answer.cursor };
   };
 }
+
+/**
+ * `store.treeChildren(folders)`: the name guards' one-level question (`tree/twins.js`), asked of the object
+ * (`workspaceStore/manifest.js` `childrenPage`): for each folder, one key per immediate child the reader may see.
+ * `null` where this session does not read the object; else a function answering `{[folder]: string[]}`, or `null`
+ * when the object did not serve it (no rules held, behind, malformed, failing), and the guards list as before.
+ *
+ * Without it a new note's name check read the subtree it lands in and, for a new top-level name, the whole tree:
+ * about 0.6 s of manifest pages from the object on each write under load (2026-11-03), 2.3 s a page from the control
+ * plane.
+ *
+ * @param {Parameters<typeof objectReader>[0]} options
+ * @returns {((folders: string[]) => Promise<Record<string, string[]> | null>) | null}
+ */
+export function objectFirstChildren(options) {
+  const reader = objectReader(options);
+  if (reader === null || typeof reader.client.rows?.children !== "function") return null;
+  const { client, workspaceId, log, judged, settledBehind } = reader;
+  return async (folders) => {
+    let answer;
+    try {
+      answer = await client.rows.children({ folders, ...judged });
+    } catch (error) {
+      log("workspace_object_children_failed", { workspaceId, error: String(error?.message ?? error) });
+      return null;
+    }
+    if (settledBehind(answer)) return null;
+    const served = answer?.served === true && answer.folders !== null && typeof answer.folders === "object";
+    if (!served || !folders.every((folder) => Array.isArray(answer.folders[folder]) && answer.folders[folder].every((key) => typeof key === "string"))) {
+      log("workspace_object_children_unserved", { workspaceId });
+      return null;
+    }
+    return Object.fromEntries(folders.map((folder) => [folder, answer.folders[folder]]));
+  };
+}

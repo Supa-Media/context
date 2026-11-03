@@ -63,3 +63,46 @@ export function manifestPage(rows, fields, judge) {
     cursor: visible.length > limit ? page[page.length - 1].path : null,
   };
 }
+
+/** Folders one children ask may name: a note's path, root to parent, in one call. */
+export const CHILDREN_FOLDERS = 8;
+
+/**
+ * `ws.rows.children`: for each asked folder, one key per immediate child the reader may see, the first in byte order
+ * (a file's own path, or the first visible key under a subfolder): what the name guards (`tree/twins.js`) need to know
+ * which names a level holds and whether a folder holds anything, without a whole subtree's manifest page. Judged as
+ * the manifest is (`manifestPage`): a folder the reader cannot see answers as an empty one, and no rules held is not
+ * served. The witnesses are keys the manifest would hand this reader, so the gateway judges them again as it does a
+ * listing.
+ *
+ * @param {ReturnType<import("./rows.js").workspaceRows>} rows
+ * @param {{folders?: unknown}} fields
+ * @param {Parameters<typeof manifestPage>[2]} judge
+ */
+export function childrenPage(rows, fields, judge) {
+  const asked = Array.isArray(fields?.folders) ? fields.folders.map(folderPathOf) : null;
+  if (asked === null || asked.length === 0 || asked.length > CHILDREN_FOLDERS || asked.includes(null)) return { served: false };
+  if (judge.clearance === null || judge.parsed === null) return { served: false };
+  const { rules, overrides } = judge.parsed;
+  const folders = {};
+  for (const folder of new Set(asked)) {
+    const prefix = folder === "" ? "" : `${folder}/`;
+    // Read whether or not the folder may be seen, so a hidden folder costs what a visible one does.
+    const under = rows.filesUnder(prefix);
+    if (folder !== "" && !folderVisibleAtScope(folder, judge.clearance, rules, overrides)) {
+      folders[folder] = [];
+      continue;
+    }
+    const first = new Map();
+    for (const row of under) {
+      if (!judge.sees(row)) continue;
+      const rest = row.path.slice(prefix.length);
+      const slash = rest.indexOf("/");
+      const child = slash === -1 ? `file:${rest}` : `folder:${rest.slice(0, slash)}`;
+      const held = first.get(child);
+      if (held === undefined || compareKeys(row.path, held) < 0) first.set(child, row.path);
+    }
+    folders[folder] = [...first.values()].sort(compareKeys);
+  }
+  return { served: true, folders };
+}

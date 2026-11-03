@@ -17,7 +17,7 @@ import { isPersonCall, servePersonCall } from "./personServe.js";
 import { isTokenIndexCall, serveTokenIndex } from "./tokenIndex.js";
 import { membersState, serveMembersCall } from "./serveMembers.js";
 import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.js";
-import { manifestPage } from "./manifest.js";
+import { childrenPage, manifestPage } from "./manifest.js";
 import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
 import { BINDING_OPS, BindingRowRefused, serveBindingCall } from "./bindingRows.js";
 import { accessCall, applyAccess } from "./serveAccess.js";
@@ -330,6 +330,9 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(store.facts.rows(fields));
       case "ws.rows.manifest":
         return Response.json(await settledAnswer(store, () => manifestPage(rows, fields, judgeFor(rows, fields, store.members ?? null))));
+      case "ws.rows.children":
+        // The name guards' one-level question (`tree/twins.js`), judged as the manifest is.
+        return Response.json(await settledAnswer(store, () => childrenPage(rows, fields, judgeFor(rows, fields, store.members ?? null))));
       case "ws.mark.open":
         if (!store.marks) throw new WorkspaceRowRefused("this object keeps no marks");
         return Response.json(store.marks.open(fields.token, fields.ttlMs));

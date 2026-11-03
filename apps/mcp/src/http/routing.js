@@ -5,7 +5,7 @@
  * where its order of checks can be read top to bottom.
  */
 
-import { objectFirstManifest } from "../store/objectManifest.js";
+import { objectFirstChildren, objectFirstManifest } from "../store/objectManifest.js";
 import { attachHomeRoutineReports } from "../agent/chatHomeSeal.js";
 
 /**
@@ -208,6 +208,11 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // The name guards' one-level question (`tree/twins.js`), where the notes live in the workspace's object.
+  const treeChildren = store.objectReading ? objectFirstChildren(store.objectReading) : null;
+  if (treeChildren !== null) {
+    Object.defineProperty(store, "treeChildren", { value: treeChildren, enumerable: false, writable: false, configurable: true });
+  }
   // Its facts: a move's link candidates and the chaos score's extras (`tree/facts.js`). Where the notes live in the
   // workspace's object, their links and props are asked there first (`store/objectLookup.js` `objectFirstFacts`).
   Object.defineProperty(store, "treeFacts", {
