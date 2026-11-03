@@ -19,6 +19,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { LOG_PRIOR, isSearchProbe, notePrior } from "../src/search/priors.js";
+import { mergeHits } from "../src/search/meaning/serve.js";
 
 test("archived material ranks below an ordinary note", () => {
   assert.equal(notePrior("archive/chat-history/2026-10.md"), LOG_PRIOR);
@@ -65,6 +66,20 @@ test("a workspace prefix is read through before deciding", () => {
   assert.equal(notePrior("@wedding/vendors/caterer.md"), 1);
   // A note's own name starting with @ does not make a prefix.
   assert.equal(notePrior("projects/@ideas/x.md"), 1);
+});
+
+/**
+ * The prior is also in the single-workspace fusion (`mergeHits`), so an
+ * archived note with the same words and meaning as a live one places below it.
+ */
+test("mergeHits: an archived note places below a live one with the same evidence", () => {
+  const words = [{ key: "archive/old-plan.md" }, { key: "projects/plan.md" }];
+  const meaning = [{ path: "projects/plan.md", score: 0.6 }, { path: "archive/old-plan.md", score: 0.6 }];
+  assert.deepEqual(mergeHits(words, meaning).map((entry) => entry.key), ["projects/plan.md", "archive/old-plan.md"]);
+});
+
+test("mergeHits: the prior reorders and never drops; a log with no other match still shows", () => {
+  assert.deepEqual(mergeHits([{ key: "archive/only.md" }], []).map((entry) => entry.key), ["archive/only.md"]);
 });
 
 test("a non-path is an ordinary note, never a throw", () => {

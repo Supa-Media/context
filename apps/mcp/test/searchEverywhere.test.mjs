@@ -8,6 +8,7 @@
  *   meaning ranked per workspace instead of across them → "a note the query is about outranks another workspace's first word hit" fails
  *   the loose penalty dropped                           → "a loose any-word hit never outranks a real match" fails
  *   loose word evidence counted beside a real match     → "a note holding every word outranks another workspace's loose hit that meaning also found" fails
+ *   the path prior dropped from the fused score         → "an archived or log note ranks below a live note…" and "a workspace prefix is read through…" fail
  */
 
 import test from "node:test";
@@ -63,4 +64,34 @@ test("a note holding every word outranks another workspace's loose hit that mean
   // With no note holding every word anywhere, loose hits still rank by their words.
   const allLoose = fuseEverywhere([[hit("a.md", { wordRank: 0, loose: true })], [hit("@x/b.md", { wordRank: 1, loose: true })]]).map((entry) => entry.key);
   assert.deepEqual(allLoose, ["a.md", "@x/b.md"]);
+});
+
+/**
+ * The path prior (`search/priors.js`), applied to the fused score: with the
+ * same evidence, an archived note or a log places below a live one, whichever
+ * workspace it is in. Production, 2026-11-03: "2027 plan objectives owners"
+ * put an archived chat log first and the plan's overview eleventh.
+ */
+test("an archived or log note ranks below a live note with the same evidence", () => {
+  // Equal word rank, no meaning: the list order used to decide, and the log was listed first.
+  const own = [hit("archive/chat-history/2027-plan.md", { wordRank: 0 }), hit("inbox/email/2026-10.md", { wordRank: 0 })];
+  const plans = [hit("@plans/2027/objectives.md", { wordRank: 0 })];
+  assert.deepEqual(fuseEverywhere([own, plans]).map((entry) => entry.key), ["@plans/2027/objectives.md", "archive/chat-history/2027-plan.md", "inbox/email/2026-10.md"]);
+});
+
+test("meetings and ordinary notes are not demoted", () => {
+  const own = [hit("inbox/meetings/2026-10-30 standup.md", { wordRank: 0 })];
+  const work = [hit("@work/projects/live.md", { wordRank: 0 })];
+  assert.deepEqual(fuseEverywhere([own, work]).map((entry) => entry.key), ["inbox/meetings/2026-10-30 standup.md", "@work/projects/live.md"]);
+});
+
+test("a workspace prefix is read through before the prior is decided", () => {
+  const old = [hit("@old/archive/a.md", { wordRank: 0 })];
+  const live = [hit("@new/projects/b.md", { wordRank: 0 })];
+  assert.deepEqual(fuseEverywhere([old, live]).map((entry) => entry.key), ["@new/projects/b.md", "@old/archive/a.md"]);
+});
+
+test("a log still shows when nothing else matches", () => {
+  const own = [hit("archive/chat-history/only.md", { wordRank: 0 })];
+  assert.deepEqual(fuseEverywhere([own]).map((entry) => entry.key), ["archive/chat-history/only.md"]);
 });

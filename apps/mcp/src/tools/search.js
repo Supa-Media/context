@@ -17,6 +17,7 @@ import { folderPrefix } from "../search/indexable.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
 import { holdSearchPasses } from "../search/heldPasses.js";
+import { notePrior } from "../search/priors.js";
 
 /** Most hits a search across every workspace shows. */
 const EVERYWHERE_HITS = 12;
@@ -59,7 +60,9 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS) {
     const counted = typeof hit.wordRank === "number" && !(hit.loose && anyWhole);
     const word = counted ? 1 / (RRF_K + hit.wordRank + 1 + (hit.loose ? LOOSE_PENALTY : 0)) : 0;
     const meaning = meaningRank.has(entry) ? 1 / (RRF_K + meaningRank.get(entry) + 1) : 0;
-    return { ...entry, score: word + meaning };
+    // The path prior (`search/priors.js`): an archived note or a log scores half
+    // what the same evidence does on a live note. Hit keys carry `@name/`, which it reads through.
+    return { ...entry, score: (word + meaning) * notePrior(hit.key) };
   });
   scored.sort((a, b) => b.score - a.score || a.list - b.list || a.order - b.order);
   return scored.slice(0, most).map(({ hit }) => hit);

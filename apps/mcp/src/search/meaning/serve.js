@@ -31,6 +31,7 @@ import { snippetFromText } from "./snippet.js";
 import { rankMeaningMatches } from "./project.js";
 import { meaningEmbedderFor } from "./store.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
+import { isSearchProbe, notePrior } from "../priors.js";
 import { createD1Client } from "../d1/client.js";
 import { passageSnippets } from "../d1/passages.js";
 import { phase } from "../../mcp/phase.js";
@@ -127,6 +128,7 @@ export async function meaningMatches(
         match.path.endsWith(".md") &&
         match.path !== ACTIVITY_PATH &&
         !isPlumbing(match.path) &&
+        !isSearchProbe(match.path) &&
         (!prefix || match.path.startsWith(prefix)) &&
         isVisible(match.path),
     );
@@ -181,6 +183,10 @@ export function mergeHits(wordHits, matches, keyField = "key") {
       });
     }
   });
+  // The path prior scales the fused score (`search/priors.js`): an archived
+  // note or a log places below a live one with the same evidence. It only
+  // reorders; the sort below keeps the loose-hit rule and the tie order.
+  for (const entry of merged.values()) entry.score *= notePrior(entry.key);
   const weak = (entry) => (entry.word?.loose === true && entry.meaning === null ? 1 : 0);
   return [...merged.values()]
     .sort((a, b) => weak(a) - weak(b) || b.score - a.score || a.order - b.order)
