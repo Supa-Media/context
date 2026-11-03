@@ -27,6 +27,7 @@ import { indexableText } from "../encryption/format.js";
 import { isIndexableNote } from "../search/indexable.js";
 import { isWorkspaceObjectKey } from "./api.js";
 import { chaosExtraOf } from "../tree/chaosExtra.js";
+import { folderJobsAnswer } from "./jobsAnswer.js";
 
 /** Paths one props ask names (the control plane's `PROPS_AT_PATHS`). */
 export const PROPS_ASK_PATHS = 100;
@@ -318,11 +319,20 @@ export function workspaceFacts(sql, objects) {
       if (!visible.has(seed)) return { served: true, neighbors: { links: [], backlinks: [], complete: true } };
       return { served: true, neighbors: { ...found, complete: parsed(own) } };
     },
+
+    /**
+     * `{ask: "jobs"}`: which folder does each built-in job, and the root folders, as the reader may see them
+     * (`jobsAnswer.js`, Convex's `gatewayFacts` `jobs` branch). `folderSees` is the reader's `folderVisibleAtScope`.
+     */
+    jobs(_fields, _sees, folderSees) {
+      const rows = all(sql.exec("SELECT path, kind, role FROM ws_rows WHERE gone = 0 AND kind = 'folder'"));
+      return folderJobsAnswer(rows.map((row) => ({ path: row.path, kind: row.kind, role: typeof row.role === "string" ? row.role : null })), folderSees);
+    },
   };
 }
 
 /** The asks a workspace object answers itself. Every other ask is the control plane's. */
-export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors"]);
+export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors", "jobs"]);
 
 /**
  * The asks the control plane's own readers make through the door (`ws.facts.rows`): unfiltered, like the control

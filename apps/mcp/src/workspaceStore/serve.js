@@ -20,6 +20,7 @@ import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.
 import { manifestPage } from "./manifest.js";
 import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
 import { BindingRowRefused, serveBindingCall } from "./bindingRows.js";
+import { folderVisibleAtScope } from "./listing.js";
 
 const CALL = "x-tex-call";
 
@@ -147,7 +148,11 @@ function answerFacts(store, fields) {
   if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ASKS.has(fields.ask)) return { served: false };
   const judge = judgeFor(store.rows, fields, store.members ?? null);
   const sees = (path) => judge.sees({ path });
-  return store.facts[fields.ask](fields, sees);
+  // A folder is seen as the listing shows it (`folderVisibleAtScope`), over the same rules and the reader's clearance.
+  const folderSees = (path) => judge.parsed !== null && folderVisibleAtScope(path, judge.clearance, judge.parsed.rules, judge.parsed.overrides);
+  // Held rules nobody can judge by (no rules, or a member the object does not know) are the control plane's to answer.
+  if (fields.ask === "jobs" && judge.parsed === null) return { served: false };
+  return store.facts[fields.ask](fields, sees, folderSees);
 }
 
 /** The paths a row change touches, before and after, for a tree watcher (`store.onTreeChange`). */
