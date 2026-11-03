@@ -92,10 +92,11 @@ function move(ctx, body) {
   // Every refusal was decided by the check above in this same transaction, so this cannot refuse; if it ever does,
   // throwing rolls the narrowing back with it.
   if (!result.ok) throw new WriteOpRefused(`the move refused after its check: ${result.reason}`);
-  const { moved, folders, removed, count, etag } = result;
+  const { moved, folders, removed, count, etag, files } = result;
   const change = treeChange(moved, folders, removed, auditOf(body, "move", count), trash);
   return {
-    answer: { ok: true, from: body.from, to: body.to, count, at: moved.at, ...(etag === undefined ? {} : { etag }) },
+    // `files`: every file moved, from and to, for a caller that follows them (the search projection, old copies).
+    answer: { ok: true, from: body.from, to: body.to, count, at: moved.at, files, ...(etag === undefined ? {} : { etag }) },
     changes: narrowing === null ? [change] : [narrowing, change],
     narrows: WAIT_FOR_MIRROR,
     ...(narrowing === null ? {} : { rules: true }),

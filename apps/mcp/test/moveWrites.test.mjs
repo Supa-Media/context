@@ -173,6 +173,7 @@ test("an owner renames a note in a ready workspace: the row is at its new path, 
     to: "projects/plan-renamed.md",
     count: 1,
     at: answer.at,
+    files: [{ from: "projects/plan.md", to: "projects/plan-renamed.md" }],
     etag: "e-plan",
   });
   assert.equal(typeof answer.at, "number");
@@ -221,6 +222,7 @@ test("a private note inside a private folder, moved into a team folder, is pinne
     to: "projects/memo.md",
     count: 1,
     at: answer.at,
+    files: [{ from: "projects/secret/memo.md", to: "projects/memo.md" }],
     etag: "e-memo",
   });
   assert.equal(pathOf(store, "row-memo"), "projects/memo.md");
