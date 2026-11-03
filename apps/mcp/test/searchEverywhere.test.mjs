@@ -12,6 +12,7 @@
  *   the meaning-only budget removed                     → "meaning-only extras are three across every workspace…" fails
  *   the 0.5 floor removed from the strict-hit case      → "…under the 0.5 floor is left out even when the budget has room" fails
  *   the no-strict budget replaced by `extraNotes`       → "with no strict word hit anywhere, six…" fails
+ *   the median meaning rank for an unfingerprinted hit removed → "a fresh strict word hit with no meaning score…" fails
  */
 
 import test from "node:test";
@@ -27,8 +28,11 @@ test("a note the query is about outranks another workspace's first word hit", ()
   const wedding = [hit("@wedding/vendors/caterer.md", { wordRank: 0, meaningScore: 0.62 }), hit("@wedding/budget.md", { wordRank: 1 })];
   const band = [hit("@band/index.md", { wordRank: 0, meaningScore: 0.41 })];
   const fused = fuseEverywhere([own, wedding, band]).map((entry) => entry.key);
-  assert.deepEqual(fused.slice(0, 2), ["@wedding/vendors/caterer.md", "@band/index.md"]);
-  assert.ok(fused.indexOf("todo.md") > fused.indexOf("@band/index.md"), "a word hit with no meaning behind it places after one the model also found");
+  // The caterer note is still first. A strict word hit with no meaning score
+  // now takes the median meaning rank (the fresh-note rule, see the test below),
+  // so todo.md places between the caterer and the band note, not below the
+  // band note. Changed on 2026-11-03 by that rule; the cost is noted there.
+  assert.deepEqual(fused, ["@wedding/vendors/caterer.md", "todo.md", "@band/index.md", "@wedding/budget.md"]);
 });
 
 test("a loose any-word hit never outranks a real match, and ties keep this workspace first", () => {
@@ -114,6 +118,29 @@ test("the extra budget is a setting, and a meaning-only hit in the answer is mar
   assert.equal(hits[0].meaningOnly, true);
   // Dropped by the budget, so not in the answer and not marked.
   assert.notEqual(hits[1].meaningOnly, true);
+});
+
+/**
+ * A note not yet fingerprinted. The meaning index builds behind searches, so
+ * a fresh note has no meaning score for a while, and it used to count as one
+ * word rank and nothing else, below older notes that merely matched weakly
+ * (production benchmark, 2026-11-03: fresh test notes ranked below unrelated
+ * notes). While any hit has a meaning score, a strict word hit without one
+ * takes the median meaning rank among those that have one.
+ */
+test("a fresh strict word hit with no meaning score is not buried under a weaker older hit", () => {
+  const own = [hit("fresh.md", { wordRank: 0 })];
+  const other = [
+    hit("@x/a.md", { meaningScore: 0.6 }),
+    hit("@x/b.md", { meaningScore: 0.55 }),
+    hit("@x/weak.md", { wordRank: 1, meaningScore: 0.41 }),
+    hit("@x/loose.md", { wordRank: 0, loose: true }),
+  ];
+  const fused = fuseEverywhere([own, other]).map((entry) => entry.key);
+  assert.equal(fused[0], "fresh.md", fused.join(", "));
+  assert.ok(fused.indexOf("fresh.md") < fused.indexOf("@x/weak.md"));
+  // A loose hit gets no meaning contribution from the rule, so it stays below.
+  assert.ok(fused.indexOf("@x/loose.md") > fused.indexOf("fresh.md"));
 });
 
 /**

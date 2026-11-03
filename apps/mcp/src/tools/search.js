@@ -34,6 +34,14 @@ const RRF_K = 60;
 /** How far down a loose (any-word) hit is counted, so a note that merely shares "team" with the query never outranks a real match. */
 const LOOSE_PENALTY = 10;
 
+/** The median of a list of numbers, or null for none. */
+function median(values) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
 /**
  * One list from every workspace's, ranked by evidence rather than by
  * workspace: each hit scores its word rank in its own workspace (a loose
@@ -51,7 +59,10 @@ const LOOSE_PENALTY = 10;
  * holding all four words (2026-11-03). Such a hit then places by its meaning
  * alone.
  *
- * Meaning-only hits (no word rank: found by what the note is about) are one
+ * A strict word hit with no meaning score takes the median meaning rank of the
+ * hits that have one, rather than none: the meaning index builds behind
+ * searches, so a fresh note has no fingerprint for a while (production
+ * benchmark, 2026-11-03). Meaning-only hits (no word rank: found by what the note is about) are one
  * budget for the whole answer, not one per workspace. Once any workspace has a
  * strict word hit, a meaning-only hit must reach `MEANING_EXTRA_FLOOR_WITH_WORDS`
  * and at most `extraNotes` of them are kept, the closest ones; otherwise at
@@ -77,11 +88,17 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
     .filter(({ hit }) => typeof hit.meaningScore === "number")
     .sort((a, b) => b.hit.meaningScore - a.hit.meaningScore);
   const meaningRank = new Map(byMeaning.map((entry, rank) => [entry, rank]));
+  // A note not yet fingerprinted (see the test header) takes the middle of the
+  // meaning ranking, not nothing: the index builds behind searches.
+  const medianRank = median(byMeaning.map((_, rank) => rank));
   const scored = eligible.map((entry) => {
     const { hit } = entry;
     const counted = typeof hit.wordRank === "number" && !(hit.loose && anyWhole);
     const word = counted ? 1 / (RRF_K + hit.wordRank + 1 + (hit.loose ? LOOSE_PENALTY : 0)) : 0;
-    const meaning = meaningRank.has(entry) ? 1 / (RRF_K + meaningRank.get(entry) + 1) : 0;
+    const strictWord = typeof hit.wordRank === "number" && !hit.loose;
+    let meaning = 0;
+    if (meaningRank.has(entry)) meaning = 1 / (RRF_K + meaningRank.get(entry) + 1);
+    else if (strictWord && medianRank !== null) meaning = 1 / (RRF_K + medianRank + 1);
     // The path prior (`search/priors.js`): an archived note or a log scores half
     // what the same evidence does on a live note. Hit keys carry `@name/`, which it reads through.
     return { ...entry, score: (word + meaning) * notePrior(hit.key) };
