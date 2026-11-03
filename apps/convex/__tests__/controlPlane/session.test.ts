@@ -204,8 +204,7 @@ describe("/gateway/session", () => {
         scopes: ["context:read", "context:write"],
         role: "owner",
         kind: "personal",
-        // An AI connection holds the names its person answers to (2026-11-03): here her handle.
-        grantedNames: ["alfa"],
+        grantedNames: ["alfa"], // an AI connection holds its person's names (2026-11-03): her handle
       },
       null,
       null,
@@ -419,30 +418,10 @@ describe("/gateway/session", () => {
       await gatewayPost(t, "/gateway/session", { accessToken: narrowToken }),
     );
     expect((narrowSession.session as any).workspaces[0].grantedNames).toEqual([]);
-    await asUser(t, owner).mutation(api.functions.groups.addGroupMember, {
-      workspaceId,
-      groupId: group.groupId,
-      userId: member,
-    });
-    const rejoined = await bodyOf(
-      await gatewayPost(t, "/gateway/session", { accessToken: narrowToken }),
-    );
+    await asUser(t, owner).mutation(api.functions.groups.addGroupMember, { workspaceId, groupId: group.groupId, userId: member });
+    const rejoined = await bodyOf(await gatewayPost(t, "/gateway/session", { accessToken: narrowToken }));
     expect((rejoined.session as any).workspaces[0].grantedNames).toEqual(["group-home-readers"]);
-
-    // Context's own background clients (`context_*`) never hold them.
-    await registerClient(t, "context_cards");
-    const backgroundToken = token("background_group");
-    await seedConnectedClient(t, {
-      workspaceId,
-      userId: member,
-      clientId: "context_cards",
-      accessToken: backgroundToken,
-      scopes: ["context:read"],
-    });
-    const background = await bodyOf(
-      await gatewayPost(t, "/gateway/session", { accessToken: backgroundToken }),
-    );
-    expect((background.session as any).workspaces[0].grantedNames).toBeUndefined();
+    // Context's own background clients (`context_*`) hold none: textGroupHome.test.ts.
   });
 
   test("resolves a live grant to the documented shape", async () => {
