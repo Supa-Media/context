@@ -299,13 +299,16 @@ const speaker = (name: string | undefined): string => `@${oneLine(name ?? "").re
 
 /**
  * The transcript decide is shown (section 5), newest last, at most `limit`
- * characters: oldest lines go first. "You" is Tex, "Context" the system, and every person "@name" (`speaker`). A person's event no
- * delivered answer of Tex's covers is "(not answered)". A group's is the whole
+ * characters: oldest lines go first. "You" is Tex, "Context" the system, and every person "@name" (`speaker`). A person's event
+ * after Tex's last delivered text that no delivered answer covers is "(not answered)"; one from before Tex last spoke is
+ * history, as the gateway's transcript shows it (`apps/mcp/src/agent/logRender.js`, 2026-11-03). A group's is the whole
  * log, whoever has joined or left since (the owner, 2026-11-02).
  */
 export function renderTranscript(events: readonly TexEvent[], options: { timeZone?: string; limit?: number } = {}): string {
   const shown = events;
-  const answered = new Set(shown.filter((event) => event.from.kind === "tex" && event.delivered !== false).flatMap((event) => event.covers ?? []));
+  const spoken = shown.filter((event) => event.from.kind === "tex" && event.delivered !== false);
+  const answered = new Set(spoken.flatMap((event) => event.covers ?? []));
+  const lastSpoke = spoken.reduce((latest, event) => Math.max(latest, event.at), -Infinity);
   const zone = options.timeZone ?? "UTC";
   const day = (at: number) => new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "long", month: "short", day: "numeric" }).format(at);
   const time = (at: number) => new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "numeric", minute: "2-digit" }).format(at);
@@ -319,7 +322,7 @@ export function renderTranscript(events: readonly TexEvent[], options: { timeZon
     const who = event.from.kind === "tex" ? "You" : event.from.kind === "system" ? "Context" : speaker(event.from.name);
     const said = event.told ? (TOLD_WORDS[event.told] ?? "") : oneLine(event.text ?? "").trim();
     const words = said || (event.kind === "picture" ? "(a picture)" : event.kind === "file" ? "(a file)" : event.kind === "reaction" ? "(a tapback)" : "");
-    const unanswered = event.from.kind === "person" && !answered.has(event.id) ? "   (not answered)" : "";
+    const unanswered = event.from.kind === "person" && event.at > lastSpoke && !answered.has(event.id) ? "   (not answered)" : "";
     // Each line carries its event id, so what decide is asked about by id is grounded in the line it reads.
     lines.push(`<${event.id}> [${time(event.at)}] ${who}: ${words}${unanswered}`);
     if (event.from.kind === "tex" && event.delivered === false) lines.push(`           (not delivered: ${NOT_DELIVERED[event.reason ?? "failed"]})`);

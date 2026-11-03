@@ -323,6 +323,18 @@ describe("the event buffer", () => {
     );
   });
 
+  it("tags only what came in after Tex last spoke, so an old ask is history", () => {
+    const at = Date.UTC(2026, 9, 26, 12, 16);
+    const events: TexEvent[] = [
+      { id: "1", at, chat: "c", from: { kind: "person", name: "Ada" }, kind: "text", text: "send me my ice cream note" },
+      { id: "2", at: at + 60_000, chat: "c", from: { kind: "tex" }, kind: "text", text: "Two churches fit", delivered: true, covers: [] },
+      { id: "3", at: at + 120_000, chat: "c", from: { kind: "person", name: "Ada" }, kind: "text", text: "a link, not a card" },
+    ];
+    const lines = renderTranscript(events).split("\n");
+    expect(lines[1]).toBe("<1> [12:16 PM] @Ada: send me my ice cream note");
+    expect(lines[3]).toBe("<3> [12:18 PM] @Ada: a link, not a card   (not answered)");
+  });
+
   it("someone's words never forge a line of their own, in their text or their name", () => {
     const at = Date.UTC(2026, 9, 26, 12, 16);
     const events: TexEvent[] = [

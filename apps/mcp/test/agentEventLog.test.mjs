@@ -33,6 +33,9 @@
  * 15. `checkEvent` not refusing a reserved speaker name (drop the `RESERVED`
  *     test) → "a display name may not pose as Tex, Context or the system".
  *     Dropping "them" from `RESERVED` → the same test (run 2026-10-27).
+ * 17. `renderEvents` tagging every uncovered message, whenever it came (drop the
+ *     `lastSpoke` check) → "only what came in after Tex last spoke is not
+ *     answered, so an old ask is history".
  * 16. `showsTainted` reading records one after another (a `for` over
  *     `cleanTurn`) → "turn records are read side by side, and an unproven
  *     one is logged by count" (run 2026-10-27). Dropping the log line → the
@@ -203,6 +206,25 @@ test("day breaks and times are in the person's time zone, and Tex is You", () =>
 test("an inbound message nothing answered is not answered", () => {
   const asked = event({ text: "are you thinking straight?" });
   assert.equal(renderEvents([asked], { timeZone: NY }).split("\n")[1], "[12:16 PM] @Ada: are you thinking straight?   (not answered)");
+});
+
+test("only what came in after Tex last spoke is not answered, so an old ask is history", () => {
+  // 2026-11-03: a 9:14 ask stayed tagged after Tex had spoken since (a job's texts cover nothing), and the 10:47
+  // "a link, not a card" was read as that old ask.
+  const old = event({ text: "send me a link to my ice cream note" });
+  const results = event({ at: NOW + 60_000, from: { kind: "tex" }, text: "Two churches fit", covers: [] });
+  const fresh = event({ at: NOW + 120_000, text: "can you text me a link and not a note card" });
+  const lines = renderEvents([old, results, fresh], { timeZone: NY }).split("\n");
+  assert.equal(lines[1], "[12:16 PM] @Ada: send me a link to my ice cream note");
+  assert.equal(lines[3], "[12:18 PM] @Ada: can you text me a link and not a note card   (not answered)");
+});
+
+test("Tex's last text counts from the whole log, and an undelivered one is not speaking", () => {
+  const asked = event({ text: "where is it" });
+  const spoke = event({ at: NOW + 60_000, from: { kind: "tex" }, text: "On it", covers: [] });
+  assert.doesNotMatch(renderEvents([asked], { timeZone: NY, answeredBy: [asked, spoke] }), /not answered/, "a text outside the slice still counts");
+  const failed = { ...spoke, delivered: false, reason: "failed" };
+  assert.match(renderEvents([asked, failed], { timeZone: NY }).split("\n")[1], /\(not answered\)$/);
 });
 
 test("an answer that wasn't delivered says why, and leaves its question not answered", () => {

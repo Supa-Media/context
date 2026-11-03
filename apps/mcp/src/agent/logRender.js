@@ -9,7 +9,11 @@
  *   [12:19 PM] Ada: are you thinking straight?   (not answered)
  *
  * Times and day breaks are in the person's time zone. "You" is Tex. An
- * inbound message no delivered answer of Tex's `covers` is "(not answered)".
+ * inbound message that came in after Tex's last delivered text, and that no
+ * delivered answer `covers`, is "(not answered)". One from before Tex last
+ * spoke is history, not a to-do, whatever covered it (Dev, 2026-11-03: a
+ * 9:14 ask still tagged at 10:47, behind a job's texts that cover nothing,
+ * took a new "send me a link" for itself).
  * A fixed Worker text (`told`) is shown in the gateway's own words for it
  * (`conversation.js` `TOLD`).
  *
@@ -82,7 +86,9 @@ export function words(event) {
 export function renderEvents(events, { timeZone = "UTC", answeredBy = events, tools = null } = {}) {
   const day = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", month: "short", day: "numeric" });
   const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true });
-  const answered = new Set(answeredBy.filter((event) => event.from?.kind === "tex" && event.delivered !== false).flatMap((event) => event.covers ?? []));
+  const spoken = [...answeredBy, ...events].filter((event) => event.from?.kind === "tex" && event.delivered !== false);
+  const answered = new Set(spoken.flatMap((event) => event.covers ?? []));
+  const lastSpoke = spoken.reduce((latest, event) => (Number.isFinite(event.at) && event.at > latest ? event.at : latest), -Infinity);
   const lines = [];
   const named = new Set();
   let lastDay = null;
@@ -94,7 +100,7 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
       lastDay = thisDay;
     }
     let line = `[${time.format(date).replace(/ /g, " ")}] ${speaker(event.from)}: ${words(event)}`;
-    if (event.from?.kind === "person" && INBOUND.has(event.kind) && !answered.has(event.id)) line += "   (not answered)";
+    if (event.from?.kind === "person" && INBOUND.has(event.kind) && event.at > lastSpoke && !answered.has(event.id)) line += "   (not answered)";
     lines.push(line);
     if (event.delivered === false) lines.push(`${NOTE_INDENT}(not delivered: ${REASON_WORDS[event.reason] ?? "it didn't go out"})`);
     const used = event.from?.kind === "tex" && typeof event.turn === "string" && !named.has(event.turn) ? tools?.get(event.turn) : undefined;
