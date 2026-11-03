@@ -262,7 +262,10 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
       for (const removed of Array.isArray(answer?.deletes) ? answer.deletes : []) {
         if (typeof removed === "string") await mirror("delete", removed, () => store.delete(removed));
       }
-      return answer?.served === true ? answer : null;
+      if (answer?.served === true) return answer;
+      // Why the save ran the engine from here instead: a short code from the object, never the path.
+      log("workspace_object_collab_not_served", { workspaceId, reason: typeof answer?.reason === "string" ? answer.reason : null });
+      return null;
     };
   }
 

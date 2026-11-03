@@ -90,14 +90,15 @@ async function started(options) {
   const settle = async () => {
     while (behind.length) await Promise.allSettled(behind.splice(0));
   };
-  const routed = withWorkspaceRouting(bucket, { workspaceId: "ws", client: side.client, defer: (work) => behind.push(work), known: { home: options?.home ?? "object", backfilledAt: options?.backfilled === false ? null : 1 } });
+  const logged = [];
+  const routed = withWorkspaceRouting(bucket, { workspaceId: "ws", client: side.client, defer: (work) => behind.push(work), log: (event, fields) => logged.push([event, fields]), known: { home: options?.home ?? "object", backfilledAt: options?.backfilled === false ? null : 1 } });
   await routed.put(KEY, "# Plan\n\nFirst words.\n");
   // The document is started and saved once the ordinary way, from the gateway.
   const first = await readDocument(atPath(routed), PATH);
   const saved = await replaceText(atPath(routed), PATH, { expectedEtag: first.etag, onlyCurrent: true, text: "# Plan\n\nSecond words.\n" });
   await settle();
   side.calls.length = 0;
-  return { ...side, bucket, routed, saved, settle };
+  return { ...side, bucket, routed, saved, settle, logged };
 }
 
 const text = async (store, key) => {
@@ -133,11 +134,14 @@ test("a save from a version that has moved is a CONFLICT, and the note is unchan
 });
 
 test("a row that names another key is not served, and nothing is written", async () => {
-  const { routed, client, saved } = await started({ rowKey: "notes/0199a000-0000-7000-8000-000000000002.md" });
+  const { routed, client, saved, logged } = await started({ rowKey: "notes/0199a000-0000-7000-8000-000000000002.md" });
   const before = await text(client.bodies, KEY);
+  logged.length = 0;
   const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
   assert.equal(answer, null);
   assert.equal(await text(client.bodies, KEY), before);
+  // Why it was not served is logged as the object's code, never the path (2026-11-03).
+  assert.deepEqual(logged, [["workspace_object_collab_not_served", { workspaceId: "ws", reason: "row_moved" }]]);
 });
 
 test("a workspace not backfilled into the object is never asked: the gateway runs the engine", async () => {
