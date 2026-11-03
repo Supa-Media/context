@@ -125,3 +125,7 @@ Moved to [Notes reach the index two ways, and a map in the bucket says which are
 ### A workspace object keeps its own word index
 
 Moved to [A workspace object keeps its own word index](./search/object-word-index.md).
+
+### A workspace object keeps its own meaning index
+
+Moved to [A workspace object keeps its own meaning index](./search/object-meaning-index.md).

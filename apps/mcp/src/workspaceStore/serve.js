@@ -26,6 +26,7 @@ import { serveCollabReplace } from "./collabReplace.js";
 import { treeRows } from "./treeRows.js";
 import { absentHere } from "./lookupMiss.js";
 import { SearchAskRefused } from "./searchIndex.js";
+import { MeaningAskRefused } from "./meaningIndex.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 
 const CALL = "x-tex-call";
@@ -293,6 +294,21 @@ export async function serveWorkspaceStore(store, request) {
         const waiting = store.search.catchUp();
         return Response.json({ served: waiting !== null, waiting });
       }
+      case "ws.meaning.query":
+        // The gateway's search by meaning, over this object's own index (`meaningIndex.js`); its `canSee` filters it.
+        if (!store.meaning || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json(store.meaning.query(fields.vector, { tiers: fields.tiers ?? null, topK: fields.topK ?? undefined }));
+      case "ws.meaning.build": {
+        if (!store.meaning || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        let built;
+        try {
+          built = await store.meaning.catchUp();
+        } catch {
+          // The model failed; what changed stays on the log for the next build.
+          return Response.json({ served: true, failed: true, waiting: null });
+        }
+        return Response.json(built === null ? { served: false } : { served: true, ...built });
+      }
       case "ws.facts.rows":
         // The control plane's own readers, through the door: unfiltered, as its internal queries are.
         if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ROW_ASKS.has(fields.ask)) return Response.json({ served: false });
@@ -348,7 +364,7 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json({ error: "unknown_op" }, { status: 400 });
     }
   } catch (error) {
-    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused || error instanceof SearchAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
+    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused || error instanceof SearchAskRefused || error instanceof MeaningAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
   }
 }

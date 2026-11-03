@@ -372,6 +372,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note's passages are filed under its note id, and a move only re-points them
 - Fast search renames a moved note's rows, and reads it only for a new name
 - A workspace object keeps its own word index
+- A workspace object keeps its own meaning index
 
 ## [The mobile app and the console](./app-and-console.md)
 

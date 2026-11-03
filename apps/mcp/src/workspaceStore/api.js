@@ -165,6 +165,9 @@ export function workspaceClient(env, workspaceId) {
     // The object's own word index (`searchIndex.js`): a search's queries, and a catch-up pass behind a response.
     search: async (asks) => await ask("ws.search", { asks }),
     searchBuild: async () => await ask("ws.search.build"),
+    // The object's own meaning index (`meaningIndex.js`): the passages closest to a query's fingerprint, and a build.
+    meaningQuery: async (vector, { tiers = null } = {}) => await ask("ws.meaning.query", { vector, tiers }),
+    meaningBuild: async () => await ask("ws.meaning.build"),
     binding: {
       put: async ({ sealed, at, epoch }) => await ask("ws.binding.put", { sealed, at, epoch }),
       clear: async () => await ask("ws.binding.clear"),
