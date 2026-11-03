@@ -205,6 +205,7 @@ const PART_EMOJI = Object.freeze({
   tex_jobs: "📋",
   tex_pictures: "📷",
   tex_chats: "🗨️",
+  tex_history: "📜",
   tex_groups: "👥",
   tex_handbacks: "↩️",
   tex_routines: "🔁",

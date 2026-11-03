@@ -16,6 +16,12 @@ describe("a failed workspace is counted by a fixed code", () => {
     expect(failureCode(new Error("S3 GET .context/agent/events/x.json failed with 403: Access Denied"))).toBe("S3_GET_403");
   });
 
+  test("a ConvexError as its data's code, never its message", async () => {
+    const { ConvexError } = await import("convex/values");
+    expect(failureCode(new ConvexError({ code: "KEY_UNAVAILABLE", message: "notes/abc.md" }))).toBe("ConvexError_KEY_UNAVAILABLE");
+    expect(failureCode(new ConvexError({ code: "not a/code", message: "x" }))).toBe("ConvexError");
+  });
+
   test("never a message or a value that is not a plain word", () => {
     expect(failureCode(Object.assign(new Error("secret"), { code: "a/b c", name: "notes/abc.md" }))).toBe("unknown");
     expect(failureCode("a string")).toBe("unknown");

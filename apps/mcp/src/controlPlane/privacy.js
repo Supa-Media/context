@@ -7,7 +7,7 @@
  * plane to compare with the one that proof reaches. The rules travel as names and visibilities, never as note text.
  */
 
-import { ControlPlaneError } from "./client.js";
+import { CONTROL_PLANE_WRITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
 
 export function createPrivacyMethods({ post }) {
   return {
@@ -36,7 +36,7 @@ export function createPrivacyMethods({ post }) {
           if (typeof change.expectedVersion === "number") body.expectedVersion = change.expectedVersion;
           // Said only for a folder: a path with no row takes its pending access as the row it is for (`pendingAccess.ts`).
           if (change.kind === "folder") body.kind = "folder";
-          return await post("/gateway/privacy", { ...credential, expectedWorkspaceId, op: "setAccess", ...body });
+          return await post("/gateway/privacy", { ...credential, expectedWorkspaceId, op: "setAccess", ...body }, { timeoutMs: CONTROL_PLANE_WRITE_TIMEOUT_MS });
         },
         /**
          * People added to one row's list (`set_visibility`'s `people`), each `{handle|email, role}`.
@@ -49,7 +49,7 @@ export function createPrivacyMethods({ post }) {
             op: "addGrantees",
             path: change.path,
             entries: change.entries,
-          });
+          }, { timeoutMs: CONTROL_PLANE_WRITE_TIMEOUT_MS });
         },
       };
     },

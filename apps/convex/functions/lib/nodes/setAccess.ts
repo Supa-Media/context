@@ -111,7 +111,7 @@ function keyOf(grant: { granteeKind: string; granteeUserId?: string; granteeGrou
   return `${grant.granteeKind}:${grant.granteeUserId ?? grant.granteeGroupId ?? grant.granteeEmail ?? ""}:${grant.role}`;
 }
 
-interface Wanted {
+export interface Wanted {
   kind: "user" | "group" | "email" | "members" | "accounts";
   granteeUserId?: Id<"users">;
   granteeGroupId?: Id<"workspaceGroups">;
@@ -128,7 +128,7 @@ interface Wanted {
  * setting that publishes a note to anyone who signs up, which non-negotiable #5 rules out, so it resolves to
  * nothing there and the whole write is refused (`docs/decisions/privacy-and-sharing/all-context-users.md`).
  */
-async function wantedOf(ctx: MutationCtx, workspaceId: Id<"workspaces">, grantees: GranteeInput[]): Promise<Wanted[] | null> {
+export async function wantedOf(ctx: MutationCtx, workspaceId: Id<"workspaces">, grantees: GranteeInput[]): Promise<Wanted[] | null> {
   const out: Wanted[] = [];
   const seen = new Set<string>();
   for (const grantee of grantees) {
@@ -254,28 +254,71 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
     .query("nodeAccess")
     .withIndex("by_node", (q) => q.eq("nodeId", row._id))
     .collect();
-  const held = grants.filter((grant) => grant.source !== "share");
   // A given list, `[]` included, replaces the owner's. Without one, only a base of `inherit` replaces it (with none):
   // inherit means "as the parent", so a list left behind would be a hidden grant. private <-> team keeps the list.
   const replaces = args.grantees !== undefined || base === "inherit";
   const wanted = await wantedOf(ctx, workspaceId, args.grantees === undefined || args.grantees === "inherit" ? [] : args.grantees);
   if (wanted === null) return { ok: false, code: "NOT_FOUND" };
-
-  const before = held.map(keyOf).sort().join("|");
-  const after = wanted.map((grant) => keyOf({ granteeKind: grant.kind, granteeUserId: grant.granteeUserId, granteeGroupId: grant.granteeGroupId, granteeEmail: grant.granteeEmail, role: grant.role })).sort().join("|");
-  const listChanges = replaces && before !== after;
-  if (listChanges && actor.role !== "owner") return { ok: false, code: "FORBIDDEN" };
+  if (replaces && listDiffers(grants, wanted) && actor.role !== "owner") return { ok: false, code: "FORBIDDEN" };
 
   // Every refusal is above this line: a refused change writes nothing, not even the pending entry it would clear.
+  const version = await writeRowAccess(ctx, {
+    workspaceId,
+    path,
+    row,
+    state,
+    base: base === "inherit" ? undefined : base,
+    grants,
+    replaces,
+    wanted,
+    actorUserId: actor.userId,
+    actorClientId: actor.clientId,
+  });
+  return { ok: true, version };
+}
+
+/** Whether a list write changes who holds what, by grantee and role. Shares are not the owner's list and never count. */
+export function listDiffers(grants: readonly Doc<"nodeAccess">[], wanted: readonly Wanted[]): boolean {
+  const held = grants.filter((grant) => grant.source !== "share");
+  const before = held.map(keyOf).sort().join("|");
+  const after = wanted.map((grant) => keyOf({ granteeKind: grant.kind, granteeUserId: grant.granteeUserId, granteeGroupId: grant.granteeGroupId, granteeEmail: grant.granteeEmail, role: grant.role })).sort().join("|");
+  return before !== after;
+}
+
+/** One row's access write, decided by the caller (`setAccessRow`, or the object's mirror in `objectAccessMirror.ts`). */
+export interface RowAccessWrite {
+  workspaceId: Id<"workspaces">;
+  path: string;
+  row: Doc<"nodes">;
+  /** `nodeAccessState` as read in this transaction, `null` for a workspace with none yet. */
+  state: Doc<"nodeAccessState"> | null;
+  /** The row's base after the write; `undefined` clears it, so the row inherits. */
+  base: "private" | "team" | undefined;
+  /** Every grant the row holds, shares included. */
+  grants: readonly Doc<"nodeAccess">[];
+  /** A given list replaces the owner's (its held non-share grants go); otherwise only the derived grants go. */
+  replaces: boolean;
+  /** The owner's list after the write. */
+  wanted: readonly Wanted[];
+  actorUserId?: Id<"users">;
+  actorClientId?: string;
+}
+
+/**
+ * The write behind every row access change: the row's base, the owner's list, the `access.list` audit row when the
+ * list changed, and the readers' side effects. Returns the `nodeAccessState.version` `refreshSnapshot` wrote.
+ */
+export async function writeRowAccess(ctx: MutationCtx, write: RowAccessWrite): Promise<number> {
+  const { workspaceId, path, row, state, base, replaces, wanted, actorUserId, actorClientId } = write;
+  const held = write.grants.filter((grant) => grant.source !== "share");
   // A row stands at the path now: an access still waiting for it is answered by the row's own base from here on.
   if (state !== null && state.pending?.some((entry) => entry.path === path)) {
     await ctx.db.patch(state._id, { pending: state.pending.filter((entry) => entry.path !== path) });
   }
   // Who could see the path before, for the tree hint below: a narrowing is news to the readers who lose it.
   const seenBefore = await rulesForReaders(ctx, workspaceId, "member");
-  const nextBase = base === "inherit" ? undefined : base;
-  if (row.access?.base !== nextBase) {
-    await ctx.db.patch(row._id, { access: nextBase === undefined ? undefined : { base: nextBase } });
+  if (row.access?.base !== base) {
+    await ctx.db.patch(row._id, { access: base === undefined ? undefined : { base } });
   }
   // A replaced list drops the owner's grants and the derived ones; a kept list drops only the derived ones.
   // A share is left as it is.
@@ -292,13 +335,13 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
       granteeGroupId: grant.granteeGroupId,
       granteeEmail: grant.granteeEmail,
       role: grant.role,
-      grantedBy: actor.userId,
+      grantedBy: actorUserId,
       at,
       source: "owner",
     });
   }
 
-  if (listChanges) {
+  if (replaces && listDiffers(held, wanted)) {
     const heldTokens = await Promise.all(
       held.map((grant) => auditToken({ kind: grant.granteeKind, userId: grant.granteeUserId, groupId: grant.granteeGroupId, email: grant.granteeEmail, role: grant.role })),
     );
@@ -311,8 +354,8 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
     const removed = [...new Set(heldTokens.filter((token) => !wantedSet.has(token)))];
     await recordAudit(ctx, {
       workspaceId,
-      actorUserId: actor.userId,
-      actorClientId: actor.clientId,
+      actorUserId,
+      actorClientId,
       action: "access.list",
       details: {
         nodeId: String(row._id),
@@ -335,7 +378,7 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
     ...treeAudiences([path], seenBefore.rules, seenBefore.overrides),
     ...treeAudiences([path], seenAfter.rules, seenAfter.overrides),
   ]);
-  return { ok: true, version };
+  return version;
 }
 
 /** The tier a member's answer is judged by: a list's token counts as private, the narrower answer. */

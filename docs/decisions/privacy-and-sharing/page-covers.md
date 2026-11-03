@@ -40,7 +40,10 @@ What carries it, each failing a test if removed
 - **Only a writer's turn sets it.** The gateway reports a cover it drew
   (`POST /gateway/page-cover`) with the person's own token, which must reach
   the workspace as owner or editor with `context:write`; the bytes must be a
-  PNG of at most 2 MB, and the path a live page.
+  PNG of at most 2 MB, and the path a live page. A page Tex drew a picture
+  for is covered by the wide 1200 x 630 card of its title and drawing
+  instead of its first screen, under the same rules
+  ([page-drawings](../app-and-console/page-drawings.md), 2026-11-03).
 - **A new cover is a new address.** The card URL carries the cover's version
   as its cache key, because the edge cache cannot be purged.
 

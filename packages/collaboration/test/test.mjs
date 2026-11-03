@@ -440,3 +440,36 @@ test("a deleted note's name can be taken by another note's move", async () => {
   assert.equal(moved.documentId, second.documentId);
   assert.equal((await readDocument(store, "gone.md")).text, "second\n");
 });
+
+test("a note rewritten with the same bytes under a new version is not written again on read; only the version is recorded", async () => {
+  const store = new MemoryStore();
+  store.seed("same.md", "body\n");
+  const base = await readDocument(store, "same.md");
+  // Same text, new version: as a copy into another store, or a rewrite of identical bytes, leaves it.
+  const newer = store.change("same.md", "body\n");
+  const writes = [];
+  const put = store.put.bind(store);
+  store.put = async (key, value, options) => {
+    writes.push(key);
+    return await put(key, value, options);
+  };
+  const read = await readDocument(store, "same.md");
+  assert.equal(read.text, "body\n");
+  assert.equal(read.documentId, base.documentId);
+  assert.ok(!writes.includes("same.md"), `the note itself was rewritten: ${writes.join(", ")}`);
+  assert.equal(store.objects.get("same.md").etag, newer);
+  // The version was recorded: the next read writes nothing at all.
+  writes.length = 0;
+  await readDocument(store, "same.md");
+  assert.deepEqual(writes, []);
+});
+
+test("a note whose bytes changed outside collaboration is still repaired to the accepted state", async () => {
+  const store = new MemoryStore();
+  store.seed("drift.md", "accepted\n");
+  await readDocument(store, "drift.md");
+  store.change("drift.md", "stray edit\n");
+  const read = await readDocument(store, "drift.md");
+  assert.equal(read.text, "accepted\n");
+  assert.equal(await (await store.get("drift.md")).text(), "accepted\n");
+});

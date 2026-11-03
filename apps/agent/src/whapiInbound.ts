@@ -28,7 +28,7 @@
 
 import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
 import type { Reaction, Tapback } from "./reactions";
-import type { GroupInbound, GroupMessage } from "./sendblueGroups";
+import { cleanGroupName, type GroupInbound, type GroupMessage } from "./sendblueGroups";
 import { MAX_QUOTED_TEXT } from "./sendblue";
 import { E164, GROUP_JID, MESSAGE_ID, personOfJid, phoneOfJid, whapiChatId, whapiGroupId } from "./whapi";
 
@@ -57,6 +57,22 @@ function isRecord(value: unknown): value is Rec {
 
 function bareEmoji(emoji: string): string {
   return emoji.replace(/[\u{1F3FB}-\u{1F3FF}️]/gu, "");
+}
+
+/**
+ * Each group's name as one delivery gives it (a message's `chat_name`, the group's WhatsApp subject), by the id the
+ * group is queued under, read beside the messages and never into them, as Sendblue's is (`groupNameOf`): anyone in
+ * the group can set it. Shown in the app as the group's home (`docs/decisions/texting-assistant/chat-homes.md`).
+ */
+export function whapiGroupNames(payload: unknown): Map<string, string> {
+  const names = new Map<string, string>();
+  if (!isRecord(payload) || !Array.isArray(payload.messages)) return names;
+  for (const message of payload.messages.slice(0, READ_LIMIT)) {
+    if (!isRecord(message) || typeof message.chat_id !== "string" || !GROUP_JID.test(message.chat_id)) continue;
+    const name = cleanGroupName(message.chat_name);
+    if (name !== null && name !== "") names.set(whapiGroupId(message.chat_id), name);
+  }
+  return names;
 }
 
 /** Every message in one delivery, read; `line` is Tex's own WhatsApp number (E.164). */

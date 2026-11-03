@@ -12,9 +12,13 @@
  * - the object holds the notes and decides access (`home` and `accessHome` both `object`), and knows whether the
  *   workspace holds a data key (`encryption` `none` or `keyed`, never unknown);
  * - the reader is a live member there, and its member rules are held;
- * - nothing the control plane committed is still waiting for the object (`objectBehind`, asked beside it);
- * - the sealed binding opens with this gateway's secret, for this workspace, was read under `FRESH_MS` ago, and
- *   names this workspace; and it carries a data key exactly when the object says the workspace is keyed.
+ * - no change that may narrow is still coming: the object's own marks (`workspaceStore/marks.js`), which `ws.open`
+ *   waits for and answers as `behind`, as every other object read does since 2026-11-02 (`store/objectLookup.js`).
+ *   The control plane is not asked per request (2026-11-03, Dev's "every read and write under 0.1 s");
+ *   `OBJECT_BEHIND_FROM_CONTROL_PLANE=on` asks it beside the object again;
+ * - the sealed binding opens with this gateway's secret, for this workspace, was read under `FRESH_MS` ago (or under
+ *   `SERVE_STALE_MS` on the bucket's own key, refreshed behind the response), and names this workspace; and it carries
+ *   a data key exactly when the object says the workspace is keyed.
  *
  * A keyed workspace's data key is kept in the same seal (decided 2026-11-02, the owner's "keys in the box"): 35 of 38
  * object workspaces in production hold one, so without it almost no request is served here. Never kept: a rotation
@@ -37,6 +41,15 @@ import { audienceOf } from "./objectLookup.js";
  * never used past its credential; also how long a deployment switch or a note cap may take to reach a request.
  */
 export const FRESH_MS = 4 * 60 * 1000;
+/**
+ * How long a kept binding may still be served once it is past `FRESH_MS`, with the control plane asked behind the
+ * response for the next request (decided 2026-11-03, Dev's "every read and write under 0.1 s"). Only a binding on the
+ * bucket's own key: one carrying a temporary credential (`sessionToken`) is never served past `FRESH_MS`, since that
+ * credential may expire. Every change to the binding's own rows already clears the kept copy (`BINDING_TABLES`), and
+ * who may read is decided by the object on every request, so what a stale copy can carry is a plan's note cap, a
+ * feature switch or a search index's descriptor, each one request behind.
+ */
+export const SERVE_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 /** A kept binding stamped this far ahead of the gateway's clock is not trusted. */
 const CLOCK_SKEW_MS = 60 * 1000;
 
@@ -55,11 +68,16 @@ function ineligible(session, env, controlPlane) {
   if (audienceOf(session.grantedGroups) !== "member") return "not_member_audience";
   if (typeof session?.texChatId === "string" && session.texChatId !== "") return "tex_chat";
   if (secretOf(env) === null) return "no_secret";
-  if (typeof controlPlane?.objectBehind !== "function") return "no_behind_check";
+  if (askBehind(env) && typeof controlPlane?.objectBehind !== "function") return "no_behind_check";
   return null;
 }
 
 const ENCRYPTION_KNOWN = new Set(["none", "keyed"]);
+
+/** Whether the control plane is asked whether the object is behind, beside `ws.open` (the switch back). */
+function askBehind(env) {
+  return env?.OBJECT_BEHIND_FROM_CONTROL_PLANE === "on";
+}
 
 /** A data key as the control plane answers one: the current generation and every generation's key. */
 function isDataKey(key) {
@@ -99,8 +117,12 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   let held;
   let behind;
   try {
-    // One object call and the behind question, side by side.
-    [held, behind] = await Promise.all([object.open(session.actorUserId), controlPlane.objectBehind(session.workspaceId).catch(() => true)]);
+    // One object call, which waits for an open mark and says `behind` while one is still out; the control plane's
+    // own behind question beside it only where switched back on.
+    [held, behind] = await Promise.all([
+      object.open(session.actorUserId),
+      askBehind(env) ? controlPlane.objectBehind(session.workspaceId).catch(() => true) : false,
+    ]);
   } catch {
     return fail("object_unavailable");
   }
@@ -110,13 +132,13 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   if (!ENCRYPTION_KNOWN.has(held.encryption)) return fail("encryption_unknown");
   if (held.member !== true) return fail("not_a_member");
   if (!held.rules || typeof held.rules !== "object") return fail("no_rules");
-  if (behind !== false) return fail("behind");
+  if (behind !== false || held.behind === true) return fail("behind");
   const secret = secretOf(env);
   const keep = keeper(object, session.workspaceId, secret, held.epoch, held.encryption, now);
   const kept = held.binding;
   if (!kept || typeof kept.sealed !== "string" || !Number.isFinite(kept.at)) return fail("none_kept", { keep });
   const age = now() - kept.at;
-  if (age > FRESH_MS || age < -CLOCK_SKEW_MS) return fail("stale", { keep });
+  if (age > SERVE_STALE_MS || age < -CLOCK_SKEW_MS) return fail("stale", { keep });
   let value;
   try {
     value = await openBinding(kept.sealed, { secret, workspaceId: session.workspaceId });
@@ -127,6 +149,11 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   if (!value || typeof value !== "object" || !("binding" in value)) return fail("seal_refused", { keep });
   const answer = bindingAnswerOf({ ...value, privacy: held.rules }, (parsed, key) => parsed[key]);
   if (!keepable(answer, session.workspaceId, held.encryption)) return fail("kept_not_usable", { keep });
+  if (age > FRESH_MS) {
+    // Past fresh: served only on the bucket's own key, and the control plane is asked behind the response.
+    if (typeof answer.binding.sessionToken === "string" && answer.binding.sessionToken !== "") return fail("stale", { keep });
+    return { opened: { ...answer, keyed: true }, source: "object", reason: "stale_served", refresh: keep };
+  }
   return { opened: { ...answer, keyed: true }, source: "object", reason: null };
 }
 

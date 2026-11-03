@@ -59,10 +59,11 @@ export function openOnce(store) {
  * back `unreadable`, which the block says rather than drawing a map of nothing.
  */
 export async function surveyOf(listing, facts, scope, rules, overrides) {
+  // Which folder does each built-in job, whatever it is called now; absent where the tree cannot say. Asked beside the
+  // survey and the folder descriptions, which never need it.
+  const asking = factJobs(facts).catch(() => null);
   const survey = await surveyContext(listing, scope, rules, overrides);
-  await describeFolders(facts, survey);
-  // Which folder does each built-in job, whatever it is called now; absent where the tree cannot say.
-  const jobs = await factJobs(facts);
+  const [jobs] = await Promise.all([asking, describeFolders(facts, survey)]);
   if (jobs !== null) survey.jobs = jobs.jobs;
   return survey;
 }

@@ -126,7 +126,10 @@ jobs:
           - 'apps/mcp/src/agent/agentHomeMove.js'
           - 'apps/mcp/src/agent/conversation.js'
           - 'apps/mcp/src/agent/events.js'
+          - 'apps/mcp/src/agent/groupPageCopy.js'
+          - 'apps/mcp/src/agent/groupPageFormat.js'
           - 'apps/mcp/src/agent/history.js'
+          - 'apps/mcp/src/agent/historyFile.js'
           - 'apps/mcp/src/agent/ledger.js'
           - 'apps/mcp/src/agent/ledgerBackfill.js'
           - 'apps/mcp/src/agent/ledgerConversation.js'
@@ -177,6 +180,8 @@ jobs:
           - 'apps/mcp/src/tools/moves/folder.js'
           - 'apps/mcp/src/tools/moves/note.js'
           - 'apps/mcp/src/tools/moves/notes.js'
+          - 'apps/mcp/src/tools/moves/objectMove.js'
+          - 'apps/mcp/src/tools/v2/actions.js'
           - 'apps/mcp/src/tools/moves/queuedFolder.js'
           - 'apps/mcp/src/tools/moves/references.js'
           - 'apps/mcp/src/tools/notes/write.js'
@@ -743,7 +748,10 @@ jobs:
             apps/mcp/src/agent/agentHomeMove.js
             apps/mcp/src/agent/conversation.js
             apps/mcp/src/agent/events.js
+            apps/mcp/src/agent/groupPageCopy.js
+            apps/mcp/src/agent/groupPageFormat.js
             apps/mcp/src/agent/history.js
+            apps/mcp/src/agent/historyFile.js
             apps/mcp/src/agent/ledger.js
             apps/mcp/src/agent/ledgerBackfill.js
             apps/mcp/src/agent/ledgerConversation.js
@@ -794,6 +802,8 @@ jobs:
             apps/mcp/src/tools/moves/folder.js
             apps/mcp/src/tools/moves/note.js
             apps/mcp/src/tools/moves/notes.js
+            apps/mcp/src/tools/moves/objectMove.js
+            apps/mcp/src/tools/v2/actions.js
             apps/mcp/src/tools/moves/queuedFolder.js
             apps/mcp/src/tools/moves/references.js
             apps/mcp/src/tools/notes/write.js

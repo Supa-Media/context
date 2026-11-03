@@ -239,3 +239,56 @@ note id or path or by the bucket state's path, has no live row; anything else is
 **What a simplification would cost.** Letting the factory fall back to the bucket store again brings the silent
 split back. `apps/convex/__tests__/consoleObjectWrites.test.ts` creates and saves a note through the console in an
 object-home workspace and finds it in the object; `apps/mcp/test/storeFactory.test.mjs` holds the refusal.
+
+## A save's audit entry and activity line are written behind the answer (2026-11-03)
+
+Production timings after the phase timers went live (2026-11-03, 16 saves) put the audit put at 0.36 s p50 and the
+activity line, a read and a conditional write of `activity.md`, after it, both awaited in front of every save's answer.
+Neither is the change: the note has landed when they run, and the activity line was already unable to fail it.
+
+**Decision.** `recordChange` hands both to `store.defer` (`ctx.waitUntil`), audit first, so they finish inside the
+same invocation after the answer has gone. One store's bookkeeping runs one change after another, so two changes in
+one request never race for `activity.md`. A deferred audit put that fails is not the change failing. Where there is
+no `defer`, both are awaited as before. A routing suggestion (`route_suggestion`) keeps its audit in front: that entry
+is the only thing the call writes, and `suggest_destination` refuses to suggest what it could not record.
+
+**What a simplification would cost.** Awaiting them again puts two to three storage round trips back on every save.
+Dropping the per-store chain lets two changes in one request lose an activity line. `apps/mcp/test/bookkeepingBehind.test.mjs`
+holds all three, and its ordering check fails when the chain is removed.
+
+## A save's editing history runs inside the workspace object, in one call (2026-11-03)
+
+The collaboration engine makes about seven dependent storage round trips per whole-note save (head, Markdown and
+state, current revision, new revision, state compare-and-swap, Markdown, state). From the gateway each one is a trip
+to the workspace object.
+
+**Decision.** For an object-home, backfilled workspace, `write_note`'s save goes to the object as one
+`ws.collab.replace` call (`workspaceStore/collabReplace.js`). The object runs the same engine against its own
+SQLite, so conditional writes, `CONFLICT` and the retry on a lost compare-and-swap are unchanged. The gateway's id
+layer names the key, note id and row version it resolved, and the object refuses (`served: false`) when its own live
+row says otherwise. It also refuses when a read needs a saved version the object no longer keeps, or a listing; the
+bucket keeps those. Every write the object made comes back to the gateway, which copies it to the bucket behind the
+response and prunes as an ordinary put does. The new Markdown version is reported by the id layer as `keyedPut`
+reports one. If the call fails on the way, the engine runs from the gateway. That is safe because the engine only
+commits on the version it read, so a save the object already committed comes back as a conflict, never as a second
+write.
+
+**What a simplification would cost.** Running the engine from the gateway again puts about seven object round trips
+on every save. Dropping the row check lets a save land on a note the tree has since moved or replaced. Dropping the
+fallback for versions the object no longer keeps fails saves on notes edited from an old base.
+`apps/mcp/test/collabReplaceInObject.test.mjs` holds the one call, the conflict, the row check, the fallback, the id
+layer's report and the unreachable object, and its row and fallback checks fail when those guards are removed.
+
+## A member's save records its new version in that same call (2026-11-03)
+
+A member's save on an object-home workspace sends `record: {at}` with `ws.collab.replace`. The object then records
+the new Markdown version on the note's row, the same way `ws.write.wrote` does. The change goes into the control
+plane's mirror queue in the same transaction. The answer says `recorded: true`, and the gateway sends no second call.
+This happens only where the version report would have gone to the object anyway: `objectLookup.js` marks its member
+`wrote` hook `inObject`. A guest's or a chat's report still goes to the control plane. A save that conflicts records
+nothing. An object that cannot record the version answers `recorded: false`, and the id layer reports it as before.
+
+**What a simplification would cost.** Sending the report as its own call again puts one more object round trip on
+every save. Marking every audience lets a guest's save change the row without the control plane's check.
+`collabReplaceInObject.test.mjs` fails if the id layer reports twice or if the mirror entry is dropped.
+`objectLookup.test.mjs` fails if a guest's hook is marked.

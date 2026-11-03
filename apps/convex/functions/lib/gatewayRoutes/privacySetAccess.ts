@@ -5,6 +5,7 @@
  */
 
 import { objectFirst } from "../rowWatch/objectFirst";
+import { GATEWAY_SETTLE } from "../rowWatch/drain";
 import type { ActionCtx } from "../../../_generated/server";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
@@ -98,6 +99,7 @@ export async function setAccessOp(
       ...(args.kind === undefined ? {} : { kind: args.kind }),
       actor,
     }),
+    { settle: GATEWAY_SETTLE },
   );
   return json(answer);
 }
@@ -139,6 +141,7 @@ export async function addGranteesOp(
       entries: entries as { handle?: string; groupId?: string; email?: string; role: Role }[],
       actor,
     }),
+    { settle: GATEWAY_SETTLE },
   );
   return json(answer);
 }

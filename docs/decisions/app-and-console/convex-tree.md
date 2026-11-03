@@ -499,15 +499,13 @@ Convex tree and then tells its audiences (`keepTreeAndAnnounce`,
 `lib/filesFns/treeOps.ts`). A reader the Convex tree or its facts cannot
 answer yet is told so ("still loading", a List with gaps, a map behind on
 links, a score from the keys alone) and never reads the bucket or the
-search index instead (2026-10-13, above). A write's chaos report
-is counted from the tree's keys before the change and the same keys with the
-change applied (`apps/mcp/src/chaos/change.js`); the control plane hears of
-the change only after that read, so "before" is never already the change.
+search index instead (2026-10-13, above). A write's chaos report,
+counted from the tree's keys before and after the change, was retired on
+2026-11-03 ([chaos-score](../chaos-score.md)).
 What fails if reversed: `apps/convex/__tests__/treeOps.test.ts` (nothing
 schedules a D1 operation; the tree is touched before audiences are told), `nodesOperationRouting.test.ts`
 (the D1 kinds are refused), `apps/mcp/test/treeRecord.test.mjs` (no tree row
-is written and the tables are dropped, never at the cost of the note) and
-`chaosChange.test.mjs`.
+is written and the tables are dropped, never at the cost of the note).
 
 **The rest of the app's readers, as built (2026-10-13).** Everything in the
 app that asks only *which notes exist and where* reads the rows where

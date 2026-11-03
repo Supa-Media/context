@@ -33,7 +33,7 @@ jest.mock("expo-router", () => ({ Redirect: () => null, Stack: () => null, route
 import { TexPageBody, type Place } from "../features/tex/page/TexPageBody";
 import { fixtureNow, fixtureSource } from "../features/tex/page/texPageFixture";
 import type { TexPageSource } from "../features/tex/page/texPageSource";
-import type { PageAction } from "../features/tex/page/texPageTypes";
+import type { LedgerQuery, PageAction } from "../features/tex/page/texPageTypes";
 import { useTexPage } from "../features/tex/page/useTexPage";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -192,5 +192,17 @@ describe("the Tex page", () => {
     expect(sent).toContainEqual({ type: "steer", job: "maritime", text: "skip the blog" });
     await press("tex-stop");
     expect(sent).toContainEqual({ type: "stop", job: "maritime" });
+  });
+
+  test("a job's page shows what it did: its own lines from the chat's history, none of the chat's", async () => {
+    const source = fixtureSource();
+    const asked: LedgerQuery[] = [];
+    await render({ ...source, ledger: (chat, q) => (asked.push(q), source.ledger(chat, q)) }, { chat: "me", job: "maritime" });
+    expect(asked.at(-1)?.job).toBe("maritime");
+    const work = byTestId("tex-job-work")?.textContent ?? "";
+    expect(work).toContain("2 tool calls · browse ×2 · 1 failed");
+    expect(work).toContain("advisor · Pricing page is the one to read");
+    expect(work).not.toContain("Standup at 10");
+    expect(byTestId("tex-history-show-jobs")).toBeNull();
   });
 });

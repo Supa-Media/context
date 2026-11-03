@@ -21,6 +21,7 @@ import { onShared, sharedFrameSlots } from "./shared/sharedSlots";
 import { TimeZoneSync } from "./routines/TimeZoneSync";
 import { ConsoleDataProvider } from "./ConsoleDataContext";
 import { CustomEmojiProvider } from "./emoji/CustomEmojiProvider";
+import { ChatHomeTitlesProvider } from "./files/chatHomeTitles";
 import { ConsoleNavProvider } from "./ConsoleNavContext";
 import { PluginSuggestDialog } from "./plugins/PluginSuggestDialog";
 import { PluginTextDialog } from "./plugins/PluginTextDialog";
@@ -452,10 +453,8 @@ export function ConsoleFrame({
         `:` menu and Settings › Emoji both reach it, and the Add emoji dialog it
         draws can be asked for from either. See `CustomEmojiProvider`.
       */}
-      <CustomEmojiProvider
-        workspaceId={data.demo ? null : data.files.contextId}
-        canEdit={data.files.canEdit}
-      >
+      <CustomEmojiProvider workspaceId={data.demo ? null : data.files.contextId} canEdit={data.files.canEdit}>
+      <ChatHomeTitlesProvider workspaceId={data.demo ? null : data.files.contextId}>
       {data.pluginRuntime?.host}
       {/*
         Beside the host and at console scope for the same reason: a plugin can
@@ -673,6 +672,7 @@ export function ConsoleFrame({
         {/* The chaos panel, from a folder page's line or the phone's Home. */}
         <ChaosSheet />
       </AppFrame>
+      </ChatHomeTitlesProvider>
       </CustomEmojiProvider>
       </VoiceHostProvider>
       </ConsoleNavProvider>

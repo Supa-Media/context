@@ -142,6 +142,10 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       // (`texGroupMigration.ts`), run by hand from the workflow. internalAction, reached only from that workflow's
       // deploy key; it answers counts and fixed codes. Its tree side (`texGroupMigrationRows.ts`) reads no credential.
       "functions.texGroupMigration.sweep",
+      // Copies each group chat's memory page into its ledger and trashes the page (`texGroupPagesRetire.ts`), run by
+      // hand from the ledger workflow. internal only, reached from that workflow's deploy key; counts and fixed codes.
+      "functions.texGroupPagesRetire.homes",
+      "functions.texGroupPagesRetire.run",
       // Copies and compares each workspace's note texts, editing history, rows and rules with its workspace object
       // (`workspaceObjects.ts`; `docs/decisions/storage-and-credentials/workspace-objects.md`): run by hand from the
       // backfill, parity and home workflows, and `syncRows` from the cron. internalActions, reached only from those
@@ -167,6 +171,11 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       // `apps/mcp/src/agent/ledgerBackfill.js`), run by hand from its workflow. internalAction, reached only from that
       // workflow's deploy key; it answers counts and fixed codes only, and deletes nothing.
       "functions.texLedgerBackfill.run",
+      // Copies each quiet group chat's old log into its ledger (`texLedgerBackfillGroups.ts`), and moves each person's
+      // old transcript folder to the trash once their chat is whole in its ledger (`texTranscriptsTrash.ts`), run by
+      // hand from the same workflow. internalActions reached only from its deploy key; counts and fixed codes only.
+      "functions.texLedgerBackfillGroups.run",
+      "functions.texTranscriptsTrash.run",
       // Makes each personal workspace's first Tex call, which moves the person's Tex into the workspace's object
       // (`texPersonMerge.ts`, `apps/mcp/src/texStore/merge.js`), run by hand from its workflow. internalAction, reached
       // only from that workflow's deploy key; it reads one key's metadata, answers counts and fixed codes, deletes nothing.

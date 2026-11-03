@@ -28,6 +28,7 @@
  * Its spend is metered under its own model, as the advisor's is.
  */
 
+import { advisorThinking } from "./advisor.js";
 import { withoutTag } from "./promptFence.js";
 
 export const VERDICTS = ["done", "keep_going", "waiting", "stuck"];
@@ -107,6 +108,7 @@ export async function checkJob({ job, live, answer, exhausted = false, model, ef
       system: JOB_CHECK_PROMPT,
       messages: [{ role: "user", text: jobCheckBrief({ job, system: live?.system, messages: live?.messages, answer, exhausted }) }],
       tools: [],
+      display: "summarized", // its thinking in words, for the chat's history only (`workEntries.js` `jobChecked`)
       ...(effort ? { effort } : {}),
     });
   } catch {
@@ -114,7 +116,9 @@ export async function checkJob({ job, live, answer, exhausted = false, model, ef
     return null;
   }
   await meter(reply?.usage ?? null, false, model, false);
-  return readVerdict(reply?.text);
+  const read = readVerdict(reply?.text);
+  const thought = advisorThinking(reply);
+  return read !== null && thought ? { ...read, thinking: thought } : read;
 }
 
 /**
@@ -135,7 +139,7 @@ export async function checkJob({ job, live, answer, exhausted = false, model, ef
 export function jobFields(check, { exhausted, unfinished, untrusted = false }) {
   const base = { ...(exhausted ? { exhausted: true } : {}), ...(untrusted ? { untrusted: true } : {}) };
   if (check === null) return { ...base, ...(!exhausted && unfinished ? { unfinished: true } : {}) };
-  return { ...base, verdict: check.verdict, ...(check.advice ? { advice: check.advice } : {}), ...(!exhausted && check.verdict === "keep_going" ? { unfinished: true } : {}) };
+  return { ...base, verdict: check.verdict, ...(check.advice ? { advice: check.advice } : {}), ...(check.thinking ? { thinking: check.thinking } : {}), ...(!exhausted && check.verdict === "keep_going" ? { unfinished: true } : {}) };
 }
 
 /**

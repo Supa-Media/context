@@ -54,7 +54,8 @@ const NESTED_KEYS = new Set(
 
 /** The advertised tool an action is carried by. */
 function carrierOf(entry) {
-  return toolDefinitions().find((tool) => tool.name === entry.tool) ?? null;
+  // An action with no listed tool of its own (`save_many`) carries its shape on its row.
+  return entry.carrier ?? toolDefinitions().find((tool) => tool.name === entry.tool) ?? null;
 }
 
 /**

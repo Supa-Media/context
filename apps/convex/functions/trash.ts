@@ -239,7 +239,8 @@ export const pendingErasures = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.array(v.object({ id: v.id("trashErasures"), keys: v.array(v.string()), histories: v.array(v.string()) })),
   handler: async (ctx, { workspaceId }) =>
-    (await ctx.db.query("trashErasures").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).take(50)).map((row) => ({
+    // A record still waiting on its object's erase (`trashObject.ts`) is not the bucket half's yet.
+    (await ctx.db.query("trashErasures").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).take(50)).filter((row) => row.objectPending !== true).map((row) => ({
       id: row._id,
       keys: row.keys,
       histories: row.histories,

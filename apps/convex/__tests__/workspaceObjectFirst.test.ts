@@ -71,12 +71,19 @@ describe("narrowing writes tell the object first", () => {
     // The object's rows are still the old ones, and it says so: the gateway asks Convex (`objectLookup.js`).
     expect(stale).toMatchObject({ found: true, behind: true });
     expect((await marks(t)).map((mark) => mark.doneAt !== undefined)).toEqual([true]);
+    // The marks report says the push is failing, and why, as a code: never a path.
+    const failing = await t.query(internal.functions.workspaceObjectMarks.report, { since: 0 });
+    expect(failing.outbox).toMatchObject({ workspaces: 1 });
+    expect(failing.failing[0]).toMatchObject({ reason: "ws.apply: Error" });
 
     // The push lands, carrying the mark's close with its rows.
     fail([]);
     await drain(t, workspaceId);
     expect(await lookup("plans/a.md", "team")).toEqual({ path: "plans/a.md", found: false });
     expect(await marks(t)).toEqual([]);
+    const landed = await t.query(internal.functions.workspaceObjectMarks.report, { since: 0 });
+    expect(landed.outbox).toEqual({ entries: 0, workspaces: 0, oldestAgeMs: 0 });
+    expect(landed.failing).toEqual([]);
   });
 
   test("if the object cannot be told, the change does not happen", async () => {

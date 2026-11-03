@@ -94,6 +94,10 @@ export const report = internalQuery({
     bySource: v.array(v.object({ source: v.string(), writes: v.number(), workspaces: v.number(), last: v.number() })),
     marksOpen: v.number(),
     marksDone: v.number(),
+    /** Changes still waiting for their objects, and how old the oldest is. */
+    outbox: v.object({ entries: v.number(), workspaces: v.number(), oldestAgeMs: v.number() }),
+    /** Pushes failing now, newest first: a short code, how many times, and how long ago the last was. */
+    failing: v.array(v.object({ reason: v.string(), count: v.number(), agoMs: v.number() })),
   }),
   handler: async (ctx, { since }) => {
     const rows = await ctx.db
@@ -109,11 +113,22 @@ export const report = internalQuery({
       by.set(row.source, held);
     }
     const marks = await ctx.db.query("workspaceObjectMarks").take(5_000);
+    const now = Date.now();
+    const waiting = await ctx.db.query("workspaceObjectOutbox").take(5_000);
+    const failures = await ctx.db.query("workspaceObjectPushFailures").take(200);
     return {
       unmarked: rows.length,
       bySource: [...by].map(([source, held]) => ({ source, writes: held.writes, workspaces: held.workspaces.size, last: held.last })).sort((a, b) => b.writes - a.writes),
       marksOpen: marks.filter((mark) => mark.doneAt === undefined).length,
       marksDone: marks.filter((mark) => mark.doneAt !== undefined).length,
+      outbox: {
+        entries: waiting.length,
+        workspaces: new Set(waiting.map((entry) => entry.workspaceId)).size,
+        oldestAgeMs: waiting.length === 0 ? 0 : now - Math.min(...waiting.map((entry) => entry.at)),
+      },
+      failing: failures
+        .map((failure) => ({ reason: failure.reason, count: failure.count, agoMs: now - failure.at }))
+        .sort((a, b) => a.agoMs - b.agoMs),
     };
   },
 });

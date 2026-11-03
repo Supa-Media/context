@@ -300,3 +300,35 @@ job turns against the cap again, or ending a refused job silently, reverses
 this. Tests: `apps/convex/__tests__/builtinModel.test.ts` ("a background
 job's turns"), `apps/mcp/test/agentBackgroundRoute.test.mjs`,
 `apps/agent/src/jobs.test.ts`, `apps/agent/src/jobReports.test.ts`.
+
+## A restart carries their words, says why a job stopped, and stays quiet when asked (2026-11-03)
+
+On 2026-11-03 a haircut job ("Book Seyi's haircut Thursday on theCut")
+stopped three times. The login had been saved for thecut.com, the magazine,
+while theCut the barber app is thecut.co, so `fill_login` refused on the real
+site every time. Three gaps made it worse. "book with santana, mens adult
+style cut" restarted the job, but a restart handed the job the placeholder
+"(Picked back up.)" instead of their text, so the barber and the cut never
+reached it. `job_status` showed which steps failed but dropped their reasons,
+so the chat's turn guessed ("theCut stopped the job"). And every start and
+restart texted "On it", right after "don't come back to me until you are
+done".
+
+So: a restart sends their own text with it (`resumeJobs`), and the resumed
+job's first part is shown it as a follow-up (`resumeJob`). The placeholder
+is used only when no words of theirs came with it, and is never shown to the
+job. A failed step's reason reaches `job_status`, which tells the turn to
+explain a stop from those reasons and not to blame a site no reason names.
+`start_background_job` and `restart_background_job` take `quiet`. When the
+person asked not to hear until it's done, the turn ends with nothing texted
+(`QUIET_ACK`, kept in the chat as `QUIET_ACK_LINE`). A `fill_login` refused
+for the wrong site names both sites. It never takes the page's host as the
+real site on the page's word, because an attacker's page would ask for a
+login of its own. Instead it asks for a web search before a new `vault_add`
+link. Handing a restart the placeholder again, dropping step reasons from
+`job_status`, or texting a quiet start reverses this. Tests:
+`apps/agent/src/jobResume.test.ts` ("a restart's own words reach the job it
+picks up", "the chat's restart hands the job their words"),
+`apps/mcp/test/agentJobRestart.test.mjs` ("asked to hear nothing until it's
+done"), `apps/mcp/test/agentBackground.test.mjs`,
+`apps/mcp/test/agentFillLogin.test.mjs`.

@@ -104,7 +104,7 @@ export async function commitSnapshot(store, path, loaded, documentId, nextDoc) {
     state: next,
     stateEtag: written.etag,
     revision: { value: revision },
-  });
+  }, { committed: true });
   return makeResult(finalized.state, finalized.revision);
 }
 

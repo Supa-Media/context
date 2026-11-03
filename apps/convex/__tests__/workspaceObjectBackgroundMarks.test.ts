@@ -5,11 +5,11 @@
  * Production's report of narrowing writes that opened no mark (`workspaceObjectMarks.report`, 2026-11-02, 72 hours)
  * named three writers: the fact fill's `nodeFacts.record` (43 writes), `bugNotes.shareWithTeam` (3) and
  * `nodeRowMoves.rowMove` (3, a restore out of the trash). Here: a fact fill is not a narrowing at all; the trash's
- * erasure and a stalled move's watchdog page open a mark before their mutation commits; and a narrowing that still
+ * erasure is the object's own (`ws.write.erase`), and a stalled move's watchdog page opens a mark before its mutation commits; and a narrowing that still
  * skipped the object is held to "behind" by the push that carries it, even when that push fails.
  *
- * Sabotage, each confirmed to fail a case here: put `sealed` back among the fields that place a row (the fact fill is
- * recorded as unmarked), run the erasure's claims outside `objectFirst` (the rows are gone before the mark opens),
+ * Sabotage, each confirmed to fail a case here: put `sealed` back among the fields that place a row (the facts drop is
+ * recorded as unmarked), let the trash's erasure claim rows in Convex again where the notes live in the object (the erase case sees no `ws.write.erase`),
  * page the watchdog's move straight from the mutation again (the page is unmarked), and drop the drain's cover for
  * unmarked entries (the object serves the old share with no behind while the push fails).
  *
@@ -25,6 +25,8 @@ import { asUser, drainScheduled, seedStorageBinding, seedTreeRows, type TestConv
 import { drain, outbox, setFolder, setHome, world } from "./workspaceObjectWorld.helpers";
 import { idKeyFor } from "../functions/lib/nodes/noteIds";
 import { ensureCopyRow } from "../functions/lib/noteIds/state";
+import { setAccessRow } from "../functions/lib/nodes/setAccess";
+import type { MutationCtx } from "../_generated/server";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -57,29 +59,41 @@ async function inObject(paths: string[] = []) {
 }
 
 describe("background writers tell the object first", () => {
-  test("a fact fill that finds a sealed note narrows nothing, and is not recorded as unmarked", async () => {
+  test("a fact fill that lands where the notes live in the object writes nothing, and is not recorded as unmarked", async () => {
     const { t, workspaceId } = await inObject();
     await t.mutation(internal.functions.nodeFacts.record, { workspaceId, notes: [{ path: "plans/a.md", links: [], props: null }] });
     const row = await t.run(async (ctx) => await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "plans/a.md")).first());
-    expect(row?.sealed).toBe(true);
+    // The object keeps this note's facts (`facts-in-objects.md`); the control plane keeps none, so the pass leaves the
+    // row as it was (`background-tree-writers.md`).
+    expect(row?.sealed).toBeUndefined();
     expect(await unmarked(t)).toEqual([]);
   });
 
-  test("emptying the trash opens a mark before its rows go, and closes it once the object has them", async () => {
-    const trashed = ".context/trash/2026-09-01T05-00-00-000Z/plans/old.md";
-    const { t, workspaceId, ops, onCall, lookup } = await inObject([trashed]);
-    const atMarkOpen: boolean[] = [];
-    onCall(async (op) => {
-      if (op === "ws.mark.open") atMarkOpen.push(await liveAt(t, workspaceId, trashed));
+  test("dropping an encrypted note's facts where the notes live in the object narrows nothing, and is not recorded as unmarked", async () => {
+    const { t, workspaceId } = await inObject();
+    // Seeded straight into the table, as a fill from before the home switched left it.
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "plans/a.md")).first();
+      if (row !== null) await ctx.db.patch(row._id, { sealed: true });
     });
+    await t.mutation(internal.functions.nodeFactsDrop.drop, { workspaceId, cursor: null });
+    const row = await t.run(async (ctx) => await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "plans/a.md")).first());
+    expect(row?.sealed).toBeUndefined();
+    expect(await unmarked(t)).toEqual([]);
+  });
+
+  test("emptying the trash where the notes live in the object asks the object to erase, and opens no mark", async () => {
+    const trashed = ".context/trash/2026-09-01T05-00-00-000Z/plans/old.md";
+    const { t, workspaceId, ops } = await inObject([trashed]);
     const before = ops().length;
     await t.action(internal.functions.trashEmptying.eraseWorkspace, { workspaceId });
-    // The mark went in while the row was still there: the object knew before the control plane changed.
-    expect(atMarkOpen[0]).toBe(true);
-    expect(await liveAt(t, workspaceId, trashed)).toBe(false);
+    // The object is the writer of its rows now (`lib/trash/objectErase.ts`): the control plane removes none itself
+    // and so has nothing to tell it first. (This test object keeps no mirror, so its erase is refused and the row
+    // stays for the next pass; `__tests__/trash/objectEmptying.test.ts` follows a whole erase.)
     const order = ops().slice(before);
-    expect(order.indexOf("ws.mark.open")).toBeLessThan(order.indexOf("ws.apply"));
-    expect(await lookup(trashed, "private")).toMatchObject({ found: false });
+    expect(order).toContain("ws.write.erase");
+    expect(order).not.toContain("ws.mark.open");
+    expect(await liveAt(t, workspaceId, trashed)).toBe(true);
     expect(await unmarked(t)).toEqual([]);
     expect(await marks(t)).toEqual([]);
   });
@@ -152,6 +166,27 @@ describe("background writers tell the object first", () => {
     const inner = await t.run(async (ctx) => await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "old/inner")).collect());
     expect(inner.map((row) => [row.kind, row.goneAt])).toEqual([["file", undefined]]);
     expect(await unmarked(t)).toEqual([]);
+  });
+
+  test("a new note born with the access asked for it before it existed narrows nothing", async () => {
+    const { t, owner, workspaceId, lookup } = await inObject();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1, updatedBy: "test" });
+      await ctx.db.patch((await ensureCopyRow(ctx, workspaceId))._id, { keyedAt: 1 });
+    });
+    const path = "plans/secret.md";
+    // Asked private before the note exists: it waits as a pending entry, and readers already treat the path as closed.
+    expect(await t.run(async (ctx) => setAccessRow(ctx as MutationCtx, { workspaceId, path, base: "private", grantees: [], actor: { userId: owner, role: "owner" } }))).toMatchObject({ ok: true });
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("workspaceObjectUnmarked").collect()) await ctx.db.delete(row._id);
+    });
+    const noteId = "0190a000-0000-7000-8000-00000000000f";
+    expect(await t.mutation(internal.functions.noteIdsKeyed.adoptKeyed, { workspaceId, path, noteId, key: idKeyFor(noteId, path), etag: "k-f", at: 100 })).toEqual({ adopted: true });
+    const row = await t.run(async (ctx) => await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path)).first());
+    expect(row?.access).toEqual({ base: "private" });
+    expect(await unmarked(t)).toEqual([]);
+    await drain(t, workspaceId);
+    expect(await lookup(path, "team")).toMatchObject({ found: false });
   });
 
   test("a keyed folder move opens a mark before its rows move", async () => {

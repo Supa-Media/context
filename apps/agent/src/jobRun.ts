@@ -34,7 +34,7 @@ import { groupLineFor } from "./groupLine";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
-import { JOB_SHOWN_MS, JOB_LIMIT_MS, JOB_LINES, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
+import { JOB_SHOWN_MS, JOB_LIMIT_MS, JOB_LINES, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
 import { STEER_TIMEOUT_MS } from "./steer";
@@ -139,10 +139,20 @@ export async function failJob(storage: InboxStorage, deps: JobDeps): Promise<Job
  * by how many times it was resumed. False when nothing ended here in the last
  * `JOB_SHOWN_MS`, or a run is still going.
  */
-export async function resumeJob(storage: InboxStorage, now: number, start?: (id: string, resumes: number) => Promise<void>): Promise<boolean> {
+export async function resumeJob(
+  storage: InboxStorage,
+  now: number,
+  start?: (id: string, resumes: number) => Promise<void>,
+  steer?: JobSteer,
+): Promise<boolean> {
   if ((await storage.get<JobRun>(RUN_KEY)) !== undefined) return false;
   const ended = await storage.get<Ended>(ENDED_KEY);
   if (ended === undefined || now - ended.endedAt > JOB_SHOWN_MS) return false;
+  // The text that restarted it is theirs and newer than the plan ("book with santana"): the first resumed part is shown it.
+  if (steer !== undefined && steer.text.trim() !== "" && steer.text !== PICKED_UP) {
+    const steers = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
+    if (!steers.some((kept) => kept.id === steer.id)) await storage.put(STEERS_KEY, [...steers, { id: steer.id, text: steer.text }].slice(-MAX_STEERS));
+  }
   const resumes = (ended.run.resumes ?? 0) + 1;
   await storage.put<Stored>(RUN_KEY, { ...ended.run, attempt: 1, tries: 0, startedAt: now, resumes, sent: 0, ...(ended.run.draft ? { unfinished: true as const } : {}) });
   await storage.delete(ENDED_KEY);

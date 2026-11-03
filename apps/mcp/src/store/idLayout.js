@@ -192,8 +192,15 @@ function rememberingLookup(lookup) {
     }
     await Promise.all(asked);
   };
+  /** Drop what is remembered for `path`, so the next question asks again (after a write to it). */
+  ask.forget = (path) => {
+    answers.delete(path);
+  };
   return ask;
 }
+
+/** The option a write view (`oneWrite`) hands its remembered lookup down under; a symbol, so no caller can name it. */
+const REMEMBERED = Symbol("rememberedLookup");
 
 /** The most paths one lookup may name: the control plane's `NOTE_IDS_LOOKUP_PATHS`. */
 const LOOKUP_MAX = 200;
@@ -207,6 +214,9 @@ const LOOKUP_MAX = 200;
  * retires one; each is bound by the caller to one request's session, so this
  * module holds no credential. All four are required. `resolve(noteIds)`, as
  * `noteIdResolve` answers it, is optional: without it no note is found by id.
+ * `lookupRead(paths)`, optional, answers the same question for a read only
+ * (`get`, `head`, `exists`, one read's view), where a new note's Tex home does
+ * not matter: the workspace object's own "no note here" (`objectLookup.js`).
  *
  * Everything else delegates: the wrapper is the store's own object with the
  * same prototype and descriptors, so non-enumerable properties are carried
@@ -219,10 +229,11 @@ const LOOKUP_MAX = 200;
  *   adopt: (note: {path: string, noteId: string, key: string, etag: string, size?: number, at: number}) => Promise<{adopted: boolean, taken?: object|null}>,
  *   removed: (note: {path: string, key: string, at: number}) => Promise<unknown>,
  *   resolve?: (noteIds: string[]) => Promise<{paths?: Record<string, string|null>}>,
+ *   lookupRead?: (paths: string[]) => Promise<{keyed?: boolean, notes?: object}>,
  *   now?: () => number,
  * }} hooks
  */
-export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: resolveIds, now = Date.now } = {}) {
+export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed, resolve: resolveIds, now = Date.now } = {}) {
   if (!store) return store;
   if (typeof lookup !== "function" || typeof wrote !== "function" || typeof adopt !== "function" || typeof removed !== "function") {
     // Without all four a write could neither create nor retire a row: refused outright, never a path store.
@@ -258,6 +269,16 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
     return { entry, texHome: typeof home === "string" && Object.prototype.hasOwnProperty.call(answer.texHomes, path) ? home : null };
   };
   const resolve = (path) => resolveWith(lookup, path);
+  /**
+   * A write's options, and the lookup to resolve it with: the one a write view remembers (`oneWrite`), carried under
+   * `REMEMBERED` through the layers above so they still judge the write (the note cap, the read-only rows), else a
+   * fresh one. The key is taken off before anything below sees the options.
+   */
+  const remembered = (options) => {
+    if (options === null || typeof options !== "object" || !Object.hasOwn(options, REMEMBERED)) return [options, lookup];
+    const { [REMEMBERED]: ask, ...plain } = options;
+    return [plain, typeof ask === "function" ? ask : lookup];
+  };
 
   /** Whether the tree's answer means "no note here": no live row at the path. */
   const noNote = ({ entry }) => entry === null || entry.state === "gone";
@@ -275,7 +296,9 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
   };
 
   /** A read routed by the tree: `method` is `get`, `head`, `exists` or `existsMetadata`. */
-  const routedRead = (method, ask = lookup) => async (path, ...rest) => {
+  // A read's lookup: the same answer, from where a read may take "no note here" without the control plane.
+  const readLookup = typeof lookupRead === "function" ? lookupRead : lookup;
+  const routedRead = (method, ask = readLookup) => async (path, ...rest) => {
     if (!mirroredPath(path)) return await store[method](path, ...rest);
     const resolved = await resolveWith(ask, path);
     const { entry } = resolved;
@@ -326,7 +349,7 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
    * `prime(paths)` asks for many paths in one lookup (`read_notes`).
    */
   wrapped.oneRead = (outer = wrapped) => {
-    const ask = rememberingLookup(lookup);
+    const ask = rememberingLookup(readLookup);
     const view = Object.create(outer);
     const define = (name, value) =>
       Object.defineProperty(view, name, { value, enumerable: false, writable: false, configurable: true });
@@ -417,7 +440,9 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
     const size = sizeOf(body);
     let answer;
     try {
-      answer = await adopt({ path, noteId, key, etag: result.etag, ...(size === undefined ? {} : { size }), at: now() });
+      // The tier the writer asked for (`tools/notes/write.js`), so the workspace object adopts it only where it is no wider there.
+      const tier = options?.tier === "private" || options?.tier === "team" ? { tier: options.tier } : {};
+      answer = await adopt({ path, noteId, key, etag: result.etag, ...(size === undefined ? {} : { size }), at: now(), ...tier });
     } catch (error) {
       await discard(key);
       throw error;
@@ -434,11 +459,43 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
   if (typeof store.put === "function") {
     wrapped.put = async (path, body, ...rest) => {
       if (!mirroredPath(path)) return await store.put(path, body, ...rest);
-      const resolved = await resolve(path);
+      const [options, ask] = remembered(rest[0]);
+      const resolved = await resolveWith(ask, path);
       const { entry } = resolved;
-      if (keyedEntry(entry)) return await keyedPut(path, entry, body, rest[0]);
-      if (noNote(resolved)) return await keyedCreate(path, body, rest[0], resolved.texHome);
+      if (keyedEntry(entry)) return await keyedPut(path, entry, body, options);
+      if (noNote(resolved)) return await keyedCreate(path, body, options, resolved.texHome);
       throw new NoteNameTaken();
+    };
+  }
+
+  /**
+   * A whole-note save's editing history in one call to the workspace object (`workspaceRouting.js`), for a keyed note:
+   * the object is told the key and note id this layer resolved, and refuses if its own row says otherwise. The new
+   * Markdown version is reported as `keyedPut` reports one. `null` when there is no such door or it did not serve,
+   * and the caller runs the engine through this store as before.
+   */
+  if (typeof store.replaceInObject === "function") {
+    wrapped.replaceInObject = async (path, input) => {
+      if (!mirroredPath(path)) return null;
+      const [{ expectedEtag, text }, ask] = remembered(input);
+      const { entry } = await resolveWith(ask, path);
+      if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
+      const answer = await store.replaceInObject({
+        path,
+        key: entry.key,
+        noteId: entry.noteId,
+        ...(typeof entry.legacyEtag === "string" ? { legacyEtag: entry.legacyEtag, rowEtag: entry.etag } : {}),
+        expectedEtag,
+        text,
+        // The version report would go to the object anyway (`objectLookup.js` `wrote`): it is recorded in this call.
+        ...(wrote.inObject === true ? { record: { at: now() } } : {}),
+      });
+      if (answer === null) return null;
+      const markdown = answer.markdown;
+      if (typeof markdown?.etag === "string" && answer.recorded !== true) {
+        await report({ path, key: entry.key, etag: markdown.etag, ...(Number.isFinite(markdown.size) ? { size: markdown.size } : {}), at: now(), keyed: true });
+      }
+      return answer;
     };
   }
 
@@ -478,6 +535,69 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
       return await wrapped.put(destination, await object.arrayBuffer(), options);
     };
   }
+
+  /**
+   * The store as one write sees it (`tools/notes/write.js`): the note's row is looked up once for the whole save, and
+   * that answer serves the write's own reads (the find, the load, the engine's `noteIdAt`) and the save itself (`put`,
+   * `replaceInObject`). A save asked the workspace object the same question three times in a row before this.
+   *
+   * After any write through the view the path's answer is dropped, so whatever the write changed is asked afresh. A
+   * remembered answer that went stale meanwhile can only refuse a save, never misplace one: the bucket's own version
+   * check and the object's row check (`replaceInObject`, `wrote`) judge the write against what is there now.
+   */
+  wrapped.oneWrite = (outer = wrapped) => {
+    const ask = rememberingLookup(lookup);
+    const view = Object.create(outer);
+    const define = (name, value) =>
+      Object.defineProperty(view, name, { value, enumerable: false, writable: false, configurable: true });
+    const routed = (path) => mirroredPath(path);
+    for (const method of ["get", "head", "exists", "existsMetadata"]) {
+      if (typeof store[method] !== "function" || typeof outer[method] !== "function") continue;
+      const read = routedRead(method, ask);
+      define(method, (path, ...rest) => (routed(path) ? read(path, ...rest) : outer[method](path, ...rest)));
+    }
+    define("noteIdAt", noteIdAtWith(ask));
+    // The writes go through `outer`, so every layer above still judges them, with this view's lookup beside them.
+    const carrying = (options) => ({ ...(options ?? {}), [REMEMBERED]: ask });
+    if (typeof outer.put === "function") {
+      define("put", async (path, body, options, ...rest) => {
+        try {
+          return await outer.put(path, body, routed(path) ? carrying(options) : options, ...rest);
+        } finally {
+          ask.forget(path);
+        }
+      });
+    }
+    if (typeof outer.replaceInObject === "function") {
+      define("replaceInObject", async (path, input) => {
+        try {
+          return await outer.replaceInObject(path, carrying(input));
+        } finally {
+          ask.forget(path);
+        }
+      });
+    }
+    if (typeof outer.delete === "function") {
+      define("delete", async (path, ...rest) => {
+        try {
+          return await outer.delete(path, ...rest);
+        } finally {
+          ask.forget(path);
+        }
+      });
+    }
+    if (typeof outer.copy === "function") {
+      define("copy", async (source, destination, ...rest) => {
+        try {
+          return await outer.copy(source, destination, ...rest);
+        } finally {
+          ask.forget(destination);
+        }
+      });
+    }
+    define("oneWrite", () => view);
+    return view;
+  };
 
   return wrapped;
 }

@@ -22,6 +22,7 @@
  */
 
 import { workspaceMarks } from "./workspaceStore/marks.js";
+import { workspaceAccess } from "./workspaceStore/accessRows.js";
 import { texObjects } from "./texStore/objects.js";
 import { TexObjectRefused } from "./texStore/objects.js";
 import { callTexStore } from "./texStore/wire.js";
@@ -30,6 +31,9 @@ import { workspaceMembers } from "./workspaceStore/members.js";
 import { workspaceRows } from "./workspaceStore/rows.js";
 import { bindingRows } from "./workspaceStore/bindingRows.js";
 import { workspaceFacts } from "./workspaceStore/facts.js";
+import { workspaceSearch } from "./workspaceStore/searchIndex.js";
+import { workspaceMeaning } from "./workspaceStore/meaningIndex.js";
+import { bindingEmbedder } from "./search/meaning/embed.js";
 import { personRows } from "./workspaceStore/personRows.js";
 import { tokenIndexClient } from "./workspaceStore/tokenIndex.js";
 import { serveWorkspaceStore } from "./workspaceStore/serve.js";
@@ -39,10 +43,15 @@ import { accessSockets } from "./workspaceStore/accessSockets.js";
 import { watchMembers, watchPerson } from "./workspaceStore/accessWatch.js";
 import { createControlPlane } from "./controlPlane/index.js";
 import { isTexCall, texHost } from "./workspaceStore/texHost.js";
+import { mirrorOutbox } from "./workspaceStore/mirrorOutbox.js";
+import { flushMirror } from "./workspaceStore/mirrorFlush.js";
+import { indexBuilder } from "./workspaceStore/indexBuild.js";
 
 const CALL = "x-tex-call";
 /** How long a person-object write that failed waits before it is sent again. */
 const REACH_RETRY_MS = 30_000;
+/** The build calls whose answer says whether an index still has changes waiting. */
+const INDEX_BUILDS = new Set(["ws.search.build", "ws.meaning.build"]);
 
 function opOf(request) {
   try {
@@ -75,7 +84,13 @@ export class WorkspaceStore {
     if (this.texSide === null) {
       const store = this.ready();
       // An owed member write waits its retry, whatever Tex arms the one alarm for.
-      this.texSide = texHost(this.state, this.env, { otherWake: () => (store.members.pending().length > 0 ? Date.now() + REACH_RETRY_MS : null) });
+      // So does an index build with changes still waiting (`workspaceStore/indexBuild.js`): the earlier of the two.
+      const otherWake = () => {
+        const times = [store.members.pending().length > 0 || store.mirror.count() > 0 ? Date.now() + REACH_RETRY_MS : null, store.indexBuild.wake()];
+        const set = times.filter((at) => typeof at === "number");
+        return set.length === 0 ? null : Math.min(...set);
+      };
+      this.texSide = texHost(this.state, this.env, { otherWake });
     }
     return this.texSide;
   }
@@ -85,13 +100,20 @@ export class WorkspaceStore {
     const sql = this.state.storage.sql;
     const objects = texObjects(sql);
     const rows = workspaceRows(sql);
-    this.store = {
+    const log = (event, fields) => console.log(JSON.stringify({ event, ...fields }));
+    const store = {
       objects,
       rows,
       // What its notes say about themselves: links and props, read from the text held here (`workspaceStore/facts.js`).
       facts: workspaceFacts(sql, objects),
+      // A word index over that text, so a search is one call here (`workspaceStore/searchIndex.js`).
+      search: workspaceSearch(sql, { rows, objects }),
+      // Its own meaning index (`workspaceStore/meaningIndex.js`), built with the model this Worker is bound to.
+      meaning: workspaceMeaning(sql, { rows, objects, embed: bindingEmbedder(this.env?.AI) }),
       // "A change is coming" (`workspaceStore/marks.js`): left by a writer before it changes the tree in Convex.
       marks: workspaceMarks(sql),
+      // Who each note and folder is open to, and the rules rendered from it (`workspaceStore/accessRows.js`).
+      access: workspaceAccess(sql),
       // The storage binding, sealed so this object cannot read it (`workspaceStore/bindingRows.js`).
       binding: bindingRows(sql),
       // A personal workspace's object is also its person's: reach, shares to them and their connections.
@@ -124,7 +146,26 @@ export class WorkspaceStore {
       },
       // One storage transaction for `ws.apply`: all of a change lands, or none of it.
       transact: (work) => this.state.storage.transactionSync(work),
+      // The changes taken for Convex's mirror, written in the transaction that takes them (`workspaceStore/mirrorOutbox.js`).
+      mirror: mirrorOutbox(sql),
+      // Sends them on, oldest first, one flush at a time (`workspaceStore/mirrorFlush.js`, `controlPlane/rowsMirror.js`).
+      flushMirror: () => flushMirror(store, (workspaceId, changes) => createControlPlane(this.env).rowsMirror(workspaceId, changes), log),
+      // A flush soon: the alarm runs at once, unless one is already set earlier. Nothing waits on it.
+      mirrorSoon: () => {
+        this.state.storage
+          .getAlarm()
+          .then(async (set) => {
+            const at = Date.now();
+            if (set === null || set > at) await this.state.storage.setAlarm(at);
+          })
+          .catch(() => {
+            // The change is queued; the next write or alarm arms the flush again.
+          });
+      },
     };
+    // The search indexes caught up on the alarm while changes wait, not only behind a search.
+    store.indexBuild = indexBuilder(store);
+    this.store = store;
     const tree = treeSockets(this.state, sql, this.store);
     this.store.onTreeChange = (change) => tree.changed(change);
     this.tree = tree;
@@ -146,14 +187,28 @@ export class WorkspaceStore {
     const response = await serveWorkspaceStore(store, request);
     // Where the tree is read from changed: watchers of a workspace switched back are told to read Convex.
     if (opOf(request) === "ws.home" && response.ok) this.tree.notice({ all: true });
+    // A build behind a search that left changes waiting: the alarm builds on (`workspaceStore/indexBuild.js`).
+    if (INDEX_BUILDS.has(opOf(request)) && response.ok) {
+      try {
+        store.indexBuild.noted(await response.clone().json());
+        if (store.indexBuild.wake() !== null) this.tex().arm();
+      } catch {
+        // The next search's build call notes it again.
+      }
+    }
     return response;
   }
 
   /** Person-object writes still owed by member changes, sent again; then the person's Tex routines that are due. */
   async alarm() {
-    await flushReach(this.ready());
+    const store = this.ready();
+    // Changes owed to Convex's mirror go first; a flush that could not finish is tried again in 30 s.
+    if (!(await store.flushMirror()).done) await store.retryLater();
+    await flushReach(store);
     const tex = this.tex();
     await tex.alarm();
+    // The search indexes, after Tex's routines, so a build never holds a routine back.
+    if (store.indexBuild.wake() !== null && store.indexBuild.wake() <= Date.now()) await store.indexBuild.run();
     tex.arm();
   }
 

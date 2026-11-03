@@ -17,9 +17,18 @@ import { isPersonCall, servePersonCall } from "./personServe.js";
 import { isTokenIndexCall, serveTokenIndex } from "./tokenIndex.js";
 import { membersState, serveMembersCall } from "./serveMembers.js";
 import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.js";
-import { manifestPage } from "./manifest.js";
+import { childrenPage, manifestPage } from "./manifest.js";
 import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
-import { BindingRowRefused, serveBindingCall } from "./bindingRows.js";
+import { BINDING_OPS, BindingRowRefused, serveBindingCall } from "./bindingRows.js";
+import { accessCall, applyAccess } from "./serveAccess.js";
+import { isWriteOp, serveWrites } from "./serveWrites.js";
+import { serveCollabReplace } from "./collabReplace.js";
+import { treeRows } from "./treeRows.js";
+import { absentHere } from "./lookupMiss.js";
+import { namesTaken } from "./namesTaken.js";
+import { SearchAskRefused } from "./searchIndex.js";
+import { MeaningAskRefused } from "./meaningIndex.js";
+import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 
 const CALL = "x-tex-call";
 
@@ -33,7 +42,6 @@ function changed(store, change) {
   }
 }
 const SCOPES = new Set(["private", "team"]);
-
 function opOf(request) {
   try {
     return JSON.parse(decodeURIComponent(request.headers.get(CALL) ?? "null"))?.op ?? null;
@@ -121,7 +129,12 @@ function lookUp(rows, fields, by, members = null) {
   return {
     accessVersion: judge.accessVersion,
     rows: asked.map((value) => {
+      // Several live rows for one note id: no single one is its path, so none is named (the control plane answers, as
+      // it does for an id held twice). Says nothing else, and not whether any of them is one the reader may see.
+      if (by === "noteId" && typeof value === "string" && rows.liveNoteIdCount(value) > 1) return { noteId: value, found: false, ambiguous: true };
       const row = typeof value === "string" ? (by === "path" ? rows.byPath(value) : rows.byNoteId(value)) : null;
+      // Nothing at all at the path, and nothing reroutes it (`lookupMiss.js`): the gateway may make the note without asking.
+      if (by === "path" && row === null && absentHere(rows, value)) return { path: value, found: false, absent: true };
       if (!judge.sees(row)) return { [by === "path" ? "path" : "noteId"]: value, found: false };
       return { found: true, path: row.path, noteId: row.noteId, key: row.storageKey ?? (row.noteId ? `notes/${row.noteId}.md` : null), etag: row.etag, kind: row.kind, collaborates: row.collaborates };
     }),
@@ -147,7 +160,29 @@ function answerFacts(store, fields) {
   if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ASKS.has(fields.ask)) return { served: false };
   const judge = judgeFor(store.rows, fields, store.members ?? null);
   const sees = (path) => judge.sees({ path });
-  return store.facts[fields.ask](fields, sees);
+  // A folder is seen as the listing shows it (`folderVisibleAtScope`), over the same rules and the reader's clearance.
+  const folderSees = (path) => judge.parsed !== null && folderVisibleAtScope(path, judge.clearance, judge.parsed.rules, judge.parsed.overrides);
+  // Held rules nobody can judge by (no rules, or a member the object does not know) are the control plane's to answer.
+  if (fields.ask === "jobs" && judge.parsed === null) return { served: false };
+  return store.facts[fields.ask](fields, sees, folderSees);
+}
+
+/**
+ * One folder's listing for the control plane's own `list` (`ws.rows.listing`, through the door): at the clearance the
+ * control plane already resolved (`scope`, its granted `groups`) and by the audience's rules, as the live tree socket
+ * lists it (`treeSockets.js`). `{served: false}` where no rules are held for the audience: the control plane answers.
+ */
+function listingAnswer(store, fields) {
+  if (!SCOPES.has(fields.scope)) throw new WorkspaceRowRefused("a listing needs its scope");
+  if (!READERS.has(fields.audience ?? "member") || fields.audience === "chat") throw new WorkspaceRowRefused("not an audience");
+  const folder = folderPathOf(fields.path);
+  if (folder === null) throw new WorkspaceRowRefused("not a folder path");
+  const held = store.rows.rules(fields.audience ?? "member");
+  if (held === null) return { served: false };
+  const tree = treeRows(store.sql);
+  const { rows: children, more } = tree.children(folder);
+  const clearance = { scope: fields.scope, names: new Set(Array.isArray(fields.groups) ? fields.groups.filter((group) => typeof group === "string") : []) };
+  return { served: true, listing: listFolderFromRows({ folder, clearance, held, children, more, own: tree.own(folder), roots: tree.jobRows() }) };
 }
 
 /** The paths a row change touches, before and after, for a tree watcher (`store.onTreeChange`). */
@@ -162,7 +197,10 @@ function pathsTouched(rows, ids, incoming = []) {
  */
 export async function serveWorkspaceStore(store, request) {
   const op = opOf(request);
-  if (typeof op !== "string" || !(op.startsWith("ws.") || isPersonCall(op) || isTokenIndexCall(op))) return await serveTexStore(store.objects, request);
+  if (typeof op !== "string" || !(op.startsWith("ws.") || isPersonCall(op) || isTokenIndexCall(op))) {
+    // A note's text written or removed reaches the word index by its own triggers (`searchIndex.js`).
+    return serveTexStore(store.objects, request);
+  }
   let fields;
   try {
     fields = JSON.parse((await request.text()) || "{}");
@@ -174,13 +212,21 @@ export async function serveWorkspaceStore(store, request) {
   if (isTokenIndexCall(op) && store.sql) return serveTokenIndex(store.sql, op, fields);
   // A person object's calls (`workspaceStore/access.js`): the personal workspace's reach, shares and connections.
   if (isPersonCall(op) && store.person) return await servePersonCall(store, op, fields);
+  // Write ops: the change and its mirror entry land in one transaction; they check and pin their workspace themselves (`serveWrites.js`).
+  if (isWriteOp(op)) return await serveWrites(store, op, fields);
   try {
     rows.pinWorkspace(fields.workspaceId);
     const membership = await serveMembersCall(store, op, fields);
     if (membership !== null) return membership;
     // The sealed binding and the one call a request's store is opened from (`bindingRows.js`).
-    const opened = serveBindingCall(store, op, fields, ACCESS_HOMES.OBJECT);
+    // `ws.open` waits for an open mark like every read, and says whether one is still open (`marks.js`), so the
+    // gateway need not ask the control plane whether the object is behind before a read (`store/objectBinding.js`).
+    const behind = op === BINDING_OPS.OPEN ? await waitForMarks(store.marks ?? null) : false;
+    const opened = serveBindingCall(store, op, fields, ACCESS_HOMES.OBJECT, { behind });
     if (opened !== null) return opened;
+    // The grant rows and the rules rendered from them (`serveAccess.js`).
+    const access = accessCall(store, op, fields);
+    if (access !== null) return access;
     switch (op) {
       case "ws.read": {
         const behind = await waitForMarks(store.marks ?? null);
@@ -224,9 +270,17 @@ export async function serveWorkspaceStore(store, request) {
           const kept = Array.isArray(fields.rows) && fields.rows.length > 0 ? rows.put(fields.rows).kept : 0;
           const removed = Array.isArray(fields.removed) && fields.removed.length > 0 ? rows.remove(fields.removed, fields.at).removed : 0;
           const rules = {};
-          for (const [audience, held] of Object.entries(fields.rules ?? {})) rules[audience] = rows.putRules(held, audience);
+          // Rules at or below a version this object minted were rendered before its own access write reached the control
+          // plane: never taken, or a late push would undo that write (`accessWrite.js`).
+          const minted = store.access?.minted() ?? null;
+          for (const [audience, held] of Object.entries(fields.rules ?? {})) {
+            rules[audience] = minted !== null && Number(held?.accessVersion) <= minted ? { kept: false, accessVersion: minted } : rows.putRules(held, audience);
+          }
+          // The access set the rules were rendered from, kept and checked against the rules now held (this push's, or
+          // its first call's), in the same transaction.
+          const access = fields.access === undefined ? null : applyAccess(store, fields.access, { member: rows.rules("member"), guest: rows.rules("guest") });
           const closed = closing.length > 0 ? store.marks.close(closing).closed : 0;
-          return { kept, removed, rules, ...(closing.length > 0 ? { closed } : {}) };
+          return { kept, removed, rules, ...(access !== null ? { access } : {}), ...(closing.length > 0 ? { closed } : {}) };
         });
         changed(store, { paths, rules: Object.values(answer.rules).some((rule) => rule.kept) });
         return Response.json(answer);
@@ -235,14 +289,50 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "path", store.members ?? null)));
       case "ws.rows.resolve":
         return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "noteId", store.members ?? null)));
+      case "ws.rows.names":
+        // A writer's "is that name taken?", unfiltered (`namesTaken.js`); before the notes live here, the control plane's.
+        if (rows.home() !== HOMES.OBJECT || !store.sql) return Response.json({ served: false });
+        return Response.json(await settledAnswer(store, () => namesTaken(rows, store.sql, fields)));
       case "ws.facts":
         return Response.json(await settledAnswer(store, () => answerFacts(store, fields)));
+      case "ws.search":
+        // The gateway's search, over this object's own word index (`searchIndex.js`); its `canSee` filters the rows.
+        if (!store.search || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json(store.search.search(fields.asks));
+      case "ws.search.build": {
+        if (!store.search || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        const waiting = store.search.catchUp();
+        return Response.json({ served: waiting !== null, waiting });
+      }
+      case "ws.meaning.query":
+        // The gateway's search by meaning, over this object's own index (`meaningIndex.js`); its `canSee` filters it.
+        if (!store.meaning || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json(store.meaning.query(fields.vector, { tiers: fields.tiers ?? null, topK: fields.topK ?? undefined }));
+      case "ws.meaning.build": {
+        if (!store.meaning || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        let built;
+        try {
+          built = await store.meaning.catchUp();
+        } catch {
+          // The model failed; what changed stays on the log for the next build.
+          return Response.json({ served: true, failed: true, waiting: null });
+        }
+        return Response.json(built === null ? { served: false } : { served: true, ...built });
+      }
+      case "ws.meaning.snippets":
+        // The passage each note found by meaning matched, read beside its text; the gateway asks only for notes its
+        // `canSee` already let through.
+        if (!store.meaning || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json({ served: true, snippets: store.meaning.snippets(fields.asks, fields.chars) });
       case "ws.facts.rows":
         // The control plane's own readers, through the door: unfiltered, as its internal queries are.
         if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ROW_ASKS.has(fields.ask)) return Response.json({ served: false });
         return Response.json(store.facts.rows(fields));
       case "ws.rows.manifest":
         return Response.json(await settledAnswer(store, () => manifestPage(rows, fields, judgeFor(rows, fields, store.members ?? null))));
+      case "ws.rows.children":
+        // The name guards' one-level question (`tree/twins.js`), judged as the manifest is.
+        return Response.json(await settledAnswer(store, () => childrenPage(rows, fields, judgeFor(rows, fields, store.members ?? null))));
       case "ws.mark.open":
         if (!store.marks) throw new WorkspaceRowRefused("this object keeps no marks");
         return Response.json(store.marks.open(fields.token, fields.ttlMs));
@@ -251,6 +341,14 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(store.marks.close(fields.tokens));
       case "ws.rows.get":
         return Response.json({ rows: rows.get(fields.ids) });
+      case "ws.rows.files":
+        // The control plane's tree reads, through the door: unjudged rows and the audience's rules from one call,
+        // settled like a lookup, so a reader there falls back to its own rows only while this object is behind.
+        if (rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json(await settledAnswer(store, () => ({ served: true, ...rows.filesPage(fields), rules: rows.rules(fields.audience ?? "member") })));
+      case "ws.rows.listing":
+        if (rows.home() !== HOMES.OBJECT || !store.sql) return Response.json({ served: false });
+        return Response.json(await settledAnswer(store, () => listingAnswer(store, fields)));
       case "ws.rows.list":
         return Response.json(rows.list(fields));
       case "ws.rules.put": {
@@ -275,13 +373,16 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json({ home: rows.setHome(fields.home) });
       case "ws.encryption":
         return Response.json({ encryption: rows.setEncryption(fields.state) });
+      case "ws.collab.replace":
+        // A whole-note save's editing history in one call (`collabReplace.js`); `{served: false}` sends it back.
+        return Response.json(await serveCollabReplace(store, fields));
       case "ws.backfilled":
         return Response.json({ backfilledAt: rows.markBackfilled(fields.at) });
       default:
         return Response.json({ error: "unknown_op" }, { status: 400 });
     }
   } catch (error) {
-    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
+    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused || error instanceof SearchAskRefused || error instanceof MeaningAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
   }
 }

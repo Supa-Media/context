@@ -342,7 +342,7 @@ function rewriteCodeReferences(content, byName, embedded) {
  * name becomes the stored copy's name, so the page shows the picture where
  * the writer put it, and it is not tacked on below as an embed.
  */
-const PAGE_PICTURE_FIELD = /^([ \t]*(?:photos?|cover|map)[ \t]*:[ \t]*)(.+)$/gim;
+const PAGE_PICTURE_FIELD = /^([ \t]*(?:photos?|cover|map|drawing(?:-dark)?)[ \t]*:[ \t]*)(.+)$/gim;
 
 function rewritePageFields(content, byName, embedded) {
   return content.replace(PAGE_PICTURE_FIELD, (_, lead, value) => {

@@ -44,7 +44,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Editing history is filed by note id](./storage-and-credentials/paths-on-read.md#editing-history-is-filed-by-note-id) (2026-10-25)
 - [Pictures and files stay in each workspace's own bucket, and pictures are kept compressed](./storage-and-credentials/files-bucket.md) (2026-11-01)
 - [Every row write reaches the workspace object](./storage-and-credentials/workspace-object-rows.md) (2026-11-01)
+- [Tree writes go to the workspace object first](./storage-and-credentials/object-row-writes.md) (2026-11-02)
 - [Notes' facts live in the workspace object](./storage-and-credentials/facts-in-objects.md) (2026-11-02)
+- [Background tree writers, once the object writes the tree](./storage-and-credentials/background-tree-writers.md) (2026-11-03)
+- [The control plane's tree reads come from the workspace object](./storage-and-credentials/object-tree-reads.md) (2026-11-03)
 - Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id
@@ -261,7 +264,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 - It is one opinion, on purpose
 - It reports; it never tidies
-- Every write answers with the change
+- Writes do not answer with the score
 - Kept incrementally, proven equal to a full pass
 - Two audiences, and a member learns nothing held back
 - A derivative, like every index
@@ -368,6 +371,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Both indexes fill in tier order: T0 everything else, T1 the Inbox, T2 the Archive
 - A note's passages are filed under its note id, and a move only re-points them
 - Fast search renames a moved note's rows, and reads it only for a new name
+- A workspace object keeps its own word index
+- A workspace object keeps its own meaning index
 
 ## [The mobile app and the console](./app-and-console.md)
 
@@ -411,6 +416,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Folder icons, a workspace's emoji names and the forwarding ledger live in Convex, and the bucket keeps the files](./app-and-console/convex-small-data.md) (2026-10-14)
 - [No full-tree reread on a timer, and no write per save to a row every listing reads](./app-and-console/convex-cost.md) (2026-10-19)
 - [A page is a Markdown note named `<name>.page.md`, with blocks and sealed code boxes](./app-and-console/pages.md) (2026-10-27)
+- [Tex draws a picture for every page that has none](./app-and-console/page-drawings.md) (2026-11-03)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
@@ -784,6 +790,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [One conversation state per chat, and decide picks when and how Tex replies (2026-11-01)](./texting-assistant/chat-state-machine.md)
 - [Group typing: a WhatsApp experiment before any build (2026-11-01)](./texting-assistant/whapi-presence-probe.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
+- [On Sendblue, every link goes with its picture, and never at either end of its text (2026-11-03)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works

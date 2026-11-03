@@ -84,7 +84,7 @@ export function coreToolDefinitions() {
               "A note path or search result id; a file path (a PDF, Word, Excel or picture file, such as an email attachment a note links) returns the words in it; " +
               "a folder path (ending in /) lists it; orient lists the other ids " +
               "(meetings:, messages:, contacts:, activity:, changes:, proposals:, links:, vault:, apps:, and email:<address>/<id> from an email search); " +
-              "notes: with args { paths: [up to 25 note paths] } reads several notes in one call.",
+              "notes: with args { paths: [up to 100 note paths] } reads several notes in one call.",
           },
           args: {
             type: "object",
@@ -162,7 +162,7 @@ export function coreToolDefinitions() {
       name: "read_notes",
       title: "Read notes",
       description:
-        "Read several of the user's notes in one call: up to 25 paths, looked up together. Each note comes back as its own part, " +
+        "Read several of the user's notes in one call: up to 100 paths, looked up together. Each note comes back as its own part, " +
         "exactly as read_note returns it (content and etag), or with error: not found. Use it instead of several read_note calls.",
       inputSchema: {
         type: "object",
@@ -171,7 +171,7 @@ export function coreToolDefinitions() {
             type: "array",
             items: { type: "string" },
             minItems: 1,
-            maxItems: 25,
+            maxItems: 100,
             description: "Note paths, e.g. ['projects/togather/status.md', 'areas/health/plan.md']",
           },
         },

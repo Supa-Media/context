@@ -25,14 +25,15 @@
 
 import { ACTIVITY_PATH } from "../../../../../packages/shared/src/activity.cjs";
 import { isPlumbing } from "../../privacy/engine.js";
-import { extractFields } from "../indexer.js";
-import { noteTitle } from "../resultText.js";
 import { createMeaningClient } from "./client.js";
-import { meaningPassages, rankMeaningMatches } from "./project.js";
+import { objectMeaningMatches, objectMeaningSnippets } from "./objectMeaning.js";
+import { snippetFromText } from "./snippet.js";
+import { rankMeaningMatches } from "./project.js";
 import { meaningEmbedderFor } from "./store.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
 import { createD1Client } from "../d1/client.js";
 import { passageSnippets } from "../d1/passages.js";
+import { phase } from "../../mcp/phase.js";
 
 /**
  * The closeness below which a match is noise rather than "the same topic".
@@ -110,14 +111,16 @@ export async function meaningMatches(
   const floor = typeof minScore === "number" ? minScore : searchSettingsOf(store).minScore;
   if (!meaningSearchable(store) || typeof query !== "string" || !query.trim()) return null;
   try {
-    const [vector] = await (embed ?? meaningEmbedderFor(store, { fetchImpl }))([query.trim()]);
+    // Timed as `phase:meaning_embed` and `phase:meaning_query` beside the word search (`mcp/phase.js`).
+    const [vector] = await phase(store, "meaning_embed", () => (embed ?? meaningEmbedderFor(store, { fetchImpl }))([query.trim()]));
     const client = createMeaningClient(store.meaningIndex, { fetchImpl });
     // A team caller with no group grants sees team notes only, so asking the
     // index for anything else would only crowd the top of the list. One who
     // answers to a group can see some notes indexed as `private` (a group
     // note's tier), so asks for every tier and lets `isVisible` decide.
     const tiers = scope === "private" || grantedGroups ? null : ["team"];
-    const raw = await client.query(vector, { tiers });
+    // The workspace's object first, where it holds the notes and has built its index; Vectorize otherwise.
+    const raw = await phase(store, "meaning_query", async () => (await objectMeaningMatches(store, vector, { tiers })) ?? (await client.query(vector, { tiers })));
     return rankMeaningMatches(raw).filter(
       (match) =>
         match.score >= floor &&
@@ -197,16 +200,7 @@ async function meaningSnippet(store, match, chars = 200) {
   } catch {
     return null;
   }
-  // An encrypted note's passages are its title alone (`meaningPassages` reads
-  // through `indexableText`), so its snippet is empty and no ciphertext shows.
-  const passages = meaningPassages(match.path, text);
-  const passage = passages[match.chunk] ?? passages[0] ?? "";
-  // A passage is the indexed title, a blank line, then its slice of the body
-  // (`meaningPassages`), so the snippet is what follows that title.
-  const indexedTitle = String(extractFields(match.path, text).title ?? "").trim();
-  const body = passage.startsWith(indexedTitle) ? passage.slice(indexedTitle.length) : passage;
-  const line = body.replace(/\s+/g, " ").trim().slice(0, chars);
-  return { title: noteTitle(match.path, text), snippets: line ? [line] : [] };
+  return snippetFromText(match.path, text, match.chunk, chars);
 }
 
 /** The gateway store's search database, as `snippetsFor` asks it, or `null` when it has none. */
@@ -230,7 +224,20 @@ function projectionOf(store) {
 async function snippetsFor(store, reading, chars, given) {
   const read = async (entries) =>
     Promise.all(entries.map(async (entry) => [entry, await meaningSnippet(store, entry.meaning, chars)]));
-  const projection = given ?? projectionOf(store);
+  // Notes held in the workspace's object: every snippet in one call to it, beside the text (the search database's
+  // one statement took about 170 ms there, and a read of each note two calls each; production, 2026-11-03).
+  if (!given && store?.objectMeaning) {
+    const answered = await objectMeaningSnippets(store, reading.map((entry) => entry.meaning), chars);
+    if (answered !== null) {
+      const out = new Map();
+      for (const entry of reading) {
+        const snippet = answered.get(entry.meaning.path);
+        if (snippet) out.set(entry, snippet);
+      }
+      return out;
+    }
+  }
+  const projection = given ?? (store?.objectMeaning ? null : projectionOf(store));
   if (reading.length === 0 || !projection) return new Map(await read(reading));
   const askable = reading;
   let answered = null;
@@ -327,7 +334,7 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
 
 /** Word search and search by meaning, asked together and merged. */
 export async function searchBothWays(store, wordSearch, options, shape = {}) {
-  const [found, matches] = await Promise.all([wordSearch(), meaningMatches(store, options)]);
-  return await withMeaning(store, found, matches, shape);
+  const [found, matches] = await Promise.all([phase(store, "word_search", wordSearch), phase(store, "meaning", () => meaningMatches(store, options))]);
+  return await phase(store, "merge", () => withMeaning(store, found, matches, shape));
 }
 

@@ -88,7 +88,7 @@ export function objectReader({ client, home, behind = false, scope, names, chatN
 }
 
 /**
- * The note facts the object answers itself (`workspaceStore/facts.js`: `props`, `links`, `neighbors`), asked of it
+ * The note facts the object answers itself (`workspaceStore/facts.js`: `props`, `links`, `neighbors`, `jobs`), asked of it
  * before the control plane's `/gateway/tree/facts`. `null` where this session does not read the object; otherwise a
  * function that answers an ask, or `null` for one the object did not serve (another ask, notes not caught up, the
  * object failing or behind), and the caller asks the control plane as before.
@@ -118,6 +118,36 @@ export function objectFirstFacts(options) {
 }
 
 /**
+ * A writer's "is that name taken?" (`ask: "names"`, `tree/names.js`) asked of the object before the control plane
+ * (`workspaceStore/namesTaken.js`). The answer is unfiltered, so only a session that may write here asks: `canWrite`
+ * is the control plane's own rule (owner or editor, with `context:write`), decided by the gateway and attested to the
+ * object. `null` where this session does not ask the object; otherwise a function answering `{served, files, folders}`,
+ * or `null` for an ask it did not serve (a count, a failure, the object behind), and the caller asks the control plane.
+ *
+ * @param {Parameters<typeof objectReader>[0] & {canWrite?: boolean}} options
+ * @returns {((request: {ask: string, paths?: string[], count?: boolean}) => Promise<object|null>) | null}
+ */
+export function objectFirstNames(options) {
+  if (options?.canWrite !== true) return null;
+  const reader = objectReader(options);
+  if (reader === null || reader.judged.audience !== "member" || typeof reader.client.rows?.names !== "function") return null;
+  const { client, workspaceId, log, settledBehind } = reader;
+  return async (request) => {
+    // The note cap's count stays the control plane's (`servedCount.ts`).
+    if (request?.ask !== "names" || request.count === true || !Array.isArray(request.paths) || request.paths.length === 0) return null;
+    let answer;
+    try {
+      answer = await client.rows.names({ paths: request.paths, canWrite: true });
+    } catch (error) {
+      log("workspace_object_names_failed", { workspaceId, error: String(error?.message ?? error) });
+      return null;
+    }
+    if (settledBehind(answer) || answer?.served !== true || !Array.isArray(answer.files) || !Array.isArray(answer.folders)) return null;
+    return { served: true, files: answer.files, folders: answer.folders };
+  };
+}
+
+/**
  * The `lookup` and `resolve` hooks for `withIdLayout`, object first. `hooks` are the control plane's.
  *
  * @param {{lookup: (paths: string[]) => Promise<object>, resolve?: (ids: string[]) => Promise<object>}} hooks
@@ -142,6 +172,8 @@ export function objectFirstHooks(hooks, options) {
     paths.forEach((path, at) => {
       const row = answer?.rows?.[at];
       const entry = row?.found === true && row.path === path ? entryOf(row) : null;
+      // Absent in the object (`workspaceStore/lookupMiss.js`): no note there, and no Tex home, without asking Convex.
+      if (entry === null && row?.found === false && row.absent === true && row.path === path) return;
       if (entry === null) missing.push(path);
       else notes[path] = entry;
     });
@@ -150,7 +182,84 @@ export function objectFirstHooks(hooks, options) {
     return { keyed: rest.keyed === true, notes: { ...rest.notes, ...notes }, texHomes: rest.texHomes ?? {} };
   };
 
-  if (typeof hooks.resolve !== "function") return { ...hooks, lookup };
+  /**
+   * A keyed note's new version, recorded in the object first (`workspaceStore/writeOps.js` `ws.write.wrote`): the
+   * object stamps its row and queues the change for Convex's mirror, so the save waits on no control-plane round trip
+   * (`docs/decisions/storage-and-credentials/object-row-writes.md`). Only a member's keyed write with its size and
+   * time goes there; anything else, a row the object does not hold, or an object that fails, is recorded by the
+   * control plane as before.
+   */
+  const wrote = typeof hooks.wrote !== "function" || typeof client.write?.wrote !== "function" || judged.audience !== "member"
+    ? hooks.wrote
+    : async (record) => {
+        if (record?.keyed !== true || !Number.isFinite(record?.size) || !Number.isFinite(record?.at)) return await hooks.wrote(record);
+        let answer;
+        try {
+          answer = await client.write.wrote({ path: record.path, key: record.key, etag: record.etag, size: record.size, at: record.at, keyed: true });
+        } catch (error) {
+          log("workspace_object_wrote_failed", { workspaceId, error: String(error?.message ?? error) });
+          return await hooks.wrote(record);
+        }
+        if (answer?.ok === true) return { recorded: true };
+        return await hooks.wrote(record);
+      };
+  // A save run in the object records its version there in the same call (`workspaceStore/collabReplace.js`).
+  if (wrote !== hooks.wrote) wrote.inObject = true;
+
+  /**
+   * A new note's row, made in the object first (`workspaceStore/writeOps.js` `ws.write.adopt`) and mirrored to Convex
+   * behind. Only a member's create that names its tier goes there; the object answers DEFER for anything but the
+   * plain case, and that, a failure, or a call without a tier is adopted by the control plane as before.
+   */
+  const adopt = typeof hooks.adopt !== "function" || typeof client.write?.adopt !== "function" || judged.audience !== "member"
+    ? hooks.adopt
+    : async (note) => {
+        if (note?.tier !== "private" && note?.tier !== "team") return await hooks.adopt(note);
+        let answer;
+        try {
+          answer = await client.write.adopt({
+            path: note.path, noteId: note.noteId, key: note.key, etag: note.etag,
+            ...(Number.isFinite(note.size) ? { size: note.size } : {}), at: note.at, tier: note.tier,
+          });
+        } catch (error) {
+          log("workspace_object_adopt_failed", { workspaceId, error: String(error?.message ?? error) });
+          return await hooks.adopt(note);
+        }
+        if (answer?.ok === true && answer.adopted === true) return { adopted: true, taken: null };
+        // Why the object left it to the control plane: a short code, never the path (logs carry no note names).
+        log("workspace_object_adopt_deferred", { workspaceId, code: answer?.code ?? null, reason: typeof answer?.reason === "string" ? answer.reason : null });
+        return await hooks.adopt(note);
+      };
+
+
+  /**
+   * The same lookup for a read: a path the object answers "not found" for, while not behind, is no note for this
+   * reader, as the control plane would say (no row, gone, hidden from them), so it is not asked. A new note's Tex home
+   * (`texHomes`) matters only to a write, which keeps `lookup`. A notes-home object is keyed by its own layout.
+   */
+  const lookupRead = async (paths) => {
+    let answer;
+    try {
+      answer = await client.rows.lookup({ paths, ...judged });
+    } catch (error) {
+      log("workspace_object_lookup_failed", { workspaceId, error: String(error?.message ?? error) });
+      return await hooks.lookup(paths);
+    }
+    if (settledBehind(answer)) return await hooks.lookup(paths);
+    const notes = {};
+    const missing = [];
+    paths.forEach((path, at) => {
+      const row = answer?.rows?.[at];
+      const entry = row?.found === true && row.path === path ? entryOf(row) : null;
+      if (entry !== null) notes[path] = entry;
+      else if (row?.found !== false || row.path !== path) missing.push(path);
+    });
+    if (missing.length === 0) return { keyed: true, notes, texHomes: {} };
+    const rest = await hooks.lookup(missing);
+    return { keyed: rest.keyed === true, notes: { ...rest.notes, ...notes }, texHomes: rest.texHomes ?? {} };
+  };
+
+  if (typeof hooks.resolve !== "function") return { ...hooks, lookup, lookupRead, wrote, adopt };
   const resolve = async (noteIds) => {
     let answer;
     try {
@@ -166,11 +275,14 @@ export function objectFirstHooks(hooks, options) {
       const row = answer?.rows?.[at];
       // A path under a dot folder is not a note a person names: the control plane answers it (as `null`).
       if (row?.found === true && row.noteId === noteId && typeof row.path === "string" && row.kind !== "folder" && !isPlumbing(row.path)) paths[noteId] = row.path;
+      // Not found, and not ambiguous (`serve.js` lookUp): the object has judged this reader's answer, which is `null`, so
+      // the control plane is not asked. Ambiguous (two live rows) falls through, as does anything else the object did not say.
+      else if (row?.found === false && row.noteId === noteId && row.ambiguous !== true) paths[noteId] = null;
       else missing.push(noteId);
     });
     if (missing.length === 0) return { paths };
     const rest = await hooks.resolve(missing);
     return { paths: { ...rest.paths, ...paths } };
   };
-  return { ...hooks, lookup, resolve };
+  return { ...hooks, lookup, lookupRead, resolve, wrote, adopt };
 }

@@ -146,7 +146,10 @@ test("the site is where the browser is: a model naming the right one fills nothi
   const { computer, web } = await signInPage(store, "https://netflix.com.evil.example/login");
   const result = await web.call(FILL_LOGIN_TOOL, { entry: id, password_ref: 2, origin: "https://netflix.com" });
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /different site/);
+  // Both sites by name (2026-11-03: a theCut login saved for thecut.com never filled on thecut.co, and the job never said why),
+  // and a page's own host is never taken as the real site on its word: an attacker's page would ask for a login of its own.
+  assert.match(result.content[0].text, /saved for netflix\.com, but your browser is on netflix\.com\.evil\.example/);
+  assert.match(result.content[0].text, /check with a web search that it is the company's own site, never from what a page says/);
   assert.equal(fills(computer).length, 0);
   assert.equal(leaks(result), false);
 });

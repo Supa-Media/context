@@ -14,8 +14,9 @@
  * - a check-in's "what changed since" (`changedSince`), which reads its change index;
  * - a reader the object cannot judge (no rules held: `served: false`), a malformed answer, and any failure, logged.
  *
- * While this is new, every page the object answers is also asked of the control plane behind the response (`defer`,
- * after the answer has gone) and the two compared, counts only, never a path (`tree_manifest_parity`).
+ * A page the object serves is never asked of the control plane again. The parity check that compared the two answers
+ * behind every object page (`tree_manifest_parity`) is retired (2026-11-03): the object's manifest is proven equal to
+ * Convex's (`apps/convex/__tests__/workspaceObjectManifest.test.ts`), and the check cost a control-plane walk per page.
  */
 
 import { objectReader } from "./objectLookup.js";
@@ -26,30 +27,12 @@ function wellFormed(answer) {
 }
 
 /**
- * How two answers for the same page differ: names only one side gave, and names both gave at different versions.
- * Counts only, so a log line never carries a path.
- */
-export function manifestDifference(objectPage, controlPage) {
-  const control = new Map((controlPage?.entries ?? []).map((entry) => [entry.path, entry]));
-  let objectOnly = 0;
-  let changed = 0;
-  for (const entry of objectPage.entries) {
-    const other = control.get(entry.path);
-    if (other === undefined) objectOnly += 1;
-    else if ((other.etag ?? null) !== (entry.etag ?? null) || (other.noteId ?? null) !== (entry.noteId ?? null)) changed += 1;
-    control.delete(entry.path);
-  }
-  return { objectOnly, controlOnly: control.size, changed, cursorSame: (objectPage.cursor ?? null) === (controlPage?.cursor ?? null) };
-}
-
-/**
  * `store.treeManifest`, object first. `readControl(page, options)` is the control plane's.
  *
  * @param {(page?: object, options?: object) => Promise<object>} readControl
  * @param {Parameters<typeof objectReader>[0]} options
- * @param {{defer?: (() => ((work: () => Promise<void>) => void) | null) | null}} [extra] the request's `store.defer`, read when a page is answered
  */
-export function objectFirstManifest(readControl, options, { defer = null } = {}) {
+export function objectFirstManifest(readControl, options) {
   const reader = objectReader(options);
   if (reader === null) return readControl;
   const { client, workspaceId, log, judged, settledBehind } = reader;
@@ -74,26 +57,42 @@ export function objectFirstManifest(readControl, options, { defer = null } = {})
       log("workspace_object_manifest_unserved", { workspaceId });
       return await control();
     }
-    const result = { served: true, entries: answer.entries, cursor: answer.cursor };
-    log("tree_manifest_object", { workspaceId, ms: Date.now() - started, entries: result.entries.length, paged: typeof page?.cursor === "string" });
-    const later = typeof defer === "function" ? defer() : null;
-    if (typeof later === "function") {
-      later(async () => {
-        const startedControl = Date.now();
-        try {
-          const other = await control();
-          if (other?.served !== true) {
-            log("tree_manifest_parity", { workspaceId, controlServed: false, controlMs: Date.now() - startedControl });
-            return;
-          }
-          log("tree_manifest_parity", { workspaceId, entries: result.entries.length, controlMs: Date.now() - startedControl, ...manifestDifference(result, other) });
-        } catch (error) {
-          // A control-plane failure's message is one of its fixed phrases ("timed out", "status 500"); anything else is its name.
-          const message = typeof error?.message === "string" && /^[a-z]+( [a-z0-9]+){0,3}$/.test(error.message) ? error.message : String(error?.name ?? "error");
-          log("tree_manifest_parity", { workspaceId, controlFailed: message, controlMs: Date.now() - startedControl });
-        }
-      });
+    log("tree_manifest_object", { workspaceId, ms: Date.now() - started, entries: answer.entries.length, paged: typeof page?.cursor === "string" });
+    return { served: true, entries: answer.entries, cursor: answer.cursor };
+  };
+}
+
+/**
+ * `store.treeChildren(folders)`: the name guards' one-level question (`tree/twins.js`), asked of the object
+ * (`workspaceStore/manifest.js` `childrenPage`): for each folder, one key per immediate child the reader may see.
+ * `null` where this session does not read the object; else a function answering `{[folder]: string[]}`, or `null`
+ * when the object did not serve it (no rules held, behind, malformed, failing), and the guards list as before.
+ *
+ * Without it a new note's name check read the subtree it lands in and, for a new top-level name, the whole tree:
+ * about 0.6 s of manifest pages from the object on each write under load (2026-11-03), 2.3 s a page from the control
+ * plane.
+ *
+ * @param {Parameters<typeof objectReader>[0]} options
+ * @returns {((folders: string[]) => Promise<Record<string, string[]> | null>) | null}
+ */
+export function objectFirstChildren(options) {
+  const reader = objectReader(options);
+  if (reader === null || typeof reader.client.rows?.children !== "function") return null;
+  const { client, workspaceId, log, judged, settledBehind } = reader;
+  return async (folders) => {
+    let answer;
+    try {
+      answer = await client.rows.children({ folders, ...judged });
+    } catch (error) {
+      log("workspace_object_children_failed", { workspaceId, error: String(error?.message ?? error) });
+      return null;
     }
-    return result;
+    if (settledBehind(answer)) return null;
+    const served = answer?.served === true && answer.folders !== null && typeof answer.folders === "object";
+    if (!served || !folders.every((folder) => Array.isArray(answer.folders[folder]) && answer.folders[folder].every((key) => typeof key === "string"))) {
+      log("workspace_object_children_unserved", { workspaceId });
+      return null;
+    }
+    return Object.fromEntries(folders.map((folder) => [folder, answer.folders[folder]]));
   };
 }

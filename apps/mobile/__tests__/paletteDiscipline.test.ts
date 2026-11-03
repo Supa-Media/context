@@ -34,6 +34,8 @@ const EXEMPT = new Map<string, string>([
   ["#4285F4", "Google's G, blue"],
   ["#FBBC05", "Google's G, yellow"],
   ["#34A853", "Google's G, green"],
+  ["#0A84FF", "iMessage blue: a group chat's home drawn as the app it is in (ChatServiceMark), told apart by colour"],
+  ["#25D366", "WhatsApp green, the same mark's other app"],
   ["#FFFFFF", "DrawingView's paper: white in both themes on purpose — what is inside the frame is the customer's drawing, not our chrome"],
 ]);
 

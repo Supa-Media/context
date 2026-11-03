@@ -340,12 +340,24 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
 export const COVER_SIZE = Object.freeze({ width: 1080, height: 1350 });
 
 /**
+ * A cover's version: 8 hex, and `-w` after it when the cover is the wide
+ * 1200 x 630 card of a page Tex drew a picture for
+ * (`docs/decisions/app-and-console/page-drawings.md`). Only ever a cache key.
+ */
+export const COVER_VERSION = /^[0-9a-f]{8}(?:-w)?$/;
+
+/** The size a cover's card is advertised at: the wide card is the default 1200 x 630, so it names none. */
+export function coverSize(version: string): Pick<PreviewMeta, "imageSize"> {
+  return version.endsWith("-w") ? {} : { imageSize: COVER_SIZE };
+}
+
+/**
  * The image fields for a card that is a page's cover, served at the share's
  * own card address with the cover's version as its cache key; nothing when
  * there is no cover. `version` is shape-checked again here, at the place it
  * is put into a URL.
  */
 export function coverPreview(cardPath: string | null, version: string | null | undefined): Pick<PreviewMeta, "imageUrl" | "imageSize"> {
-  if (cardPath === null || typeof version !== "string" || !/^[0-9a-f]{8}$/.test(version)) return {};
-  return { imageUrl: `${ORIGIN}${cardPath}?v=${version}`, imageSize: COVER_SIZE };
+  if (cardPath === null || typeof version !== "string" || !COVER_VERSION.test(version)) return {};
+  return { imageUrl: `${ORIGIN}${cardPath}?v=${version}`, ...coverSize(version) };
 }

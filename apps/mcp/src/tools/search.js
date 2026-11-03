@@ -37,6 +37,13 @@ const LOOSE_PENALTY = 10;
  * another workspace's note the query was about. Ties keep the lists' order,
  * this workspace first.
  *
+ * A loose hit's words count only while no workspace has a note holding every
+ * word. Each workspace retries with any word only when it found nothing with
+ * all of them, so its loose hits are not comparable with another's real
+ * matches: an index page holding "note" outranked the person's own note
+ * holding all four words (2026-11-03). Such a hit then places by its meaning
+ * alone.
+ *
  * @param {Array<Array<object>>} lists hits per workspace, this workspace's first, each hit
  *   carrying `wordRank`, `loose` and `meaningScore` (`search/meaning/serve.js`)
  */
@@ -46,9 +53,11 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS) {
     .filter(({ hit }) => typeof hit.meaningScore === "number")
     .sort((a, b) => b.hit.meaningScore - a.hit.meaningScore);
   const meaningRank = new Map(byMeaning.map((entry, rank) => [entry, rank]));
+  const anyWhole = all.some(({ hit }) => typeof hit.wordRank === "number" && !hit.loose);
   const scored = all.map((entry) => {
     const { hit } = entry;
-    const word = typeof hit.wordRank === "number" ? 1 / (RRF_K + hit.wordRank + 1 + (hit.loose ? LOOSE_PENALTY : 0)) : 0;
+    const counted = typeof hit.wordRank === "number" && !(hit.loose && anyWhole);
+    const word = counted ? 1 / (RRF_K + hit.wordRank + 1 + (hit.loose ? LOOSE_PENALTY : 0)) : 0;
     const meaning = meaningRank.has(entry) ? 1 / (RRF_K + meaningRank.get(entry) + 1) : 0;
     return { ...entry, score: word + meaning };
   });

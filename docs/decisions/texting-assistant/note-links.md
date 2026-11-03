@@ -63,3 +63,39 @@ answered the picture again on its own ("That's the Context banner").
 Tests: `apps/mcp/test/agentSentNoteLinks.test.mjs`, the preview cases in
 `apps/agent/src/sendblue.test.ts` and `inbox.test.ts`, and the bench list
 `apps/mcp/bench/ai/tests/meetings.md`.
+
+### On Sendblue, every link goes with its picture, and never at either end of its text
+
+Decided by the owner, 2026-11-03, after Sendblue support confirmed it attaches
+no rich-link data, has no flag for it on `/api/send-group-message`, and has no
+date for App Cards in groups. Every link Tex texted through Sendblue arrived as
+a grey "Tap to Load Preview" box, a group's progress link and a source link
+alike, and only Sendblue can attach a preview, because the device that sends a
+text is the one that builds its preview. The owner asked for the fix as an
+adapter, because Tex may move to another provider.
+
+- On the Sendblue lines only (`line.ts`, `groupLine.ts`), a text with links
+  sends each link's picture first, up to three, then the words
+  (`apps/agent/src/linkPreviews.ts`). A note's link gets the note's drawn card,
+  and any other link gets its page's `og:image` (or `twitter:image`), which Tex
+  fetches and hosts itself (`pagePicture.ts`). Linq, WhatsApp and any later
+  provider that attaches previews itself send links as before.
+- A link at the very end of a text is what Messages splits off into the grey
+  box, and a lone link is the same box. So a text ending with a link gets
+  "(tap the link)" after it, and one starting with a link gets "Link:" before
+  it. A link with words on both sides stays an ordinary tappable link, as the
+  note-link sentence already showed.
+- The fetch is held to the site reader's lock: public https names only, no IP
+  literal or local name, every redirect checked again, no cookie or
+  credential, 512 KB of a page, 5 MB of a picture, six seconds in all. It sends
+  a preview-bot user agent, the way Apple's own fetcher does. Context's own
+  catch-all card is never sent, because it says nothing about the link (a
+  progress link, say).
+- A picture is never the only way to the link, and never holds the words back.
+  One that cannot be found, hosted or sent is skipped, and the words go anyway.
+
+Undo by sending `text` instead of `tappable(text)` and passing no finder in
+`sendWithLinkPictures`. Tests: `apps/agent/src/linkPreviews.test.ts` and
+`pagePicture.test.ts`. They were sabotaged three ways: following a redirect
+without the check, sending Context's catch-all card, and dropping `tappable`.
+Each sabotage failed the matching tests.

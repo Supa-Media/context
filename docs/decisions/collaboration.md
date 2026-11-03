@@ -358,3 +358,20 @@ left for the editor.
 `apps/mobile/__tests__/durableClosedNotes.test.ts` fails if a closed note's
 draft or updates wait for it to be opened, if an open note is sent from the
 background, or if opening a note does not take it from the background sender.
+
+## A save renders its own commit without reading it back (2026-11-03)
+
+A whole-note save waited for nine storage round trips in a row. Two of them, after the commit, were reads of what the
+save had just written: the Markdown and the pending revision before rendering, then the Markdown again to check the
+rendering landed. The engine runs only on storage with verified conditional writes (`supported`), so the conditional
+write's own answer already says both.
+
+**Decision.** `commitSnapshot` tells `finalizePending` it has just committed the state (`committed`). The first
+attempt then writes the Markdown on the condition that it is still the version the commit saw
+(`pending.previousRawEtag`) and records the version that write answers. A refused condition means somebody changed the
+Markdown meanwhile, and that goes the ordinary way, from a fresh read, as before. The Markdown is still written before
+the save answers, so a completed save still includes its accepted edits.
+
+**What a simplification would cost.** Reading back again puts two round trips on every save.
+`packages/collaboration/test/roundTrips.mjs` holds a save to seven round trips and fails at nine without this, and its
+race check proves a Markdown change between the commit and its rendering still ends as the accepted text.

@@ -17,6 +17,7 @@ import { useCallback, useRef } from "react";
 import { isServerRefusal, toFileError } from "../browser";
 import { guardLeaving } from "../editor";
 import { isMarkdown, parentPath } from "../paths";
+import { isHistoryView } from "../ledgerDownload";
 import { rekeyPath } from "../optimistic";
 import { raceTimeout } from "../../storage/timeout";
 import { isUnreadable } from "../unreadable";
@@ -524,6 +525,19 @@ export function useOpenNote(deps: OpenNoteDeps) {
         }
         offlineRef.current.rememberNote(written);
         dispatch({ type: "opened", note: written });
+        return true;
+      }
+
+      /*
+        A chat's history file has no body to edit: it opens as the chat's
+        history (`tex/history/HistoryFileView`), read from the gateway's Tex
+        page routes. Nothing is read here, so no JSON lands in the editor and
+        no refusal of a non-note is shown over it.
+      */
+      if (isHistoryView(path)) {
+        openRun.current += 1;
+        setOpening(null);
+        dispatch({ type: "closed" });
         return true;
       }
 

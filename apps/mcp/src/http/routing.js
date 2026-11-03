@@ -5,7 +5,7 @@
  * where its order of checks can be read top to bottom.
  */
 
-import { objectFirstManifest } from "../store/objectManifest.js";
+import { objectFirstChildren, objectFirstManifest } from "../store/objectManifest.js";
 import { attachHomeRoutineReports } from "../agent/chatHomeSeal.js";
 
 /**
@@ -203,16 +203,29 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   // control plane, which picks the workspace and clearance off this token's grant.
   const readControlManifest = (page, options) => controlPlane.readTreeManifest(session.accessToken, session.workspaceId, page, options);
   Object.defineProperty(store, "treeManifest", {
-    value: store.objectReading ? objectFirstManifest(readControlManifest, store.objectReading, { defer: () => store.defer }) : readControlManifest,
+    value: store.objectReading ? objectFirstManifest(readControlManifest, store.objectReading) : readControlManifest,
     enumerable: false,
     writable: false,
     configurable: true,
   });
+  // The name guards' one-level question (`tree/twins.js`), where the notes live in the workspace's object.
+  const treeChildren = store.objectReading ? objectFirstChildren(store.objectReading) : null;
+  if (treeChildren !== null) {
+    Object.defineProperty(store, "treeChildren", { value: treeChildren, enumerable: false, writable: false, configurable: true });
+  }
   // Its facts: a move's link candidates and the chaos score's extras (`tree/facts.js`). Where the notes live in the
   // workspace's object, their links and props are asked there first (`store/objectLookup.js` `objectFirstFacts`).
   Object.defineProperty(store, "treeFacts", {
     value: async (request) => {
-      const fromObject = typeof store.objectFacts === "function" ? await store.objectFacts(request) : null;
+      // A writer's names ask goes to the object first too (`objectFirstNames`); the note cap's count stays the control plane's.
+      const fromObject =
+        request?.ask === "names"
+          ? typeof store.objectNames === "function"
+            ? await store.objectNames(request)
+            : null
+          : typeof store.objectFacts === "function"
+            ? await store.objectFacts(request)
+            : null;
       return fromObject ?? (await controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request));
     },
     enumerable: false,

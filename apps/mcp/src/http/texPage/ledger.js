@@ -59,6 +59,8 @@ export async function ledgerView(env, page, chat, body, { now = Date.now() } = {
     ...(before !== null ? { before } : (seqOf(body?.after) !== null ? { after: seqOf(body.after) } : {})),
     ...(kinds !== null && kinds.length > 0 ? { kinds } : {}),
     ...(range ?? {}),
+    // One job's work (its page), or the chat with no job's work (the Jobs filter off).
+    ...(typeof body?.job === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(body.job) ? { job: body.job } : body?.jobs === false ? { jobs: false } : {}),
     limit: RAW_PAGE,
   });
   return { manifest: read.manifest, entries: read.entries ?? [], ...(Number.isSafeInteger(read.next) ? { next: read.next } : {}), ...(Number.isSafeInteger(read.before) ? { before: read.before } : {}) };
