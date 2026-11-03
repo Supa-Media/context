@@ -172,7 +172,34 @@ export function objectFirstHooks(hooks, options) {
         return await hooks.wrote(record);
       };
 
-  if (typeof hooks.resolve !== "function") return { ...hooks, lookup, wrote };
+  /**
+   * The same lookup for a read: a path the object answers "not found" for, while not behind, is no note for this
+   * reader, as the control plane would say (no row, gone, hidden from them), so it is not asked. A new note's Tex home
+   * (`texHomes`) matters only to a write, which keeps `lookup`. A notes-home object is keyed by its own layout.
+   */
+  const lookupRead = async (paths) => {
+    let answer;
+    try {
+      answer = await client.rows.lookup({ paths, ...judged });
+    } catch (error) {
+      log("workspace_object_lookup_failed", { workspaceId, error: String(error?.message ?? error) });
+      return await hooks.lookup(paths);
+    }
+    if (settledBehind(answer)) return await hooks.lookup(paths);
+    const notes = {};
+    const missing = [];
+    paths.forEach((path, at) => {
+      const row = answer?.rows?.[at];
+      const entry = row?.found === true && row.path === path ? entryOf(row) : null;
+      if (entry !== null) notes[path] = entry;
+      else if (row?.found !== false || row.path !== path) missing.push(path);
+    });
+    if (missing.length === 0) return { keyed: true, notes, texHomes: {} };
+    const rest = await hooks.lookup(missing);
+    return { keyed: rest.keyed === true, notes: { ...rest.notes, ...notes }, texHomes: rest.texHomes ?? {} };
+  };
+
+  if (typeof hooks.resolve !== "function") return { ...hooks, lookup, lookupRead, wrote };
   const resolve = async (noteIds) => {
     let answer;
     try {
@@ -197,5 +224,5 @@ export function objectFirstHooks(hooks, options) {
     const rest = await hooks.resolve(missing);
     return { paths: { ...rest.paths, ...paths } };
   };
-  return { ...hooks, lookup, resolve, wrote };
+  return { ...hooks, lookup, lookupRead, resolve, wrote };
 }

@@ -207,6 +207,9 @@ const LOOKUP_MAX = 200;
  * retires one; each is bound by the caller to one request's session, so this
  * module holds no credential. All four are required. `resolve(noteIds)`, as
  * `noteIdResolve` answers it, is optional: without it no note is found by id.
+ * `lookupRead(paths)`, optional, answers the same question for a read only
+ * (`get`, `head`, `exists`, one read's view), where a new note's Tex home does
+ * not matter: the workspace object's own "no note here" (`objectLookup.js`).
  *
  * Everything else delegates: the wrapper is the store's own object with the
  * same prototype and descriptors, so non-enumerable properties are carried
@@ -219,10 +222,11 @@ const LOOKUP_MAX = 200;
  *   adopt: (note: {path: string, noteId: string, key: string, etag: string, size?: number, at: number}) => Promise<{adopted: boolean, taken?: object|null}>,
  *   removed: (note: {path: string, key: string, at: number}) => Promise<unknown>,
  *   resolve?: (noteIds: string[]) => Promise<{paths?: Record<string, string|null>}>,
+ *   lookupRead?: (paths: string[]) => Promise<{keyed?: boolean, notes?: object}>,
  *   now?: () => number,
  * }} hooks
  */
-export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: resolveIds, now = Date.now } = {}) {
+export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed, resolve: resolveIds, now = Date.now } = {}) {
   if (!store) return store;
   if (typeof lookup !== "function" || typeof wrote !== "function" || typeof adopt !== "function" || typeof removed !== "function") {
     // Without all four a write could neither create nor retire a row: refused outright, never a path store.
@@ -275,7 +279,9 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
   };
 
   /** A read routed by the tree: `method` is `get`, `head`, `exists` or `existsMetadata`. */
-  const routedRead = (method, ask = lookup) => async (path, ...rest) => {
+  // A read's lookup: the same answer, from where a read may take "no note here" without the control plane.
+  const readLookup = typeof lookupRead === "function" ? lookupRead : lookup;
+  const routedRead = (method, ask = readLookup) => async (path, ...rest) => {
     if (!mirroredPath(path)) return await store[method](path, ...rest);
     const resolved = await resolveWith(ask, path);
     const { entry } = resolved;
@@ -326,7 +332,7 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
    * `prime(paths)` asks for many paths in one lookup (`read_notes`).
    */
   wrapped.oneRead = (outer = wrapped) => {
-    const ask = rememberingLookup(lookup);
+    const ask = rememberingLookup(readLookup);
     const view = Object.create(outer);
     const define = (name, value) =>
       Object.defineProperty(view, name, { value, enumerable: false, writable: false, configurable: true });

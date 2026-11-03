@@ -25,10 +25,12 @@ import { laySavePhase } from "../mcp/phase.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { judgeFor } from "../privacy/judge.js";
 
-export async function serveMcp(request, env, ctx, { slug, pathToken, origin }) {
+export async function serveMcp(request, workerEnv, ctx, { slug, pathToken, origin }) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
   // MCP ENTRY POINT: begin
-  const mcp = mcpEntry(env);
+  const mcp = mcpEntry(workerEnv);
+  // Every workspace object call this request makes, timed as `obj:<op>` beside the control plane's `cp:` routes.
+  const env = mcp.watchObjects(workerEnv);
   const controlPlane = createControlPlane(env, { fetchImpl: mcp.fetchFor("cp") });
   const session = await mcp.step("session", () => sessionOrRefusal(request, { pathToken, slug, controlPlane, origin }));
   if (session instanceof Response) return mcp.done(session);

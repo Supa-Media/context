@@ -77,6 +77,35 @@ test("a watched store's calls are timed by operation and still answer as before"
   assert.equal(store.name, "kept");
 });
 
+test("a workspace object call is timed by its op, on a copy of env, and still answers as before", async () => {
+  const mcp = mcpEntry({});
+  const asked = [];
+  const namespace = {
+    idFromName: (name) => ({ name }),
+    get: (id, options) => ({ fetch: async (request) => (asked.push([id.name, options, new URL(request.url).pathname]), Response.json({ ok: true })) }),
+  };
+  const env = { WORKSPACE_STORE: namespace, OTHER: "kept" };
+  const watched = mcp.watchObjects(env);
+  assert.notEqual(watched, env, "a copy: env is shared by every request");
+  assert.equal(env.WORKSPACE_STORE, namespace, "env itself is untouched");
+  assert.equal(watched.OTHER, "kept");
+  const stub = watched.WORKSPACE_STORE.get(watched.WORKSPACE_STORE.idFromName("workspace:w1"), { locationHint: "enam" });
+  assert.deepEqual(await (await stub.fetch(new Request("https://object.test/ws.rows.lookup", { method: "POST", headers: { "x-tex-call": "secret%20plan.md" } }))).json(), { ok: true });
+  await stub.fetch(new Request("https://object.test/get"));
+  await stub.fetch(new Request("https://object.test/not%20an%20op"));
+  assert.deepEqual(asked, [
+    ["workspace:w1", { locationHint: "enam" }, "/ws.rows.lookup"],
+    ["workspace:w1", { locationHint: "enam" }, "/get"],
+    ["workspace:w1", { locationHint: "enam" }, "/not%20an%20op"],
+  ]);
+  assert.deepEqual(mcp.points.map((p) => [p.name, p.state]), [
+    ["obj:ws.rows.lookup", "ok"],
+    ["obj:get", "ok"],
+    ["obj:unknown", "ok"],
+  ]);
+  assert.equal(mcp.watchObjects({}).WORKSPACE_STORE, undefined, "no binding, nothing added");
+});
+
 test("callOf names the call, the tool for a tool call, and nothing a caller wrote", () => {
   assert.equal(callOf({ method: "initialize" }), "initialize");
   assert.equal(callOf({ method: "tools/call", params: { name: "orient", arguments: { q: "secret" } } }), "tools/call:orient");

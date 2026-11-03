@@ -576,3 +576,26 @@ test("a lookup answer with no note entries is malformed: there is no copies-only
   const cp = createControlPlane(ENV, { fetchImpl });
   await assert.rejects(cp.noteIdLookup("tok", "w1", ["a.md"]), /malformed note id entries/);
 });
+
+test("reads ask the read lookup when one is given; writes and the note id still ask the full lookup", async () => {
+  const { store, cp } = await keyedNote();
+  const reads = [];
+  const layered = withIdLayout(store, {
+    ...cp.hooks,
+    lookupRead: async (paths) => {
+      reads.push(paths);
+      return await cp.hooks.lookup(paths);
+    },
+  });
+  cp.calls.length = 0;
+  assert.equal(await (await layered.get("1-projects/a.md")).text(), "KEY BODY");
+  assert.equal(await layered.exists("1-projects/missing.md"), false);
+  const view = layered.oneRead();
+  assert.equal(await view.exists("1-projects/a.md"), true);
+  assert.deepEqual(reads, [["1-projects/a.md"], ["1-projects/missing.md"], ["1-projects/a.md"]]);
+  // Only the reads' own delegation reached the full lookup through the read lookup above; a write asks it directly.
+  const direct = cp.calls.filter(([op]) => op === "lookup").length;
+  await layered.put("1-projects/a.md", "NEW BODY");
+  assert.ok(cp.calls.filter(([op]) => op === "lookup").length > direct);
+  assert.equal(reads.length, 3);
+});
