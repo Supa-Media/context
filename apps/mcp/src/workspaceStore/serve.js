@@ -22,6 +22,7 @@ import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
 import { BINDING_OPS, BindingRowRefused, serveBindingCall } from "./bindingRows.js";
 import { accessCall, applyAccess } from "./serveAccess.js";
 import { isWriteOp, serveWrites } from "./serveWrites.js";
+import { serveCollabReplace } from "./collabReplace.js";
 import { treeRows } from "./treeRows.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 
@@ -323,6 +324,9 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json({ home: rows.setHome(fields.home) });
       case "ws.encryption":
         return Response.json({ encryption: rows.setEncryption(fields.state) });
+      case "ws.collab.replace":
+        // A whole-note save's editing history in one call (`collabReplace.js`); `{served: false}` sends it back.
+        return Response.json(await serveCollabReplace(store, fields));
       case "ws.backfilled":
         return Response.json({ backfilledAt: rows.markBackfilled(fields.at) });
       default:

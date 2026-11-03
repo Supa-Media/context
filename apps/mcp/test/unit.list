@@ -375,3 +375,4 @@ test/workspaceAccessRows.test.mjs
 
 test/savePhases.test.mjs
 test/bookkeepingBehind.test.mjs
+test/collabReplaceInObject.test.mjs
