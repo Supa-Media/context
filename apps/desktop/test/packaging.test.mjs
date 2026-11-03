@@ -10,9 +10,11 @@
 import { runEntitlementsAndIconChecks } from "./packaging/entitlementsAndIcon.test.mjs";
 import { runNotarizeAndShipChecks } from "./packaging/notarizeAndShip.test.mjs";
 import { runDeployWorkflowChecks } from "./packaging/deployWorkflow.test.mjs";
+import { runLinuxBuildChecks } from "./packaging/linuxBuild.test.mjs";
 
 export async function runPackagingChecks(check) {
   await runEntitlementsAndIconChecks(check);
   await runNotarizeAndShipChecks(check);
   await runDeployWorkflowChecks(check);
+  await runLinuxBuildChecks(check);
 }
