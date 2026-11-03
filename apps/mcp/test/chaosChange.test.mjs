@@ -82,6 +82,7 @@ async function servedStore({ keys = workspaceKeys(), extras = [], texts = {}, se
   Object.defineProperty(store, "treeFacts", {
     value: async (request) => {
       asked.push(request.ask);
+      (store.factRequests ??= []).push(request);
       return facts ? { served: true, chaos: { extras, weekAgo: null } } : { served: false };
     },
     enumerable: false,
@@ -239,4 +240,14 @@ test("6. recordChange counts from the keys before it tells the control plane", a
   await recordChange(quiet, "save_context", "private", ["0-inbox/context.md"], {});
   assert.equal(takeChaos(quiet), undefined);
   assert.ok(!quiet.asked.includes("chaos"));
+});
+
+test("a write's rescore asks its facts without history, so the workspace object answers them (2026-11-03)", async () => {
+  // The control plane's facts took about 1.9 s a write in production; the object's answer has no week-ago score,
+  // which a write's report never shows. Sabotage: asking `factChaos(store)` with history fails this.
+  const store = await servedStore();
+  await changeChaos(store, { paths: ["1-projects/big/extra.md"] });
+  const chaos = store.factRequests.filter((request) => request.ask === "chaos");
+  assert.equal(chaos.length, 1);
+  assert.equal(chaos[0].history, false);
 });

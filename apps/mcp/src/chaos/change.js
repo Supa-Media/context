@@ -217,7 +217,8 @@ export async function changeChaos(store, touch) {
     const written = writtenOf(touch, moves);
     const [keys, facts, state, rewritten] = await Promise.all([
       listing.treeKeys(),
-      factChaos(store),
+      // A write's report wants no score from a week ago, so the workspace object answers it (2026-11-03).
+      factChaos(store, undefined, { history: false }),
       loadPrivacyState(store),
       writtenExtras(store, written),
     ]);
