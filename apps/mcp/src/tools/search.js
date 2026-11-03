@@ -62,7 +62,9 @@ function median(values) {
  * A strict word hit with no meaning score takes the median meaning rank of the
  * hits that have one, rather than none: the meaning index builds behind
  * searches, so a fresh note has no fingerprint for a while (production
- * benchmark, 2026-11-03). Meaning-only hits (no word rank: found by what the note is about) are one
+ * benchmark, 2026-11-03).
+ *
+ * Meaning-only hits (no word rank: found by what the note is about) are one
  * budget for the whole answer, not one per workspace. Once any workspace has a
  * strict word hit, a meaning-only hit must reach `MEANING_EXTRA_FLOOR_WITH_WORDS`
  * and at most `extraNotes` of them are kept, the closest ones; otherwise at
