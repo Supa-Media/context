@@ -21,6 +21,8 @@ import { manifestPage } from "./manifest.js";
 import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
 import { BindingRowRefused, serveBindingCall } from "./bindingRows.js";
 import { accessCall, applyAccess } from "./serveAccess.js";
+import { treeRows } from "./treeRows.js";
+import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 
 const CALL = "x-tex-call";
 
@@ -122,6 +124,9 @@ function lookUp(rows, fields, by, members = null) {
   return {
     accessVersion: judge.accessVersion,
     rows: asked.map((value) => {
+      // Several live rows for one note id: no single one is its path, so none is named (the control plane answers, as
+      // it does for an id held twice). Says nothing else, and not whether any of them is one the reader may see.
+      if (by === "noteId" && typeof value === "string" && rows.liveNoteIdCount(value) > 1) return { noteId: value, found: false, ambiguous: true };
       const row = typeof value === "string" ? (by === "path" ? rows.byPath(value) : rows.byNoteId(value)) : null;
       if (!judge.sees(row)) return { [by === "path" ? "path" : "noteId"]: value, found: false };
       return { found: true, path: row.path, noteId: row.noteId, key: row.storageKey ?? (row.noteId ? `notes/${row.noteId}.md` : null), etag: row.etag, kind: row.kind, collaborates: row.collaborates };
@@ -148,7 +153,29 @@ function answerFacts(store, fields) {
   if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ASKS.has(fields.ask)) return { served: false };
   const judge = judgeFor(store.rows, fields, store.members ?? null);
   const sees = (path) => judge.sees({ path });
-  return store.facts[fields.ask](fields, sees);
+  // A folder is seen as the listing shows it (`folderVisibleAtScope`), over the same rules and the reader's clearance.
+  const folderSees = (path) => judge.parsed !== null && folderVisibleAtScope(path, judge.clearance, judge.parsed.rules, judge.parsed.overrides);
+  // Held rules nobody can judge by (no rules, or a member the object does not know) are the control plane's to answer.
+  if (fields.ask === "jobs" && judge.parsed === null) return { served: false };
+  return store.facts[fields.ask](fields, sees, folderSees);
+}
+
+/**
+ * One folder's listing for the control plane's own `list` (`ws.rows.listing`, through the door): at the clearance the
+ * control plane already resolved (`scope`, its granted `groups`) and by the audience's rules, as the live tree socket
+ * lists it (`treeSockets.js`). `{served: false}` where no rules are held for the audience: the control plane answers.
+ */
+function listingAnswer(store, fields) {
+  if (!SCOPES.has(fields.scope)) throw new WorkspaceRowRefused("a listing needs its scope");
+  if (!READERS.has(fields.audience ?? "member") || fields.audience === "chat") throw new WorkspaceRowRefused("not an audience");
+  const folder = folderPathOf(fields.path);
+  if (folder === null) throw new WorkspaceRowRefused("not a folder path");
+  const held = store.rows.rules(fields.audience ?? "member");
+  if (held === null) return { served: false };
+  const tree = treeRows(store.sql);
+  const { rows: children, more } = tree.children(folder);
+  const clearance = { scope: fields.scope, names: new Set(Array.isArray(fields.groups) ? fields.groups.filter((group) => typeof group === "string") : []) };
+  return { served: true, listing: listFolderFromRows({ folder, clearance, held, children, more, own: tree.own(folder), roots: tree.jobRows() }) };
 }
 
 /** The paths a row change touches, before and after, for a tree watcher (`store.onTreeChange`). */
@@ -258,6 +285,14 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(store.marks.close(fields.tokens));
       case "ws.rows.get":
         return Response.json({ rows: rows.get(fields.ids) });
+      case "ws.rows.files":
+        // The control plane's tree reads, through the door: unjudged rows and the audience's rules from one call,
+        // settled like a lookup, so a reader there falls back to its own rows only while this object is behind.
+        if (rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json(await settledAnswer(store, () => ({ served: true, ...rows.filesPage(fields), rules: rows.rules(fields.audience ?? "member") })));
+      case "ws.rows.listing":
+        if (rows.home() !== HOMES.OBJECT || !store.sql) return Response.json({ served: false });
+        return Response.json(await settledAnswer(store, () => listingAnswer(store, fields)));
       case "ws.rows.list":
         return Response.json(rows.list(fields));
       case "ws.rules.put": {

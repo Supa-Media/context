@@ -40,6 +40,9 @@ export function decorateRequestStore(store, { session, env, controlPlane, ctx, r
     ctx && typeof ctx.waitUntil === "function"
       ? (work) => ctx.waitUntil(deferredWork(work))
       : null;
+  // The bucket's backup copy of every save is written behind the response too (`store/workspaceRouting.js`), as
+  // `workspace-objects.md` says: before this the session store had no deferral and awaited it on every save.
+  if (store.backupBehind) store.backupBehind.defer = store.defer;
 
   /*
     **The room to tell when a tool writes a note somebody has open.**

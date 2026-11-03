@@ -47,6 +47,7 @@ type ObjectStore = {
   rows: ReturnType<typeof workspaceRows>;
   objects: ReturnType<typeof texObjects>;
   marks: ReturnType<typeof workspaceMarks>;
+  sql: ReturnType<typeof durableSql>;
   transact: <T>(work: () => T) => T;
 };
 
@@ -71,7 +72,7 @@ export async function world() {
       get: (name: string) => {
         if (!stores.has(name)) {
           const sql = durableSql();
-          stores.set(name, { rows: workspaceRows(sql), objects: texObjects(sql), marks: workspaceMarks(sql), transact: (work) => sql.transact(work) });
+          stores.set(name, { rows: workspaceRows(sql), objects: texObjects(sql), marks: workspaceMarks(sql), sql, transact: (work) => sql.transact(work) });
         }
         const held = stores.get(name)!;
         return { fetch: (request: Request) => serveWorkspaceStore(held, request) };
