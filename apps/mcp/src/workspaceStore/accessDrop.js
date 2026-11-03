@@ -7,7 +7,7 @@
  * left behind would reach an outsider the owner thinks was removed. The object mints one version for the whole drop,
  * renders the rules once, and hands one change to the mirror (`objectAccessMirror.dropGrantee`).
  *
- * Who may: an owner, or the account itself (leaving). Whether the account is still a member is the caller's to know;
+ * Who may: an owner or an editor (removing a member, as the members op allowed), or the account itself (leaving). Whether the account is still a member is the caller's to know;
  * this takes the grants away either way, which can only narrow. `NOT_READY` as `ws.write.access` gives it.
  */
 
@@ -22,7 +22,9 @@ export function dropGrantee(ctx, body) {
   if (typeof body.id !== "string" || !ID.test(body.id)) throw new WriteOpRefused("not an account id");
   const actor = body.actor ?? {};
   if (typeof actor.userId !== "string" || !ID.test(actor.userId)) throw new WriteOpRefused("a drop names its actor");
-  if (actor.role !== "owner" && actor.userId !== body.id) return refusal("FORBIDDEN");
+  // An editor too: removing a member is decided by the members op, which may let an editor do it, and the audit must
+  // name whoever removed them. A member may only drop their own grants (leaving).
+  if (actor.role !== "owner" && actor.role !== "editor" && actor.userId !== body.id) return refusal("FORBIDDEN");
 
   const set = judgingSet(ctx);
   if (set === null) return refusal("NOT_READY");

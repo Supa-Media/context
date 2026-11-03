@@ -170,7 +170,7 @@ test("an owner drops an account: its grant leaves every row, one version, rules 
   assert.equal(counts.flushes, 0);
 });
 
-test("the account itself may drop its own grants; a member dropping someone else is FORBIDDEN and queues nothing", async () => {
+test("the account itself or an editor may drop the grants; a member dropping someone else is FORBIDDEN and queues nothing", async () => {
   const own = await ready();
   const ownDrop = await drop(own.store, { kind: "user", id: U1, actor: { role: "member", userId: U1 } });
   assert.equal(ownDrop.status, 200);
@@ -183,6 +183,12 @@ test("the account itself may drop its own grants; a member dropping someone else
   assert.equal(other.mirror.count(), 0);
   assert.equal(other.store.access.set().version, 5);
   assert.equal(other.store.access.set().rows.find((row) => row.token === ME).grantees.length, 1);
+
+  // An editor removing a member (the members op allowed it): taken, and the mirror names the editor as the actor.
+  const byEditor = await ready();
+  const editorDrop = await drop(byEditor.store, { kind: "user", id: U1, actor: { role: "editor", userId: "user-editor" } });
+  assert.deepEqual(editorDrop.body, { ok: true, version: 6, dropped: 2 });
+  assert.equal(queued(byEditor.mirror)[0].record.actorUserId, "user-editor");
 });
 
 test("dropping an account that holds nothing is a no-op at the held version, nothing queued", async () => {
