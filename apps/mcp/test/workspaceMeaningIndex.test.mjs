@@ -299,3 +299,26 @@ test("a note found only by meaning in an object workspace gets its snippet from 
     globalThis.fetch = realFetch;
   }
 });
+
+// Sabotage: return `{}` from `snippets` and the gateway shows no meaning-only note.
+test("the object answers every snippet a search asks for in one call, and nothing for a path it does not hold", { skip }, async () => {
+  const object = await seeded();
+  await note(object, 1, "plans/a.md", "# Oak\nthe acorn harvest in the north field");
+  const answer = await object.call("ws.meaning.snippets", { asks: [{ path: "plans/a.md", chunk: 0 }, { path: "plans/gone.md", chunk: 0 }], chars: 200 });
+  assert.equal(answer.body.served, true);
+  assert.match(answer.body.snippets["plans/a.md"].snippets[0], /acorn harvest/);
+  assert.equal(answer.body.snippets["plans/gone.md"], null);
+  for (const fields of [{ asks: [] }, { asks: [{ path: 1, chunk: 0 }] }, { asks: Array.from({ length: 51 }, (_, n) => ({ path: `p${n}.md`, chunk: 0 })) }]) {
+    assert.equal((await object.call("ws.meaning.snippets", fields)).status, 422);
+  }
+
+  const { withMeaning } = await import("../src/search/meaning/serve.js");
+  let reads = 0;
+  const store = {
+    objectMeaning: { meaningSnippets: async (asks, chars) => (await object.call("ws.meaning.snippets", { asks, chars })).body },
+    get: async () => ((reads += 1), null),
+  };
+  const merged = await withMeaning(store, { hits: [], matchCount: 0 }, [{ path: "plans/a.md", score: 0.8, chunk: 0 }]);
+  assert.equal(reads, 0, "no note was read on its own");
+  assert.match(merged.hits[0].snippets[0], /acorn harvest/);
+});

@@ -314,6 +314,11 @@ export async function serveWorkspaceStore(store, request) {
         }
         return Response.json(built === null ? { served: false } : { served: true, ...built });
       }
+      case "ws.meaning.snippets":
+        // The passage each note found by meaning matched, read beside its text; the gateway asks only for notes its
+        // `canSee` already let through.
+        if (!store.meaning || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json({ served: true, snippets: store.meaning.snippets(fields.asks, fields.chars) });
       case "ws.facts.rows":
         // The control plane's own readers, through the door: unfiltered, as its internal queries are.
         if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ROW_ASKS.has(fields.ask)) return Response.json({ served: false });

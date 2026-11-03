@@ -31,9 +31,13 @@ import { EMBED_BATCH, MEANING_DIMENSIONS } from "../search/meaning/embed.js";
 import { parsedRules } from "./serve.js";
 import { TEX_TABLES, texObjects } from "../texStore/objects.js";
 import { changeLog, PERSON_TEX_KEY } from "./changeLog.js";
+import { snippetFromText } from "../search/meaning/snippet.js";
 
 /** Passages one build call embeds (16 model calls of 32); the object answers other calls while it waits on them. */
 export const BUILD_PASSAGES = 512;
+/** Notes one snippet call reads, and the longest snippet it gives (`search/meaning/objectMeaning.js`). */
+const SNIPPET_ASKS = 50;
+const SNIPPET_CHARS = 2_000;
 /** Model calls one build has out at once. */
 export const EMBED_PARALLEL = 4;
 /** Matches a query answers with, as the search database's index does (`client.js` `QUERY_TOP_K`). */
@@ -385,6 +389,26 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
       }
       scored.sort((a, b) => b.score - a.score || (a.path < b.path ? -1 : a.path > b.path ? 1 : a.chunk - b.chunk));
       return { served: true, matches: scored.slice(0, limit) };
+    },
+
+    /**
+     * The passage each of `asks` (`[{path, chunk}]`) matched, read from the note's text here: `{[path]: {title,
+     * snippets}}`, `null` for a path that names no live note. Bounded, and only text: the gateway's `canSee` chose
+     * which paths to ask for.
+     */
+    snippets(asks, chars = 200) {
+      schema();
+      if (!Array.isArray(asks) || asks.length === 0 || asks.length > SNIPPET_ASKS) throw new MeaningAskRefused(`a snippet call names 1 to ${SNIPPET_ASKS} notes`);
+      const width = Number.isInteger(chars) && chars > 0 && chars <= SNIPPET_CHARS ? chars : 200;
+      const out = {};
+      for (const ask of asks) {
+        if (!ask || typeof ask.path !== "string" || !Number.isInteger(ask.chunk) || ask.chunk < 0) throw new MeaningAskRefused("a snippet ask names a path and a passage");
+        const live = all(sql.exec("SELECT path, storage_key, note_id, kind FROM ws_rows WHERE path = ? AND gone = 0 ORDER BY at DESC LIMIT 1", ask.path))[0] ?? null;
+        const where = live && live.kind === "file" && isIndexableNote(live.path) ? textAt(live) : null;
+        const found = where === null || (where.tex && !log.texReady) ? null : (where.tex ? texNotes() : objects).get(where.key);
+        out[ask.path] = found && found.body !== undefined ? snippetFromText(ask.path, new TextDecoder().decode(found.body), ask.chunk, width) : null;
+      }
+      return out;
     },
 
     /** Changes waiting, and whether the first build has finished. */
