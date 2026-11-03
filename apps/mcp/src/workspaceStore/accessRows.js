@@ -221,6 +221,10 @@ export function workspaceAccess(sql) {
       const set = checkAccessSet(input);
       const version = this.version();
       if (version !== null && version > set.version) return { kept: false, version };
+      // A version this object minted is never replaced by the control plane at the same version: its push of that
+      // number was read before the object's write reached it (`object-row-writes.md`, "Access writes in the object").
+      const minted = this.minted();
+      if (minted !== null && set.version <= minted) return { kept: false, version };
       sql.exec("DELETE FROM ws_access");
       for (const row of set.rows) {
         sql.exec(
@@ -231,6 +235,30 @@ export function workspaceAccess(sql) {
       const { rows, ...header } = set;
       setMeta("access:set", JSON.stringify(header));
       return { kept: true, version: set.version };
+    },
+    /** The last access version this object minted itself (`accessWrite.js`), or null. */
+    minted() {
+      const value = meta("access:minted");
+      return value === null ? null : Number(value);
+    },
+    /**
+     * One record replaced in place, at a version the object minted: the write side of `ws.write.access`. A record left
+     * with no base and no grantee carries no setting and is removed. Inside the caller's transaction.
+     */
+    writeRecord({ token, kind, path, base, grantees }, version) {
+      const header = meta("access:set");
+      if (header === null) throw new WorkspaceRowRefused("no access set is held yet");
+      const record = checkAccessRow({ token, kind, path, base, grantees });
+      sql.exec("DELETE FROM ws_access WHERE token = ? AND kind = ?", record.token, record.kind);
+      if (record.base !== null || record.grantees.length > 0) {
+        sql.exec(
+          "INSERT INTO ws_access (token, kind, path, base, grantees) VALUES (?, ?, ?, ?, ?)",
+          record.token, record.kind, record.path, record.base, JSON.stringify(record.grantees),
+        );
+      }
+      setMeta("access:set", JSON.stringify({ ...JSON.parse(header), version }));
+      setMeta("access:minted", String(version));
+      return version;
     },
     /** The rules one audience would be judged by, rendered here from `set` (the held one by default), or null with none. */
     render(audience, set = held(), now = Date.now()) {

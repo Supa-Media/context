@@ -108,6 +108,35 @@ entry (`goneObjectIds`) and the push removes it under that id. Without the colum
 the object as a second row at the same path. Tests: `apps/convex/__tests__/objectRowIds.test.ts` (sabotage: naming the
 row by `_id` fails two cases, dropping `goneObjectIds` fails one).
 
+## Access writes in the object (2026-11-03)
+
+`ws.write.access` (`apps/mcp/src/workspaceStore/accessWrite.js`) decides a row's access in the object: its base
+(`private` | `team` | `inherit`), its grantee list replaced or added to, or both, with `setAccessRow`'s refusals
+(`CONFLICT` on a stale `expectedVersion`, `FORBIDDEN` for a list change by anyone but an owner, any change by a
+`member`, or the sealed chat homes by any client but theirs, `NOT_FOUND` for `accounts` outside the pinned workspace
+or at edit). It mints the access version (`max(now, held + 1)`), writes the row's record in `ws_access`, renders the
+member and guest rules and keeps them as the rules reads are judged by, in one transaction with the mirror's entry.
+It answers `NOT_READY` until the object's own rendering has been shown equal to Convex's at the version it holds
+(the parity recorded on each push) and `NO_ROW` where no row stands yet; the gateway takes either as "ask the
+control plane" and nothing else (`apps/mcp/src/store/objectAccess.js`). The gateway's tier-only changes go there
+first; grantee lists and handle resolution stay on the control plane for now.
+
+The mirror (`functions/objectAccessMirror.ts`, op `access` on `/gateway/rows/mirror`) applies the object's change,
+not its whole row: the base only when the object changed it, and the grantees it added and took off, onto the list
+as Convex holds it. A writer still on Convex can change the same row before the mirror lands; replacing with the
+object's list would bring back a grant that writer took away. Convex's version goes to the object's when Convex had
+seen nothing the object had not (`baseVersion`), else one above it with an access push queued, so the object takes
+the merged set. The object never takes rules or a set at or below a version it minted, so a push read before its
+own write landed cannot undo it.
+
+**A narrowing answers before the mirror lands** (`WAIT_FOR_MIRROR` false), for the owner's bar of 0.1 s for every
+read and write (2026-11-03; asked on the thread's card, recommended, reversible by the constant). Every gateway read
+is judged by the object, which has the change at once. What it costs: for about the mirror's round trip a reader
+still on Convex (the app's Convex listing) may show what was just taken away; that window closes as those readers
+move to the object. Tests: `apps/mcp/test/accessWrite.test.mjs`, `apps/mcp/test/objectAccessWrite.test.mjs`,
+`apps/convex/__tests__/objectAccessMirror.test.ts` ("a tier change from an object behind Convex keeps the list as
+Convex holds it").
+
 ## Trash and restore are object writes; the tree mirror (2026-11-03)
 
 `ws.write.trash` and `ws.write.restore` (`apps/mcp/src/workspaceStore/treeWrites.js`) run `treeOps` in one object

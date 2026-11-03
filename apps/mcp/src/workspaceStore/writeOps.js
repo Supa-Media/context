@@ -6,6 +6,7 @@
  * `narrows` says whether the answer waits for the mirror (taking access away does; a save does not).
  */
 
+import { writeAccess } from "./accessWrite.js";
 import { TREE_WRITE_OPS } from "./treeWrites.js";
 import { WriteOpRefused } from "./writeRefusal.js";
 import { effectiveVisibility, isPlumbing, PrivacyOverrides } from "../privacy/engine.js";
@@ -98,6 +99,7 @@ function adopt(ctx, body) {
 /** The write ops by name. Every name starts with `ws.write.`. */
 export const WRITE_OPS = Object.freeze({
   "ws.write.wrote": wrote,
+  "ws.write.access": writeAccess,
   "ws.write.adopt": adopt,
   ...TREE_WRITE_OPS,
 });

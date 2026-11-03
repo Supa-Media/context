@@ -342,6 +342,7 @@ test/texEntryPoint.test.mjs
 test/workspaceTree.test.mjs
 test/workspaceRowsOwnership.test.mjs
 test/objectLookup.test.mjs
+test/objectAccessWrite.test.mjs
 test/lookupMiss.test.mjs
 test/agentHomeMove.test.mjs
 test/accessSockets.test.mjs
@@ -375,6 +376,7 @@ test/ledgerJobsAndThinking.test.mjs
 test/ledgerWorkEntries.test.mjs
 test/ledgerConversation.test.mjs
 test/workspaceAccessRows.test.mjs
+test/accessWrite.test.mjs
 test/workspaceSearchIndex.test.mjs
 
 test/savePhases.test.mjs

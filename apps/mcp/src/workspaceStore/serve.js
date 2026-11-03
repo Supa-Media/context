@@ -268,7 +268,12 @@ export async function serveWorkspaceStore(store, request) {
           const kept = Array.isArray(fields.rows) && fields.rows.length > 0 ? rows.put(fields.rows).kept : 0;
           const removed = Array.isArray(fields.removed) && fields.removed.length > 0 ? rows.remove(fields.removed, fields.at).removed : 0;
           const rules = {};
-          for (const [audience, held] of Object.entries(fields.rules ?? {})) rules[audience] = rows.putRules(held, audience);
+          // Rules at or below a version this object minted were rendered before its own access write reached the control
+          // plane: never taken, or a late push would undo that write (`accessWrite.js`).
+          const minted = store.access?.minted() ?? null;
+          for (const [audience, held] of Object.entries(fields.rules ?? {})) {
+            rules[audience] = minted !== null && Number(held?.accessVersion) <= minted ? { kept: false, accessVersion: minted } : rows.putRules(held, audience);
+          }
           // The access set the rules were rendered from, kept and checked against the rules now held (this push's, or
           // its first call's), in the same transaction.
           const access = fields.access === undefined ? null : applyAccess(store, fields.access, { member: rows.rules("member"), guest: rows.rules("guest") });
