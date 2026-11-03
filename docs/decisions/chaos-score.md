@@ -66,7 +66,7 @@ reaches the score" travels from frontmatter through the Convex facts
 The score replaced the "Tidy up" tab of What changed, which the owner removed
 on 2026-10-10 as not useful. Keeping a workspace organized is the person's job,
 or an agent's they asked. So nothing acts on the score by itself: `orient`
-shows it and the biggest wins, every write and move answer shows the score
+shows it and the biggest wins (writes stopped showing the score before and after on 2026-11-03)
 before and after, the app shows the number in words, and none of them
 carry a "tidy now" button. A "simplification" that brings automatic tidying
 back is the feature the owner just removed.
@@ -106,26 +106,21 @@ character "is not consistent"). A per-surface variant is that drift again;
 `tug` pose (stressed, hauling a strand of its own yarn) that a folder's page
 drew until 2026-10-14; it is the same drawing in motion, not a variant.
 
-## Every write answers with the change
+## Writes do not answer with the score
 
-`write_note`, `move_note`, `move_notes`, `move_folder` and `archive_note` end
-with `chaos: X → Y of 100` and the folders the change touched, so an agent sees
-at once whether it helped. It is a line on existing tools, not a new tool,
-because installed clients cache tool lists (see
-[gateway protocol](./gateway-protocol.md)).
+From 2026-10-10 `write_note`, `move_note`, `move_notes`, `move_folder` and
+`archive_note` ended with `chaos: X → Y of 100` and the folders the change
+touched. The owner removed that line on 2026-11-03, on a decision card ("Drop
+it from writes"), after a benchmark of 100 saves through Claude put a save at
+2.3 s median and 3.5 s at p95, almost all of it the answer waiting up to three
+seconds for the rescore, which reads the whole tree and its facts. The owner
+asked for saves "as close to 0.1 seconds as possible", and chose dropping the
+line over showing it only when it was ready in 100 ms.
 
-The answer waits at most 100 ms for the rescore (`ANSWER_WAIT_MS` in
-`apps/mcp/src/chaos/report.js`); a slower one finishes behind the response,
-where the control plane still hears of it, and the answer says nothing rather
-than holding the agent up. Until 2026-11-03 it waited up to three seconds. The
-owner's benchmark that day (100 saves through Claude) put a save at 2.3 s
-median and 3.5 s at p95, almost all of it this wait: the rescore reads the
-whole tree and its facts, about 1.9 s from the control plane. The owner asked
-for saves "as close to 0.1 seconds as possible", so the line is kept for the
-changes it is quick for and dropped for the ones it is not. Raising the wait
-again buys the line back with seconds on every save; the test that fails is
-"a save answers without waiting for a slow chaos count"
-(`apps/mcp/test/bulkNotes.test.mjs`). `orient` still shows the full score.
+So no write starts a rescore at all, and `orient` alone reports the score,
+counted fresh when it is asked. Putting the line back means putting a
+whole-tree read behind every save; the test that fails is "no write starts a
+rescore or answers with a chaos line" (`apps/mcp/test/bulkNotes.test.mjs`).
 
 ## Kept incrementally, proven equal to a full pass
 
@@ -134,12 +129,8 @@ asked (`apps/mcp/src/chaos/live.js`), with the closing number per day kept in
 `nodeChaosDays` for "a week ago". It was kept in the search database
 (`tree_chaos`) and rescored per change until phase 7 of
 [convex-tree](./app-and-console/convex-tree.md) retired that table
-(2026-10-13). A write's report counts the tree's keys from before the change
-and the same keys with the change applied (`apps/mcp/src/chaos/change.js`),
-and names the folders it touched and the parents above any folder that
-appeared or vanished; `apps/mcp/test/chaosChange.test.mjs` covers a created
-note, a moved note and a moved folder, and a change the tree already shows
-counted once.
+(2026-10-13). A write's own before-and-after count (`chaos/change.js`) went
+with the line on writes, 2026-11-03.
 
 ## Two audiences, and a member learns nothing held back
 
@@ -149,8 +140,7 @@ names, so it fails closed). A member is answered from the team numbers, and a
 folder is named to them only where a note they may open sits beneath it. A
 score that counted held-back notes would let a member watch it move and learn
 that something exists. Test: "a team member never counts, sees or is named a
-private folder or note", now in `apps/convex/__tests__/nodes/servedChaos.test.ts`
-and, for a write's report, `apps/mcp/test/chaosChange.test.mjs`.
+private folder or note", now in `apps/convex/__tests__/nodes/servedChaos.test.ts`.
 
 ## A derivative, like every index
 

@@ -49,8 +49,6 @@ import { judgeSubject } from "../privacy/judgeSubject.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { PrivacyOverrides } from "../privacy/engine.js";
 import { recordChange } from "../activity/record.js";
-import { chaosIsQuiet, quietChaos, takeChaos } from "../chaos/report.js";
-import { reportingChaos } from "../chaos/answer.js";
 
 /**
  * Tools that rearrange notes inside one context. A move adds nothing, so on a
@@ -319,14 +317,8 @@ export async function callToolForSession(params, store, session) {
   const { error, params: call, v2 } = translateV2Params(params, store); // v2 → the existing call, before any gate
   if (error) return toolError(error);
   // `save_many` is one ordinary `write` per note, each back through this function and every gate in it (`saveMany.js`).
-  // Its saves start no rescore each (`chaosIsQuiet`): the answer is one line per note, and carries no chaos line.
   if (v2 && call?.name === SAVE_MANY_TOOL) {
-    const release = quietChaos(session);
-    try {
-      return inWordsOf(v2, await saveMany(call.arguments, (one) => callToolForSession({ name: "write", arguments: one }, store, session)));
-    } finally {
-      release();
-    }
+    return inWordsOf(v2, await saveMany(call.arguments, (one) => callToolForSession({ name: "write", arguments: one }, store, session)));
   }
   const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed));
   return inWordsOf(v2, result);
@@ -609,22 +601,12 @@ async function routeToolCall(params, store, session, routed) {
   // A move inside one context adds no note, so it runs in the cap's
   // relocation window (`store/noteCap.js`); everything else is capped.
   const dispatch = async () => await callTool(params?.name, args, targetStore, target.scope);
-  // Inside a `save_many`, the store the save lands in is hushed too: that is where the change starts its rescore.
-  const release = chaosIsQuiet(session) ? quietChaos(targetStore) : () => {};
-  let result;
-  try {
-    result = await answeringNoteCap(() =>
-      RELOCATING_TOOLS.has(params?.name) ? asRelocation(targetStore, dispatch) : dispatch()
-    );
-  } finally {
-    release();
-  }
+  let result = await answeringNoteCap(() =>
+    RELOCATING_TOOLS.has(params?.name) ? asRelocation(targetStore, dispatch) : dispatch()
+  );
   // Whether the model now holds words from outside the workspace, for the turn's ledger.
   recordRead(session.egress?.ledger, { name: params?.name, args, result, writing: toolIsWriting(params?.name) });
   noteAgentActivity(targetStore, params?.name, args, result);
-  // A `save_many`'s notes carry no chaos line: it reports one line per note (`saveMany.js`).
-  if (chaosIsQuiet(session)) takeChaos(targetStore);
-  else result = await reportingChaos(targetStore, params?.name, args, target.scope, result);
   // When the caller joined a note's mail, the news rides on every answer.
   result = await withMailFooter(result, args, params?.name, { store, session, targetStore, target });
   // Counted after the call, against the context the call was *routed to* —

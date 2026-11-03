@@ -58,7 +58,6 @@ test/agentTurnLimits.test.mjs
 test/agentHeldEcho.test.mjs
 test/agentWorkspaces.test.mjs
 test/appOriginMetadata.test.mjs
-test/chaosChange.test.mjs
 test/chaosLive.test.mjs
 test/chaosReport.test.mjs
 test/chaosRubric.test.mjs

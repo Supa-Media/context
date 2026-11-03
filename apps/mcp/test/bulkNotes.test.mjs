@@ -10,14 +10,13 @@
  *  3. Each note passes the ordinary write gate: a read-only grant saves none.
  *  4. A malformed list (a path twice, more than 100) saves nothing.
  *  5. `fetch` `notes:` takes 100 paths, and refuses 101.
- *  6. A save answers without waiting for a slow chaos count.
- *  7. `save_many` starts no rescore per note, and carries no chaos line.
+ *  6. No write starts a chaos rescore or answers with a chaos line (the owner,
+ *     2026-11-03): `orient` alone reports the score.
  *
  * Sabotage-checked (2026-11-03): handing each note straight to the handler
  * with a write scope, past `callToolForSession`, fails 3; dropping the
- * duplicate check fails 4; `READ_NOTES_MAX` back at 25 fails 5; the answer
- * waiting 3 s for the rescore again fails 6; leaving the per-note rescore on
- * fails 7.
+ * duplicate check fails 4; `READ_NOTES_MAX` back at 25 fails 5; starting the
+ * rescore on a write again fails 6.
  */
 
 import { test } from "node:test";
@@ -224,38 +223,19 @@ test("fetch notes: reads 100 paths in one call, and refuses 101", async () => {
   }
 });
 
-test("a save answers without waiting for a slow chaos count", async () => {
-  const { restore, controlPlane } = await setUp();
-  try {
-    // The chaos score's facts read took about 1.9 s in production (2026-11-03).
-    controlPlane.slowFacts(1500);
-    const timing = {};
-    const result = await call("write", { path: "0-inbox/fast.md", content: "# Fast\n" }, TOKEN, timing);
-    const took = timing.answeredMs;
-    assert.ok(!result.isError, textOf(result));
-    assert.doesNotMatch(textOf(result), /^chaos:/m);
-    assert.ok(took < 1200, `the save waited ${took} ms for the chaos count`);
-  } finally {
-    restore();
-  }
-});
-
-test("save_many starts no rescore per note, and carries no chaos line", async () => {
+test("no write starts a rescore or answers with a chaos line", async () => {
   const { restore, controlPlane } = await setUp();
   try {
     const chaosAsks = () => controlPlane.treeRequests.filter((request) => request.path === "/gateway/tree/facts" && request.body?.ask === "chaos").length;
-    // A single save does rescore: the count below would be meaningless if nothing ever asked.
-    await call("write", { path: "0-inbox/one.md", content: "# One\n" });
-    const before = chaosAsks();
-    assert.ok(before > 0, "a single save asks for the chaos facts");
+    const one = await call("write", { path: "0-inbox/one.md", content: "# One\n" });
+    assert.ok(!one.isError, textOf(one));
+    assert.doesNotMatch(textOf(one), /^chaos:/m);
     const notes = Array.from({ length: 12 }, (_, index) => ({ path: `0-inbox/quiet/n${index}.md`, content: `# n${index}\n` }));
-    const result = await call("write", { action: "save_many", args: { notes } });
-    assert.match(textOf(result), /^12 of 12 notes saved/);
-    assert.doesNotMatch(textOf(result), /^chaos:/m);
-    assert.equal(chaosAsks(), before);
-    // And the hush ends with the call.
-    await call("write", { path: "0-inbox/after.md", content: "# After\n" });
-    assert.ok(chaosAsks() > before, "a save after save_many rescores again");
+    const many = await call("write", { action: "save_many", args: { notes } });
+    assert.match(textOf(many), /^12 of 12 notes saved/);
+    assert.doesNotMatch(textOf(many), /^chaos:/m);
+    // Each of these asked for the chaos facts before 2026-11-03 (and does again, sabotaged).
+    assert.equal(chaosAsks(), 0);
   } finally {
     restore();
   }

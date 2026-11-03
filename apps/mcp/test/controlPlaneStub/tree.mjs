@@ -133,8 +133,6 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
   const requests = [];
   /** Requests being answered now: the reads they make are the tree's, not the gateway's. */
   let reading = 0;
-  /** How long a chaos facts answer takes (`slowFacts`): the chaos score's own read, about 1.9 s in production (2026-11-03). */
-  let factsDelayMs = 0;
   /** workspaceId → the forwarding ledger the control plane would hold. */
   const ledgers = new Map();
   /** Icon moves the gateway recorded, `{ workspaceId, from, to }`, oldest first. */
@@ -340,10 +338,6 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
       if (env) envs.push(env);
       if (s3) backends.push(s3);
     },
-    /** Every manifest page answers after `ms`, as the production control plane's did (about 2.3 s a page). */
-    slowFacts(ms) {
-      factsDelayMs = ms;
-    },
     /** The workspace answers `served: false`, as one the tree does not serve. */
     stopServing(workspaceId) {
       sources.set(workspaceId, null);
@@ -360,7 +354,6 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
       requests.push({ path, body });
       reading += 1;
       try {
-        if (path === "/gateway/tree/facts" && body?.ask === "chaos" && factsDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, factsDelayMs));
         return path === "/gateway/tree/manifest" ? await manifest(body) : await facts(body);
       } finally {
         reading -= 1;
@@ -371,7 +364,6 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
   routes.controls = {
     serveTree: routes.serveTree,
     serveTreesFrom: routes.serveTreesFrom,
-    slowFacts: routes.slowFacts,
     stopServing: routes.stopServing,
     resumeServing: routes.resumeServing,
     ledgerOf: routes.ledgerOf,
