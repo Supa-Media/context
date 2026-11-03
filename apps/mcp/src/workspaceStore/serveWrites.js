@@ -15,6 +15,31 @@ const WORKSPACE_ID = /^[A-Za-z0-9_-]+$/;
 export const isWriteOp = (op) => typeof op === "string" && op.startsWith("ws.write.");
 
 /**
+ * Run one write op in a storage transaction, queuing each change it makes for the mirror in that same transaction.
+ * Throws `WriteOpRefused` for a call the op refuses. Also run by a call that writes bytes first (`createNote.js`).
+ */
+export function runWriteOp(store, handler, fields, now = Date.now(), mintId = objectRowId) {
+  return store.transact(() => {
+    const result = handler(
+      {
+        rows: store.rows,
+        sql: store.sql,
+        members: store.members ?? null,
+        access: store.access ?? null,
+        mirrorPending: () => store.mirror.pending(1).length > 0,
+        now,
+        lookupLive: (path) => liveRowByPath(store.sql, path),
+        mintId,
+      },
+      fields,
+    );
+    // An op that makes more than one change (a move and its narrowing) hands them over in order as `changes`.
+    for (const change of result.changes ?? (result.change ? [result.change] : [])) store.mirror.enqueue(fields.workspaceId, change, now);
+    return result;
+  });
+}
+
+/**
  * `store` is the object's `ready()` store: `{rows, sql, transact, mirror, flushMirror, mirrorSoon}`.
  * `now` is the object's clock for the change.
  */
@@ -33,24 +58,7 @@ export async function serveWrites(store, op, fields, now = Date.now(), mintId = 
   }
   let outcome;
   try {
-    outcome = store.transact(() => {
-      const result = handler(
-        {
-          rows: store.rows,
-          sql: store.sql,
-          members: store.members ?? null,
-          access: store.access ?? null,
-          mirrorPending: () => store.mirror.pending(1).length > 0,
-          now,
-          lookupLive: (path) => liveRowByPath(store.sql, path),
-          mintId,
-        },
-        fields,
-      );
-      // An op that makes more than one change (a move and its narrowing) hands them over in order as `changes`.
-      for (const change of result.changes ?? (result.change ? [result.change] : [])) store.mirror.enqueue(fields.workspaceId, change, now);
-      return result;
-    });
+    outcome = runWriteOp(store, handler, fields, now, mintId);
   } catch (error) {
     if (error instanceof WriteOpRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;

@@ -178,6 +178,13 @@ path waits on Convex.
   Convex takes it behind through the mirror's `adopt` op (`objectRowsMirror.adopt`, which keeps `nodes.objectId`).
   Only the plain case is taken: the note's own id key, a live parent folder, nothing live at the path or holding the
   note id. Everything else answers `DEFER` and the control plane adopts it as before.
+- **A new note's bytes and row go in one call** (`ws.create`, `workspaceStore/createNote.js`, added 2026-11-03). The
+  bytes are written with the same `absent` condition the put carries, and then the same `adopt` op runs in a
+  transaction with its mirror entry. Before this, a create took three trips to the object, about 126 ms of a 195 ms
+  save. A held key, an object not holding the notes, or any failure writes nothing there, and the gateway puts as
+  before. A `DEFER` keeps the bytes and asks the control plane to adopt them, as after the gateway's own put. The
+  bucket's backup copy is written after the response. `apps/mcp/test/createInObject.test.mjs` fails if the id layer
+  skips that adoption, or if a held key is overwritten.
 - **A note meant to be private is adopted only where the object's rules already make it private.** The writer names
   the tier it wrote for (`tier` on the put, `tools/notes/write.js`). The narrowing it persisted first may not have
   reached the object yet, and without that check a member reading the object could see the note before its rule
