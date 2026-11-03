@@ -156,6 +156,10 @@ export function workspaceClient(env, workspaceId) {
     collab: {
       replace: async (fields) => await ask("ws.collab.replace", fields),
     },
+    // A whole-note save's editing history, run in the object (`workspaceStore/collabReplace.js`).
+    collab: {
+      replace: async (fields) => await ask("ws.collab.replace", fields),
+    },
     ...membershipClient(ask),
     state: async () => await ask("ws.state"),
     setHome: async (home) => await ask("ws.home", { home }),

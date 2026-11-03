@@ -13,7 +13,10 @@ import { withIdLayout } from "../src/store/idLayout.js";
 import { replaceNoteText } from "../src/tools/notes/replaceInObject.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
+<<<<<<< HEAD
 import { mirrorOutbox } from "../src/workspaceStore/mirrorOutbox.js";
+=======
+>>>>>>> origin/claude/project-thread-kyfa3n
 import { durableSqlite } from "./durableSqlite.mjs";
 
 const PATH = "1-projects/plan.md";
@@ -21,6 +24,7 @@ const NOTE_ID = "0199a000-0000-7000-8000-000000000001";
 const KEY = `notes/${NOTE_ID}.md`;
 const COLLAB = ".context/collaboration/";
 
+<<<<<<< HEAD
 function objectSide({ home = "object", backfilled = true, rowKey = KEY, mirrored = true } = {}) {
   const { sql, transact: run } = durableSqlite();
   let depth = 0;
@@ -45,6 +49,11 @@ function objectSide({ home = "object", backfilled = true, rowKey = KEY, mirrored
       store.soon += 1;
     };
   }
+=======
+function objectSide({ home = "object", backfilled = true, rowKey = KEY } = {}) {
+  const { sql, transact } = durableSqlite();
+  const store = { sql, transact, objects: texObjects(sql), rows: workspaceRows(sql) };
+>>>>>>> origin/claude/project-thread-kyfa3n
   store.rows.pinWorkspace("ws");
   store.rows.put([{ id: "row-1", noteId: NOTE_ID, path: PATH, kind: "file", at: 1, storageKey: rowKey }]);
   store.rows.setHome(home);
@@ -158,6 +167,7 @@ test("a saved version only the bucket keeps sends the save back to the gateway",
 });
 
 /** The routed store under the id layer, as a session's store has it: the tree names the note's key and id. */
+<<<<<<< HEAD
 function layered(routed, client, { inObject = false } = {}) {
   const reports = [];
   const wrote = async (record) => {
@@ -165,12 +175,23 @@ function layered(routed, client, { inObject = false } = {}) {
     return { recorded: true };
   };
   if (inObject) wrote.inObject = true;
+=======
+function layered(routed, client) {
+  const reports = [];
+>>>>>>> origin/claude/project-thread-kyfa3n
   const store = withIdLayout(routed, {
     lookup: async (paths) => {
       const head = await client.bodies.head(KEY);
       return { keyed: true, notes: Object.fromEntries(paths.filter((path) => path === PATH).map((path) => [path, { state: "keyed", key: KEY, noteId: NOTE_ID, etag: head?.etag ?? "" }])) };
     },
+<<<<<<< HEAD
     wrote,
+=======
+    wrote: async (record) => {
+      reports.push(record);
+      return { recorded: true };
+    },
+>>>>>>> origin/claude/project-thread-kyfa3n
     adopt: async () => assert.fail("a save of an existing note adopts nothing"),
     removed: async () => assert.fail("a save removes nothing"),
   });
@@ -209,6 +230,7 @@ test("an object that cannot be reached for the save leaves it to the engine here
   assert.equal(result.text, "# Plan\n\nThird words.\n");
   assert.equal(await text(client.bodies, KEY), "# Plan\n\nThird words.\n");
 });
+<<<<<<< HEAD
 
 const rowEtag = (store) => store.sql.exec("SELECT etag FROM ws_rows WHERE path = ? AND gone = 0", PATH).toArray()[0]?.etag ?? null;
 
@@ -265,3 +287,5 @@ test("an object that cannot record the version leaves the report to the id layer
   const head = await client.bodies.head(KEY);
   assert.deepEqual(reports.map((record) => [record.key, record.etag]), [[KEY, head.etag]]);
 });
+=======
+>>>>>>> origin/claude/project-thread-kyfa3n

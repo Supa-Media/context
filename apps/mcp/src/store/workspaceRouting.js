@@ -245,6 +245,7 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
    * caller then runs the engine through this store, as before.
    */
   if (typeof client.collab?.replace === "function") {
+<<<<<<< HEAD
     wrapped.replaceInObject = async ({ path, key, noteId, legacyEtag = null, rowEtag = null, expectedEtag, text, record = null }) => {
       if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
       const answer = await client.collab.replace({
@@ -253,6 +254,11 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
         expectedEtag, text,
         ...(Number.isFinite(record?.at) ? { record: { at: record.at } } : {}),
       });
+=======
+    wrapped.replaceInObject = async ({ path, key, noteId, legacyEtag = null, rowEtag = null, expectedEtag, text }) => {
+      if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
+      const answer = await client.collab.replace({ path, key, noteId, ...(typeof legacyEtag === "string" && typeof rowEtag === "string" ? { legacyEtag, rowEtag } : {}), expectedEtag, text });
+>>>>>>> origin/claude/project-thread-kyfa3n
       for (const write of Array.isArray(answer?.writes) ? answer.writes : []) {
         if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
         await mirror("put", write.key, () => store.put(write.key, write.body));

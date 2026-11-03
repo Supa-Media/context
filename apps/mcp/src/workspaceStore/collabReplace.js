@@ -17,19 +17,25 @@
  * then is handed back too, so the gateway still copies it to the bucket.
  *
  * Every write is handed back (`writes`, `deletes`) for the bucket's backup copy, which only the gateway can reach.
+<<<<<<< HEAD
  *
  * A call that brings `record: {at}` (a member's save, whose version report would have come to this object anyway:
  * `store/objectLookup.js` `wrote`) also has the new Markdown version recorded on its row here, as `ws.write.wrote`
  * records it, with the change queued for the control plane's mirror in the same transaction (`serveWrites.js`). The
  * answer says `recorded: true`, and the gateway sends no second call. Anything short of that answers `recorded: false`
  * and the gateway reports the version as before.
+=======
+>>>>>>> origin/claude/project-thread-kyfa3n
  */
 
 import { CollaborationError, replaceText } from "@context/collaboration";
 import { HOMES, isRevisionKey } from "./api.js";
+<<<<<<< HEAD
 import { liveRowByPath } from "./rowsByPath.js";
 import { objectRowId } from "./treeOps.js";
 import { WRITE_OPS, WriteOpRefused } from "./writeOps.js";
+=======
+>>>>>>> origin/claude/project-thread-kyfa3n
 
 const COLLABORATION_ROOT = ".context/collaboration/";
 const NOTE_KEY = /^notes\/[A-Za-z0-9-]{1,128}\.md$/;
@@ -112,6 +118,7 @@ export function engineStore(objects, { path, key, noteId, legacyEtag = null, row
   return { store, writes, deletes };
 }
 
+<<<<<<< HEAD
 /** Record the save's new Markdown version on its row, as `ws.write.wrote` does: whether it was. Never fails the save. */
 function recordVersion(store, fields, markdown) {
   const { rows, sql, transact, mirror } = store;
@@ -138,6 +145,12 @@ const wantsRecord = (fields) => typeof fields.workspaceId === "string" && Number
  * Serve one replacement. `store` is the object's ready store (`{rows, sql, objects}`); `fields` is
  * `{path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text, record?}`: the row's version and its old name, as the
  * id layer resolved them, and `record: {at}` to record the new version here too.
+=======
+/**
+ * Serve one replacement. `store` is the object's ready store (`{rows, sql, objects}`); `fields` is
+ * `{path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text}`: the row's version and its old name, as the id layer
+ * resolved them.
+>>>>>>> origin/claude/project-thread-kyfa3n
  */
 export async function serveCollabReplace(store, fields) {
   const { path, key, noteId, expectedEtag, text } = fields ?? {};
@@ -156,8 +169,12 @@ export async function serveCollabReplace(store, fields) {
   try {
     const result = await replaceText(engine.store, path, { expectedEtag, onlyCurrent: true, text });
     const markdown = engine.writes.filter((write) => write.key === key).at(-1) ?? null;
+<<<<<<< HEAD
     const recorded = markdown !== null && wantsRecord(fields) && recordVersion(store, fields, markdown);
     return { served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, recorded, ...handedBack() };
+=======
+    return { served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, ...handedBack() };
+>>>>>>> origin/claude/project-thread-kyfa3n
   } catch (error) {
     if (notHeldHere(error)) return { served: false, reason: "not_held", ...handedBack() };
     if (error instanceof CollaborationError) return { served: true, error: { code: error.code, message: error.message }, ...handedBack() };

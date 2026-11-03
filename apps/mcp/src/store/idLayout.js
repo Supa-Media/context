@@ -468,12 +468,19 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
         ...(typeof entry.legacyEtag === "string" ? { legacyEtag: entry.legacyEtag, rowEtag: entry.etag } : {}),
         expectedEtag,
         text,
+<<<<<<< HEAD
         // The version report would go to the object anyway (`objectLookup.js` `wrote`): it is recorded in this call.
         ...(wrote.inObject === true ? { record: { at: now() } } : {}),
       });
       if (answer === null) return null;
       const markdown = answer.markdown;
       if (typeof markdown?.etag === "string" && answer.recorded !== true) {
+=======
+      });
+      if (answer === null) return null;
+      const markdown = answer.markdown;
+      if (typeof markdown?.etag === "string") {
+>>>>>>> origin/claude/project-thread-kyfa3n
         await report({ path, key: entry.key, etag: markdown.etag, ...(Number.isFinite(markdown.size) ? { size: markdown.size } : {}), at: now(), keyed: true });
       }
       return answer;
