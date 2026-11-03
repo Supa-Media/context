@@ -1,6 +1,6 @@
 # How long each named step of an MCP call takes in production or staging, read from the gateway's
 # `mcp_entry` dataset (`apps/mcp/src/mcp/mcpEntryPoint.js`): per step, how many, the median and the 95th
-# percentile in milliseconds. Names, routes and times only: the dataset holds no path and no words, and this
+# percentile of its total milliseconds per request, and how many times it ran per request. Names, routes and times only: the dataset holds no path and no words, and this
 # prints no workspace. Read-only, manual only.
 name: MCP entry timings
 
@@ -44,7 +44,8 @@ jobs:
           if [ "$HOURS" -lt 1 ] || [ "$HOURS" -gt 168 ]; then echo "hours must be 1 to 168" >&2; exit 1; fi
           query="SELECT blob3 AS step, blob4 AS state, SUM(_sample_interval) AS n,
             quantileWeighted(0.5)(double1, _sample_interval) AS p50_ms,
-            quantileWeighted(0.95)(double1, _sample_interval) AS p95_ms
+            quantileWeighted(0.95)(double1, _sample_interval) AS p95_ms,
+            SUM(double3 * _sample_interval) / SUM(_sample_interval) AS calls
             FROM $DATASET
             WHERE blob1 = 'mcp' AND blob2 = '$CALL' AND timestamp > NOW() - INTERVAL '$HOURS' HOUR
             GROUP BY step, state ORDER BY p50_ms DESC LIMIT 60 FORMAT JSON"
@@ -53,8 +54,8 @@ jobs:
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data "$query" > answer.json
           node -e '
             const { data } = JSON.parse(require("fs").readFileSync("answer.json", "utf8"));
-            const lines = ["| step | state | n | p50 ms | p95 ms |", "| --- | --- | ---: | ---: | ---: |"];
-            for (const row of data) lines.push(`| ${row.step} | ${row.state} | ${Math.round(row.n)} | ${Math.round(row.p50_ms)} | ${Math.round(row.p95_ms)} |`);
+            const lines = ["| step | state | n | p50 ms | p95 ms | calls each |", "| --- | --- | ---: | ---: | ---: | ---: |"];
+            for (const row of data) lines.push(`| ${row.step} | ${row.state} | ${Math.round(row.n)} | ${Math.round(row.p50_ms)} | ${Math.round(row.p95_ms)} | ${Number(row.calls).toFixed(1)} |`);
             const out = [`### ${process.env.CALL}, last ${process.env.HOURS} h`, "", ...lines].join("\n");
             console.log(out);
             require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, out + "\n");
