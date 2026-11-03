@@ -34,6 +34,7 @@ test("steps are held until the response, then written once, indexed by the works
   });
   mcp.workspace = "ws_1";
   mcp.client = "Claude";
+  mcp.colo = "IAD";
   mcp.call = "tools/call:fetch";
   await assert.rejects(mcp.step("open_store", async () => {
     time.tick(20);
@@ -44,9 +45,9 @@ test("steps are held until the response, then written once, indexed by the works
   assert.equal(mcp.done(response), response);
   mcp.done(response);
   assert.deepEqual(MCP_ENTRY.points, [
-    { blobs: ["mcp", "tools/call:fetch", "session", "ok", "Claude"], doubles: [70, 3, 1], indexes: ["ws_1"] },
-    { blobs: ["mcp", "tools/call:fetch", "open_store", "failed", "Claude"], doubles: [20, 73, 1], indexes: ["ws_1"] },
-    { blobs: ["mcp", "tools/call:fetch", "to_response", "ok", "Claude"], doubles: [93, 0, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "session", "ok", "Claude", "IAD"], doubles: [70, 3, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "open_store", "failed", "Claude", "IAD"], doubles: [20, 73, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "to_response", "ok", "Claude", "IAD"], doubles: [93, 0, 1], indexes: ["ws_1"] },
   ]);
   assert.doesNotMatch(JSON.stringify(MCP_ENTRY.points), /secret|token/);
 });
@@ -253,4 +254,14 @@ test("each call through the workspace object's door is timed under \"door\" by i
     ["door", "ws.rows.snapshot", "to_response", "ok", "w1"],
   ]);
   assert.doesNotMatch(JSON.stringify(MCP_ENTRY.points), /secret|plan\.md/);
+});
+
+test("the data center a request was served in is a three-letter code or nothing", () => {
+  for (const [given, kept] of [["IAD", "IAD"], ["iad", ""], ["IAD; DROP", ""], [undefined, ""], [42, ""]]) {
+    const MCP_ENTRY = { points: [], writeDataPoint(point) { this.points.push(point); } };
+    const mcp = mcpEntry({ MCP_ENTRY });
+    mcp.colo = given;
+    mcp.done(new Response("{}"));
+    assert.equal(MCP_ENTRY.points.at(-1).blobs[5], kept, String(given));
+  }
 });

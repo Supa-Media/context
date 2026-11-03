@@ -28,7 +28,8 @@
  * person's calls and everyone's both add up. Dataset `mcp_entry` (binding
  * `MCP_ENTRY`): blobs = "mcp", the call (`tools/call:orient`, `initialize`,
  * `notifications/initialized`, ...), the step, its state (ok, failed), the
- * client's name; doubles = its milliseconds, when it first started (from the
+ * client's name, the Cloudflare data center that served it (`IAD`; its distance from the workspace objects is
+ * every `obj:` step's floor); doubles = its milliseconds, when it first started (from the
  * request's start) and how many times it ran: one point per step and state,
  * summed over the request (`totals`). A `to_response` point is the whole request. Names, routes
  * and times only, never a path, a query or a word anyone wrote. Without the
@@ -53,6 +54,7 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
   let call = "unknown";
   let workspace = "";
   let client = "";
+  let colo = "";
   let written = false;
 
   const record = (name, at, state) => {
@@ -93,6 +95,10 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
     /** The connection's app (Claude, ChatGPT, ...), as the grant names it. */
     set client(value) {
       client = typeof value === "string" ? value.slice(0, 64) : "";
+    },
+    /** The data center serving this request (`request.cf.colo`): three capital letters, or nothing. */
+    set colo(value) {
+      colo = typeof value === "string" && /^[A-Z]{3}$/.test(value) ? value : "";
     },
     /** Run a step and wait for it. */
     step(name, run) {
@@ -145,7 +151,7 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
       record("to_response", start, response instanceof Response && response.status >= 500 ? "failed" : "ok");
       if (!written) {
         written = true;
-        write(env, points, { surface, call, workspace, client });
+        write(env, points, { surface, call, workspace, client, colo });
       }
       return response;
     },
@@ -227,13 +233,13 @@ export function totals(points) {
   return all;
 }
 
-function write(env, points, { surface, call, workspace, client }) {
+function write(env, points, { surface, call, workspace, client, colo }) {
   const dataset = env?.MCP_ENTRY;
   if (!dataset || typeof dataset.writeDataPoint !== "function") return;
   const summed = totals(points);
   for (const entry of summed.slice(0, MAX_POINTS - 1).concat(summed.length >= MAX_POINTS ? [summed[summed.length - 1]] : [])) {
     try {
-      dataset.writeDataPoint({ blobs: [surface, call, entry.name, entry.state, client], doubles: [entry.ms, entry.at, entry.count], indexes: [workspace] });
+      dataset.writeDataPoint({ blobs: [surface, call, entry.name, entry.state, client, colo], doubles: [entry.ms, entry.at, entry.count], indexes: [workspace] });
     } catch {
       // Diagnostics never fail a request.
     }
