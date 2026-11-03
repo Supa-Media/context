@@ -226,9 +226,14 @@ export async function startKeyedBatchMove(store, scope, rules, overrides, moves)
   );
 }
 
-export async function startQueuedFolderMove(store, scope, source, destination, privacy) {
+export async function startQueuedFolderMove(store, scope, source, destination, privacy, { beforeControlPlane = null } = {}) {
   const inObject = await startObjectMove(store, scope, source, destination, undefined, { kind: "folder", action: "move_folder", privacy });
   if (inObject !== null) return inObject;
+  // A check the caller left until the object had passed the move on (`keyedFolder.js`, the full twin check).
+  if (typeof beforeControlPlane === "function") {
+    const refusal = await beforeControlPlane();
+    if (refusal) return toolError(refusal);
+  }
   if (typeof store?.startQueuedMove !== "function") return null;
   let answer;
   try {
