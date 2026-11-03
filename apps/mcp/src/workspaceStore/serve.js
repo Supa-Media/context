@@ -23,6 +23,7 @@ import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
 import { BINDING_OPS, BindingRowRefused, serveBindingCall } from "./bindingRows.js";
 import { accessCall, applyAccess } from "./serveAccess.js";
 import { isWriteOp, serveWrites } from "./serveWrites.js";
+import { serveCollabRead } from "./collabRead.js";
 import { serveCollabReplace } from "./collabReplace.js";
 import { serveCreateNote } from "./createNote.js";
 import { treeRows } from "./treeRows.js";
@@ -385,6 +386,9 @@ export async function serveWorkspaceStore(store, request) {
       case "ws.collab.replace":
         // A whole-note save's editing history in one call (`collabReplace.js`); `{served: false}` sends it back.
         return Response.json(await serveCollabReplace(store, fields));
+      case "ws.collab.read":
+        // A note's Markdown and its editing history's text in one call (`collabRead.js`); `{served: false}` sends it back.
+        return Response.json(await serveCollabRead(store, fields));
       case "ws.create":
         // A new note's bytes and row in one call (`createNote.js`); `{served: false}` sends it back.
         return Response.json(await serveCreateNote(store, fields));

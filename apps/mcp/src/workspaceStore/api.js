@@ -113,6 +113,8 @@ export function workspaceStub(env, workspaceId) {
  * - `members.*`, `invites.*`: who belongs to the workspace (`workspaceStore/members.js`): see `membershipClient`.
  * - `collab.replace({path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text})` → `{served: true, result|error, markdown, writes, deletes}`
  *   or `{served: false, writes?, deletes?}`: a whole-note save's editing history run in the object (`collabReplace.js`)
+ * - `collab.read({path, key, noteId})` → `{served: true, markdown, collaboration|error, writes, deletes}` or
+ *   `{served: false}`: a note's Markdown and its editing history's text, for a read (`collabRead.js`)
  * - `open(userId)` → `{home, backfilledAt, encryption, accessHome, member, rules, binding: {sealed, at}|null, epoch}`:
  *   what a request's store is built from, in one call; `binding.put({sealed, at, epoch})` → `{kept, epoch}`,
  *   `binding.clear()` → `{epoch}` (`workspaceStore/bindingRows.js`)
@@ -167,6 +169,8 @@ export function workspaceClient(env, workspaceId) {
     // A whole-note save's editing history, run in the object (`workspaceStore/collabReplace.js`).
     collab: {
       replace: async (fields) => await ask("ws.collab.replace", fields),
+      // A note's Markdown and its editing history's text, for a read (`workspaceStore/collabRead.js`).
+      read: async (fields) => await ask("ws.collab.read", fields),
       create: async (fields) => await ask("ws.create", fields),
     },
     ...membershipClient(ask),
