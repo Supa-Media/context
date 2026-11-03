@@ -49,6 +49,8 @@ const VISIBILITY = /^(?:visibility|to): (private|team)\b/m;
 /** What `result` says happened, as data, or null for a tool that only reads. */
 export function outcomeOf(name, result) {
   if (!result || typeof result !== "object" || !writes(name)) return null;
+  // A tool that changed several things says so itself (`tools/v2/saveMany.js`): its prose names no one path to read.
+  if (result.ownOutcome && typeof result.ownOutcome === "object") return result.ownOutcome;
   const text = typeof result.content?.[0]?.text === "string" ? result.content[0].text : "";
   if (result.isError === true) {
     const code = result.held === true ? "NEEDS_PERSON" : ERROR_CODES.find(([pattern]) => pattern.test(text))?.[1] ?? "FAILED";
@@ -71,8 +73,10 @@ export function outcomeOf(name, result) {
 export function withOutcome(name, result) {
   try {
     const outcome = outcomeOf(name, result);
-    if (outcome === null || !Array.isArray(result.content)) return result;
-    return { ...result, content: [...result.content, { type: "text", text: `\noutcome: ${JSON.stringify(outcome)}` }] };
+    // A tool's own `ownOutcome` is said as the line, never sent as a field of the answer.
+    const { ownOutcome: _own, ...answer } = result ?? {};
+    if (outcome === null || !Array.isArray(result.content)) return _own === undefined ? result : answer;
+    return { ...answer, content: [...answer.content, { type: "text", text: `\noutcome: ${JSON.stringify(outcome)}` }] };
   } catch {
     return result;
   }

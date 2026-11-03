@@ -112,9 +112,20 @@ drew until 2026-10-14; it is the same drawing in motion, not a variant.
 with `chaos: X → Y of 100` and the folders the change touched, so an agent sees
 at once whether it helped. It is a line on existing tools, not a new tool,
 because installed clients cache tool lists (see
-[gateway protocol](./gateway-protocol.md)). The answer waits at most three
-seconds for the rescore; a slower one finishes behind the response and says
-nothing rather than holding the agent up.
+[gateway protocol](./gateway-protocol.md)).
+
+The answer waits at most 100 ms for the rescore (`ANSWER_WAIT_MS` in
+`apps/mcp/src/chaos/report.js`); a slower one finishes behind the response,
+where the control plane still hears of it, and the answer says nothing rather
+than holding the agent up. Until 2026-11-03 it waited up to three seconds. The
+owner's benchmark that day (100 saves through Claude) put a save at 2.3 s
+median and 3.5 s at p95, almost all of it this wait: the rescore reads the
+whole tree and its facts, about 1.9 s from the control plane. The owner asked
+for saves "as close to 0.1 seconds as possible", so the line is kept for the
+changes it is quick for and dropped for the ones it is not. Raising the wait
+again buys the line back with seconds on every save; the test that fails is
+"a save answers without waiting for a slow chaos count"
+(`apps/mcp/test/bulkNotes.test.mjs`). `orient` still shows the full score.
 
 ## Kept incrementally, proven equal to a full pass
 

@@ -11,8 +11,15 @@
  *
  * The count itself starts in `recordChange` (`activity/record.js`,
  * `change.js`); this file waits for it, briefly, and words it. A count slower
- * than `WAIT_MS` is left to finish behind the response and the answer says
- * nothing about it, rather than holding the agent up.
+ * than `ANSWER_WAIT_MS` is left to finish behind the response and the answer
+ * says nothing about it, rather than holding the agent up.
+ *
+ * The answer's wait was `WAIT_MS` (3 s) until 2026-11-03, when a benchmark
+ * showed it was most of every save: the count reads the whole tree, and a
+ * save answered in 2.3 s at the median and 3.5 s at p95, the cap plus the
+ * trip. The owner asked for saves near 0.1 s, so the answer now waits only
+ * as long as a fast count takes, and `orient` still reports the full score
+ * (`docs/decisions/chaos-score.md`).
  */
 
 import { chaosWord, folderChaos } from "./rubric.js";
@@ -20,14 +27,43 @@ import { chaosWord, folderChaos } from "./rubric.js";
 /** Tools whose answers carry the score. */
 export const CHAOS_TOOLS = new Set(["write_note", "move_note", "move_notes", "move_folder", "archive_note"]);
 
-/** How long an answer waits for its rescore. */
+/** How long the deferred tree report waits for the rescore before telling the control plane (`activity/record.js`). */
 export const WAIT_MS = 3000;
+
+/** How long a tool's answer waits for its rescore: a count that is not ready by then is left out. */
+export const ANSWER_WAIT_MS = 100;
 
 const pending = new WeakMap();
 
 /** Remember the rescore a change started on this store, for the answer to report. */
 export function rememberChaos(store, promise) {
   if (store && typeof store === "object" && promise && typeof promise.then === "function") pending.set(store, promise);
+}
+
+/**
+ * Stores and sessions inside a `save_many` (`tools/v2/saveMany.js`), counted: their saves start no rescore. A hundred
+ * notes would start a hundred whole-tree rescores at once behind one answer, each racing the others for the one
+ * `takeChaos` slot a store holds, so none would say anything true. `orient` still counts the score as it is.
+ */
+const quiet = new WeakMap();
+
+/** Hush the rescore for `holder` (a store or a session) until `release` is called. Returns `release`. */
+export function quietChaos(holder) {
+  if (!holder || typeof holder !== "object") return () => {};
+  quiet.set(holder, (quiet.get(holder) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const left = (quiet.get(holder) ?? 1) - 1;
+    if (left > 0) quiet.set(holder, left);
+    else quiet.delete(holder);
+  };
+}
+
+/** Whether `holder` is inside a `save_many`. */
+export function chaosIsQuiet(holder) {
+  return Boolean(holder && typeof holder === "object" && quiet.has(holder));
 }
 
 /** Take (and forget) the rescore a change started on this store, or undefined. */

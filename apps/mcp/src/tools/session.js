@@ -10,6 +10,7 @@ import { activityHintOf } from "../live/activityHint.js";
 import { recordAgentRead } from "../live/readLog.js";
 import { callTool } from "./dispatch.js";
 import { inWordsOf, translateV2Params } from "./v2/translate.js";
+import { SAVE_MANY_TOOL, saveMany } from "./v2/saveMany.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
 import {
   FORM_TOOLS,
@@ -48,7 +49,7 @@ import { judgeSubject } from "../privacy/judgeSubject.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { PrivacyOverrides } from "../privacy/engine.js";
 import { recordChange } from "../activity/record.js";
-import { CHAOS_TOOLS, chaosLines, takeChaos, withChaosLines, within } from "../chaos/report.js";
+import { ANSWER_WAIT_MS, CHAOS_TOOLS, chaosIsQuiet, chaosLines, quietChaos, takeChaos, withChaosLines, within } from "../chaos/report.js";
 import { changeChaos } from "../chaos/change.js";
 
 /**
@@ -317,6 +318,16 @@ function addressByPath(tool, args) {
 export async function callToolForSession(params, store, session) {
   const { error, params: call, v2 } = translateV2Params(params, store); // v2 → the existing call, before any gate
   if (error) return toolError(error);
+  // `save_many` is one ordinary `write` per note, each back through this function and every gate in it (`saveMany.js`).
+  // Its saves start no rescore each (`chaosIsQuiet`): the answer is one line per note, and carries no chaos line.
+  if (v2 && call?.name === SAVE_MANY_TOOL) {
+    const release = quietChaos(session);
+    try {
+      return inWordsOf(v2, await saveMany(call.arguments, (one) => callToolForSession({ name: "write", arguments: one }, store, session)));
+    } finally {
+      release();
+    }
+  }
   const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed));
   return inWordsOf(v2, result);
 }
@@ -598,13 +609,22 @@ async function routeToolCall(params, store, session, routed) {
   // A move inside one context adds no note, so it runs in the cap's
   // relocation window (`store/noteCap.js`); everything else is capped.
   const dispatch = async () => await callTool(params?.name, args, targetStore, target.scope);
-  let result = await answeringNoteCap(() =>
-    RELOCATING_TOOLS.has(params?.name) ? asRelocation(targetStore, dispatch) : dispatch()
-  );
+  // Inside a `save_many`, the store the save lands in is hushed too: that is where the change starts its rescore.
+  const release = chaosIsQuiet(session) ? quietChaos(targetStore) : () => {};
+  let result;
+  try {
+    result = await answeringNoteCap(() =>
+      RELOCATING_TOOLS.has(params?.name) ? asRelocation(targetStore, dispatch) : dispatch()
+    );
+  } finally {
+    release();
+  }
   // Whether the model now holds words from outside the workspace, for the turn's ledger.
   recordRead(session.egress?.ledger, { name: params?.name, args, result, writing: toolIsWriting(params?.name) });
   noteAgentActivity(targetStore, params?.name, args, result);
-  result = await reportingChaos(targetStore, params?.name, args, target.scope, result);
+  // A `save_many`'s notes carry no chaos line: it reports one line per note (`saveMany.js`).
+  if (chaosIsQuiet(session)) takeChaos(targetStore);
+  else result = await reportingChaos(targetStore, params?.name, args, target.scope, result);
   // When the caller joined a note's mail, the news rides on every answer.
   result = await withMailFooter(result, args, params?.name, { store, session, targetStore, target });
   // Counted after the call, against the context the call was *routed to* —
@@ -672,7 +692,7 @@ function noteAgentActivity(store, name, args, result) {
  * an existing note's text starts none (the editor saves on every pause), so
  * for `write_note` one is started here, for that note alone, which counts its
  * new length against the facts' old one. Never throws, and never holds
- * an answer longer than `WAIT_MS`.
+ * an answer longer than `ANSWER_WAIT_MS`.
  */
 async function reportingChaos(store, name, args, scope, result) {
   const started = takeChaos(store);
@@ -680,10 +700,10 @@ async function reportingChaos(store, name, args, scope, result) {
   // A comment or a website action changes no folder.
   if (args?.comment !== undefined || args?.site !== undefined) return result;
   try {
-    let report = started === undefined ? null : await within(started);
+    let report = started === undefined ? null : await within(started, ANSWER_WAIT_MS);
     if (started === undefined && name === "write_note" && typeof args?.path === "string") {
       const path = normalizePath(args.path);
-      if (path) report = await within(changeChaos(store, { files: [path] }));
+      if (path) report = await within(changeChaos(store, { files: [path] }), ANSWER_WAIT_MS);
     }
     return withChaosLines(result, chaosLines(report, scope === "private" ? "all" : "team"));
   } catch {
