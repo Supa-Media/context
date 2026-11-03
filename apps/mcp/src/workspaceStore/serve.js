@@ -20,6 +20,7 @@ import { FactAskRefused, OBJECT_FACT_ASKS, OBJECT_FACT_ROW_ASKS } from "./facts.
 import { manifestPage } from "./manifest.js";
 import { markTokens, waitForMarks, WorkspaceMarkRefused } from "./marks.js";
 import { BindingRowRefused, serveBindingCall } from "./bindingRows.js";
+import { isWriteOp, serveWrites } from "./serveWrites.js";
 
 const CALL = "x-tex-call";
 
@@ -174,6 +175,8 @@ export async function serveWorkspaceStore(store, request) {
   if (isTokenIndexCall(op) && store.sql) return serveTokenIndex(store.sql, op, fields);
   // A person object's calls (`workspaceStore/access.js`): the personal workspace's reach, shares and connections.
   if (isPersonCall(op) && store.person) return await servePersonCall(store, op, fields);
+  // Write ops: the change and its mirror entry land in one transaction; they check and pin their workspace themselves (`serveWrites.js`).
+  if (isWriteOp(op)) return await serveWrites(store, op, fields);
   try {
     rows.pinWorkspace(fields.workspaceId);
     const membership = await serveMembersCall(store, op, fields);

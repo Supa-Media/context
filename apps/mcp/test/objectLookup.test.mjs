@@ -5,7 +5,8 @@
 // Sabotage, each confirmed to fail a case here: drop the guest-marker check (a guest is judged by member rules),
 // judge a chat as a guest (its own rendering dropped), send a chat with no names to the object,
 // ignore the binding's `notesBehind` (a share just taken back is served from the object until its push lands),
-// take a found row whose path differs from the one asked, take a non-id key, or skip the fallback for misses.
+// take a found row whose path differs from the one asked, take a non-id key, or skip the fallback for misses,
+// or judge a guest's keyed write as a member's (`judged.audience !== "member"` → `false` in the `wrote` hook).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -15,7 +16,7 @@ const NOTE = "0199a000-0000-7000-8000-00000000000c";
 const KEY = `notes/${NOTE}.md`;
 
 function control() {
-  const asked = { lookup: [], resolve: [] };
+  const asked = { lookup: [], resolve: [], wrote: [] };
   return {
     asked,
     hooks: {
@@ -27,28 +28,38 @@ function control() {
         asked.resolve.push(ids);
         return { paths: Object.fromEntries(ids.map((id) => [id, null])) };
       },
-      wrote: async () => {},
+      wrote: async (record) => {
+        asked.wrote.push(record);
+        return { recorded: "control" };
+      },
     },
   };
 }
 
-function object(rows) {
+/** `write`: the object's `ws.write.wrote` answer for a call (omit for an object with no write client). */
+function object(rows, write) {
   const asked = [];
-  return {
-    asked,
-    client: {
-      rows: {
-        lookup: async (fields) => {
-          asked.push({ op: "lookup", ...fields });
-          return { rows: fields.paths.map((path) => rows[path] ?? { path, found: false }), accessVersion: 3 };
-        },
-        resolve: async (fields) => {
-          asked.push({ op: "resolve", ...fields });
-          return { rows: fields.noteIds.map((id) => Object.values(rows).find((row) => row.noteId === id) ?? { noteId: id, found: false }), accessVersion: 3 };
-        },
+  const client = {
+    rows: {
+      lookup: async (fields) => {
+        asked.push({ op: "lookup", ...fields });
+        return { rows: fields.paths.map((path) => rows[path] ?? { path, found: false }), accessVersion: 3 };
+      },
+      resolve: async (fields) => {
+        asked.push({ op: "resolve", ...fields });
+        return { rows: fields.noteIds.map((id) => Object.values(rows).find((row) => row.noteId === id) ?? { noteId: id, found: false }), accessVersion: 3 };
       },
     },
   };
+  if (write) {
+    client.write = {
+      wrote: async (fields) => {
+        asked.push({ op: "wrote", ...fields });
+        return write(fields);
+      },
+    };
+  }
+  return { asked, client };
 }
 
 const seen = { found: true, path: "plans/a.md", noteId: NOTE, key: KEY, etag: "e1", kind: "file", collaborates: false };
@@ -206,4 +217,84 @@ test("an object that is not behind is the whole answer: the control plane is not
   assert.deepEqual(await hooks.resolve([NOTE]), { paths: { [NOTE]: "plans/a.md" } });
   assert.deepEqual(cp.asked.lookup, []);
   assert.deepEqual(cp.asked.resolve, []);
+});
+
+// A member's keyed write, recorded in the object first (`ws.write.wrote`), so the save waits on no control-plane
+// round trip. Sabotage, confirmed to fail a case here: drop the member-audience check, so a guest's write goes to the object.
+const KEYED = { path: "plans/a.md", key: KEY, etag: "e2", size: 10, at: 99, keyed: true };
+
+test("a member's keyed write with its size and time is recorded in the object, not the control plane", async () => {
+  const cp = control();
+  const ob = object({}, () => ({ ok: true }));
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: ["@design"], workspaceId: "w1" });
+  assert.equal(typeof hooks.wrote, "function");
+  assert.notEqual(hooks.wrote, cp.hooks.wrote);
+  assert.deepEqual(await hooks.wrote({ ...KEYED, keyEtag: "k1" }), { recorded: true });
+  assert.deepEqual(ob.asked, [{ op: "wrote", path: "plans/a.md", key: KEY, etag: "e2", size: 10, at: 99, keyed: true }]);
+  assert.deepEqual(cp.asked.wrote, [], "the control plane is not asked when the object takes the write");
+});
+
+test("a keyed write the object is not sent (not keyed, no size, no time) is recorded by the control plane, as before", async () => {
+  const notSent = [
+    { ...KEYED, keyed: false },
+    { ...KEYED, size: undefined },
+    { ...KEYED, at: undefined },
+    { ...KEYED, size: Number.NaN },
+  ];
+  for (const record of notSent) {
+    const cp = control();
+    const ob = object({}, () => ({ ok: true }));
+    const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: [], workspaceId: "w1" });
+    assert.deepEqual(await hooks.wrote(record), { recorded: "control" }, JSON.stringify(record));
+    assert.deepEqual(cp.asked.wrote, [record]);
+    assert.deepEqual(ob.asked, [], "the object is not asked");
+  }
+});
+
+test("an object that does not take the write (NOT_FOUND, or anything not ok) falls back to the control plane", async () => {
+  for (const answer of [{ ok: false, code: "NOT_FOUND" }, { ok: false }, {}, undefined]) {
+    const cp = control();
+    const ob = object({}, () => answer);
+    const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: [], workspaceId: "w1" });
+    assert.deepEqual(await hooks.wrote(KEYED), { recorded: "control" }, JSON.stringify(answer));
+    assert.deepEqual(cp.asked.wrote, [KEYED]);
+    assert.equal(ob.asked.length, 1, "the object was asked first");
+  }
+});
+
+test("an object that throws on the write falls back to the control plane, logged", async () => {
+  const cp = control();
+  const logged = [];
+  const ob = object({}, () => {
+    throw new Error("down");
+  });
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: [], workspaceId: "w1", log: (event) => logged.push(event) });
+  assert.deepEqual(await hooks.wrote(KEYED), { recorded: "control" });
+  assert.deepEqual(cp.asked.wrote, [KEYED]);
+  assert.deepEqual(logged, ["workspace_object_wrote_failed"]);
+});
+
+test("a guest's or a chat's keyed write is never recorded in the object: the control plane's wrote, unchanged", async () => {
+  const readers = [
+    { names: ["@#reads-as-guest", "@#0199a000-0000-7000-8000-00000000000c"] },
+    { names: ["@#reads-as-chat"], chatNames: [] },
+  ];
+  for (const { names, chatNames = null } of readers) {
+    const cp = control();
+    const ob = object({}, () => ({ ok: true }));
+    const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names, chatNames, userId: "u1", workspaceId: "w1" });
+    assert.equal(hooks.wrote, cp.hooks.wrote, "the control plane's own hook");
+    assert.deepEqual(await hooks.wrote(KEYED), { recorded: "control" });
+    assert.deepEqual(cp.asked.wrote, [KEYED]);
+    assert.deepEqual(ob.asked, [], "the object is never asked to record it");
+  }
+});
+
+test("without an object write client, or without an object, wrote is the control plane's", async () => {
+  const cp = control();
+  const noWrite = objectFirstHooks(cp.hooks, { client: object({}).client, home: "object", scope: "team", names: [], workspaceId: "w1" });
+  assert.equal(noWrite.wrote, cp.hooks.wrote);
+  const noObject = objectFirstHooks(cp.hooks, { client: null, home: "object", scope: "team", names: [], workspaceId: "w1" });
+  assert.equal(noObject, cp.hooks);
+  assert.equal(noObject.wrote, cp.hooks.wrote);
 });

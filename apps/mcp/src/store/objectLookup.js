@@ -150,7 +150,29 @@ export function objectFirstHooks(hooks, options) {
     return { keyed: rest.keyed === true, notes: { ...rest.notes, ...notes }, texHomes: rest.texHomes ?? {} };
   };
 
-  if (typeof hooks.resolve !== "function") return { ...hooks, lookup };
+  /**
+   * A keyed note's new version, recorded in the object first (`workspaceStore/writeOps.js` `ws.write.wrote`): the
+   * object stamps its row and queues the change for Convex's mirror, so the save waits on no control-plane round trip
+   * (`docs/decisions/storage-and-credentials/object-row-writes.md`). Only a member's keyed write with its size and
+   * time goes there; anything else, a row the object does not hold, or an object that fails, is recorded by the
+   * control plane as before.
+   */
+  const wrote = typeof hooks.wrote !== "function" || typeof client.write?.wrote !== "function" || judged.audience !== "member"
+    ? hooks.wrote
+    : async (record) => {
+        if (record?.keyed !== true || !Number.isFinite(record?.size) || !Number.isFinite(record?.at)) return await hooks.wrote(record);
+        let answer;
+        try {
+          answer = await client.write.wrote({ path: record.path, key: record.key, etag: record.etag, size: record.size, at: record.at, keyed: true });
+        } catch (error) {
+          log("workspace_object_wrote_failed", { workspaceId, error: String(error?.message ?? error) });
+          return await hooks.wrote(record);
+        }
+        if (answer?.ok === true) return { recorded: true };
+        return await hooks.wrote(record);
+      };
+
+  if (typeof hooks.resolve !== "function") return { ...hooks, lookup, wrote };
   const resolve = async (noteIds) => {
     let answer;
     try {
@@ -172,5 +194,5 @@ export function objectFirstHooks(hooks, options) {
     const rest = await hooks.resolve(missing);
     return { paths: { ...rest.paths, ...paths } };
   };
-  return { ...hooks, lookup, resolve };
+  return { ...hooks, lookup, resolve, wrote };
 }
