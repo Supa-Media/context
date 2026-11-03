@@ -15,6 +15,7 @@ import {
   PRIVACY_RULES_BEGIN,
   PRIVACY_RULES_END,
   PrivacyOverrides,
+  READER_NAMES,
   spliceRulesBlock,
   visibilityOf,
 } from "../privacy/engine.js";
@@ -47,11 +48,16 @@ function visibilityAfter(base, existing) {
   return null;
 }
 
-/** The held rules in the shape `loadPrivacyState` takes from `PRE_PARSED_RULES`. */
-function parsedRules(rules) {
+/**
+ * The held rules in the shape `loadPrivacyState` takes from `PRE_PARSED_RULES`, carrying the reader's names
+ * (`READER_NAMES`) when the store was opened for a session that holds some.
+ */
+function parsedRules(rules, names) {
   const overrides = new PrivacyOverrides();
   for (const note of rules.notes) overrides.set(note.path, note.visibility);
-  return { rules: rules.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility })), overrides };
+  const folders = rules.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility }));
+  if (names instanceof Set) Object.defineProperty(folders, READER_NAMES, { value: names, enumerable: false });
+  return { rules: folders, overrides };
 }
 
 /**
@@ -90,8 +96,10 @@ export function readOnlyManifest() {
  *
  * @param {import("./index.js").ContextStore} store
  * @param {PrivacyAuthority|null|undefined} authority
+ * @param {{names?: ReadonlySet<string>}} [reader] the names of the session the store is opened for, which a path judged
+ *   with these rules alone is judged by (`engine.js` `READER_NAMES`)
  */
-export function withPrivacyAuthority(store, authority) {
+export function withPrivacyAuthority(store, authority, { names } = {}) {
   if (!authority) return store;
   /** @type {HeldRules} */
   let held = authority.rules;
@@ -133,7 +141,7 @@ export function withPrivacyAuthority(store, authority) {
     return answer;
   };
 
-  const preParsed = () => parsedRules(held);
+  const preParsed = () => parsedRules(held, names);
   const text = () => {
     const overrides = preParsed().overrides;
     return spliceRulesBlock(SKELETON, held.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility })), overrides);

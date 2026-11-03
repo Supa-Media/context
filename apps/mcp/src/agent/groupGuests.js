@@ -123,7 +123,7 @@ function hiddenNameRefusal(result, path, group) {
 async function chatReads(store, path) {
   try {
     const { rules, overrides, error } = await loadPrivacyState(store);
-    return !error && canSee(path, "team", rules, overrides);
+    return !error && canSee(path, "team", rules, overrides, null);
   } catch {
     return false;
   }

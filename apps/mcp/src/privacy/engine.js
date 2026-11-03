@@ -462,6 +462,20 @@ export function sealedCovers(key, rules) {
 }
 
 /**
+ * Set on the rules a session's store serves (`store/privacyAuthority.js`): the names that session holds (groups,
+ * handle, row tokens; `session.js` `grantedGroupsOf`), so every tool that judges a path with the rules alone judges it
+ * as the person reading. Without them an AI connection held its names and no tool used them: a note shared to the
+ * person by name, and a Tex chat's sealed home, listed and read as missing (2026-11-03).
+ */
+export const READER_NAMES = Symbol("readerNames");
+
+/** The names the rules were served for (`READER_NAMES`), or `undefined` for rules nobody tagged. */
+export function readerNamesOf(rules) {
+  const names = rules?.[READER_NAMES];
+  return names instanceof Set ? names : undefined;
+}
+
+/**
  * May this caller see this key at all?
  *
  * ## A group is reached through the session's names, never by the role
@@ -474,6 +488,9 @@ export function sealedCovers(key, rules) {
  * never opens a group's note: what opens it is a name the session holds.
  */
 export function canSee(key, scope, rules, overrides, grantedGroups) {
+  // Left out (not passed, which is not the same as passing `undefined`): the names of the reader the rules were served
+  // for (`READER_NAMES`). A caller judging somebody else, or the workspace's members at large, passes its own, or null.
+  if (arguments.length < 5) grantedGroups = readerNamesOf(rules);
   if (foldPath(key) === PRIVACY_KEY) return scope === "private";
   if (isPlumbing(key)) return false; // plumbing is not part of the note surface for any tool
   const sealed = sealedCovers(key, rules);
@@ -485,7 +502,7 @@ export function canSee(key, scope, rules, overrides, grantedGroups) {
   }
   if (visibility === "team") return !readsAsGuest(grantedGroups);
   if (visibility === "private") return false;
-  return grantedGroups !== undefined && grantedGroups.has(visibility);
+  return grantedGroups !== undefined && grantedGroups !== null && grantedGroups.has(visibility);
 }
 
 /**
