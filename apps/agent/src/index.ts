@@ -48,8 +48,8 @@ import type { DueRoutine } from "./clients";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
 import { mintThreadsLink, readJobSteer, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
-import { acceptJob, armJobNext, failJob, resumeJob, runJob, steerJob } from "./jobRun";
-import { handOverJob, startJobFlow, type JobRunParams } from "./jobWorkflow";
+import { acceptJob, failJob, jobAlarm, resumeJob, runJob, steerJob } from "./jobRun";
+import { startJobFlow, type JobRunParams } from "./jobWorkflow";
 import { jobUpdate } from "./jobTexts";
 import { pageJobsOf, pageSteerResponse } from "./texPage";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
@@ -601,14 +601,8 @@ export class SenderInbox implements DurableObject {
     await logged("alarm_carry_on", () => carryOnAfterSave(this.state.storage, this.deps()));
     // A chat quiet long enough has its conversation scored (`reviewWatch.ts`).
     await logged("alarm_review", () => checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) }));
-    // A job's object has only `jobrun`; every other object finds nothing to run. With Workflows, an alarm
-    // set before they ran jobs (one release) hands its job to its workflow and sets no alarm of its own.
-    await logged("alarm_job", async () => {
-      const flow = this.env.JOB_RUN;
-      if (!(flow && (await handOverJob(this.state.storage, flow)))) {
-        await armJobNext(this.state.storage, await runJob(this.state.storage, this.jobDeps()), Date.now());
-      }
-    });
+    // A job's object has only `jobrun`; every other object finds nothing to run.
+    await logged("alarm_job", () => jobAlarm(this.state.storage, this.jobDeps(), this.env.JOB_RUN !== undefined));
   }
 
   private jobDeps() {

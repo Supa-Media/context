@@ -15,9 +15,8 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { ANSWER_RETRIES, ANSWER_TIMEOUT } from "./groupTurnWorkflow";
 import type { JobNext } from "./jobRun";
-import { jobTag, MAX_JOB_ATTEMPTS, MAX_JOB_TRIES, RUN_KEY, type JobRun } from "./jobs";
+import { jobTag, MAX_JOB_ATTEMPTS, MAX_JOB_TRIES } from "./jobs";
 import { logged } from "./agentError";
-import type { InboxStorage } from "./inbox";
 import type { Env } from "./index";
 import { inboxByName } from "./objectPlace";
 
@@ -88,15 +87,4 @@ export async function startJobFlow(workflow: Pick<Workflow<JobRunParams>, "creat
       throw error;
     });
   }
-}
-
-/**
- * A job armed by its object's alarm before workflows ran jobs (one release, then removed): the alarm hands it
- * to its instance and arms nothing. False when the object holds no job.
- */
-export async function handOverJob(storage: InboxStorage, workflow: Pick<Workflow<JobRunParams>, "create" | "get">): Promise<boolean> {
-  const job = await storage.get<JobRun>(RUN_KEY);
-  if (job === undefined) return false;
-  await startJobFlow(workflow, job.id, job.resumes ?? 0);
-  return true;
 }
