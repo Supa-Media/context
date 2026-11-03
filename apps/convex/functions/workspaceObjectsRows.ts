@@ -13,6 +13,7 @@ import { internalQuery, type DatabaseReader } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import { nodePaths } from "./lib/nodes/paths";
 import { readsKey } from "./lib/cleanup/rows";
+import { objectIdOf } from "./lib/workspaceObjects/rows";
 
 const homeValidator = v.union(v.literal("bucket"), v.literal("dual"), v.literal("object"));
 export type NotesHome = "bucket" | "dual" | "object";
@@ -138,7 +139,7 @@ export const rowsPage = internalQuery({
       if (row.goneAt === undefined && row.workspaceId === workspaceId) {
         const extra = row as Doc<"nodes"> & { collaborates?: boolean };
         rows.push({
-          _id: String(row._id),
+          _id: objectIdOf(row),
           path: row.path,
           kind: row.kind,
           ...(row.noteId === undefined ? {} : { noteId: row.noteId }),

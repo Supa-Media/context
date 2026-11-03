@@ -75,3 +75,14 @@ trash is never deleted in one step; it goes to the trash, as Convex refuses a ke
 it wrote and the ids it removed with their clocks, for the outbox. Rows the object makes take ids `o_` and 32 hex
 characters. Whether the caller may see what it moves is the caller's `judge`, built from the rules it holds. Tests:
 `apps/mcp/test/treeOpsMove.test.mjs`, `apps/mcp/test/treeOpsTrash.test.mjs`.
+
+## Rows the object makes keep the object's id (2026-11-03)
+
+A row the object makes (a folder a move stands up, a new note) has the object's id, `o_` and 32 hex characters, and
+Convex takes it behind under its own `_id`. Convex keeps the object's id as `nodes.objectId` (index
+`by_workspace_objectId`), every push names such a row by it (`lib/workspaceObjects/rows.ts` `objectIdOf`, the push's
+rows and removals and the whole-copy pages), and a mirrored change finds the row through `lib/nodes/objectIds.ts`
+`nodeByObjectId`. A row deleted outright no longer has its `objectId` to read, so the row watch keeps it on the outbox
+entry (`goneObjectIds`) and the push removes it under that id. Without the column, a Convex insert would come back to
+the object as a second row at the same path. Tests: `apps/convex/__tests__/objectRowIds.test.ts` (sabotage: naming the
+row by `_id` fails two cases, dropping `goneObjectIds` fails one).

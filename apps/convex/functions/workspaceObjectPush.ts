@@ -19,7 +19,7 @@ import { internalAction, internalQuery } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import { drainWorkspace, RETRY_MS } from "./lib/rowWatch/drain";
 import { nodePaths, rowsAfter } from "./lib/nodes/paths";
-import { objectRowOf } from "./lib/workspaceObjects/rows";
+import { objectIdOf, objectRowOf } from "./lib/workspaceObjects/rows";
 
 /** Outbox entries one round takes. */
 const ENTRIES_PER_ROUND = 50;
@@ -183,9 +183,12 @@ export const pending = internalQuery({
       const path = doc === null || doc.workspaceId !== workspaceId ? null : await paths.pathOf(doc);
       // A row whose parents spell no path is judged nowhere: it leaves the object, which fails closed.
       const row = doc === null || path === null ? null : objectRowOf({ ...doc, path }, readAt);
-      if (row === null) removed.push(id);
+      // The object knows a row it made by its own id (`nodes.objectId`), so a removal names that one.
+      if (row === null) removed.push(doc !== null && doc.workspaceId === workspaceId ? objectIdOf(doc) : id);
       else rows.push(row);
     }
+    // Rows deleted outright that the object made: their `_id` means nothing to it, so the entry kept their object ids.
+    for (const entry of considered) for (const gone of entry.goneObjectIds ?? []) if (!removed.includes(gone)) removed.push(gone);
     return { entryIds, trim, all: false as const, access, readAt, rows, removed, close, binding, unmarked };
   },
 });
