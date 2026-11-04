@@ -24,6 +24,10 @@
  *   there may send it work: "Only me" unless the owner says `everyone` or
  *   names people, with "Ask me first" on unless they turn it off.
  * - `POST /machines/app/unlend` `{ workspaceId, machineId, chat }` → `{ ok }`.
+ * - `POST /machines/app/answer` `{ workspaceId, machineId, askId, yes,
+ *   always? }` → `{ ok }`: its owner's answer to "Ask me first" (the asks
+ *   waiting are listed with the computer, `asks`). A yes holds for that job
+ *   for the day; `always` lets that person in that chat in without asking.
  *
  * Pairing a computer is approved in the control plane itself
  * (`approveTexMachinePairing`); the runner's poll then adds it to the object.
@@ -38,7 +42,7 @@ import { groupChatId } from "./reach.js";
 const CONSOLE_CLIENT_ID = "context_console";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-export const MACHINE_APP_PATHS = new Set(["/machines/app/list", "/machines/app/set", "/machines/app/disconnect", "/machines/app/lend", "/machines/app/unlend"]);
+export const MACHINE_APP_PATHS = new Set(["/machines/app/list", "/machines/app/set", "/machines/app/disconnect", "/machines/app/lend", "/machines/app/unlend", "/machines/app/answer"]);
 const CHAT_KEY = /^[0-9a-f]{64}$/;
 
 const forbidden = () => json({ error: "forbidden" }, 403);
@@ -148,6 +152,15 @@ async function unlend(env, session, body, controlPlane) {
   return json({ ok: answer?.ok === true });
 }
 
+async function answerAsk(env, session, body) {
+  if (typeof body.askId !== "string" || !ID.test(body.askId)) return invalid("askId");
+  // Only the computer's own owner answers: it is their yes "Ask me first" waits for.
+  const found = await ownComputer(env, session, body);
+  if (found === null) return refused("unknown_machine");
+  const answer = await call(env, found.row.workspaceId, "ws.machine.answer", { id: found.machine.id, askId: body.askId, yes: body.yes === true, always: body.always === true });
+  return answer?.ok === true ? json({ ok: true }) : refused(answer?.code ?? "server_error");
+}
+
 /** One of `MACHINE_APP_PATHS`, for a session already resolved from the app's own token. */
 export async function handleMachineApp(request, env, session, { path, controlPlane }) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
@@ -161,5 +174,6 @@ export async function handleMachineApp(request, env, session, { path, controlPla
   if (path === "/machines/app/disconnect") return await disconnect(env, session, body, controlPlane);
   if (path === "/machines/app/lend") return await lend(env, session, body, controlPlane);
   if (path === "/machines/app/unlend") return await unlend(env, session, body, controlPlane);
+  if (path === "/machines/app/answer") return await answerAsk(env, session, body);
   return new Response(null, { status: 404 });
 }

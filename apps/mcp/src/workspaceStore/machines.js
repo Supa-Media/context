@@ -23,6 +23,9 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS ws_machines (id TEXT PRIMARY KEY, row TEXT NOT NULL, at INTEGER NOT NULL, gone INTEGER NOT NULL DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS ws_machine_runs (run TEXT PRIMARY KEY, machine TEXT NOT NULL, job TEXT NOT NULL, chat TEXT NOT NULL, owner INTEGER NOT NULL, state TEXT NOT NULL, row TEXT NOT NULL, at INTEGER NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS ws_machine_runs_live ON ws_machine_runs (machine, state)`,
+  // "Ask me first": one ask per job, chat and asker on a machine, waiting for its owner's answer.
+  `CREATE TABLE IF NOT EXISTS ws_machine_asks (id TEXT PRIMARY KEY, machine TEXT NOT NULL, chat TEXT NOT NULL, asker TEXT NOT NULL, job TEXT NOT NULL, state TEXT NOT NULL, row TEXT NOT NULL, at INTEGER NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS ws_machine_asks_for ON ws_machine_asks (machine, chat, asker, job)`,
   `CREATE TABLE IF NOT EXISTS ws_machine_usage (machine TEXT NOT NULL, day TEXT NOT NULL, owner_ms INTEGER NOT NULL DEFAULT 0, others_ms INTEGER NOT NULL DEFAULT 0, others_runs INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (machine, day))`,
 ];
 
@@ -32,6 +35,8 @@ const TOOLS = new Set(["claude", "codex"]);
 const LIVE = ["assigned", "running"];
 /** Ended runs are kept this long, so a job that missed the result can still read it. */
 const ENDED_KEPT_MS = 24 * 60 * 60 * 1000;
+/** An owner's answer to "Ask me first" holds for the job's day; an unanswered ask is dropped after it. */
+const ASK_KEPT_MS = 24 * 60 * 60 * 1000;
 /** Usage days kept: a week for the weekly limit, and a margin. */
 const USAGE_DAYS_KEPT = 10;
 
@@ -320,8 +325,42 @@ export function workspaceMachines(sql, deps = {}) {
       return { todayMs: today.ownerMs + today.othersMs, othersTodayMs: today.othersMs, othersRunsToday: today.othersRuns, weekMs: week.ownerMs + week.othersMs };
     },
 
+    /**
+     * "Ask me first": the ask for this job, chat and asker on a machine, made now if there is none.
+     * `{id, state}`, its state `pending`, `yes` or `no` until the owner answers otherwise.
+     */
+    ask(machineId, fields) {
+      const found = all(sql.exec("SELECT id, state, row, at FROM ws_machine_asks WHERE machine = ? AND chat = ? AND asker = ? AND job = ? AND at > ? ORDER BY at DESC LIMIT 1", machineId, fields.chat, fields.askerId, fields.jobId, now() - ASK_KEPT_MS))[0];
+      if (found) return { ...JSON.parse(found.row), id: found.id, state: found.state };
+      const id = `ask_${Array.from(crypto.getRandomValues(new Uint8Array(12)), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+      const row = { machineId, chat: fields.chat, askerId: fields.askerId, jobId: fields.jobId, title: typeof fields.title === "string" ? fields.title.slice(0, 200) : null, chatName: typeof fields.chatName === "string" ? fields.chatName.slice(0, 100) : null, askedAt: now() };
+      sql.exec("INSERT INTO ws_machine_asks (id, machine, chat, asker, job, state, row, at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)", id, machineId, fields.chat, fields.askerId, fields.jobId, JSON.stringify(row), now());
+      return { ...row, id, state: "pending" };
+    },
+
+    /** Whether the owner said yes to this job, chat and asker on a machine, within the day. */
+    approved(machineId, fields) {
+      return all(sql.exec("SELECT 1 AS yes FROM ws_machine_asks WHERE machine = ? AND chat = ? AND asker = ? AND job = ? AND state = 'yes' AND at > ? LIMIT 1", machineId, fields.chat, fields.askerId, fields.jobId, now() - ASK_KEPT_MS)).length > 0;
+    },
+
+    /** The owner's answer to one ask on their machine; null when there is no such ask waiting. */
+    answer(machineId, askId, yes) {
+      if (typeof askId !== "string" || !ID.test(askId)) return null;
+      const found = all(sql.exec("SELECT row, state FROM ws_machine_asks WHERE id = ? AND machine = ? AND at > ?", askId, machineId, now() - ASK_KEPT_MS))[0];
+      if (!found || found.state !== "pending") return null;
+      const state = yes === true ? "yes" : "no";
+      sql.exec("UPDATE ws_machine_asks SET state = ? WHERE id = ?", state, askId);
+      return { ...JSON.parse(found.row), id: askId, state };
+    },
+
+    /** The asks on a machine still waiting for its owner, newest first. */
+    pendingAsks(machineId) {
+      return all(sql.exec("SELECT id, row FROM ws_machine_asks WHERE machine = ? AND state = 'pending' AND at > ? ORDER BY at DESC LIMIT 20", machineId, now() - ASK_KEPT_MS)).map((found) => ({ ...JSON.parse(found.row), id: found.id }));
+    },
+
     /** Old ended runs and old usage days, dropped. */
     sweep() {
+      sql.exec("DELETE FROM ws_machine_asks WHERE at < ?", now() - ASK_KEPT_MS);
       sql.exec("DELETE FROM ws_machine_runs WHERE state = 'ended' AND at < ?", now() - ENDED_KEPT_MS);
       sql.exec("DELETE FROM ws_machine_usage WHERE day < ?", dayOf(now() - USAGE_DAYS_KEPT * 86400000, "UTC"));
     },

@@ -28,6 +28,7 @@ export const MACHINE_OPS = Object.freeze({
   INTERRUPT: "ws.machine.interrupt",
   CANCEL: "ws.machine.cancel",
   RUN: "ws.machine.run",
+  ANSWER: "ws.machine.answer",
 });
 const OPS = new Set(Object.values(MACHINE_OPS));
 
@@ -42,7 +43,7 @@ function mintRunId() {
 /** What the app and the page see of a machine: everything but its key. */
 function shown(store, machine) {
   const { publicKey: _key, ...rest } = machine;
-  return { ...rest, online: store.machineSockets.online(machine.id), used: store.machines.used(machine.id), running: store.machines.liveRuns(machine.id).map((run) => ({ runId: run.runId, jobId: run.jobId, chat: run.chat, fromOwner: run.fromOwner, title: run.title ?? null, state: run.state, startedAt: run.startedAt })) };
+  return { ...rest, asks: store.machines.pendingAsks(machine.id), online: store.machineSockets.online(machine.id), used: store.machines.used(machine.id), running: store.machines.liveRuns(machine.id).map((run) => ({ runId: run.runId, jobId: run.jobId, chat: run.chat, fromOwner: run.fromOwner, title: run.title ?? null, state: run.state, startedAt: run.startedAt })) };
 }
 
 function assign(store, fields) {
@@ -50,8 +51,14 @@ function assign(store, fields) {
   const machineId = fields.machineId;
   const machine = machines.get(machineId);
   if (!machine) return refused("unknown_machine");
-  const ask = { chat: String(fields.chat ?? ""), fromOwner: fields.fromOwner === true, askerId: String(fields.askerId ?? ""), tool: fields.tool, folder: fields.folder, approved: fields.approved === true, computerUse: fields.computerUse === true };
+  const asked = { chat: String(fields.chat ?? ""), askerId: String(fields.askerId ?? ""), jobId: String(fields.jobId ?? "") };
+  // "Ask me first" is the owner's own yes, kept here: never a caller's word that it was given.
+  const ask = { ...asked, fromOwner: fields.fromOwner === true, tool: fields.tool, folder: fields.folder, approved: machines.approved(machineId, asked), computerUse: fields.computerUse === true };
   const held = machines.admit(machineId, ask, machineSockets.online(machineId));
+  if (held?.code === "ask_first") {
+    const waiting = machines.ask(machineId, { ...asked, title: fields.title, chatName: fields.chatName });
+    return refused(waiting.state === "no" ? "declined" : "ask_first", { askId: waiting.id });
+  }
   if (held !== null) return refused(held.code, held.until ? { until: held.until } : {});
   const powers = machines.powers(machineId, ask);
   const now = machines.now();
@@ -141,6 +148,20 @@ export async function serveMachineCall(store, op, fields) {
         // An offline machine's run ends here; an online one ends with the runner's result.
         if (!sent && store.machines.run(fields.runId)?.state !== "ended") store.machines.end(fields.runId, { outcome: "cancelled", error: "cancelled while offline" });
         return answer;
+      }
+      case MACHINE_OPS.ANSWER: {
+        // The owner's answer from the app; who is answering was checked by the gateway (`machines/appRoutes.js`).
+        const answered = store.machines.answer(fields.id, fields.askId, fields.yes === true);
+        if (answered === null) return refused("unknown_ask");
+        if (answered.state === "yes" && fields.always === true) {
+          const machine = store.machines.get(fields.id);
+          const rule = machine?.chats[answered.chat];
+          if (rule) {
+            store.machines.set(fields.id, { chats: { ...machine.chats, [answered.chat]: { ...rule, always: [...rule.always, answered.askerId] } } });
+            store.machineSockets.rulesChanged(fields.id);
+          }
+        }
+        return Response.json({ ok: true, ask: answered });
       }
       case MACHINE_OPS.RUN: {
         const run = store.machines.run(fields.runId);

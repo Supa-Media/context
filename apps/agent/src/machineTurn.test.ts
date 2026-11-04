@@ -13,6 +13,7 @@
  *  4. `steerJob` posting to `/agent/steer` for a machine part → "a later text goes into the session on the computer".
  *  5. `fromMachine` dropping the check's `unfinished` → "a finished part the advisor says isn't done is carried on, on its advice".
  *  7. `machineTurn` stopping every group job → "a group chat's job runs on the computer lent to it, on the chat's own grant".
+ *  8. `machineTurn` not waiting on `ask_first` → "a part waits for the computer owner's yes, then starts".
  *  6. `machineTurn` not asking for the check → "the advisor checks a part against the finish line" and the two after it.
  */
 
@@ -260,6 +261,30 @@ describe("a job on the person's own computer", () => {
       expect(calls.some((call) => call.path === "/agent/machine/assign")).toBe(false);
     } finally {
       groupAnswer = { status: "ready", slug: "band", intro: false, timeZone: "UTC", handle: "ada", accessToken: "group_token" };
+    }
+  });
+
+  it("a part waits for the computer owner's yes, then starts", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const waiting = { ok: false, code: "ask_first", askId: "ask_000000000000000000000001" };
+    const { deps, calls, reports } = world({ assign: [waiting, waiting, { ok: true, runId: "run_000000000000000000000001", deadline: NOW + 15 * 60_000 }], reads: [finished("Fixed.")] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    expect(calls.filter((call) => call.path === "/agent/machine/assign")).toHaveLength(3);
+    expect(reports.some((update) => update.step === "Waiting for the owner of Studio Mac to say yes")).toBe(true);
+    expect(reports[reports.length - 1].texts).toEqual(["Fixed."]);
+  });
+
+  it("an owner who doesn't answer, or says no, ends the job saying so", async () => {
+    for (const [code, text] of [["ask_first", refusedText("Fix the flaky test", "Studio Mac", "ask_first")], ["declined", refusedText("Fix the flaky test", "Studio Mac", "declined")]]) {
+      const storage = new MemoryStorage();
+      await storage.put(RUN_KEY, { ...run(), sent: 0 });
+      const { deps, calls, reports, clock } = world({ assign: Array.from({ length: 30 }, () => ({ ok: false, code })) });
+      expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+      expect(reports[reports.length - 1].texts).toEqual([text]);
+      // Never past the part's own fifteen minutes.
+      expect(clock.at - NOW).toBeLessThanOrEqual(15 * 60_000);
+      expect(calls.filter((call) => call.path === "/agent/machine/assign").length).toBe(code === "declined" ? 1 : 11);
     }
   });
 });

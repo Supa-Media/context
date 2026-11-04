@@ -24,6 +24,9 @@ import type { JobAsk, JobRun, JobVerdict, StepHow } from "./jobs";
 export const MACHINE_PART_MS = 15 * 60 * 1000;
 /** How often a running part is read. */
 export const MACHINE_POLL_MS = 10_000;
+/** How long a part waits for a computer owner's "Ask me first" yes, and how often it asks again meanwhile. */
+const ASK_WAIT_MS = 10 * 60 * 1000;
+const ASK_POLL_MS = 60_000;
 /** How long past a part's deadline it is still read, for the runner's last word. */
 const GRACE_MS = 2 * 60 * 1000;
 /** A texting token lasts fifteen minutes: one older than this is replaced before the next read. */
@@ -92,7 +95,9 @@ export function refusedText(title: string, name: string, code: string): string {
     case "rule":
       return `I couldn't start ${where}: its owner hasn't let this chat use it.`;
     case "ask_first":
-      return `I couldn't start ${where}: its owner wants to be asked first. They can let this chat use it without asking in Tex's settings.`;
+      return `I couldn't start ${where}: its owner hasn't said yes yet. Text me to try again once they have.`;
+    case "declined":
+      return `I didn't start ${where}: its owner said no this time.`;
     default:
       return `I couldn't start ${where}. Text me to try again.`;
   }
@@ -162,7 +167,9 @@ export async function machineTurn(
   let current = run.machineRun?.part === run.attempt ? run.machineRun : undefined;
   if (current === undefined) {
     const advice = adviceFor(job);
-    const answer = await ask("/agent/machine/assign", {
+    // The part's fifteen minutes count from this pass, so waiting for a yes never runs a pass past its step's limit.
+    const partEnds = deps.now() + MACHINE_PART_MS;
+    const assign = () => ask("/agent/machine/assign", {
       machineId: machine.machineId,
       jobId: run.id,
       part: Math.min(run.attempt, 200),
@@ -175,12 +182,21 @@ export async function machineTurn(
       doneWhen: run.doneWhen ?? "",
       ...(advice ? { advice } : {}),
       ...(run.machineSession ? { resumeSession: run.machineSession } : {}),
-      deadline: deps.now() + MACHINE_PART_MS,
+      deadline: partEnds,
     });
+    let answer = await assign();
+    // "Ask me first": the computer's owner answers in the app; the part waits for it, then starts or says why not.
+    const waitUntil = deps.now() + ASK_WAIT_MS;
+    if (answer.code === "ask_first") await hooks.onStep(`Waiting for the owner of ${machine.name} to say yes`);
+    while (answer.code === "ask_first" && deps.now() < waitUntil) {
+      await sleep(ASK_POLL_MS);
+      if (!(await fresh())) return { kind: "stop" };
+      answer = await assign();
+    }
     if (answer.ok !== true || typeof answer.runId !== "string") {
       return { kind: "stop", text: refusedText(run.title, machine.name, typeof answer.code === "string" ? answer.code : "") };
     }
-    current = { runId: answer.runId, part: run.attempt, deadline: typeof answer.deadline === "number" ? answer.deadline : deps.now() + MACHINE_PART_MS };
+    current = { runId: answer.runId, part: run.attempt, deadline: typeof answer.deadline === "number" ? Math.min(answer.deadline, partEnds) : partEnds };
     run.machineRun = current;
     await hooks.keep({ machineRun: current });
   }

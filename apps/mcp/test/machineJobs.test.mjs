@@ -287,7 +287,9 @@ test("somebody else in the group gets the computer only as its owner's rule for 
   const key = `group-${CHAT.slice(0, 58)}`;
   await w.call("ws.machine.set", { id: "mch_1", patch: { chats: { [key]: { who: "everyone" } } } });
   // "Ask me first" stays on unless the owner turned it off.
-  assert.deepEqual((await ask("/agent/machine/assign", assignBody(), groupSession("user_ade"))).body, { ok: false, code: "ask_first" });
+  const waiting = (await ask("/agent/machine/assign", assignBody(), groupSession("user_ade"))).body;
+  assert.equal(waiting.code, "ask_first");
+  assert.match(waiting.askId, /^ask_[0-9a-f]{24}$/);
   await w.call("ws.machine.set", { id: "mch_1", patch: { chats: { [key]: { who: "everyone", askFirst: false } } } });
   const { body } = await ask("/agent/machine/assign", assignBody(), groupSession("user_ade"));
   assert.equal(body.ok, true);
@@ -300,4 +302,37 @@ test("a group's grant without its chat's key reaches no computer", async () => {
   const { controlPlane, ask, assignBody } = await setup();
   controlPlane.lent.push({ groupKey: CHAT, machineId: "mch_1", workspaceId: "ws_a", ownerId: "user_owner" });
   assert.equal((await ask("/agent/machine/assign", assignBody(), groupSession("user_owner", { texChatId: undefined }))).status, 403);
+});
+
+test("Ask me first waits for the owner's own yes, kept by the object, never the caller's word", async () => {
+  const { w, controlPlane, ask, assignBody } = await setup();
+  controlPlane.lent.push({ groupKey: CHAT, machineId: "mch_1", workspaceId: "ws_a", ownerId: "user_owner" });
+  const key = `group-${CHAT.slice(0, 58)}`;
+  await w.call("ws.machine.set", { id: "mch_1", patch: { chats: { [key]: { who: "everyone" } } } });
+  // A body claiming the yes was given changes nothing.
+  const first = (await ask("/agent/machine/assign", assignBody({ approved: true }), groupSession("user_ade"))).body;
+  assert.equal(first.code, "ask_first");
+  // Asked again, the same ask: one card for the owner, not one per try.
+  assert.equal((await ask("/agent/machine/assign", assignBody(), groupSession("user_ade"))).body.askId, first.askId);
+  const listed = await w.call("ws.machine.get", { id: "mch_1" });
+  assert.deepEqual(listed.machine.asks.map((entry) => [entry.id, entry.askerId, entry.chat]), [[first.askId, "user_ade", key]]);
+  assert.equal((await w.call("ws.machine.answer", { id: "mch_1", askId: first.askId, yes: true })).ok, true);
+  assert.equal((await ask("/agent/machine/assign", assignBody(), groupSession("user_ade"))).body.ok, true);
+  // The yes was for that job: another job asks again.
+  assert.equal((await ask("/agent/machine/assign", assignBody({ jobId: "job_2" }), groupSession("user_ade"))).body.code, "ask_first");
+});
+
+test("a no ends the ask, and always lets that person in that chat in without asking", async () => {
+  const { w, controlPlane, ask, assignBody } = await setup();
+  controlPlane.lent.push({ groupKey: CHAT, machineId: "mch_1", workspaceId: "ws_a", ownerId: "user_owner" });
+  const key = `group-${CHAT.slice(0, 58)}`;
+  await w.call("ws.machine.set", { id: "mch_1", patch: { chats: { [key]: { who: "everyone" } } } });
+  const first = (await ask("/agent/machine/assign", assignBody(), groupSession("user_ade"))).body;
+  await w.call("ws.machine.answer", { id: "mch_1", askId: first.askId, yes: false });
+  assert.equal((await ask("/agent/machine/assign", assignBody(), groupSession("user_ade"))).body.code, "declined");
+  const second = (await ask("/agent/machine/assign", assignBody({ jobId: "job_2" }), groupSession("user_ade"))).body;
+  await w.call("ws.machine.answer", { id: "mch_1", askId: second.askId, yes: true, always: true });
+  assert.equal((await ask("/agent/machine/assign", assignBody({ jobId: "job_3" }), groupSession("user_ade"))).body.ok, true);
+  // Only that person: somebody else in the chat is still asked first.
+  assert.equal((await ask("/agent/machine/assign", assignBody({ jobId: "job_4" }), groupSession("user_bola"))).body.code, "ask_first");
 });
