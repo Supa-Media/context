@@ -87,6 +87,7 @@ test/meaningCatchup.test.mjs
 test/meaningSearch.test.mjs
 test/meaningFromObjectGate.test.mjs
 test/searchWordsRevamp.test.mjs
+test/searchFunctionWords.test.mjs
 test/appSearch.test.mjs
 test/meaningServe.test.mjs
 test/meaningById.test.mjs
