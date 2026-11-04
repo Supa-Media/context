@@ -42,6 +42,7 @@ import { advisorRequest } from "../agent/advisor.js";
 import { aiGatewayConfig } from "../agent/aiGateway.js";
 import { builtinModel, canRunBuiltin } from "../agent/builtin.js";
 import { jobChatOf, reachedWorkspace, TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "./reach.js";
+import { machineAskLine, ownerHandleIn } from "./groupAsk.js";
 
 export const MACHINE_RUN_CLIENT_ID = "context_tex_machine_run";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -140,8 +141,11 @@ async function assign(request, env, session, controlPlane, origin, now) {
   const answer = await call(env, covered.workspaceId, "ws.machine.assign", fields).catch(() => null);
   if (answer?.ok !== true) {
     await controlPlane.texMachineRunRevoke(runId).catch(() => null);
-    // "Ask me first": the ask waiting for the owner's yes, so the job can say it is waiting and try again.
-    return json({ ok: false, code: answer?.code ?? "server_error", ...(typeof answer?.askId === "string" ? { askId: answer.askId } : {}) });
+    // "Ask me first": the ask waiting for the owner's yes, so the job can say it is waiting and try again. Made just
+    // now in a group chat, the job also gets the line the chat is asked in, the owner's 👍 there being the yes.
+    const asking = answer?.code === "ask_first" && answer.fresh === true && session.actorClientId === TEXTS_GROUP_CLIENT_ID;
+    const askLine = asking ? machineAskLine({ title: body.title, machineName: machine.machine.name, ownerHandle: await ownerHandleIn(controlPlane, session, machine.machine.ownerId) }) : null;
+    return json({ ok: false, code: answer?.code ?? "server_error", ...(typeof answer?.askId === "string" ? { askId: answer.askId } : {}), ...(askLine ? { askLine } : {}) });
   }
   return json({ ok: true, runId: answer.runId, deadline: answer.deadline, powers: answer.powers });
 }

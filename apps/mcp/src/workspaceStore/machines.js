@@ -358,7 +358,8 @@ export function workspaceMachines(sql, deps = {}) {
       const id = `ask_${Array.from(crypto.getRandomValues(new Uint8Array(12)), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
       const row = { machineId, chat: fields.chat, askerId: fields.askerId, jobId: fields.jobId, title: typeof fields.title === "string" ? fields.title.slice(0, 200) : null, chatName: typeof fields.chatName === "string" ? fields.chatName.slice(0, 100) : null, ...(typeof fields.chatKey === "string" && /^[0-9a-f]{64}$/.test(fields.chatKey) ? { chatKey: fields.chatKey } : {}), askedAt: now() };
       sql.exec("INSERT INTO ws_machine_asks (id, machine, chat, asker, job, state, row, at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)", id, machineId, fields.chat, fields.askerId, fields.jobId, JSON.stringify(row), now());
-      return { ...row, id, state: "pending" };
+      // `fresh`: made just now, so the chat is asked once (`machines/groupAsk.js`), never at each look.
+      return { ...row, id, state: "pending", fresh: true };
     },
 
     /** Whether the owner said yes to this job, chat and asker on a machine, within the day. */

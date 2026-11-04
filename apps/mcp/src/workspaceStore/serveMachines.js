@@ -58,7 +58,7 @@ function assign(store, fields) {
   const held = machines.admit(machineId, ask, machineSockets.online(machineId));
   if (held?.code === "ask_first") {
     const waiting = machines.ask(machineId, { ...asked, title: fields.title, chatName: fields.chatName, chatKey: fields.chatKey });
-    return refused(waiting.state === "no" ? "declined" : "ask_first", { askId: waiting.id });
+    return refused(waiting.state === "no" ? "declined" : "ask_first", { askId: waiting.id, ...(waiting.fresh === true ? { fresh: true } : {}) });
   }
   if (held !== null) return refused(held.code, held.until ? { until: held.until } : {});
   const powers = machines.powers(machineId, ask);
@@ -157,7 +157,7 @@ export async function serveMachineCall(store, op, fields) {
         return Response.json({ ok: true, machine: shown(store, machine) });
       }
       case MACHINE_OPS.ANSWER: {
-        // The owner's answer from the app; who is answering was checked by the gateway (`machines/appRoutes.js`).
+        // The owner's answer from the app or their 👍 in the chat; who is answering was checked by the gateway (`machines/appRoutes.js`, `machines/groupAsk.js`).
         const answered = store.machines.answer(fields.id, fields.askId, fields.yes === true);
         if (answered === null) return refused("unknown_ask");
         if (answered.state === "yes" && fields.always === true) {

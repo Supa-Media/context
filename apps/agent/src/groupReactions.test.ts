@@ -120,6 +120,17 @@ describe("a reaction in a group", () => {
     expect(asks.filter((ask) => ask.tapback !== undefined)).toEqual([]);
   });
 
+  it("anyone's 👍 on an ask to use someone's computer goes to the gateway, which takes only the owner's", async () => {
+    const storage = new MemoryStorage();
+    const asks: Record<string, unknown>[] = [];
+    const MACHINE_ASK = `@bo: Give this a 👍 and I'll start "Fix the flaky test" on @bo's computer "Studio Mac". Only @bo can OK it; a 👎 says no.`;
+    await texSaid(storage, asks, MACHINE_ASK);
+    // Bo owns the computer and is not the asker: before, their 👍 was a line of the chat and the job waited for nothing.
+    expect(await acceptGroup(storage, reacted(BO, "bo", { how: "Liked", words: MACHINE_ASK }), 1_000)).toBe("queued");
+    await drainGroup(storage, groupDeps(asks, { answer: "Thanks." }));
+    expect(asks.filter((ask) => ask.tapback !== undefined)).toHaveLength(1);
+  });
+
   it("a guest's 👍 never approves", async () => {
     const storage = new MemoryStorage();
     const asks: Record<string, unknown>[] = [];

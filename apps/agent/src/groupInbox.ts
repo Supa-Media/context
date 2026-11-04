@@ -60,7 +60,7 @@ import type { InboundAttachment } from "./inbound";
 import { groupSettingReply, groupSettings } from "./groupSettings";
 import { answers, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { ackEmoji } from "./ackEmoji";
-import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onTexText } from "./thumbs";
+import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onMachineAsk, onTexText } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
@@ -307,7 +307,8 @@ type ReactionRead = { kind: "done"; outcome: "queued" | "ignored" } | { kind: "l
  * A reaction in a group (Dev2, 2026-11-01: every tapback and emoji is input).
  * - Taken back: logged; drops a held yes only when it was the asker's.
  * - A 👍, ❤️ or 👎 from the asker on the ask: code's, held as their answer (`thumbs.ts`); nobody else's ever is,
- *   and the gateway takes no yes from a guest (`guestTagger`), so neither ever releases what was held.
+ *   and the gateway takes no yes from a guest (`guestTagger`), so neither ever releases what was held. On an ask to
+ *   run a job on a lent computer anyone's is held, and the gateway takes only its owner's (`onMachineAsk`).
  * - On a text of Tex's that asks something (or any ❓ on Tex's): that person's answer, read as its line
  *   ("👍 (yes) on Tex's message …") and answered as a message to Tex is.
  * - Anything else: a line of the chat, to decide only as the style says, like an untagged message.
@@ -322,8 +323,9 @@ async function acceptReaction(storage: InboxStorage, message: GroupMessage, reac
     log("reaction_removed");
     return { kind: "done", outcome: "ignored" };
   }
-  // The ask's own words are checked by `holdsAsAnswer`, and again by the gateway against what is held.
-  if (asker && holdsAsAnswer(reaction)) {
+  // The ask's own words are checked by `holdsAsAnswer`, and again by the gateway against what is held. An ask to run
+  // a job on someone's computer waits on its owner, not the asker: anyone's goes, and the gateway takes only the owner's.
+  if ((asker || (onTex && onMachineAsk(reaction))) && holdsAsAnswer(reaction)) {
     await logGroupInbound(storage, { ...message, text: line }, now);
     await holdThumb<GroupMessage>(storage, { ...message, text: tapbackText(reaction.how) }, reaction.words, now, GROUP_THUMB_KEY);
     log("reaction_ask");
