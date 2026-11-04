@@ -43,9 +43,36 @@ import { destinationRefusal } from "./destination.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { rowVersionOf, startKeyedNoteMove } from "./queuedFolder.js";
 import { phase } from "../../mcp/phase.js";
-import { TAKEN_REFUSAL, objectServesMoves, startObjectMove } from "./objectMove.js";
+import { objectServesMoves, startObjectMove } from "./objectMove.js";
 
 const ARCHIVE_TAKEN = "conflict: archive destination already exists";
+const NO_ARCHIVE =
+  "this context has no archive folder — its layout is its owner's, and archiving must " +
+  "not invent one. Use move_note to the folder this context keeps inactive material in " +
+  "(orient and the front page state its conventions), or ask the owner to add an " +
+  "archive rule to privacy.md (`archive` or `4-archive`, for example).";
+
+/**
+ * An archive made in the workspace's object in one trip (`objectMove.js`, `archive` in place of a destination): the
+ * object judges the note, finds the Archive, names the first free destination and moves it. Nothing here reads the
+ * note's text or editing history. `null` where the object leaves it to the way below.
+ */
+async function archiveInObject(store, scope, rules, overrides, path, expectedEtag, refuse) {
+  const version = await phase(store, "archive_version", () => rowVersionOf(store, path, expectedEtag));
+  if (version.conflict) return refuse(toolError("conflict: the note changed since you read it; re-read and retry"));
+  return startObjectMove(store, scope, path, null, version.etag, {
+    kind: "note",
+    action: "archive_note",
+    privacy: { rules, overrides },
+    archive: { root: archiveRoot(rules) ?? null, roots: archiveRoots(rules) },
+    onCode: (code) =>
+      code === "NO_ARCHIVE" ? toolError(NO_ARCHIVE)
+      : code === "ARCHIVED" ? toolText("already archived")
+      : code === "HIDDEN_DESTINATION" ? writePermissionError("archive destination")
+      : code === "TAKEN" ? toolError(ARCHIVE_TAKEN)
+      : undefined,
+  });
+}
 
 export async function toolArchiveNote(store, scope, rules, overrides, pathArg, expectedEtag) {
   const path = normalizePath(pathArg);
@@ -66,10 +93,18 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   // which must still say "not found" for a note that is absent. Elsewhere it is asked beside the archive folder's job.
   const objectAsked = objectServesMoves(store, scope);
   let probed = objectAsked ? null : probeWithLegacyFallback(store, path);
-  const jobsAsked = factJobs(store);
   const present = () => (probed ??= probeWithLegacyFallback(store, path));
   /** A refusal decided before the move, said only of a note that is there. */
   const refuse = async (result) => ((await present()) ? result : toolError("not found"));
+  // The object archives in one trip: it finds the folder doing the Archive's job itself and names the destination, so
+  // no `jobs` ask goes first (`moveWrites.js` `archiveTo`; about 25 ms in production, 2026-11-04). A team archive with
+  // no expected etag is refused below, as before.
+  if (objectAsked && (scope === "private" || expectedEtag)) {
+    const archived = await archiveInObject(store, scope, rules, overrides, path, expectedEtag, refuse);
+    if (archived !== null) return archived;
+    // The object left this archive to the control plane (`DEFER`, or it could not be asked): the way below.
+  }
+  const jobsAsked = factJobs(store);
   if (!objectAsked && !(await present())) {
     await jobsAsked;
     return toolError("not found");
@@ -94,12 +129,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   const roots = [...new Set([...(archiveJob ? [archiveJob] : []), ...archiveRoots(rules)])];
   const root = archiveJob ?? archiveRoot(rules);
   if (!root) {
-    return refuse(toolError(
-      "this context has no archive folder — its layout is its owner's, and archiving must " +
-        "not invent one. Use move_note to the folder this context keeps inactive material in " +
-        "(orient and the front page state its conventions), or ask the owner to add an " +
-        "archive rule to privacy.md (`archive` or `4-archive`, for example)."
-    ));
+    return refuse(toolError(NO_ARCHIVE));
   }
   // Every archive it has, not the one we would write to: a note already sitting
   // in `5-archive/` must not be moved into `4-archive/` because the resolver
@@ -112,27 +142,6 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
     return refuse(writePermissionError("archive destination"));
   }
 
-  // A workspace whose notes live in its object archives there, in one transaction (`objectMove.js`): nothing here
-  // reads the note's text or editing history, and a taken name is the object's own answer, so the next numbered name
-  // is asked of it in turn. Archiving took about 2.5 s through the reads below (2026-11-03).
-  if (objectAsked) {
-    const version = await phase(store, "archive_version", () => rowVersionOf(store, path, expectedEtag));
-    if (version.conflict) return refuse(toolError("conflict: the note changed since you read it; re-read and retry"));
-    let answered = null;
-    const landed = await firstFreePath(archiveDestination(root, path), async (candidate) => {
-      const result = await startObjectMove(store, scope, path, candidate, version.etag, {
-        kind: "note",
-        action: "archive_note",
-        privacy: { rules, overrides },
-      });
-      if (result?.isError === true && result.content?.[0]?.text === TAKEN_REFUSAL) return true;
-      answered = result;
-      return false;
-    });
-    if (answered !== null) return answered;
-    if (landed === null) return toolError(ARCHIVE_TAKEN);
-    // The object left this archive to the control plane (`DEFER`, or it could not be asked): the way below.
-  }
 
   const obj = await getWithLegacyFallback(store, path);
   if (!obj) return toolError("not found");

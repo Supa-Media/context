@@ -416,3 +416,63 @@ test("a refused move says nothing of time, and waits for nothing", async () => {
   assert.equal("took" in answer, false);
   assert.equal(waited, 0);
 });
+
+/* -- `archive` in place of `to`: the object names the destination itself (one trip, no `jobs` ask before it) -------- */
+
+const ARCHIVE_ASK = { root: null, roots: [] };
+
+test("an archive goes under the folder doing the Archive's job, at the note's own path there", async () => {
+  const { store } = await ready();
+  const answer = await (await callMove(store, { from: "projects/plan.md", archive: ARCHIVE_ASK, ...OWNER })).json();
+  assert.equal(answer.ok, true, JSON.stringify(answer));
+  assert.equal(answer.to, "archive/projects/plan.md");
+  assert.equal(pathOf(store, "row-plan"), "archive/projects/plan.md");
+});
+
+test("an archive whose name is taken takes the next numbered name, as firstFreePath does", async () => {
+  const { store } = await ready();
+  store.rows.put([{ id: "row-held", noteId: "0190aaaa-0000-7000-8000-0000000000aa", path: "archive/projects/plan.md", kind: "file", storageKey: "notes/held.md", etag: "e-held", at: 2 }]);
+  const answer = await (await callMove(store, { from: "projects/plan.md", archive: ARCHIVE_ASK, ...OWNER })).json();
+  assert.equal(answer.ok, true, JSON.stringify(answer));
+  assert.equal(answer.to, "archive/projects/plan (2).md");
+});
+
+test("a note already under the Archive, or under a root the rules name, is ARCHIVED and stays", async () => {
+  const { store, mirror } = await ready();
+  store.rows.put([{ id: "row-gone", noteId: "0190aaaa-0000-7000-8000-0000000000ab", path: "archive/old.md", kind: "file", storageKey: "notes/old.md", etag: "e-old", at: 2 }]);
+  const inJob = await (await callMove(store, { from: "archive/old.md", archive: ARCHIVE_ASK, ...OWNER })).json();
+  assert.deepEqual(inJob, { ok: false, code: "ARCHIVED" });
+  const inRoot = await (await callMove(store, { from: "notes/me.md", archive: { root: null, roots: ["notes"] }, ...OWNER })).json();
+  assert.deepEqual(inRoot, { ok: false, code: "ARCHIVED" });
+  assert.equal(pathOf(store, "row-me"), "notes/me.md");
+  assert.equal(mirror.count(), 0);
+});
+
+test("with no folder doing the Archive's job, the rules' root is used, and with neither the answer is NO_ARCHIVE", async () => {
+  const { store } = await ready();
+  // A top-level "archive" does the job by its name alone; "none" says it does no job.
+  store.rows.put([{ id: "row-archive", path: "archive", kind: "folder", role: "none", at: 2 }]);
+  const none = await (await callMove(store, { from: "projects/plan.md", archive: ARCHIVE_ASK, ...OWNER })).json();
+  assert.deepEqual(none, { ok: false, code: "NO_ARCHIVE" });
+  const ruled = await (await callMove(store, { from: "projects/plan.md", archive: { root: "notes/old", roots: ["notes/old"] }, ...OWNER })).json();
+  assert.equal(ruled.ok, true, JSON.stringify(ruled));
+  assert.equal(ruled.to, "notes/old/projects/plan.md");
+});
+
+test("an archive of a note that is not there, or that the caller cannot see, is NOT_FOUND before anything about the archive", async () => {
+  const { store } = await ready();
+  // A top-level "archive" does the job by its name alone; "none" says it does no job.
+  store.rows.put([{ id: "row-archive", path: "archive", kind: "folder", role: "none", at: 2 }]);
+  const missing = await (await callMove(store, { from: "projects/none.md", archive: ARCHIVE_ASK, ...OWNER })).json();
+  assert.deepEqual(missing, { ok: false, code: "NOT_FOUND" });
+  const hidden = await (await callMove(store, { from: "projects/secret/memo.md", archive: ARCHIVE_ASK, ...TEAM })).json();
+  assert.deepEqual(hidden, { ok: false, code: "NOT_FOUND" });
+});
+
+test("an archive names no `to`, and a move with both is refused", async () => {
+  const { store } = await ready();
+  const both = await callMove(store, { from: "projects/plan.md", to: "x/plan.md", archive: ARCHIVE_ASK, ...OWNER });
+  assert.equal(both.status, 422);
+  const bad = await callMove(store, { from: "projects/plan.md", archive: { root: 3, roots: [] }, ...OWNER });
+  assert.equal(bad.status, 422);
+});
