@@ -128,3 +128,35 @@ Tests: `apps/mcp/test/agentHubLinks.test.mjs`, the hub check in
 `agentGroupTurn.test.mjs`, `apps/agent/src/threadsView.test.ts`,
 `apps/mobile/__tests__/texPageAddress.test.ts` and the address checks in
 `texPage.test.ts` and `texComputer.test.ts`.
+
+## The page loads fast (decided by the owner, 2026-11-04)
+
+"Make the hub page load fast": it took a picture of Tex's browser on every
+load and read its parts one after another. Now:
+
+- **The browser tile asks a cheap question.** `/view/status` in site-shots
+  (`infra/site-shots/src/viewStatus.ts`) asks Browserbase which browsers are
+  running and what page the owner's is on, over HTTP. It never connects to the
+  browser, never takes a picture (0.6 to 3 s in the week before), and never
+  touches the idle timer, so opening the page no longer keeps a browser awake.
+  The frame route stays for the computer page itself.
+- **The first screen and the tiles are read side by side.** The app asks the
+  overview in parts (`OverviewPart`: `core`, `tiles`, `chats`), draws the
+  first screen when `core` lands, and fills each tile's line in when `tiles`
+  lands; until then a quiet bar sits in a line of fixed height, and after four
+  seconds the tile shows its title alone, never an error. A group address
+  looks its chat up with `chats` only, not a whole page, and the person's
+  machine asks are read beside the page, not after it.
+- **Coming back is instant.** The last page each chat drew is kept in memory
+  (`texPageMemory.ts`), drawn at once and read again behind it, and forgotten
+  beside every clear of the device's copy (`offline/forget.ts`). Tex's
+  computer is never drawn from it: whether a browser is open goes stale in
+  seconds.
+- **Cost of a "simplification".** Going back to the frame for the tile puts a
+  browser connection and a picture on every page load and keeps idle browsers
+  billing; one overview read for everything makes the page as slow as its
+  slowest tile; keeping the copy past sign-out draws one session's page in
+  the next.
+
+Tests: `infra/site-shots/src/viewStatus.test.ts`, the path check in
+`apps/mcp/test/texPageComputer.test.mjs`, `apps/mobile/__tests__/texPageFast.test.ts`.

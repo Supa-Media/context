@@ -17,6 +17,7 @@ import { gatewaySource, type TexPageSource } from "./texPageSource";
 import { withGatewayMachines } from "./texMachineSource";
 import { chatOfWords, placeHref, readPlace, signInHref } from "./texPlace";
 import { useTexPage } from "./useTexPage";
+import { keepGroupKey, keptGroupKey } from "./texPageMemory";
 import { T } from "./TexPageParts";
 
 /** A pairing code as the runner prints it: letters and digits, maybe one dash. */
@@ -86,9 +87,9 @@ export function TexPageScreen() {
       },
     });
   }, [handle, workspaceId]);
-  const group = useGroupKey(source, words);
+  const group = useGroupKey(source, words, handle);
   const place = words === undefined ? routePlace : { ...routePlace, chat: group.state === "ok" ? group.key : "me" };
-  const page = useTexPage(words !== undefined && group.state !== "ok" ? null : source, place.chat);
+  const page = useTexPage(words !== undefined && group.state !== "ok" ? null : source, place.chat, handle ?? undefined);
   // The computer is read only while something on screen shows it.
   const showsComputer = place.view === "computer" || place.job !== undefined;
   const computer = useTexComputer({
@@ -142,12 +143,13 @@ type GroupKey = { state: "ok"; key: string } | { state: "wait" } | { state: "non
  * that does not exist. `ok` with the person's own chat when the address is
  * not a group's (`words` undefined).
  */
-function useGroupKey(source: TexPageSource | null, words: string | null | undefined): GroupKey {
+function useGroupKey(source: TexPageSource | null, words: string | null | undefined, handle: string | null): GroupKey {
   const [found, setFound] = useState<{ words: string; key: GroupKey } | null>(null);
   useEffect(() => {
     if (source === null || typeof words !== "string") return;
     let live = true;
-    void source.overview("me").then((read) => {
+    // Only the chat list: the page itself is read once the group is known, never a whole page first.
+    void source.overview("me", "chats").then((read) => {
       if (!live) return;
       const key: GroupKey =
         read.kind === "ok"
@@ -155,15 +157,20 @@ function useGroupKey(source: TexPageSource | null, words: string | null | undefi
           : read.kind === "notYours"
             ? { state: "none" }
             : { state: "failed" };
+      if (key.state === "ok" && handle !== null) keepGroupKey(handle, words, key.key);
       setFound({ words, key });
     });
     return () => {
       live = false;
     };
-  }, [source, words]);
+  }, [handle, source, words]);
   if (words === undefined) return { state: "ok", key: "me" };
   if (words === null) return { state: "none" };
-  return found !== null && found.words === words ? found.key : { state: "wait" };
+  if (found !== null && found.words === words) return found.key;
+  // Coming back to a group drawn before: its key from last time, checked again behind it. The gateway still
+  // refuses a chat the person has left, so a kept key opens nothing it should not.
+  const kept = handle !== null ? keptGroupKey(handle, words) : null;
+  return kept !== null ? { state: "ok", key: kept } : { state: "wait" };
 }
 
 function Ground() {

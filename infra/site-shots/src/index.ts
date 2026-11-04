@@ -45,6 +45,9 @@
  *   person's own look at, and hands on, that browser, for the Context app's
  *   `/tex/<handle>` page through the gateway (./view.ts). They find a
  *   browser and never start one.
+ *   POST /view/status `{ owner }` → `{ running, url? }`: whether that browser
+ *   is open, for the Tex page's tile, without connecting to it or taking a
+ *   picture (./viewStatus.ts).
  *   anything else 404
  */
 
@@ -57,6 +60,7 @@ import { parseReadRequest, read } from "./read";
 import { browserbaseConfigured, type BrowserbaseEnv } from "./browserbase";
 import { browseOnBrowserbase } from "./browserbaseRoute";
 import { viewOnBrowserbase } from "./view";
+import { viewStatus } from "./viewStatus";
 import { BROWSE_GOTO_TIMEOUT_MS, parseBrowseRequest, runSteps, type BrowsePage } from "./browse";
 import type { Browser, BrowserContext } from "@cloudflare/puppeteer";
 import { parseRenderRequest, render, type RenderBrowser } from "./render";
@@ -87,6 +91,9 @@ export default {
       const body = await request.json().catch(() => null);
       if ((body as { provider?: unknown })?.provider === "browserbase") return await browseOnBrowserbase(env, url.pathname, body, fetch, (work) => ctx?.waitUntil(work));
       return await browse(env, url.pathname, body);
+    }
+    if (request.method === "POST" && url.pathname === "/view/status") {
+      return await viewStatus(env, await request.json().catch(() => null));
     }
     if (request.method === "POST" && (url.pathname === "/view/frame" || url.pathname === "/view/input")) {
       return await viewOnBrowserbase(env, url.pathname, await request.json().catch(() => null));

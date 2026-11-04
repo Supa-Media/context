@@ -30,7 +30,7 @@
 
 import type { IdleNamespace } from "./idle";
 
-const API = "https://api.browserbase.com/v1";
+export const API = "https://api.browserbase.com/v1";
 
 /**
  * A browser's longest life, however busy. It ends sooner: five minutes after
