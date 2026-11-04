@@ -20,10 +20,10 @@ import {
   actionPieces,
   advisorLine,
   busyLine,
+  minionMood,
   endedLine,
   heading,
   mailcheckLine,
-  moodOf,
   slotLine,
   statusLine,
   tileLines,
@@ -305,7 +305,7 @@ export function Minion({ slot, now, wide, go }: { slot: Slot; now: number; wide:
   const s = job ? slotLine(job, now) : null;
   const body = (
     <>
-      <Figure mood={moodOf(job)} size={wide ? 64 : 52} />
+      <Figure mood={minionMood(job)} size={wide ? 64 : 52} testID={`tex-minion-figure-${slot.place ?? "cloud"}-${slot.slot}`} />
       <View style={styles.minionText}>
         <T size={11} weight="600" tone="muted" upper>
           {`Minion ${slot.slot}`}
