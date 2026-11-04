@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { JOB_KEPT_MS, JOB_PREFIX, JOB_STALE_MS, MACHINE_JOB_STALE_MS, type JobEntry } from "./jobs";
+import { JOB_KEPT_MS, JOB_PREFIX, JOB_SHOWN_MS, JOB_STALE_MS, MACHINE_JOB_STALE_MS, WAIT_ENDED_STATUS, type JobEntry } from "./jobs";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { MAX_PAGE_JOBS, pageJobsOf, pageSteer, readPageChat, readPageSteer } from "./texPage";
 
@@ -70,6 +70,14 @@ describe("pageJobsOf", () => {
     expect(storage.data.has(`${JOB_PREFIX}gone`)).toBe(false);
     expect(page.jobs.find((job) => job.id === "lost")).toBeUndefined();
     expect(storage.data.get(`${JOB_PREFIX}lost`)).toMatchObject({ state: "failed" });
+  });
+  it("shows a job waiting on them only while their answer can still pick it up, then as stuck", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(`${JOB_PREFIX}fresh`, entry("fresh", { state: "waiting", startedAt: NOW - 2_000, finishedAt: NOW - 1_000, status: "Needs a code" }));
+    await storage.put(`${JOB_PREFIX}lapsed`, entry("lapsed", { state: "waiting", startedAt: NOW - JOB_SHOWN_MS - 5_000, finishedAt: NOW - JOB_SHOWN_MS - 1, status: "Needs a yes" }));
+    const jobs = (await pageJobsOf(storage, NOW)).jobs;
+    expect(jobs.find((job) => job.id === "fresh")).toMatchObject({ state: "waiting", status: "Needs a code" });
+    expect(jobs.find((job) => job.id === "lapsed")).toMatchObject({ state: "stuck", status: WAIT_ENDED_STATUS });
   });
   it("says which of the person's computers a job runs on, and nothing for Tex's cloud", async () => {
     const storage = new MemoryStorage();

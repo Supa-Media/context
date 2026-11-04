@@ -153,11 +153,27 @@ all three answered "it's running again" eight times before they stopped.
 - **Two parts in a row that call no tool and still aren't done end the job
   stuck** (`idle` from `jobCheck.js`), saying so, instead of spending parts.
 
+- **A wait ends when its run does** (2026-11-04). A job that ended `waiting`
+  can be picked up only while its object keeps the run, so once those two
+  hours pass the chat's inbox marks it `stuck` ("Stopped waiting: no answer
+  within two hours"), timed at the moment the wait ran out (`sweptJobs`,
+  `apps/agent/src/jobs.ts`). The chat's turns and the Tex page read their
+  jobs through that one sweep. Before, the page kept a job waiting on a
+  Gmail yes on a cloud minion for two days after nothing could answer it,
+  while Tex's own turns had stopped being shown it. On the page, running
+  jobs get a place's slots before waiting ones (`slotsOf`,
+  `apps/mcp/src/http/texPage/jobs.js`), since only running jobs count
+  against the limit and a waiting one must never hide one that runs.
+
 **What a simplification would cost:** starting a new job on "restart" runs it
 on the restart text with nothing it had done; showing a job the chat lets it
 answer as the chat; dropping the repeat guard spends ten parts on nothing.
 Tests: `apps/mcp/test/agentJobRestart.test.mjs`, `agentJobCheck.test.mjs`,
-`apps/agent/src/jobResume.test.ts`, each with a sabotage record.
+`apps/agent/src/jobResume.test.ts`, each with a sabotage record; keeping a
+lapsed wait `waiting` fails "ends a wait nobody can answer any more"
+(`jobs.test.ts`) and its page twin (`texPage.test.ts`), and numbering slots
+by start alone fails "a running job gets a cloud slot before jobs waiting"
+(`apps/mcp/test/texPageJobPlaces.test.mjs`).
 
 ### A running job can be steered, stopped and audited from the chat (2026-10-21)
 

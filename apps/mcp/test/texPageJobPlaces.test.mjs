@@ -54,3 +54,14 @@ test("a job's summary and page say where it runs, in words", () => {
   const done = readJob(raw("vm2", NOW - 60_000, { on: vm, state: "done", finishedAt: NOW - 1_000 }));
   assert.equal(jobsOverview([done], NOW).earlier[0].ranOn, "On Cloud VM");
 });
+
+test("a running job gets a cloud slot before jobs waiting on the person, so a waiting one never hides it", () => {
+  // Three waiting jobs started first; Tex counts only running ones against its three (`fits`), so a fourth runs.
+  const waiting = [1, 2, 3].map((n) => readJob(raw(`w${n}`, NOW - 1_000 + n, { state: "waiting", status: `Needs answer ${n}` })));
+  const jobs = [...waiting, readJob(raw("run", NOW - 10))];
+  const slots = slotsOf(jobs);
+  // The newest waiting one gives way; the rest keep the order they started in.
+  assert.deepEqual([slots.get("w1"), slots.get("w2"), slots.get("run"), slots.has("w3")], [1, 2, 3, false]);
+  const { minions } = jobsOverview(jobs, NOW);
+  assert.deepEqual(minions.filter((slot) => slot.place === undefined).map((slot) => slot.job?.id), ["w1", "w2", "run"]);
+});
