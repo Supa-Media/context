@@ -7,6 +7,7 @@
  *   - installing after the notarize.cjs --check (2026-11-04, the first real run) "installs dependencies before"
  *   - dropping the origin/main comparison                        "only from origin/main"
  *   - removing the workflow's older-than-latest refusal          "the workflow refuses an older version"
+ *   - CONTEXT_DESKTOP_SIGNED only on electron-builder (v0.1.71-72) "bakes the signed flag into the build"
  */
 
 import { readFileSync } from "node:fs";
@@ -21,6 +22,11 @@ export async function runReleaseLocalChecks(check) {
   check(
     "release-local: publishes only after the build verifies and the app opens with --smoke",
     at("gh release create") > at("--smoke") && at("--smoke") > at("spctl --assess") && at("spctl --assess") > at("electron-builder --mac"),
+  );
+  check(
+    "release-local: bakes the signed flag into the build, and refuses a bundle without it (v0.1.71-72 could not update)",
+    /CONTEXT_DESKTOP_SIGNED=true pnpm run build/.test(code) && at('grep -q "signed: true" dist/main/index.cjs') > at("CONTEXT_DESKTOP_SIGNED=true pnpm run build") &&
+      at('grep -q "signed: true" dist/main/index.cjs') < at("electron-builder --mac"),
   );
   check(
     "release-local: installs dependencies before the notarisation key check, which needs @electron/notarize",
