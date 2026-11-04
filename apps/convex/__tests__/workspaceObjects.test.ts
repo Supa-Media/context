@@ -243,6 +243,13 @@ describe("rows and who can see", () => {
     // Any digest field that differs shows.
     const moved = rows.map((row) => (row.id === "r2" ? { ...row, order: 2 } : row));
     expect((await rowsDigest(moved)).sha256).not.toBe((await rowsDigest(rows)).sha256);
+    // A folder's Sort setting is digested once set, the same way on both sides; when a row was made is not digested.
+    const sorted = rows.map((row) => (row.id === "r2" ? { ...row, sort: "custom", created: 123 } : row));
+    await client.rows.snapshot({ epoch: "2", rows: sorted, last: true, mode: "replace" });
+    expect(await client.rows.digest()).toEqual(await rowsDigest(sorted));
+    expect((await rowsDigest(sorted)).sha256).not.toBe((await rowsDigest(rows)).sha256);
+    const dated = rows.map((row) => (row.id === "r2" ? { ...row, created: 123 } : row));
+    expect((await rowsDigest(dated)).sha256).toBe((await rowsDigest(rows)).sha256);
   });
 
   test("Convex's answer and the object's agree for the owner, a member and a token holder, and a drifted rule shows", async () => {

@@ -23,6 +23,7 @@ import { useThemedStyles, type Colors } from "../../design/theme";
 import { FolderRow, NEST_INDENT } from "./FolderRow";
 import type { FolderListing, FileEntry } from "./types";
 import { listedEntries } from "./tree";
+import { listingSortOf, type ListingSort } from "@context/shared/src/listingSort.cjs";
 
 export interface RowNesting {
   /** The file browser's listing of a folder, or undefined until it has one. */
@@ -65,7 +66,7 @@ export function NestedRows({
   nesting,
   open,
   onToggle,
-  descending,
+  workspaceSort,
   rowProps,
   iconOf,
 }: {
@@ -74,7 +75,7 @@ export function NestedRows({
   nesting: RowNesting;
   open: ReadonlySet<string>;
   onToggle: (path: string) => void;
-  descending: boolean;
+  workspaceSort: ListingSort | null;
   rowProps: (row: FileEntry) => RowProps;
   iconOf?: (path: string) => string | null;
 }) {
@@ -92,7 +93,7 @@ export function NestedRows({
       </Text>
     );
   }
-  const rows = listedEntries(listing.entries, { descending });
+  const rows = listedEntries(listing.entries, { sort: listingSortOf(listing, workspaceSort), parent });
   if (rows.length === 0) {
     return (
       <Text variant="treeMeta" style={[styles.note, { paddingLeft: indent(depth) }]} testID="folder-row-children-empty">
@@ -119,7 +120,7 @@ export function NestedRows({
               nesting={nesting}
               open={open}
               onToggle={onToggle}
-              descending={descending}
+              workspaceSort={workspaceSort}
               rowProps={rowProps}
               {...(iconOf === undefined ? {} : { iconOf })}
             />

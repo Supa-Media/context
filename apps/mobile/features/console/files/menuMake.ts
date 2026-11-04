@@ -91,15 +91,16 @@ export function iconGroup(context: MenuContext, row: TreeRow | null): MenuItem[]
 }
 
 /**
- * "Move up" and "Move down" on one folder: its place among its sibling
- * folders, as the list draws them (owner, 2026-10-18: an order on the row
- * replaces number prefixes). Editor only, like every write, and only where the
- * caller knows the folder's place (`folderPlace`). At an end the way it cannot
- * go is dimmed, not dropped, so the pair keeps its place under a pointer; a
- * folder alone at its level gets neither.
+ * "Move up" and "Move down" on one row: a folder's place among its sibling
+ * folders, or any row's among all of them in a folder in custom order, as the
+ * list draws them (owner, 2026-10-18 and 2026-11-04; `levelOrder.ts`). Editor
+ * only, like every write, and only where the caller knows the row's place
+ * (`folderPlace`, which answers null for a note outside custom order). At an
+ * end the way it cannot go is dimmed, not dropped, so the pair keeps its place
+ * under a pointer; a row alone among the rows it moves with gets neither.
  */
 export function orderGroup(context: MenuContext, row: TreeRow | null): MenuItem[] {
-  if (!context.canEdit || row === null || row.kind !== "folder") return [];
+  if (!context.canEdit || row === null || (row.kind !== "folder" && row.kind !== "file")) return [];
   const place = context.folderPlace?.(row.path) ?? null;
   if (place === null) return [];
   return [

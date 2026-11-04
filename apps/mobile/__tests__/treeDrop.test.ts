@@ -1,13 +1,15 @@
 /**
- * Dragging a folder in the sidebar tree to put it in order, or to nest it
+ * Dragging a row in the sidebar tree to put it in order, or to nest it
  * (`features/console/files/treeDrop.ts`; owner, 2026-10-18: "fixed jobs, free
- * names", `docs/decisions/app-and-console/folder-jobs.md`).
+ * names", `docs/decisions/app-and-console/folder-jobs.md`; notes too since
+ * 2026-11-04, `folder-sort.md`).
  *
  * Three zones per folder row: the top quarter drops *above* it, the bottom
- * quarter *below* it, the middle *into* it. Between two siblings is a reorder
- * of that level (`folderOrder.set`); between rows of another level is a move
- * into that level at that place, then the order; the middle is the nest that
- * was always there.
+ * quarter *below* it, the middle *into* it; a note row's top half drops above
+ * it and its bottom half below. Between two siblings is a reorder of that
+ * level, every row of it sent (`folderOrder.set`); between rows of another
+ * level is a move into that level at that place, then the order; the middle
+ * of a folder is the nest that was always there.
  *
  * SABOTAGE: drop the `fixed` check from the cross-level branch of
  * `planTreeDrop` and "Website keeps its place: it cannot be dropped into
@@ -55,7 +57,7 @@ const listings: Readonly<Record<string, FolderListing | undefined>> = {
 };
 
 function plan(over: Partial<TreeDropInput> & Pick<TreeDropInput, "paths" | "target" | "zone">) {
-  return planTreeDrop({ listings, descending: false, ...over });
+  return planTreeDrop({ listings, workspaceSort: null, ...over });
 }
 
 describe("which zone of a row the pointer is in", () => {
@@ -77,7 +79,13 @@ describe("which zone of a row the pointer is in", () => {
     expect(dropZoneAt(0.1, open, true)).toBe("above");
   });
 
-  test("a drag that cannot be ordered (notes, several rows) only ever nests", () => {
+  test("a note row has no inside: its top half is above it, its bottom half below", () => {
+    const note = { kind: "file" as const, expanded: false };
+    expect(dropZoneAt(0.4, note, true)).toBe("above");
+    expect(dropZoneAt(0.6, note, true)).toBe("below");
+  });
+
+  test("a drag that cannot be ordered (several rows, a copy) only ever nests", () => {
     expect(dropZoneAt(0.05, closed, false)).toBe("into");
     expect(dropZoneAt(0.95, closed, false)).toBe("into");
   });
@@ -95,7 +103,7 @@ describe("between two siblings: a reorder of that level", () => {
     expect(plan({ paths: ["Recipes"], target: "Projects", zone: "above" })).toEqual({
       kind: "reorder",
       parent: "",
-      folders: ["Capture", "Recipes", "Projects", "Areas", "website"],
+      folders: ["Capture", "Recipes", "Projects", "Areas", "website", "todo.md"],
     });
   });
 
@@ -103,7 +111,7 @@ describe("between two siblings: a reorder of that level", () => {
     expect(plan({ paths: ["Capture"], target: "Recipes", zone: "below" })).toEqual({
       kind: "reorder",
       parent: "",
-      folders: ["Projects", "Areas", "website", "Recipes", "Capture"],
+      folders: ["Projects", "Areas", "website", "Recipes", "Capture", "todo.md"],
     });
   });
 
@@ -111,7 +119,7 @@ describe("between two siblings: a reorder of that level", () => {
     expect(plan({ paths: ["Areas"], target: "Capture", zone: "above" })).toEqual({
       kind: "reorder",
       parent: "",
-      folders: ["Areas", "Capture", "Projects", "website", "Recipes"],
+      folders: ["Areas", "Capture", "Projects", "website", "Recipes", "todo.md"],
     });
   });
 
@@ -119,7 +127,7 @@ describe("between two siblings: a reorder of that level", () => {
     expect(plan({ paths: ["Projects/beta"], target: "Projects/alpha", zone: "above" })).toEqual({
       kind: "reorder",
       parent: "Projects",
-      folders: ["Projects/beta", "Projects/alpha"],
+      folders: ["Projects/beta", "Projects/alpha", "Projects/plan.md"],
     });
   });
 
@@ -130,12 +138,12 @@ describe("between two siblings: a reorder of that level", () => {
     expect(plan({ paths: ["Projects"], target: "Areas", zone: "above" })).toEqual({ kind: "none" });
   });
 
-  test("Z to A: above is above as drawn, and the server is sent its own order", () => {
-    // Drawn: Recipes, website, Areas, Projects, Capture. Capture above Areas.
-    expect(plan({ paths: ["Capture"], target: "Areas", zone: "above", descending: true })).toEqual({
+  test("sorted Z to A: above is above as drawn, and the whole level is sent as drawn", () => {
+    // Drawn: website, Recipes, Projects, Capture, Areas, then todo.md. Capture above Projects.
+    expect(plan({ paths: ["Capture"], target: "Projects", zone: "above", workspaceSort: "name-desc" })).toEqual({
       kind: "reorder",
       parent: "",
-      folders: ["Projects", "Areas", "Capture", "website", "Recipes"],
+      folders: ["website", "Recipes", "Capture", "Projects", "Areas", "todo.md"],
     });
   });
 
@@ -150,7 +158,7 @@ describe("between rows of another level: a move there, at that place", () => {
       kind: "place",
       from: "Recipes",
       parent: "Projects",
-      folders: ["Projects/alpha", "Projects/Recipes", "Projects/beta"],
+      folders: ["Projects/alpha", "Projects/Recipes", "Projects/beta", "Projects/plan.md"],
     });
   });
 
@@ -159,7 +167,7 @@ describe("between rows of another level: a move there, at that place", () => {
       kind: "place",
       from: "Capture",
       parent: "Projects",
-      folders: ["Projects/alpha", "Projects/Capture", "Projects/beta"],
+      folders: ["Projects/alpha", "Projects/Capture", "Projects/beta", "Projects/plan.md"],
     });
   });
 
@@ -168,7 +176,7 @@ describe("between rows of another level: a move there, at that place", () => {
       kind: "place",
       from: "website",
       parent: "Projects",
-      folders: ["Projects/website", "Projects/alpha", "Projects/beta"],
+      folders: ["Projects/website", "Projects/alpha", "Projects/beta", "Projects/plan.md"],
     });
   });
 
@@ -181,7 +189,7 @@ describe("between rows of another level: a move there, at that place", () => {
       kind: "place",
       from: "Projects/beta",
       parent: "",
-      folders: ["Capture", "Projects", "Areas", "beta", "website", "Recipes"],
+      folders: ["Capture", "Projects", "Areas", "beta", "website", "Recipes", "todo.md"],
     });
   });
 });
@@ -216,9 +224,57 @@ describe("nesting is unchanged", () => {
     expect(plan({ paths: ["Recipes"], target: "Projects", zone: "into" })).toEqual({ kind: "nest", folder: "Projects" });
   });
 
-  test("notes and multi-row drags nest whatever zone they arrive with", () => {
-    expect(plan({ paths: ["todo.md"], target: "Projects", zone: "above" })).toEqual({ kind: "nest", folder: "Projects" });
+  test("multi-row drags nest whatever zone they arrive with", () => {
     expect(plan({ paths: ["Recipes", "Areas"], target: "Projects", zone: "below" })).toEqual({ kind: "nest", folder: "Projects" });
+  });
+
+  test("a note dropped into a folder nests, and dropped onto a note does nothing", () => {
+    expect(plan({ paths: ["todo.md"], target: "Projects", zone: "into" })).toEqual({ kind: "nest", folder: "Projects" });
+    expect(plan({ paths: ["Recipes"], target: "todo.md", zone: "into" })).toEqual({ kind: "none" });
+  });
+});
+
+describe("notes are put in order too (owner, 2026-11-04)", () => {
+  test("a note dropped between two folders sits between them", () => {
+    expect(plan({ paths: ["todo.md"], target: "Projects", zone: "above" })).toEqual({
+      kind: "reorder",
+      parent: "",
+      folders: ["Capture", "todo.md", "Projects", "Areas", "website", "Recipes"],
+    });
+  });
+
+  test("a folder dropped below a note goes after it", () => {
+    expect(plan({ paths: ["Projects/alpha"], target: "Projects/plan.md", zone: "below" })).toEqual({
+      kind: "reorder",
+      parent: "Projects",
+      folders: ["Projects/beta", "Projects/plan.md", "Projects/alpha"],
+    });
+  });
+
+  test("a note from another folder is placed beside a note there", () => {
+    expect(plan({ paths: ["todo.md"], target: "Projects/plan.md", zone: "above" })).toEqual({
+      kind: "place",
+      from: "todo.md",
+      parent: "Projects",
+      folders: ["Projects/alpha", "Projects/beta", "Projects/todo.md", "Projects/plan.md"],
+    });
+  });
+
+  test("in custom order the rows are drawn by their order, and the drop follows what is drawn", () => {
+    const custom = {
+      ...listings,
+      Projects: {
+        ...listings.Projects!,
+        sort: "custom",
+        entries: [folder("Projects/alpha", { order: 20 }), folder("Projects/beta", { order: 0 }), { ...file("Projects/plan.md"), order: 10 }],
+      },
+    };
+    // Drawn: beta, plan.md, alpha. alpha above beta.
+    expect(planTreeDrop({ listings: custom, workspaceSort: null, paths: ["Projects/alpha"], target: "Projects/beta", zone: "above" })).toEqual({
+      kind: "reorder",
+      parent: "Projects",
+      folders: ["Projects/alpha", "Projects/beta", "Projects/plan.md"],
+    });
   });
 });
 

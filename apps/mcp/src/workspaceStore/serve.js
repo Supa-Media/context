@@ -187,7 +187,7 @@ function listingAnswer(store, fields) {
   const tree = treeRows(store.sql);
   const { rows: children, more } = tree.children(folder);
   const clearance = { scope: fields.scope, names: new Set(Array.isArray(fields.groups) ? fields.groups.filter((group) => typeof group === "string") : []) };
-  return { served: true, listing: listFolderFromRows({ folder, clearance, held, children, more, own: tree.own(folder), roots: tree.jobRows() }) };
+  return { served: true, listing: listFolderFromRows({ folder, clearance, held, children, more, own: tree.own(folder), roots: tree.jobRows(), sortAt: (path) => tree.sortAt(path) }) };
 }
 
 /** The paths a row change touches, before and after, for a tree watcher (`store.onTreeChange`). */

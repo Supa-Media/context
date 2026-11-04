@@ -3,7 +3,7 @@ import { writeClipboard } from "../../../design/clipboard";
 import { isApplePlatform } from "../../../design/applePlatform";
 import type { useFrame } from "../../../app/AppFrame";
 import type { FileBrowser } from "../browser";
-import { listingIsDescending, useListingOrder } from "../listingOrder";
+import { useWorkspaceSort, workspaceSortNow } from "../listingOrder";
 import { itemsFor, type MenuActionId, type MenuTarget } from "../menu";
 import { runMenuAction, type ActionContext, type Dialog } from "../actions";
 import { useRightClick } from "../rightClick";
@@ -54,17 +54,10 @@ export function useExplorer({
   frame: ReturnType<typeof useFrame>;
 }) {
   /*
-    The sort control's whole state. Two orders and not a menu of five, because
-    two is what one press can carry and because the only field the console has
-    to sort on is the name — `FolderListing` has no sizes for a folder and the
-    dates it does carry are the bucket's, not the note's.
+    The workspace's own Sort setting, shared with the folder page rather than
+    held here — see `listingOrder.ts`. Each folder's own arrives on its listing.
   */
-  /*
-    Shared with the folder page rather than held here — see `listingOrder.ts`.
-    It used to be this component's own `useState`, which meant the sort reached
-    the tree and not the listing of the very same folder drawn beside it.
-  */
-  const descending = useListingOrder();
+  const workspaceSort = useWorkspaceSort();
   const [query, setQuery] = useState("");
   const [dialog, setOwnDialog] = useState<Dialog>(null);
   /*
@@ -160,9 +153,9 @@ export function useExplorer({
         listings: files.listings,
         expanded: files.expanded,
         selectedPath: files.selectedPath,
-        descending,
+        workspaceSort,
       }),
-    [descending, files.expanded, files.listings, files.selectedPath],
+    [workspaceSort, files.expanded, files.listings, files.selectedPath],
   );
 
   const { shown, rows, pickedRows, onPick } = useTreePick({
@@ -236,7 +229,7 @@ export function useExplorer({
         canDownload: files.canDownload,
         clipboard: files.clipboard,
         // The root's names, each folder's job and its place among its siblings (`menuBuiltIn.ts`).
-        ...folderMenuFacts(files, listingIsDescending()),
+        ...folderMenuFacts(files, workspaceSortNow()),
         platform,
         // Read, never assumed. `menu.ts` defaults this to Apple, which prints
         // `⌘⇧M` on Windows beside a row whose chord is actually `Ctrl+Shift+M`.
@@ -363,7 +356,7 @@ export function useExplorer({
   }, []);
   const { dragHandlers, dropTarget } = useTreeDrag({
     files,
-    descending,
+    workspaceSort,
     contextLabel,
     pickedRows,
     shown,
@@ -388,7 +381,7 @@ export function useExplorer({
   useEffect(() => onNarrowTree(setQuery), []);
 
   return {
-    descending,
+    workspaceSort,
     query,
     setQuery,
     dialog,

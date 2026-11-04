@@ -34,6 +34,7 @@ import {
   isRowRole,
   jobAt,
 } from "../../../../packages/shared/src/folderRoles.cjs";
+import { effectiveSort, isListingSort } from "../../../../packages/shared/src/listingSort.cjs";
 
 /** Rows of one folder read before the listing calls itself short (`NODE_LISTING_ROWS`). */
 export const LISTING_ROWS = 5_000;
@@ -89,7 +90,7 @@ function describeFile(key, rules, overrides, extra) {
 }
 
 /**
- * @typedef {{path: string, kind: "file"|"folder", size?: number|null, uploaded?: number|null, role?: string|null, order?: number|null, archiveOf?: string|null}} TreeRow
+ * @typedef {{path: string, kind: "file"|"folder", size?: number|null, uploaded?: number|null, role?: string|null, order?: number|null, archiveOf?: string|null, sort?: string|null, created?: number|null}} TreeRow
  * @typedef {{scope: "private"|"team", names: ReadonlySet<string>}} Clearance
  */
 
@@ -106,7 +107,7 @@ function describeFile(key, rules, overrides, extra) {
  *   roots: TreeRow[],             // the live top-level folders and every row with a job, for `folderJobs`
  * }} input
  */
-export function listFolderFromRows({ folder, clearance, held, children, more, own, roots }) {
+export function listFolderFromRows({ folder, clearance, held, children, more, own, roots, sortAt = () => null }) {
   const manifestUsable = held !== null && held !== undefined;
   const { rules, overrides } = manifestUsable ? parsedRules(held) : { rules: [], overrides: new Map() };
   const withheld = !manifestUsable || (folder !== "" && !folderVisibleAtScope(folder, clearance, rules, overrides));
@@ -137,16 +138,21 @@ export function listFolderFromRows({ folder, clearance, held, children, more, ow
   const jobs = folderJobs(
     roots.map((row) => ({ path: row.path, name: baseName(row.path), role: row.role ?? undefined, top: !row.path.includes("/") })),
   );
-  const byPath = new Map(children.filter((row) => row.kind === "folder").map((row) => [row.path, row]));
+  const byPath = new Map(children.map((row) => [`${row.kind}:${row.path}`, row]));
   const drawn = entries.map((entry) => {
-    if (entry.kind !== "folder") return entry;
-    const row = byPath.get(entry.path);
+    const row = byPath.get(`${entry.kind}:${entry.path}`);
+    const placed = {
+      ...entry,
+      ...(Number.isFinite(row?.order) ? { order: row.order } : {}),
+      ...(Number.isFinite(row?.created) ? { createdAt: row.created } : {}),
+    };
+    if (entry.kind !== "folder") return placed;
     const role = isRowRole(row?.role) ? row.role : folder === "" ? jobAt(jobs, entry.path) : null;
     return {
-      ...entry,
+      ...placed,
       ...(role === null ? {} : { role }),
-      ...(Number.isFinite(row?.order) ? { order: row.order } : {}),
       ...(isRowRole(row?.archiveOf) ? { archiveOf: row.archiveOf } : {}),
+      ...(isListingSort(row?.sort) ? { sort: row.sort } : {}),
     };
   });
   drawn.sort((a, b) => compareListingEntries(folder, a, b));
@@ -160,6 +166,7 @@ export function listFolderFromRows({ folder, clearance, held, children, more, ow
           ? null
           : jobAt(jobs, folder);
   const showOwn = !withheld && ownJob !== null;
+  const sort = folder === "" ? null : effectiveSort(folder, sortAt, null);
 
   return {
     path: folder,
@@ -170,5 +177,7 @@ export function listFolderFromRows({ folder, clearance, held, children, more, ow
     truncated: withheld ? false : more,
     manifestUsable,
     ...(showOwn ? { role: ownJob } : {}),
+    // The setting it draws by, its own or the nearest above it; a withheld folder says nothing of it.
+    ...(withheld || sort === null ? {} : { sort }),
   };
 }

@@ -29,6 +29,10 @@ export interface ObjectRow {
   role: string | null;
   order: number | null;
   archiveOf: string | null;
+  /** A folder's Sort setting (`nodes.sort`); digested only when set (`digestLine`). */
+  sort: string | null;
+  /** When the row was made (`_creationTime`); not digested. */
+  created: number | null;
   at: number;
   /** The object's clock of the last change it made to this row, as Convex holds it (`nodes.objectAt`); not digested. */
   objectAt: number;
@@ -36,6 +40,15 @@ export interface ObjectRow {
 
 /** The fields the object's digest covers, in its order. */
 const DIGEST_FIELDS = ["id", "noteId", "path", "kind", "storageKey", "etag", "size", "collaborates", "uploaded", "role", "order", "archiveOf"] as const;
+
+/**
+ * A row's digest line, as the object builds it (`apps/mcp/src/workspaceStore/rows.js` `digestLine`): the digest
+ * fields, then the Sort setting only when there is one, so rows made before it keep their digest.
+ */
+export function digestLine(row: Pick<ObjectRow, (typeof DIGEST_FIELDS)[number] | "sort">): string {
+  const fields = DIGEST_FIELDS.map((field) => row[field] ?? null);
+  return JSON.stringify(typeof row.sort === "string" && row.sort !== "" ? [...fields, row.sort] : fields);
+}
 
 export interface ConvexRowLike {
   _id: string;
@@ -54,6 +67,8 @@ export interface ConvexRowLike {
   role?: string;
   order?: number;
   archiveOf?: string;
+  sort?: string;
+  _creationTime?: number;
 }
 
 const finite = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
@@ -79,6 +94,8 @@ export function objectRowOf(row: ConvexRowLike, at: number): ObjectRow | null {
     role: row.role ?? null,
     order: finite(row.order),
     archiveOf: row.archiveOf ?? null,
+    sort: row.sort ?? null,
+    created: finite(row._creationTime),
     at,
     objectAt: row.objectAt ?? 0,
   };
@@ -88,7 +105,7 @@ export function objectRowOf(row: ConvexRowLike, at: number): ObjectRow | null {
 export async function rowsDigest(rows: ObjectRow[]): Promise<{ rows: number; sha256: string }> {
   // SQLite's `ORDER BY id` on TEXT is a byte order; ids are ASCII, so code-unit order is the same.
   const sorted = [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const canonical = sorted.map((row) => JSON.stringify(DIGEST_FIELDS.map((field) => row[field] ?? null))).join("\n");
+  const canonical = sorted.map(digestLine).join("\n");
   const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
   return { rows: sorted.length, sha256: Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("") };
 }
