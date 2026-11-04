@@ -97,22 +97,36 @@ export const setMyMapLook = mutation({
  * and choices), never an id. Run by hand from the `Map look of a person`
  * workflow, so the owner can make a look someone set up the map's default
  * (Dev2, 2026-11-04). Internal only: no client can call it.
+ *
+ * A username is the slug of the person's personal workspace: the name claim
+ * points at that workspace, and its one owner is the person. The answer says
+ * which step came up empty, so a missing look is not mistaken for a wrong name.
  */
 export const lookOfUsername = internalQuery({
   args: { username: v.string() },
-  returns: v.union(v.object({ look: mapLookValidator, updatedAt: v.number() }), v.null()),
+  returns: v.union(
+    v.object({ found: v.literal("look"), look: mapLookValidator, updatedAt: v.number() }),
+    v.object({ found: v.union(v.literal("no such name"), v.literal("not a person"), v.literal("no look saved")) }),
+  ),
   handler: async (ctx, args) => {
     const name = args.username.trim().replace(/^@/, "").toLowerCase();
     const claim = await ctx.db
       .query("names")
       .withIndex("by_name", (q) => q.eq("name", name))
       .unique();
-    if (claim === null || claim.kind !== "user" || claim.userId === undefined) return null;
-    const userId = claim.userId;
+    if (claim === null) return { found: "no such name" as const };
+    let userId: Id<"users"> | null = null;
+    if (claim.kind === "user" && claim.userId !== undefined) userId = claim.userId;
+    if (claim.kind === "workspace" && claim.workspaceId !== undefined) {
+      const workspace = await ctx.db.get(claim.workspaceId);
+      if (workspace?.kind === "personal") userId = workspace.createdBy;
+    }
+    if (userId === null) return { found: "not a person" as const };
+    const owner = userId;
     const row = await ctx.db
       .query("mapLookPreferences")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .withIndex("by_user", (q) => q.eq("userId", owner))
       .unique();
-    return row === null ? null : { look: row.look, updatedAt: row.updatedAt };
+    return row === null ? { found: "no look saved" as const } : { found: "look" as const, look: row.look, updatedAt: row.updatedAt };
   },
 });
