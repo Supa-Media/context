@@ -45,6 +45,7 @@
 
 import { PAGE_JOB_LINE } from "../pages.js";
 import { mailLine, mailOf } from "./steer.js";
+import { pickMachine } from "../machines/forJobs.js";
 export { jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, reportReply } from "./jobReport.js";
 
 export const START_JOB_TOOL = "start_background_job";
@@ -314,6 +315,19 @@ const TOOL = {
         },
         required: ["path", "name"],
       },
+      on_computer: {
+        type: "object",
+        description:
+          "Run it on one of their own paired computers instead of the cloud, with Claude Code or Codex signed in to their own plan: " +
+          "for coding in their repos, or anything that needs their machine. name: the computer as they call it (left out when they have one); " +
+          "tool: claude or codex; folder and repo: where on it, when they said. Runs up to four hours, checked every fifteen minutes.",
+        properties: {
+          name: { type: "string" },
+          tool: { type: "string", enum: ["claude", "codex"] },
+          folder: { type: "string" },
+          repo: { type: "string" },
+        },
+      },
       quiet: {
         type: "boolean",
         description:
@@ -421,7 +435,7 @@ const text = (words, isError = false) => ({ content: [{ type: "text", text: word
  *
  * @param {{ running: Array|null, job: object|null, now: number, report?: boolean, read?: () => void }} options
  */
-export function backgroundSession({ running, job, now, report = false, read = () => {} }) {
+export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null }) {
   if (running === null) return null;
   const started = [];
   let justStarted = null; // the title of the job the last call started, read once by `endsTurn`
@@ -464,7 +478,15 @@ export function backgroundSession({ running, job, now, report = false, read = ()
       );
     }
     const mail = jobMailOf(args?.mail);
-    started.push({ id: crypto.randomUUID(), title, brief, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
+    // On one of their own computers (`machines/forJobs.js`): found now, and admitted by its owner's rules at every part.
+    let machine = null;
+    if (args?.on_computer !== undefined && args?.on_computer !== null) {
+      if (machines === null) return text("Only a job from their own one-to-one chat can run on their computer.", true);
+      const picked = pickMachine(await machines(), args.on_computer);
+      if (picked.error) return text(picked.error, true);
+      machine = picked.machine;
+    }
+    started.push({ id: crypto.randomUUID(), title, brief, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
     justStarted = title;
     return text(
       `Started in the background as "${title}". Tell them in one short line that you're on it and will text the result, ` +
@@ -659,7 +681,7 @@ export function startedJobs(background, tainted) {
   if (background === null) return {};
   return {
     ...(background.started.length > 0
-      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail }) => ({ id, title, brief, doneWhen, ...(mail ? { mail } : {}), ...(tainted ? { tainted: true } : {}) })) }
+      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })) }
       : {}),
     ...(background.steered.length + background.resumed.length > 0
       ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true }))] }

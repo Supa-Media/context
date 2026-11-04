@@ -6,6 +6,7 @@ import { addressedTo } from "../../tools/offerFor.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { hearVoiceMessages } from "../attachments.js";
 import { backgroundSession, runningJobsOf } from "../background.js";
+import { machinesFor } from "../../machines/forJobs.js";
 import { openChatSkills } from "../chatSkills.js";
 import { lastOffer } from "../claimCheck.js";
 import { checkerHistory } from "../groupTurn.js";
@@ -26,7 +27,7 @@ export async function readTheHistory(t) {
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
   const [{ conversation, history }, logged] = await tex.wait("history", historyRead); const attachments = [...fresh, ...(runner ? [] : await tex.step("kept_files_again", () => carryKeptFiles(store, history, fresh), []))]; stages?.mark("history");
   if (group !== null) markChatWords(ledger); if (job?.tainted || report !== null) markUntrusted(ledger); // a chat's own words are no stranger's (`chatSkills.js`); a job planned after a read from outside still carries it, and a job's report is what it read
-  const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger) }) : null;
+  const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger), machines: group === null && session.actorClientId === TEXTS_CLIENT_ID ? () => machinesFor(env, session) : null }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
   // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
   if (session.egress.liked === undefined && approvalVerdict(question) === "approve") session.egress.liked = [lastOffer(history)].find((offer) => group === null || addressedTo(offer, group.from)) ?? undefined;
