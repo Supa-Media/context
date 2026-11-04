@@ -119,7 +119,7 @@ jobs:
           # reach (`node scripts/convex-gateway-reads.mjs --filter` prints this
           # list; check-ci-path-gates.mjs fails when it stops covering them).
           # A texting-assistant change under apps/mcp/src/agent reaches none but
-          # the history move's files named here, so it no longer waits four
+          # the history move's files and the texting phone hash named here, so it no longer waits four
           # minutes on this suite; the tests that read the whole gateway run in
           # Gateway Contracts instead.
           - 'apps/mcp/src/activity/**'
@@ -136,6 +136,7 @@ jobs:
           - 'apps/mcp/src/agent/log.js'
           - 'apps/mcp/src/agent/logRender.js'
           - 'apps/mcp/src/agent/sources.js'
+          - 'apps/mcp/src/agent/textingPhone.js'
           - 'apps/mcp/src/chaos/**'
           - 'apps/mcp/src/communications/**'
           - 'apps/mcp/src/context/**'
@@ -759,6 +760,7 @@ jobs:
             apps/mcp/src/agent/log.js
             apps/mcp/src/agent/logRender.js
             apps/mcp/src/agent/sources.js
+            apps/mcp/src/agent/textingPhone.js
             apps/mcp/src/chaos/**
             apps/mcp/src/communications/**
             apps/mcp/src/context/**
