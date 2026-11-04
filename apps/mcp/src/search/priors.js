@@ -13,6 +13,7 @@
  */
 
 import { TEX_FOLDER, topLevelRole } from "../../../../packages/shared/src/folderRoles.cjs";
+import { ACTIVITY_PATH } from "../../../../packages/shared/src/activity.cjs";
 
 /** The multiplier for a log or archived note: half the score of an ordinary one with the same evidence. */
 export const LOG_PRIOR = 0.5;
@@ -49,6 +50,10 @@ export function notePrior(path) {
   if (typeof path !== "string") return 1;
   const segments = withoutWorkspace(path).split("/");
   const [top, second] = segments;
+  // The workspace's own activity log names every note it touched, so it holds
+  // the words of half the queries anyone types: production, 2026-11-04, "YC
+  // application" put it above the application itself.
+  if (segments.length === 1 && top === ACTIVITY_PATH) return LOG_PRIOR;
   if (topLevelRole(top) === "archive") return LOG_PRIOR;
   if (topLevelRole(top) === "inbox" && INBOX_LOG_FOLDERS.includes(second?.toLowerCase())) return LOG_PRIOR;
   if (top === TEX_FOLDER && TEX_LOG_FOLDERS.includes(second)) return LOG_PRIOR;

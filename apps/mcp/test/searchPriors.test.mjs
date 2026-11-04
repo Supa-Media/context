@@ -9,6 +9,7 @@
  * archived iMessage months and a search-probe note.
  *
  * Sabotage record (temporary local edits, reverted):
+ *   the activity log not demoted             → "the activity log is a log, in any workspace…" fails
  *   archive folders not demoted              → "an archived note is demoted, whatever its name" fails
  *   the inbox communication list ignored     → "an inbox communication folder is a log" fails
  *   the `@name/` prefix not stripped         → "a workspace prefix is read through" fails
@@ -95,4 +96,10 @@ test("a search-probe note is never an answer, whatever its workspace", () => {
   assert.equal(isSearchProbe("projects/search-probes-notes.md"), false);
   assert.equal(isSearchProbe("projects/gym/weights.md"), false);
   assert.equal(isSearchProbe(undefined), false);
+});
+
+test("the activity log is a log, in any workspace; a note named like it in a folder is not", () => {
+  assert.equal(notePrior("activity.md"), LOG_PRIOR);
+  assert.equal(notePrior("@supa/activity.md"), LOG_PRIOR);
+  assert.equal(notePrior("projects/launch/activity.md"), 1);
 });

@@ -35,6 +35,9 @@ import { isSearchProbe, notePrior } from "../priors.js";
 import { createD1Client } from "../d1/client.js";
 import { passageSnippets } from "../d1/passages.js";
 import { phase } from "../../mcp/phase.js";
+import { evidenceBonus } from "../evidence.js";
+import { matchesOnlyInLinks } from "../linkMatch.js";
+import { looksLikeCode, queryLooksLikeCode } from "../codeLike.js";
 
 /**
  * The closeness below which a match is noise rather than "the same topic".
@@ -202,12 +205,32 @@ export async function meaningMatches(
  * owner, 2026-10-10, "who left the team": a page of emails that say "team",
  * no meeting). A loose hit that meaning also found keeps its fused place.
  *
+ * With the query, a word hit whose terms sit only inside a link counts as
+ * loose too (`search/linkMatch.js`), and a word hit's title and phrase evidence
+ * is added to its score before the path prior (`search/evidence.js`): the same
+ * rules `fuseEverywhere` applies across workspaces. Without a query neither
+ * changes anything.
+ *
+ * @param {string} [query] the person's words, as typed
  * @returns {Array<{key: string, word: object|null, meaning: object|null}>}
  */
-export function mergeHits(wordHits, matches, keyField = "key") {
+export function mergeHits(wordHits, matches, keyField = "key", query = undefined) {
   const merged = new Map();
+  const shaped = (hit) => ({ key: hit[keyField], title: hit.title, snippets: Array.isArray(hit.snippets) ? hit.snippets : [] });
+  const looseHit = (hit) => hit.loose === true || matchesOnlyInLinks(query, [hit.title, ...shaped(hit).snippets]);
+  // As `fuseEverywhere` counts them: a loose hit's words count only while no hit holds every word.
+  const anyWhole = wordHits.some((hit) => !looseHit(hit));
   wordHits.forEach((hit, rank) => {
-    merged.set(hit[keyField], { key: hit[keyField], word: hit, meaning: null, score: 1 / (RRF_K + rank + 1), order: rank });
+    const counted = !(looseHit(hit) && anyWhole);
+    const title = counted ? evidenceBonus(query, shaped(hit)) : 0;
+    merged.set(hit[keyField], {
+      key: hit[keyField],
+      word: hit,
+      meaning: null,
+      score: 1 / (RRF_K + rank + 1) + title,
+      order: rank,
+      loose: looseHit(hit),
+    });
   });
   (matches ?? []).forEach((match, rank) => {
     const entry = merged.get(match.path);
@@ -222,6 +245,7 @@ export function mergeHits(wordHits, matches, keyField = "key") {
         meaning: match,
         score: add,
         order: wordHits.length + rank,
+        loose: false,
       });
     }
   });
@@ -229,7 +253,7 @@ export function mergeHits(wordHits, matches, keyField = "key") {
   // note or a log places below a live one with the same evidence. It only
   // reorders; the sort below keeps the loose-hit rule and the tie order.
   for (const entry of merged.values()) entry.score *= notePrior(entry.key);
-  const weak = (entry) => (entry.word?.loose === true && entry.meaning === null ? 1 : 0);
+  const weak = (entry) => (entry.loose && entry.meaning === null ? 1 : 0);
   return [...merged.values()]
     .sort((a, b) => weak(a) - weak(b) || b.score - a.score || a.order - b.order)
     .map(({ key, word, meaning }) => ({ key, word, meaning }));
@@ -328,13 +352,17 @@ async function snippetsFor(store, reading, chars, given) {
  * that holds its own client (the console): `{client: () => client, filling}`.
  * Absent, it is the store's own (`store.searchIndex`), or none.
  *
- * @param {{ keyField?: string, extraNotes?: number, snippetChars?: number,
+ * `query` is the person's words, as typed. With it, the single-workspace rules apply (`mergeHits`), and a prose
+ * question is not offered a code passage found only by meaning (`search/codeLike.js`). Without it, nothing changes.
+ *
+ * @param {{ keyField?: string, extraNotes?: number, snippetChars?: number, query?: string | null,
  *   projection?: {client: () => object, filling: boolean} }} [options]
  */
-export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, projection } = {}) {
+export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, projection, query } = {}) {
   const settings = searchSettingsOf(store);
   const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
   const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
+  const prose = typeof query === "string" && query.trim() !== "" && !queryLooksLikeCode(query);
   // A search probe is a benchmark's tool, read from the index by id, never an
   // answer: dropped from the word hits here as `meaningMatches` drops it from
   // the meaning matches (`../priors.js`).
@@ -359,7 +387,7 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
   const kept = loosest
     ? matches
     : matches.filter((match) => wordRanks.has(match.path) || match.score >= MEANING_EXTRA_FLOOR_WITH_WORDS);
-  const merged = mergeHits(found.hits, kept, keyField);
+  const merged = mergeHits(found.hits, kept, keyField, query);
   // The notes read for a snippet, all at once: one after another they were a
   // read's wait each, up to six in a row per workspace.
   const reading = merged.filter((entry) => !entry.word).slice(0, readCap);
@@ -370,6 +398,8 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
   // workspace's first word hit and another's are not the same strength.
   const evidence = {};
   for (const entry of merged) {
+    // A passage of code found only by meaning is not offered for a prose question, as `fuseEverywhere` drops it.
+    if (!entry.word && prose && looksLikeCode((reads.get(entry)?.snippets ?? []).join(" "))) continue;
     evidence[entry.key] = {
       wordRank: wordRanks.get(entry.key) ?? null,
       loose: entry.word?.loose === true,
@@ -387,9 +417,12 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
   return { ...found, hits: out, evidence, matchCount: found.matchCount + added, meaning: "on" };
 }
 
-/** Word search and search by meaning, asked together and merged. */
+/**
+ * Word search and search by meaning, asked together and merged. The query is
+ * `options.query` unless `shape.query` says otherwise (`null` for none).
+ */
 export async function searchBothWays(store, wordSearch, options, shape = {}) {
   const [found, matches] = await Promise.all([phase(store, "word_search", wordSearch), phase(store, "meaning", () => meaningMatches(store, options))]);
-  return await phase(store, "merge", () => withMeaning(store, found, matches, shape));
+  return await phase(store, "merge", () => withMeaning(store, found, matches, { query: options?.query, ...shape }));
 }
 
