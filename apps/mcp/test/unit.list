@@ -362,6 +362,7 @@ test/accessSockets.test.mjs
 test/accessContract.test.mjs
 test/personObject.test.mjs
 test/textingObjects.test.mjs
+test/textsSession.test.mjs
 test/texFolderNames.test.mjs
 test/workspaceMembers.test.mjs
 test/workspaceMembersAccess.test.mjs

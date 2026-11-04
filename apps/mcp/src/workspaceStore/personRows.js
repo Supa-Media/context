@@ -317,5 +317,8 @@ export function sessionFor(store, tokenHash, now = Date.now()) {
     defaultWorkspaceId: own.workspaceId,
     expiresAt: connection.expiresAt,
     toolsListedAt: null,
+    // A text's session carries who is texting, from the record this object keeps (`personTexting.js`), so Tex is told
+    // without asking Convex.
+    ...(connection.clientId === TEXTS_CLIENT_ID ? { texterIdentity: store.texting?.get()?.identity ?? null } : {}),
   };
 }
