@@ -57,6 +57,16 @@ function readConversation(lines) {
   return turns.map((turn) => ({ from: turn.from, text: unescapeHeadings(trimBlank(turn.lines).join("\n")) }));
 }
 
+/** A result's `Jobs:` line read back; a line that isn't one is no jobs. */
+function readJobsLine(text) {
+  try {
+    const value = JSON.parse(text);
+    return Array.isArray(value) ? value.filter((job) => job && typeof job === "object") : [];
+  } catch {
+    return [];
+  }
+}
+
 // One answer block. The Tools line comes after the conversation, so the last
 // one is the real one even if a text happens to contain the same words.
 function readBlock(id, lines) {
@@ -73,6 +83,8 @@ function readBlock(id, lines) {
   const mailLine = tail.find((line) => line.startsWith("Mail: "));
   // Where housekeeping left each note a `file` check names (`checks.mjs`).
   const filedLine = tail.find((line) => line.startsWith("Filed: "));
+  // The background jobs it started (`checks.mjs` `start`).
+  const jobsLine = tail.find((line) => line.startsWith("Jobs: "));
   let time = null;
   if (timeLine) {
     const m = timeLine.match(TIME);
@@ -87,6 +99,7 @@ function readBlock(id, lines) {
     browser: browserLine ? browserLine.slice("Browser: ".length).split(" | ").filter(Boolean) : [],
     mail: mailLine ? mailLine.slice("Mail: ".length).split(" | ").filter(Boolean) : [],
     where: filedLine ? filedWhere(filedLine.slice("Filed: ".length)) : {},
+    jobs: jobsLine ? readJobsLine(jobsLine.slice("Jobs: ".length)) : [],
     time,
     error: errorLine ? errorLine.slice("Error: ".length) : null,
   };

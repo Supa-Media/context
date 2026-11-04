@@ -249,3 +249,24 @@ test("a housekeeping run puts its setup where housekeeping reads it, beside a pl
   assert.equal(own, setup.raw);
   assert.deepEqual(same, {});
 });
+
+test("with background on, every text sends the case's running jobs, and the jobs it started are kept", async () => {
+  const { benchRunning, converse } = await import("../run.mjs");
+  const sent = [];
+  const world = {
+    browser: () => [],
+    async text(_message, _pictures, options) {
+      sent.push(options?.running ?? null);
+      return { ok: true, ms: 1, model: null, asked: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, progress: [], tools: [], answer: "On it.", jobs: [{ title: "Find flights", mail: "p/overview.md", name: "flights", on: null }] };
+    },
+  };
+  const result = await converse(world, { ...STREAMLY, ifAsked: [], running: 2 }, { fake: true }, null, true);
+  assert.equal(sent[0].length, 2, "two already running");
+  assert.equal(result.jobs.length, 1);
+  const off = [];
+  await converse({ ...world, async text(m, p, options) { off.push(options?.running ?? null); return world.text(m, p, options); } }, { ...STREAMLY, ifAsked: [] }, { fake: true });
+  assert.equal(off[0], null, "a test without background sends none, so no jobs are offered");
+  assert.equal(benchRunning(0).length, 0);
+  assert.ok(benchRunning(9).length <= 6);
+  for (const job of benchRunning(3)) assert.match(job.id, /^[A-Za-z0-9_-]{8,64}$/, "an id the gateway reads");
+});

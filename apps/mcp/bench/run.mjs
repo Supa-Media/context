@@ -162,19 +162,27 @@ async function benchPicture(name) {
 }
 
 /** One conversation: the person's opening text, then as many turns as they take. */
-export async function converse(world, question, person, mode = null) {
+/** The jobs a case's chat has running before it starts: the same for every setup, so each has the same free slots. */
+export function benchRunning(count) {
+  return Array.from({ length: Math.max(0, Math.min(6, count)) }, (_, i) => ({ id: `bench-running-${i + 1}`, title: `Earlier job ${i + 1}`, state: "running", startedAt: Date.now() - 10 * 60_000, status: "working" }));
+}
+
+export async function converse(world, question, person, mode = null, background = false) {
   if (mode === "housekeeping") return await keepHouse(world, question);
   const conversation = [];
-  const totals = { ms: 0, personMs: 0, tools: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
+  // A test with `background: on` is offered background jobs, the chat running the case's `- running:` count already (`benchRunning`).
+  const running = background ? benchRunning(question.running ?? 0) : null;
+  const totals = { ms: 0, personMs: 0, tools: [], jobs: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
   let message = question.personStarts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
     const pictures = texts === 0 && question.sendsPicture ? [await benchPicture(question.sendsPicture)] : [];
     conversation.push({ from: "person", text: pictures.length > 0 ? `${message}\n[Sent a picture: ${question.sendsPicture}]` : message });
     const seen = world.browser().length;
-    const turn = await world.text(message, pictures);
+    const turn = await world.text(message, pictures, { running });
     totals.ms += turn.ms;
     totals.tools.push(...turn.tools);
+    totals.jobs.push(...(turn.jobs ?? []));
     for (const key of Object.keys(totals.usage)) totals.usage[key] += turn.usage[key];
     // What each model spent and how many rounds it ran (`src/agent/modelPlan.js`): priced model by model.
     for (const [model, spent] of Object.entries(turn.usageByModel ?? {})) {
@@ -338,13 +346,13 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
       const wallStarted = realNow();
       let world = await createWorld(bench, as, worldSetup, worldModels, today, prepared);
       try {
-        let result = await converse(world, question, person, test.front.mode ?? null);
+        let result = await converse(world, question, person, test.front.mode ?? null, test.front.background === "on");
         let reran = null;
         if (result.error && !options.fake) {
           reran = result.error;
           world.close();
           world = await createWorld(bench, as, worldSetup, worldModels, today, prepared);
-          result = await converse(world, question, person, test.front.mode ?? null);
+          result = await converse(world, question, person, test.front.mode ?? null, test.front.background === "on");
         }
         records.push({
           ...(reran === null ? {} : { reran }),

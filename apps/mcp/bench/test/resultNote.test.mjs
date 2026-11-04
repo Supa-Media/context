@@ -156,3 +156,12 @@ test("a run's Gmail searches are written as a Mail line and read back, and the b
   assert.deepEqual(answers[0].mail, ['mail search "serving sunday": 0 found', "mail read 19a3c0servingrq"]);
   assert.deepEqual(answers[0].browser, ["open shop.example/form"]);
 });
+
+test("the jobs an answer started are written as one line and read back for the start checks", () => {
+  const jobs = [{ title: "Find flights", mail: "1-projects/lisbon/overview.md", name: "flights", on: null }, { title: "Find a flat", mail: "1-projects/lisbon/overview.md", name: "stay", on: null }];
+  const result = { ...RESULT, runs: [{ ...RESULT.runs[0], jobs }, RESULT.runs[1]] };
+  const { answers } = parseResult(resultMarkdown(result));
+  const read = answers.map((a) => a.jobs);
+  assert.deepEqual(read.find((list) => list.length > 0), jobs);
+  assert.deepEqual(read.find((list) => list.length === 0), [], "an answer that started none reads none");
+});

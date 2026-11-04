@@ -65,6 +65,12 @@ this folder: it is public, like the rest of the repository.
   asks that must not, and a hurried hard ask that must still be right and
   brief. The advisor calls are graded by `must call` and `must not call`
   lines (`bench/checks.mjs`), not by the judge. Run it with `--test advisor`.
+- `tests/splitting.md` (Dev, 2026-11-04): big asks split into one
+  background job per part while slots are free, simple asks never split.
+  `background: on` sends the chat's running jobs with every text (none
+  unless a case says `- running: N`), so Tex is offered background jobs with
+  the same free slots for every setup. Graded by `must start: 2+ jobs on one
+  note's mail`, `must not start: a job` and the like (`bench/checks.mjs`).
 - `tests/housekeeping.md`: Tex's housekeeping (`mode: housekeeping`, decided
   2026-10-17). Nobody texts: each case is one run over Tomas's deliberately
   messy workspace, graded by `must file: <note> under <folder>/` lines, which

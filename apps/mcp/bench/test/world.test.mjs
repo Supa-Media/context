@@ -441,3 +441,34 @@ test("a progress line texted on the way comes back with the turn, as a text the 
     world.close();
   }
 });
+
+// Background jobs in the bench (2026-11-04, `tests/splitting.md`): only a text sent with the chat's running jobs is offered them,
+// and the jobs a turn started come back for the start checks, the planner's notes with them.
+test("a text sent with running jobs can start jobs, and a planned split writes its notes and starts its parts", async () => {
+  const PLANNED = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n  advisor: anthropic/claude-opus-5-5\nplan_big_asks: on\n---\n\nYou are a test assistant.\n";
+  const plan = { split: true, title: "Lisbon week", goal: "The whole week.", parts: [{ name: "dinners", title: "Pick dinners", brief: "One a night." }, { name: "trip", title: "Pick a day trip", brief: "One trip." }] };
+  const offered = [];
+  const gatewayFetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const reply = (content, stop) => new Response(JSON.stringify({ content, stop_reason: stop, usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (JSON.stringify(body.system ?? "").includes("You plan work for Tex")) return reply([{ type: "text", text: JSON.stringify(plan) }], "end_turn");
+    offered.push(JSON.stringify(body.tools ?? []));
+    const last = body.messages.at(-1);
+    if (Array.isArray(last?.content) && last.content.some((block) => block.type === "tool_result")) return reply([{ type: "text", text: "ok" }], "end_turn");
+    return reply([{ type: "tool_use", id: "toolu_1", name: "send", input: { action: "plan", args: { ask: "plan the lisbon week", folder: "projects/lisbon-week/" } } }], "tool_use");
+  };
+  const world = await createWorld(bench, "Maya", PLANNED, { gatewayFetch }, "2026-10-08");
+  try {
+    const none = await world.text("plan the lisbon week");
+    assert.deepEqual(none.jobs, [], "no running list sent: no jobs");
+    assert.ok(!offered.at(-1).includes("your advisor plans it"), "nor the planner");
+    const turn = await world.text("plan the lisbon week", [], { running: [] });
+    assert.ok(offered.at(-1).includes("your advisor plans it"), "offered under send");
+    assert.deepEqual(turn.jobs.map((job) => [job.name, job.mail]), [["dinners", "projects/lisbon-week/overview.md"], ["trip", "projects/lisbon-week/overview.md"]]);
+    assert.match(turn.answer, /^On it, in 2 parts at once/);
+    const written = world.changes().filter((change) => change.kind === "written").map((change) => change.path);
+    assert.deepEqual(written.filter((path) => path.startsWith("projects/lisbon-week/")).sort(), ["projects/lisbon-week/dinners.md", "projects/lisbon-week/overview.md", "projects/lisbon-week/trip.md"]);
+  } finally {
+    world.close();
+  }
+});

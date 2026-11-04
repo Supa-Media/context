@@ -26,6 +26,12 @@
  *   - must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am
  *                                    a note written at that path (a folder when
  *                                    it ends in `/`), with that front matter
+ *   - must start: 2+ jobs on one note's mail
+ *                                    background jobs the turns started (with
+ *                                    `background: on`): `a job` is one or more,
+ *                                    `N+ jobs` N or more, `N jobs` exactly N;
+ *                                    `on one note's mail` needs every one joined
+ *                                    to the same note's mail (a split ask)
  *   - must file: tomas/1-projects/kitchen/overview.md under tomas/4-archive/
  *                                    where the note that was at that path is
  *                                    after the run (housekeeping moves notes,
@@ -41,7 +47,7 @@
 
 import { cadenceFromFolder, parseTime, parseWeekdays } from "../../../packages/shared/src/routines.cjs";
 
-const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward|download|attach):\s*(.+)$/;
+const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward|download|attach|start):\s*(.+)$/;
 
 /** A check line, or null when the line is not one. */
 export function readCheck(line) {
@@ -50,6 +56,7 @@ export function readCheck(line) {
   // A malformed write line fails when the test is read, not as a failed check.
   if (m[2] === "write") writeTarget(m[3].trim());
   if (m[2] === "file") fileTarget(m[3].trim());
+  if (m[2] === "start") startTarget(m[3].trim());
   return { kind: m[1], what: m[2], value: m[3].trim(), line: `${m[2]} ${m[3].trim()}` };
 }
 
@@ -86,9 +93,27 @@ function happened(check, answer) {
       return wrote(check.value, answer.changes ?? []);
     case "file":
       return filed(check.value, answer.where ?? {});
+    case "start":
+      return startedAsNamed(startTarget(check.value), answer.jobs ?? []);
     default:
       return false;
   }
+}
+
+/** A `start` check's target: `{ least, exact, shared }`; a line that isn't one throws when the test is read. */
+export function startTarget(value) {
+  const m = value.match(/^(a|\d+)(\+)? jobs?( on one note's mail)?$/);
+  if (!m) throw new Error(`start check: "${value}" is not "a job", "N jobs" or "N+ jobs", optionally "on one note's mail"`);
+  const n = m[1] === "a" ? 1 : Number(m[1]);
+  return { n, atLeast: m[1] === "a" || m[2] === "+", shared: Boolean(m[3]) };
+}
+
+/** Whether the jobs started match: their count, and with `shared`, one note's mail joined by every one. */
+function startedAsNamed({ n, atLeast, shared }, jobs) {
+  if (atLeast ? jobs.length < n : jobs.length !== n) return false;
+  if (!shared) return true;
+  const notes = new Set(jobs.map((job) => job.mail ?? null));
+  return notes.size === 1 && !notes.has(null) && new Set(jobs.map((job) => job.name)).size === jobs.length;
 }
 
 /**
