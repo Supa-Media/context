@@ -605,18 +605,22 @@ export function recentItems(
 }
 
 /**
- * What an untyped search lists for a signed-in person: their own Recent, the
- * one phone Home draws, each row saying what they did ("You edited 9:12").
+ * What an untyped search lists for a signed-in person: their guesses
+ * (`search/guesses.ts`), in the order given, each row they were in saying what
+ * they did ("You edited 9:12"). A row with no `at` is a note the open one links
+ * to, which they may never have opened, and says nothing.
  * Drawn as `recentItems` draws a path, with the saying in `snippet`.
  */
 export function accountRecentItems(
-  rows: readonly { path: string; at: number; kind?: "opened" | "edited" }[],
+  rows: readonly { path: string; at?: number; kind?: "opened" | "edited" }[],
   items: readonly PaletteItem[],
   label: (row: { at: number; kind?: "opened" | "edited" }) => string,
   naming: NoteNaming = {},
   limit: number = RECENT_LIMIT,
 ): PaletteItem[] {
-  const said = new Map(rows.map((row) => [row.path, label(row)]));
+  const said = new Map(
+    rows.flatMap((row) => (row.at === undefined ? [] : [[row.path, label({ at: row.at, kind: row.kind })] as const])),
+  );
   return recentItems(
     rows.map((row) => row.path),
     items,
