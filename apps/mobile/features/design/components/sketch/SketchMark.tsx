@@ -1,13 +1,9 @@
 import { useMemo } from "react";
 import { StyleSheet } from "react-native";
 import { Path, Svg } from "react-native-svg";
-import { useScheme } from "../../theme";
+import { useColors, useScheme } from "../../theme";
 import { SketchGrain } from "./SketchGrain";
 import { seedOf, sketchStrokes, type SketchLook } from "./sketchGeometry";
-
-/** Paper tape: a pale neutral stone on white, warm masking tape on the dark board. */
-const TAPE_LIGHT = "rgba(122,114,100,0.13)";
-const TAPE_DARK = "rgba(220,205,160,0.20)";
 
 /** Room round the box for a loop that runs a little outside it. */
 const BLEED = 4;
@@ -24,7 +20,7 @@ const BLEED = 4;
  * light line on near-black goes thin, and a marker a touch lighter there.
  * Tape ignores `color`: it is paper, a pale stone on white (the owner did not
  * like yellow masking tape on white, 2026-11-04) and the warm strip they liked
- * on the dark board.
+ * on the dark board: the palette's `tapeWash`.
  */
 export function SketchMark({
   look,
@@ -45,6 +41,7 @@ export function SketchMark({
   testID?: string;
 }) {
   const dark = useScheme() === "dark";
+  const colors = useColors();
   const strokes = useMemo(() => sketchStrokes(look, width, height, seedOf(seed)), [look, width, height, seed]);
   if (strokes.length === 0) return null;
   const pencilWeight = dark ? 1.45 : 1;
@@ -66,7 +63,7 @@ export function SketchMark({
           key={`t${i}`}
           d={s.d}
           transform={`translate(${BLEED},${BLEED})`}
-          fill={dark ? TAPE_DARK : TAPE_LIGHT}
+          fill={colors.tapeWash}
           opacity={strength}
         />
       ))}
