@@ -21,6 +21,12 @@
  *   interrupt? }` → `{ ok }`: a later text of theirs, into the running
  *   session, as the next message or (`interrupt`) stopping the current step.
  *
+ * - `POST /agent/machine/check` `{ workspaceId, runId, job }` → `{ ok, verdict?,
+ *   advice?, unfinished?, exhausted?, idle? }`: the advisor's check of an ended
+ *   part against the job's finish line (`agent/jobCheck.js`), as a cloud
+ *   part's answer carries it. The steps and last words are read from the run
+ *   in the object, never taken from the body.
+ *
  * A run is only ever read, steered or stopped by the person whose job it is
  * (`askerId`); any other run id answers `unknown_run`, as a run that does not
  * exist would.
@@ -30,6 +36,11 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { workspaceStub } from "../workspaceStore/api.js";
 import { callTexStore } from "../texStore/wire.js";
+import { checkJob, jobFields } from "../agent/jobCheck.js";
+import { readProductionSetup } from "../agent/production.js";
+import { advisorRequest } from "../agent/advisor.js";
+import { aiGatewayConfig } from "../agent/aiGateway.js";
+import { builtinModel, canRunBuiltin } from "../agent/builtin.js";
 
 export const MACHINE_RUN_CLIENT_ID = "context_tex_machine_run";
 const TEXTS_CLIENT_ID = "context_texts";
@@ -179,10 +190,85 @@ async function deliver(request, env, session) {
   return json({ ok: answer?.ok === true });
 }
 
-export const MACHINE_JOB_PATHS = new Set(["/agent/machine/assign", "/agent/machine/run", "/agent/machine/cancel", "/agent/machine/deliver"]);
+const MAX_JOB_TEXT = 4_000;
+const words = (value, max = MAX_JOB_TEXT) => (typeof value === "string" ? value.trim().slice(0, max) : "");
+
+/** The job as the advisor reads it, from the Worker's own record of it (sent with the job's own grant). */
+function jobOfBody(job) {
+  if (job === null || typeof job !== "object" || Array.isArray(job)) return null;
+  const title = words(job.title, 200);
+  const brief = words(job.brief);
+  if (title === "" || brief === "") return null;
+  const followUps = Array.isArray(job.followUps) ? job.followUps.map((text) => words(text, 1_000)).filter(Boolean).slice(-8) : [];
+  const attempt = Number.isSafeInteger(job.attempt) && job.attempt > 0 ? Math.min(job.attempt, 999) : 1;
+  return { title, brief, doneWhen: words(job.doneWhen, 1_000), attempt, followUps, advice: words(job.advice, 1_000) };
+}
+
+/** What the part did, as the advisor's transcript: each step a tool call (the tool's results stay on the computer). */
+function stepsAsTranscript(steps) {
+  return (Array.isArray(steps) ? steps : []).map((step) => ({
+    role: "assistant",
+    text: "",
+    toolCalls: [{ name: typeof step?.tool === "string" ? step.tool : "a tool", args: { ...(step?.action ? { action: step.action } : {}), ...(step?.target ? { target: step.target } : {}) } }],
+  }));
+}
+
+const MACHINE_PART_NOTE =
+  "This part ran in a coding tool (Claude Code or Codex) on the person's own computer, not in Tex. Only its tool calls are listed; " +
+  "their results stayed on the computer, so judge the finish line by the steps it took and its last words.";
+
+async function check(request, env, session, controlPlane, store, advise) {
+  const body = await bodyOf(request);
+  if (body === null) return invalid("body");
+  const covered = coveredWorkspace(session, body.workspaceId);
+  if (covered === null || typeof body.runId !== "string" || !RUN_ID.test(body.runId)) return refused("unknown_run");
+  const job = jobOfBody(body.job);
+  if (job === null) return invalid("job");
+  const answer = await ownRun(env, session, covered.workspaceId, body.runId);
+  if (answer === null) return refused("unknown_run");
+  const run = answer.run;
+  if (run.state !== "ended" || (run.result?.outcome !== "finished" && run.result?.outcome !== "limit")) return refused("not_ended");
+  const exhausted = run.result.outcome === "limit";
+  const production = await readProductionSetup(store, session, { texting: true });
+  const model = [production?.advisor, production?.model, builtinModel(env)].find((name) => typeof name === "string" && canRunBuiltin(name, env));
+  const started = Date.now();
+  const meter = async (usage, failed, used = model) => {
+    try {
+      await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
+        input: usage?.input ?? 0,
+        output: usage?.output ?? 0,
+        cacheRead: usage?.cacheRead ?? 0,
+        cacheWrite: usage?.cacheWrite ?? 0,
+        model: typeof used === "string" ? used : model,
+        decision: 0,
+        failed,
+        ms: Date.now() - started,
+        background: true, // a job's check, like a job's turn, is never on the daily cap
+      });
+    } catch {
+      // A meter that could not be reached costs us a report, not the job its check.
+    }
+  };
+  const verdict = await checkJob({
+    job,
+    live: { system: MACHINE_PART_NOTE, messages: stepsAsTranscript(run.steps) },
+    answer: words(run.result.answer, 20_000),
+    exhausted,
+    model,
+    effort: production?.efforts?.[model],
+    request: advise ?? advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }),
+    meter,
+  });
+  // A part on a computer read whatever the coding tool read there: its words are never trusted as the person's.
+  const fields = jobFields(verdict, { exhausted, unfinished: false, untrusted: true });
+  const { thinking: _thinking, ...shown } = fields;
+  return json({ ok: true, ...shown, ...((run.steps ?? []).length === 0 ? { idle: true } : {}) });
+}
+
+export const MACHINE_JOB_PATHS = new Set(["/agent/machine/assign", "/agent/machine/run", "/agent/machine/cancel", "/agent/machine/deliver", "/agent/machine/check"]);
 
 /** One of `MACHINE_JOB_PATHS`, for a session already resolved from the job's texting token. */
-export async function handleMachineJob(request, env, session, { path, controlPlane, origin, now = Date.now }) {
+export async function handleMachineJob(request, env, session, { path, controlPlane, origin, store = null, now = Date.now, advise = null }) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
   if (session.actorClientId !== TEXTS_CLIENT_ID || !hasScope(session, SCOPE_WRITE)) return forbidden();
   if (!env.WORKSPACE_STORE) return json({ error: "machines_unavailable" }, 501);
@@ -190,5 +276,6 @@ export async function handleMachineJob(request, env, session, { path, controlPla
   if (path === "/agent/machine/run") return await readRun(request, env, session, controlPlane);
   if (path === "/agent/machine/cancel") return await cancel(request, env, session, controlPlane);
   if (path === "/agent/machine/deliver") return await deliver(request, env, session);
+  if (path === "/agent/machine/check") return await check(request, env, session, controlPlane, store, advise);
   return new Response(null, { status: 404 });
 }

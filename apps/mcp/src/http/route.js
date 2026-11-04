@@ -437,7 +437,7 @@ export async function route(request, env, ctx) {
       // The texting Worker's steer, events, cancel and stale asks (`agent/textingRoutes.js`).
       if (TEXTING_ROUTES.has(path)) return await TEXTING_ROUTES.get(path)(request, store, session);
       // A job's part on the person's own computer (`machines/jobRoutes.js`).
-      if (MACHINE_JOB_PATHS.has(path)) return await handleMachineJob(request, env, session, { path, controlPlane, origin });
+      if (MACHINE_JOB_PATHS.has(path)) return await handleMachineJob(request, env, session, { path, controlPlane, origin, store });
       // The texting Worker saw a chat go quiet: score how it went (`agent/selfReview.js`).
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));

@@ -174,6 +174,18 @@ unmodified CLI, which signs itself in.
   and the chat marks a machine job stale only past its own limit. Raising one
   job past four hours, up to the machine's longest run, is the app's to
   offer. Test: `machineTurn.test.ts`, whose header records its sabotage.
-- **Not yet**: the advisor's check between machine parts (a finished part is
-  done), a machine's slots counted apart from the chat's three cloud slots,
-  and group chats.
+- **The advisor checks every machine part**, as it checks a cloud part
+  (`jobCheck.js`). When a part ends finished or out of time, the job's object
+  asks `POST /agent/machine/check` with the job as it knows it (title, brief,
+  finish line, their later texts, the last advice); the gateway reads the
+  part's steps and last words from the run in the workspace object, never
+  from the body, and only for the person whose run it is. `keep_going` on a
+  finished part carries the job on, resuming the same session on the advice;
+  `waiting` and `stuck` end it saying what is needed or why. The steps reach
+  the advisor as tool calls without their results, which stay on the
+  computer, and it is told so. A machine part's words are never trusted as
+  the person's (`untrusted`), the check is metered as background spend on the
+  job's own grant, and an advisor that can't be reached leaves the part's own
+  outcome to decide. Tests: `machineJobs.test.mjs` and `machineTurn.test.ts`.
+- **Not yet**: a machine's slots counted apart from the chat's three cloud
+  slots, and group chats.

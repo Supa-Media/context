@@ -11,6 +11,8 @@
  *  2. `roomLeft` using the cloud limit for a machine job → "a machine job keeps going past a cloud job's thirty minutes".
  *  3. `machineTurn` assigning again when a run is kept → "a pass that restarts reads the run in progress, never starts a second".
  *  4. `steerJob` posting to `/agent/steer` for a machine part → "a later text goes into the session on the computer".
+ *  5. `fromMachine` dropping the check's `unfinished` → "a finished part the advisor says isn't done is carried on, on its advice".
+ *  6. `machineTurn` not asking for the check → "the advisor checks a part against the finish line" and the two after it.
  */
 
 import { describe, expect, it } from "vitest";
@@ -41,7 +43,7 @@ const run = (overrides: Partial<JobRun> = {}): JobRun => ({
 type RunRead = { state: string; steps?: { seq: number; tool: string; action?: string | null; target?: string | null }[]; result?: Record<string, unknown> | null; session?: string | null };
 
 /** A gateway whose machine routes answer from scripts: `assign` answers, then each read of the run in turn. */
-function world({ assign = [{ ok: true, runId: "run_000000000000000000000001", deadline: NOW + 15 * 60_000 }], reads = [] as RunRead[], during }: { assign?: Record<string, unknown>[]; reads?: RunRead[]; during?: (read: number) => Promise<void> } = {}) {
+function world({ assign = [{ ok: true, runId: "run_000000000000000000000001", deadline: NOW + 15 * 60_000 }], reads = [] as RunRead[], checks = [] as Record<string, unknown>[], during }: { assign?: Record<string, unknown>[]; reads?: RunRead[]; checks?: Record<string, unknown>[]; during?: (read: number) => Promise<void> } = {}) {
   const clock = { at: NOW };
   const calls: Array<{ path: string; token: string | null; body: Record<string, unknown> }> = [];
   const reports: JobUpdate[] = [];
@@ -60,6 +62,8 @@ function world({ assign = [{ ok: true, runId: "run_000000000000000000000001", de
         return Response.json({ ok: true, run: { steps: [], result: null, session: null, ...next }, online: true });
       }
       if (path === "/agent/machine/deliver" || path === "/agent/machine/cancel") return Response.json({ ok: true });
+      // No check scripted: the advisor can't be reached, and the part's own outcome decides.
+      if (path === "/agent/machine/check") return checks.length > 0 ? Response.json(checks.shift()) : new Response(null, { status: 503 });
       throw new Error(`unexpected ${path}`);
     }) as unknown as Fetch,
     controlPlaneOrigin: "https://cp.example",
@@ -186,5 +190,42 @@ describe("a job on the person's own computer", () => {
     const jobs = await chatJobs(storage, NOW);
     expect(jobs.find((job) => job.id === "a")?.state).toBe("running");
     expect(jobs.find((job) => job.id === "b")?.state).toBe("failed");
+  });
+
+  it("the advisor checks a part against the finish line, with the job as the Worker knows it", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run({ followUps: ["also the retry test"] } as Partial<JobRun>), sent: 0 });
+    const { deps, calls, reports } = world({ reads: [finished("Fixed.")], checks: [{ ok: true, verdict: "done", advice: "The test passes ten times." }] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    const check = calls.find((call) => call.path === "/agent/machine/check")!;
+    expect(check.token).toBe("Bearer job_token");
+    expect(check.body).toMatchObject({ workspaceId: "ws_seyi", runId: "run_000000000000000000000001", job: { title: "Fix the flaky test", brief: run().brief, doneWhen: run().doneWhen, attempt: 1 } });
+    expect(reports[reports.length - 1]).toMatchObject({ state: "done", verdict: "done" });
+  });
+
+  it("a finished part the advisor says isn't done is carried on, on its advice, in the same session", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const { deps, calls } = world({
+      assign: [
+        { ok: true, runId: "run_000000000000000000000001", deadline: NOW + 15 * 60_000 },
+        { ok: true, runId: "run_000000000000000000000002", deadline: NOW + 30 * 60_000 },
+      ],
+      reads: [finished("I'll run it ten times next."), finished("Passes ten times.")],
+      checks: [{ ok: true, verdict: "keep_going", advice: "Run the test ten times and show it passing.", unfinished: true }, { ok: true, verdict: "done" }],
+    });
+    expect(await runJob(storage, deps)).toEqual({ kind: "now" });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    const second = calls.filter((call) => call.path === "/agent/machine/assign")[1];
+    expect(second.body.resumeSession).toBe("sess_1");
+    expect(String(second.body.advice)).toContain("Run the test ten times and show it passing.");
+  });
+
+  it("a part that needs the person ends the job waiting, saying what is needed", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const { deps, reports } = world({ reads: [finished("It needs your GitHub code.")], checks: [{ ok: true, verdict: "waiting", advice: "Their GitHub one-time code." }] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    expect(reports[reports.length - 1]).toMatchObject({ state: "waiting", verdict: "waiting", advice: "Their GitHub one-time code." });
   });
 });

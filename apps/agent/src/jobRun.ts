@@ -415,7 +415,20 @@ function ask(run: JobRun, followUps: string[], mail: Array<JobMail & { text: str
 /** A part on their computer, as a cloud part's outcome. */
 function fromMachine(outcome: MachineOutcome): Outcome {
   if (outcome.kind !== "answer") return outcome;
-  return { kind: "answer", texts: outcome.texts, pictures: [], exhausted: outcome.exhausted, unfinished: false, status: outcome.status, steered: outcome.steered };
+  const check = outcome.check ?? {};
+  return {
+    kind: "answer",
+    texts: outcome.texts,
+    pictures: [],
+    exhausted: outcome.exhausted,
+    // The advisor's `keep_going` on a finished part: the next part resumes the session on its advice (`jobCheck.js`).
+    unfinished: check.unfinished === true,
+    status: outcome.status,
+    steered: outcome.steered,
+    ...(check.verdict ? { verdict: check.verdict, ...(check.advice ? { advice: check.advice } : {}) } : {}),
+    ...(check.untrusted ? { untrusted: true as const } : {}),
+    ...(check.idle ? { idle: true as const } : {}),
+  };
 }
 
 /** The first line of an answer, as the job's status once it is done. */
