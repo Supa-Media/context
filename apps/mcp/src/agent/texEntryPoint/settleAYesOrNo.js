@@ -1,4 +1,4 @@
-/** A texted yes or no settles a waiting approval before any model runs; otherwise keeps the Worker's fixed texts and reads no approval. One step of Tex's turn (`../texTurn.js`). */
+/** A texted yes or no settles a waiting approval before any model runs; otherwise keeps the Worker's fixed texts and reads no approval. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { json } from "../../http/responses.js";
 import { SCOPE_WRITE, hasScope } from "../../session.js";
@@ -12,7 +12,7 @@ import { settleTextedText } from "../textedSettle.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 import { chatLedger } from "../workEntries.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function settleAYesOrNo(t) {
   const { body, dispatch, env, group, hot, job, outcome, question, quoted, received, sent, session, setupRead, store, tex } = t;
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).

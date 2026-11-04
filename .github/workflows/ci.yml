@@ -402,7 +402,7 @@ jobs:
           # js-tiktoken: the usage tokenizer, in its one file (docs/decisions/observability/token-usage.md).
           node scripts/check-gateway-imports.mjs --allow-import=js-tiktoken/lite:src/mcp/tokens.js --allow-import=js-tiktoken/ranks/o200k_base:src/mcp/tokens.js apps/mcp/src
 
-      # Every step on Tex's reply path is a named, timed call (`apps/mcp/src/agent/texEntryPoint.js`).
+      # Every step on Tex's reply path is a named, timed call (`apps/mcp/src/agent/texTiming.js`).
       - name: Nothing joins Tex's reply path untimed
         run: |
           node scripts/tex-entry-check.mjs --self-test

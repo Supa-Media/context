@@ -1,11 +1,11 @@
-/** Starts this turn's egress ledger: what it reads from outside and what it may send out. One step of Tex's turn (`../texTurn.js`). */
+/** Starts this turn's egress ledger: what it reads from outside and what it may send out. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { newLedger } from "../../privacy/egress.js";
 import { addressedTo } from "../../tools/offerFor.js";
 import { ROUTINES_CLIENT_ID } from "../routine.js";
 import { CONSOLE_CLIENT_ID, TEXTS_CLIENT_ID } from "./clients.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function watchWhatLeaves(t) {
   const { group, quoted, routine, runner, session, thumbsUp } = t;
   /*

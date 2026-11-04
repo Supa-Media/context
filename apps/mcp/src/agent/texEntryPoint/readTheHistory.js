@@ -1,4 +1,4 @@
-/** Hears voice messages, keeps sent files, and reads the chat's history and the tools offered. One step of Tex's turn (`../texTurn.js`). */
+/** Hears voice messages, keeps sent files, and reads the chat's history and the tools offered. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { transcriptionForwarder } from "../../ingestion/transcription.js";
 import { markChatWords, markUntrusted } from "../../privacy/egress.js";
@@ -15,7 +15,7 @@ import { checkerQuestion, mailCheckerFor } from "../mailChecker.js";
 import { approvalVerdict } from "../textedApprovals.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function readTheHistory(t) {
   const { body, chatTurn, dispatch, env, group, historyRead, hot, job, ledger, offeredRead, question, quoted, received, report, routine, runner, sent, session, stages, store, tex } = t;
   // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs, and shown to them again (`keptFiles.js`).

@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { texTurnSource } from "./texTurnSource.mjs";
+import { texEntryPointSource } from "./texEntryPointSource.mjs";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -258,7 +258,7 @@ test("a gateway module that queries the v1 index also narrows it first", () => {
   for what the helper does lives in `emailGate.test.mjs`.
 */
 test("the Mail checker is never handed a group's kept turns whole", () => {
-  const route = { text: texTurnSource() }; // Tex's turn: `agent/texTurn.js` and its steps
+  const route = { text: texEntryPointSource() }; // Tex's turn: `agent/texEntryPoint.js` and its steps
   const call = /mailCheckerFor\(\{([\s\S]*?)\}\)/.exec(route.text);
   assert.ok(call, "the mailCheckerFor call could not be read");
   assert.match(call[1], /history:\s*group !== null \? checkerHistory\(history\) : history/);
@@ -271,7 +271,7 @@ test("the Mail checker is never handed a group's kept turns whole", () => {
   (2026-10-22), so nothing was held and the person was told it timed out.
 */
 test("a texted turn gives a held send long enough to be checked and held", () => {
-  const route = { text: texTurnSource() };
+  const route = { text: texEntryPointSource() };
   const timeouts = /toolTimeouts:\s*\{([^}]*)\}/.exec(route.text)?.[1] ?? "";
   for (const [name, least] of [["send_email", 120_000], ["save_email_draft", 120_000], ["calendar_event", 30_000], ["slack_api", 30_000]]) {
     const ms = Number(new RegExp(`\\b${name}:\\s*([\\d_]+)`).exec(timeouts)?.[1]?.replace(/_/g, ""));

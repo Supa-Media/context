@@ -1,4 +1,4 @@
-/** Checks the question and what came with it: the files, the message it replies to, the tapbacks. One step of Tex's turn (`../texTurn.js`). */
+/** Checks the question and what came with it: the files, the message it replies to, the tapbacks. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { json } from "../../http/responses.js";
 import { turnAttachments } from "../attachments.js";
@@ -7,7 +7,7 @@ import { steerFor } from "../steer.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 import { MAX_QUESTION_LENGTH } from "../turn.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function checkTheQuestion(t) {
   const { body, chatTurn, group, job, outcome, question, runner, session, store } = t;
   const { attachments: sent, refusal } = turnAttachments(body.attachments, runner); if (refusal) return json({ error: "invalid_request", error_description: refusal }, 400); // what came with the question (`attachments.js`); a routine's run has none

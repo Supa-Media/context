@@ -1,4 +1,4 @@
-/** A routine's run ends here: its outcome is kept, and it stops or finishes itself when due. One step of Tex's turn (`../texTurn.js`). */
+/** A routine's run ends here: its outcome is kept, and it stops or finishes itself when due. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { json } from "../../http/responses.js";
 import { disarmTexting } from "../../tools/approvals.js";
@@ -7,7 +7,7 @@ import { wordsEntry } from "../ledger.js";
 import { finishOnce, keepRun, routineTimeZone, runOutcome, stopRoutine } from "../routine.js";
 import { deliverSupervision } from "../supervise.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function finishARoutine(t) {
   const { afterAnswer, body, chatLog, dispatch, ledger, ledgerTurn, routine, runner, runs, session, store, supervision, tex, turn } = t;
   if (runner) {

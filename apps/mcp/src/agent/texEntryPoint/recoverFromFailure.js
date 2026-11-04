@@ -1,4 +1,4 @@
-/** A turn that threw: withdraws the asks nobody was told about, records the failure, and answers or rethrows. One step of Tex's turn (`../texTurn.js`). */
+/** A turn that threw: withdraws the asks nobody was told about, records the failure, and answers or rethrows. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { json } from "../../http/responses.js";
 import { withdrawPending } from "../../tools/approvals.js";
@@ -6,7 +6,7 @@ import { BUILTIN_PROVIDER } from "../builtin.js";
 import { ProviderError } from "../providers.js";
 import { keepRun } from "../routine.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function recoverFromFailure(t, error) {
   const { begun, chatLog, ledger, logTurn, meter, opened, outcome, routine, runner, runs, session, steer, store, tex } = t;
 outcome.clean = false;

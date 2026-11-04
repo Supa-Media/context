@@ -1,11 +1,11 @@
-/** A routine's run: reloads the routine, and stops here when it is paused or its job needs no model. One step of Tex's turn (`../texTurn.js`). */
+/** A routine's run: reloads the routine, and stops here when it is paused or its job needs no model. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { json } from "../../http/responses.js";
 import { deferred } from "../deferred.js";
 import { RoutineRefusal, keepRun, loadRoutine, readRuns, routinePathFrom, routineRunQuestion, stopRoutine } from "../routine.js";
 import { NO_MODEL, deliverSupervision, prepareSupervision } from "../supervise.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function runARoutine(t) {
   let { body, dispatch, question, routine, runner, runs, store, supervision, tex } = t;
   if (runner) {

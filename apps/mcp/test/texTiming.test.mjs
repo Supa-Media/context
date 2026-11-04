@@ -1,12 +1,12 @@
 /**
- * The timed Tex entry point (`src/agent/texEntryPoint.js`): every step is a
+ * The timed Tex entry point (`src/agent/texTiming.js`): every step is a
  * named point, a step on the off list is skipped only on a chat's text when
  * the deployment is lean, and work handed to `after` waits for the response.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { OFF_IN_CHATS, allowedFirst, texEntry } from "../src/agent/texEntryPoint.js";
+import { OFF_IN_CHATS, allowedFirst, texEntry } from "../src/agent/texTiming.js";
 
 function dataset() {
   const points = [];

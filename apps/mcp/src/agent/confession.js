@@ -38,7 +38,7 @@ const MADE_UP = /\bI\s+(?:just\s+)?(?:made\s+(?:it|that|this|those|them|\S+)\s+u
 /** An answer conceding a correction: "made up" alone may be an honest "the invite has no end, so I guessed 4". */
 const CONCEDES = /\byou(?:'|’)?re right\b|\byou are right\b|\bI was wrong\b|\bsorry\b|\bmy (?:bad|mistake)\b|\bI shouldn(?:'|’)?t have\b/i;
 
-/** The tools that save a note; the history keeps only calls that succeeded (`texTurn.js`). */
+/** The tools that save a note; the history keeps only calls that succeeded (`texEntryPoint.js`). */
 const WRITES = ["write_note", "edit_note", "append_note", "update_note"];
 
 /** "my last Done was wrong", "the page wasn't saved", "I never actually saved it". */

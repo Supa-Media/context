@@ -27,7 +27,7 @@ import { ledgerFor } from "../src/agent/ledger.js";
 import { settlePending, createPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 import { ask, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { texTurnSource } from "./texTurnSource.mjs";
+import { texEntryPointSource } from "./texEntryPointSource.mjs";
 
 function fakeLedger() {
   const entries = [];
@@ -55,7 +55,7 @@ test("what a mail check's verdict reads as", () => {
 });
 
 test("a model's own ask of the advisor is its tool entry, never written twice", async () => {
-  const route = texTurnSource();
+  const route = texEntryPointSource();
   assert.doesNotMatch(route, /advisorTools\(\{[^)]*record:/, "the turn's ask_advisor tool entry already holds the ask and its answer");
 });
 

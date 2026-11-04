@@ -1,4 +1,4 @@
-/** Reads Tex's production setup: its prompt, history length, skills, models, router and fallback. One step of Tex's turn (`../texTurn.js`). */
+/** Reads Tex's production setup: its prompt, history length, skills, models, router and fallback. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { markChatWords, markUntrusted } from "../../privacy/egress.js";
 import { searchSettingsOf } from "../../search/settings.js";
@@ -14,7 +14,7 @@ import { skillSession } from "../skills.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 import { threadView } from "../threadView.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function readTheSetup(t) {
   const { attachments, conversation, dispatch, env, group, history, job, learnedRead, ledger, logged, opened, quoted, session, setupRead, stages, store, tex, textingWriting } = t;
   /*

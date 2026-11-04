@@ -24,7 +24,7 @@ export function ahead(work) {
 }
 
 /**
- * A turn's own after-work (`afterAnswer` in `texTurn.js`), started only once its
+ * A turn's own after-work (`afterAnswer` in `texEntryPoint.js`), started only once its
  * response is ready. Started earlier, behind the answer but still inside the
  * request, it took the Worker's six connections and the reply's own last
  * reads queued behind it: 10 s of a "hi Tex" after its answer (2026-10-31).

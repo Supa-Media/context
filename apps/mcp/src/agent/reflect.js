@@ -2,7 +2,7 @@
  * THE REFLECT STEP: AFTER A HARD TEXTED JOB, TEX WRITES DOWN HOW (owner, 2026-10-19).
  *
  * "Tex should write down how it did a job that was hard, so the next time is
- * easy." After a texted turn has answered (`texTurn.js`, deferred, so the
+ * easy." After a texted turn has answered (`texEntryPoint.js`, deferred, so the
  * person's answer never waits), one small model turn may write or update one
  * learned skill (`learnedSkills.js`), or answer NONE. It runs only when all of:
  *
@@ -50,7 +50,7 @@ import {
   stampUsed,
 } from "./learnedSkills.js";
 
-/** The texting assistant's first-party client, as `texTurn.js` names it. */
+/** The texting assistant's first-party client, as `texEntryPoint.js` names it. */
 const TEXTS_CLIENT_ID = "context_texts";
 /** Tool steps that make a turn hard enough to write down. */
 export const MIN_STEPS = 6;
