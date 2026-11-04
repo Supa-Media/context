@@ -28,10 +28,6 @@ export function searchAndMoveToolDefinitions() {
             type: "string",
             description: "Optional folder prefix that narrows results to one subtree",
           },
-          rerank: {
-            type: "boolean",
-            description: "Optional. Re-read the best matches with a ranking model before answering; a little slower.",
-          },
         },
         required: ["query"],
         additionalProperties: false,

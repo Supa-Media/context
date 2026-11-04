@@ -27,7 +27,6 @@ import { notePrior } from "../search/priors.js";
 import { evidenceBonus } from "../search/evidence.js";
 import { matchesOnlyInLinks } from "../search/linkMatch.js";
 import { looksLikeCode, queryLooksLikeCode } from "../search/codeLike.js";
-import { rerankHits } from "../search/rerank.js";
 
 /** Most hits a search across every workspace shows. */
 const EVERYWHERE_HITS = 12;
@@ -237,7 +236,7 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
  * `only`, from the app's scope picker, narrows the workspaces asked to those it names (`@slug`); without it, the
  * person's setting (`everywhere`) decides, as for an AI client.
  */
-export async function findNotes(store, scope, rules, overrides, query, prefix = "", { only = null, rerank = false } = {}) {
+export async function findNotes(store, scope, rules, overrides, query, prefix = "", { only = null } = {}) {
   const reachable = typeof store.openContext === "function"
     ? (store.contexts ?? []).filter((entry) => !entry.current && typeof entry.name === "string").map((entry) => entry.name)
     : [];
@@ -257,22 +256,19 @@ export async function findNotes(store, scope, rules, overrides, query, prefix = 
   // The index passes these searches start wait until every workspace has
   // answered, so none of them queues behind another's (`search/heldPasses.js`).
   const passes = names.length > 0 ? holdSearchPasses(store) : null;
-  let found;
   try {
     const here = searchHere ? searchOne(store, scope, rules, overrides, query, prefix, embed) : null;
-    found = names.length > 0 ? await searchEverywhere(store, here, names, query, embed) : await here;
+    return names.length > 0 ? await searchEverywhere(store, here, names, query, embed) : await here;
   } finally {
     passes?.release();
   }
-  // Pool, then rerank (`search/rerank.js`): only when asked for, until a benchmark says it helps.
-  return rerank ? { ...found, hits: await rerankHits(store.ai, query, found.hits) } : found;
 }
 
-export async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg, { rerank = false } = {}) {
+export async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
-  const found = await findNotes(store, scope, rules, overrides, query, prefix, { rerank });
+  const found = await findNotes(store, scope, rules, overrides, query, prefix);
   const hits = found.hits.map(({ key, snippets, title, meaningOnly }) =>
     meaningOnly
       ? // Found by what it is about, not by the words typed: said so, so an
