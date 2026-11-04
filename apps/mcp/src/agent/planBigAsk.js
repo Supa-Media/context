@@ -63,7 +63,7 @@ export const PLANNER_PROMPT =
   "{\"split\": true, \"title\": \"the project in a few words\", \"goal\": \"what the whole ask is for, one or two sentences\", " +
   "\"parts\": [{\"name\": \"short-lowercase-name\", \"title\": \"a few words\", \"brief\": \"what this part does, with every fact it needs\", " +
   "\"done_when\": \"one line\", \"computer\": null or a computer's name}]}. Never more parts than free slots; when there are more pieces " +
-  "than slots, or than a computer's slots for its parts, group them. What a computer with Claude Code or Codex is good at always runs on one when they " +
+  "than slots, group them: cloud parts never more than the cloud's free slots, and a computer's parts never more than its free slots. What a computer with Claude Code or Codex is good at always runs on one when they " +
   "have one, never in the cloud: code (a question about how a codebase works, theirs or a public one on GitHub; reading or searching a repo; every change " +
   "to their code) and heavy computing (running scripts, crunching big data or many files, builds, long analysis), and anything on their own machine. A small " +
   "code change is one job on a computer, not a split; a big one (several pieces of a feature that can be built at once) splits into parts on the computer. " +
@@ -151,6 +151,14 @@ export function partNote(part, overviewPath) {
   );
 }
 
+/** Whether a `list_notes` answer names a note under `folder`. */
+export function holdsNotes(listed, folder) {
+  if (!listed || listed.isError === true) return false;
+  const words = (listed.content ?? []).map((part) => (typeof part?.text === "string" ? part.text : "")).join("\n");
+  // A listing is a path a line, "health/running-plan.md (812 bytes)" (`folderFit.js` reads the same).
+  return words.split("\n").some((each) => each.trim().startsWith(folder) && /\.md(\s|$)/.test(each.trim()));
+}
+
 /** The conversation as the planner reads it: earlier texts, newest kept. */
 function conversationText(history, question) {
   const lines = (Array.isArray(history) ? history : [])
@@ -181,17 +189,23 @@ export function planCall({ model, effort, request, meter = async () => {}, histo
     const ask = clip(args?.ask, MAX_ASK);
     const folder = planFolder(args?.folder);
     if (ask === "" || folder === null) return text("Give the ask and a new folder for the project in their workspace (\"1-projects/name/\").", true);
-    const slots = background.freeSlots();
-    if (slots < 1) return text("Every job slot is taken. Tell them you'll start this once a job finishes, or do the part that's small now.", true);
     const computers = typeof background.machines === "function" ? await background.machines().catch(() => []) : [];
+    // The cloud's free slots and each computer's own, counted apart (`jobSlots.js`).
+    const freeOn = (computer) => (typeof background.freeOn === "function" ? background.freeOn(computer) : 0);
+    const slots = background.freeSlots() + computers.reduce((sum, computer) => sum + freeOn(computer), 0);
+    if (slots < 1) return text("Every job slot is taken. Tell them you'll start this once a job finishes, or do the part that's small now.", true);
     const overviewPath = `${folder}overview.md`;
     const there = await callTool("read_note", { path: overviewPath }).catch(() => null);
     if (there && there.isError !== true) return text(`${overviewPath} is already a note. Pick a new folder for this project.`, true);
+    // A project gets a folder of its own (gh-151: a split ask's overview and parts went loose into health/, among her own notes).
+    if (holdsNotes(await callTool("list_notes", { prefix: folder }).catch(() => null), folder)) {
+      return text(`${folder} already holds their notes. Give the project a new folder of its own inside their projects folder ("projects/running-prep/").`, true);
+    }
     planned = true;
     const brief =
       `<conversation>\n${conversationText(history, question) || "(none)"}\n</conversation>\n\n<ask>\n${ask}\n</ask>\n\n` +
-      `Free job slots now: ${slots}.\n` +
-      `Their computers: ${computers.length === 0 ? "none (every part runs in the cloud)" : computers.map((each) => `${each.name}${each.online ? "" : " (offline)"} (${(each.tools ?? []).join(", ") || "no coding tool"}${Number.isSafeInteger(each.slots) ? `, ${each.slots} slots` : ""})`).join("; ")}.`;
+      `Free job slots now: ${slots} (${background.freeSlots()} in the cloud${computers.map((each) => `, ${freeOn(each)} on ${each.name}`).join("")}).\n` +
+      `Their computers: ${computers.length === 0 ? "none (every part runs in the cloud)" : computers.map((each) => `${each.name}${each.online ? "" : " (offline)"} (${(each.tools ?? []).join(", ") || "no coding tool"}${Number.isSafeInteger(each.slots) ? `, ${each.slots} slots, ${freeOn(each)} free` : ""})`).join("; ")}.`;
     let answer;
     try {
       answer = await request({ model, system: PLANNER_PROMPT, messages: [{ role: "user", text: brief }], tools: [], display: "summarized", ...(effort ? { effort } : {}) });
@@ -240,6 +254,38 @@ export function planCall({ model, effort, request, meter = async () => {}, histo
       ),
     );
   };
+}
+
+/**
+ * A LONE JOB IS OFFERED THE PLANNER ONCE (the splitting bench, gh-149: with
+ * the planner offered, the everyday model still started the Lisbon week, three
+ * parts that run side by side, as one job in four answers of four).
+ *
+ * With the planner on and two or more slots free, the turn's first job started
+ * by the model itself, with no mail, is answered with the choice instead of
+ * starting: a big ask with parts goes to `plan_big_ask`; one piece of work is
+ * started by the same call again, which then goes through. The planner's own
+ * parts carry mail and are never asked, and nor is a job after the planner was called. Call it once `background.plan` is set; it
+ * changes `background.call` and `background.plan` in place.
+ */
+export function splitFirst(background) {
+  const start = background.call;
+  let asked = false;
+  background.call = async (args) => {
+    const lone = !args?.mail && background.started.length === 0 && background.freeSlots() >= 2;
+    if (asked || !lone) return start(args);
+    asked = true;
+    return text(
+      "Not started yet. Does this ask have parts that can run at the same time, each real work on its own (say dinners, a day trip and a " +
+        "packing list, or a shoe comparison, a physio and a plan)? Then call plan_big_ask once with the whole ask and a new folder for the " +
+        "project in their projects folder, and start nothing yourself. If it is truly one piece of work, call start_background_job again the same way.",
+      true,
+    );
+  };
+  // A turn that went to the planner already chose: its one-job answer starts at once.
+  const plan = background.plan;
+  if (typeof plan === "function") background.plan = (args, callTool) => ((asked = true), plan(args, callTool));
+  return background;
 }
 
 /** Told to the everyday model when the planner is offered: it, not a run of job starts, is how a big ask splits. */

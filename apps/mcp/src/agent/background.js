@@ -46,10 +46,12 @@
 import { PAGE_JOB_LINE } from "../pages.js";
 import { mailLine, mailOf } from "./steer.js";
 import { pickMachine } from "../machines/forJobs.js";
+import { MAX_CLOUD_JOBS, MAX_MACHINE_SLOTS, jobSlots } from "./jobSlots.js";
+import { START_JOB_TOOL, TOOL } from "./backgroundTool.js";
 import { PLAN_TOOL } from "./planBigAsk.js";
 export { jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, reportReply } from "./jobReport.js";
 
-export const START_JOB_TOOL = "start_background_job";
+export { START_JOB_TOOL } from "./backgroundTool.js";
 export const STEER_JOB_TOOL = "steer_background_job";
 export const JOB_STATUS_TOOL = "job_status";
 export const RESTART_JOB_TOOL = "restart_background_job";
@@ -60,10 +62,10 @@ export const MAX_MAIL_SHOWN = 20;
 const MAX_FOLLOW_UP = 4_000;
 /** The most of a replaced answer (`jobRun.ts` `draft`) the next part is shown. */
 const MAX_DRAFT = 4_000;
-/** Jobs one chat may have running at once; a fourth waits for one to finish. */
-export const MAX_RUNNING_JOBS = 3;
+/** Cloud jobs one chat may have running at once; a fourth waits for one to finish. A job on their computer counts against its own slots (`jobSlots.js`). */
+export const MAX_RUNNING_JOBS = MAX_CLOUD_JOBS;
 /** Entries of `running` read from a request: running ones and a few just finished. */
-export const MAX_RUNNING_SHOWN = 6;
+export const MAX_RUNNING_SHOWN = 14; // every running one (three in the cloud, up to eight on a computer) and a few just finished
 /** Parts one job may take, the first included, before it reports what it has (Dev2, 2026-10-31: 10 parts or 30 minutes, `jobCheck.js`). */
 export const MAX_JOB_ATTEMPTS = 10;
 
@@ -130,6 +132,8 @@ export function runningJobsOf(value) {
         startedAt: at(entry.startedAt),
         finishedAt: at(entry.finishedAt),
         status: line(entry.status, MAX_STATUS),
+        // The computer it runs on, by machine id (`apps/agent/src/jobs.ts`), which counts it against that computer's slots, not the cloud's.
+        on: typeof entry.on === "string" && ID.test(entry.on) ? entry.on : null,
         // The advisor's last call on it and its advice (`jobCheck.js`), and a finished job's report: for `job_status`.
         verdict: VERDICTS.has(entry.verdict) ? entry.verdict : null,
         advice: line(entry.advice, MAX_ADVICE),
@@ -278,67 +282,6 @@ export function withJobSteps(job, step, record) {
   };
 }
 
-const TOOL = {
-  name: START_JOB_TOOL,
-  description:
-    "Hand a long task to a background job, so you stay free for their other texts and several things run at once: research " +
-    "across many sources, a multi-step task on a site, anything that takes more than a handful of tool calls. The job runs on its " +
-    "own with the same access as you, writes the result where it belongs and reports back to you when done: you decide what they get. Never for a quick " +
-    "answer or a single note you can write now, and never for something already in the background list. When one fact only they " +
-    "know would change what the job does (do they want to cook, or have it catered? which city?), ask that one question first and " +
-    "start the job on their answer; anything you can find or safely assume goes in the brief instead. " +
-    "A big ask whose parts can go side by side runs in parallel by default: write one task note per part in the project's folder " +
-    "(what it does, done when), then start one job per part in this same turn, up to the free slots, each with mail naming the project's " +
-    "overview note and a short name for its part. Each job joins that note's mail, so they ask and tell each other at once, and you follow them there.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      title: { type: "string", description: "A few words naming the job, as they would: \"Competitor research for Tex\"." },
-      brief: {
-        type: "string",
-        description: "Your plan for it: what to find or do, which workspace and folder, what to write and where, anything they said that matters.",
-      },
-      done_when: {
-        type: "string",
-        description:
-          "What finished looks like, in one line, with every figure they asked for: \"a note comparing five competitors in @supa projects/tex/\", " +
-          "\"three caterers with the full cost per person, sides and drinks included\".",
-      },
-      mail: {
-        type: "object",
-        description:
-          "For one part of a split ask: the project note whose mail every part's job joins (path, and context \"@name\" when it is in another workspace), " +
-          "and this job's short name there (\"pricing\", \"research\").",
-        properties: {
-          path: { type: "string" },
-          context: { type: "string" },
-          name: { type: "string" },
-        },
-        required: ["path", "name"],
-      },
-      on_computer: {
-        type: "object",
-        description:
-          "Run it on one of their own paired computers (in a group chat, one lent to the chat) instead of the cloud, with Claude Code or Codex signed in to its owner's plan: " +
-          "always for what a computer with Claude Code or Codex is good at: code (a question about how a codebase works, theirs or a public one on GitHub; finding something in a repo; a change to their code), and heavy computing (running scripts, crunching big data or many files, builds, long analysis); never the cloud for those when they have a computer, so try it first and the answer says if they have none. Also anything that needs their machine. name: the computer as they call it (left out when they have one); " +
-          "tool: claude or codex; folder and repo: where on it, when they said. Runs up to four hours, checked every fifteen minutes.",
-        properties: {
-          name: { type: "string" },
-          tool: { type: "string", enum: ["claude", "codex"] },
-          folder: { type: "string" },
-          repo: { type: "string" },
-        },
-      },
-      quiet: {
-        type: "boolean",
-        description:
-          "True when they asked not to hear from you until it's done (\"don't come back to me until you're done\"): nothing is texted now, only its result.",
-      },
-    },
-    required: ["title", "brief"],
-  },
-};
-
 /** A job that ended without finishing: what "restart it" picks back up (`apps/agent/src/jobs.ts` `resumeJobs`). */
 const resumable = (entry) => entry.state !== "running" && entry.state !== "done";
 
@@ -446,11 +389,15 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   const resumed = []; // ended jobs this turn picks back up, by id: steered to the Worker with `resume`
   let justResumed = []; // their titles, read once by `endsTurn`
   let quietAck = false; // they asked to hear nothing until it's done: the start or restart texts nothing (`QUIET_ACK`)
-  const busy = () => running.filter((entry) => entry.state === "running").length + started.length + resumed.length;
+  const slots = jobSlots(() => [...running.filter((entry) => entry.state === "running"), ...started, ...resumed]);
   const resume = (entries) => {
-    const room = Math.max(0, MAX_RUNNING_JOBS - busy());
-    const taken = entries.filter((entry) => !resumed.some((kept) => kept.id === entry.id)).slice(0, room);
-    resumed.push(...taken);
+    // One at a time, each against its own place's slots: the cloud's three, or its computer's (`jobSlots.js`).
+    const taken = [];
+    for (const entry of entries) {
+      if (resumed.some((kept) => kept.id === entry.id) || !slots.room(entry.on ? { id: entry.on, slots: MAX_MACHINE_SLOTS } : null)) continue;
+      resumed.push(entry);
+      taken.push(entry);
+    }
     justResumed = taken.map((entry) => entry.title);
     return taken;
   };
@@ -470,25 +417,29 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     }
     // The same job that stopped before finishing is picked back up, never started over from this text (2026-10-31).
     const stopped = running.find((entry) => resumable(entry) && sameJob(entry.title, title));
-    if (stopped && busy() < MAX_RUNNING_JOBS) {
+    if (stopped && slots.room(stopped.on ? { id: stopped.on, slots: MAX_MACHINE_SLOTS } : null)) {
       resume([stopped]);
       return text(`Picking "${stopped.title}" back up where it stopped. They're told so; send nothing more.`);
-    }
-    if (busy() >= MAX_RUNNING_JOBS) {
-      return text(
-        `${MAX_RUNNING_JOBS} jobs are already running. Tell them you'll take this one once one finishes and they can ask again then, ` +
-          "or do it now if it's small.",
-        true,
-      );
     }
     const mail = jobMailOf(args?.mail);
     // On one of their own computers (`machines/forJobs.js`): found now, and admitted by its owner's rules at every part.
     let machine = null;
+    let computer = null;
     if (args?.on_computer !== undefined && args?.on_computer !== null) {
       if (machines === null) return text("Only a job from their own chat, or a group chat a computer was lent to, can run on a computer.", true);
       const picked = pickMachine(await machines(), { ...args.on_computer, group: inGroup });
       if (picked.error) return text(picked.error, true);
-      machine = picked.machine;
+      ({ machine, computer } = picked);
+    }
+    // The cloud's three slots, or the computer's own (`jobSlots.js`).
+    if (!slots.room(computer)) {
+      return text(
+        computer === null
+          ? `${MAX_RUNNING_JOBS} jobs are already running in the cloud. Tell them you'll take this one once one finishes and they can ask again then, ` +
+              "or do it now if it's small."
+          : `Every slot on "${machine.name}" is taken. Tell them you'll start it there once one of its jobs finishes.`,
+        true,
+      );
     }
     started.push({ id: crypto.randomUUID(), title, brief, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
     justStarted.push(title);
@@ -546,7 +497,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
       );
     }
     const taken = resume(picked);
-    if (taken.length === 0) return text(`${MAX_RUNNING_JOBS} jobs are already running. Tell them you'll pick these up once one finishes.`, true);
+    if (taken.length === 0) return text(`Every slot they'd run in is taken. Tell them you'll pick these up once one finishes.`, true);
     const left = picked.filter((entry) => !taken.includes(entry)).map((entry) => `"${entry.title}"`);
     return text(`Picking ${taken.map((entry) => `"${entry.title}"`).join(", ")} back up.${left.length > 0 ? ` No room for ${left.join(", ")} yet: ${MAX_RUNNING_JOBS} run at once.` : ""}`);
   };
@@ -603,8 +554,9 @@ export function backgroundSession({ running, job, now, report = false, read = ()
           }
         : null,
     call,
-    /** Slots a new job may take now, and their computers, for the planner (`planBigAsk.js`), which sets `plan`. */
-    freeSlots: () => Math.max(0, MAX_RUNNING_JOBS - busy()),
+    /** Cloud slots a new job may take now, a computer's free slots, and their computers, for the planner (`planBigAsk.js`), which sets `plan`. */
+    freeSlots: slots.cloudFree,
+    freeOn: slots.freeOn,
     machines,
     plan: null,
     steer,

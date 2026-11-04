@@ -20,6 +20,12 @@
  *     → "a project note already there is never written over" fails.
  *  6. `readPlanSetting` reading anything but on as on, or the setup allowing it with no advisor.
  *     → "the planner is a setup switch, on only with an advisor" fails.
+ *  7. `splitFirst` starting a lone job at once (2026-11-04, splitting bench gh-149).
+ *     → "with the planner on, a lone job is offered the planner once, then starts" fails.
+ *  9. `planCall` skipping the folder's listing (gh-151: a split went loose into health/).
+ *     → "a project gets a folder of its own, never one that holds their notes" fails.
+ *  8. `splitFirst` asking a part the planner started, or a job after the planner was called.
+ *     → "the planner's own parts and its one-job answer are never asked" fails.
  */
 
 import assert from "node:assert/strict";
@@ -28,7 +34,7 @@ import { test } from "node:test";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { runTurn } from "../src/agent/turn.js";
 import { MAX_RUNNING_JOBS, backgroundSession, withBackground } from "../src/agent/background.js";
-import { PLAN_DEFINITION, PLAN_TOOL, parsePlan, planCall, planFolder, readPlanSetting } from "../src/agent/planBigAsk.js";
+import { PLAN_DEFINITION, PLAN_TOOL, holdsNotes, parsePlan, planCall, planFolder, readPlanSetting, splitFirst } from "../src/agent/planBigAsk.js";
 import { parseSetup } from "../src/agent/production.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
@@ -71,6 +77,7 @@ function notesDispatcher({ existing = [], failing = [] } = {}) {
   const callTool = async (name, args) => {
     calls.push({ name, args });
     if (name === "read_note") return notes.has(args.path) ? { content: [{ type: "text", text: notes.get(args.path) }] } : { content: [{ type: "text", text: "not found" }], isError: true };
+    if (name === "list_notes") return { content: [{ type: "text", text: [...notes.keys()].filter((path) => path.startsWith(args.prefix ?? "")).map((path) => `${path} (12 bytes)`).join("\n") }] };
     if (name === "write_note") {
       if (failing.includes(args.path)) return { content: [{ type: "text", text: "refused" }], isError: true };
       notes.set(args.path, args.content);
@@ -166,7 +173,7 @@ test("a big ask is planned, its notes written, and one job per part started on t
   for (const job of background.started) assert.equal(job.mail.path, "1-projects/lisbon-trip/overview.md");
   assert.deepEqual(background.started.map((job) => job.mail.name), ["flights", "stay", "days"]);
   assert.match(background.started[0].brief, /Your task note: 1-projects\/lisbon-trip\/flights\.md/);
-  assert.match(fake.asked[0].messages[0].text, /Free job slots now: 3\./);
+  assert.match(fake.asked[0].messages[0].text, /Free job slots now: 3 \(3 in the cloud\)\./);
   assert.match(background.endsTurn(PLAN_TOOL), /^On it, in 3 parts at once: Find flights; Find a flat; Plan the days\./);
   const again = await call(PLAN_TOOL, { ask: "again", folder: "1-projects/other" });
   assert.equal(again.isError, true, "one plan a turn");
@@ -258,7 +265,62 @@ test("code goes to a computer: a one-job answer names theirs, and the planner is
   const fake = planner(background, { split: false, how: "one_job", why: "a small change", computer: "Studio Mac" });
   const result = await withBackground(background, notesDispatcher().callTool)(PLAN_TOOL, { ask: "change the on it text in the context repo", folder: "1-projects/on-it/" });
   assert.match(words(result), /on_computer \{ name: "Studio Mac" \}/);
-  assert.match(fake.asked[0].messages[0].text, /Studio Mac \(claude, codex, 3 slots\)/);
+  assert.match(fake.asked[0].messages[0].text, /Studio Mac \(claude, codex, 3 slots, 3 free\)/);
+  assert.match(fake.asked[0].messages[0].text, /Free job slots now: 6 \(3 in the cloud, 3 on Studio Mac\)/, "a computer's slots are its own");
   assert.match(fake.asked[0].system, /good at always runs on one/);
   assert.match(fake.asked[0].system, /heavy computing/);
+});
+
+test("with the planner on, a lone job is offered the planner once, then starts", async () => {
+  const background = splitFirst(backgroundSession({ running: [], job: null, now: NOW }));
+  const call = withBackground(background, async () => ({ content: [] }));
+  const lisbon = { title: "Lisbon week", brief: "Dinners, a day trip and packing." };
+  const first = await call("start_background_job", lisbon);
+  assert.equal(first.isError, true);
+  assert.match(words(first), /call plan_big_ask once/);
+  assert.equal(background.started.length, 0, "nothing started yet");
+  assert.equal(background.endsTurn("start_background_job"), null, "the turn goes on");
+  const again = await call("start_background_job", lisbon);
+  assert.equal(again.isError, undefined, words(again));
+  assert.deepEqual(background.started.map((job) => job.title), ["Lisbon week"]);
+
+  // One slot free: nothing to split into, so it starts at once.
+  const one = splitFirst(backgroundSession({ running: [{ id: "job-cccccccc-1", title: "A", state: "running", startedAt: NOW }, { id: "job-cccccccc-2", title: "B", state: "running", startedAt: NOW }], job: null, now: NOW }));
+  assert.equal((await withBackground(one, async () => ({ content: [] }))("start_background_job", lisbon)).isError, undefined);
+  assert.equal(one.started.length, 1);
+});
+
+test("the planner's own parts and its one-job answer are never asked", async () => {
+  const background = backgroundSession({ running: [], job: null, now: NOW });
+  planner(background, PLAN);
+  splitFirst(background);
+  const { callTool } = notesDispatcher();
+  const call = withBackground(background, callTool);
+  await call(PLAN_TOOL, { ask: "plan my lisbon week", folder: "1-projects/lisbon/" });
+  assert.equal(background.started.length, 3, "every part started");
+
+  const single = backgroundSession({ running: [], job: null, now: NOW });
+  planner(single, { split: false, how: "one_job", why: "steps in order" });
+  splitFirst(single);
+  const callSingle = withBackground(single, notesDispatcher().callTool);
+  await callSingle(PLAN_TOOL, { ask: "insurance", folder: "1-projects/insurance/" });
+  const started = await callSingle("start_background_job", { title: "Travel insurance", brief: "Pick one." });
+  assert.equal(started.isError, undefined, words(started));
+  assert.equal(single.started.length, 1);
+});
+
+test("a project gets a folder of its own, never one that holds their notes", async () => {
+  assert.equal(holdsNotes({ content: [{ type: "text", text: "health/running-plan.md (812 bytes)\nhealth/Knee notes.md (40 bytes)" }] }, "health/"), true);
+  assert.equal(holdsNotes({ content: [{ type: "text", text: "" }] }, "projects/running-prep/"), false);
+  assert.equal(holdsNotes({ isError: true, content: [{ type: "text", text: "health/x.md" }] }, "health/"), false);
+  const background = backgroundSession({ running: [], job: null, now: NOW });
+  const fake = planner(background, PLAN);
+  const { notes, callTool } = notesDispatcher({ existing: ["health/running-plan.md"] });
+  const result = await withBackground(background, callTool)(PLAN_TOOL, { ask: "shoes, a physio and a plan", folder: "health/" });
+  assert.equal(result.isError, true);
+  assert.match(words(result), /new folder of its own inside their projects folder/);
+  assert.equal(fake.asked.length, 0, "the advisor isn't asked");
+  assert.equal(notes.size, 1, "nothing written");
+  const again = await withBackground(background, callTool)(PLAN_TOOL, { ask: "shoes, a physio and a plan", folder: "projects/running-prep/" });
+  assert.equal(again.isError, undefined, words(again));
 });

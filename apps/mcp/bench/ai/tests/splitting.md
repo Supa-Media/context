@@ -48,7 +48,7 @@ What a turn started is checked from the run's record, never by the judge (`bench
 - must start: 2+ jobs on one note's mail
 - must write: maya/projects/
 - must: tell her in one short text that it's on it and will text the results
-- must not: write the November plan or name shoes or a physio in this text
+- must not: write the November plan, or name a particular shoe or physio, in this text (naming the parts it started is fine)
 
 ## 3. The same kind of ask with one slot free (split as far as the slots go)
 

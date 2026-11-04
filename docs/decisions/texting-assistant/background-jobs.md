@@ -368,6 +368,21 @@ So:
   duplicate check and the computer check all apply.
 - Production keeps it off until the splitting bench (`bench/ai/tests/
   splitting.md`, `background: on`, `must start` checks) says it should.
+- **A lone job is offered the planner once** (`splitFirst`, 2026-11-04).
+  The first splitting round (gh-149) had the planner offered, and the
+  everyday model still started the Lisbon week, three parts that run side by
+  side, as one job in every answer. So with the planner on and two or more
+  slots free, the turn's first job started by the model with no mail is
+  answered with the choice instead: a big ask goes to `plan_big_ask`; one
+  piece of work is the same call again, which then starts. The planner's own
+  parts (they carry mail) and a job after the planner was called are never
+  asked. Starting a lone job at once again reverses it; test: "with the
+  planner on, a lone job is offered the planner once, then starts".
+- **A split project gets a folder of its own** (2026-11-04, gh-151: an
+  overview and its parts went loose into `health/`, among the person's own
+  notes). The planner lists the folder first and refuses one that already
+  holds notes, before the advisor is asked. Test: "a project gets a folder
+  of its own, never one that holds their notes".
 
 Settling at the first start again, letting the planner exceed the free
 slots, writing outside the named folder, or starting a part whose note

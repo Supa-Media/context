@@ -437,3 +437,5 @@ test/machineJobs.test.mjs
 test/machineApp.test.mjs
 test/machineForJobs.test.mjs
 test/agentPlanBigAsk.test.mjs
+test/machineForTurn.test.mjs
+test/agentJobSlots.test.mjs
