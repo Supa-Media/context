@@ -88,12 +88,17 @@ export function projectNote(path, note) {
   // costs a few hundred bytes per chunk to do it.
   const bodies = chunkText(fields.body);
   const tags = fields.tags.join(" ");
+  // The file's own name is a heading too, so "llc formation" finds `llc-formation.md` whose first heading says
+  // something else (the search revamp, 2026-11-04). The title is the first heading where there is one; the name
+  // is otherwise nowhere in the index, since `path` is UNINDEXED.
+  const name = fileNameWords(path);
+  const headings = name && name !== fields.title ? [name, fields.headings].filter(Boolean).join("\n") : fields.headings;
 
   const chunks = bodies.map((body, ord) => ({
     path,
     ord,
     title: fields.title,
-    headings: fields.headings,
+    headings,
     tags,
     body,
   }));
@@ -110,6 +115,13 @@ export function projectNote(path, note) {
     },
     chunks,
   };
+}
+
+/** A note's file name without its extensions (`.md`, `.page.md`, `.excalidraw.md`), or `""`. */
+export function fileNameWords(path) {
+  if (typeof path !== "string") return "";
+  const base = path.slice(path.lastIndexOf("/") + 1);
+  return base.replace(/(\.(page|excalidraw))?\.md$/i, "");
 }
 
 /** The FTS table a visibility's rows live in. */

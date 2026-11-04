@@ -29,6 +29,8 @@
  * SQL injection is closed by the placeholder and not by anything here.
  */
 
+import { wordForms } from "./wordForms.js";
+
 /**
  * Field weights for `bm25()`.
  *
@@ -61,6 +63,36 @@ export const COLUMN_WEIGHTS = [0.0, 0.0, 4.0, 2.5, 3.0, 1.0];
  * snippet being a window, and is not a mark around anything.
  */
 export const SNIPPET_TOKENS = 12;
+
+const quote = (token) => `"${token.replace(/"/g, '""')}"`;
+
+/**
+ * Longest expression asked with word forms. A query long enough to pass it (a pasted paragraph) asks its words as
+ * written, so the expression stays inside what the workspace object takes (`workspaceStore/searchIndex.js`, 4,096).
+ */
+const FORMS_EXPRESSION_MAX = 3_000;
+
+/** Run `build` with word forms, or without them where the expression would be longer than `FORMS_EXPRESSION_MAX`. */
+function withForms(build) {
+  const expanded = build(true);
+  return expanded !== null && expanded.length > FORMS_EXPRESSION_MAX ? build(false) : expanded;
+}
+
+const formsOf = (token, forms) => (forms ? wordForms(token) : [token]);
+
+/** One word as asked: itself, or a group of its forms (`wordForms.js`), with `extra` (a prefix match) beside them. */
+function wordTerm(token, extra = [], forms = true) {
+  const terms = [...formsOf(token, forms).map(quote), ...extra];
+  const unique = [...new Set(terms)];
+  return unique.length === 1 ? unique[0] : `(${unique.join(" OR ")})`;
+}
+
+function tokensOf(query) {
+  return query
+    .split(/[^\p{L}\p{N}_]+/u)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
 export const SNIPPET_OPEN = "";
 export const SNIPPET_CLOSE = "";
 
@@ -76,15 +108,13 @@ export function toMatchExpression(query) {
   // Split on anything that is not a letter, digit or underscore. The unicode61
   // tokenizer draws the same boundary over the indexed text, so a token that
   // survives here is a token that can match.
-  const tokens = query
-    .split(/[^\p{L}\p{N}_]+/u)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
+  const tokens = tokensOf(query);
   if (tokens.length === 0) return null;
-  // Each token as a quoted literal, space-separated. In FTS5 that is an
-  // implicit AND of phrases — the same "a phrase is an AND" behaviour
-  // `search/CONTRACT.md` documents for the R2 index.
-  return tokens.map((token) => `"${token.replace(/"/g, '""')}"`).join(" ");
+  // Each token as a quoted literal, or a group of its word forms ("meetings"
+  // also finds "meeting", `wordForms.js`), joined by AND, spelled out because
+  // FTS5 takes no implicit AND before a group — the same "a phrase is an AND"
+  // behaviour `search/CONTRACT.md` documents for the R2 index.
+  return withForms((forms) => tokens.map((token) => wordTerm(token, [], forms)).join(" AND "));
 }
 
 /**
@@ -101,12 +131,10 @@ export function toMatchExpression(query) {
 export function toTypingMatchExpression(query) {
   const strict = toMatchExpression(query);
   if (strict === null) return null;
-  const tokens = query
-    .split(/[^\p{L}\p{N}_]+/u)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
+  const tokens = tokensOf(query);
   const last = tokens[tokens.length - 1];
-  return [...last].length >= RELAXED_PREFIX_MIN ? `${strict}*` : strict;
+  if ([...last].length < RELAXED_PREFIX_MIN) return strict;
+  return withForms((forms) => [...tokens.slice(0, -1).map((token) => wordTerm(token, [], forms)), wordTerm(last, [`${quote(last)}*`], forms)].join(" AND "));
 }
 
 /** Shortest token that also matches as the start of a longer word. */
@@ -129,16 +157,12 @@ export const RELAXED_PREFIX_MIN = 3;
 export function toRelaxedMatchExpression(query) {
   const strict = toMatchExpression(query);
   if (strict === null) return null;
-  const tokens = query
-    .split(/[^\p{L}\p{N}_]+/u)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
-  const relaxed = tokens
-    .map((token) => {
-      const quoted = `"${token.replace(/"/g, '""')}"`;
-      return [...token].length >= RELAXED_PREFIX_MIN ? `${quoted}*` : quoted;
-    })
-    .join(" OR ");
+  // One word: any of the words is every word, so this is the typing expression, and the caller asks it once.
+  if (tokensOf(query).length === 1) return toTypingMatchExpression(query) === strict ? null : toTypingMatchExpression(query);
+  const relaxed = withForms((forms) => tokensOf(query)
+    .flatMap((token) => [...formsOf(token, forms).map(quote), ...([...token].length >= RELAXED_PREFIX_MIN ? [`${quote(token)}*`] : [])])
+    .filter((term, index, all) => all.indexOf(term) === index)
+    .join(" OR "));
   return relaxed === strict ? null : relaxed;
 }
 
