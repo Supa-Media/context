@@ -65,6 +65,11 @@
       "path": "apps/convex/functions/lib/reservedNames.generated.ts",
       "reason": "Vendored username blocklists with a digest.",
       "command": "node scripts/build-reserved-names.mjs"
+    },
+    {
+      "path": "apps/machine-runner/Cargo.lock",
+      "reason": "Cargo lockfile; machine-generated.",
+      "command": "cd apps/machine-runner && cargo generate-lockfile"
     }
   ],
   "reviewed": {
