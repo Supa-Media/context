@@ -61,6 +61,18 @@ jobs:
             quantileWeighted(0.95)(double1, _sample_interval) AS p95
             FROM $ENTRY WHERE timestamp > NOW() - INTERVAL '$HOURS' HOUR
             GROUP BY kind, step, state ORDER BY kind, p50 DESC LIMIT 200 FORMAT JSON" > entry.json
+          # The three newest turns of each kind, step by step in the order they started: what no median shows.
+          # A turn's id is opaque and is never printed: each is shown as "turn 1", "turn 2", ...
+          : > turns.jsonl
+          for kind in one group; do
+            sql "SELECT blob5 AS turn, double1 AS ms FROM $ENTRY WHERE blob2 = '$kind' AND blob3 = 'to_response' AND blob5 != ''
+              AND timestamp > NOW() - INTERVAL '$HOURS' HOUR ORDER BY timestamp DESC LIMIT 3 FORMAT JSON" > newest.json
+            for turn in $(node -e 'for (const r of JSON.parse(require("fs").readFileSync("newest.json","utf8")).data) if (/^[A-Za-z0-9_-]{1,64}$/.test(r.turn)) console.log(r.turn)'); do
+              sql "SELECT '$kind' AS kind, blob3 AS step, blob4 AS state, double1 AS ms, double2 AS at FROM $ENTRY
+                WHERE blob5 = '$turn' AND timestamp > NOW() - INTERVAL '$HOURS' HOUR ORDER BY at LIMIT 150 FORMAT JSON" \
+                | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.stringify(JSON.parse(s).data)))' >> turns.jsonl
+            done
+          done
           node -e '
             const fs = require("fs");
             const texts = fs.readFileSync("texts.jsonl", "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
@@ -70,6 +82,13 @@ jobs:
             for (const row of texts.sort((a, b) => word(a.kind).localeCompare(word(b.kind)))) out.push(`| ${word(row.kind)} | ${word(row.col)} | ${Math.round(row.n)} | ${Math.round(row.p50)} | ${Math.round(row.p95)} |`);
             out.push("", `### Steps in the gateway, last ${process.env.HOURS} h`, "", "| kind | step | state | n | p50 ms | p95 ms |", "| --- | --- | --- | ---: | ---: | ---: |");
             for (const row of entry) out.push(`| ${word(row.kind)} | ${word(row.step)} | ${word(row.state)} | ${Math.round(row.n)} | ${Math.round(row.p50)} | ${Math.round(row.p95)} |`);
+            let shown = 0;
+            for (const steps of fs.readFileSync("turns.jsonl", "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line))) {
+              if (steps.length === 0) continue;
+              shown += 1;
+              out.push("", `### A ${word(steps[0].kind)} turn (turn ${shown}), step by step`, "", "| starts at ms | step | state | ms |", "| ---: | --- | --- | ---: |");
+              for (const step of steps) out.push(`| ${Math.round(step.at)} | ${word(step.step)} | ${word(step.state)} | ${Math.round(step.ms)} |`);
+            }
             const text = out.join("\n");
             console.log(text);
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text + "\n");
