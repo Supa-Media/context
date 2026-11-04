@@ -44,8 +44,8 @@ const OBJECT_NOTE_KEY = /^notes\/[A-Za-z0-9-]{1,128}\.md$/;
 /** A listing that could name an older saved version, which only the bucket holds whole. */
 const coversRevisions = (prefix) => typeof prefix === "string" && (REVISIONS.startsWith(prefix) || prefix.startsWith(REVISIONS));
 /**
- * How long a saved version no document names yet is kept in the object: a save writes its version before the
- * document that names it (`commitSnapshot`), so a younger one may be that save's, still in flight.
+ * How long a saved version no document names yet is kept in the object: a version kept when its person went idle,
+ * or one an older writer made before the document that names it (`commitSnapshot`), may still be in flight.
  */
 export const REVISION_GRACE_MS = 10 * 60 * 1000;
 
