@@ -5,7 +5,7 @@ import {
   identityHead,
   putHead,
   readHead,
-  readRevision,
+  currentRevision,
   readState,
   readStructural,
   updateStructural,
@@ -94,7 +94,7 @@ async function recoverRestore(store, operationId) {
   const stateRecord = await readState(store, { stateKey: op.stateKey, documentId: op.documentId, generation: op.generation });
   if (!stateRecord) throw fail("RESTORE_UNAVAILABLE", "deleted document history is no longer retained");
   const state = validateState(stateRecord.value, { documentId: op.documentId, generation: op.generation, byNote: head?.byNote }, op.path);
-  const revision = await readRevision(store, op.documentId, state.revision);
+  const revision = await currentRevision(store, state);
   let object = await readObject(store, op.path);
   if (object && object.text !== revision.value.text) {
     return abortRestore(store, opRecord, "restore path was recreated by another writer");

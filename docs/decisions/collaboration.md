@@ -375,3 +375,30 @@ the save answers, so a completed save still includes its accepted edits.
 **What a simplification would cost.** Reading back again puts two round trips on every save.
 `packages/collaboration/test/roundTrips.mjs` holds a save to seven round trips and fails at nine without this, and its
 race check proves a Markdown change between the commit and its rendering still ends as the accepted text.
+
+## A save keeps one current copy of its history, and a version when the person goes idle (2026-11-04)
+
+Every save wrote four records: a new revision file holding a full Yjs snapshot of the note's whole history plus its
+text, the document's state twice (accepted, then rendered), and the Markdown. For a 68-byte note with a one-word
+change that was about 1.9 KB, the text appeared about six times, and every revision ever made was kept in the backup
+bucket for good. Only two things are essential: the Markdown a person reads, and the current snapshot, which is what
+merges an offline edit and from which everything else can be rebuilt (decided by the owner, 2026-11-04).
+
+**Decision.** A save writes the Markdown and the document's state, and the state carries the current snapshot
+(`current: {revision, snapshot, rawMarkdownEtag}`). The backup bucket gets one copy of each key a save wrote, where it
+ended, not every intermediate write. A version a person can go back to (a full revision file) is kept when they go
+idle: when a save comes five minutes or more after the one before it, the state the person stopped at is kept as a
+version, with no cap per hour. Taking the version never holds up a save: it is a local write in the workspace object
+and the backup copy goes after the response. An older version a client still holds as its merge base is found from a
+small marker the state keeps for each recent revision (a Yjs state vector and delete set, about 20 bytes), applied to
+the current snapshot, which never forgets an item because documents keep `gc: false`.
+
+It ships in two steps, because a writer from before it cannot read a document whose revision has no file. First the
+state keeps its copy and readers prefer it while every save still writes its revision file. Once that is live
+everywhere the engine runs (the gateway and the control plane), saves stop writing per-save revision files.
+
+**What a simplification would cost.** Trusting the state's copy for a revision it does not name serves an older note
+as the current one: a writer from before this carries the old copy along when it moves the revision on.
+`packages/collaboration/test/inlineRevision.mjs` fails if that check goes, and if a load reads the revision file
+again. Copying every intermediate write doubles the document state in the backup:
+`apps/mcp/test/collabReplaceInObject.test.mjs` "a save's backup copies each key once" fails.
