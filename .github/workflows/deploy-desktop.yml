@@ -374,9 +374,7 @@ jobs:
         if: steps.decide.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # electron-builder's own default tag scheme (`vPrefixedTagName`, on by
-          # default) — not renamed here, because the tag this step checks has to
-          # be the exact one electron-builder will look for and reuse below.
+          # electron-builder's default tag scheme (`vPrefixedTagName`): the tag checked here is the one it reuses below.
           TAG: v${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
@@ -384,14 +382,8 @@ jobs:
             echo "::error::$TAG already has a release. This workflow never overwrites one — bump the version in apps/desktop/package.json and dispatch again."
             exit 1
           fi
-          # A release made on a Mac by build/release-local.sh takes the next
-          # number after the latest release, not this run's, so a run queued
-          # behind it could otherwise publish an older version as "latest".
-          latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || echo v0.0.0)"
-          if [ "$(printf '%s\n%s\n' "${latest#v}" "${TAG#v}" | sort -V | tail -n 1)" != "${TAG#v}" ]; then
-            echo "::error::$TAG is older than the latest release $latest. Dispatch again; a newer run number gives a newer version."
-            exit 1
-          fi
+          latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || echo v0.0.0)" # a Mac release (build/release-local.sh) can be ahead of this run's number
+          [ "$(printf '%s\n%s\n' "${latest#v}" "${TAG#v}" | sort -V | tail -n 1)" = "${TAG#v}" ] || { echo "::error::$TAG is older than the latest release $latest. Dispatch again; a newer run number gives a newer version."; exit 1; }
           echo "$TAG has no release yet and is newer than $latest; this dispatch may create it."
 
       # The signing half arrives as `CSC_KEYCHAIN` and
