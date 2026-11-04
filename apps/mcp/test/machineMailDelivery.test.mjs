@@ -7,8 +7,14 @@
  * object refused it before it reached the machine, and `machineMailOnly.test.mjs` did not see it because its stub
  * answered with `serveMachineCall` directly, past that check. This one goes through the object's front door.
  *
+ * A line sent while the device's runner is between sockets is not lost: the object keeps a device's recent mail and
+ * hands it over again on every hello. The runner keeps a line once by its id, so a repeat is harmless. A socket that
+ * died without closing still looks open for a while, so mail is kept whether or not a send seemed to work.
+ *
  * Sabotage record (applied, suite run, named test observed failing, reverted):
  *  1. `toMachine` without `workspaceId` in its call → "a line sent to a device reaches its runner's socket".
+ *  2. `hello` without the replay → "mail sent while a device reconnects reaches it when it is back".
+ *  3. `holdMail` keeping no time limit → "only recent mail is handed over again, and none once the device is gone".
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -82,4 +88,39 @@ test("a device in another workspace's object is not reached through this one", a
   const other = await deliverMail(object.env, { jobMailboxes: async () => [{ mailboxId: "mb_x", name: "vm", machineId: device.id, machineWorkspaceId: "ws_other", own: false }] }, line);
   assert.deepEqual(other, []);
   assert.equal(server.sent.length, sentBefore);
+});
+
+const mailFrame = (n, at) => ({ messageId: `ml_mb_vm_${n}`, kind: "note", from: "lead", to: "vm", text: `line ${n}`, path: "projects/a.md", at });
+
+test("mail sent while a device reconnects reaches it when it is back", async () => {
+  const world = machineWorld({ workspaceId: "ws_vm" });
+  const device = await world.add("mch_vm", { mailOnly: true, expiresAt: world.clock.at + 86_400_000, folders: [] });
+  const first = await world.connect(device);
+  // Sent on a socket that already died without closing: the send looked fine, the runner never got it.
+  assert.equal((await world.call("ws.machine.mail", { id: device.id, mail: mailFrame(1, world.clock.at) })).sent, true);
+  world.sockets.closed(first);
+  // Sent while no socket is open.
+  assert.equal((await world.call("ws.machine.mail", { id: device.id, mail: mailFrame(2, world.clock.at) })).sent, false);
+  const second = await world.connect(device);
+  const replayed = second.sent.filter((frame) => frame.type === "mail").map((frame) => frame.text);
+  assert.deepEqual(replayed, ["line 1", "line 2"]);
+  assert.ok(second.sent.findIndex((frame) => frame.type === "welcome") < second.sent.findIndex((frame) => frame.type === "mail"), "after the welcome");
+});
+
+test("only recent mail is handed over again, and none once the device is gone", async () => {
+  const world = machineWorld({ workspaceId: "ws_vm" });
+  const device = await world.add("mch_vm", { mailOnly: true, expiresAt: world.clock.at + 86_400_000, folders: [] });
+  await world.call("ws.machine.mail", { id: device.id, mail: mailFrame(1, world.clock.at) });
+  world.clock.at += 11 * 60 * 1000;
+  await world.call("ws.machine.mail", { id: device.id, mail: mailFrame(2, world.clock.at) });
+  const back = await world.connect(device);
+  assert.deepEqual(back.sent.filter((frame) => frame.type === "mail").map((frame) => frame.text), ["line 2"]);
+
+  // A full machine's sessions do not join mail as it: nothing is kept for it.
+  const full = await world.add("mch_mac");
+  await world.call("ws.machine.mail", { id: full.id, mail: mailFrame(3, world.clock.at) });
+  assert.equal(world.machines.heldMail(full.id).length, 0);
+
+  await world.call("ws.machine.remove", { id: device.id, reason: "left" });
+  assert.equal(world.machines.heldMail(device.id).length, 0);
 });

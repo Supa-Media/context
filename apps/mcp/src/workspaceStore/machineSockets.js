@@ -183,6 +183,9 @@ export function machineSockets(state, sql, machines, deps = {}) {
       }
     }
     send(ws, { type: "welcome", machineId: row.machine, name: seen.name, rules: rulesOf(seen, now()), keepRuns });
+    // A mail-only device's recent mail again: a line sent while it was between sockets reaches it now, and one it already
+    // has it keeps once by its id.
+    for (const frame of machines.heldMail?.(row.machine) ?? []) send(ws, frame);
     await notify({ kind: "online", machineId: row.machine });
   }
 

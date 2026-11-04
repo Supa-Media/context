@@ -124,6 +124,8 @@ function mail(store, fields) {
   const frame = { type: "mail", ...fields.mail };
   const why = invalid("Mail", frame);
   if (why !== null) return refused("bad_message", { why });
+  // Kept first: a send to a socket that died without closing looks fine, and the next hello hands it over again.
+  store.machines.holdMail(machine.id, frame);
   return Response.json({ ok: true, sent: store.machineSockets.send(machine.id, frame) });
 }
 

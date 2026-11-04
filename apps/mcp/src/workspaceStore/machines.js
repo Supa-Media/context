@@ -27,7 +27,17 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS ws_machine_asks (id TEXT PRIMARY KEY, machine TEXT NOT NULL, chat TEXT NOT NULL, asker TEXT NOT NULL, job TEXT NOT NULL, state TEXT NOT NULL, row TEXT NOT NULL, at INTEGER NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS ws_machine_asks_for ON ws_machine_asks (machine, chat, asker, job)`,
   `CREATE TABLE IF NOT EXISTS ws_machine_usage (machine TEXT NOT NULL, day TEXT NOT NULL, owner_ms INTEGER NOT NULL DEFAULT 0, others_ms INTEGER NOT NULL DEFAULT 0, others_runs INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (machine, day))`,
+  // A mail-only device's recent mail, handed over again on each hello (`machineSockets.js`); the runner keeps a line once by its id.
+  `CREATE TABLE IF NOT EXISTS ws_machine_mail (id TEXT NOT NULL, machine TEXT NOT NULL, frame TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (machine, id))`,
 ];
+
+/**
+ * How long a device's mail is handed over again on reconnect. A socket that died without closing can look open for
+ * a while, and a runner reconnects within seconds of noticing; the note keeps every line for anything older.
+ */
+export const HELD_MAIL_MS = 10 * 60 * 1000;
+/** Lines handed over again at most, newest kept: a note's mail is a small team, and the runner keeps 200. */
+const HELD_MAIL_MAX = 50;
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const TOOLS = new Set(["claude", "codex"]);
@@ -276,7 +286,22 @@ export function workspaceMachines(sql, deps = {}) {
       const ended = liveRuns(id);
       for (const held of ended) this.end(held.runId, { outcome: "cancelled", error: "machine removed" });
       sql.exec("UPDATE ws_machines SET gone = 1, at = ? WHERE id = ?", now(), id);
+      sql.exec("DELETE FROM ws_machine_mail WHERE machine = ?", id);
       return ended;
+    },
+
+    /** Keeps a line sent to a mail-only device, so a reconnect hands it over again; nothing for a full machine. */
+    holdMail(id, frame) {
+      const machine = get(id);
+      if (machine?.mailOnly !== true || typeof frame?.messageId !== "string") return false;
+      sql.exec("INSERT INTO ws_machine_mail (id, machine, frame, at) VALUES (?, ?, ?, ?) ON CONFLICT(machine, id) DO NOTHING", frame.messageId, id, JSON.stringify(frame), now());
+      sql.exec("DELETE FROM ws_machine_mail WHERE machine = ? AND (at < ? OR id NOT IN (SELECT id FROM ws_machine_mail WHERE machine = ? ORDER BY at DESC LIMIT ?))", id, now() - HELD_MAIL_MS, id, HELD_MAIL_MAX);
+      return true;
+    },
+
+    /** A device's mail from the last `HELD_MAIL_MS`, oldest first. */
+    heldMail(id) {
+      return all(sql.exec("SELECT frame FROM ws_machine_mail WHERE machine = ? AND at >= ? ORDER BY at ASC, rowid ASC", id, now() - HELD_MAIL_MS)).map((row) => JSON.parse(row.frame));
     },
 
     /**
@@ -413,6 +438,7 @@ export function workspaceMachines(sql, deps = {}) {
       sql.exec("DELETE FROM ws_machine_asks WHERE at < ?", now() - ASK_KEPT_MS);
       sql.exec("DELETE FROM ws_machine_runs WHERE state = 'ended' AND at < ?", now() - ENDED_KEPT_MS);
       sql.exec("DELETE FROM ws_machine_usage WHERE day < ?", dayOf(now() - USAGE_DAYS_KEPT * 86400000, "UTC"));
+      sql.exec("DELETE FROM ws_machine_mail WHERE at < ?", now() - HELD_MAIL_MS);
     },
   };
 }
