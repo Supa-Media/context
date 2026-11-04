@@ -9,6 +9,8 @@ Start a user-requested Context task with `orient`. It runs the actual workspace
 orientation: front pages, recent changes, folder maps, access and saved
 conventions. `orient` with `about: "tools"` describes exactly the operations
 available to this connection; it does not advertise hidden action dispatchers.
+`run_context_reflection` starts the existing Tex reflection process on request;
+the ordinary endpoint continues to call this action `dream_now`.
 
 The connector supports note and file reads, search, meetings, contacts, message
 records, user-requested context summaries, remembered facts, comments, note mail,
