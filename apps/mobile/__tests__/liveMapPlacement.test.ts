@@ -5,6 +5,7 @@ import { NO_INSET, toScreen } from "../features/console/map/live/engine/camera";
 import { placeContainerLabels } from "../features/console/map/live/engine/draw/containers";
 import { countPresent, type DrawEnv } from "../features/console/map/live/engine/draw/env";
 import { DEFAULT_FONT } from "../features/console/map/live/engine/draw/primitives";
+import { DEFAULT_LOOK } from "../features/console/map/live/look";
 import { quietAt } from "../features/console/map/live/engine/draw/containers";
 import { HitFrame } from "../features/console/map/live/engine/hit";
 import { Occupancy } from "../features/console/map/live/engine/labels";
@@ -197,7 +198,9 @@ describe("names of workspaces and folders", () => {
 describe("note names", () => {
   test("note names go round the dots", () => {
     const g = para("ws-a", "Personal", 16);
+    // The map as it opens for everyone: the default look, its spread and open Archive included.
     const { canvas, engine } = engineFor({
+      look: { ...DEFAULT_LOOK },
       graphs: [g],
       actors: [],
       events: [],
@@ -221,7 +224,6 @@ describe("note names", () => {
     }
     const names = texts(calls).filter((t) => t.text.startsWith("note "));
     expect(dots.length).toBeGreaterThan(20);
-    // Archive is one icon now, so its notes' names are not among them.
     expect(names.length).toBeGreaterThanOrEqual(3);
     for (const n of names) {
       for (const d of dots) expect([n.text, overlaps(n, { x: d.x - d.r, y: d.y - d.r, w: d.r * 2, h: d.r * 2 })]).toEqual([n.text, false]);

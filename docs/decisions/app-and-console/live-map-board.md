@@ -107,7 +107,13 @@ that fit, only what's happening; text size) and Restore defaults.
   on the page. The row goes with the account.
 - **The look travels in `MapData.look`**, so the canvas inside the phone's web
   view reads it the same way the web does. `lookOf` reads any stored record
-  back inside the ranges in `look.ts`, whose `DEFAULT_LOOK` is Dev2's.
+  back inside the ranges in `look.ts`. `DEFAULT_LOOK` was Dev2's prototype
+  settings; since 2026-11-04 it is the look @shyoh set on their account,
+  which Dev2 made everyone's (pencil fully messy, colour by topic, all names
+  that fit at 14, lines near the cursor, bloom opening, Archive shown). An
+  owner reads a person's look by username with the `Map look of a person`
+  workflow (`lookOfUsername`, internal: the name claim is the person's
+  personal workspace, whose one owner is the person).
 - **Spread is applied in the layout**, not in the drawing, so taps and the
   camera agree with what is drawn.
 - **No cursor wiggle**: notes never move under the pointer, so they stay easy
@@ -160,8 +166,8 @@ and chaos. In `engine/draw/sketch.ts`:
 
 ## Show, colour and lines in the map's settings (Dev2, 2026-11-04)
 
-The rest of the prototype's settings, with Dev2's choices as everyone's
-defaults:
+The rest of the prototype's settings (the defaults named here were Dev2's
+first choices; the current ones are in `DEFAULT_LOOK`, above):
 
 - **Show**: Archive (off: one icon, as before; on: spread out like any
   folder, in the layout), notes with no links (on; off leaves them out of the
