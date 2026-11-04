@@ -62,4 +62,15 @@ test("a move through the object's fetch says when it arrived, that the instance 
   const third = await call("ws.write.move", { from: "projects/plan-3.md", to: "projects/plan-4.md", scope: "private" });
   assert.equal(third.ok, true, JSON.stringify(third));
   assert.equal(third.alarmDuring, true, JSON.stringify(third));
+  // No alarm was set: each move set its own. One already due (set before now) is left alone, and the move says so.
+  assert.equal(first.armed, true, JSON.stringify(first));
+  let sets = 0;
+  state.storage.getAlarm = async () => Date.now() - 1;
+  state.storage.setAlarm = async () => {
+    sets += 1;
+  };
+  const fourth = await call("ws.write.move", { from: "projects/plan-4.md", to: "projects/plan-5.md", scope: "private" });
+  assert.equal(fourth.ok, true, JSON.stringify(fourth));
+  assert.equal("armed" in fourth, false, JSON.stringify(fourth));
+  assert.equal(sets, 0);
 });
