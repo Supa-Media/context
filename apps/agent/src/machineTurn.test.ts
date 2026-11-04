@@ -12,6 +12,7 @@
  *  3. `machineTurn` assigning again when a run is kept → "a pass that restarts reads the run in progress, never starts a second".
  *  4. `steerJob` posting to `/agent/steer` for a machine part → "a later text goes into the session on the computer".
  *  5. `fromMachine` dropping the check's `unfinished` → "a finished part the advisor says isn't done is carried on, on its advice".
+ *  7. `machineTurn` stopping every group job → "a group chat's job runs on the computer lent to it, on the chat's own grant".
  *  6. `machineTurn` not asking for the check → "the advisor checks a part against the finish line" and the two after it.
  */
 
@@ -43,6 +44,10 @@ const run = (overrides: Partial<JobRun> = {}): JobRun => ({
 type RunRead = { state: string; steps?: { seq: number; tool: string; action?: string | null; target?: string | null }[]; result?: Record<string, unknown> | null; session?: string | null };
 
 /** A gateway whose machine routes answer from scripts: `assign` answers, then each read of the run in turn. */
+const GROUP = "11111111-2222-3333-4444-555555555555";
+const ADA = "+15555550101";
+let groupAnswer: Record<string, unknown> = { status: "ready", slug: "band", intro: false, timeZone: "UTC", handle: "ada", accessToken: "group_token" };
+
 function world({ assign = [{ ok: true, runId: "run_000000000000000000000001", deadline: NOW + 15 * 60_000 }], reads = [] as RunRead[], checks = [] as Record<string, unknown>[], during }: { assign?: Record<string, unknown>[]; reads?: RunRead[]; checks?: Record<string, unknown>[]; during?: (read: number) => Promise<void> } = {}) {
   const clock = { at: NOW };
   const calls: Array<{ path: string; token: string | null; body: Record<string, unknown> }> = [];
@@ -52,6 +57,9 @@ function world({ assign = [{ ok: true, runId: "run_000000000000000000000001", de
     fetch: (async (url: string, init: RequestInit) => {
       const path = new URL(url).pathname;
       if (path === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "job_token" });
+      // A group chat's job: its members read again, then its grant minted again, as its own turn's is.
+      if (path.startsWith("/api/v2/groups/")) return Response.json({ data: { group_id: GROUP, participants: [ADA, PHONE].map((number) => ({ number })) } });
+      if (path === "/agent-texts/group") return Response.json(groupAnswer);
       const body = JSON.parse(String(init.body));
       calls.push({ path, token: new Headers(init.headers).get("authorization"), body });
       if (path === "/agent/machine/assign") return Response.json(assign.shift() ?? { ok: false, code: "busy" });
@@ -72,7 +80,8 @@ function world({ assign = [{ ok: true, runId: "run_000000000000000000000001", de
     now: () => clock.at,
     sleep: async (ms) => void (clock.at += ms),
     report: async (_inbox, update) => (reports.push(update), true),
-  };
+    sendblue: { keyId: "id", secret: "key" },
+  } as JobDeps;
   return { deps, calls, reports, clock };
 }
 
@@ -227,5 +236,30 @@ describe("a job on the person's own computer", () => {
     const { deps, reports } = world({ reads: [finished("It needs your GitHub code.")], checks: [{ ok: true, verdict: "waiting", advice: "Their GitHub one-time code." }] });
     expect(await runJob(storage, deps)).toEqual({ kind: "done" });
     expect(reports[reports.length - 1]).toMatchObject({ state: "waiting", verdict: "waiting", advice: "Their GitHub one-time code." });
+  });
+
+  it("a group chat's job runs on the computer lent to it, on the chat's own grant", async () => {
+    const storage = new MemoryStorage();
+    const message = { kind: "group-message", eventId: "sendblue:h_job", groupId: GROUP, line: "+15555550199", from: ADA, participants: [ADA, PHONE, "+15555550199"], messageId: "h_ask", text: "Tex, fix the flaky test on Seyi's Mac" };
+    await storage.put(RUN_KEY, { ...run({ inbox: `sendblue-group:${GROUP}`, origin: { kind: "group", message, at: NOW } as JobRun["origin"] }), sent: 0 });
+    const { deps, calls } = world({ reads: [finished("Fixed.")] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    const assign = calls.find((call) => call.path === "/agent/machine/assign")!;
+    expect(assign.token).toBe("Bearer group_token");
+    expect(calls.some((call) => call.token === "Bearer job_token")).toBe(false);
+  });
+
+  it("a group chat that stopped Tex runs nothing on the computer", async () => {
+    const storage = new MemoryStorage();
+    const message = { kind: "group-message", eventId: "sendblue:h_job", groupId: GROUP, line: "+15555550199", from: ADA, participants: [ADA, PHONE, "+15555550199"], messageId: "h_ask", text: "Tex, fix it" };
+    await storage.put(RUN_KEY, { ...run({ inbox: `sendblue-group:${GROUP}`, origin: { kind: "group", message, at: NOW } as JobRun["origin"] }), sent: 0 });
+    groupAnswer = { status: "stopped" };
+    try {
+      const { deps, calls } = world({ reads: [finished("Fixed.")] });
+      await runJob(storage, deps);
+      expect(calls.some((call) => call.path === "/agent/machine/assign")).toBe(false);
+    } finally {
+      groupAnswer = { status: "ready", slug: "band", intro: false, timeZone: "UTC", handle: "ada", accessToken: "group_token" };
+    }
   });
 });

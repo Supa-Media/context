@@ -107,7 +107,10 @@ export async function finalizeWorkspaceDeletion(
     .query("texMachines")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
-  for (const machine of machines) await ctx.db.delete(machine._id);
+  for (const machine of machines) {
+    for (const chat of await ctx.db.query("texMachineChats").withIndex("by_machine", (q) => q.eq("machineId", machine._id)).collect()) await ctx.db.delete(chat._id);
+    await ctx.db.delete(machine._id);
+  }
 
   const memberships = await ctx.db
     .query("workspaceMembers")

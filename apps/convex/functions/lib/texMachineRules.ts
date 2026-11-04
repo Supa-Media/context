@@ -29,6 +29,11 @@ export const TEX_MACHINE_RUN_MAX_MS = 30 * 60 * 1000;
 /** The workspace object's run id: `run_` and 24 lower-case hex digits. */
 export const TEX_MACHINE_RUN_ID_PATTERN = /^run_[0-9a-f]{24}$/;
 
+/** A group chat's key (`textGroups.groupKey`): sha256 hex. Anything else names no chat. */
+export const CHAT_GROUP_KEY_PATTERN = /^[0-9a-f]{64}$/;
+/** Most machines one group chat may borrow at once. */
+export const TEX_MACHINE_CHAT_LIMIT = 10;
+
 /**
  * "May own a machine in this workspace." Personal: only the owner, who is the person the workspace is theirs by.
  * Shared: an owner or an editor. A `member` never owns one, so a machine can never be attached to a workspace its

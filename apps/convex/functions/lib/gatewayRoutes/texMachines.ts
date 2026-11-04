@@ -43,6 +43,8 @@ const REFUSAL_STATUS = new Map<string, number>([
   ["INSUFFICIENT_ROLE", 403],
   ["MACHINE_RUN_PARENT_INVALID", 401],
   ["BAD_RUN", 400],
+  ["CHAT_NOT_FOUND", 404],
+  ["TOO_MANY_MACHINES", 409],
   [UNKNOWN_WORKSPACE_REFUSAL, 404],
 ]);
 
@@ -213,6 +215,41 @@ async function revokeRunGrantHandler(ctx: ActionCtx, body: Record<string, unknow
   return json(await ctx.runMutation(internal.functions.texMachines.revokeTexMachineRunGrant, { runId }));
 }
 
+async function attachChatHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const userId = stringField(body, "userId");
+  const machineId = stringField(body, "machineId");
+  const groupKey = stringField(body, "groupKey");
+  if (userId === null || machineId === null || groupKey === null) return badRequest();
+  try {
+    return json(
+      await ctx.runMutation(internal.functions.texMachineChats.attachTexMachineToChatAs, { userId, machineId, groupKey }),
+    );
+  } catch (error) {
+    return refusal(error);
+  }
+}
+
+async function detachChatHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const userId = stringField(body, "userId");
+  const machineId = stringField(body, "machineId");
+  const groupKey = stringField(body, "groupKey");
+  if (userId === null || machineId === null || groupKey === null) return badRequest();
+  try {
+    return json(
+      await ctx.runMutation(internal.functions.texMachineChats.detachTexMachineFromChatAs, { userId, machineId, groupKey }),
+    );
+  } catch (error) {
+    return refusal(error);
+  }
+}
+
+/** The machines a chat may run jobs on. An unknown chat, or a key that is not well formed, is an empty list. */
+async function machinesForChatHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const groupKey = stringField(body, "groupKey");
+  if (groupKey === null) return badRequest();
+  return json({ machines: await ctx.runQuery(internal.functions.texMachineChats.texMachinesForChat, { groupKey }) });
+}
+
 /** The paths http.ts registers, each POST and each behind `gatewayRoute`. */
 export const TEX_MACHINE_GATEWAY_ROUTES: ReadonlyArray<readonly [string, Handler]> = [
   ["/gateway/machines/pair/start", startHandler],
@@ -223,4 +260,7 @@ export const TEX_MACHINE_GATEWAY_ROUTES: ReadonlyArray<readonly [string, Handler
   ["/gateway/machines/revoke", revokeHandler],
   ["/gateway/machines/run-grant", issueRunGrantHandler],
   ["/gateway/machines/run-grant/revoke", revokeRunGrantHandler],
+  ["/gateway/machines/chat/attach", attachChatHandler],
+  ["/gateway/machines/chat/detach", detachChatHandler],
+  ["/gateway/machines/for-chat", machinesForChatHandler],
 ];

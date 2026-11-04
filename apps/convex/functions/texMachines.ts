@@ -51,7 +51,9 @@ export type TexMachineRefusal =
   | "MACHINE_GRANT_INVALID"
   | "INSUFFICIENT_ROLE"
   | "MACHINE_RUN_PARENT_INVALID"
-  | "BAD_RUN";
+  | "BAD_RUN"
+  | "CHAT_NOT_FOUND"
+  | "TOO_MANY_MACHINES";
 
 const MESSAGES: Record<TexMachineRefusal, string> = {
   PAIRING_NOT_FOUND: "That code is not waiting for approval. Check it on the computer and try again.",
@@ -65,6 +67,8 @@ const MESSAGES: Record<TexMachineRefusal, string> = {
   INSUFFICIENT_ROLE: "Only an owner or an editor of a shared workspace can add a computer to it.",
   MACHINE_RUN_PARENT_INVALID: "This job's texting access is no longer valid, so it cannot run on a computer.",
   BAD_RUN: "That run's access request is not valid.",
+  CHAT_NOT_FOUND: "No such chat, or you are not in it.",
+  TOO_MANY_MACHINES: "This chat already has as many computers as it can use. Detach one first.",
 };
 
 export function texMachineRefusal(code: TexMachineRefusal): ConvexError<{ code: string; message: string }> {
@@ -383,6 +387,7 @@ export const revokeTexMachineRunGrant = internalMutation({
   },
 });
 
+
 /**
  * Pairings an hour past their code's expiry are swept, in batches, and so are run grants past their own expiry. The
  * count covers both; `moreRemaining` is true when either batch was full.
@@ -440,6 +445,12 @@ export async function revokeMachineAs(
     .withIndex("by_machine", (q) => q.eq("machineId", machine._id))
     .collect();
   for (const run of runs) await ctx.db.delete(run._id);
+  // Lent to a chat, it is no longer lent: its attachments go with it.
+  const chats = await ctx.db
+    .query("texMachineChats")
+    .withIndex("by_machine", (q) => q.eq("machineId", machine._id))
+    .collect();
+  for (const chat of chats) await ctx.db.delete(chat._id);
   await recordAudit(ctx, {
     workspaceId: machine.workspaceId,
     actorUserId: userId,

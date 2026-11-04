@@ -216,7 +216,10 @@ export async function deletePersonalRows(
     .query("texMachines")
     .withIndex("by_owner", (q) => q.eq("ownerId", userId))
     .collect();
-  for (const machine of machines) await ctx.db.delete(machine._id);
+  for (const machine of machines) {
+    for (const chat of await ctx.db.query("texMachineChats").withIndex("by_machine", (q) => q.eq("machineId", machine._id)).collect()) await ctx.db.delete(chat._id);
+    await ctx.db.delete(machine._id);
+  }
 
   // Whether they ever used an AI client: one row, the invite card's answer.
   const agentUse = await ctx.db

@@ -199,5 +199,22 @@ unmodified CLI, which signs itself in.
   the person's (`untrusted`), the check is metered as background spend on the
   job's own grant, and an advisor that can't be reached leaves the part's own
   outcome to decide. Tests: `machineJobs.test.mjs` and `machineTurn.test.ts`.
-- **Not yet**: a machine's slots counted apart from the chat's three cloud
-  slots, and group chats.
+- **A computer is lent to a group chat by its own owner** (2026-11-04). A
+  group's grant reaches only its shared workspace, never anyone's personal one,
+  so a laptop in its owner's workspace is reached through the lending: the
+  owner, one of the chat's people, lends it from the app
+  (`POST /machines/app/lend`), the control plane records it
+  (`texMachineChats`), and a group job's calls reach only the computers lent
+  to that chat, live and with their owner still in it (`machines/reach.js`).
+  Only the computer's own owner lends it, never the workspace's owner. Who in
+  the chat may send it work is the computer's rule under `group-<key>`:
+  "Only me" unless the owner opens it to everyone or names people, with "Ask
+  me first" on unless they turn it off. The part runs on the group's own grant
+  (minted again with the chat's people read again, as a group job's cloud part
+  is), so it never reaches the owner's own notes, and the tagger is who asked.
+  Tests: `machineJobs.test.mjs` ("a group chat reaches only a computer lent to
+  it", "somebody else in the group gets the computer only as its owner's rule
+  for that chat says"), `machineApp.test.mjs`, `machineTurn.test.ts`.
+- **Not yet**: "Ask me first" answered by the owner's own yes (an ask is
+  refused `ask_first` until then), and a machine's slots counted apart from
+  the chat's three cloud slots.

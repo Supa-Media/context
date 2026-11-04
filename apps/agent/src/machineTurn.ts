@@ -90,8 +90,9 @@ export function refusedText(title: string, name: string, code: string): string {
     case "folder":
       return `I couldn't start ${where}: Tex may not work in that folder there. You can add it in Tex's settings.`;
     case "rule":
-    case "ask_first":
       return `I couldn't start ${where}: its owner hasn't let this chat use it.`;
+    case "ask_first":
+      return `I couldn't start ${where}: its owner wants to be asked first. They can let this chat use it without asking in Tex's settings.`;
     default:
       return `I couldn't start ${where}. Text me to try again.`;
   }
@@ -121,20 +122,33 @@ export async function machineTurn(
   run: JobRun,
   job: JobAsk,
   deps: MachineDeps,
-  hooks: { keep: (patch: Partial<JobRun>) => Promise<void>; onStep: (text: string, how?: StepHow) => Promise<void>; live: (running: MachineLive | null) => void; steerIds: string[] },
+  hooks: {
+    keep: (patch: Partial<JobRun>) => Promise<void>;
+    onStep: (text: string, how?: StepHow) => Promise<void>;
+    live: (running: MachineLive | null) => void;
+    steerIds: string[];
+    /** A group chat's job: its grant, minted again as its own turn's is (`jobRun.ts` `groupGrant`), or null to stop. */
+    groupGrant?: () => Promise<string | null>;
+  },
 ): Promise<MachineOutcome> {
   const machine = run.machine;
-  if (run.origin.kind !== "phone" || machine === undefined) return { kind: "stop" };
-  const phone = run.origin.phone;
+  if (machine === undefined || (run.origin.kind === "group" && hooks.groupGrant === undefined)) return { kind: "stop" };
+  const origin = run.origin;
   const sleep = deps.sleep ?? pause;
   let token = "";
   let tokenAt = 0;
+  // A person's own texts: their texting grant. A group chat: the chat's, on the computers lent to it.
+  const grant = async (): Promise<string | null> => {
+    if (origin.kind === "group") return (await hooks.groupGrant?.()) ?? null;
+    const session = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, origin.phone);
+    // Unlinked since: nothing of theirs runs, and nothing is said.
+    return session.status === "linked" ? session.accessToken : null;
+  };
   const fresh = async (): Promise<boolean> => {
     if (token !== "" && deps.now() - tokenAt < TOKEN_REFRESH_MS) return true;
-    const session = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, phone);
-    // Unlinked since: nothing of theirs runs, and nothing is said.
-    if (session.status !== "linked") return false;
-    token = session.accessToken;
+    const minted = await grant();
+    if (minted === null) return false;
+    token = minted;
     tokenAt = deps.now();
     return true;
   };

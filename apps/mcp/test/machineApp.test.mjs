@@ -8,6 +8,7 @@
  *  1. `runsMachine` letting a shared workspace's editor in → "another editor can't open somebody else's computer to themselves".
  *  2. `disconnect` skipping `ws.machine.remove` → "disconnect revokes the grant and says goodbye on the socket at once".
  *  3. `list` showing every member the full row → "a member who doesn't run a computer sees only its name and whether it is online".
+ *  4. `ownComputer` accepting the workspace's owner → "only a computer's own owner lends it to a group chat".
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -29,7 +30,21 @@ function setupWorld() {
     }),
   };
   const revoked = [];
+  const lent = [];
   const controlPlane = {
+    lent,
+    // Mirrors `attachTexMachineToChat`: the computer's own owner, one of the chat's people.
+    async texMachineChatAttach(userId, machineId, groupKey) {
+      if (userId !== "user_owner") return { refused: 404 };
+      if (!lent.some((entry) => entry.machineId === machineId && entry.groupKey === groupKey)) lent.push({ userId, machineId, groupKey });
+      return { attached: true, workspaceId: "ws_team" };
+    },
+    async texMachineChatDetach(userId, machineId, groupKey) {
+      if (userId !== "user_owner") return null;
+      const at = lent.findIndex((entry) => entry.machineId === machineId && entry.groupKey === groupKey);
+      if (at >= 0) lent.splice(at, 1);
+      return { detached: at >= 0 };
+    },
     // Mirrors `revokeMachineAs`: its owner or the workspace's owner.
     async texMachineRevoke(machineId, userId) {
       if (userId !== "user_owner" && userId !== "user_boss") return null;
@@ -107,4 +122,33 @@ test("disconnect revokes the grant and says goodbye on the socket at once", asyn
   assert.deepEqual(revoked, [{ machineId: "mch_1", userId: "user_owner" }]);
   assert.equal(server.last().type, "goodbye");
   assert.equal(w.machines.get("mch_1"), null);
+});
+
+const CHAT = "c".repeat(64);
+const KEY = `group-${CHAT.slice(0, 58)}`;
+
+test("its owner lends a computer to a group chat, Only me and Ask me first unless they say otherwise", async () => {
+  const { ask, controlPlane, w, server } = await setup();
+  const lent = await ask("/machines/app/lend", { workspaceId: "ws_team", machineId: "mch_1", chat: CHAT }, app("user_owner", "editor"));
+  assert.equal(lent.body.ok, true);
+  assert.deepEqual(controlPlane.lent, [{ userId: "user_owner", machineId: "mch_1", groupKey: CHAT }]);
+  assert.equal(w.machines.get("mch_1").chats[KEY].who, "owner");
+  assert.equal(w.machines.get("mch_1").chats[KEY].askFirst, true);
+  assert.equal(server.last().type, "rules");
+  await ask("/machines/app/lend", { workspaceId: "ws_team", machineId: "mch_1", chat: CHAT, who: "everyone", askFirst: false }, app("user_owner", "editor"));
+  assert.deepEqual({ who: w.machines.get("mch_1").chats[KEY].who, askFirst: w.machines.get("mch_1").chats[KEY].askFirst }, { who: "everyone", askFirst: false });
+  const back = await ask("/machines/app/unlend", { workspaceId: "ws_team", machineId: "mch_1", chat: CHAT }, app("user_owner", "editor"));
+  assert.equal(back.body.ok, true);
+  assert.deepEqual(controlPlane.lent, []);
+  assert.equal(w.machines.get("mch_1").chats[KEY], undefined);
+});
+
+test("only a computer's own owner lends it to a group chat", async () => {
+  const { ask, controlPlane, w } = await setup();
+  for (const who of [app("user_boss", "owner"), app("user_editor", "editor")]) {
+    assert.deepEqual((await ask("/machines/app/lend", { workspaceId: "ws_team", machineId: "mch_1", chat: CHAT, who: "everyone", askFirst: false }, who)).body, { ok: false, code: "unknown_machine" });
+  }
+  assert.deepEqual(controlPlane.lent, []);
+  assert.equal(w.machines.get("mch_1").chats[KEY], undefined);
+  assert.equal((await ask("/machines/app/lend", { workspaceId: "ws_team", machineId: "mch_1", chat: "not-a-key" }, app("user_owner", "editor"))).status, 400);
 });
