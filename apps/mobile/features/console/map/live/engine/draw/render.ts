@@ -13,6 +13,7 @@ import { countPresent, type DrawEnv } from "./env";
 import { drawFlights } from "./flights";
 import { drawHubFaces, drawHubLines } from "./hub";
 import { drawTrace, drawReadingMarks, traceOf } from "./marks";
+import { drawScribbles, drawWorkspaceLoops, scribbleAlpha, type Opening } from "./sketch";
 import { drawActors, placeFacesAndLabels } from "./overlay";
 import { circle, fillText, fontOf, roundRect, type Ctx, type Style } from "./primitives";
 
@@ -23,6 +24,8 @@ export type RenderOptions = {
   style: Style;
   selected: string | null;
   minimap: boolean;
+  /** The map's opening while it plays. */
+  opening?: Opening | null;
 };
 
 /** Draw one frame of the map view and return what can be clicked. */
@@ -60,6 +63,8 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
     dim: model.following !== null,
     selected: opts.selected,
     trace,
+    far: scribbleAlpha(cam.s, opts.style.look.spread),
+    opening: opts.opening ?? null,
     counts: countPresent(model, scene),
     hot,
     near,
@@ -68,6 +73,8 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
     flyingAt: new Map(scene.flights.filter((f) => !f.cross && f.landedFor < 0).map((f) => [f.to.key, f.pos])),
   };
   drawGround(env);
+  drawScribbles(env);
+  drawWorkspaceLoops(env);
   const hub = drawHubLines(env);
   drawLinks(env);
   drawTrace(env);

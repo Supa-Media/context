@@ -7,6 +7,7 @@ import { DUR } from "../scene";
 import { BOW, bowOf, grain, textureOf } from "./board";
 import type { DrawEnv } from "./env";
 import { TRACE_REST } from "./marks";
+import { openingLink, openingScale } from "./sketch";
 import { circle, fontOf, roundRect } from "./primitives";
 
 /** How strongly a link between two folders is drawn, against one inside a folder. */
@@ -162,7 +163,8 @@ export function drawLinks(env: DrawEnv): void {
     // Pencil on paper, chalk on the board: a grainy stroke with a slight bow.
     const stroke = grain(ctx, C, C.edge);
     // While a note is traced, its own links are drawn over in pen and the rest step back.
-    const base = ea * boardHaze(s) * (env.dim ? 0.55 : 1) * (env.trace ? TRACE_REST : 1);
+    // Far out the folders are scribbles, and the links under them step back.
+    const base = ea * boardHaze(s) * (env.dim ? 0.55 : 1) * (env.trace ? TRACE_REST : 1) * (1 - 0.75 * env.far);
     // Links inside a folder at full strength, links between folders faint:
     // the groups read, and the long cross-links do not become the picture.
     // How rough the pencil is (the person's "neat to messy"): how far links
@@ -198,8 +200,20 @@ export function drawLinks(env: DrawEnv): void {
         const b = env.screen(wb);
         if (!env.onScreen(a, 0) && !env.onScreen(b, 0) && !crosses(env, a, b)) continue;
         const bow = bowOf(wa.x, wa.y, wb.x, wb.y) * bowK + (pass === 0 ? 0 : bowOf(wb.x, wb.y, wa.x, wa.y) * BOW * 1.6 * sketch);
+        const c = { x: (a.x + b.x) / 2 - (b.y - a.y) * bow, y: (a.y + b.y) / 2 + (b.x - a.x) * bow };
+        // While the map opens, each link is drawn out from the note that appeared first.
+        const drawn = openingLink(env.opening, na, nb);
+        if (drawn.k <= 0) continue;
+        if (drawn.k < 1) {
+          const [from, to] = drawn.flip ? [b, a] : [a, b];
+          const c1 = { x: lerp(from.x, c.x, drawn.k), y: lerp(from.y, c.y, drawn.k) };
+          const end = quad(from, c, to, drawn.k);
+          ctx.moveTo(from.x, from.y);
+          ctx.quadraticCurveTo(c1.x, c1.y, end.x, end.y);
+          continue;
+        }
         ctx.moveTo(a.x, a.y);
-        ctx.quadraticCurveTo((a.x + b.x) / 2 - (b.y - a.y) * bow, (a.y + b.y) / 2 + (b.x - a.x) * bow, b.x, b.y);
+        ctx.quadraticCurveTo(c.x, c.y, b.x, b.y);
       }
       // Chalk carries a soft dusty halo: the same path again, wide and faint.
       if (pass === 0 && textureOf(C.board) === "chalk") {
@@ -320,7 +334,8 @@ export function drawNotes(env: DrawEnv): void {
     if (env.selected === key || env.trace?.has(key)) continue;
     const p = env.screen(n);
     if (!env.onScreen(p, 30)) continue;
-    const R = dotRadius(s, n.deg, env.style.look.dotSize);
+    const R = dotRadius(s, n.deg, env.style.look.dotSize) * openingScale(env.opening, n);
+    if (R <= 0) continue;
     if (R >= RIM_FROM) rims.push({ x: p.x, y: p.y, r: R + 0.7 + sketch * 1.2, off: bowOf(n.x, n.y, n.y, n.x) * (0.4 + sketch * 1.6) });
     // A dot a pixel or two across looks the same as a square and paints far
     // faster, which is what a whole workspace of tiny dots is made of.
@@ -333,7 +348,7 @@ export function drawNotes(env: DrawEnv): void {
   }
   // Drawn dots: a grainy fill, and round the bigger ones a loose rim, as a
   // pencil or chalk dot has, a little off centre.
-  const rest = (env.dim ? 0.5 : 1) * (env.trace ? TRACE_REST + 0.1 : 1);
+  const rest = (env.dim ? 0.5 : 1) * (env.trace ? TRACE_REST + 0.1 : 1) * (1 - 0.6 * env.far);
   ctx.fillStyle = grain(ctx, C, C.dot);
   ctx.globalAlpha = rest;
   ctx.fill();

@@ -136,3 +136,24 @@ to look at", and liked the prototype's click-to-trace. Both live in
 **What a "simplification" would cost:** a line to the reader brings back what
 Dev2 asked to remove, and tracing more than one step lights half the map in a
 linked workspace. **Test:** `liveMapMarks.test.ts`.
+
+## Far out the map is a pencil drawing, and it is drawn in when it opens (Dev2, 2026-11-04)
+
+Round one of the rework drew far-out workspaces as glowing galaxies; Dev2
+disliked the "blurry pieces of light" and asked to lean into pencil sketches
+and chaos. In `engine/draw/sketch.ts`:
+
+- **Far out, every folder is a pencil scribble**, a seeded random walk inside
+  it, and across workspaces every workspace gets a loose pencil loop. Both
+  fade in only as notes crowd closer than about 14 pixels, and the links and
+  dots under them step back; zooming in, the scribble fades and the notes come
+  through. This is the one exception to "nothing is drawn round a workspace
+  or folder" (2026-10-10): it is drawn only where the notes themselves are too
+  close to read, never round a folder you can see into.
+- **The opening**: the first time the map has notes, it is drawn in as the
+  settings pick: links sketched outward from each workspace's middle (the
+  default), dots blooming out, folder by folder, or zooming in from
+  everything. Names wait for their notes. Reduced motion skips it, and it
+  plays once per map, not on every change.
+
+**Test:** `liveMapSketch.test.ts`.

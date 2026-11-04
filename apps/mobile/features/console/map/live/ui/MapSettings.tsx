@@ -44,6 +44,13 @@ const READING: ReadonlyArray<Opt<MapLook["reading"]>> = [
   { value: "halo", label: "Halo" },
 ];
 
+const OPENING: ReadonlyArray<Opt<MapLook["opening"]>> = [
+  { value: "sketch", label: "Sketched in" },
+  { value: "bloom", label: "Bloom" },
+  { value: "order", label: "Folder by folder" },
+  { value: "zoom", label: "Zoom in from everything" },
+];
+
 const WHEN: ReadonlyArray<Opt<Exclude<MapMode, "custom">> & { live?: boolean }> = [
   { value: "live", label: "Live", live: true },
   { value: "day", label: "Past 24 hours" },
@@ -106,6 +113,10 @@ export function MapSettings({ page, compact, onClose }: { page: MapPageState; co
 
         <Section title="Reading">
           <Choices label="When someone reads a note" options={READING} value={look.reading} onChange={(reading) => setLook({ reading })} testID="map-settings-reading" />
+        </Section>
+
+        <Section title="Motion">
+          <Choices label="When the map opens" options={OPENING} value={look.opening} onChange={(opening) => setLook({ opening })} testID="map-settings-opening" />
         </Section>
 
         <View style={styles.foot}>
