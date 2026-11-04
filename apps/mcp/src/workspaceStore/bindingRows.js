@@ -15,6 +15,8 @@
  * clear that change caused.
  */
 
+import { setupHeldRules } from "./setupRules.js";
+
 const SCHEMA = [`CREATE TABLE IF NOT EXISTS ws_binding (id INTEGER PRIMARY KEY CHECK (id = 1), sealed TEXT, at INTEGER, epoch INTEGER NOT NULL)`];
 
 /** The most a sealed binding may weigh: a binding and its siblings are a few kilobytes. */
@@ -78,6 +80,26 @@ export function serveBindingCall(store, op, fields, accessHomeObject, { behind =
       const accessHome = members === null ? null : members.home();
       const member = accessHome === accessHomeObject && typeof fields.userId === "string" && members.member(fields.userId) !== null;
       const kept = binding === null ? { sealed: null, at: null, epoch: 0 } : binding.get();
+      /*
+        Tex's setup read (`setupRules.js`): the member rules narrowed to the setup's folders, and the binding, for a
+        reader who need not be a member. Only the gateway asks this (the door refuses `ws.open`), and only for the
+        pinned workspace and a Tex client (`store/objectBinding.js`); the full member rules never leave for it.
+      */
+      if (fields.setupRead === true) {
+        const narrowed = accessHome === accessHomeObject ? setupHeldRules(store.rows.rules("member")) : null;
+        return Response.json({
+          home: store.rows.home(),
+          backfilledAt: store.rows.backfilledAt(),
+          encryption: store.rows.encryption(),
+          accessHome,
+          member: false,
+          setupRead: narrowed !== null,
+          rules: narrowed,
+          binding: narrowed !== null && kept.sealed !== null ? { sealed: kept.sealed, at: kept.at } : null,
+          epoch: kept.epoch,
+          behind: behind === true,
+        });
+      }
       return Response.json({
         home: store.rows.home(),
         backfilledAt: store.rows.backfilledAt(),

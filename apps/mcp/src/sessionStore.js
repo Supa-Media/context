@@ -102,7 +102,8 @@ const sources = new WeakMap();
 /** Ask the control plane for the binding and keep it in the object. Never throws: a failed refresh is tried next time. */
 async function refreshBehind(session, controlPlane, keep) {
   try {
-    const opened = await controlPlane.getStorageBinding(session.accessToken, session.workspaceId);
+    // Asked as the store was opened: Tex's setup read as that (`session.js` `sessionForSetup`), never as the person.
+    const opened = await controlPlane.getStorageBinding(session.accessToken, session.workspaceId, ...(session.setupRead === true ? [undefined, { setupRead: true }] : []));
     const kept = await keep(opened);
     console.log(JSON.stringify({ event: "workspace_binding_refreshed", workspaceId: session.workspaceId, kept: kept?.kept === true, keptReason: kept?.reason ?? null }));
   } catch {
