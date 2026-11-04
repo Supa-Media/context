@@ -69,7 +69,7 @@ export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin
 export type MachineRunRef = { runId: string; part: number; deadline: number };
 
 /** The chat's record of a job: no ask, only where its answer goes. */
-export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; stopped?: true; finalPass?: string; machine?: true };
+export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; stopped?: true; finalPass?: string; machine?: true; onName?: string; onTool?: "claude" | "codex" };
 
 /** What a job's object tells the chat's inbox. `first`: the job's count of texts before these, so a retry repeats none. */
 /** `vaultWatch`: the phone a job's turn texted a link to save a login to, so its inbox watches for the save (`vaultWatch.ts`). */
@@ -367,7 +367,7 @@ export async function startJobs(
     // The gateway's id is used when it is well formed and no entry holds it yet; otherwise a fresh one.
     const gatewayId = job.id !== undefined && ID.test(job.id) && (await storage.get(entryKey(job.id))) === undefined ? job.id : undefined;
     const id = gatewayId ?? crypto.randomUUID();
-    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place, ...(job.machine ? { machine: true as const, on: job.machine.machineId } : {}) };
+    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place, ...(job.machine ? { machine: true as const, on: job.machine.machineId, onName: job.machine.name, onTool: job.machine.tool } : {}) };
     await storage.put(entryKey(id), entry);
     try {
       await context.spawn(id, { ...job, id, inbox: context.inbox, origin: context.origin, attempt: 1, tries: 0, startedAt: context.now });

@@ -16,7 +16,7 @@ import { lastTurnPeople } from "./groupChat";
 import { groupInboxName } from "./groupInbox";
 import { inboxByName } from "./objectPlace";
 import type { InboxStorage } from "./inbox";
-import { JOB_KEPT_MS, JOB_PREFIX, JOB_STALE_MS, type JobEntry, type JobState, type JobStep, type JobSteer } from "./jobs";
+import { JOB_KEPT_MS, JOB_PREFIX, JOB_STALE_MS, MACHINE_JOB_STALE_MS, type JobEntry, type JobState, type JobStep, type JobSteer } from "./jobs";
 
 /** Most jobs a page is shown, newest first. */
 export const MAX_PAGE_JOBS = 40;
@@ -39,10 +39,21 @@ export type PageJob = {
   for?: string;
   /** Stopped by a person (`jobRun.ts`): shown as stopped, not failed. */
   stopped?: true;
+  /** The person's own computer it runs on, by id, with the name and coding tool it was started with; absent in Tex's cloud. */
+  on?: { id: string; name: string; tool?: "claude" | "codex" };
 };
 
 /** What a chat's inbox answers a page: its jobs, and for a group the people hash its browser is tagged by. */
 export type PageJobs = { now: number; jobs: PageJob[]; people?: string };
+
+/** Where an entry's job runs, for the page: its computer, or nothing for Tex's cloud. An entry from before names were kept says "your computer". */
+function pageMachineOf(entry: JobEntry): { on?: PageJob["on"] } {
+  if (typeof entry.on !== "string" && entry.machine !== true) return {};
+  const id = typeof entry.on === "string" ? entry.on : "machine";
+  const name = typeof entry.onName === "string" && entry.onName.trim() !== "" ? entry.onName.trim().slice(0, 100) : "your computer";
+  const tool = entry.onTool === "claude" || entry.onTool === "codex" ? entry.onTool : undefined;
+  return { on: { id, name, ...(tool ? { tool } : {}) } };
+}
 
 /** Which chat a page names: a 1:1 chat's phone, or a group's key. */
 export type PageChat = { phone: string } | { groupKey: string };
@@ -64,7 +75,8 @@ export async function pageJobsOf(storage: InboxStorage, now: number): Promise<Pa
       await storage.delete(key);
       continue;
     }
-    if (entry.state === "running" && now - entry.startedAt > JOB_STALE_MS) {
+    // A job on their computer may run hours longer than a cloud job (`jobs.ts`), so it is stale later.
+    if (entry.state === "running" && now - entry.startedAt > (entry.machine ? MACHINE_JOB_STALE_MS : JOB_STALE_MS)) {
       const stopped = { ...entry, state: "failed" as const, finishedAt: now };
       await storage.put(key, stopped);
       kept.push(stopped);
@@ -85,6 +97,7 @@ export async function pageJobsOf(storage: InboxStorage, now: number): Promise<Pa
       steps: entry.steps ?? [],
       ...(entry.state !== "running" && entry.result ? { result: entry.result } : {}),
       ...(entry.stopped === true ? { stopped: true as const } : {}),
+      ...pageMachineOf(entry),
     }));
   // A group's browser is tagged by its people (`lastTurnPeople`); a 1:1 inbox keeps none.
   const people = await lastTurnPeople(storage);

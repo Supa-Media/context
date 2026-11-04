@@ -230,6 +230,8 @@ export async function machineTurn(
       if (read.state === "ended" && read.result) {
         delete run.machineRun;
         await hooks.keep({ machineRun: undefined });
+        // The advisor's check and the report take a while after the computer stops: say so, so its last step does not look live.
+        if (read.result.outcome === "finished" || read.result.outcome === "limit") await hooks.onStep(`${read.result.outcome === "finished" ? "Done" : "Out of time for now"} on ${machine.name} · checking the work`);
         const words = (read.result.answer ?? "").trim();
         const steered = [...hooks.steerIds, ...delivered];
         // The advisor checks the part against the finish line, as it checks a cloud part; unreachable, the outcome alone decides.

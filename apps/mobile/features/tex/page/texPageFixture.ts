@@ -114,6 +114,24 @@ const JOBS: Record<string, JobDetail> = {
       { at: at(18, 3), text: "Now: reading maritime.sh/docs/agents" },
     ],
   },
+  hello: {
+    id: "hello",
+    title: "Add hello.py to the demo repo",
+    state: "running",
+    startedAt: at(18, 5),
+    failedSteps: 0,
+    slot: 1,
+    machine: "m-vm",
+    machineName: "Cloud VM",
+    ranOn: "On Cloud VM",
+    tool: "Claude Code",
+    steps: [
+      { at: at(18, 5), text: "shell run git" },
+      { at: at(18, 5), text: "files write hello.py" },
+      { at: at(18, 6), text: "shell run python3" },
+      { at: at(18, 6), text: "Done on Cloud VM · checking the work" },
+    ],
+  },
   dinner: {
     id: "dinner",
     title: "Book dinner for Friday",
@@ -269,7 +287,7 @@ function meCopy(): Copy {
         number: "+1 (555) 010-0199",
       },
     },
-    jobs: ["maritime", "dinner", "florists", "sam"],
+    jobs: ["maritime", "dinner", "florists", "sam", "hello"],
   };
 }
 

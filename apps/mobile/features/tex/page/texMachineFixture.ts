@@ -167,7 +167,7 @@ function placesFor(page: MachinesPage): { places: SlotPlace[]; minions: (Slot & 
     });
     // Each machine run is a Claude Code job in this fixture; the tool shows on the slot's line.
     m.running.forEach((r, i) =>
-      minions.push({ place: m.id, slot: i + 1, job: job(r.job, r.title, r.startedAt, { tool: "Claude Code", ...(r.for ? { for: r.for } : {}) }) }),
+      minions.push({ place: m.id, slot: i + 1, job: job(r.job, r.title, r.startedAt, { tool: "Claude Code", ranOn: `On ${m.name}`, machine: m.id, machineName: m.name, ...(r.for ? { for: r.for } : {}) }) }),
     );
   }
   return { places, minions };

@@ -11,7 +11,8 @@
  */
 
 import { asksOf, handleLabel, machineAppUrl, machineCallOf, machinesPageOf, type MachineRoute } from "./texMachineGateway";
-import type { MachinesPage, Pairing } from "./texMachineTypes";
+import type { MachinesPage, Pairing, SlotPlace } from "./texMachineTypes";
+import { CLOUD_PLACE, withPlaces } from "./texPageRead";
 import type { Read, TexPageSource } from "./texPageSource";
 import type { Overview } from "./texPageTypes";
 
@@ -37,6 +38,24 @@ export interface MachineSourceOptions {
 }
 
 const OS_LABEL: Record<string, string> = { macos: "macOS", linux: "Linux", windows: "Windows" };
+
+/**
+ * The pool's places for a chat's machines (design screen 6): every connected
+ * machine on the person's own page, and in a group the ones that serve it. A
+ * machine still waiting for its code's yes has no slots yet.
+ */
+export function slotPlacesOf(page: MachinesPage | null, chat: string): SlotPlace[] {
+  return (page?.machines ?? [])
+    .filter((m) => m.state !== "pending" && m.chats.some((c) => c.key === chat))
+    .map((m) => ({
+      key: m.id,
+      kind: "machine" as const,
+      machineKind: m.kind,
+      name: m.name,
+      slots: chat === "me" ? m.slots : (m.chats.find((c) => c.key === chat)?.slots ?? 1),
+      ...(m.state === "offline" ? { offline: true, ...(m.since ? { since: m.since } : {}) } : {}),
+    }));
+}
 
 export function withGatewayMachines(base: TexPageSource, options: MachineSourceOptions): TexPageSource {
   const doFetch = options.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
@@ -121,14 +140,18 @@ export function withGatewayMachines(base: TexPageSource, options: MachineSourceO
   return {
     ...base,
     async overview(chat, part) {
-      // The machines' asks go on the person's own first screen: read beside the page, never after it.
-      const wantsAsks = chat === "me" && (part === undefined || part === "core");
-      const [read, machines] = await Promise.all([base.overview(chat, part), wantsAsks ? list() : null]);
+      // The machines go on the first screen (their slots in the pool, and on the person's own its asks): read beside the page, never after it.
+      const wantsMachines = part === undefined || part === "core";
+      const [read, machines] = await Promise.all([base.overview(chat, part), wantsMachines ? list() : null]);
       if (read.kind !== "ok") return read;
       if (part !== "tiles") groupChats = read.value.chats.filter((c) => c.key !== "me").map((c) => ({ key: c.key, name: c.name }));
       if (machines === null || machines.kind !== "ok") return read;
-      const asks = asksOf(machines.value);
-      const o: Overview = { ...read.value, asks, status: { ...read.value.status, needsYou: read.value.status.needsYou + asks.length } };
+      const places = slotPlacesOf(machinesPageOf({ ok: true, machines: machines.value }, { now: now(), groupChats, people }), chat);
+      let o: Overview = places.length > 0 ? withPlaces(read.value, [read.value.places?.[0] ?? CLOUD_PLACE, ...places]) : read.value;
+      if (chat === "me") {
+        const asks = asksOf(machines.value);
+        o = { ...o, asks, status: { ...o.status, needsYou: o.status.needsYou + asks.length } };
+      }
       return { kind: "ok", value: o };
     },
     async machines(chat) {
