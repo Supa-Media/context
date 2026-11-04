@@ -441,3 +441,4 @@ test/machineForJobs.test.mjs
 test/agentPlanBigAsk.test.mjs
 test/machineForTurn.test.mjs
 test/agentJobSlots.test.mjs
+test/morningChat.test.mjs

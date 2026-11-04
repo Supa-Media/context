@@ -151,7 +151,7 @@ const EVENT_WORDS: Record<string, string> = { picture: "sent a picture", file: "
 
 function textWords(e: LedgerEntry): string {
   const words = oneLine(e.text);
-  const what = EVENT_WORDS[str(e.event)];
+  const what = e.heard === "voice" ? "sent a voice message" : EVENT_WORDS[str(e.event)];
   if (what === undefined) return words;
   return words ? `(${what}) ${words}` : `(${what})`;
 }
@@ -190,6 +190,8 @@ function lineOfKind(e: LedgerEntry, group: boolean): HistoryLine {
       return quiet(`job · ${oneLine(e.title) || str(e.job)} · ${str(e.state).replace(/_/g, " ")}`);
     case "note":
       if (typeof e.routine === "string") return quiet(`routine · ${short(e.routine.replace(/\.md$/, ""), 60)} · ${oneLine(e.text)}`);
+      // A message another of their agents asked Tex to pass on: that agent's words, never Tex's.
+      if (typeof e.about === "string" && /another of their agents asked you/i.test(e.about)) return quiet(`passed on from another agent · ${oneLine(e.text)}`);
       if (typeof e.about === "string" && e.about) return quiet(`answered in another app · ${short(e.about, 80)} · ${oneLine(e.text)}`);
       return quiet(oneLine(e.text));
     default:
@@ -286,8 +288,14 @@ export function dayTitle(key: string, now: Date): string {
  */
 export function historyDays(entries: readonly LedgerEntry[], now: Date, { group = false, thinking = false, fold = true, timing = false, tools = true }: { group?: boolean; thinking?: boolean; /** Fold each job's work under its line; off on one job's own page, where all of it is that job's. */ fold?: boolean; /** Staff: each turn's first text from Tex carries where the turn's time went. */ timing?: boolean; /** Tool calls are drawn; off, they were read only for the timing. */ tools?: boolean } = {}): HistoryDay[] {
   const timed = timing ? timingByTurn(entries) : new Map<string, TurnTimingSource>();
+  // Newest first: an event written again (a voice message once heard) is drawn once, where it first came, in its newest words.
   const byEventId = new Map<string, LedgerEntry>();
-  for (const e of entries) if (e.kind === "text" && typeof e.eid === "string") byEventId.set(e.eid, e);
+  const firstOf = new Map<string, LedgerEntry>();
+  for (const e of entries) {
+    if (e.kind !== "text" || typeof e.eid !== "string") continue;
+    if (!byEventId.has(e.eid)) byEventId.set(e.eid, e);
+    firstOf.set(e.eid, e);
+  }
   // Reactions go under the text they are on, never on a line of their own, as in the mock; one whose text isn't in view stays a line.
   const reactions = new Map<string, Map<string, string[]>>();
   const folded = new Set<string>();
@@ -305,7 +313,11 @@ export function historyDays(entries: readonly LedgerEntry[], now: Date, { group 
     else if (!(byEmoji.get(r.emoji) ?? []).includes(who)) byEmoji.set(r.emoji, [...(byEmoji.get(r.emoji) ?? []), who]);
   }
   const days: HistoryDay[] = [];
-  for (const e of entries) {
+  for (const listed of entries) {
+    const eid = listed.kind === "text" && typeof listed.eid === "string" ? listed.eid : null;
+    if (eid !== null && firstOf.get(eid) !== listed) continue;
+    const newest = eid !== null ? byEventId.get(eid) : undefined;
+    const e: LedgerEntry = newest !== undefined && newest !== listed ? { ...listed, text: newest.text, heard: newest.heard } : listed;
     // A reply is the same words as Tex's texts: only its timing is drawn, on the first of them.
     if (folded.has(e.id) || e.kind === "reply" || (!tools && e.kind === "tool")) continue;
     const key = dayKey(e.at);

@@ -27,6 +27,10 @@
  *     chat" fails.
  *  9. The filters moved inside the scroller → same test fails.
  * 10. `away` never set → "scrolled up, a Latest button" fails.
+ *
+ * Applied, run, named test seen failing, reverted (2026-11-04):
+ * 11. `historyDays` drawing every entry of an event (no `firstOf` skip) → "a
+ *     voice message heard later is one line" fails.
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -60,6 +64,23 @@ describe("the history's lines", () => {
       ["9:41 AM", "Tex", "Dessert."],
     ]);
     expect(days[1]!.turns[0]!.lines.map((l) => l.text)).toEqual(["check-in ran", "Morning."]);
+  });
+
+  test("a voice message heard later is one line, in its words, where it came; a passed-on agent message says so (2026-11-04)", () => {
+    const entries: LedgerEntry[] = [
+      { id: "v4", at: at(2, 10, 3), kind: "text", turn: "t9", from: { kind: "tex" }, text: "Drafted it." },
+      { id: "v3h", at: at(2, 10, 2), kind: "text", eid: "e1", event: "file", heard: "voice", from: { kind: "person" }, text: "Email Joe that we submitted it" },
+      { id: "v2", at: at(2, 10, 2), kind: "tool", turn: "t9", name: "search", ok: true },
+      { id: "v1", at: at(2, 10, 2), kind: "text", eid: "e1", event: "file", from: { kind: "person" }, text: "" },
+      { id: "n1", at: at(2, 9, 55), kind: "note", text: "ChatGPT: Both connector submissions are started.", about: "(Not a text from them. Another of their agents asked you to get their attention, and you texted them what follows.)" },
+    ];
+    const lines = historyDays(entries, NOW).flatMap((d) => d.turns.flatMap((t) => t.lines));
+    expect(lines.map((l) => l.text)).toEqual([
+      "passed on from another agent · ChatGPT: Both connector submissions are started.",
+      "(sent a voice message) Email Joe that we submitted it",
+      "search",
+      "Drafted it.",
+    ]);
   });
 
   test("a group names who sent each text, and says what a reply answers, a reaction and a picture", () => {

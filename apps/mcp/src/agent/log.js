@@ -36,7 +36,7 @@ const MAX_COVERS = 32;
 export const EVENT_KINDS = new Set(["text", "picture", "file", "link", "reaction", "ask", "ask_settled", "delivery"]);
 export const FROM_KINDS = new Set(["person", "tex", "system"]);
 export const REASONS = new Set(["upload_failed", "send_refused", "held_newcomer", "failed", "timed_out", "too_long"]);
-const FIELDS = new Set(["id", "at", "chat", "from", "kind", "text", "replyTo", "delivered", "reason", "turn", "covers", "people", "told", "ask"]);
+const FIELDS = new Set(["id", "at", "chat", "from", "kind", "text", "replyTo", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard"]);
 const FROM_FIELDS = new Set(["kind", "who", "name"]);
 
 export const EVENT_ID = /^\d{13}-\d{6}$/;
@@ -92,9 +92,11 @@ export function checkEvent(event, { chat, now }) {
   if (event.people !== undefined && (typeof event.people !== "string" || !HEX64.test(event.people))) throw new EventRefusal("people");
   // A fixed Worker text is the Worker's, never a turn's: a `system` event only (`loggedTurn.js` trusts Tex events by their turn).
   if (event.told !== undefined && (typeof event.told !== "string" || !Object.hasOwn(TOLD, event.told) || from.kind !== "system")) throw new EventRefusal("told");
+  // `heard`: a voice message's words, written by the gateway once it heard them (`heardWords.js`); only on a person's file.
+  if (event.heard !== undefined && (event.heard !== "voice" || event.kind !== "file" || from.kind !== "person")) throw new EventRefusal("heard");
   if (event.ask !== undefined && (event.kind !== "ask" || typeof event.ask !== "string" || !ASK.test(event.ask))) throw new EventRefusal("ask");
   const kept = { id, at, chat, from: { kind: from.kind, ...(from.who ? { who: from.who } : {}), ...(from.name ? { name: from.name } : {}) }, kind: event.kind };
-  for (const field of ["text", "replyTo", "delivered", "reason", "turn", "covers", "people", "told", "ask"]) {
+  for (const field of ["text", "replyTo", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard"]) {
     if (event[field] !== undefined) kept[field] = event[field];
   }
   return kept;

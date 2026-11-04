@@ -249,7 +249,7 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
 test("a texted turn takes a safe next step instead of offering it (self-reviews, 2026-10-31)", async () => {
   pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
   const system = await systemFor(TOKEN_TEXTS);
-  assert.match(system, /A next step that reaches nobody else \(try again, restart, start a sign-in, give what you have\) is yours: take it and say what happened, never "want me to\?"/);
+  assert.match(system, /A next step that reaches nobody else \(a read or search of their notes, email, files or the web, a draft, try again, restart, start a sign-in, give what you have\) is yours: take it and say what happened, never "want me to\?"/);
   assert.match(system, /Ask first only for what reaches another person, spends money or can't be undone\./);
 });
 

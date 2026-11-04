@@ -17,6 +17,8 @@
  * records, which no check-in has.
  */
 
+import { sentOnItsOwn } from "./sentOnItsOwn.js";
+
 /** Every exchange Tex started without a text from them begins with this (`heartbeat.js`, `conversation.js`, `attention.js`). */
 const BY_ITSELF = /^\(Not a text from them\./;
 
@@ -47,7 +49,7 @@ export function sentByItself(record, events, { chat, newest }) {
     // A job's report or a fixed line was replied as a text, so the log holds it already.
     if (logged.has(key(words)) || [...logged].some((held) => held.length >= 20 && words.replace(/\s+/g, " ").includes(held))) return;
     if (answer.tainted === true) tainted = true;
-    shown.push({ id: `record-${index}`, at: turn.at, chat, from: { kind: "tex" }, kind: "text", text: words, delivered: true, byItself: true });
+    shown.push({ id: `record-${index}`, at: turn.at, chat, from: { kind: "tex" }, kind: "text", text: words, delivered: true, byItself: true, ...sentOnItsOwn(turn.text) });
   });
   return { shown, tainted };
 }
