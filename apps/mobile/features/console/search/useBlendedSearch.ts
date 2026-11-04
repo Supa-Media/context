@@ -122,6 +122,12 @@ export function useBlendedSearch(options: {
   /** Context slugs from the URL. Empty means every context in reach. */
   slugs: readonly string[];
   device?: BlendedDeviceSearch | null;
+  /**
+   * The gateway's search, the one an AI client runs, asked first for a first page (the search revamp, 2026-11-04):
+   * one answer in one order, so nothing on screen is replaced by a second half. `null` from it, or absent, asks the
+   * control plane as before.
+   */
+  gateway?: ((query: string, contexts: readonly SearchableContext[]) => Promise<BlendedAnswer | null>) | null;
 }): BlendedSearchView {
   const convex = useConvex();
   const { query } = options;
@@ -142,6 +148,8 @@ export function useBlendedSearch(options: {
   */
   const deviceRef = useRef(options.device ?? null);
   deviceRef.current = options.device ?? null;
+  const gatewayRef = useRef(options.gateway ?? null);
+  gatewayRef.current = options.gateway ?? null;
   const offline = options.device?.reachability === "offline";
 
   /*
@@ -328,6 +336,20 @@ export function useBlendedSearch(options: {
           never moves a row already drawn (`withMeaningRows`). Meaning that
           lands first waits for the words, for the same reason.
         */
+        const gateway = gatewayRef.current;
+        if (gateway !== null) {
+          const inScope = scope.length > 0 ? contexts.filter((context) => scope.includes(context.workspaceId)) : contexts;
+          const answered = await gateway(trimmed, inScope);
+          if (asked.current !== question) return;
+          if (answered !== null) {
+            setTook(Date.now() - sentAt);
+            setLoading(false);
+            setNotice(null);
+            setAnswer({ ...answered, searchableCount: contexts.length });
+            setResults(answered.results);
+            return;
+          }
+        }
         const scoped = scope.length > 0 ? { contexts: scope as Id<"workspaces">[] } : {};
         const meaning = ask({ query: trimmed, ...scoped, half: "meaning" });
         const settled = await ask({ query: trimmed, ...scoped, half: "words" });
@@ -360,7 +382,7 @@ export function useBlendedSearch(options: {
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [ask, query, question, scope, slugs, offline]);
+  }, [ask, query, question, scope, slugs, offline, contexts]);
 
   const loadMore = useCallback(() => {
     const cursor = answer?.cursor;

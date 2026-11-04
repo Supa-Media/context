@@ -78,13 +78,15 @@ interface Mounted {
   unmount: () => void;
 }
 
-function mount(query: string): Mounted {
+type Gateway = Parameters<typeof useBlendedSearch>[0]["gateway"];
+
+function mount(query: string, gateway: Gateway = null): Mounted {
   const seen: { current: BlendedSearchView | null } = { current: null };
   const host = document.createElement("div");
   let root: Root | null = null;
 
   function Probe({ q }: { q: string }) {
-    seen.current = useBlendedSearch({ query: q, slugs: [] });
+    seen.current = useBlendedSearch({ query: q, slugs: [], gateway });
     return null;
   }
 
@@ -255,6 +257,31 @@ describe("the words first, the meaning after", () => {
       ["alice", false],
       ["team", true],
     ]);
+    app.unmount();
+  });
+});
+
+describe("the gateway's search first (owner, 2026-11-04)", () => {
+  test("its answer is the page, in one go, and the control plane is not asked", async () => {
+    const gateway = jest.fn(async () => page(null, "team", "alice") as never);
+    const app = mount("deut 23", gateway as Gateway);
+    await act(async () => {
+      jest.advanceTimersByTime(400);
+    });
+    expect(gateway).toHaveBeenCalledTimes(1);
+    expect(mockClient.action).not.toHaveBeenCalled();
+    expect(app.view().results.map((row) => row.slug)).toEqual(["team", "alice"]);
+    app.unmount();
+  });
+
+  test("no answer from it asks the control plane as before", async () => {
+    mockClient.action.mockImplementation(async () => page(null, "alice"));
+    const app = mount("deut 23", (async () => null) as Gateway);
+    await act(async () => {
+      jest.advanceTimersByTime(400);
+    });
+    expect(mockClient.action).toHaveBeenCalled();
+    expect(app.view().results.map((row) => row.slug)).toEqual(["alice"]);
     app.unmount();
   });
 });
