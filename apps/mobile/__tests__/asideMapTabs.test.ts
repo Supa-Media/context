@@ -14,6 +14,8 @@
  *  1. `AsidePanel` ignoring `map` in `visibleAsideTabs` → "the open map leads
  *     with Activity" fails.
  *  2. The `noteKey` effect dropped → "a clicked note brings Note forward" fails.
+ *  3. The map's effects declared before `started`'s → "a panel opened on the
+ *     map shows Activity" fails (the fixture showed Meetings this way).
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -48,14 +50,14 @@ let host: HTMLDivElement;
 const byTest = (id: string) => host.querySelectorAll(`[data-testid="${id}"]`);
 const tabs = () => Array.from(host.querySelectorAll('[role="tab"]')).map((el) => el.textContent);
 
-async function show(side: MapSide | null, offering = true) {
+async function show(side: MapSide | null, offering = true, started: number | null = null, panel = true) {
   await act(async () =>
     root.render(
       createElement(
         MapSideProvider,
         null,
         offering ? createElement(Offer, { side }) : null,
-        createElement(AsidePanel, { started: null, onOpenNote: null }),
+        panel ? createElement(AsidePanel, { started, onOpenNote: null }) : null,
       ),
     ),
   );
@@ -85,6 +87,13 @@ describe("the map's tabs in the right panel", () => {
     expect(byTest("activity-body")).toHaveLength(1);
     await act(async () => (byTest("aside-tab-meetings")[0] as HTMLElement).click());
     expect(byTest("activity-body")).toHaveLength(0);
+  });
+
+  test("a panel opened on the map shows Activity, though a meeting was asked for earlier", async () => {
+    // The map first; the panel opened over it afterwards, as the top bar's button does.
+    await show(mapOpen(null), true, 1, false);
+    await show(mapOpen(null), true, 1);
+    expect(byTest("activity-body")).toHaveLength(1);
   });
 
   test("a clicked note brings Note forward; another click on Activity goes back", async () => {

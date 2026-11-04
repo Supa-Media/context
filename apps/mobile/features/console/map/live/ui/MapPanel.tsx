@@ -170,8 +170,7 @@ export const makeStyles = (colors: Colors) =>
       flexShrink: 0,
       overflow: "hidden",
     },
-    // 16 + the 56 of the floating button + a gap.
-    panelScroll: { flexGrow: 1, flexShrink: 1, flexBasis: 0, marginBottom: 80 },
+    panelScroll: { flexGrow: 1, flexShrink: 1, flexBasis: 0 },
     panelBody: { paddingTop: space.x4, paddingBottom: space.x3, paddingHorizontal: 18, gap: space.x3 },
     section: { gap: space.x2, marginBottom: space.x1 },
     pileRow: { gap: space.x2 },

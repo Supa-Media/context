@@ -96,10 +96,18 @@ export function AsidePanel({
   // A chosen tab that has gone (the note closed, the map left) falls back to the map's Activity, else Meetings.
   const showing: AsideTab = tabs.includes(wanted) ? wanted : tabs.includes("activity") ? "activity" : "meetings";
 
+  /* Somebody asked for Meetings, from the + menu or the title bar. See `started`. */
+  useEffect(() => {
+    if (started === null) return;
+    setChosen("meetings");
+  }, [started]);
+
   /*
     The map opening brings its Activity forward, and a note clicked on it
     brings Note forward. These are the person's own presses on the map, so
-    they move the tab where a meeting starting does not.
+    they move the tab where a meeting starting does not. After `started`'s
+    effect, so a panel opened on the map shows the map's tab even when a
+    meeting was asked for earlier; a new ask still takes the tab.
   */
   const mapOpen = map !== null;
   const noteKey = map?.noteKey ?? null;
@@ -109,12 +117,6 @@ export function AsidePanel({
   useEffect(() => {
     if (noteKey !== null) setChosen("note");
   }, [noteKey]);
-
-  /* Somebody asked for Meetings, from the + menu or the title bar. See `started`. */
-  useEffect(() => {
-    if (started === null) return;
-    setChosen("meetings");
-  }, [started]);
 
   const live = useMeetingsSnapshot().live;
   const meetingLive = live !== null;
