@@ -130,6 +130,8 @@ export async function machineTurn(
   hooks: {
     keep: (patch: Partial<JobRun>) => Promise<void>;
     onStep: (text: string, how?: StepHow) => Promise<void>;
+    /** The gateway's line asking a lent computer's owner for a 👍 in the group, handed to the chat's Tex (`jobRun.ts`). */
+    askOwner?: (line: string) => Promise<void>;
     live: (running: MachineLive | null) => void;
     steerIds: string[];
     /** A group chat's job: its grant, minted again as its own turn's is (`jobRun.ts` `groupGrant`), or null to stop. */
@@ -188,6 +190,8 @@ export async function machineTurn(
     // "Ask me first": the computer's owner answers in the app; the part waits for it, then starts or says why not.
     const waitUntil = deps.now() + ASK_WAIT_MS;
     if (answer.code === "ask_first") await hooks.onStep(`Waiting for the owner of ${machine.name} to say yes`);
+    // Asked just now in a group: the chat is asked, and the owner's 👍 there is the yes (`apps/mcp/src/machines/groupAsk.js`).
+    if (answer.code === "ask_first" && typeof answer.askLine === "string" && answer.askLine !== "") await hooks.askOwner?.(answer.askLine);
     while (answer.code === "ask_first" && deps.now() < waitUntil) {
       await sleep(ASK_POLL_MS);
       if (!(await fresh())) return { kind: "stop" };

@@ -38,6 +38,17 @@ export const GROUP_THUMB_KEY = "gthumb";
  */
 const ASK = /(?:Give (?:this|it) a \S+ and I['’]ll|^(?:Here['’]s (?:the (?:bug report|email|change)|what) I['’]d|Here are the emails I['’]d|Before I (?:pay|do th)))/u;
 
+/**
+ * The ask to run a job on a computer lent to a group (`apps/mcp/src/machines/groupAsk.js`): its yes is the
+ * computer's owner's, not the asker's, so anyone's 👍 or 👎 on it goes to the gateway, which takes only the owner's.
+ */
+const MACHINE_ASK = /Give this a \S+ and I['’]ll start /u;
+
+/** Whether a tapback is on an ask to run a job on someone's computer. */
+export function onMachineAsk(reaction: Reaction): boolean {
+  return MACHINE_ASK.test(reaction.words);
+}
+
 /** Whether a text of Tex's is one of the gateway's asks. */
 export function isAsk(text: string): boolean {
   return ASK.test(text);

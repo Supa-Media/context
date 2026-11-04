@@ -263,5 +263,25 @@ unmodified CLI, which signs itself in.
   The planner is told the cloud's free slots and each computer's apart.
   Tests: `agentJobSlots.test.mjs`, "counts jobs on a computer against its
   own slots, never the cloud's three" (`jobs.test.ts`).
-- **Not yet**: telling the owner an ask is waiting, beyond the app's list
-  (a text or a push).
+- **A group's ask is put to the group, and the owner's 👍 there is the
+  yes** (2026-11-04, Dev2: "it should send it to the groupchat actually,
+  and wait for the owner to thumbs it up"; this replaced a text in the
+  owner's own Tex chat and a phone push, which were offered first). The
+  first time a group's job is held for "Ask me first" (`fresh` from the
+  object), the gateway answers the job with a line in its own words naming
+  the owner by handle, the job and the computer
+  (`apps/mcp/src/machines/groupAsk.js` `machineAskLine`). The job hands it
+  to the chat's Tex as its report's `ask`, and that turn texts it word for
+  word whatever its model says (`jobReport.js` `reportReply`), so the
+  tapback's words can be matched. Anyone's 👍, ❤️ or 👎 on it goes to the
+  gateway (`apps/agent/src/thumbs.ts` `onMachineAsk`; other asks hold only
+  the asker's), and the gateway answers the ask only when the turn's own
+  grant is the computer's owner, the computer is lent to this chat, and the
+  ask is this chat's with its title and the computer's name in the words
+  (`machineThumb`, before any other approval). A guest's tapback runs on the
+  binder's grant and never counts. The app's card answers the same ask. An
+  ask from a person's own texts is still answered only in the app. Tests:
+  `machineGroupAsk.test.mjs`, "anyone's 👍 on an ask to use someone's
+  computer goes to the gateway…" (`groupReactions.test.ts`), "a group's ask
+  goes to the chat's Tex once…" (`machineTurn.test.ts`).
+- **Not yet**: a phone push for an ask from someone's own texts.

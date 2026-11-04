@@ -53,7 +53,8 @@ export type JobMail = { from: string; app?: string; kind: "note" | "ask" | "inte
 /** What a turn asked of a running job: the job, whether to stop it, and the coordinating turn's own instruction for it (`note`). */
 export type JobSteerAsk = { id: string; stop?: true; note?: string; resume?: true };
 /** What a job would have said, handed to its chat's own turn, which decides what is said (`jobTexts.ts`). */
-export type JobReport = { title: string; state: JobState; texts: string[] };
+/** `ask`: the gateway's own line asking a computer's owner for a 👍, texted as it is (`machineTurn.ts`). */
+export type JobReport = { title: string; state: JobState; texts: string[]; ask?: string };
 /** `waiting`: it needs something only they can give; `stuck`: no way forward, or out of time (`jobRun.ts`). */
 export type JobState = "running" | "done" | "failed" | "waiting" | "stuck";
 
@@ -75,7 +76,7 @@ export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?
 /** `pictures`: the answer's pictures (a page's cover), sent before its texts and counted with them in `first`. */
 /** `asked`: who asked for the job and their words, so the chat's turn on its report can start it again (`jobTexts.ts`). */
 /** `pass`: the job's pass that sent it (`jobRun.ts` `PASS_KEY`); once one pass finished the job, no other pass's word is texted. */
-export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; pass?: string; asked?: { from: string; text: string } };
+export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; pass?: string; asked?: { from: string; text: string }; ask?: string };
 
 /** A job's answer texts at most this many pictures: a page's cover, a card or two. */
 export const MAX_JOB_PICTURES = 2;
@@ -139,6 +140,8 @@ const STATES = new Set(["running", "done", "failed", "waiting", "stuck"]);
 const MAX_STATUS = 280;
 /** The asker's words a report carries, as long as a text they could send. */
 const MAX_ASKED = 8_000;
+/** A computer owner's ask is one short line (`groupAsk.js` `machineAskLine`). */
+const MAX_ASK = 400;
 const ID = /^[A-Za-z0-9_-]{8,64}$/;
 
 export const JOB_LINES = {
@@ -436,7 +439,7 @@ function resultOf(update: JobUpdate): { result?: string } {
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, pass, asked, verdict, advice } = value as Record<string, unknown>;
+  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, pass, asked, verdict, advice, ask } = value as Record<string, unknown>;
   const by = asked && typeof asked === "object" ? (asked as Record<string, unknown>) : {};
   const read = jobPictures(readPictures(pictures));
   if (typeof id !== "string" || !ID.test(id) || typeof state !== "string" || !STATES.has(state)) return null;
@@ -447,6 +450,7 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(typeof status === "string" ? { status } : {}),
     ...(typeof step === "string" ? { step, ...(stepFailed === true ? { stepFailed: true as const, ...(typeof stepWhy === "string" ? { stepWhy } : {}) } : {}) } : {}),
     ...(typeof vaultWatch === "string" && vaultWatch !== "" ? { vaultWatch } : {}),
+    ...(typeof ask === "string" && ask.trim() !== "" ? { ask: ask.slice(0, MAX_ASK) } : {}),
     ...(typeof pass === "string" && ID.test(pass) ? { pass } : {}),
     ...(typeof by.from === "string" && /^\+[1-9]\d{6,14}$/.test(by.from) && typeof by.text === "string" ? { asked: { from: by.from, text: by.text.slice(0, MAX_ASKED) } } : {}),
     ...(Number.isInteger(first) && (first as number) >= 0 ? { first: first as number } : {}),

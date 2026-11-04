@@ -275,6 +275,18 @@ describe("a job on the person's own computer", () => {
     expect(reports[reports.length - 1].texts).toEqual(["Fixed."]);
   });
 
+  it("a group's ask goes to the chat's Tex once, as the gateway wrote it, for the owner's 👍", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const line = `@seyi: Give this a 👍 and I'll start "Fix the flaky test" on @seyi's computer "Studio Mac". Only @seyi can OK it; a 👎 says no.`;
+    const waiting = { ok: false, code: "ask_first", askId: "ask_000000000000000000000001" };
+    const { deps, reports } = world({ assign: [{ ...waiting, askLine: line }, waiting, { ok: true, runId: "run_000000000000000000000001", deadline: NOW + 15 * 60_000 }], reads: [finished("Fixed.")] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    const asked = reports.filter((update) => update.ask !== undefined);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ state: "running", ask: line, texts: [line] });
+  });
+
   it("an owner who doesn't answer, or says no, ends the job saying so", async () => {
     for (const [code, text] of [["ask_first", refusedText("Fix the flaky test", "Studio Mac", "ask_first")], ["declined", refusedText("Fix the flaky test", "Studio Mac", "declined")]]) {
       const storage = new MemoryStorage();

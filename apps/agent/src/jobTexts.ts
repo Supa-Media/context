@@ -34,7 +34,7 @@ export const JOB_REPORT_PATH = "(job report)";
 /** What the coordinator is handed: the job's words, or null when it said nothing. */
 export function reportOf(entry: JobEntry, update: JobUpdate): JobReport | null {
   const texts = (update.texts ?? []).filter((text) => text.trim() !== "");
-  return texts.length === 0 ? null : { title: entry.title, state: update.state, texts };
+  return texts.length === 0 ? null : { title: entry.title, state: update.state, texts, ...(update.ask ? { ask: update.ask } : {}) };
 }
 
 /** `POST /job-update`: false only when the job is not this chat's. Throws when the report could not be queued, so the job offers it again. */
