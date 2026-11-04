@@ -14,7 +14,7 @@
 import { readSearchIndexBinding } from "./d1/client.js";
 import { attachMeaningIndex } from "./meaning/store.js";
 
-export function attachSearchIndexes(store, { searchIndex, meaningIndex }, ai) {
+export function attachSearchIndexes(store, { searchIndex, meaningIndex, meaningOn = false }, ai) {
   Object.defineProperty(store, "searchIndex", {
     value: readSearchIndexBinding({ searchIndex }),
     enumerable: false,
@@ -22,5 +22,7 @@ export function attachSearchIndexes(store, { searchIndex, meaningIndex }, ai) {
     configurable: true,
   });
   attachMeaningIndex(store, meaningIndex, ai);
+  // The owner's switch, apart from the index's health (`meaning/serve.js` `meaningSearchable`). No token: plain is fine.
+  Object.defineProperty(store, "meaningOn", { value: meaningOn === true, enumerable: false, writable: false, configurable: true });
   return store;
 }

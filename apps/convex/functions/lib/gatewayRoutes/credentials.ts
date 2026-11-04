@@ -115,6 +115,9 @@ export async function gatewayBindingHandler(
     // Search by meaning's index, same terms as `searchIndex`: absent unless
     // the workspace's index exists and takes writes.
     meaningIndex: opened.meaningIndex,
+    // The owner's switch apart from that index's health: a workspace on its
+    // object answers meaning from its own index. Absent is off.
+    meaningOn: opened.meaningOn,
     encryptionKey: opened.encryptionKey,
     // Fourth sibling, same terms: absent unless a rotation is in progress,
     // which is every context that has never rotated (all of them, before

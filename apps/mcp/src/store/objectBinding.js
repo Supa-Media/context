@@ -176,6 +176,7 @@ function keeper(object, workspaceId, secret, epoch, encryption, now) {
           binding: opened.binding,
           searchIndex: opened.searchIndex,
           meaningIndex: opened.meaningIndex,
+          meaningOn: opened.meaningOn,
           encryptionKey: opened.encryptionKey,
           managedEncryption: opened.managedEncryption,
           noteCap: opened.noteCap,
