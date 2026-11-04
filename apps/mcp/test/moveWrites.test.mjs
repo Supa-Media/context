@@ -424,14 +424,6 @@ test("a timed move says when the call began and when its answer left, on the obj
   };
   const during = await (await callMove(store, { from: "projects/plan-stamped.md", to: "projects/plan-during.md", ...OWNER }, { arrived: Date.now(), alarmsBefore: 3, alarmsNow: () => starts })).json();
   assert.equal(during.alarmDuring, true, JSON.stringify(during));
-  // A move whose flush alarm it set itself says so; one that found an alarm already due does not.
-  assert.equal("armed" in during, false, JSON.stringify(during));
-  store.mirrorSoon = async () => true;
-  const armed = await (await callMove(store, { from: "projects/plan-during.md", to: "projects/plan-armed-2.md", ...OWNER }, { arrived: Date.now() })).json();
-  assert.equal(armed.armed, true, JSON.stringify(armed));
-  store.mirrorSoon = async () => false;
-  const found = await (await callMove(store, { from: "projects/plan-armed-2.md", to: "projects/plan-during.md", ...OWNER }, { arrived: Date.now() })).json();
-  assert.equal("armed" in found, false, JSON.stringify(found));
   const quiet = await (await callMove(store, { from: "projects/plan-during.md", to: "projects/plan-stamped.md", ...OWNER }, { arrived: Date.now(), alarmsBefore: 9, alarmsNow: () => 9 })).json();
   assert.equal("alarmDuring" in quiet, false, JSON.stringify(quiet));
 

@@ -156,31 +156,22 @@ export class WorkspaceStore {
       mirror: mirrorOutbox(sql),
       // Sends them on, oldest first, one flush at a time (`workspaceStore/mirrorFlush.js`, `controlPlane/rowsMirror.js`).
       flushMirror: () => flushMirror(store, (workspaceId, changes) => createControlPlane(this.env).rowsMirror(workspaceId, changes), log),
-      // A flush soon: the alarm runs at once, unless one is already set earlier. The promise says when the alarm is set,
-      // and whether this call set it (a timed move says so: `serveWrites.js`); it never fails.
-      // The alarm is a wake, not a change: the changes it sends are queued in the write's own transaction, durable
-      // before the answer. So the answer does not wait for the alarm's own confirmation (`allowUnconfirmed`), and an
-      // object that wakes with changes still queued arms it again (below), should one ever be lost.
+      // A flush soon: the alarm runs at once, unless one is already set earlier. The promise says when the alarm is set;
+      // a write waits for it before its durable-write wait, so one flush carries both (`serveWrites.js`), never fails.
       mirrorSoon: () =>
-        Promise.resolve()
-          .then(() => this.state.storage.getAlarm())
+        this.state.storage
+          .getAlarm()
           .then(async (set) => {
             const at = Date.now();
-            if (set !== null && set <= at) return false;
-            await this.state.storage.setAlarm(at, { allowUnconfirmed: true });
-            return true;
+            if (set === null || set > at) await this.state.storage.setAlarm(at);
           })
           .catch(() => {
             // The change is queued; the next write or alarm arms the flush again.
-            return false;
           }),
     };
     // The search indexes caught up on the alarm while changes wait, not only behind a search.
     store.indexBuild = indexBuilder(store);
     this.store = store;
-    // Changes still queued for Convex's mirror when the object wakes (an alarm lost with the instance that set it): sent
-    // on soon, not only behind the next write.
-    if (store.mirror.count() > 0) store.mirrorSoon();
     const tree = treeSockets(this.state, sql, this.store);
     this.store.onTreeChange = (change) => tree.changed(change);
     this.tree = tree;

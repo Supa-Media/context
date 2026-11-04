@@ -421,7 +421,6 @@ test/collabReplaceInObject.test.mjs
 test/readNoteInObject.test.mjs
 test/editLookupBody.test.mjs
 test/workspaceObjectCold.test.mjs
-test/workspaceMirrorAlarm.test.mjs
 test/gatewayPlacement.test.mjs
 test/createInObject.test.mjs
 test/checkedCreate.test.mjs
