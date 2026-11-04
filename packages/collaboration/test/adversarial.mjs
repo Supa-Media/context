@@ -430,7 +430,7 @@ test('an in-flight rejected edit removes its unpublished revision after permanen
   const release=new Promise(resolve=>{resume=resolve;});
   let injected=false;
   store.put=async(key,value,...rest)=>{
-    if(!injected&&key.includes('/revisions/')&&String(value).includes('LATE_PRIVATE_REVISION')) {
+    if(!injected&&key.includes('/documents/')&&String(value).includes('LATE_PRIVATE_REVISION')) {
       injected=true;reached();await release;
     }
     return put(key,value,...rest);

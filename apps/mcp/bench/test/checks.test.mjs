@@ -130,9 +130,9 @@ test("a start check counts the jobs started, and a split's jobs share one note's
   const { startTarget } = await import("../checks.mjs");
   const jobs = (...parts) => parts.map(([name, mail = "1-projects/lisbon/overview.md"]) => ({ title: name, mail, name }));
   const grade = (line, started) => checkVerdicts({ checks: [readCheck(line)] }, { tools: [], browser: [], changes: [], jobs: started })[0].pass;
-  assert.deepEqual(startTarget("2+ jobs on one note's mail"), { n: 2, atLeast: true, shared: true });
-  assert.deepEqual(startTarget("a job"), { n: 1, atLeast: true, shared: false });
-  assert.deepEqual(startTarget("1 job"), { n: 1, atLeast: false, shared: false });
+  assert.deepEqual(startTarget("2+ jobs on one note's mail"), { n: 2, atLeast: true, shared: true, where: null });
+  assert.deepEqual(startTarget("a job"), { n: 1, atLeast: true, shared: false, where: null });
+  assert.deepEqual(startTarget("1 job"), { n: 1, atLeast: false, shared: false, where: null });
   assert.throws(() => readCheck("- must start: lots"), /not "a job"/);
 
   const split = "- must start: 2+ jobs on one note's mail";
@@ -162,3 +162,16 @@ test("a link check reads the query of a link Tex texted, never a look-alike host
   assert.equal(grade("- must link: site=snipcutapp.example", "no link at all"), false, "the person's own text never counts");
 });
 
+test("a start check can count only the jobs on a computer, or only those in the cloud", async () => {
+  const { startTarget } = await import("../checks.mjs");
+  const grade = (line, started) => checkVerdicts({ checks: [readCheck(line)] }, { tools: [], browser: [], changes: [], jobs: started })[0].pass;
+  const job = (name, on = null) => ({ title: name, mail: "p/overview.md", name, on });
+  assert.equal(startTarget("1 job on a computer").where, "computer");
+  assert.equal(startTarget("a job in the cloud").where, "cloud");
+  assert.equal(grade("- must start: 1 job on a computer", [job("a", "Studio Mac")]), true);
+  assert.equal(grade("- must start: 1 job on a computer", [job("a")]), false, "the cloud is not a computer");
+  assert.equal(grade("- must not start: a job in the cloud", [job("a", "Studio Mac")]), true);
+  assert.equal(grade("- must not start: a job in the cloud", [job("a", "Studio Mac"), job("b")]), false);
+  assert.equal(grade("- must start: 2+ jobs on one note's mail on a computer", [job("a", "Studio Mac"), job("b", "Studio Mac")]), true);
+  assert.equal(grade("- must start: 2+ jobs on one note's mail on a computer", [job("a", "Studio Mac"), job("b")]), false, "one of the two ran in the cloud");
+});

@@ -3,8 +3,8 @@
  * (docs/decisions/texting-assistant/machines.md). The texted turn names one
  * when it starts a job (`start_background_job`'s `on_computer`), and this
  * finds it among the machines in the workspaces the person's own texting
- * grant reaches, or, in a group chat, among those lent to it. Read only when a job asks for a computer, never on every
- * text. Whether the job may run there is still the workspace object's call
+ * grant reaches, or, in a group chat, among those lent to it. A chat's own turn reads them beside its history, so it is
+ * told they are there (`forTurn.js`). Whether the job may run there is still the workspace object's call
  * at each part (`admit`), under the owner's rules.
  */
 
@@ -17,8 +17,15 @@ const MAX_WORKSPACES = 6;
 const TOOLS = new Set(["claude", "codex"]);
 const REPO = /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99})?$/;
 
+/**
+ * Where the computers are read: the workspace objects, or `MACHINE_STORE` when a
+ * deployment binds one in their place, as the benchmark's world does with its
+ * invented computers (`bench/world.mjs`). It answers only these reads.
+ */
+const machineEnv = (env) => (env?.MACHINE_STORE ? { WORKSPACE_STORE: env.MACHINE_STORE } : env);
+
 const read = async (env, workspaceId, op, fields) => {
-  const stub = workspaceStub(env, workspaceId);
+  const stub = workspaceStub(machineEnv(env), workspaceId);
   if (stub === null) return null;
   try {
     const response = await callTexStore(stub, op, {}, new TextEncoder().encode(JSON.stringify({ workspaceId, ...fields })));
@@ -28,14 +35,14 @@ const read = async (env, workspaceId, op, fields) => {
   }
 };
 
-const listed = (workspaceId, machine) => ({ workspaceId, id: machine.id, name: machine.name, online: machine.online === true, tools: machine.tools ?? [], folders: machine.folders ?? [], ownerId: machine.ownerId });
+const listed = (workspaceId, machine) => ({ workspaceId, id: machine.id, name: machine.name, online: machine.online === true, tools: machine.tools ?? [], folders: machine.folders ?? [], ownerId: machine.ownerId, ...(Number.isSafeInteger(machine.limits?.slots) ? { slots: machine.limits.slots } : {}) });
 
 /**
  * The computers this session may name: `{workspaceId, id, name, online, tools, folders, ownerId}`. A person's own
  * texts: own workspace first. A group chat: the computers lent to it (`reach.js`).
  */
 export async function machinesFor(env, session, controlPlane = null) {
-  if (!env.WORKSPACE_STORE) return [];
+  if (!machineEnv(env)?.WORKSPACE_STORE) return [];
   const lent = controlPlane === null ? null : await lentToChat(controlPlane, session);
   if (lent !== null) {
     const found = await Promise.all(lent.map(async ({ workspaceId, machineId }) => {
@@ -77,5 +84,6 @@ export function pickMachine(machines, ask) {
   if (!found.folders.includes(folder)) return { error: found.folders.length === 0 ? `"${found.name}" has no folder Tex may work in yet: they choose one in Tex's settings.` : `On "${found.name}" Tex may work only in ${found.folders.join(", ")}.` };
   // A repo is a name under the folder (`context`, `Supa-Media/context`), never a path that climbs out of it.
   const repo = typeof ask?.repo === "string" && REPO.test(ask.repo.trim()) ? ask.repo.trim() : undefined;
-  return { machine: { workspaceId: found.workspaceId, machineId: found.id, name: found.name, tool, folder, ...(repo ? { repo } : {}) } };
+  // `computer`: its id and slots, which the chat counts a job there against (`agent/jobSlots.js`).
+  return { machine: { workspaceId: found.workspaceId, machineId: found.id, name: found.name, tool, folder, ...(repo ? { repo } : {}) }, computer: { id: found.id, slots: found.slots } };
 }

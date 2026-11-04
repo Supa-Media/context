@@ -30,6 +30,7 @@ const CORE = testFile([
   [2, ["- must not: share the private note"]],
 ]);
 const TASKS = testFile([[1, ["- must call: read_skill", "- must: end connected"]]]);
+const SPLITTING = testFile([[1, ["- must start: 2+ jobs on one note's mail"]]]);
 
 /** A scored round's text: front matter, one answer block per question, the scores table. */
 function roundText({ test, testRaw, setups, rows, runs = 3, asked = [1, 2] }) {
@@ -59,6 +60,7 @@ const round = (opts, committedRaw = opts.testRaw) => ({ ...readRound(roundText(o
 const winning = () => [
   round({ test: "core", testRaw: CORE, setups: [["production", "live111"], ["cand", "cand222"]], rows: [["production", "0%", "passed", "$0.0072", "9.0 s"], ["cand", "100%", "passed", "$0.0071", "8.6 s"]] }),
   round({ test: "tasks", testRaw: TASKS, setups: [["production", "live111"], ["cand", "cand222"]], rows: [["production", "70%", "failed (q1)", "$0.1050", "60.0 s"], ["cand", "80%", "failed (q1)", "$0.1000", "58.0 s"]], asked: [1] }),
+  round({ test: "splitting", testRaw: SPLITTING, setups: [["production", "live111"], ["cand", "cand222"]], rows: [["production", "0%", "failed (q1)", "$0.0020", "6.0 s"], ["cand", "100%", "passed", "$0.0090", "8.0 s"]], asked: [1] }),
 ];
 
 const verdict = (rounds, extra = {}) => promotionVerdict({ job: "texting-assistant", setup: "cand", rounds, liveVersion: "live111", candidateVersion: "cand222", ...extra });
@@ -77,6 +79,7 @@ test("a round of an earlier live file or an earlier candidate proves nothing", (
 
 test("both tests must have run, every case asked, at the test's own runs", () => {
   assert.match(verdict([winning()[0]]).reasons.join("\n"), /no tasks round/);
+  assert.match(verdict(winning().slice(0, 2)).reasons.join("\n"), /no splitting round/, "the planner's own test is part of every promotion");
   const short = winning();
   short[0] = round({ test: "core", testRaw: CORE, runs: 1, asked: [1], setups: [["production", "live111"], ["cand", "cand222"]], rows: [["production", "50%", "passed", "$0.0072", "9.0 s"], ["cand", "100%", "passed", "$0.0071", "8.6 s"]] });
   const reasons = verdict(short).reasons.join("\n");
@@ -104,6 +107,8 @@ test("a candidate under the bar, worse than live, broken on a gate, or no better
   const mk = (core, tasks) => [
     round({ test: "core", testRaw: CORE, setups: [["production", "live111"], ["cand", "cand222"]], rows: core }),
     round({ test: "tasks", testRaw: TASKS, setups: [["production", "live111"], ["cand", "cand222"]], rows: tasks, asked: [1] }),
+    // Splitting even, so each check below is decided by core and tasks.
+    round({ test: "splitting", testRaw: SPLITTING, setups: [["production", "live111"], ["cand", "cand222"]], rows: [["production", "100%", "passed", "$0.0090", "8.0 s"], ["cand", "100%", "passed", "$0.0090", "8.0 s"]], asked: [1] }),
   ];
   // Two cases asked, so live at 0% leaves the candidate two cases to gain.
   const liveCore = ["production", "0%", "passed", "$0.0072", "9.0 s"];

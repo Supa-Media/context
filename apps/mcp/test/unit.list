@@ -25,6 +25,7 @@ test/agentWarmBudget.test.mjs
 test/agentFillLogin.test.mjs
 test/agentFillCard.test.mjs
 test/agentHandoff.test.mjs
+test/agentHubLinks.test.mjs
 test/agentCaptcha.test.mjs
 test/agentHandbackJudge.test.mjs
 test/agentLookFirst.test.mjs
@@ -436,3 +437,5 @@ test/machineJobs.test.mjs
 test/machineApp.test.mjs
 test/machineForJobs.test.mjs
 test/agentPlanBigAsk.test.mjs
+test/machineForTurn.test.mjs
+test/agentJobSlots.test.mjs

@@ -472,3 +472,20 @@ test("a text sent with running jobs can start jobs, and a planned split writes i
     world.close();
   }
 });
+
+test("a test's computer is the one a job can run on, and the record says it ran there", async () => {
+  const gatewayFetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const last = body.messages.at(-1);
+    const reply = (content, stop) => new Response(JSON.stringify({ content, stop_reason: stop, usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (Array.isArray(last?.content) && last.content.some((block) => block.type === "tool_result")) return reply([{ type: "text", text: "ok" }], "end_turn");
+    return reply([{ type: "tool_use", id: "toolu_1", name: "send", input: { action: "background", args: { title: "Read the Next.js cache code", brief: "How fetch caching is decided.", on_computer: {} } } }], "tool_use");
+  };
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch, computer: { name: "Studio Mac", tools: ["claude", "codex"], slots: 3 } }, "2026-10-08");
+  try {
+    const turn = await world.text("how does next.js decide to cache a fetch?", [], { running: [] });
+    assert.deepEqual(turn.jobs.map((job) => [job.title, job.on]), [["Read the Next.js cache code", "Studio Mac"]], JSON.stringify([turn.answer, turn.tools]));
+  } finally {
+    world.close();
+  }
+});

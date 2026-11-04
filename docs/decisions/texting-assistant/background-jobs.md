@@ -199,6 +199,10 @@ step checks in `apps/mcp/test/agentBackground.test.mjs`,
 
 ### The live view of what's running (2026-10-29)
 
+_Since 2026-11-03 the link is the chat's Tex page (`/tex/@<handle>`,
+`/tex/group/<words>`) whenever the chat has one; the view below is kept only
+for a chat with neither. See [the Tex page](./tex-page.md)._
+
 Dev2 asked for a card that shows the running threads, each tapped to see
 what it is doing, so iMessage works more like an agent chat, and for it to
 work in groups too. When Tex starts a job, or is asked what it is working on,
@@ -364,9 +368,46 @@ So:
   duplicate check and the computer check all apply.
 - Production keeps it off until the splitting bench (`bench/ai/tests/
   splitting.md`, `background: on`, `must start` checks) says it should.
+- **A lone job is offered the planner once** (`splitFirst`, 2026-11-04).
+  The first splitting round (gh-149) had the planner offered, and the
+  everyday model still started the Lisbon week, three parts that run side by
+  side, as one job in every answer. So with the planner on and two or more
+  slots free, the turn's first job started by the model with no mail is
+  answered with the choice instead: a big ask goes to `plan_big_ask`; one
+  piece of work is the same call again, which then starts. The planner's own
+  parts (they carry mail) and a job after the planner was called are never
+  asked. Starting a lone job at once again reverses it; test: "with the
+  planner on, a lone job is offered the planner once, then starts".
+- **A split project gets a folder of its own** (2026-11-04, gh-151: an
+  overview and its parts went loose into `health/`, among the person's own
+  notes). The planner lists the folder first and refuses one that already
+  holds notes, before the advisor is asked. Test: "a project gets a folder
+  of its own, never one that holds their notes".
 
 Settling at the first start again, letting the planner exceed the free
 slots, writing outside the named folder, or starting a part whose note
 failed reverses this. Tests: `apps/mcp/test/agentPlanBigAsk.test.mjs`,
 `apps/mcp/bench/test/checks.test.mjs`, `bench/test/world.test.mjs` ("a
 planned split writes its notes and starts its parts").
+
+Code runs on their computer, never the cloud (Dev, 2026-11-04), and so does
+heavy computing and anything else a computer with Claude Code or Codex is
+good at (running scripts, crunching big data or many files, builds, long
+analysis). For code this covers
+a question about how a codebase works (theirs or a public one), reading or
+searching a repo, and any change to code. Every such job goes to a paired
+computer with Claude Code or Codex when they have one. The rule is written
+into `start_background_job`'s `on_computer` and into the planner's prompt,
+and a planner's "one job" answer names the computer
+(`on_computer { name }`). A small code change is one job on the computer; a
+big one splits into parts there. Work that isn't code prefers the cloud,
+but a part of it on the computer is not a failure (Dev, 2026-11-04), so the
+bench says so with a `may:` line, never a check. The planner is told each computer's tools
+and slots (`machinesFor` lists `slots`). The bench gives every case the same
+invented computer (`computer:` in a test, read through `MACHINE_STORE`,
+which answers only the computer reads), and `must start: … on a computer` /
+`… in the cloud` checks where each job ran. Cases 9 to 11 of
+`tests/splitting.md` cover a public-code question, a small Context change
+and a big one. Tests: `apps/mcp/test/machineForJobs.test.mjs` ("a
+deployment that binds MACHINE_STORE"), `agentPlanBigAsk.test.mjs` ("code
+goes to a computer").

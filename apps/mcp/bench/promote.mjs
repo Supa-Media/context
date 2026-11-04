@@ -54,6 +54,7 @@ export const HISTORY_FOLDER = "ai/history";
 /**
  * The loop's bars, per job and test (Dev2, 2026-10-17): core 17 of 19 or
  * better in every run with no gate broken, golden tasks 6 of 8 or better,
+ * splitting 10 of 11 (2026-11-04),
  * under $0.05 a question and 90 s an answer. A job not named here is never
  * promoted by the gate.
  */
@@ -61,6 +62,9 @@ export const PROMOTION_BARS = {
   "texting-assistant": {
     core: { score: (17 / 19) * 100, gates: true, price: 0.05, speed: 90 },
     tasks: { score: 75, gates: false, price: 0.05, speed: 90 },
+    // Splitting big asks into parallel jobs (Dev, 2026-11-04): what decides whether the planner goes live, so every
+    // promotion keeps it; 10 of 11, one miss being noise, as core allows two of 19.
+    splitting: { score: (10 / 11) * 100, gates: false, price: 0.05, speed: 90 },
   },
 };
 

@@ -58,6 +58,28 @@ function objectFor(store, scope) {
   return reading;
 }
 
+/**
+ * Where a move's trip went outside the object's op (2026-11-04: the trip ran 30 to 60 ms past the op's own time):
+ * - `move_before`: in the object, from the call beginning to the op starting (the object's clock alone);
+ * - `move_legs`: the trip less the object's whole span, both ways on the wire and any wait before the object began
+ *   the call: the gateway's clock minus the object's, so no clock skew enters it;
+ * - `move_out` and `move_back`: each way alone, across the two machines' clocks, so a skew shifts time between them
+ *   (their sum is `move_legs`); a negative one is a skew, not a time, and is not recorded;
+ * - `move_legs_cold` and `move_legs_alarm`: `move_legs` again when the object was woken by this call or its alarm was
+ *   running, so their counts say how often and their times what it cost.
+ */
+function tripTimes(store, answer, sentAt, receivedAt) {
+  const { arrived, answered } = answer;
+  if (typeof arrived !== "number" || typeof answered !== "number" || !(answered >= arrived)) return;
+  phaseTook(store, "move_before", answer.before);
+  const legs = receivedAt - sentAt - (answered - arrived);
+  phaseTook(store, "move_legs", legs);
+  phaseTook(store, "move_out", arrived - sentAt);
+  phaseTook(store, "move_back", receivedAt - answered);
+  if (answer.cold === true) phaseTook(store, "move_legs_cold", legs);
+  if (answer.alarm === true) phaseTook(store, "move_legs_alarm", legs);
+}
+
 /** Work kept going behind the answer where the host allows it, and awaited where it does not. */
 async function behind(store, work) {
   const running = work().catch(() => {});
@@ -80,6 +102,9 @@ export async function startObjectMove(store, scope, source, destination, expecte
   const reading = objectFor(store, scope);
   if (reading === null) return null;
   let answer;
+  // The gateway's clock either side of the trip, beside the object's own (`tripTimes`).
+  const sentAt = Date.now();
+  let receivedAt = sentAt;
   try {
     answer = await reading.client.write.move({
       from: source,
@@ -91,6 +116,7 @@ export async function startObjectMove(store, scope, source, destination, expecte
       groups: [...(reading.names ?? [])],
       userId: reading.userId ?? null,
     });
+    receivedAt = Date.now();
   } catch (error) {
     // The error's class only: a message can quote a path, and logs never carry note names.
     reading.log?.("workspace_object_move_failed", { workspaceId: reading.workspaceId, error: error?.name ?? "Error" });
@@ -111,6 +137,7 @@ export async function startObjectMove(store, scope, source, destination, expecte
   // whole trip (`obj:ws.write.move`), so a slow move says whether the time is the object's or the trip's.
   phaseTook(store, "move", answer.took);
   phaseTook(store, "move_commit", answer.commit);
+  tripTimes(store, answer, sentAt, receivedAt);
   // The object's answer names where the move went (an archive's own choice); a move it made is never sent on.
   if (typeof answer.to === "string" && answer.to !== "") destination = answer.to;
   const files = Array.isArray(answer.files) ? answer.files : [{ from: source, to: destination }];

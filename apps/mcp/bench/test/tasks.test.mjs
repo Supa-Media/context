@@ -80,7 +80,7 @@ test("a scripted model connects ChatGPT through the gateway and the scripted sit
     // A streamed turn, as the texting Worker asks for, texts the person's own
     // take-over page the moment it exists, as a progress line (`browse.js` `say`).
     assert.ok(
-      first.progress.some((line) => /https:\/\/app\.bench\.invalid\/tex\/maya\?view=computer$/.test(line)),
+      first.progress.some((line) => /https:\/\/app\.bench\.invalid\/tex\/@maya\?view=computer$/.test(line)),
       "the gateway texted the person's own take-over page",
     );
     assert.ok(![...first.progress, first.answer].some((text) => text.includes(LIVE_VIEW_ORIGIN)), "and never the browser's own live-view link");

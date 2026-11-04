@@ -76,7 +76,10 @@ export async function serveCreateNote(store, fields) {
     if (!(error instanceof WriteOpRefused)) throw error;
     outcome = { answer: { ok: false, code: "DEFER", reason: "refused" } };
   }
-  if ((outcome.change || outcome.changes?.length > 0) && typeof store.mirrorSoon === "function") store.mirrorSoon();
+  if ((outcome.change || outcome.changes?.length > 0) && typeof store.mirrorSoon === "function") {
+    // Set before the durable-write wait, so one flush carries the alarm too (`serveWrites.js`).
+    await store.mirrorSoon();
+  }
   const commit = await committed(store);
   const adopted = outcome.answer?.ok === true && outcome.answer.adopted === true;
   return timed({

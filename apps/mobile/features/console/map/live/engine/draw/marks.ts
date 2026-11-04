@@ -36,7 +36,7 @@ export const TRACE_REST = 0.25;
 export function drawTrace(env: DrawEnv): void {
   const { ctx, style, model, scene } = env;
   const C = style.palette;
-  const sel = env.selected;
+  const sel = env.traceFrom;
   if (env.trace === null || sel === null) return;
   const from = model.layout.notes.get(sel);
   if (!from || scene.hidden.has(sel)) return;

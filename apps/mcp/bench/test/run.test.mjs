@@ -270,3 +270,12 @@ test("with background on, every text sends the case's running jobs, and the jobs
   assert.ok(benchRunning(9).length <= 6);
   for (const job of benchRunning(3)) assert.match(job.id, /^[A-Za-z0-9_-]{8,64}$/, "an id the gateway reads");
 });
+
+test("a test's computer line is read strictly", async () => {
+  const { readComputer } = await import("../run.mjs");
+  assert.deepEqual(readComputer("Studio Mac (claude, codex) 3 slots"), { name: "Studio Mac", tools: ["claude", "codex"], slots: 3 });
+  assert.deepEqual(readComputer("Laptop (codex)"), { name: "Laptop", tools: ["codex"], slots: 1 });
+  assert.equal(readComputer(undefined), null);
+  assert.throws(() => readComputer("Studio Mac with claude"), /is not/);
+  assert.throws(() => readComputer("Studio Mac (vim) 2 slots"), /is not/);
+});

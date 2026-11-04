@@ -355,6 +355,13 @@ const BANDS = 5;
  */
 const BAND_WEIGHT = 100_000;
 
+/**
+ * A name match strong enough to lead the list over the search's answer: the
+ * name starts with, holds, or has a word starting with each word typed
+ * (`nameBand` 0 to 2). "Deut 23" for `Deuteronomy 23` is one.
+ */
+export const STRONG_NAME_SCORE = (BANDS - 2) * BAND_WEIGHT;
+
 /** The closest band of an item's name, title or path; `-1` when none matches. */
 function bandOf(asked: NameQuery, item: PaletteItem): number {
   const candidates = item.kind === "note" ? [item.id, item.label] : [item.label];
@@ -602,34 +609,6 @@ export function recentItems(
     if (/\.[^./]+$/.test(baseName(path)) && !isPrivacyManifest(path)) recent.push(noteItem(path, naming));
   }
   return recent;
-}
-
-/**
- * What an untyped search lists for a signed-in person: their guesses
- * (`search/guesses.ts`), in the order given, each row they were in saying what
- * they did ("You edited 9:12"). A row with no `at` is a note the open one links
- * to, which they may never have opened, and says nothing.
- * Drawn as `recentItems` draws a path, with the saying in `snippet`.
- */
-export function accountRecentItems(
-  rows: readonly { path: string; at?: number; kind?: "opened" | "edited" }[],
-  items: readonly PaletteItem[],
-  label: (row: { at: number; kind?: "opened" | "edited" }) => string,
-  naming: NoteNaming = {},
-  limit: number = RECENT_LIMIT,
-): PaletteItem[] {
-  const said = new Map(
-    rows.flatMap((row) => (row.at === undefined ? [] : [[row.path, label({ at: row.at, kind: row.kind })] as const])),
-  );
-  return recentItems(
-    rows.map((row) => row.path),
-    items,
-    naming,
-    limit,
-  ).map((item) => {
-    const saying = said.get(item.id);
-    return saying === undefined || saying === "" ? item : { ...item, snippet: saying };
-  });
 }
 
 /**

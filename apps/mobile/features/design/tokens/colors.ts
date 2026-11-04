@@ -566,7 +566,7 @@ export const lightMapColors = {
   ground: "#FAF7F0",
   island: "#F7F4ED",
   dot: "#6B645A",
-  edge: "#8E877C",
+  edge: "#4A453D",
   zone: "#F3EFE7",
   zoneLine: "#DCD5C8",
   ink: "#2E2A25",
@@ -612,8 +612,8 @@ export type BoardColors = Readonly<{
 }>;
 
 export const boardColors: Readonly<Record<"paper" | "graph" | "kraft" | "chalk" | "blueprint", BoardColors>> = {
-  paper: { ground: "#FAF7F0", island: "#F7F4ED", dot: "#6B645A", edge: "#8E877C", zone: "#F3EFE7", zoneLine: "#DCD5C8", ink: "#2E2A25", text: "#23211D", text2: "#4A463F", muted: "#6E6A62", dim: "#8C877E", chip: "#FFFFFF", line: "#DCD5C8", accent: "#2A45CF", grid: null },
-  graph: { ground: "#F8F7F2", island: "#F2F1EC", dot: "#555862", edge: "#7D818B", zone: "#EEEDE7", zoneLine: "#D3D3CF", ink: "#22262F", text: "#202329", text2: "#43474F", muted: "#666A72", dim: "#878A91", chip: "#FFFFFF", line: "#D3D3CF", accent: "#2A45CF", grid: "#6E8FC0" },
+  paper: { ground: "#FAF7F0", island: "#F7F4ED", dot: "#6B645A", edge: "#4A453D", zone: "#F3EFE7", zoneLine: "#DCD5C8", ink: "#2E2A25", text: "#23211D", text2: "#4A463F", muted: "#6E6A62", dim: "#8C877E", chip: "#FFFFFF", line: "#DCD5C8", accent: "#2A45CF", grid: null },
+  graph: { ground: "#F8F7F2", island: "#F2F1EC", dot: "#555862", edge: "#43464F", zone: "#EEEDE7", zoneLine: "#D3D3CF", ink: "#22262F", text: "#202329", text2: "#43474F", muted: "#666A72", dim: "#878A91", chip: "#FFFFFF", line: "#D3D3CF", accent: "#2A45CF", grid: "#6E8FC0" },
   kraft: { ground: "#CFB48C", island: "#C9AD84", dot: "#3B2D1E", edge: "#57432D", zone: "#C4A77E", zoneLine: "#A88C64", ink: "#24190F", text: "#21170D", text2: "#3B2D1E", muted: "#57432D", dim: "#6E5940", chip: "#E4D3B6", line: "#A88C64", accent: "#1F3AB8", grid: null },
   chalk: { ground: "#1E2220", island: "#24221F", dot: "#E4E1D9", edge: "#D9D6CE", zone: "#2B2825", zoneLine: "#504A43", ink: "#D8D2C9", text: "#ECEAE4", text2: "#CFCBC2", muted: "#A39F96", dim: "#7E7A72", chip: "#2B302E", line: "#504A43", accent: "#8A9BF2", grid: null },
   blueprint: { ground: "#1D447F", island: "#234B87", dot: "#E9F0FF", edge: "#CFDDF7", zone: "#26508E", zoneLine: "#4C70A8", ink: "#F2F6FF", text: "#F4F8FF", text2: "#D6E2F7", muted: "#A9BEDF", dim: "#869DC4", chip: "#173A6E", line: "#4C70A8", accent: "#B5C3FF", grid: "#9DBDF0" },

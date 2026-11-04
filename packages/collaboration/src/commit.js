@@ -9,7 +9,6 @@ import {
   put,
   randomId,
   requireSupported,
-  revisionKey,
 } from "./storage.js";
 import {
   applyUpdateTo,
@@ -19,7 +18,8 @@ import {
   hasPendingDependencies,
   snapshotOf,
 } from "./ydoc.js";
-import { makeResult, readHead, writeRevision } from "./records.js";
+import { inlineRevision, makeResult, readHead, writeRevision } from "./records.js";
+import { basesWith, idleSince } from "./versions.js";
 import { finalizePending, ready } from "./load.js";
 
 /** Read the current Yjs snapshot and the Markdown etag it materializes. */
@@ -72,40 +72,42 @@ export async function commitSnapshot(store, path, loaded, documentId, nextDoc) {
   assertTextSize(nextText);
   const nextSnapshot = snapshotOf(nextDoc);
   if (nextSnapshot === loaded.revision.value.snapshot) return makeResult(loaded.state, loaded.revision);
+  const now = Date.now();
   const nextRevision = randomId("r");
-  const revision = {
-    documentId: loaded.state.documentId,
-    generation: loaded.state.generation,
-    revision: nextRevision,
-    snapshot: nextSnapshot,
-    text: nextText,
-    rawMarkdownEtag: loaded.state.rawMarkdownEtag,
-  };
-  await writeRevision(store, revision);
+  // No revision file: the state carries the snapshot, and a marker finds this revision again as a merge base
+  // (`versions.js`). A version file is kept only when the person goes idle, below.
   const next = {
     ...loaded.state,
     revision: nextRevision,
     text: nextText,
     pending: { revision: nextRevision, previousRevision: loaded.state.revision, previousRawEtag: loaded.state.rawMarkdownEtag, text: nextText },
     deferredUpdates: [],
+    current: { revision: nextRevision, snapshot: nextSnapshot, rawMarkdownEtag: loaded.state.rawMarkdownEtag },
+    bases: basesWith(loaded.state, nextRevision, nextDoc),
+    editedAt: now,
   };
   const written = await put(store, loaded.head.stateKey, JSON.stringify(next), { etagMatches: loaded.stateEtag });
-  if (!written) {
-    // This revision was never accepted by the document CAS. In particular a
-    // permanent deletion may have won while its upload was in flight. Remove
-    // our unique, unpublished candidate rather than leaving deleted content
-    // behind after the purge. An uncertain CAS result is deliberately not
-    // cleaned up here: only a definitive rejected condition proves it unused.
-    if (typeof store.delete === "function") await store.delete(revisionKey(revision.documentId, revision.revision));
-    return null;
-  }
+  if (!written) return null;
   const finalized = await finalizePending(store, path, {
     head: loaded.head,
     state: next,
     stateEtag: written.etag,
-    revision: { value: revision },
+    revision: inlineRevision(next),
   }, { committed: true });
+  if (idleSince(loaded.state, now)) await keepIdleVersion(store, loaded.revision.value);
   return makeResult(finalized.state, finalized.revision);
+}
+
+/**
+ * Keep the state a person stopped at, before a save that came after they went idle, as a version file. The save is
+ * already accepted and rendered, so a failure here is not the save's: it only leaves that version unkept.
+ */
+async function keepIdleVersion(store, revision) {
+  try {
+    await writeRevision(store, revision);
+  } catch {
+    // The version is a convenience on top of a durable save; never fail the save for it.
+  }
 }
 
 /** Commit an opaque Yjs update against the stable document generation. */

@@ -63,3 +63,26 @@ test("in a group chat, the computers Tex may name are the ones lent to it", asyn
   // The chat's own workspace is never listed for its computers: only what was lent.
   assert.ok(calls.every((call) => !String(call.name).includes("ws_team")));
 });
+
+test("a deployment that binds MACHINE_STORE reads its computers there, with their slots, and only for the person's own texts", async () => {
+  const { machinesFor } = await import("../src/machines/forJobs.js");
+  const { TEXTS_CLIENT_ID } = await import("../src/machines/reach.js");
+  const asked = [];
+  const env = {
+    MACHINE_STORE: {
+      idFromName: (name) => name,
+      get: (name) => ({
+        async fetch(request) {
+          asked.push({ name, op: new URL(request.url).pathname.slice(1) });
+          return Response.json({ ok: true, machines: [{ id: "mch_bench", name: "Studio Mac", online: true, tools: ["claude", "codex"], folders: ["~/code"], ownerId: "user_maya", limits: { slots: 3 } }] });
+        },
+      }),
+    },
+  };
+  const own = { actorClientId: TEXTS_CLIENT_ID, workspaceId: "ws_maya", workspaces: [{ workspaceId: "ws_maya", role: "owner", kind: "personal" }] };
+  const found = await machinesFor(env, own);
+  assert.deepEqual(found.map((machine) => [machine.name, machine.slots, machine.tools]), [["Studio Mac", 3, ["claude", "codex"]]]);
+  assert.deepEqual(asked.map((call) => call.op), ["ws.machine.list"]);
+  assert.deepEqual(await machinesFor(env, { ...own, actorClientId: "some_other_client" }), [], "another client still names none");
+  assert.deepEqual(await machinesFor({}, own), [], "no store, no computers");
+});

@@ -36,7 +36,7 @@ import {
   whoLabel,
 } from "../features/tex/page/texMachineFormat";
 import type { Machine, MachineChat, MachinesPage } from "../features/tex/page/texMachineTypes";
-import { placeParams, readPlace } from "../features/tex/page/texPlace";
+import { placeHref, readPlace } from "../features/tex/page/texPlace";
 import { readJob, readOverview } from "../features/tex/page/texPageRead";
 import { machineFixtureSource } from "../features/tex/page/texMachineFixture";
 
@@ -258,12 +258,12 @@ describe("texMachineFormat", () => {
   });
 });
 
-describe("texPlace: readPlace and placeParams", () => {
+describe("texPlace: readPlace and placeHref", () => {
   test("a machine view with a valid id round-trips", () => {
     const place = readPlace({ view: "machine", machine: "m-mbp" });
     expect(place).toEqual({ chat: "me", view: "machine", machine: "m-mbp" });
-    expect(placeParams(place)).toEqual({ view: "machine", machine: "m-mbp" });
-    expect(readPlace(placeParams(place))).toEqual(place);
+    expect(placeHref("seyi", place, [])).toBe("/tex/@seyi/machine?machine=m-mbp");
+    expect(readPlace({ rest: ["machine"], machine: "m-mbp" })).toEqual(place);
   });
 
   test("a machine view without an id falls back to the machines list", () => {

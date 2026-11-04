@@ -51,7 +51,7 @@ export function noteCardDrawer(fetcher: Fetch, controlPlaneOrigin: string, worke
  * phone with Tex saved as a contact (2026-10-27, #2303), so the owner chose the sentence.
  */
 export function linkAfterCard(link: NoteLink): string {
-  return `Open it in Context: ${link.url} (tap the link)`;
+  return `Open it in Context: ${link.url}.`;
 }
 
 /**

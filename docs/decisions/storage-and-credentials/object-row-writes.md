@@ -297,6 +297,13 @@ control plane without asking the object a second time. With those reads, an arch
 never "Nothing was changed", and is not moved the old way on top: 93 notes took 9.2 s and all moved while the answer
 said nothing had (`keyedNoteMove.test.mjs`, "a keyed folder move the gateway gave up on").
 
+A move answers only once its writes are durable (decided by the owner, 2026-11-04). The object's wait for that,
+about 45 ms in production (`inside:move_commit`), is the floor of every move and archive, and answering before it
+(`allowUnconfirmed`, or a reply before `storage.sync()`) would confirm a move a crash could still lose. Moves get faster
+by cutting the trip to the object instead. Every write the object makes for a move, the mirror's flush alarm included,
+lands before that one wait (`serveWrites.js`), so the output gate never holds the answer for a second flush that
+`commit` does not see (`moveWrites.test.mjs`, "a move sets its flush alarm before waiting for durable writes").
+
 ## Copies in the object (2026-11-03)
 
 The app's Copy and Duplicate of one Markdown note go to the gateway (`POST /files/copy`, `/files/duplicate`,

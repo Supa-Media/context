@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PatchFrame } from "./texPageLive";
+import { keepOverview, keptOverview } from "./texPageMemory";
 import { readJobDetail, readSection } from "./texPageRead";
 import type { Read, TexPageSource } from "./texPageSource";
 import type { MachinesPage } from "./texMachineTypes";
@@ -8,7 +9,22 @@ import type { JobDetail, ListKind, ListPage, Overview, PageAction } from "./texP
 /** How often the page re-reads while its socket is down and it is visible. */
 export const FALLBACK_POLL_MS = 30_000;
 
+/** How long a tile shows its loading bar before it gives up and shows its title alone. */
+export const TILES_WAIT_MS = 4_000;
+
 export type Phase = "loading" | "ready" | "failed" | "notYours";
+
+/**
+ * What the five tiles can say yet. The page draws before they are read
+ * (the owner, 2026-11-04: "tiles loaded beside the page"): a tile whose line
+ * is not known shows a bar while `waiting`, then its title alone. Tex's
+ * computer is known only from a fresh read, never from a kept copy.
+ */
+export interface TilesKnown {
+  lines: boolean;
+  computer: boolean;
+  waiting: boolean;
+}
 
 /** Every live change, so each open view re-reads only what it shows. */
 export interface Changes {
@@ -26,16 +42,26 @@ export interface TexPageState {
   act: (action: PageAction) => Promise<{ ok: boolean; error?: string }>;
   /** A job page's live copy, when a patch carried one. */
   jobPatch: (id: string) => JobDetail | null;
+  tiles: TilesKnown;
 }
 
 const LIST_KINDS = new Set(["routines", "checkins", "about", "settings", "advisor", "mailcheck", "jobs", "thinking", "machines"]);
 
 const hidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
 
-/** The overview for one chat, kept live by the socket, and a re-read on a timer while the socket is down. */
-export function useTexPage(source: TexPageSource | null, chat: string): TexPageState {
+const NOTHING_KNOWN: TilesKnown = { lines: false, computer: false, waiting: true };
+
+/**
+ * The overview for one chat, kept live by the socket, and a re-read on a timer while the socket is down.
+ * `handle` keys the copy kept for coming back (`texPageMemory.ts`); without it nothing is kept.
+ */
+export function useTexPage(source: TexPageSource | null, chat: string, handle?: string): TexPageState {
   const [phase, setPhase] = useState<Phase>("loading");
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [tiles, setTiles] = useState<TilesKnown>(NOTHING_KNOWN);
+  /** What the page shows now, and the tiles' last fresh read (which may land before the first screen). */
+  const latest = useRef<Overview | null>(null);
+  const freshTiles = useRef<Overview["tiles"] | null>(null);
   const [live, setLive] = useState(false);
   const versions = useRef(new Map<string, number>());
   const listeners = useRef(new Set<() => void>());
@@ -47,21 +73,43 @@ export function useTexPage(source: TexPageSource | null, chat: string): TexPageS
     for (const fn of listeners.current) fn();
   }, []);
 
+  /** Sets the page and keeps it for coming back. */
+  const show = useCallback(
+    (next: Overview) => {
+      latest.current = next;
+      setOverview(next);
+      if (handle) keepOverview(handle, chat, next);
+    },
+    [chat, handle],
+  );
+
+  // The first screen and the tiles are read side by side, and each is drawn as it lands: the tiles' reads
+  // (routines, About, Tex's browser) are the slow ones, and the page no longer waits for them.
   const load = useCallback(async () => {
     if (source === null) return;
     const mine = epoch.current;
-    const read = await source.overview(chat);
-    if (mine !== epoch.current) return;
-    if (read.kind === "ok") {
-      setOverview(read.value);
-      setPhase("ready");
-    } else if (read.kind === "notYours") {
-      setOverview(null);
-      setPhase("notYours");
-    } else {
-      setPhase((was) => (was === "ready" ? was : "failed"));
-    }
-  }, [chat, source]);
+    const core = source.overview(chat, "core").then((read) => {
+      if (mine !== epoch.current) return;
+      if (read.kind === "ok") {
+        show({ ...read.value, tiles: freshTiles.current ?? latest.current?.tiles ?? read.value.tiles });
+        setPhase("ready");
+      } else if (read.kind === "notYours") {
+        latest.current = null;
+        setOverview(null);
+        setPhase("notYours");
+      } else {
+        setPhase((was) => (was === "ready" ? was : "failed"));
+      }
+    });
+    const tileRead = source.overview(chat, "tiles").then((read) => {
+      if (mine !== epoch.current || read.kind !== "ok") return;
+      // Before the first screen lands, the tiles wait for it.
+      freshTiles.current = read.value.tiles;
+      if (latest.current !== null) show({ ...latest.current, tiles: read.value.tiles });
+      setTiles({ lines: true, computer: true, waiting: false });
+    });
+    await Promise.all([core, tileRead]);
+  }, [chat, show, source]);
 
   const onPatch = useCallback(
     (patch: PatchFrame) => {
@@ -82,20 +130,27 @@ export function useTexPage(source: TexPageSource | null, chat: string): TexPageS
         return;
       }
       if (patch.value === undefined) return void load();
-      setOverview((was) => (was === null ? was : (readSection(was, patch.section, patch.value) ?? was)));
+      const was = latest.current;
+      if (was !== null) show(readSection(was, patch.section, patch.value) ?? was);
       if (patch.section === "thinking") bump("thinking");
       if (patch.section === "earlier") bump("jobs");
     },
-    [bump, load],
+    [bump, load, show],
   );
 
   useEffect(() => {
     epoch.current += 1;
-    setPhase("loading");
-    setOverview(null);
     jobs.current.clear();
+    // Coming back draws the last copy at once, and reads again behind it.
+    const kept = handle ? keptOverview(handle, chat) : null;
+    latest.current = kept;
+    freshTiles.current = null;
+    setOverview(kept);
+    setPhase(kept !== null ? "ready" : "loading");
+    setTiles(kept !== null ? { lines: true, computer: false, waiting: true } : NOTHING_KNOWN);
     if (source === null) return;
     void load();
+    const giveUp = setTimeout(() => setTiles((was) => (was.waiting ? { ...was, waiting: false } : was)), TILES_WAIT_MS);
     let socketUp = false;
     const feed = source.live(chat, onPatch, (up) => {
       // Coming back up: anything missed while down is read once.
@@ -107,11 +162,12 @@ export function useTexPage(source: TexPageSource | null, chat: string): TexPageS
       if (!socketUp && !hidden()) void load();
     }, FALLBACK_POLL_MS);
     return () => {
+      clearTimeout(giveUp);
       clearInterval(timer);
       feed?.close();
       setLive(false);
     };
-  }, [chat, load, onPatch, source]);
+  }, [chat, handle, load, onPatch, source]);
 
   const changes = useMemo<Changes>(
     () => ({
@@ -141,7 +197,7 @@ export function useTexPage(source: TexPageSource | null, chat: string): TexPageS
   );
 
   const jobPatch = useCallback((id: string) => jobs.current.get(id) ?? null, []);
-  return { phase, overview, live, changes, act, jobPatch };
+  return { phase, overview, live, changes, act, jobPatch, tiles };
 }
 
 /** Re-renders when any of `keys` changes live. */

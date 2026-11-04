@@ -76,7 +76,7 @@ import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
-import { chatJobs, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
+import { chatJobs, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, viewLink, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
 import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
@@ -512,7 +512,7 @@ type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: str
 async function answering(message: Message, work: string, deps: InboxDeps, storage: InboxStorage, covers: string[], presence: Presence | undefined, timing: TurnTiming): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
   let choices: Choice[] = [];
-  let offers: Offer[] = [];
+  let offers: Offer[] = [], hub: string | undefined;
   let asks: string[] = [];
   let askText = "";
   let modelWrote = false;
@@ -554,7 +554,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       // A link to save a login went: watch for the save, to carry the task on (`vaultWatch.ts`).
       onVaultLink: () => watchForSave(storage, message.from, deps.now()),
       onPictures: (sent, offered) => void ((pictures = sent), (choices = offered)),
-      onOffers: (offered) => void (offers = offered),
+      onOffers: (offered, named) => void ((offers = offered), (hub = named)),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
       // "Tex, settings" (`texStyle.ts`).
       settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
@@ -578,14 +578,14 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).
   await rememberAskReply(storage, texts, deps.now());
   const cards = message.channel === "simulator" || !isSendblueChat(message.chatId) ? null : deps.appCard;
-  if (pictures.length === 0) return done(await withAnswerCards(texts, { texts, choices: [], offers }, cards, deps.threadsLink));
+  if (pictures.length === 0) return done(await withAnswerCards(texts, { texts, choices: [], offers }, cards, viewLink(hub, deps.threadsLink)));
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =
     message.channel === "simulator"
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
       : async (picture: { name: string; mediaType: string; data: string; title?: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
-  return done(await withAnswerCards(await partsFor(texts, pictures, upload), { texts, choices, offers }, cards, deps.threadsLink));
+  return done(await withAnswerCards(await partsFor(texts, pictures, upload), { texts, choices, offers }, cards, viewLink(hub, deps.threadsLink)));
 }
 
 /** What a texted turn is shown of the chat's background jobs, and how it starts more (`jobs.ts`). */

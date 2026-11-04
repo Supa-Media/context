@@ -122,7 +122,7 @@ async function turnAt(updates) {
   }
 }
 
-const LINK = "https://app.context.test/tex/levels";
+const LINK = "https://app.context.test/tex/@levels";
 
 test("off: nothing said of progress and no tool, yet the sign-in link still goes as its own line", async () => {
   const { told, tools, bubbles, answer } = await turnAt("off");

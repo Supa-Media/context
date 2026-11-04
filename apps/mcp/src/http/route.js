@@ -209,7 +209,7 @@ export async function route(request, env, ctx) {
       return await handleAgentActivity(request, env, { slug, pathToken, origin, ctx });
     }
 
-    // The person's own look at Tex's browser, for the app's `/tex/<handle>`
+    // The person's own look at Tex's browser, for the app's `/tex/@<handle>`
     // page. Its own branch for the reasons `/presence` has one: it reads no
     // note, writes nothing and needs no store. It takes a header token only.
     if (TEX_COMPUTER_PATHS.has(path)) {

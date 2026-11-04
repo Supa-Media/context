@@ -16,6 +16,8 @@
  *     "a group's page and frame use the chat's own browser tag" fails.
  *  3. `computerOf` back to the person's own browser on a group page →
  *     "a group's page and frame use the chat's own browser tag" fails.
+ *  4. (2026-11-04) `computerOf` asking `/view/frame` again (a screenshot per
+ *     page load) → the same test fails on the path.
  *
  * Fake names, ids, numbers and tokens only.
  */
@@ -69,7 +71,9 @@ async function setUp() {
   const shots = [];
   const SITE_SHOTS = {
     async fetch(url, init) {
-      shots.push({ path: new URL(url).pathname, body: JSON.parse(init.body) });
+      const path = new URL(url).pathname;
+      shots.push({ path, body: JSON.parse(init.body) });
+      if (path === "/view/status") return Response.json({ running: true, url: "https://resy.com/login" });
       return Response.json({ running: true, url: "https://resy.com/login", title: "Log in", width: 1280, height: 860, frame: "FRAME==" });
     },
   };
@@ -105,6 +109,8 @@ test("a group's page and frame use the chat's own browser tag, never the person'
     assert.equal(page.status, 200);
     assert.deepEqual(page.body.tiles.computer, { running: true, url: "https://resy.com/login" });
     assert.equal(world.shots.at(-1).body.owner, groupTag);
+    // The tile only asks whether the browser is open: no picture is taken to draw the page.
+    assert.equal(world.shots.at(-1).path, "/view/status");
 
     const frame = await ask(world, "/tex/computer", T.alice, { handle: "alice", chat: GROUP });
     assert.equal(frame.status, 200);

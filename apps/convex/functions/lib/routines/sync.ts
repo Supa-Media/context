@@ -34,6 +34,7 @@ import {
 } from "./model";
 import { accountTimeZone, runsRoutine, userForActorName, workspaceOwner } from "./access";
 import { mayWriteRoutine } from "./homes";
+import { texPropsAt } from "./texFacts";
 import { PROPS_AT_PATHS } from "../nodes/facts";
 import { TEX_FOLDER } from "@context/shared/src/folderRoles.cjs";
 
@@ -228,9 +229,13 @@ export async function scanRoutines(
     const page = candidates.slice(at, at + PROPS_AT_PATHS);
     const rows = await ctx.runQuery(internal.functions.nodeFacts.propsNow, { workspaceId, paths: page });
     const held = await objectPropsAt(objectRows, page.filter((path) => !chatOf.has(path)));
+    // Tex's own notes (a person's routines, a chat's home routines) keep their text in Tex's objects, whose facts
+    // neither the workspace object nor, for an object-home workspace, the control plane keeps: read there (`texFacts.ts`).
+    const unread = rows.filter((tree) => !tree.current && (chatOf.has(tree.path) || held?.get(tree.path) === undefined));
+    const fromTex = await texPropsAt(ctx, workspaceId, unread);
     for (const tree of rows) {
       const chat = chatOf.get(tree.path);
-      const fresh = chat === undefined ? held?.get(tree.path) : undefined;
+      const fresh = (chat === undefined ? held?.get(tree.path) : undefined) ?? (tree.current ? undefined : fromTex.get(tree.path));
       const row = fresh === undefined ? tree : { ...tree, current: true, sealed: fresh.sealed, props: fresh.props };
       if (!row.current) {
         waiting.push(chat === undefined ? asTexPath(row.path, tex) : row.path);
@@ -241,7 +246,11 @@ export async function scanRoutines(
       if (schedule !== null) schedules.push(schedule);
     }
   }
-  if (waiting.length > 0) complete = false;
+  if (waiting.length > 0) {
+    complete = false;
+    // A routine left waiting is a reminder that will not run: never silent (2026-11-04). Counts and ids only.
+    console.log(JSON.stringify({ event: "routine_scan_waiting", workspaceId, waiting: waiting.length }));
+  }
   return { schedules, complete, waiting };
 }
 

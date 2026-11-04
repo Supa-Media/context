@@ -148,14 +148,22 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
   return answer.map(({ original }) => original);
 }
 
+/**
+ * The merge shape for a workspace searched as one of several (`searchEverywhere`). `fuseEverywhere` applies the
+ * query's rules across workspaces from the evidence it is given, so the workspace's own merge must not apply them
+ * again: that would count a code passage or a link-only hit twice, and reorder what the fusion reads.
+ */
+export const AS_ONE_OF_SEVERAL = Object.freeze({ query: null });
+
 /** Word search and search by meaning in one workspace, as `search_notes` has always asked. */
-export function searchOne(store, scope, rules, overrides, query, prefix, embed) {
+export function searchOne(store, scope, rules, overrides, query, prefix, embed, shape = undefined) {
   return searchBothWays(
     store,
     () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
     // A folder, never the start of a sibling's name: see `folderPrefix`. The
     // app answers alike (`apps/convex/__tests__/searchParity.test.ts`).
     { query, scope, prefix: folderPrefix(prefix), isVisible: (path) => canSee(path, scope, rules, overrides), ...(embed ? { embed } : {}) },
+    shape,
   );
 }
 
@@ -203,7 +211,7 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
         const { session: target, store: targetStore } = await store.openContext(name);
         const privacy = await loadPrivacyState(targetStore);
         if (privacy.error) return null;
-        const found = await searchOne(targetStore, target.scope, privacy.rules, privacy.overrides, query, "", embed);
+        const found = await searchOne(targetStore, target.scope, privacy.rules, privacy.overrides, query, "", embed, AS_ONE_OF_SEVERAL);
         return { name, found };
       } catch {
         return null;
@@ -257,7 +265,7 @@ export async function findNotes(store, scope, rules, overrides, query, prefix = 
   // answered, so none of them queues behind another's (`search/heldPasses.js`).
   const passes = names.length > 0 ? holdSearchPasses(store) : null;
   try {
-    const here = searchHere ? searchOne(store, scope, rules, overrides, query, prefix, embed) : null;
+    const here = searchHere ? searchOne(store, scope, rules, overrides, query, prefix, embed, names.length > 0 ? AS_ONE_OF_SEVERAL : undefined) : null;
     return names.length > 0 ? await searchEverywhere(store, here, names, query, embed) : await here;
   } finally {
     passes?.release();

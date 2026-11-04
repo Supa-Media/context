@@ -108,6 +108,22 @@ describe("background jobs", () => {
     expect(await chatJobs(other, NOW)).toEqual([]);
   });
 
+  it("counts jobs on a computer against its own slots, never the cloud's three (2026-11-04)", async () => {
+    const storage = new MemoryStorage();
+    const context = { now: NOW, inbox: PHONE, origin: { kind: "phone" as const, phone: PHONE, question: "q" }, place: { chatId: "chat_1" }, spawn: async () => {} };
+    const studio = { workspaceId: "ws_maya", machineId: "mch_studio1", name: "Studio Mac", tool: "claude" as const, folder: "~/code" };
+    const onStudio = ["Weekly digest routine", "Digest card", "Digest docs", "Login bug"].map((title) => ({ title, brief: "b", machine: studio }));
+    expect(await startJobs(storage, onStudio, context)).toEqual({ started: 4, notStarted: [] });
+    expect(await startJobs(storage, [{ title: "Trip plan", brief: "b" }, { title: "Gift ideas", brief: "b" }, { title: "Tax forms", brief: "b" }, { title: "Fourth one", brief: "b" }], context)).toEqual({ started: 3, notStarted: ["Fourth one"] });
+    const listed = await chatJobs(storage, NOW);
+    expect(listed).toHaveLength(7);
+    expect(listed.filter((job) => job.on === "mch_studio1")).toHaveLength(4);
+    expect(listed.filter((job) => job.on === undefined)).toHaveLength(3);
+    const more = Array.from({ length: 6 }, (_, i) => ({ title: `Part ${"abcdef"[i]} of the build`, brief: "b", machine: studio }));
+    expect((await startJobs(storage, more, context)).notStarted).toHaveLength(2);
+    expect(readStartedJobs(Array.from({ length: 12 }, (_, i) => ({ title: `Job ${i}`, brief: "b" })))).toHaveLength(11);
+  });
+
   it("tells them about a job it said it started that never did, and says nothing when every one started", () => {
     expect(notStartedText([])).toBeUndefined();
     const said = notStartedText(["Fourth one"]);

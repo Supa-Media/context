@@ -594,6 +594,45 @@ test("an object move records the object's own time and its durable-write wait be
   assert.deepEqual(took, [["move", 12], ["move_commit", 9]]);
 });
 
+test("an object move records its trip outside the op: the wire both ways, each way, and a cold or busy object", async () => {
+  const now = Date.now();
+  // The object's clock ran 3 ms ahead of the gateway's: each way alone carries the skew, the two ways' sum does not.
+  const answer = () => ({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }], took: 12, commit: 9, before: 2, arrived: now + 3, answered: now + 3 + 14, cold: true, alarm: true });
+  const { store } = objectStore(answer);
+  const took = new Map();
+  const timer = (name, run) => run();
+  timer.took = (name, ms) => took.set(name, ms);
+  Object.defineProperty(store, "phase", { value: timer, enumerable: false });
+  const realNow = Date.now;
+  // The gateway's clock: the send, then the answer 40 ms later.
+  const clock = [now, now + 40];
+  Date.now = () => (clock.length > 1 ? clock.shift() : clock[0]);
+  let result;
+  try {
+    result = await startObjectMove(store, "team", "a/x.md", "b/x.md", undefined, NOTE);
+  } finally {
+    Date.now = realNow;
+  }
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.equal(took.get("move_before"), 2);
+  // 40 ms of trip, 14 of it the object's span: 26 on the wire, split 3 + 23 by the skewed clocks.
+  assert.equal(took.get("move_legs"), 26);
+  assert.equal(took.get("move_out"), 3);
+  assert.equal(took.get("move_back"), 23);
+  assert.equal(took.get("move_legs_cold"), 26);
+  assert.equal(took.get("move_legs_alarm"), 26);
+});
+
+test("an object answer without the object's clock records no trip split", async () => {
+  const { store } = objectStore({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }], took: 12, commit: 9 });
+  const took = [];
+  const timer = (name, run) => run();
+  timer.took = (name, ms) => took.push(name);
+  Object.defineProperty(store, "phase", { value: timer, enumerable: false });
+  await startObjectMove(store, "team", "a/x.md", "b/x.md", undefined, NOTE);
+  assert.deepEqual(took, ["move", "move_commit"]);
+});
+
 test("archive through the object asks no jobs first: the object finds the Archive itself", async () => {
   const { store, sent } = await archiveStore({ ok: true, to: "4-archive/1-projects/a.md", files: [{ from: "1-projects/a.md", to: "4-archive/1-projects/a.md" }] });
   let asked = 0;

@@ -156,8 +156,9 @@ export class WorkspaceStore {
       mirror: mirrorOutbox(sql),
       // Sends them on, oldest first, one flush at a time (`workspaceStore/mirrorFlush.js`, `controlPlane/rowsMirror.js`).
       flushMirror: () => flushMirror(store, (workspaceId, changes) => createControlPlane(this.env).rowsMirror(workspaceId, changes), log),
-      // A flush soon: the alarm runs at once, unless one is already set earlier. Nothing waits on it.
-      mirrorSoon: () => {
+      // A flush soon: the alarm runs at once, unless one is already set earlier. The promise says when the alarm is set;
+      // a write waits for it before its durable-write wait, so one flush carries both (`serveWrites.js`), never fails.
+      mirrorSoon: () =>
         this.state.storage
           .getAlarm()
           .then(async (set) => {
@@ -166,8 +167,7 @@ export class WorkspaceStore {
           })
           .catch(() => {
             // The change is queued; the next write or alarm arms the flush again.
-          });
-      },
+          }),
     };
     // The search indexes caught up on the alarm while changes wait, not only behind a search.
     store.indexBuild = indexBuilder(store);
@@ -188,6 +188,8 @@ export class WorkspaceStore {
   }
 
   async fetch(request) {
+    // The object's clock as the call begins: a timed write says how long its trip spent outside the op (`serveWrites.js`).
+    const arrived = Date.now();
     // A call naming its person is their Tex's, sockets included, and nothing of the workspace's.
     if (isTexCall(request)) return await this.tex().fetch(request);
     const store = this.ready();
@@ -199,7 +201,7 @@ export class WorkspaceStore {
     // Whether this is the first call this instance answers: a woken object, for the gateway's log line.
     const cold = this.answered !== true;
     this.answered = true;
-    const served = await serveWorkspaceStore(store, request);
+    const served = await serveWorkspaceStore(store, request, { arrived, cold, alarm: this.alarmRunning === true });
     const response = opOf(request) === "ws.open" && served.ok ? Response.json({ ...(await served.json()), cold }) : served;
     // Where the tree is read from changed: watchers of a workspace switched back are told to read Convex.
     if (opOf(request) === "ws.home" && response.ok) this.tree.notice({ all: true });
@@ -223,6 +225,16 @@ export class WorkspaceStore {
 
   /** Person-object writes still owed by member changes, sent again; then the person's Tex routines that are due. */
   async alarm() {
+    // While it runs, a timed write says so (`serveWrites.js`): the alarm shares the object with the calls it overlaps.
+    this.alarmRunning = true;
+    try {
+      await this.runAlarm();
+    } finally {
+      this.alarmRunning = false;
+    }
+  }
+
+  async runAlarm() {
     const store = this.ready();
     // Changes owed to Convex's mirror go first; a flush that could not finish is tried again in 30 s.
     if (!(await store.flushMirror()).done) await store.retryLater();

@@ -18,7 +18,7 @@ import { groupLineFor } from "./groupLine";
 import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
-import { chatJobs, resumeJobs, startJobs, steerJobs, threadsLines } from "./jobs";
+import { chatJobs, resumeJobs, startJobs, steerJobs, viewLink, withThreadsLine } from "./jobs";
 import { addEvent, kindOf, logAsk, recentEvents } from "./events";
 import { cancelTurn, staleAsks } from "./decide";
 import { startTurn } from "./steer";
@@ -181,7 +181,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // member of it. So a list unread twice holds the answer, as a joiner does.
   if (routine && (answer.quiet || saysSkip(answer.text)) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
   const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
-  const texts = [...textsWithExact(answer.text, answer.verbatim, checkIn), ...(checkIn ? [] : await threadsLines(answer.offers, deps.threadsLink))];
+  const toSend = textsWithExact(answer.text, answer.verbatim, checkIn);
+  const texts = checkIn ? toSend : await withThreadsLine(toSend, answer.offers, viewLink(answer.hub, deps.threadsLink), answer.verbatim); // the live view rides in the first text (`jobs.ts`)
   const now = await readTwice();
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");

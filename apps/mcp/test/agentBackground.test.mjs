@@ -53,6 +53,7 @@ import {
   stepWhy,
   withJobSteps,
   withBackground,
+  MAX_RUNNING_SHOWN,
 } from "../src/agent/background.js";
 import { FINISH_NOTICE, LAST_NOTICE, OUT_OF_STEPS, exhaustedAnswer, roundNotice } from "../src/agent/lastRound.js";
 
@@ -107,7 +108,7 @@ test("running jobs are read strictly, and a caller that sends none gets no backg
   ]);
   assert.equal(read[0].title, "Competitor research");
   assert.ok(read.every((entry) => entry.title !== "" && entry.id.startsWith("job-")));
-  assert.ok(read.length <= 6);
+  assert.ok(read.length <= MAX_RUNNING_SHOWN, "at most every running job and a few finished");
 });
 
 test("two titles name the same job when most of the shorter one's words are in the other", () => {

@@ -18,7 +18,7 @@ import {
   makeResult,
   putHead,
   readHead,
-  readRevision,
+  currentRevision,
   readState,
   readStructural,
   requireConditionalDelete,
@@ -258,7 +258,7 @@ export async function restoreDocument(store, path, options = {}) {
   const state = validateState(stateRecord.value, { documentId: head.documentId, generation: head.generation, byNote: head.byNote }, path);
   assertExpectedRevision(state, options.expectedEtag);
   if (await readObject(store, path)) throw fail("CONFLICT", "restore path was recreated by another writer");
-  const retainedRevision = await readRevision(store, state.documentId, state.revision);
+  const retainedRevision = await currentRevision(store, state);
   const operation = structuralOperation({
     kind: "restore",
     operationId: randomId("restore"),

@@ -25,7 +25,7 @@ import type { JobReport } from "./jobs";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 import { readChoices, type Choice } from "./pickCard";
 import { readOffers, type Offer } from "./dataCards";
-import { readStartedJobs, readSteers, type JobAsk, type StepHow, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
+import { readHub, readStartedJobs, readSteers, type JobAsk, type StepHow, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
 import type { TexEvent } from "./events";
 
 /** The gateway seals a warm copy only this large (`apps/mcp/src/agent/warmCopy.js` `WARM_MAX_CHARS`). */
@@ -233,7 +233,7 @@ export type AgentAnswer =
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -392,7 +392,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       text: body.answer.trim(),
       pictures,
       ...(readChoices(body.choices).length > 0 ? { choices: readChoices(body.choices) } : {}),
-      ...(readOffers(body.offers).length > 0 ? { offers: readOffers(body.offers) } : {}),
+      ...(readOffers(body.offers).length > 0 ? { offers: readOffers(body.offers), ...(readHub(body.hub) !== null ? { hub: readHub(body.hub)! } : {}) } : {}), // `hub`: the chat's Tex page the view points to (`jobs.ts` `readHub`)
       ...(verbatim.length > 0 ? { verbatim } : {}), ...(body.quiet === true ? { quiet: true as const } : {}),
       ...(steered.length > 0 ? { steered } : {}),
       ...(jobs.length > 0 ? { jobs } : {}),

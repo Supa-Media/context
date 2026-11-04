@@ -169,8 +169,21 @@ unmodified CLI, which signs itself in.
   `on_computer`, `apps/mcp/src/machines/forJobs.js`): by name, or none when
   they have one; its tool and folder are checked against the machine's own
   lists, and a repo is a name under the folder, never a path out of it. The
-  machines are read only when a job asks for one, never on every text, and
-  only from a person's own 1:1 chat. Test: `machineForJobs.test.mjs`.
+  machines are read only for a chat's own turn: a person's own 1:1 chat, or
+  a group chat for what was lent to it. Test: `machineForJobs.test.mjs`.
+- **The turn is told their computers** (`apps/mcp/src/machines/forTurn.js`,
+  2026-11-04, replacing "read only when a job asks for one"). The first
+  splitting round (gh-149) gave every person a paired computer. All twelve
+  code answers still ran in Tex's cloud or went to Claude Code on the web
+  (`delegate`), because the turn never knew a computer was there. So a chat
+  turn reads its computers beside the history (`tex.ahead("computers")`,
+  one workspace-object read per workspace it reaches, never holding up the
+  model longer than that read). When one with Claude Code or Codex is there,
+  the turn is told it by name and what goes to it, and `delegate` drops
+  Claude Code and Codex: a call naming either is answered with the computer,
+  so code has one road while a computer is paired. With none, the turn is
+  unchanged. Tests: `machineForTurn.test.mjs`, and "a texted turn with a
+  paired computer is told it by name" (`agentBackgroundRoute.test.mjs`).
 - **The job's object runs each part there** (`apps/agent/src/machineTurn.ts`):
   it assigns the part through the gateway with the job's own texting grant,
   reads the run every ten seconds, streams its steps to the chat as a cloud
@@ -237,6 +250,18 @@ unmodified CLI, which signs itself in.
   plane's `chatPeopleAs`). An ask from a group carries the chat's full key
   from the grant, so the owner's list names who asked by handle
   (`askerHandle`); the key itself is never sent to the app.
+- **A computer's jobs count against its own slots** (2026-11-04, Dev: "count
+  machine slots separately from the 3 cloud slots"). A cloud job takes one
+  of the chat's three; a job on a computer takes one of that computer's
+  (its owner's count, one when it names none, never over eight), so two
+  jobs there no longer leave one slot for everything else. The gateway
+  checks it before it starts one (`apps/mcp/src/agent/jobSlots.js`, the
+  running list now carrying each job's machine id as `on`), the texting
+  Worker holds to the same when two turns race (`apps/agent/src/jobs.ts`
+  `fits`), every running job is sent to the gateway however many there are,
+  and the workspace object still refuses a computer two chats overfill.
+  The planner is told the cloud's free slots and each computer's apart.
+  Tests: `agentJobSlots.test.mjs`, "counts jobs on a computer against its
+  own slots, never the cloud's three" (`jobs.test.ts`).
 - **Not yet**: telling the owner an ask is waiting, beyond the app's list
-  (a text or a push), and a machine's slots counted apart from the chat's
-  three cloud slots.
+  (a text or a push).

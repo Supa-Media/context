@@ -43,6 +43,7 @@ export const ROUTE_SEGMENTS: ReadonlySet<string> = new Set([
   "console",
   "e2e-fixture",
   "google",
+  "group",
   "invite",
   "join",
   "login",
