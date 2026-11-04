@@ -127,7 +127,8 @@ export function createMachineRunner(deps: MachineRunnerDeps): MachineRunner {
     const response = await deps.fetch(url, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ publicKey, name: machineName(deps.computerName()), kind: "mac", facts }),
+      // Exactly `PairStart`: the gateway refuses any other key (`machineProtocol.schema.json`).
+      body: JSON.stringify({ publicKey, name: machineName(deps.computerName()), facts }),
     });
     if (response.status === 401 || response.status === 403) return "refused";
     if (!response.ok) return null;

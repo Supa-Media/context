@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef } from "react";
 import { View } from "react-native";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { useConvexAuth, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useConsoleGrant } from "../../agent/useConsoleGrant";
@@ -15,9 +15,13 @@ import { useTexComputer } from "../useTexComputer";
 import { TexComputerBody } from "../TexComputerScreen";
 import { TexPageBody, type Place } from "./TexPageBody";
 import { gatewaySource } from "./texPageSource";
+import { withGatewayMachines } from "./texMachineSource";
 import { readPlace, placeParams } from "./texPlace";
 import { useTexPage } from "./useTexPage";
 import { T } from "./TexPageParts";
+
+/** A pairing code as the runner prints it: letters and digits, maybe one dash. */
+const PAIRING_CODE = /^[A-Za-z0-9]{3,8}-?[A-Za-z0-9]{0,8}$/;
 
 /**
  * `/tex/<handle>`: what Tex is doing for this person, in their own chat or a
@@ -45,12 +49,33 @@ export function TexPageScreen() {
   const workspaceId = ready?.workspaceId ?? null;
   const handle = ready?.handle ?? null;
 
+  // A pairing code from the runner's link (`?view=machines&code=KQ7-4MP`), kept while the screen is open:
+  // moving to the connect screen drops it from the address, not from the page.
+  const codeParam = firstParam(params.code);
+  const pairingCode = useRef<string | null>(null);
+  if (codeParam && PAIRING_CODE.test(codeParam)) pairingCode.current = codeParam;
+  const findPairing = useAction(api.functions.texMachines.pendingTexMachinePairing);
+  const approvePairing = useAction(api.functions.texMachines.approveTexMachinePairing);
+  const declinePairing = useAction(api.functions.texMachines.declineTexMachinePairing);
+  const pairingCalls = useRef({ findPairing, approvePairing, declinePairing });
+  pairingCalls.current = { findPairing, approvePairing, declinePairing };
+
   const source = useMemo(() => {
     if (workspaceId === null || handle === null) return null;
-    return gatewaySource({
+    const token = async (refresh: boolean | { rejected: string }) => (await minting.current({ workspaceId: workspaceId as Id<"workspaces"> }, refresh)).accessToken;
+    return withGatewayMachines(gatewaySource({ endpoint: MCP_ENDPOINT, handle, token }), {
       endpoint: MCP_ENDPOINT,
-      handle,
-      token: async (refresh) => (await minting.current({ workspaceId: workspaceId as Id<"workspaces"> }, refresh)).accessToken,
+      workspaceId,
+      token,
+      pairingCode: () => pairingCode.current,
+      pairing: {
+        find: (code) => pairingCalls.current.findPairing({ code }),
+        answer: async (code, approve) => {
+          if (approve) await pairingCalls.current.approvePairing({ code, workspaceId: workspaceId as Id<"workspaces"> });
+          else await pairingCalls.current.declinePairing({ code });
+          return true;
+        },
+      },
     });
   }, [handle, workspaceId]);
   const page = useTexPage(source, place.chat);
