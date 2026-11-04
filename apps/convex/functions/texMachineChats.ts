@@ -36,7 +36,7 @@ async function attachMachineToChat(
   args: { userId: Id<"users">; machineId: Id<"texMachines">; groupKey: string },
 ): Promise<{ attached: true; workspaceId: Id<"workspaces"> }> {
   const machine = await ctx.db.get(args.machineId);
-  if (machine === null || machine.status !== "active" || machine.ownerId !== args.userId) {
+  if (machine === null || machine.status !== "active" || machine.mailOnly === true || machine.ownerId !== args.userId) {
     throw texMachineRefusal("MACHINE_NOT_FOUND");
   }
   const people = await chatPeopleFor(ctx, args.groupKey);
@@ -151,7 +151,7 @@ export const texMachinesForChat = internalQuery({
     const lent: { machineId: Id<"texMachines">; workspaceId: Id<"workspaces">; ownerId: Id<"users"> }[] = [];
     for (const row of rows) {
       const machine = await ctx.db.get(row.machineId);
-      if (machine === null || machine.status !== "active" || !people.includes(machine.ownerId)) continue;
+      if (machine === null || machine.status !== "active" || machine.mailOnly === true || !people.includes(machine.ownerId)) continue;
       lent.push({ machineId: machine._id, workspaceId: machine.workspaceId, ownerId: machine.ownerId });
     }
     return lent;

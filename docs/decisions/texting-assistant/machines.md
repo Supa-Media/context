@@ -145,6 +145,67 @@ unmodified CLI, which signs itself in.
   computer being set up right now; and a machine only ever gets the jobs Tex
   sends it, under its owner's rules. Accepted by the design; revisit if abused.
 
+### A cloud VM as a mail-only device (2026-11-04)
+
+The owner: every Claude Code and Codex VM could run the headless runner,
+"register and show a network of connected devices and their ids and you can
+send them instant mail"; then "fine for them to show up, but not to take jobs,
+but to receive mail", paired "using the mcp somehow because my claude and
+codex vms would already be connected to the MCP". Claude Code first.
+
+- **Paired by the session's own connection, never by a token on the VM.** The
+  AI client holds the MCP token, so the VM cannot present it. The repository's
+  hooks (`.claude/settings.json` → `scripts/context-machine-hook.sh`, only when
+  `CLAUDE_CODE_REMOTE=true`, so a laptop's own runner is never touched) start
+  `context-machine hook session-start`, whose background daemon opens an
+  ordinary pairing and prints its code into the session's context. The
+  session calls `manage pair_device { code }`; the control plane
+  (`apps/convex/functions/texMachineDevices.ts`) approves it as that grant's
+  person, into that grant's own workspace, under the same role rule and the
+  same ten-in-ten-minutes budget as the app, and refuses Tex's own texting
+  grants. The daemon collects the grant with its own key, as `pair` does.
+- **Mail only, decided in two places.** The pairing and the machine carry
+  `mailOnly`; the control plane refuses such a machine every run grant and
+  every chat lending, and the workspace object holds it with no tools, lets
+  only its name be changed, and answers every assignment `mail_only`
+  (`workspaceStore/machines.js`). Nothing an owner sets turns one into a
+  computer Tex sends jobs to.
+- **It ends on its own.** It stops resolving the moment the grant that paired
+  it is no longer active (`pairedByGrantId`; that grant's token rotates, so
+  its standing is checked, not its token's time) and a day after it was paired
+  (`expiresAt`). The session's `SessionEnd` hook gives the grant back
+  (`/machines/leave`), and the object drops it at once; one that never says
+  goodbye leaves the devices list after fifteen minutes offline, and the
+  hourly purge deletes the row and its mailboxes an hour after it ended.
+- **Mail reaches the session at once.** A session joins a note's mail with
+  `{ join, device }`; the control plane checks the device is live and the
+  joining grant's own person's, and lists it beside job mailboxes with the
+  device's own workspace. The gateway sends each line down that device's
+  socket as a `mail` frame (`ws.machine.mail`), the runner keeps it in a
+  `0600` inbox, and three things show it to the session, each once: a
+  background `context-machine mail wait` that ends when mail arrives (Claude
+  Code wakes a session when a background command ends), the
+  `UserPromptSubmit`/`PostToolUse` hooks, and a `Stop` hook that keeps the
+  turn going until it is read. The words say it is other agents' mail, not
+  the person's instructions. Only the sender's own Tex may interrupt; to a
+  device an interrupt is an ask.
+- **Known gaps.** Codex has no hooks wired yet. "Read" receipts back to the
+  sender are not built: the line is in the note, and the sender sees
+  delivered. A pairing that ran out is not retried in the same session.
+- **Known risk: a code planted for the session.** Text the session reads (a
+  note, a page, mail) could hand it somebody else's code to approve. The
+  device would be the person's own, mail-only, in their own workspace and
+  listed there; it gets only mail a session explicitly joins as that device,
+  never a job and never a note, and it ends within the day. The tool says to
+  approve only a code its own computer printed. Accepted; revisit if abused.
+
+Tested end to end by `apps/mcp/test/e2e/vmDeviceMail.e2e.mjs` (the real
+runner binary against the real gateway routes, tool, delivery and object
+sockets; run in CI by `machine-runner.yml`), and by
+`apps/convex/__tests__/texMachineDevices.test.ts`,
+`apps/mcp/test/machineMailOnly.test.mjs` and `apps/mcp/test/pairDevice.test.mjs`,
+whose headers record their sabotage.
+
 ### A job's part on a machine: a run grant that acts as the job and never sends (2026-11-04)
 
 - **The texting Worker's job asks the gateway, with its own texting token**

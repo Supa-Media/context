@@ -149,6 +149,22 @@ export type Deliver = {
   at?: Timestamp;
 };
 
+/** A note-mail line for the machine itself, not for one run: mail to a mailbox joined from a session on this machine (a Claude Code or Codex session in a cloud VM). The runner keeps it in its inbox until that session has been shown it. Words for an agent, never a command. */
+export type Mail = {
+  type: "mail";
+  messageId: Id;
+  kind: MessageKind;
+  from: string;
+  /** The mailbox name it was sent to, or everyone. */
+  to?: string;
+  text: string;
+  /** The app the sender wrote from, for an agent; absent for Tex or a person. */
+  app?: string;
+  /** The note whose mail block holds this line, its record. */
+  path: string;
+  at: Timestamp;
+};
+
 /** Stop the current step now and read this first. Only from Tex or the person, which the gateway checks before sending. */
 export type Interrupt = {
   type: "interrupt";
@@ -197,7 +213,7 @@ export type Goodbye = {
 };
 
 /** Every frame the workspace object sends a runner. Nothing here runs a command: assign hands words to an agent the runner starts under its own rules. */
-export type ServerMessage = Challenge | Welcome | RulesChanged | Assign | Deliver | Interrupt | Cancel | Goodbye;
+export type ServerMessage = Challenge | Welcome | RulesChanged | Assign | Deliver | Mail | Interrupt | Cancel | Goodbye;
 
 /** A run the runner still has after a reconnect, so the job resumes instead of starting over. */
 export type HeldRun = {

@@ -22,6 +22,14 @@ export const PAIRING_RETENTION_MS = 60 * 60 * 1000;
 /** A machine's `lastSeenAt` is written at most this often. */
 export const LAST_SEEN_WRITE_INTERVAL_MS = 10 * 60 * 1000;
 
+/**
+ * A mail-only device (a session's own computer, `pair_device`) ends this long after it was paired, whatever else
+ * happens: a cloud VM lives about as long as its session, and one that never said goodbye is gone by the next day.
+ */
+export const MAIL_ONLY_DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
+/** A mail-only device is kept this long past its end, then deleted with its mailboxes. */
+export const MAIL_ONLY_DEVICE_RETENTION_MS = 60 * 60 * 1000;
+
 /** The OAuth client id a run grant reads as: a machine job's part, not the texting client it acts for. */
 export const TEX_MACHINE_RUN_CLIENT_ID = "context_tex_machine_run";
 /** A run grant never lives longer than this, whatever the gateway asks. */

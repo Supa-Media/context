@@ -208,6 +208,15 @@ describe("minting and resolving a run grant", () => {
     expect(missingMachine.status).toBe(404);
     expect((await json(missingMachine)).code).toBe("MACHINE_NOT_FOUND");
   });
+
+  test("a mail-only device (a session's own computer) never gets a run grant: it takes mail, not jobs", async () => {
+    const { t, machineId } = await aJob();
+    await t.run((ctx) => ctx.db.patch(machineId, { mailOnly: true, expiresAt: Date.now() + 60 * MINUTE }));
+    const refused = await mint(t, machineId);
+    expect(refused.status).toBe(404);
+    expect((await json(refused)).code).toBe("MACHINE_NOT_FOUND");
+    expect(await t.run((ctx) => ctx.db.query("texMachineRunGrants").collect())).toEqual([]);
+  });
 });
 
 describe("revoking and sweeping run grants", () => {

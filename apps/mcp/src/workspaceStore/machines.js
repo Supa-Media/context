@@ -145,7 +145,9 @@ function machineOf(raw, previous = null) {
   const base = previous ?? {};
   const pick = (key, fallback) => (given[key] !== undefined ? given[key] : base[key] !== undefined ? base[key] : fallback);
   const slots = pick("slotCounts", null);
-  const tools = (pick("tools", ["claude", "codex"]) ?? []).filter((tool) => TOOLS.has(tool));
+  // Mail-only is the pairing's, fixed at add: a device a session paired through its Context connection (`pair_device`).
+  const mailOnly = base.mailOnly === true || (previous === null && given.mailOnly === true);
+  const tools = mailOnly ? [] : (pick("tools", ["claude", "codex"]) ?? []).filter((tool) => TOOLS.has(tool));
   const chats = {};
   for (const [key, rule] of Object.entries(pick("chats", {}) ?? {}).slice(0, 50)) if (ID.test(key)) chats[key] = chatRuleOf(rule);
   return {
@@ -170,11 +172,18 @@ function machineOf(raw, previous = null) {
     seenAt: Number.isSafeInteger(pick("seenAt", null)) ? pick("seenAt", null) : null,
     // Never from the app's settings: only `raise` below sets it, for one day.
     raise: raiseOf(base.raise ?? null),
+    ...(mailOnly ? { mailOnly: true } : {}),
+    // When a mail-only device leaves on its own, whatever else happens; fixed at add.
+    ...(mailOnly && Number.isSafeInteger(base.expiresAt ?? given.expiresAt) ? { expiresAt: base.expiresAt ?? given.expiresAt } : {}),
   };
 }
 
 /** Settings an owner or editor may change from the app; everything else is the pairing's or the runner's. */
 const SETTABLE = new Set(["name", "folders", "tools", "limits", "computerUse", "trustedRepos", "chats", "goodAt"]);
+/** A mail-only device's settings: its name only. Nothing an owner sets turns one into a computer Tex sends jobs to. */
+const MAIL_ONLY_SETTABLE = new Set(["name"]);
+/** A mail-only device that has been offline this long leaves on its own: its session is gone. */
+export const MAIL_ONLY_OFFLINE_MS = 15 * 60 * 1000;
 
 /**
  * @param {{exec: Function}} sql
@@ -222,14 +231,16 @@ export function workspaceMachines(sql, deps = {}) {
       }
       const existing = get(fields.id);
       if (existing && (existing.ownerId !== fields.ownerId || existing.publicKey !== fields.publicKey)) throw new MachineRefused("bad_machine", "a machine's owner and key never change");
-      return save(machineOf(fields, existing));
+      // A new machine counts as seen when it is added, so one that never connects still leaves on time.
+      return save(machineOf(existing ? fields : { ...fields, seenAt: now() }, existing));
     },
 
     /** The owner's settings from the app. Unknown keys are refused, not ignored. */
     set(id, patch) {
       const machine = get(id);
       if (!machine) throw new MachineRefused("unknown_machine");
-      for (const key of Object.keys(patch ?? {})) if (!SETTABLE.has(key)) throw new MachineRefused("bad_setting", key);
+      const settable = machine.mailOnly === true ? MAIL_ONLY_SETTABLE : SETTABLE;
+      for (const key of Object.keys(patch ?? {})) if (!settable.has(key)) throw new MachineRefused("bad_setting", key);
       return save(machineOf(patch, machine));
     },
 
@@ -275,6 +286,8 @@ export function workspaceMachines(sql, deps = {}) {
     admit(id, ask, online) {
       const machine = get(id);
       if (!machine) return { code: "unknown_machine" };
+      // A mail-only device gets mail and never a job, whoever asks (owner, 2026-11-04).
+      if (machine.mailOnly === true) return { code: "mail_only" };
       const rule = machine.chats[ask.chat] ?? null;
       if (!ask.fromOwner) {
         if (!rule) return { code: "rule" };
@@ -380,6 +393,19 @@ export function workspaceMachines(sql, deps = {}) {
     /** The asks on a machine still waiting for its owner, newest first. */
     pendingAsks(machineId) {
       return all(sql.exec("SELECT id, row FROM ws_machine_asks WHERE machine = ? AND state = 'pending' AND at > ? ORDER BY at DESC LIMIT 20", machineId, now() - ASK_KEPT_MS)).map((found) => ({ ...JSON.parse(found.row), id: found.id }));
+    },
+
+    /**
+     * Mail-only devices whose time is up, or that have been offline `MAIL_ONLY_OFFLINE_MS` (their session is gone):
+     * the ids to remove. `online(id)` says whether a device's runner is connected now; `seenAt` is when it was last
+     * heard from or went offline.
+     */
+    leaving(online) {
+      const at = now();
+      return this.list()
+        .filter((machine) => machine.mailOnly === true)
+        .filter((machine) => (Number.isSafeInteger(machine.expiresAt) && machine.expiresAt <= at) || (!online(machine.id) && at - (machine.seenAt ?? at) >= MAIL_ONLY_OFFLINE_MS))
+        .map((machine) => machine.id);
     },
 
     /** Old ended runs and old usage days, dropped. */

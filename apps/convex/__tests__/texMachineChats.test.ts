@@ -156,6 +156,16 @@ describe("attaching a machine to a chat", () => {
     expect(errorCode(await captureError(() => attach(t, alice, aliceMachine, KEY_A.toUpperCase())))).toBe("CHAT_NOT_FOUND");
   });
 
+  test("a mail-only device is never lent to a chat, and one already lent is not listed", async () => {
+    const { t, alice, aliceMachine } = await aChat();
+    await attach(t, alice, aliceMachine);
+    await t.run((ctx) => ctx.db.patch(aliceMachine, { mailOnly: true }));
+    expect(await listed(t)).toEqual([]);
+    const fresh = await insertMachine(t, (await t.run((ctx) => ctx.db.get(aliceMachine)))!.workspaceId, alice, "vm");
+    await t.run((ctx) => ctx.db.patch(fresh, { mailOnly: true }));
+    expect(errorCode(await captureError(() => attach(t, alice, fresh)))).toBe("MACHINE_NOT_FOUND");
+  });
+
   test("a revoked machine cannot be attached", async () => {
     const { t, alice, aliceMachine } = await aChat();
     await t.run((ctx) => ctx.db.patch(aliceMachine, { status: "revoked", revokedAt: Date.now() }));

@@ -29,15 +29,17 @@ import {
   LAST_SEEN_WRITE_INTERVAL_MS,
   TEX_MACHINE_RUN_ID_PATTERN,
   TEX_MACHINE_RUN_MAX_MS,
+  MAIL_ONLY_DEVICE_TTL_MS,
   mayOwnTexMachine,
   normalizePairingCode,
   pairingCodeHashInput,
 } from "./lib/texMachineRules";
+import { deviceStillLive, purgeEndedDevices } from "./texMachineDevices";
 import { getMembership, requireWorkspaceAccess, workspaceNotFound, type WorkspaceRole } from "./lib/workspaceAuth";
 
 /** Approvals one person may attempt per window. Refused attempts count, so guessing a code spends the budget. */
-const APPROVE_ATTEMPT_LIMIT = 10;
-const APPROVE_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+export const APPROVE_ATTEMPT_LIMIT = 10;
+export const APPROVE_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 const PURGE_BATCH_SIZE = 100;
 
 export type TexMachineRefusal =
@@ -92,9 +94,16 @@ async function isWorkspaceOwner(ctx: QueryCtx, workspaceId: Id<"workspaces">, us
   return role === "owner";
 }
 
-/** What a runner is told about its new machine, once it is paired or registered. */
+/** What a runner is told about its new machine, once it is paired or registered. A mail-only one also learns its end. */
 function machineShape(
-  machine: { _id: Id<"texMachines">; workspaceId: Id<"workspaces">; ownerId: Id<"users">; name: string },
+  machine: {
+    _id: Id<"texMachines">;
+    workspaceId: Id<"workspaces">;
+    ownerId: Id<"users">;
+    name: string;
+    mailOnly?: true;
+    expiresAt?: number;
+  },
   workspaceHandle: string,
 ) {
   return {
@@ -103,6 +112,7 @@ function machineShape(
     ownerId: machine.ownerId,
     name: machine.name,
     workspaceHandle,
+    ...(machine.mailOnly === true ? { mailOnly: true as const, expiresAt: machine.expiresAt } : {}),
   };
 }
 
@@ -174,6 +184,14 @@ export const claimTexMachine = internalMutation({
     const workspace = await ctx.db.get(workspaceId);
     if (workspace === null) throw texMachineRefusal("MACHINE_OWNER_GONE");
 
+    // A pairing a session approved through its own connection becomes a mail-only device that ends with that grant
+    // and a day after now (`texMachineDevices.ts`). The paired grant is re-checked here: revoked since, nothing is made.
+    const pairedByGrantId = pairing.mailOnly === true ? pairing.pairedByGrantId : undefined;
+    if (pairing.mailOnly === true) {
+      const paired = pairedByGrantId === undefined ? null : await ctx.db.get(pairedByGrantId);
+      if (paired === null || paired.status !== "active") throw texMachineRefusal("MACHINE_OWNER_GONE");
+    }
+    const now = Date.now();
     const machine = {
       workspaceId,
       ownerId,
@@ -182,7 +200,10 @@ export const claimTexMachine = internalMutation({
       publicKey: pairing.publicKey,
       hashedGrant: args.hashedGrant,
       status: "active" as const,
-      createdAt: Date.now(),
+      createdAt: now,
+      ...(pairedByGrantId !== undefined
+        ? { mailOnly: true as const, pairedByGrantId, expiresAt: now + MAIL_ONLY_DEVICE_TTL_MS }
+        : {}),
     };
     const machineId = await ctx.db.insert("texMachines", machine);
     await ctx.db.patch(pairing._id, { status: "claimed", machineId });
@@ -242,7 +263,7 @@ export const resolveTexMachine = internalMutation({
       .query("texMachines")
       .withIndex("by_grant", (q) => q.eq("hashedGrant", args.hashedGrant))
       .unique();
-    if (machine === null || machine.status !== "active") throw texMachineRefusal("MACHINE_GRANT_INVALID");
+    if (machine === null || !(await deviceStillLive(ctx, machine))) throw texMachineRefusal("MACHINE_GRANT_INVALID");
     if (!(await ownerMayHold(ctx, machine.workspaceId, machine.ownerId))) throw texMachineRefusal("MACHINE_OWNER_GONE");
 
     const now = Date.now();
@@ -256,6 +277,7 @@ export const resolveTexMachine = internalMutation({
       name: machine.name,
       os: machine.os,
       publicKey: machine.publicKey,
+      ...(machine.mailOnly === true ? { mailOnly: true as const, expiresAt: machine.expiresAt } : {}),
     };
   },
 });
@@ -354,7 +376,8 @@ export const issueTexMachineRunGrant = internalMutation({
 
     const machineId = ctx.db.normalizeId("texMachines", args.machineId);
     const machine = machineId === null ? null : await ctx.db.get(machineId);
-    if (machine === null || machine.status !== "active") throw texMachineRefusal("MACHINE_NOT_FOUND");
+    // A mail-only device takes mail and never jobs: no part runs on it, whatever the gateway asks.
+    if (machine === null || machine.status !== "active" || machine.mailOnly === true) throw texMachineRefusal("MACHINE_NOT_FOUND");
     if (!TEX_MACHINE_RUN_ID_PATTERN.test(args.runId)) throw texMachineRefusal("BAD_RUN");
 
     const now = Date.now();
@@ -389,8 +412,9 @@ export const revokeTexMachineRunGrant = internalMutation({
 
 
 /**
- * Pairings an hour past their code's expiry are swept, in batches, and so are run grants past their own expiry. The
- * count covers both; `moreRemaining` is true when either batch was full.
+ * Pairings an hour past their code's expiry are swept, in batches, and so are run grants past their own expiry and
+ * mail-only devices an hour past their end (`texMachineDevices.ts`). The count covers all three; `moreRemaining` is
+ * true when any batch was full.
  */
 export const purgeExpiredTexMachinePairings = internalMutation({
   args: {},
@@ -407,9 +431,10 @@ export const purgeExpiredTexMachinePairings = internalMutation({
       .withIndex("by_expires", (q) => q.lt("expiresAt", Date.now()))
       .take(PURGE_BATCH_SIZE);
     for (const row of expiredRuns) await ctx.db.delete(row._id);
+    const devices = await purgeEndedDevices(ctx);
     return {
-      deleted: expired.length + expiredRuns.length,
-      moreRemaining: expired.length === PURGE_BATCH_SIZE || expiredRuns.length === PURGE_BATCH_SIZE,
+      deleted: expired.length + expiredRuns.length + devices.deleted,
+      moreRemaining: expired.length === PURGE_BATCH_SIZE || expiredRuns.length === PURGE_BATCH_SIZE || devices.full,
     };
   },
 });

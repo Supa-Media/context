@@ -101,6 +101,11 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
   const joining = request.join !== undefined;
   if (joining && request.text !== undefined) return toolError("mail takes join or text, not both");
   if (!joining && typeof request.text !== "string") return toolError('mail.text is required to send; or pass mail: { join: "name" } to join');
+  // `device`: this session runs on one of the person's own computers (a cloud VM's Claude Code, `pair_device`), so its
+  // mail is pushed down that computer's socket the moment it is sent. The control plane checks it is theirs and live.
+  const device = request.device === undefined ? undefined : typeof request.device === "string" && /^[A-Za-z0-9_-]{4,64}$/.test(request.device) ? request.device : null;
+  if (device === null) return toolError("mail.device is this computer's device id, as `context-machine status --json` names it");
+  if (device !== undefined && !joining) return toolError("mail.device goes with join");
   const mailKind = request.kind === undefined ? "note" : request.kind;
   if (!joining && !["note", "ask", "interrupt"].includes(mailKind)) return toolError('mail.kind must be "note", "ask" or "interrupt"');
   const wait = mailKind === "ask" && request.wait !== undefined ? Number(request.wait) : 0;
@@ -123,7 +128,10 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
       if (!name) return toolError(`mail.join must be a short name of letters, digits and dashes, and not "${EVERYONE}"`);
       if (typeof store.mail?.join !== "function") return toolError("mail needs a Context account; this deployment has none");
       // From a background job's turn the mailbox is the job's, so mail reaches it the moment it is sent (`mail/deliver.js`).
-      const answer = await store.mail.join(path, name, store.mailTurn?.job ?? undefined).catch(() => null);
+      const answer = await store.mail.join(path, name, store.mailTurn?.job ?? undefined, device).catch(() => null);
+      if (device !== undefined && answer?.error === "refused") {
+        return toolError(`could not join as device ${device}: it is not a live device of this person's. Pair this computer with manage pair_device first`);
+      }
       if (answer?.error === "name_taken") return toolError(`another connection already joined this note's mail as "${name}"; pick another name`);
       if (!answer?.mailbox?.mailboxId) return toolError("could not join this note's mail right now; try again");
       joined = answer.mailbox;

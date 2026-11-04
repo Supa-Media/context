@@ -36,6 +36,19 @@ context-machine status
 | `service install\|uninstall`, `stop` | The background service. |
 | `forget` | Removes the service, the key, the grant and every run's files. |
 | `key [--json]` | Prints the public key (made on first use); with `--json`, `{publicKey, facts}`. |
+| `hook <event>` | What Claude Code's hooks run: joins as a mail-only device and shows its mail to the session. Always exits 0. |
+| `join` | Joins as a mail-only device in the background; prints the code the session approves with `manage pair_device`. |
+| `mail wait [--timeout S]`, `mail read` | Ends the moment mail arrives (exit 3 on timeout); prints unread mail. |
+
+### A Claude Code cloud session as a mail-only device
+
+In this repository, `.claude/settings.json` runs `scripts/context-machine-hook.sh`
+on SessionStart, UserPromptSubmit, PostToolUse, Stop and SessionEnd, only in
+Claude Code on the web (`CLAUDE_CODE_REMOTE=true`). It installs the runner if it
+is missing, and the session approves the printed code with its own Context
+connection (`manage pair_device`). The device takes note mail and never jobs, and
+leaves when the session ends. `CONTEXT_MACHINE_HOOKS=off` turns it off. See
+`docs/decisions/texting-assistant/machines.md`, "A cloud VM as a mail-only device".
 
 `--dir` (alias `--data-dir`) moves the runner's own folder from
 `~/.context-machine`; so does `CONTEXT_MACHINE_DIR`.

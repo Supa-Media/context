@@ -134,6 +134,11 @@ export const ACTIONS = {
     connect_google: { tool: "connect_google", summary: "Get the link where the person connects Gmail or Calendar.", take: plain },
     connect: { tool: "connect_app", summary: "Get the link where the person connects an app fetch apps: lists, through its own approval screen.", take: plain },
     dream_now: { tool: "dream_now", summary: "Start Tex's dream now: it rewrites tex/about.md (owner only).", take: plain },
+    pair_device: {
+      tool: "pair_device",
+      summary: "Approve the code this session's own computer shows, so it gets note mail at once (mail only, never jobs).",
+      take: plain,
+    },
   },
   send: {
     api: {

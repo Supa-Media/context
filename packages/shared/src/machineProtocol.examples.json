@@ -74,6 +74,17 @@
                 "path": "projects/upload/flaky-test.md",
                 "at": 1793771100000
               },
+              {
+                "type": "mail",
+                "messageId": "msg_3",
+                "kind": "note",
+                "from": "lead",
+                "to": "vm-builder",
+                "text": "Merged the schema change; rebase before you push.",
+                "app": "Claude",
+                "path": "projects/upload/flaky-test.md",
+                "at": 1793771200000
+              },
               {"type": "interrupt", "runId": "run_1", "messageId": "msg_2", "from": "tex", "text": "Stop: Seyi says leave the test alone."},
               {"type": "cancel", "runId": "run_1", "reason": "stopped"},
               {"type": "goodbye", "reason": "revoked"}

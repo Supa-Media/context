@@ -11,33 +11,75 @@
  * (`TexRoutines.mailDeliver`, `apps/agent/src/jobMail.ts`), which steers it
  * into the part running now or keeps it for the next one.
  *
+ * A mailbox joined from a session on one of the person's machines (a cloud
+ * VM's Claude Code, `device` on join) gets the line through that machine's
+ * workspace object instead: it goes down the runner's socket, and the runner
+ * holds it until the session has been shown it (`ws.machine.mail`).
+ *
  * Who receives is decided here, from the line: the name it is addressed to,
  * or everyone who joined but the sender. The sender never gets its own line.
  * Delivery never fails the send: a job that cannot be reached reads the line
  * in the note as any other agent would.
  */
 
+import { callTexStore } from "../texStore/wire.js";
+import { workspaceStub } from "../workspaceStore/api.js";
+
 /** Recipients handed one line at most; a note's mail is a small team, not a broadcast list. */
 export const MAX_DELIVERIES = 20;
 
+/** A mail id for the runner's inbox: one per line and machine, never a credential. */
+function messageIdOf(line, mailboxId) {
+  return `ml_${mailboxId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32)}_${Date.parse(line.at) || Date.now()}`;
+}
+
 /**
- * @param {{ TEXTING?: { mailDeliver?: (call: object) => Promise<{ taken?: boolean }> } }} env
- * @param {{ jobMailboxes: (path: string) => Promise<Array<{ mailboxId: string, name: string, jobId: string, own?: boolean }>> }} mail
+ * Hands one line to a machine whose session joined the note's mail (`device` on join): its workspace object sends
+ * it on the runner's socket, and the runner keeps it until that session has been shown it (`ws.machine.mail`).
+ */
+async function toMachine(env, workspaceId, box, line) {
+  const stub = workspaceStub(env, workspaceId);
+  if (stub === null) return false;
+  const mail = {
+    messageId: messageIdOf(line, box.mailboxId),
+    // An interrupt is Tex's to its own job; to a machine it is an ask that needs reading now.
+    kind: line.mailKind === "ask" || line.mailKind === "interrupt" ? "ask" : "note",
+    from: String(line.from).slice(0, 100),
+    to: String(line.to).slice(0, 40),
+    text: String(line.text).slice(0, 4000),
+    ...(line.app ? { app: String(line.app).slice(0, 40) } : {}),
+    path: line.path,
+    at: Date.parse(line.at) || Date.now(),
+  };
+  const response = await callTexStore(stub, "ws.machine.mail", {}, new TextEncoder().encode(JSON.stringify({ id: box.machineId, mail })));
+  return (await response.json())?.sent === true;
+}
+
+/**
+ * @param {{ TEXTING?: { mailDeliver?: (call: object) => Promise<{ taken?: boolean }> }, WORKSPACE_STORE?: object }} env
+ * @param {{ jobMailboxes: (path: string) => Promise<Array<{ mailboxId: string, name: string, jobId?: string, machineId?: string, machineWorkspaceId?: string, own?: boolean }>> }} mail
  * @param {{ path: string, at: string, from: string, app: string | null, to: string, mailKind: "note" | "ask" | "interrupt", text: string }} line
- * @returns {Promise<string[]>} the names of the jobs that took the line
+ * @returns {Promise<string[]>} the names of the jobs and machines that took the line
  */
 export async function deliverMail(env, mail, line) {
-  const texting = env?.TEXTING;
-  if (!texting || typeof texting.mailDeliver !== "function" || typeof mail?.jobMailboxes !== "function") return [];
+  if (typeof mail?.jobMailboxes !== "function") return [];
   let boxes;
   try {
     boxes = await mail.jobMailboxes(line.path);
   } catch {
     return [];
   }
-  const to = (Array.isArray(boxes) ? boxes : [])
-    .filter((box) => typeof box?.jobId === "string" && typeof box?.mailboxId === "string" && box.name !== line.from)
+  const addressed = (Array.isArray(boxes) ? boxes : [])
+    .filter((box) => typeof box?.mailboxId === "string" && box.name !== line.from)
     .filter((box) => line.to === "everyone" || box.name === line.to)
+    .slice(0, MAX_DELIVERIES);
+  // A session on a machine (a cloud VM's Claude Code): through its workspace object, never an interrupt from another agent.
+  // The machine lives in its own workspace's object, which need not be the note's (`machineWorkspaceId`).
+  const machines = addressed.filter((box) => typeof box.machineId === "string" && typeof box.machineWorkspaceId === "string" && (line.mailKind !== "interrupt" || box.own === true));
+  const toMachines = machines.map(async (box) => ((await toMachine(env, box.machineWorkspaceId, box, line).catch(() => false)) ? box.name : null));
+  const texting = env?.TEXTING;
+  const jobs = typeof texting?.mailDeliver === "function" ? addressed.filter((box) => typeof box.jobId === "string") : [];
+  const to = jobs
     // An interrupt reaches only a job its sender's own grant joined as: one person's Tex never stops another person's job.
     .filter((box) => line.mailKind !== "interrupt" || box.own === true)
     .slice(0, MAX_DELIVERIES);
@@ -56,5 +98,5 @@ export async function deliverMail(env, mail, line) {
       }
     }),
   );
-  return taken.filter(Boolean);
+  return [...taken, ...(await Promise.all(toMachines))].filter(Boolean);
 }
