@@ -91,6 +91,19 @@ copy and fill as before. The asks that are not note facts stay on the
 control plane: `names` (with note writes), `jobs` and `forwarding` (rows and
 the ledger), and the chaos score's daily history (`nodeChaosDays`).
 
+**Tex's own notes are the exception the object does not cover.** A person's
+Tex notes and a chat's home notes keep their text in Tex's tables
+(`tex/<owner>/notes/<id>.md`, [tex-durable-objects](../texting-assistant/tex-durable-objects.md)),
+which the workspace object's facts never read, so once the control plane's
+copy is dropped nobody holds their facts. For routines that left every new or
+changed Tex routine waiting forever (2026-11-02 to 11-04: a reminder Tex set
+never ran, one moved to 4:30 pm still ran at 6). The routine scan now reads
+such a routine's front matter where its text lives, through the gateway's
+door with a ticket for the workspace's own objects
+(`lib/routines/texFacts.ts`), keeps only its props, and logs
+`routine_scan_waiting` whenever a routine is still left waiting. Test:
+`apps/convex/__tests__/routinesTexObject.test.ts`.
+
 **What it changes about non-negotiable #1.** The control plane no longer is
 the only keeper of a note's rebuildable facts: for an object-home workspace
 the object holds them, as derivatives of the text beside them, and the control
