@@ -12,6 +12,7 @@
  * functions, so the rules cannot drift between the fast path and the tools.
  */
 
+import { refreshTexting } from "./textingRefresh";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { consumeRateLimit } from "./rateLimit";
@@ -85,6 +86,7 @@ export async function setPersonSettings(ctx: MutationCtx, userId: Id<"users">, a
   // A new row holds only what is set; a patch's undefined is what clears a field.
   if (row === null) await ctx.db.insert("texStylePreferences", { userId, ...settingsOf(text), ...(next.updates ? { updates: next.updates } : {}), ...(text.instructionsBefore !== undefined ? { instructionsBefore: text.instructionsBefore } : {}), updatedAt });
   else await ctx.db.patch(row._id, { ...text, updates: next.updates, updatedAt });
+  await refreshTexting(ctx, userId); // the style a text's session answers with (`lib/textingRefresh.ts`)
   return settingsOf({ instructions: next.text === null ? row?.instructions : next.text.instructions, updates: next.updates });
 }
 

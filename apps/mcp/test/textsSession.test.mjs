@@ -1,7 +1,7 @@
 // A text's session answered by the person object over the gateway's `TexTexts` entrypoint (src/agent/textsSession.js,
 // docs/decisions/texting-assistant/texting-in-objects.md): the phone is kept only as a keyed hash, a workspace id is a
-// locator and never proof, every miss is the same "unlinked" so the Worker falls back to Convex, Convex hears of a
-// session behind the answer and never holds it up, and who is texting comes from the object instead of Convex.
+// locator and never proof, every miss is the same "unlinked" so the Worker falls back to Convex, Convex keeps its copy of
+// the grant (and its say on whether the phone is linked) before the token goes out, and who is texting comes from the object instead of Convex.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -67,10 +67,10 @@ function ask(body, { path = TEXTS_SESSION_PATH, method = "POST" } = {}) {
   return new Request(`https://texts.internal${path}`, { method, ...(method === "POST" ? { body: typeof body === "string" ? body : JSON.stringify(body) } : {}) });
 }
 
-function recorder() {
+/** Convex's copy: says linked unless told otherwise, and records what it was sent. */
+function recorder(status = "linked") {
   const told = [];
-  const waits = [];
-  return { told, waits, behind: () => async (fields) => told.push(fields), ctx: { waitUntil: (promise) => waits.push(promise) } };
+  return { told, copy: () => async (fields) => (told.push(fields), { status }), ctx: {} };
 }
 
 test("a phone is kept as a keyed hash: fixed for one secret, another for another, never the number's plain sha256", async () => {
@@ -85,10 +85,10 @@ test("a phone is kept as a keyed hash: fixed for one secret, another for another
   assert.equal(await textingPhoneHash(SECRET, "5555550100"), null, "only an E.164 number");
 });
 
-test("a linked phone gets a fifteen-minute token naming its own object, with the zone and style, and Convex is told behind", { skip }, async () => {
+test("a linked phone gets a fifteen-minute token naming its own object, with the zone and style, once Convex keeps its copy", { skip }, async () => {
   const { objects, client } = await people();
-  const { told, waits, behind, ctx } = recorder();
-  const response = await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_dev" }), env, ctx, { objects: client, behind, now: () => NOW });
+  const { told, copy, ctx } = recorder();
+  const response = await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_dev" }), env, ctx, { objects: client, copy, now: () => NOW });
   const answer = await response.json();
   assert.equal(answer.status, "linked");
   assert.equal(answer.timeZone, "America/New_York");
@@ -100,43 +100,47 @@ test("a linked phone gets a fifteen-minute token naming its own object, with the
   assert.equal(session.actorUserId, "user_dev");
   assert.equal(session.expiresAt, NOW + TEXTING_TOKEN_MS);
   assert.deepEqual(session.texterIdentity, IDENTITY, "who is texting rides on the session, from the object");
-  await Promise.all(waits);
   assert.equal(told.length, 1);
   assert.equal(told[0].hashedAccessToken, tokenHash);
+  assert.equal(told[0].personalWorkspaceId, "ws_dev");
   assert.equal(JSON.stringify(told[0]).includes(answer.accessToken), false, "Convex is told the hash, never the token");
-  assert.equal(JSON.stringify(told[0]).includes(PHONE), false, "nor the phone");
+});
+
+test("ATTACK: a phone Convex no longer counts as linked gets no token, whatever the object still holds", { skip }, async () => {
+  const { client } = await people();
+  const { copy, ctx } = recorder("unlinked");
+  const response = await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_dev" }), env, ctx, { objects: client, copy, now: () => NOW });
+  assert.deepEqual(await response.json(), { status: "unlinked" }, "an unlink or a pause the object has not caught up on still refuses");
 });
 
 test("ATTACK: a workspace id that names somebody else's object is the same miss, and that object keeps nothing", { skip }, async () => {
   const { objects, client } = await people();
-  const { told, behind, ctx } = recorder();
-  const response = await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_eve" }), env, ctx, { objects: client, behind, now: () => NOW });
+  const { told, copy, ctx } = recorder();
+  const response = await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_eve" }), env, ctx, { objects: client, copy, now: () => NOW });
   assert.deepEqual(await response.json(), { status: "unlinked" });
   assert.equal(objects.get("ws_eve").live("connections").length, 0);
   assert.equal(told.length, 0, "and Convex is told nothing");
-  const nobody = await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_nobody" }), env, ctx, { objects: client, behind, now: () => NOW });
+  const nobody = await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_nobody" }), env, ctx, { objects: client, copy, now: () => NOW });
   assert.deepEqual(await nobody.json(), { status: "unlinked" }, "an id with no object reads the same as one that refused");
 });
 
 test("ATTACK: a phone hashed under another secret never matches, so a leaked record opens nothing elsewhere", { skip }, async () => {
   const { client } = await people();
-  const { behind, ctx } = recorder();
-  const response = await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_dev" }), { GATEWAY_SECRET: `${SECRET}-other` }, ctx, { objects: client, behind, now: () => NOW });
+  const { copy, ctx } = recorder();
+  const response = await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_dev" }), { GATEWAY_SECRET: `${SECRET}-other` }, ctx, { objects: client, copy, now: () => NOW });
   assert.deepEqual(await response.json(), { status: "unlinked" });
-  const unset = await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_dev" }), {}, ctx, { objects: client, behind, now: () => NOW });
+  const unset = await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_dev" }), {}, ctx, { objects: client, copy, now: () => NOW });
   assert.deepEqual(await unset.json(), { status: "unlinked" });
 });
 
-test("an object that cannot answer is a miss the Worker falls back from, and a failed write-behind never fails the text", { skip }, async () => {
-  const { behind, ctx } = recorder();
+test("an object that cannot answer, or a Convex that cannot keep its copy, is a miss the Worker falls back from", { skip }, async () => {
+  const { copy, ctx } = recorder();
   const down = () => ({ texting: { open: async () => { throw new Error("object down"); } } });
-  assert.deepEqual(await (await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_dev" }), env, ctx, { objects: down, behind, now: () => NOW })).json(), { status: "unlinked" });
+  assert.deepEqual(await (await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_dev" }), env, ctx, { objects: down, copy, now: () => NOW })).json(), { status: "unlinked" });
   const { client } = await people();
-  const waits = [];
   const failing = () => async () => { throw new Error("convex down"); };
-  const answer = await (await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_dev" }), env, { waitUntil: (promise) => waits.push(promise) }, { objects: client, behind: failing, now: () => NOW })).json();
-  assert.equal(answer.status, "linked");
-  await Promise.all(waits);
+  const answer = await (await openTextsSession(ask({ phone: PHONE, personalWorkspaceId: "ws_dev" }), env, {}, { objects: client, copy: failing, now: () => NOW })).json();
+  assert.deepEqual(answer, { status: "unlinked" }, "a token Convex has no copy of would fail every control-plane call it carries");
 });
 
 test("anything but a well-formed ask on the one path is refused before any object is opened", async () => {
@@ -145,7 +149,7 @@ test("anything but a well-formed ask on the one path is refused before any objec
     opened += 1;
     return null;
   };
-  const call = (request) => openTextsSession(request, env, {}, { objects, behind: () => async () => {}, now: () => NOW });
+  const call = (request) => openTextsSession(request, env, {}, { objects, copy: () => async () => ({ status: "linked" }), now: () => NOW });
   assert.equal((await call(ask({ phone: PHONE, personalWorkspaceId: "ws_dev" }, { path: "/agent" }))).status, 404);
   assert.equal((await call(ask(null, { method: "GET" }))).status, 400);
   assert.equal((await call(ask("not json"))).status, 400);
