@@ -622,6 +622,29 @@ test("an object move records its trip outside the op: the wire both ways, each w
   assert.equal(took.get("move_legs_cold"), 26);
   assert.equal(took.get("move_legs_alarm"), 26);
   assert.equal(took.get("move_legs_alarm_during"), 26);
+  // The move found an alarm already due: its trip is counted as one that set none.
+  assert.equal(took.get("move_legs_unarmed"), 26);
+  assert.equal(took.has("move_legs_armed"), false);
+});
+
+test("a move that set the object's alarm says so beside its trip", async () => {
+  const now = Date.now();
+  const answer = () => ({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }], took: 12, commit: 9, before: 0, arrived: now, answered: now + 14, armed: true });
+  const { store } = objectStore(answer);
+  const took = new Map();
+  const timer = (name, run) => run();
+  timer.took = (name, ms) => took.set(name, ms);
+  Object.defineProperty(store, "phase", { value: timer, enumerable: false });
+  const realNow = Date.now;
+  const clock = [now, now + 40];
+  Date.now = () => (clock.length > 1 ? clock.shift() : clock[0]);
+  try {
+    await startObjectMove(store, "team", "a/x.md", "b/x.md", undefined, NOTE);
+  } finally {
+    Date.now = realNow;
+  }
+  assert.equal(took.get("move_legs_armed"), 26);
+  assert.equal(took.has("move_legs_unarmed"), false);
 });
 
 test("an object answer without the object's clock records no trip split", async () => {
