@@ -26,6 +26,8 @@ import type {
   Turn,
   TurnAction,
 } from "./texPageTypes";
+import type { SlotPlace } from "./texMachineTypes";
+import { readAsks, readPlaces } from "./texMachineRead";
 
 type Rec = Record<string, unknown>;
 
@@ -96,7 +98,7 @@ export function readJob(v: unknown): JobSummary | null {
   };
   const endedAt = num(r.endedAt);
   if (endedAt !== undefined) job.endedAt = endedAt;
-  for (const key of ["needs", "for", "now"] as const) {
+  for (const key of ["needs", "for", "now", "ranOn"] as const) {
     const s = str(r[key]);
     if (s) job[key] = s;
   }
@@ -144,15 +146,25 @@ export function readJobDetail(v: unknown): JobDetail | null {
   return detail;
 }
 
-function readSlots(v: unknown): Slot[] {
+function readSlots(v: unknown, places?: SlotPlace[]): Slot[] {
   const given = arr(v)
     .map((x) => rec(x))
     .filter((x): x is Rec => x !== null);
   // Always three slots, 1 to 3, whatever the gateway sent: a slot nobody filled is free.
-  return [1, 2, 3].map((slot) => {
-    const found = given.find((g) => num(g.slot) === slot);
-    return { slot, job: found ? readJob(found.job) : null };
-  });
+  if (!places) {
+    return [1, 2, 3].map((slot) => {
+      const found = given.find((g) => num(g.slot) === slot && g.place === undefined);
+      return { slot, job: found ? readJob(found.job) : null };
+    });
+  }
+  // With places, each place has exactly its own count of slots, numbered from 1.
+  return places.flatMap((p) =>
+    Array.from({ length: p.slots }, (_, i) => {
+      const slot = i + 1;
+      const found = given.find((g) => num(g.slot) === slot && g.place === p.key);
+      return { slot, place: p.key, job: found ? readJob(found.job) : null };
+    }),
+  );
 }
 
 function readTiles(v: unknown): Tiles {
@@ -213,7 +225,14 @@ export function readSection(overview: Overview, section: string, value: unknown)
     case "thinkingToday":
       return { ...overview, thinkingToday: num(value) ?? 0 };
     case "minions":
-      return { ...overview, minions: readSlots(value) };
+      return { ...overview, minions: readSlots(value, overview.places) };
+    case "places": {
+      const places = readPlaces(value);
+      const { places: _old, ...rest } = overview;
+      return places ? { ...rest, places } : rest;
+    }
+    case "asks":
+      return { ...overview, asks: readAsks(value) };
     case "earlier":
       return { ...overview, earlier: list(value, readJob).slice(0, 2) };
     case "earlierWeek":
@@ -233,7 +252,7 @@ export function readOverview(v: unknown): Overview | null {
   const chat = readChat(r.chat) ?? EMPTY_OVERVIEW.chat;
   const chats = list(r.chats, readChat);
   let out: Overview = { ...EMPTY_OVERVIEW, chat, chats: chats.length ? chats : [chat] };
-  for (const key of ["status", "thinking", "thinkingToday", "minions", "earlier", "earlierWeek", "tiles", "behind"]) {
+  for (const key of ["places", "asks", "status", "thinking", "thinkingToday", "minions", "earlier", "earlierWeek", "tiles", "behind"]) {
     out = readSection(out, key, r[key]) ?? out;
   }
   return out;

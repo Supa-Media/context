@@ -9,6 +9,9 @@ import { AdvisorPage, JobsPage, MailcheckPage, ThinkingPage } from "./TexLists";
 import { AboutPage, CheckinsPage, RoutinesPage } from "./TexEditPages";
 import { HistoryPage, SeesPage } from "./TexHistoryPage";
 import { ComputerPage, GroupSettingsPage, SettingsPage } from "./TexSettingsPages";
+import { MachinesPage } from "./TexMachinesPage";
+import { MachinePage } from "./TexMachinePage";
+import { ConnectPage } from "./TexConnectPage";
 import type { TexPageSource } from "./texPageSource";
 import type { TexPageState } from "./useTexPage";
 import type { SubView } from "./texPageTypes";
@@ -20,6 +23,8 @@ export interface Place {
   job?: string;
   /** Tex's computer full screen, to watch or take over. */
   full?: boolean;
+  /** Which machine, on `view: "machine"`. */
+  machine?: string;
 }
 
 /** What every view below the first screen is given. */
@@ -30,6 +35,8 @@ export interface ViewProps {
   /** A group's name, or null in the person's own chat. */
   group: string | null;
   go: (to: Omit<Place, "chat">) => void;
+  /** Which machine, on the machine page. */
+  machine?: string;
 }
 
 /**
@@ -60,7 +67,14 @@ export function TexPageBody({
   const wide = width >= WIDE_PX;
   const overview = page.overview;
   const group = overview && overview.chat.key !== "me" ? overview.chat.name : null;
-  const props: ViewProps = { source, page, chat: place.chat, group, go: (to) => go({ chat: place.chat, ...to }) };
+  const props: ViewProps = {
+    source,
+    page,
+    chat: place.chat,
+    group,
+    go: (to) => go({ chat: place.chat, ...to }),
+    ...(place.machine ? { machine: place.machine } : {}),
+  };
   const home = () => go({ chat: place.chat });
 
   let body: ReactElement;
@@ -82,9 +96,15 @@ export function TexPageBody({
       </>
     );
   } else if (place.view) {
+    // One machine and connecting one sit under Your machines, and go back there.
+    const underMachines = place.view === "machine" || place.view === "connect";
     body = (
       <>
-        <Back onPress={home} />
+        {underMachines ? (
+          <Back onPress={() => go({ chat: place.chat, view: "machines" })} label="‹ Your machines" />
+        ) : (
+          <Back onPress={home} />
+        )}
         <SubViewPage view={place.view} props={props} computer={computer} openComputer={openComputer} />
       </>
     );
@@ -142,6 +162,12 @@ function SubViewPage({
       return <HistoryPage {...props} />;
     case "sees":
       return <SeesPage {...props} />;
+    case "machines":
+      return <MachinesPage {...props} />;
+    case "machine":
+      return <MachinePage {...props} />;
+    case "connect":
+      return <ConnectPage {...props} />;
   }
 }
 
