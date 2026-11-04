@@ -387,3 +387,14 @@ test("signing in keeps a pairing link's code", () => {
   expect(decodeURIComponent(signInHref("/login", { handle: "seyi" }, { chat: "me", view: "machines" }))).not.toContain("code=");
   expect(decodeURIComponent(signInHref("/login", { handle: null, words: "brave-otter-lamp" }, { chat: "me", view: "routines" }))).toContain("/tex/group/brave-otter-lamp/routines");
 });
+
+// The machines list's Review opens the connect screen as a new screen: the code
+// must ride in its address, or the screen shows "Waiting for a code".
+test("Review carries a pairing link's code to the connect screen", () => {
+  const KEY = "a".repeat(64);
+  const CHATS = [{ key: KEY, name: "Band", people: 3, home: { context: "@context-lc", folder: "tex/groups/brave-otter-lamp" } }];
+  expect(placeHref("seyi", { chat: "me", view: "connect" }, CHATS, "L7E-JQ3")).toBe("/tex/@seyi/connect?code=L7E-JQ3");
+  expect(placeHref("seyi", { chat: "me", view: "connect" }, CHATS)).toBe("/tex/@seyi/connect");
+  expect(placeHref("seyi", { chat: "me", view: "machines" }, CHATS, "L7E-JQ3")).toBe("/tex/@seyi/machines");
+  expect(placeHref("seyi", { chat: KEY, view: "connect" }, CHATS, "L7E-JQ3")).toBe("/tex/group/brave-otter-lamp/connect?code=L7E-JQ3");
+});
