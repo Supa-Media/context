@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native
 import { Icon } from "../../../../design/components/Icon";
 import { Switch } from "../../../../design/components/Switch";
 import { Text } from "../../../../design/components/Text";
+import { useFieldFont } from "../../../../design/fieldFont";
 import { fonts, pointerType, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { MapMode, MapPageState } from "../hooks/useMapPage";
@@ -186,6 +187,7 @@ export const FIND_MAX = 6;
 function Find({ page, onFind }: { page: MapPageState; onFind: (note: { workspaceId: string; path: string }) => void }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  const fieldFont = useFieldFont(pointerType.ui);
   const [query, setQuery] = useState("");
   const graphs = page.data.graphs;
   const scope = page.data.scope;
@@ -213,7 +215,7 @@ function Find({ page, onFind }: { page: MapPageState; onFind: (note: { workspace
         placeholder="Find a note"
         placeholderTextColor={colors.muted}
         accessibilityLabel="Find a note on the map"
-        style={styles.findInput}
+        style={[styles.findInput, fieldFont]}
         autoCorrect={false}
         autoCapitalize="none"
         testID="map-settings-find"
