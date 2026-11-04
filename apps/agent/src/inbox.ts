@@ -512,8 +512,7 @@ type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: str
 async function answering(message: Message, work: string, deps: InboxDeps, storage: InboxStorage, covers: string[], presence: Presence | undefined, timing: TurnTiming): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
   let choices: Choice[] = [];
-  let offers: Offer[] = [];
-  let hub: string | undefined;
+  let offers: Offer[] = [], hub: string | undefined;
   let asks: string[] = [];
   let askText = "";
   let modelWrote = false;
