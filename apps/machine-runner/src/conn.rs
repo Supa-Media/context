@@ -55,12 +55,20 @@ pub struct Dial {
 
 /// A challenge nonce as the schema allows it: 32 to 128 base64url characters.
 pub fn valid_nonce(nonce: &str) -> bool {
-    (32..=128).contains(&nonce.len()) && nonce.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    (32..=128).contains(&nonce.len())
+        && nonce
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 /// Runs until the gateway says goodbye; dials again after every other end.
 /// `on_state` hears "online" and "offline".
-pub async fn run_forever(machine: Machine, dial: Dial, mut out_rx: mpsc::Receiver<RunnerMsg>, on_state: impl Fn(&str)) -> GoodbyeReason {
+pub async fn run_forever(
+    machine: Machine,
+    dial: Dial,
+    mut out_rx: mpsc::Receiver<RunnerMsg>,
+    on_state: impl Fn(&str),
+) -> GoodbyeReason {
     let mut attempt = 0u32;
     loop {
         match connect_once(&machine, &dial, &mut out_rx, &on_state).await {
@@ -78,18 +86,35 @@ pub async fn run_forever(machine: Machine, dial: Dial, mut out_rx: mpsc::Receive
     }
 }
 
-async fn connect_once(machine: &Machine, dial: &Dial, out_rx: &mut mpsc::Receiver<RunnerMsg>, on_state: &impl Fn(&str)) -> Result<Stop> {
+async fn connect_once(
+    machine: &Machine,
+    dial: &Dial,
+    out_rx: &mut mpsc::Receiver<RunnerMsg>,
+    on_state: &impl Fn(&str),
+) -> Result<Stop> {
     let mut req = dial.socket_url.as_str().into_client_request()?;
     req.headers_mut().insert(
         "authorization",
-        format!("Bearer {}", dial.grant).parse().context("grant has characters a header cannot carry")?,
+        format!("Bearer {}", dial.grant)
+            .parse()
+            .context("grant has characters a header cannot carry")?,
     );
-    req.headers_mut().insert("user-agent", format!("context-machine/{}", env!("CARGO_PKG_VERSION")).parse()?);
-    let (ws, _) = tokio::time::timeout(Duration::from_secs(20), tokio_tungstenite::connect_async(req)).await.context("connect timed out")??;
+    req.headers_mut().insert(
+        "user-agent",
+        format!("context-machine/{}", env!("CARGO_PKG_VERSION")).parse()?,
+    );
+    let (ws, _) = tokio::time::timeout(
+        Duration::from_secs(20),
+        tokio_tungstenite::connect_async(req),
+    )
+    .await
+    .context("connect timed out")??;
     let (mut tx, mut rx) = ws.split();
 
     let challenge = loop {
-        let msg = tokio::time::timeout(CHALLENGE_WAIT, rx.next()).await.context("no challenge from the gateway")?;
+        let msg = tokio::time::timeout(CHALLENGE_WAIT, rx.next())
+            .await
+            .context("no challenge from the gateway")?;
         match msg {
             Some(Ok(Message::Text(t))) => match serde_json::from_str::<ServerMsg>(&t) {
                 Ok(ServerMsg::Challenge(c)) => break c,
@@ -102,12 +127,19 @@ async fn connect_once(machine: &Machine, dial: &Dial, out_rx: &mut mpsc::Receive
         }
     };
     if challenge.protocol != PROTOCOL_VERSION {
-        bail!("the gateway speaks protocol {}, this runner {PROTOCOL_VERSION}; update the runner", challenge.protocol);
+        bail!(
+            "the gateway speaks protocol {}, this runner {PROTOCOL_VERSION}; update the runner",
+            challenge.protocol
+        );
     }
     if !valid_nonce(&challenge.nonce) {
         bail!("the gateway's challenge is not a nonce");
     }
-    send(&mut tx, &machine.hello(&dial.machine_id, &challenge.nonce).await?).await?;
+    send(
+        &mut tx,
+        &machine.hello(&dial.machine_id, &challenge.nonce).await?,
+    )
+    .await?;
     send(&mut tx, &RunnerMsg::Status(machine.status().await)).await?;
     on_state("online");
     eprintln!("connected");

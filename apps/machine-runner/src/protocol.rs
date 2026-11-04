@@ -510,8 +510,15 @@ pub struct PairStatus {
 /// messages. Run and job ids become folder names, so this is checked before
 /// any is used.
 pub fn valid_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
+
+#[cfg(test)]
+mod schema_examples;
 
 #[cfg(test)]
 mod tests {
@@ -519,14 +526,25 @@ mod tests {
 
     #[test]
     fn an_unknown_message_is_an_error_not_a_command() {
-        assert!(serde_json::from_str::<ServerMsg>(r#"{"type":"exec","command":"rm -rf ~"}"#).is_err());
-        assert!(serde_json::from_str::<ServerMsg>(r#"{"type":"cancel","runId":"r","reason":"stopped","then":"x"}"#).is_err());
+        assert!(
+            serde_json::from_str::<ServerMsg>(r#"{"type":"exec","command":"rm -rf ~"}"#).is_err()
+        );
+        assert!(serde_json::from_str::<ServerMsg>(
+            r#"{"type":"cancel","runId":"r","reason":"stopped","then":"x"}"#
+        )
+        .is_err());
     }
 
     #[test]
     fn signing_texts_match_the_gateways() {
-        assert_eq!(hello_signing_text("mch_1", "n"), "context-machine-hello:v1:mch_1:n");
-        assert_eq!(pair_signing_text("pair_1"), "context-machine-pair:v1:pair_1");
+        assert_eq!(
+            hello_signing_text("mch_1", "n"),
+            "context-machine-hello:v1:mch_1:n"
+        );
+        assert_eq!(
+            pair_signing_text("pair_1"),
+            "context-machine-pair:v1:pair_1"
+        );
     }
 
     #[test]

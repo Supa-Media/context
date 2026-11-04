@@ -7,7 +7,10 @@
 //! restart resumes the same session instead of starting over.
 
 use crate::drive::{self, DriveOutcome, Driver};
-use crate::protocol::{Assign, Deliver, Interrupt, MessageKind, Outcome, PermissionMode, RunResult, RunnerMsg, Session, Tool};
+use crate::protocol::{
+    Assign, Deliver, Interrupt, MessageKind, Outcome, PermissionMode, RunResult, RunnerMsg,
+    Session, Tool,
+};
 use crate::state::{make_private_dir, write_private, State, SECRET_FILES};
 use crate::workdir::{self, Workdir};
 use serde::{Deserialize, Serialize};
@@ -77,7 +80,13 @@ pub type Spent = (u64, u64);
 
 /// Runs to the end. Never panics outward: every way it ends is a result the
 /// job object can read.
-pub async fn run(ctx: RunContext, a: Assign, root: PathBuf, inputs: mpsc::Receiver<RunInput>, spent: mpsc::Sender<Spent>) -> RunResult {
+pub async fn run(
+    ctx: RunContext,
+    a: Assign,
+    root: PathBuf,
+    inputs: mpsc::Receiver<RunInput>,
+    spent: mpsc::Sender<Spent>,
+) -> RunResult {
     let started = Instant::now();
     let run_dir = ctx.state.run_dir(&a.run_id);
     let mut record = RunRecord {
@@ -128,16 +137,33 @@ pub async fn run(ctx: RunContext, a: Assign, root: PathBuf, inputs: mpsc::Receiv
     }
     save_record(&ctx.state, &record);
     if !record.session.is_empty() {
-        let _ = ctx.out.send(RunnerMsg::Session(Session { run_id: a.run_id.clone(), session: record.session.clone() })).await;
+        let _ = ctx
+            .out
+            .send(RunnerMsg::Session(Session {
+                run_id: a.run_id.clone(),
+                session: record.session.clone(),
+            }))
+            .await;
     }
 
     let trusted = a.from_owner
-        && a.repo.as_ref().is_some_and(|r| ctx.trusted_repos.iter().any(|t| t.eq_ignore_ascii_case(r)));
-    let driver = match prepare_driver(&ctx, &a, &run_dir, &workdir, resume, &record.session, trusted) {
+        && a.repo
+            .as_ref()
+            .is_some_and(|r| ctx.trusted_repos.iter().any(|t| t.eq_ignore_ascii_case(r)));
+    let driver = match prepare_driver(
+        &ctx,
+        &a,
+        &run_dir,
+        &workdir,
+        resume,
+        &record.session,
+        trusted,
+    ) {
         Ok(d) => d,
         Err(code) => return fail(code, &record),
     };
-    let outcome: DriveOutcome = drive::drive(driver, &a, inputs, &ctx.out, &mut record, &ctx.state, spent).await;
+    let outcome: DriveOutcome =
+        drive::drive(driver, &a, inputs, &ctx.out, &mut record, &ctx.state, spent).await;
     record.alive = false;
     save_record(&ctx.state, &record);
     let branch = match workdir::settle(&root, &a.job_id).await {
@@ -147,7 +173,9 @@ pub async fn run(ctx: RunContext, a: Assign, root: PathBuf, inputs: mpsc::Receiv
     RunResult {
         run_id: a.run_id.clone(),
         outcome: outcome.outcome,
-        answer: Some(outcome.answer).filter(|s| !s.is_empty()).map(|s| clip(&s, 32_000)),
+        answer: Some(outcome.answer)
+            .filter(|s| !s.is_empty())
+            .map(|s| clip(&s, 32_000)),
         session: Some(record.session.clone()).filter(|s| !s.is_empty()),
         last_step: Some(record.last_step),
         wall_ms: started.elapsed().as_millis() as u64,
@@ -160,15 +188,35 @@ fn clip(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
-fn prepare_driver(ctx: &RunContext, a: &Assign, run_dir: &Path, workdir: &Path, resume: bool, session: &str, repo_settings: bool) -> Result<Driver, &'static str> {
+fn prepare_driver(
+    ctx: &RunContext,
+    a: &Assign,
+    run_dir: &Path,
+    workdir: &Path,
+    resume: bool,
+    session: &str,
+    repo_settings: bool,
+) -> Result<Driver, &'static str> {
     let exe = crate::facts::which(a.tool.name()).ok_or("tool missing")?;
     let system = system_prompt(&ctx.machine_name, a);
     let network = a.network;
-    let first = if resume { a.advice.clone().unwrap_or_else(|| "Carry on where you left off.".into()) } else { first_message(a) };
+    let first = if resume {
+        a.advice
+            .clone()
+            .unwrap_or_else(|| "Carry on where you left off.".into())
+    } else {
+        first_message(a)
+    };
     match a.tool {
         Tool::Claude => {
             let mcp = run_dir.join("mcp.json");
-            write_private(&mcp, crate::claude::mcp_config(&a.grant.mcp_url, &a.grant.token).to_string().as_bytes()).map_err(|_| "secret write")?;
+            write_private(
+                &mcp,
+                crate::claude::mcp_config(&a.grant.mcp_url, &a.grant.token)
+                    .to_string()
+                    .as_bytes(),
+            )
+            .map_err(|_| "secret write")?;
             let settings = if network {
                 None
             } else {
@@ -180,7 +228,8 @@ fn prepare_driver(ctx: &RunContext, a: &Assign, run_dir: &Path, workdir: &Path, 
                 }
                 let host = crate::cli::host_of(&a.grant.mcp_url).to_string();
                 let path = run_dir.join("settings.json");
-                std::fs::write(&path, crate::claude::sandbox_settings(&host).to_string()).map_err(|_| "secret write")?;
+                std::fs::write(&path, crate::claude::sandbox_settings(&host).to_string())
+                    .map_err(|_| "secret write")?;
                 Some(path)
             };
             let args = crate::claude::args(&crate::claude::ClaudePlan {
@@ -195,12 +244,21 @@ fn prepare_driver(ctx: &RunContext, a: &Assign, run_dir: &Path, workdir: &Path, 
                 network,
                 system_prompt: &system,
             });
-            Ok(Driver::Claude { exe, args, cwd: workdir.to_path_buf(), first })
+            Ok(Driver::Claude {
+                exe,
+                args,
+                cwd: workdir.to_path_buf(),
+                first,
+            })
         }
         Tool::Codex => {
             let grant = run_dir.join("grant");
             write_private(&grant, a.grant.token.as_bytes()).map_err(|_| "secret write")?;
-            let first = if resume { first } else { format!("{system}\n\n{first}") };
+            let first = if resume {
+                first
+            } else {
+                format!("{system}\n\n{first}")
+            };
             Ok(Driver::Codex {
                 exe,
                 cwd: workdir.to_path_buf(),
@@ -274,7 +332,16 @@ mod tests {
 
     #[test]
     fn mail_is_marked_as_another_agents_words() {
-        let d = Deliver { run_id: "r".into(), message_id: "m".into(), kind: MessageKind::Ask, from: "vm-1".into(), text: "which branch?".into(), app: None, path: Some("projects/a.md".into()), at: None };
+        let d = Deliver {
+            run_id: "r".into(),
+            message_id: "m".into(),
+            kind: MessageKind::Ask,
+            from: "vm-1".into(),
+            text: "which branch?".into(),
+            app: None,
+            path: Some("projects/a.md".into()),
+            at: None,
+        };
         let t = deliver_text(&d);
         assert!(t.starts_with("[Mail from vm-1 on projects/a.md, ask"));
         assert!(t.contains("vouch for nothing"));

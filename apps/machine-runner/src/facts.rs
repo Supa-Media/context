@@ -19,8 +19,23 @@ pub enum ToolState {
 
 /// Tools worth naming in the good-at note. Presence only.
 const NOTABLE_TOOLS: &[&str] = &[
-    "git", "gh", "node", "pnpm", "npm", "bun", "python3", "cargo", "go", "docker", "wrangler", "op", "xcodebuild",
-    "gcloud", "aws", "fly", "vercel",
+    "git",
+    "gh",
+    "node",
+    "pnpm",
+    "npm",
+    "bun",
+    "python3",
+    "cargo",
+    "go",
+    "docker",
+    "wrangler",
+    "op",
+    "xcodebuild",
+    "gcloud",
+    "aws",
+    "fly",
+    "vercel",
 ];
 
 pub async fn gather() -> MachineFacts {
@@ -35,12 +50,17 @@ pub async fn gather() -> MachineFacts {
             version: None,
         });
     }
-    tools.extend(NOTABLE_TOOLS.iter().filter(|t| which(t).is_some()).map(|t| ToolFact {
-        name: t.to_string(),
-        installed: true,
-        signed_in: false,
-        version: None,
-    }));
+    tools.extend(
+        NOTABLE_TOOLS
+            .iter()
+            .filter(|t| which(t).is_some())
+            .map(|t| ToolFact {
+                name: t.to_string(),
+                installed: true,
+                signed_in: false,
+                version: None,
+            }),
+    );
     MachineFacts {
         os: if cfg!(target_os = "macos") {
             Os::Macos
@@ -63,7 +83,10 @@ pub async fn gather() -> MachineFacts {
 
 /// Whether a coding tool is installed and signed in, from the facts.
 pub fn ready(facts: &MachineFacts, tool: Tool) -> bool {
-    facts.tools.iter().any(|t| t.name == tool.name() && t.signed_in)
+    facts
+        .tools
+        .iter()
+        .any(|t| t.name == tool.name() && t.signed_in)
 }
 
 fn clip(s: &str, max: usize) -> String {
@@ -78,7 +101,13 @@ pub fn repos_in(folders: &[String]) -> Vec<String> {
     for f in folders {
         let root = Path::new(f);
         let mut candidates = vec![root.to_path_buf()];
-        candidates.extend(std::fs::read_dir(root).into_iter().flatten().flatten().map(|e| e.path()));
+        candidates.extend(
+            std::fs::read_dir(root)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| e.path()),
+        );
         for dir in candidates {
             if dir.join(".git").exists() {
                 let name = crate::workdir::origin_repo(&dir)

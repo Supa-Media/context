@@ -25,6 +25,7 @@ on:
     branches: [main]
     paths:
       - "apps/machine-runner/**"
+      - "packages/shared/src/machineProtocol.*"
       - ".github/workflows/machine-runner.yml"
 
 permissions:
@@ -52,6 +53,7 @@ jobs:
           filters: |
             code:
               - "apps/machine-runner/**"
+              - "packages/shared/src/machineProtocol.*"
               - ".github/workflows/machine-runner.yml"
 
   test:

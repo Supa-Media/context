@@ -35,7 +35,10 @@ pub struct Machine {
 }
 
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// What a goodbye means for the runner.
@@ -48,23 +51,53 @@ pub enum Stop {
 }
 
 impl Machine {
-    pub fn new(state: State, facts: MachineFacts, out: mpsc::Sender<RunnerMsg>, runner_exe: PathBuf, name: String) -> Machine {
+    pub fn new(
+        state: State,
+        facts: MachineFacts,
+        out: mpsc::Sender<RunnerMsg>,
+        runner_exe: PathBuf,
+        name: String,
+    ) -> Machine {
         let slots = crate::slots::advise(facts.memory_mb, facts.cores);
         let rules = rules::effective(&state.rules(), &state.local(), slots.most);
         let utc = utc_offset_minutes(rules.limits.time_zone.as_deref());
         let ledger = state.ledger();
-        Machine { inner: Arc::new(Mutex::new(Inner { rules, ledger, running: HashMap::new(), facts, slots, utc_offset_minutes: utc })), state, out, runner_exe, name }
+        Machine {
+            inner: Arc::new(Mutex::new(Inner {
+                rules,
+                ledger,
+                running: HashMap::new(),
+                facts,
+                slots,
+                utc_offset_minutes: utc,
+            })),
+            state,
+            out,
+            runner_exe,
+            name,
+        }
     }
 
     /// Runs this runner still holds: running, or finished with a result kept.
     fn held_runs(&self, inner: &Inner) -> Vec<HeldRun> {
         let mut held = vec![];
-        for entry in std::fs::read_dir(self.state.runs_dir()).into_iter().flatten().flatten() {
+        for entry in std::fs::read_dir(self.state.runs_dir())
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
             let id = entry.file_name().to_string_lossy().to_string();
-            let Some(r) = run::load_record(&self.state, &id) else { continue };
+            let Some(r) = run::load_record(&self.state, &id) else {
+                continue;
+            };
             let alive = inner.running.contains_key(&id);
             if alive || run::result_path(&self.state, &id).exists() {
-                held.push(HeldRun { run_id: id, alive, session: Some(r.session).filter(|s| !s.is_empty()), last_step: Some(r.last_step) });
+                held.push(HeldRun {
+                    run_id: id,
+                    alive,
+                    session: Some(r.session).filter(|s| !s.is_empty()),
+                    last_step: Some(r.last_step),
+                });
             }
         }
         held.sort_by_key(|h| !h.alive);
@@ -91,10 +124,22 @@ impl Machine {
         let inner = self.inner.lock().await;
         let now = now_ms();
         let free = crate::facts::memory().available_mb;
-        let tools: Vec<ToolFact> = inner.facts.tools.iter().filter(|t| t.name == "claude" || t.name == "codex").cloned().collect();
+        let tools: Vec<ToolFact> = inner
+            .facts
+            .tools
+            .iter()
+            .filter(|t| t.name == "claude" || t.name == "codex")
+            .cloned()
+            .collect();
         let any_installed = tools.iter().any(|t| t.installed);
-        let any_ready = [Tool::Claude, Tool::Codex].iter().any(|t| inner.rules.tools.contains(t) && crate::facts::ready(&inner.facts, *t));
-        let paused_until = [Tool::Claude, Tool::Codex].iter().filter_map(|t| inner.ledger.paused_until_ms(*t)).filter(|u| *u > now).min();
+        let any_ready = [Tool::Claude, Tool::Codex]
+            .iter()
+            .any(|t| inner.rules.tools.contains(t) && crate::facts::ready(&inner.facts, *t));
+        let paused_until = [Tool::Claude, Tool::Codex]
+            .iter()
+            .filter_map(|t| inner.ledger.paused_until_ms(*t))
+            .filter(|u| *u > now)
+            .min();
         let not_ready = if !any_installed {
             Some(NotReady::NoTool)
         } else if !any_ready {
@@ -106,7 +151,14 @@ impl Machine {
         } else {
             None
         };
-        Status { ready: not_ready.is_none(), not_ready, busy: inner.running.len() as u32, free_memory_mb: free, paused_until, tools: Some(tools) }
+        Status {
+            ready: not_ready.is_none(),
+            not_ready,
+            busy: inner.running.len() as u32,
+            free_memory_mb: free,
+            paused_until,
+            tools: Some(tools),
+        }
     }
 
     async fn set_rules(&self, rules: Rules) {
@@ -162,7 +214,10 @@ impl Machine {
         for h in held {
             if keep.contains(&h.run_id) {
                 if !h.alive {
-                    if let Some(r) = std::fs::read(run::result_path(&self.state, &h.run_id)).ok().and_then(|b| serde_json::from_slice::<RunResult>(&b).ok()) {
+                    if let Some(r) = std::fs::read(run::result_path(&self.state, &h.run_id))
+                        .ok()
+                        .and_then(|b| serde_json::from_slice::<RunResult>(&b).ok())
+                    {
                         let _ = self.out.send(RunnerMsg::Result(r)).await;
                     }
                 }
@@ -213,7 +268,14 @@ impl Machine {
             Err(Refused { code, until }) => {
                 drop(inner);
                 eprintln!("run {}: refused ({code:?})", a.run_id);
-                let _ = self.out.send(RunnerMsg::Refuse(Refuse { run_id: a.run_id, code, until })).await;
+                let _ = self
+                    .out
+                    .send(RunnerMsg::Refuse(Refuse {
+                        run_id: a.run_id,
+                        code,
+                        until,
+                    }))
+                    .await;
                 return;
             }
         };
@@ -234,8 +296,19 @@ impl Machine {
             out: self.out.clone(),
         };
         drop(inner);
-        let _ = self.out.send(RunnerMsg::Accept(Accept { run_id: a.run_id.clone() })).await;
-        eprintln!("run {}: job {} part {} started with {}", a.run_id, a.job_id, a.part, a.tool.name());
+        let _ = self
+            .out
+            .send(RunnerMsg::Accept(Accept {
+                run_id: a.run_id.clone(),
+            }))
+            .await;
+        eprintln!(
+            "run {}: job {} part {} started with {}",
+            a.run_id,
+            a.job_id,
+            a.part,
+            a.tool.name()
+        );
         let me = self.clone();
         tokio::spawn(async move { me.run(ctx, a, root, rx).await });
     }

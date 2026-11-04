@@ -46,9 +46,16 @@ pub fn args(p: &CodexPlan) -> Vec<String> {
     }
     // Codex's own sandbox always: read-only for a read run, else the run's
     // folder, with the network only when the run may use it.
-    let sandbox = if p.read_only { "read-only" } else { "workspace-write" };
+    let sandbox = if p.read_only {
+        "read-only"
+    } else {
+        "workspace-write"
+    };
     a.extend(["--sandbox".into(), sandbox.into()]);
-    a.extend(["-c".into(), format!("sandbox_workspace_write.network_access={}", p.network)]);
+    a.extend([
+        "-c".into(),
+        format!("sandbox_workspace_write.network_access={}", p.network),
+    ]);
     let exe = toml_string(&p.runner_exe.display().to_string());
     let grant = toml_string(&p.grant_file.display().to_string());
     let endpoint = toml_string(p.endpoint);

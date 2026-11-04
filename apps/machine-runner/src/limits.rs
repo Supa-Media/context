@@ -55,7 +55,10 @@ impl Ledger {
 
     /// The seven days ending with `day`.
     pub fn week_ms(&self, day: i64) -> u64 {
-        self.days.range(day - 6..=day).map(|(_, d)| d.total_ms()).sum()
+        self.days
+            .range(day - 6..=day)
+            .map(|(_, d)| d.total_ms())
+            .sum()
     }
 
     pub fn week_tokens(&self, day: i64) -> u64 {
@@ -90,7 +93,10 @@ impl Ledger {
 
     /// Pause a tool until the reset it named. Never shortens a longer pause.
     pub fn pause(&mut self, tool: Tool, until_ms: u64) {
-        let e = self.paused_until.entry(tool.name().to_string()).or_insert(0);
+        let e = self
+            .paused_until
+            .entry(tool.name().to_string())
+            .or_insert(0);
         *e = (*e).max(until_ms);
     }
 
@@ -103,11 +109,22 @@ impl Ledger {
 /// `America/New_York`, asked of the system's own zone database (`date`), so the
 /// runner carries none. A zone it cannot read counts as UTC.
 pub fn utc_offset_minutes(zone: Option<&str>) -> i32 {
-    let Some(zone) = zone.filter(|z| !z.is_empty() && z.len() <= 64 && z.chars().all(|c| c.is_ascii_alphanumeric() || "/_+-".contains(c))) else {
+    let Some(zone) = zone.filter(|z| {
+        !z.is_empty()
+            && z.len() <= 64
+            && z.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "/_+-".contains(c))
+    }) else {
         return 0;
     };
-    let out = std::process::Command::new("date").arg("+%z").env("TZ", zone).output();
-    out.ok().and_then(|o| String::from_utf8(o.stdout).ok()).and_then(|s| parse_offset(s.trim())).unwrap_or(0)
+    let out = std::process::Command::new("date")
+        .arg("+%z")
+        .env("TZ", zone)
+        .output();
+    out.ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| parse_offset(s.trim()))
+        .unwrap_or(0)
 }
 
 /// `-0500` is -300 minutes.
@@ -143,7 +160,14 @@ mod tests {
     fn week_is_the_seven_days_ending_today() {
         let mut l = Ledger::default();
         for d in 0..10 {
-            l.days.insert(d, Day { own_ms: 60, tokens: 1, ..Default::default() });
+            l.days.insert(
+                d,
+                Day {
+                    own_ms: 60,
+                    tokens: 1,
+                    ..Default::default()
+                },
+            );
         }
         assert_eq!(l.week_ms(9), 7 * 60);
         assert_eq!(l.week_tokens(9), 7);

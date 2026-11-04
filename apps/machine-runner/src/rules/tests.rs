@@ -21,7 +21,11 @@ fn fixture() -> Fixture {
     let outside = dir.path().join("private");
     fs::create_dir_all(allowed.join("repo")).unwrap();
     fs::create_dir_all(&outside).unwrap();
-    Fixture { allowed, outside, _dir: dir }
+    Fixture {
+        allowed,
+        outside,
+        _dir: dir,
+    }
 }
 
 fn s(p: &Path) -> String {
@@ -32,7 +36,10 @@ fn rules(f: &Fixture) -> Rules {
     Rules {
         folders: vec![s(&f.allowed)],
         tools: vec![Tool::Claude, Tool::Codex],
-        limits: Limits { slots: 3, ..Limits::default() },
+        limits: Limits {
+            slots: 3,
+            ..Limits::default()
+        },
         computer_use: true,
         trusted_repos: None,
     }
@@ -52,7 +59,11 @@ fn assign(folder: &Path, from_owner: bool) -> Assign {
         done_when: String::new(),
         advice: None,
         resume_session: None,
-        grant: RunGrant { token: "grant".into(), expires_at: NOW + 60 * MIN, mcp_url: "https://context.example/mcp".into() },
+        grant: RunGrant {
+            token: "grant".into(),
+            expires_at: NOW + 60 * MIN,
+            mcp_url: "https://context.example/mcp".into(),
+        },
         deadline: NOW + 60 * MIN,
         from_owner,
         asker: None,
@@ -64,7 +75,16 @@ fn assign(folder: &Path, from_owner: bool) -> Assign {
 }
 
 fn snap(ledger: &Ledger, running: u32) -> Snapshot<'_> {
-    Snapshot { now_ms: NOW, running, running_runs: &[], available_mb: 8000, claude_ready: true, codex_ready: false, ledger, utc_offset_minutes: 0 }
+    Snapshot {
+        now_ms: NOW,
+        running,
+        running_runs: &[],
+        available_mb: 8000,
+        claude_ready: true,
+        codex_ready: false,
+        ledger,
+        utc_offset_minutes: 0,
+    }
 }
 
 fn code(r: Result<PathBuf, Refused>) -> Option<RefusalCode> {
@@ -75,7 +95,12 @@ fn code(r: Result<PathBuf, Refused>) -> Option<RefusalCode> {
 fn a_run_inside_the_allowed_folder_starts() {
     let f = fixture();
     let l = Ledger::default();
-    let root = check(&rules(&f), &assign(&f.allowed.join("repo"), true), &snap(&l, 0)).unwrap();
+    let root = check(
+        &rules(&f),
+        &assign(&f.allowed.join("repo"), true),
+        &snap(&l, 0),
+    )
+    .unwrap();
     assert_eq!(root, fs::canonicalize(&f.allowed).unwrap());
 }
 
@@ -85,8 +110,17 @@ fn a_run_never_starts_outside_the_allowed_folders() {
     let f = fixture();
     let l = Ledger::default();
     let r = rules(&f);
-    for folder in [f.outside.clone(), f.allowed.join("repo/../../private"), PathBuf::from("relative/path"), f.allowed.join("missing")] {
-        assert_eq!(code(check(&r, &assign(&folder, false), &snap(&l, 0))), Some(RefusalCode::Folder), "{folder:?}");
+    for folder in [
+        f.outside.clone(),
+        f.allowed.join("repo/../../private"),
+        PathBuf::from("relative/path"),
+        f.allowed.join("missing"),
+    ] {
+        assert_eq!(
+            code(check(&r, &assign(&folder, false), &snap(&l, 0))),
+            Some(RefusalCode::Folder),
+            "{folder:?}"
+        );
     }
 }
 
@@ -96,7 +130,10 @@ fn a_sibling_with_the_same_prefix_is_outside() {
     let sibling = f.allowed.with_file_name("code2");
     fs::create_dir_all(&sibling).unwrap();
     let l = Ledger::default();
-    assert_eq!(code(check(&rules(&f), &assign(&sibling, true), &snap(&l, 0))), Some(RefusalCode::Folder));
+    assert_eq!(
+        code(check(&rules(&f), &assign(&sibling, true), &snap(&l, 0))),
+        Some(RefusalCode::Folder)
+    );
 }
 
 #[cfg(unix)]
@@ -106,7 +143,10 @@ fn a_symlink_out_of_the_allowed_folder_is_outside() {
     let link = f.allowed.join("escape");
     std::os::unix::fs::symlink(&f.outside, &link).unwrap();
     let l = Ledger::default();
-    assert_eq!(code(check(&rules(&f), &assign(&link, true), &snap(&l, 0))), Some(RefusalCode::Folder));
+    assert_eq!(
+        code(check(&rules(&f), &assign(&link, true), &snap(&l, 0))),
+        Some(RefusalCode::Folder)
+    );
 }
 
 #[test]
@@ -134,33 +174,66 @@ fn limits_are_enforced_on_the_machine_when_the_gateway_is_wrong() {
     assert_eq!(refused.until, Some(l.day_start_ms(day + 1, 0)));
 
     let l = Ledger::default();
-    assert_eq!(code(check(&r, &assign(&f.allowed, true), &snap(&l, 3))), Some(RefusalCode::Busy));
+    assert_eq!(
+        code(check(&r, &assign(&f.allowed, true), &snap(&l, 3))),
+        Some(RefusalCode::Busy)
+    );
 
     let mut long = assign(&f.allowed, true);
     long.deadline = NOW + r.limits.longest_run_ms + MIN;
-    assert_eq!(code(check(&r, &long, &snap(&l, 0))), Some(RefusalCode::Rule));
+    assert_eq!(
+        code(check(&r, &long, &snap(&l, 0))),
+        Some(RefusalCode::Rule)
+    );
 
     let mut codex = assign(&f.allowed, true);
     codex.tool = Tool::Codex;
-    assert_eq!(code(check(&r, &codex, &snap(&l, 0))), Some(RefusalCode::NotReady));
+    assert_eq!(
+        code(check(&r, &codex, &snap(&l, 0))),
+        Some(RefusalCode::NotReady)
+    );
 
-    let only_codex = Rules { tools: vec![Tool::Codex], ..rules(&f) };
-    assert_eq!(code(check(&only_codex, &assign(&f.allowed, true), &snap(&l, 0))), Some(RefusalCode::Tool));
+    let only_codex = Rules {
+        tools: vec![Tool::Codex],
+        ..rules(&f)
+    };
+    assert_eq!(
+        code(check(&only_codex, &assign(&f.allowed, true), &snap(&l, 0))),
+        Some(RefusalCode::Tool)
+    );
 }
 
 #[test]
 fn the_week_limits_count_earlier_days() {
     let f = fixture();
-    let r = Rules { limits: Limits { week_ms: 60 * MIN, ..rules(&f).limits }, ..rules(&f) };
+    let r = Rules {
+        limits: Limits {
+            week_ms: 60 * MIN,
+            ..rules(&f).limits
+        },
+        ..rules(&f)
+    };
     let mut l = Ledger::default();
     let day = l.day_of(NOW, 0);
     l.add_time(day - 3, 60 * MIN, true);
-    assert_eq!(code(check(&r, &assign(&f.allowed, true), &snap(&l, 0))), Some(RefusalCode::LimitWeek));
+    assert_eq!(
+        code(check(&r, &assign(&f.allowed, true), &snap(&l, 0))),
+        Some(RefusalCode::LimitWeek)
+    );
 
-    let r = Rules { limits: Limits { week_tokens: Some(1000), ..rules(&f).limits }, ..rules(&f) };
+    let r = Rules {
+        limits: Limits {
+            week_tokens: Some(1000),
+            ..rules(&f).limits
+        },
+        ..rules(&f)
+    };
     let mut l = Ledger::default();
     l.add_tokens(day - 1, 1000);
-    assert_eq!(code(check(&r, &assign(&f.allowed, true), &snap(&l, 0))), Some(RefusalCode::LimitWeek));
+    assert_eq!(
+        code(check(&r, &assign(&f.allowed, true), &snap(&l, 0))),
+        Some(RefusalCode::LimitWeek)
+    );
 }
 
 #[test]
@@ -170,14 +243,20 @@ fn others_have_their_own_share_and_the_owner_is_not_blocked_by_it() {
     let mut l = Ledger::default();
     let day = l.day_of(NOW, 0);
     l.add_time(day, r.limits.others_day_ms, false);
-    assert_eq!(code(check(&r, &assign(&f.allowed, false), &snap(&l, 0))), Some(RefusalCode::LimitOthers));
+    assert_eq!(
+        code(check(&r, &assign(&f.allowed, false), &snap(&l, 0))),
+        Some(RefusalCode::LimitOthers)
+    );
     assert!(check(&r, &assign(&f.allowed, true), &snap(&l, 0)).is_ok());
 
     let mut l = Ledger::default();
     for _ in 0..r.limits.others_runs_per_day {
         l.count_others_run(day);
     }
-    assert_eq!(code(check(&r, &assign(&f.allowed, false), &snap(&l, 0))), Some(RefusalCode::LimitOthers));
+    assert_eq!(
+        code(check(&r, &assign(&f.allowed, false), &snap(&l, 0))),
+        Some(RefusalCode::LimitOthers)
+    );
 }
 
 #[test]
@@ -196,16 +275,28 @@ fn computer_use_and_full_permission_are_the_owners_alone() {
     a.permission = PermissionMode::Full;
     assert!(check(&r, &a, &snap(&l, 0)).is_ok());
     // And for the owner only when the machine allows it at all.
-    let off = Rules { computer_use: false, ..rules(&f) };
+    let off = Rules {
+        computer_use: false,
+        ..rules(&f)
+    };
     assert_eq!(code(check(&off, &a, &snap(&l, 0))), Some(RefusalCode::Rule));
 }
 
 #[test]
 fn keep_one_for_the_owner_holds_the_last_slot() {
     let f = fixture();
-    let r = Rules { limits: Limits { keep_one_for_owner: Some(true), ..rules(&f).limits }, ..rules(&f) };
+    let r = Rules {
+        limits: Limits {
+            keep_one_for_owner: Some(true),
+            ..rules(&f).limits
+        },
+        ..rules(&f)
+    };
     let l = Ledger::default();
-    assert_eq!(code(check(&r, &assign(&f.allowed, false), &snap(&l, 2))), Some(RefusalCode::Busy));
+    assert_eq!(
+        code(check(&r, &assign(&f.allowed, false), &snap(&l, 2))),
+        Some(RefusalCode::Busy)
+    );
     assert!(check(&r, &assign(&f.allowed, true), &snap(&l, 2)).is_ok());
 }
 
@@ -216,7 +307,13 @@ fn a_plan_pause_holds_until_its_reset() {
     let mut l = Ledger::default();
     l.pause(Tool::Claude, NOW + 1000);
     let refused = check(&r, &assign(&f.allowed, true), &snap(&l, 0)).unwrap_err();
-    assert_eq!(refused, Refused { code: RefusalCode::PlanLimit, until: Some(NOW + 1000) });
+    assert_eq!(
+        refused,
+        Refused {
+            code: RefusalCode::PlanLimit,
+            until: Some(NOW + 1000)
+        }
+    );
     l.paused_until.clear();
     l.pause(Tool::Claude, NOW - 1);
     assert!(check(&r, &assign(&f.allowed, true), &snap(&l, 0)).is_ok());
@@ -228,7 +325,10 @@ fn low_memory_takes_no_new_run() {
     let l = Ledger::default();
     let mut sn = snap(&l, 0);
     sn.available_mb = 100;
-    assert_eq!(code(check(&rules(&f), &assign(&f.allowed, true), &sn)), Some(RefusalCode::Memory));
+    assert_eq!(
+        code(check(&rules(&f), &assign(&f.allowed, true), &sn)),
+        Some(RefusalCode::Memory)
+    );
 }
 
 #[test]
@@ -246,12 +346,19 @@ fn bad_assignments_are_refused() {
         a.run_id = run.into();
         a.grant.token = token.into();
         a.grant.mcp_url = url.into();
-        assert_eq!(code(check(&r, &a, &snap(&l, 0))), Some(RefusalCode::BadMessage), "{run} {url}");
+        assert_eq!(
+            code(check(&r, &a, &snap(&l, 0))),
+            Some(RefusalCode::BadMessage),
+            "{run} {url}"
+        );
     }
     let ids = vec!["run_1".to_string()];
     let mut sn = snap(&l, 0);
     sn.running_runs = &ids;
-    assert_eq!(code(check(&r, &assign(&f.allowed, true), &sn)), Some(RefusalCode::BadMessage));
+    assert_eq!(
+        code(check(&r, &assign(&f.allowed, true), &sn)),
+        Some(RefusalCode::BadMessage)
+    );
 }
 
 #[test]
@@ -260,7 +367,12 @@ fn local_limits_only_narrow() {
     let wide = Rules {
         folders: vec![s(&f.allowed), s(&f.outside)],
         tools: vec![Tool::Claude, Tool::Codex],
-        limits: Limits { slots: 8, day_ms: 600 * MIN, longest_run_ms: u64::MAX, ..Limits::default() },
+        limits: Limits {
+            slots: 8,
+            day_ms: 600 * MIN,
+            longest_run_ms: u64::MAX,
+            ..Limits::default()
+        },
         computer_use: false,
         trusted_repos: None,
     };
@@ -281,7 +393,13 @@ fn local_limits_only_narrow() {
     assert_eq!(e.limits.longest_run_ms, LONGEST_RUN_CEILING_MS);
     assert_eq!(allowed_commands(&local), vec!["git".to_string()]);
     // Settings asking for more slots than the machine has get its most.
-    let many = Rules { limits: Limits { slots: 50, ..Limits::default() }, ..wide.clone() };
+    let many = Rules {
+        limits: Limits {
+            slots: 50,
+            ..Limits::default()
+        },
+        ..wide.clone()
+    };
     assert_eq!(effective(&many, &LocalLimits::default(), 3).limits.slots, 3);
 }
 
@@ -289,6 +407,12 @@ fn local_limits_only_narrow() {
 fn a_machine_with_no_folder_takes_no_run() {
     let f = fixture();
     let l = Ledger::default();
-    let r = Rules { folders: vec![], ..rules(&f) };
-    assert_eq!(code(check(&r, &assign(&f.allowed, true), &snap(&l, 0))), Some(RefusalCode::Folder));
+    let r = Rules {
+        folders: vec![],
+        ..rules(&f)
+    };
+    assert_eq!(
+        code(check(&r, &assign(&f.allowed, true), &snap(&l, 0))),
+        Some(RefusalCode::Folder)
+    );
 }

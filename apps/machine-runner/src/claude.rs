@@ -64,8 +64,20 @@ pub fn args(p: &ClaudePlan) -> Vec<String> {
     // read: only reading tools; edits: file edits and the allowlisted
     // programs; full: whatever Claude Code allows (owner's own asks only).
     let (mode, extra): (&str, Vec<String>) = match p.permission {
-        PermissionMode::Read => ("default", ["Read", "Glob", "Grep"].iter().map(|s| s.to_string()).collect()),
-        PermissionMode::Edits => ("acceptEdits", p.allowed_commands.iter().map(|c| format!("Bash({c}:*)")).collect()),
+        PermissionMode::Read => (
+            "default",
+            ["Read", "Glob", "Grep"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        ),
+        PermissionMode::Edits => (
+            "acceptEdits",
+            p.allowed_commands
+                .iter()
+                .map(|c| format!("Bash({c}:*)"))
+                .collect(),
+        ),
         PermissionMode::Full => ("bypassPermissions", vec![]),
     };
     a.extend(["--permission-mode".into(), mode.into()]);

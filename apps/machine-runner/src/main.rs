@@ -132,11 +132,30 @@ async fn real_main(args: Args) -> Result<()> {
             let endpoint = endpoint.unwrap_or_else(|| default_endpoint(&state));
             pair::pair(&state, &endpoint, &name.unwrap_or_else(pair::default_name)).await
         }
-        Command::Run { endpoint, grant_file, socket_url, machine_id, status_json, no_keep_awake, name } => {
-            let opts = RunOpts { endpoint, grant_file, socket_url, machine_id, status_json, no_keep_awake, name };
+        Command::Run {
+            endpoint,
+            grant_file,
+            socket_url,
+            machine_id,
+            status_json,
+            no_keep_awake,
+            name,
+        } => {
+            let opts = RunOpts {
+                endpoint,
+                grant_file,
+                socket_url,
+                machine_id,
+                status_json,
+                no_keep_awake,
+                name,
+            };
             let result = run(state, &opts).await;
             if let (Err(e), true) = (&result, status_json) {
-                println!("{}", serde_json::json!({ "state": "failed", "error": format!("{e:#}") }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "state": "failed", "error": format!("{e:#}") })
+                );
             }
             result
         }
@@ -206,11 +225,17 @@ struct RunOpts {
 /// The socket to dial: the flag, else the one saved at pairing, else the
 /// endpoint's. Only `wss://` (or a loopback `ws://` for tests).
 fn dial_url(opts: &RunOpts, saved: &state::Machine, endpoint: &str) -> Result<String> {
-    let url = match opts.socket_url.clone().or_else(|| Some(saved.socket_url.clone()).filter(|u| !u.is_empty())) {
+    let url = match opts
+        .socket_url
+        .clone()
+        .or_else(|| Some(saved.socket_url.clone()).filter(|u| !u.is_empty()))
+    {
         Some(u) => u,
         None => return conn::socket_url(endpoint),
     };
-    let loopback = ["ws://127.0.0.1:", "ws://localhost:"].iter().any(|p| url.starts_with(p));
+    let loopback = ["ws://127.0.0.1:", "ws://localhost:"]
+        .iter()
+        .any(|p| url.starts_with(p));
     if !url.starts_with("wss://") && !loopback {
         bail!("the socket address must be wss://");
     }
@@ -226,18 +251,32 @@ async fn run(state: State, opts: &RunOpts) -> Result<()> {
     say(serde_json::json!({ "state": "starting" }));
     let grant = state.grant(opts.grant_file.as_deref())?;
     let saved = state.machine();
-    let machine_id = opts.machine_id.clone().unwrap_or_else(|| saved.machine_id.clone());
+    let machine_id = opts
+        .machine_id
+        .clone()
+        .unwrap_or_else(|| saved.machine_id.clone());
     if !protocol::valid_id(&machine_id) {
         bail!("no machine id: pair first, or pass --machine-id");
     }
-    let endpoint = opts.endpoint.clone().unwrap_or_else(|| default_endpoint(&state));
-    let dial = conn::Dial { socket_url: dial_url(opts, &saved, &endpoint)?, grant, machine_id };
+    let endpoint = opts
+        .endpoint
+        .clone()
+        .unwrap_or_else(|| default_endpoint(&state));
+    let dial = conn::Dial {
+        socket_url: dial_url(opts, &saved, &endpoint)?,
+        grant,
+        machine_id,
+    };
     let swept = state.sweep_secrets();
     if swept > 0 {
         eprintln!("removed {swept} credential file(s) left by runs that did not finish");
     }
     let facts = facts::gather().await;
-    let name = opts.name.clone().or_else(|| Some(saved.name.clone()).filter(|n| !n.is_empty())).unwrap_or_else(pair::default_name);
+    let name = opts
+        .name
+        .clone()
+        .or_else(|| Some(saved.name.clone()).filter(|n| !n.is_empty()))
+        .unwrap_or_else(pair::default_name);
     let (out_tx, out_rx) = tokio::sync::mpsc::channel(1000);
     let exe = std::env::current_exe()?;
     let m = machine::Machine::new(state.clone(), facts, out_tx, exe, name);
@@ -296,13 +335,20 @@ async fn status_lines(m: machine::Machine, mut conn: tokio::sync::watch::Receive
         let state = match (online.as_str(), st.not_ready) {
             ("online", Some(protocol::NotReady::Paused)) => "paused",
             ("online", Some(_)) => "notReady",
-            (s, _) => if s == "online" { "online" } else { "offline" },
+            (s, _) => {
+                if s == "online" {
+                    "online"
+                } else {
+                    "offline"
+                }
+            }
         };
         let line = serde_json::json!({
             "state": state, "notReady": st.not_ready, "busy": st.busy, "slots": slots,
             "recommended": recommended, "most": most, "pausedUntil": st.paused_until, "freeMemoryMb": st.free_memory_mb,
         });
-        let key = serde_json::json!([state, st.not_ready, st.busy, slots, st.paused_until]).to_string();
+        let key =
+            serde_json::json!([state, st.not_ready, st.busy, slots, st.paused_until]).to_string();
         if key != last {
             println!("{line}");
             last = key;
@@ -352,19 +398,43 @@ async fn status(state: &State, home: &std::path::Path, json: bool) -> Result<()>
         );
         return Ok(());
     }
-    println!("{}", if paired { format!("Paired as {} with {}", m.name, m.endpoint) } else { "Not paired. Run `context-machine pair`.".into() });
-    println!("Service: {}", if service::is_installed(home) { "installed" } else { "not installed" });
+    println!(
+        "{}",
+        if paired {
+            format!("Paired as {} with {}", m.name, m.endpoint)
+        } else {
+            "Not paired. Run `context-machine pair`.".into()
+        }
+    );
+    println!(
+        "Service: {}",
+        if service::is_installed(home) {
+            "installed"
+        } else {
+            "not installed"
+        }
+    );
     let tool = |name: &str| match facts.tools.iter().find(|t| t.name == name) {
         Some(t) if t.signed_in => "signed in",
         Some(t) if t.installed => "installed, not signed in",
         _ => "not installed",
     };
     println!("Claude Code: {}. Codex: {}.", tool("claude"), tool("codex"));
-    if !facts::ready(&facts, protocol::Tool::Claude) && !facts::ready(&facts, protocol::Tool::Codex) {
+    if !facts::ready(&facts, protocol::Tool::Claude) && !facts::ready(&facts, protocol::Tool::Codex)
+    {
         println!("Not ready: sign in to Claude Code or Codex on this machine.");
     }
-    println!("Slots: {} (recommended {}, most {})", rules.limits.slots, advice.recommended, advice.most);
-    println!("Used today: {} of {}. This week: {} of {}.", hm(today), hm(day_limit), hm(week), hm(week_limit));
+    println!(
+        "Slots: {} (recommended {}, most {})",
+        rules.limits.slots, advice.recommended, advice.most
+    );
+    println!(
+        "Used today: {} of {}. This week: {} of {}.",
+        hm(today),
+        hm(day_limit),
+        hm(week),
+        hm(week_limit)
+    );
     if rules.folders.is_empty() {
         println!("No folders allowed yet: set them on this machine's page in Context.");
     } else {

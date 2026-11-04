@@ -21,7 +21,14 @@ pub enum Workdir {
 /// `owner/name` from a repository's origin remote, for the facts and for
 /// finding the repo an assignment names.
 pub fn origin_repo(dir: &Path) -> Option<String> {
-    let out = std::process::Command::new("git").arg("-C").arg(dir).args(["remote", "get-url", "origin"]).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["remote", "get-url", "origin"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
     repo_from_url(String::from_utf8_lossy(&out.stdout).trim())
 }
 
@@ -32,7 +39,8 @@ pub fn repo_from_url(url: &str) -> Option<String> {
     let mut parts = path.rsplit(['/', ':']);
     let name = parts.next()?;
     let owner = parts.next()?;
-    (!name.is_empty() && !owner.is_empty() && !owner.contains('@')).then(|| format!("{owner}/{name}"))
+    (!name.is_empty() && !owner.is_empty() && !owner.contains('@'))
+        .then(|| format!("{owner}/{name}"))
 }
 
 /// The repository an assignment names, under its folder: the folder itself or
@@ -42,7 +50,10 @@ pub fn find_repo(root: &Path, folder: &Path, repo: &str) -> Option<PathBuf> {
     let short = repo.rsplit('/').next().unwrap_or(repo);
     let matches = |dir: &Path| {
         dir.join(".git").exists()
-            && (origin_repo(dir).is_some_and(|o| o.eq_ignore_ascii_case(repo)) || dir.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(short)))
+            && (origin_repo(dir).is_some_and(|o| o.eq_ignore_ascii_case(repo))
+                || dir
+                    .file_name()
+                    .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(short)))
     };
     let mut queue = vec![(folder.to_path_buf(), 0)];
     while let Some((dir, depth)) = queue.pop() {
@@ -96,7 +107,10 @@ pub async fn prepare(root: &Path, folder: &Path, job_id: &str, kind: Workdir) ->
             let branch = branch_name(job_id);
             let at = dir.display().to_string();
             // A branch left from an earlier part is picked up again.
-            if git(&top, &["worktree", "add", "-b", &branch, &at, "HEAD"]).await.is_err() {
+            if git(&top, &["worktree", "add", "-b", &branch, &at, "HEAD"])
+                .await
+                .is_err()
+            {
                 git(&top, &["worktree", "add", &at, &branch]).await?;
             }
             // Where the job started, so release can tell whether it made commits.
@@ -183,7 +197,11 @@ pub async fn settle(root: &Path, job_id: &str) -> Result<Released> {
             return Ok(Released::Kept(Some(branch)));
         }
         // The branch lives in the repository, which may sit below the root.
-        let common = git(&dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).await?;
+        let common = git(
+            &dir,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        )
+        .await?;
         let repo_git = PathBuf::from(common.trim());
         git(
             &dir,
@@ -283,12 +301,16 @@ mod tests {
         let r = root.join("code/repo");
         std::fs::create_dir_all(&r).unwrap();
         repo(&r).await;
-        prepare(&root, &r, "job_b", Workdir::Worktree).await.unwrap();
+        prepare(&root, &r, "job_b", Workdir::Worktree)
+            .await
+            .unwrap();
         assert_eq!(settle(&root, "job_b").await.unwrap(), Released::Removed);
         let branches = git(&r, &["branch", "--list", "tex/*"]).await.unwrap();
         assert!(branches.trim().is_empty(), "branch left behind: {branches}");
         // A later part makes it again.
-        prepare(&root, &r, "job_b", Workdir::Worktree).await.unwrap();
+        prepare(&root, &r, "job_b", Workdir::Worktree)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -319,8 +341,14 @@ mod tests {
 
     #[test]
     fn repo_names_from_remotes() {
-        assert_eq!(repo_from_url("git@github.com:Supa-Media/context.git").as_deref(), Some("Supa-Media/context"));
-        assert_eq!(repo_from_url("https://github.com/Supa-Media/context/").as_deref(), Some("Supa-Media/context"));
+        assert_eq!(
+            repo_from_url("git@github.com:Supa-Media/context.git").as_deref(),
+            Some("Supa-Media/context")
+        );
+        assert_eq!(
+            repo_from_url("https://github.com/Supa-Media/context/").as_deref(),
+            Some("Supa-Media/context")
+        );
         assert_eq!(repo_from_url("context"), None);
     }
 
@@ -331,7 +359,10 @@ mod tests {
         let r = root.join("org/context");
         std::fs::create_dir_all(&r).unwrap();
         repo(&r).await;
-        assert_eq!(find_repo(&root, &root, "Supa-Media/context"), Some(r.clone()));
+        assert_eq!(
+            find_repo(&root, &root, "Supa-Media/context"),
+            Some(r.clone())
+        );
         assert_eq!(find_repo(&root, &root, "other"), None);
         let elsewhere = tempfile::tempdir().unwrap();
         assert_eq!(find_repo(elsewhere.path(), &root, "context"), None);

@@ -19,8 +19,23 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
 
 pub enum Driver {
-    Claude { exe: PathBuf, args: Vec<String>, cwd: PathBuf, first: String },
-    Codex { exe: PathBuf, cwd: PathBuf, runner_exe: PathBuf, grant_file: PathBuf, endpoint: String, network: bool, read_only: bool, thread: Option<String>, first: String },
+    Claude {
+        exe: PathBuf,
+        args: Vec<String>,
+        cwd: PathBuf,
+        first: String,
+    },
+    Codex {
+        exe: PathBuf,
+        cwd: PathBuf,
+        runner_exe: PathBuf,
+        grant_file: PathBuf,
+        endpoint: String,
+        network: bool,
+        read_only: bool,
+        thread: Option<String>,
+        first: String,
+    },
 }
 
 #[derive(Debug)]
@@ -33,13 +48,57 @@ pub struct DriveOutcome {
 /// How often spent time is handed to the ledger while a run goes.
 const TICK: Duration = Duration::from_secs(30);
 
-pub async fn drive(d: Driver, a: &Assign, mut inputs: mpsc::Receiver<RunInput>, out: &mpsc::Sender<RunnerMsg>, record: &mut RunRecord, state: &State, spent: mpsc::Sender<Spent>) -> DriveOutcome {
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(a.deadline.saturating_sub(now_ms()));
-    let mut sink = Sink { a, out, record, state, spent, started: Instant::now(), last_tick: Instant::now(), answer: String::new(), tokens: TokenUsage::default(), codex_prev: (0, 0), unreported_tokens: 0 };
+pub async fn drive(
+    d: Driver,
+    a: &Assign,
+    mut inputs: mpsc::Receiver<RunInput>,
+    out: &mpsc::Sender<RunnerMsg>,
+    record: &mut RunRecord,
+    state: &State,
+    spent: mpsc::Sender<Spent>,
+) -> DriveOutcome {
+    let deadline =
+        tokio::time::Instant::now() + Duration::from_millis(a.deadline.saturating_sub(now_ms()));
+    let mut sink = Sink {
+        a,
+        out,
+        record,
+        state,
+        spent,
+        started: Instant::now(),
+        last_tick: Instant::now(),
+        answer: String::new(),
+        tokens: TokenUsage::default(),
+        codex_prev: (0, 0),
+        unreported_tokens: 0,
+    };
     let outcome = match d {
-        Driver::Claude { exe, args, cwd, first } => claude(exe, args, cwd, first, &mut inputs, deadline, &mut sink).await,
-        Driver::Codex { exe, cwd, runner_exe, grant_file, endpoint, network, read_only, thread, first } => {
-            let spec = CodexSpec { exe, cwd, runner_exe, grant_file, endpoint, network, read_only };
+        Driver::Claude {
+            exe,
+            args,
+            cwd,
+            first,
+        } => claude(exe, args, cwd, first, &mut inputs, deadline, &mut sink).await,
+        Driver::Codex {
+            exe,
+            cwd,
+            runner_exe,
+            grant_file,
+            endpoint,
+            network,
+            read_only,
+            thread,
+            first,
+        } => {
+            let spec = CodexSpec {
+                exe,
+                cwd,
+                runner_exe,
+                grant_file,
+                endpoint,
+                network,
+                read_only,
+            };
             codex(spec, thread, first, &mut inputs, deadline, &mut sink).await
         }
     };
@@ -63,7 +122,12 @@ struct Sink<'a> {
 
 impl Sink<'_> {
     fn usage(&self) -> Usage {
-        Usage { run_id: self.a.run_id.clone(), wall_ms: self.started.elapsed().as_millis() as u64, tokens: Some(self.tokens.clone()), ..Default::default() }
+        Usage {
+            run_id: self.a.run_id.clone(),
+            wall_ms: self.started.elapsed().as_millis() as u64,
+            tokens: Some(self.tokens.clone()),
+            ..Default::default()
+        }
     }
 
     /// Handles one event; returns the turn's end when it is one.
@@ -73,7 +137,13 @@ impl Sink<'_> {
                 if !id.is_empty() && id != self.record.session {
                     self.record.session = id.clone();
                     save_record(self.state, self.record);
-                    let _ = self.out.send(RunnerMsg::Session(Session { run_id: self.a.run_id.clone(), session: id })).await;
+                    let _ = self
+                        .out
+                        .send(RunnerMsg::Session(Session {
+                            run_id: self.a.run_id.clone(),
+                            session: id,
+                        }))
+                        .await;
                 }
             }
             CliEvent::Step(s) => {
@@ -81,10 +151,23 @@ impl Sink<'_> {
                 save_record(self.state, self.record);
                 let some = |v: String| Some(v).filter(|v| !v.is_empty());
                 // Steps are best effort: a full queue (offline) drops them.
-                let _ = self.out.try_send(RunnerMsg::Step(Step { run_id: self.a.run_id.clone(), seq: self.record.last_step, tool: s.tool, action: some(s.action), target: some(s.target), at: now_ms() }));
+                let _ = self.out.try_send(RunnerMsg::Step(Step {
+                    run_id: self.a.run_id.clone(),
+                    seq: self.record.last_step,
+                    tool: s.tool,
+                    action: some(s.action),
+                    target: some(s.target),
+                    at: now_ms(),
+                }));
             }
             CliEvent::Text(t) => self.answer = t,
-            CliEvent::Usage { input, output, cache_read, cache_write, .. } => {
+            CliEvent::Usage {
+                input,
+                output,
+                cache_read,
+                cache_write,
+                ..
+            } => {
                 let (input, output) = if self.a.tool == Tool::Codex {
                     let d = crate::codex::usage_delta(self.codex_prev, (input, output));
                     self.codex_prev = (input, output);
@@ -122,7 +205,10 @@ impl Sink<'_> {
         let ms = self.last_tick.elapsed().as_millis() as u64;
         if ms > 0 && (force || ms >= TICK.as_millis() as u64) {
             self.last_tick = Instant::now();
-            let _ = self.spent.send((ms, std::mem::take(&mut self.unreported_tokens))).await;
+            let _ = self
+                .spent
+                .send((ms, std::mem::take(&mut self.unreported_tokens)))
+                .await;
         }
     }
 
@@ -132,15 +218,27 @@ impl Sink<'_> {
             (false, Some("planLimit")) => Outcome::Limit,
             _ => Outcome::Failed,
         };
-        DriveOutcome { outcome, answer: std::mem::take(&mut self.answer), error }
+        DriveOutcome {
+            outcome,
+            answer: std::mem::take(&mut self.answer),
+            error,
+        }
     }
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
-fn spawn(exe: &PathBuf, args: &[String], cwd: &PathBuf, stdin: bool) -> std::io::Result<(Child, mpsc::Receiver<String>)> {
+fn spawn(
+    exe: &PathBuf,
+    args: &[String],
+    cwd: &PathBuf,
+    stdin: bool,
+) -> std::io::Result<(Child, mpsc::Receiver<String>)> {
     let mut cmd = Command::new(exe);
     cmd.args(args)
         .current_dir(cwd)
@@ -196,11 +294,25 @@ async fn write_line(stdin: &mut Option<ChildStdin>, line: String) {
 }
 
 fn ended(outcome: Outcome, error: &str) -> DriveOutcome {
-    DriveOutcome { outcome, answer: String::new(), error: Some(error.into()) }
+    DriveOutcome {
+        outcome,
+        answer: String::new(),
+        error: Some(error.into()),
+    }
 }
 
-async fn claude(exe: PathBuf, args: Vec<String>, cwd: PathBuf, first: String, inputs: &mut mpsc::Receiver<RunInput>, deadline: tokio::time::Instant, sink: &mut Sink<'_>) -> DriveOutcome {
-    let Ok((mut child, mut lines)) = spawn(&exe, &args, &cwd, true) else { return ended(Outcome::Failed, "the tool did not start") };
+async fn claude(
+    exe: PathBuf,
+    args: Vec<String>,
+    cwd: PathBuf,
+    first: String,
+    inputs: &mut mpsc::Receiver<RunInput>,
+    deadline: tokio::time::Instant,
+    sink: &mut Sink<'_>,
+) -> DriveOutcome {
+    let Ok((mut child, mut lines)) = spawn(&exe, &args, &cwd, true) else {
+        return ended(Outcome::Failed, "the tool did not start");
+    };
     let mut stdin = child.stdin.take();
     write_line(&mut stdin, crate::claude::user_line(&first)).await;
     let mut pending: Vec<String> = vec![];
@@ -259,7 +371,14 @@ struct CodexSpec {
     read_only: bool,
 }
 
-async fn codex(spec: CodexSpec, mut thread: Option<String>, first: String, inputs: &mut mpsc::Receiver<RunInput>, deadline: tokio::time::Instant, sink: &mut Sink<'_>) -> DriveOutcome {
+async fn codex(
+    spec: CodexSpec,
+    mut thread: Option<String>,
+    first: String,
+    inputs: &mut mpsc::Receiver<RunInput>,
+    deadline: tokio::time::Instant,
+    sink: &mut Sink<'_>,
+) -> DriveOutcome {
     let mut prompt = first;
     let mut tick = tokio::time::interval(TICK);
     loop {
@@ -273,7 +392,9 @@ async fn codex(spec: CodexSpec, mut thread: Option<String>, first: String, input
             read_only: spec.read_only,
             prompt: &prompt,
         });
-        let Ok((mut child, mut lines)) = spawn(&spec.exe, &args, &spec.cwd, false) else { return ended(Outcome::Failed, "the tool did not start") };
+        let Ok((mut child, mut lines)) = spawn(&spec.exe, &args, &spec.cwd, false) else {
+            return ended(Outcome::Failed, "the tool did not start");
+        };
         let mut pending: Vec<String> = vec![];
         let mut interrupted: Option<String> = None;
         let mut done: Option<(bool, Option<String>)> = None;

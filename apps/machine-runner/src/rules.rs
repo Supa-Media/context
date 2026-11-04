@@ -34,8 +34,36 @@ pub struct LocalLimits {
 /// Programs an `edits` run may start without asking, when `local.json` names
 /// none: version control and the usual build and test tools.
 pub const DEFAULT_COMMANDS: &[&str] = &[
-    "git", "gh", "ls", "cat", "head", "tail", "grep", "rg", "find", "wc", "diff", "mkdir", "node", "npm", "npx", "pnpm",
-    "yarn", "bun", "deno", "tsc", "python", "python3", "pip", "pytest", "uv", "cargo", "rustc", "go", "make", "swift",
+    "git",
+    "gh",
+    "ls",
+    "cat",
+    "head",
+    "tail",
+    "grep",
+    "rg",
+    "find",
+    "wc",
+    "diff",
+    "mkdir",
+    "node",
+    "npm",
+    "npx",
+    "pnpm",
+    "yarn",
+    "bun",
+    "deno",
+    "tsc",
+    "python",
+    "python3",
+    "pip",
+    "pytest",
+    "uv",
+    "cargo",
+    "rustc",
+    "go",
+    "make",
+    "swift",
     "xcodebuild",
 ];
 
@@ -43,7 +71,8 @@ pub const DEFAULT_COMMANDS: &[&str] = &[
 pub fn effective(rules: &Rules, local: &LocalLimits, most: u32) -> Rules {
     let mut r = rules.clone();
     if let Some(allowed) = &local.folders {
-        r.folders.retain(|f| allowed.iter().any(|a| Path::new(f).starts_with(a)));
+        r.folders
+            .retain(|f| allowed.iter().any(|a| Path::new(f).starts_with(a)));
     }
     if let Some(allowed) = &local.tools {
         r.tools.retain(|t| allowed.contains(t));
@@ -67,14 +96,21 @@ pub fn effective(rules: &Rules, local: &LocalLimits, most: u32) -> Rules {
 
 pub fn allowed_commands(local: &LocalLimits) -> Vec<String> {
     match &local.allowed_commands {
-        Some(list) => list.iter().filter(|c| is_program_name(c)).cloned().collect(),
+        Some(list) => list
+            .iter()
+            .filter(|c| is_program_name(c))
+            .cloned()
+            .collect(),
         None => DEFAULT_COMMANDS.iter().map(|s| s.to_string()).collect(),
     }
 }
 
 /// A program name for `Bash(<name>:*)`: no spaces, no shell, no path tricks.
 pub fn is_program_name(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 64 && s.chars().all(|c| c.is_ascii_alphanumeric() || "._-+".contains(c))
+    !s.is_empty()
+        && s.len() <= 64
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._-+".contains(c))
 }
 
 /// Where the machine stands when an assignment arrives.
@@ -142,14 +178,20 @@ pub fn check(rules: &Rules, a: &Assign, s: &Snapshot) -> Result<PathBuf, Refused
     }
     if l.pause_near_plan_limit {
         if let Some(until) = s.ledger.paused_until_ms(a.tool).filter(|u| *u > s.now_ms) {
-            return Err(Refused { code: PlanLimit, until: Some(until) });
+            return Err(Refused {
+                code: PlanLimit,
+                until: Some(until),
+            });
         }
     }
     let day = s.ledger.day_of(s.now_ms, s.utc_offset_minutes);
     let tomorrow = Some(s.ledger.day_start_ms(day + 1, s.utc_offset_minutes));
     let today = s.ledger.day(day);
     if today.total_ms() >= l.day_ms {
-        return Err(Refused { code: LimitDay, until: tomorrow });
+        return Err(Refused {
+            code: LimitDay,
+            until: tomorrow,
+        });
     }
     if s.ledger.week_ms(day) >= l.week_ms {
         return Err(no(LimitWeek));
@@ -159,8 +201,13 @@ pub fn check(rules: &Rules, a: &Assign, s: &Snapshot) -> Result<PathBuf, Refused
             return Err(no(LimitWeek));
         }
     }
-    if !a.from_owner && (today.others_ms >= l.others_day_ms || today.others_runs >= l.others_runs_per_day) {
-        return Err(Refused { code: LimitOthers, until: tomorrow });
+    if !a.from_owner
+        && (today.others_ms >= l.others_day_ms || today.others_runs >= l.others_runs_per_day)
+    {
+        return Err(Refused {
+            code: LimitOthers,
+            until: tomorrow,
+        });
     }
     if a.deadline <= s.now_ms || a.deadline - s.now_ms > l.longest_run_ms {
         return Err(no(Rule));
@@ -174,7 +221,9 @@ pub fn endpoint_ok(url: &str) -> bool {
     if let Some(rest) = url.strip_prefix("https://") {
         return !rest.is_empty();
     }
-    ["http://127.0.0.1:", "http://localhost:"].iter().any(|p| url.starts_with(p))
+    ["http://127.0.0.1:", "http://localhost:"]
+        .iter()
+        .any(|p| url.starts_with(p))
 }
 
 /// The allowed folder that holds `folder`, compared after resolving symlinks
@@ -197,7 +246,11 @@ pub fn allowed_root(allowed: &[PathBuf], folder: &Path) -> Option<PathBuf> {
 /// A folder that would put the whole machine or the person's whole home in
 /// reach is never an allowed folder, whatever the settings say.
 pub fn is_too_broad(p: &Path) -> bool {
-    if p.components().filter(|c| matches!(c, Component::Normal(_))).count() == 0 {
+    if p.components()
+        .filter(|c| matches!(c, Component::Normal(_)))
+        .count()
+        == 0
+    {
         return true;
     }
     if let Some(home) = home_dir().and_then(|h| std::fs::canonicalize(h).ok()) {
@@ -209,7 +262,9 @@ pub fn is_too_broad(p: &Path) -> bool {
 }
 
 pub fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)
+    std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
 }
 
 #[cfg(test)]
