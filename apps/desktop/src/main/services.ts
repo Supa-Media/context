@@ -20,8 +20,7 @@ import type { AudioRecorder } from "../core/capture/recorder.ts";
 import { DesktopCaptureRecorder } from "./capture.ts";
 import { electronPermissionBroker } from "./permissions.ts";
 import { createLocalAgent } from "./localAgent.ts";
-import { createAppMachineRunner, pickTexFolders } from "./machine.ts";
-import { createMachineFolders } from "./machineFolders.ts";
+import { createAppMachineRunner } from "./machine.ts";
 import { transcribeChunk } from "./transcribe.ts";
 import { ImessageSyncService } from "./imessage.ts";
 import { MessagesBackupService, backupBridgeStatus, machineLabel } from "./messagesBackup.ts";
@@ -202,13 +201,5 @@ export async function createServices(
     onChange: (status) => ctx.consoleBridge?.emitMachine(status),
   });
   if (ctx.settings.machineEnabled) void machine.setEnabled(true);
-  const machineFolders = createMachineFolders({
-    consoleToken: () => connection.token(),
-    endpoint: () => ctx.settings.gatewayEndpoint,
-    fetch: (...args) => fetch(...args),
-    machineId: () => machine.machineId(),
-    pick: () => pickTexFolders(ctx.consoleWindow ?? null),
-  });
-
-  return { localAgent, imessage, messagesBackup, machine, machineFolders, panel, notepad, capture, controller, updater, loop };
+  return { localAgent, imessage, messagesBackup, machine, panel, notepad, capture, controller, updater, loop };
 }

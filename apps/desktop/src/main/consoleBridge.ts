@@ -84,7 +84,7 @@ import {
   type TranscriptSegment,
   type TrayCommand,
   type UpcomingMeetings,
-  machineFoldersFrom, machineStatusFrom,
+  machineFoldersFrom, machineIdFrom, machineStatusFrom,
   type MachineRunStatus,
 } from "@context/desktop-bridge";
 import { originOfUrl } from "../core/shell/mirror.ts";
@@ -217,8 +217,8 @@ export interface ConsoleBridgeDeps {
    */
   machine?: () => MachineRunStatus;
   setMachineEnabled?: (enabled: boolean) => Promise<MachineRunStatus>;
-  machineFolders?: () => Promise<string[] | null>;
-  chooseMachineFolders?: () => Promise<string[] | null>;
+  machineId?: () => Promise<string | null>;
+  pickMachineFolders?: () => Promise<string[] | null>;
 }
 
 export interface ConsoleBridge {
@@ -603,8 +603,8 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     const enabled = (payload as { enabled?: unknown } | undefined)?.enabled === true;
     return machineStatusFrom(deps.setMachineEnabled ? await deps.setMachineEnabled(enabled) : null);
   });
-  handle(BRIDGE_CHANNELS.machineFolders, async () => machineFoldersFrom(deps.machineFolders ? await deps.machineFolders() : null));
-  handle(BRIDGE_CHANNELS.machineChooseFolders, async () => machineFoldersFrom(deps.chooseMachineFolders ? await deps.chooseMachineFolders() : null));
+  handle(BRIDGE_CHANNELS.machineId, async () => machineIdFrom(deps.machineId ? await deps.machineId() : null));
+  handle(BRIDGE_CHANNELS.machinePickFolders, async () => machineFoldersFrom(deps.pickMachineFolders ? await deps.pickMachineFolders() : null));
 
   function send(channel: string, payload: unknown): void {
     /*
@@ -689,7 +689,7 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.agentAsk,
         BRIDGE_CHANNELS.calendarSetUpcoming,
         BRIDGE_CHANNELS.machineStatus, BRIDGE_CHANNELS.machineSetEnabled,
-        BRIDGE_CHANNELS.machineFolders, BRIDGE_CHANNELS.machineChooseFolders,
+        BRIDGE_CHANNELS.machineId, BRIDGE_CHANNELS.machinePickFolders,
       ]) {
         deps.ipc.removeHandler(channel);
       }

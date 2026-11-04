@@ -73,7 +73,7 @@ function ThisMac() {
           <Row>
             <Grow>
               <Text variant="rowTitle">Folders Tex can work in</Text>
-              <Text variant="rowSub">{foldersLine(thisMac.folders.list)}</Text>
+              <Text variant="rowSub">{foldersLine(thisMac.folders.list, thisMac.folders.failed)}</Text>
             </Grow>
             <Button
               label={thisMac.folders.list && thisMac.folders.list.length > 0 ? "Change…" : "Choose…"}

@@ -81,7 +81,7 @@ async function main(): Promise<void> {
 
   const prepared = await prepareLaunch(ctx);
   const { store, tokens, connection } = prepared;
-  const { localAgent, imessage, messagesBackup, machine, machineFolders, panel, notepad, capture, controller, updater, loop } = await createServices(
+  const { localAgent, imessage, messagesBackup, machine, panel, notepad, capture, controller, updater, loop } = await createServices(
     ctx,
     prepared,
   );
@@ -155,7 +155,6 @@ async function main(): Promise<void> {
     connection,
     localAgent,
     machine,
-    machineFolders,
     imessage,
     messagesBackup,
     panel,

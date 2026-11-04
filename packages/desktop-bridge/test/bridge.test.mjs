@@ -136,6 +136,9 @@ function bridgeLike(overrides = {}) {
       // Version 11. The folders Tex may work in, chosen in the Mac's own picker.
       folders: async () => null,
       chooseFolders: async () => null,
+      // Version 12. This Mac's id and the picker alone; the page saves.
+      id: async () => null,
+      pickFolders: async () => null,
     },
     ...overrides,
   };
@@ -529,7 +532,15 @@ export function runBridgeChecks(check) {
   );
   check(
     "...and this bundle's own version is accepted by its own table",
-    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 11,
+    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 12,
+  );
+  check(
+    "A VERSION-12 SHELL WITHOUT `machine.pickFolders` IS REFUSED — it promised the picker the page saves from",
+    refusalFor(Object.freeze({ ...bridgeLike(), machine: { ...bridgeLike().machine, pickFolders: undefined }, version: 12 })) === "surface-incomplete",
+  );
+  check(
+    "...but a VERSION-11 shell without `id` or `pickFolders` is fine, and the page shows no folder row on it",
+    refusalFor(Object.freeze({ ...bridgeLike(), machine: { ...bridgeLike().machine, id: undefined, pickFolders: undefined }, version: 11 })) === null,
   );
   check(
     "a version between the floor and the ceiling is still not an integer version",

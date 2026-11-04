@@ -81,4 +81,4 @@ export {
 } from "./layout.ts";
 export type { ShellTrafficLightsPosition } from "./layout.ts";
 
-export { machineFoldersFrom, machineStatusFrom, MAX_MACHINE_FOLDERS } from "./machine.ts";
+export { machineFoldersFrom, machineIdFrom, machineStatusFrom, MAX_MACHINE_FOLDERS } from "./machine.ts";

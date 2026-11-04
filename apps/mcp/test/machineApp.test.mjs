@@ -13,7 +13,7 @@
  *  7. `raise` skipping `runsMachine` → "more time today is the computer's runner's, and lasts the day".
  *  8. `namedAsks` keeping the chat's key → "an ask names who asked, never the chat's key".
  *  4. `ownComputer` accepting the workspace's owner → "only a computer's own owner lends it to a group chat".
- *  9. the missing-workspace default dropped → "the Mac app, naming no workspace, changes its own computer's folders in the session's workspace".
+ *  9. the console-only check dropped → "only the console changes a computer: the Mac app's own connection is refused, so the page saves its folders".
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -219,15 +219,14 @@ test("more time today is the computer's runner's, and lasts the day", async () =
   assert.equal((await ask("/machines/app/raise", { workspaceId: "ws_team", machineId: "mch_1", minutes: 0 }, app("user_owner", "editor"))).status, 400);
 });
 
-test("the Mac app, naming no workspace, changes its own computer's folders in the session's workspace", async () => {
+test("only the console changes a computer: the Mac app's own connection is refused, so the page saves its folders", async () => {
   const { ask } = await setup();
-  const changed = await ask("/machines/app/set", { machineId: "mch_1", patch: { folders: ["/Users/a/Code"] } }, app("user_owner", "owner"));
-  assert.equal(changed.body.ok, true);
+  // The Mac app connects as a client of its own ("Context on <Mac>"), not the console. v0.1.72 saved a pick with
+  // that connection and lost it (2026-11-04); the page now saves with its console grant (`thisMacFolders.ts`).
+  const mac = app("user_owner", "owner", { actorClientId: "mcp_client_mac_app" });
+  assert.equal((await ask("/machines/app/set", { workspaceId: "ws_team", machineId: "mch_1", patch: { folders: ["/x"] } }, mac)).status, 403);
+  const changed = await ask("/machines/app/set", { workspaceId: "ws_team", machineId: "mch_1", patch: { folders: ["/Users/a/Code"] } }, app("user_owner", "owner"));
   assert.deepEqual(changed.body.machine.folders, ["/Users/a/Code"]);
-  // The default is still checked as membership: a session no longer a live member of its own workspace reaches nothing.
-  const left = app("user_owner", "owner", { workspaces: [] });
-  assert.deepEqual((await ask("/machines/app/set", { machineId: "mch_1", patch: { folders: ["/x"] } }, left)).body, { ok: false, code: "unknown_machine" });
-  // And another person's session, defaulting to its own workspace, can't name this one's computer.
-  const ade = app("user_ade", "editor");
-  assert.deepEqual((await ask("/machines/app/set", { machineId: "mch_1", patch: { folders: ["/x"] } }, ade)).body, { ok: false, code: "unknown_machine" });
+  // A body naming no workspace reaches nothing.
+  assert.deepEqual((await ask("/machines/app/set", { machineId: "mch_1", patch: { folders: ["/x"] } }, app("user_owner", "owner"))).body, { ok: false, code: "unknown_machine" });
 });
