@@ -307,13 +307,12 @@ test("a member's read-only chat grant writes nothing", async () => {
 });
 
 test("the chat remembers as one: somebody added to the chat reads what came before them (the owner, 2026-10-31)", async () => {
-  // Not a bare "Noted: Friday.": an acknowledgment alone, with no tool, goes back once (`doItChecks.js` onlyAcknowledges).
-  world.model.install([{ text: "Friday it is." }, { text: "Friday, like you said." }, { text: "Friday at 6." }]);
+  world.model.install([{ text: "Noted: Friday." }, { text: "Friday, like you said." }, { text: "Friday at 6." }]);
   await ask(TOKEN_GROUP, { question: "the gig is friday", group: chat() });
   await ask(TOKEN_GROUP, { question: "when's the gig?", group: chat() });
   const remembered = JSON.stringify(world.model.requests[1].messages);
   assert.match(remembered, /@ada: the gig is friday/);
-  assert.match(remembered, /Friday it is\./);
+  assert.match(remembered, /Noted: Friday\./);
   await ask(TOKEN_GROUP, { question: "when's the gig?", group: chat({ members: "c".repeat(64) }) });
   assert.match(JSON.stringify(world.model.requests[2].messages), /the gig is friday/, "a newcomer reads the chat's earlier memory");
   const files = live(world.team, GROUP_MEMORY_PREFIX);

@@ -87,33 +87,18 @@ Tainted words are still held back. Only the speaker is kept.
 covers each failure above as a golden case. `apps/mobile/__tests__/texHistoryLines.test.ts`
 covers the History view drawing a heard voice message once.
 
-## Carry the ask on when someone answers it (2026-11-04)
+## Who is who in a group chat (2026-11-04)
 
-In a customer's group chat, a customer asked where a logo file was. Tex
-searched the notes once, said the customer "or a colleague would know" (to
-the customer), and offered to keep looking. The customer named the folder it
-was in, and Tex answered with a bare thanks: no tool, nothing saved, nothing
-fetched. The production logs show both turns answered on the front door in
-under 10 s each; Tex's own review of the chat lists one notes search in the
-first turn and no tool in the second.
+In a customer's group chat, Tex told the person asking that they "would
+know" where a file was. The turn knew the tagger only by handle, while the
+notes named them by full name. The control plane now sends each account's
+name beside its handle (`textGroupAccounts.ts` `chatPerson`), the gateway
+keeps only people in the chat and cleans each name to the characters names
+use (`groupNames.js`), and the turn is told who is who.
 
-Three gaps let it through, all in the harness, and each fix holds for every
-chat, one-to-one and group:
+Pattern checks on the answer's wording were tried for the rest of that chat
+(a bare thanks, "X would know") and rejected by the owner the same day: a
+pattern only catches phrasings already seen. The rest is a design question
+about unfinished asks, open with the owner.
 
-- **Offered reads.** "Want me to keep looking" and "look further" are offered
-  reads (`doItChecks.js` `OFFERED_READ`); the earlier patterns missed them.
-- **Sent to a person.** An answer that says it couldn't find something and
-  names who would know goes back once, told to look everywhere it can reach
-  first and never to send the asker to themselves (`PERSON_NOTICE`).
-- **A bare thanks.** An answer that only thanks or acknowledges, in a turn
-  that ran no tool, to words that were more than a thanks, goes back once
-  (`CARRY_ON_NOTICE`): carry the earlier ask on with what they said, save it
-  to the note it belongs in, or say plainly what can't be reached and the one
-  way in. `turn.js` passes the turn's step count to the check; an unknown
-  count never sends anything back.
-- **Who is who.** A group turn knew people only by handle, so the notes'
-  full name was not tied to the person asking. The control plane now sends
-  each account's name beside its handle (`textGroupAccounts.ts`
-  `chatPerson`), cleaned to the characters names use (`groupNames.js`).
-
-**The test that fails if this is reversed:** `apps/mcp/test/groupCarryOn.test.mjs`.
+**The test that fails if this is reversed:** `apps/mcp/test/groupNames.test.mjs`.

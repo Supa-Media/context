@@ -95,7 +95,7 @@ test("a texted picture, PDF and file reach the model as its own blocks", async (
 test("the saved conversation names what was sent, never its bytes", async () => {
   const world = await createEgressWorld();
   try {
-    world.model.install([{ text: "Nice meme." }]); // not a bare "Nice.": that alone goes back once (`doItChecks.js` onlyAcknowledges)
+    world.model.install([{ text: "Nice." }]);
     await request(world.env, TOKEN_TEXTS, "/agent", { question: "look", conversation: "texts", attachments: ATTACHED.slice(0, 1) });
     // The photo itself is kept apart, for a later "try again" (`pictureMaker.js`, KEPT_PHOTOS_PATH);
     // the conversation never carries it.
