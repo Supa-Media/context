@@ -171,7 +171,7 @@ async function openSessionStore(session, env, controlPlane) {
   // layer, and a binding refresh behind the response, are handed a door to it now.
   const behind = deferDoor();
   const opened = await openBinding(session, env, controlPlane, (work) => behind.later(work));
-  const { binding, searchIndex, meaningIndex, encryptionKey, rotation, noteCap } = opened;
+  const { binding, searchIndex, meaningIndex, meaningOn, encryptionKey, rotation, noteCap } = opened;
 
   if (binding === null) throw new StorageUnavailable("not bound");
   if (!binding || typeof binding !== "object") throw new StorageUnavailable("malformed binding");
@@ -346,7 +346,7 @@ async function openSessionStore(session, env, controlPlane) {
    * this line changed.
    */
   // And search by meaning's index beside it, on the same terms.
-  attachSearchIndexes(store, { searchIndex, meaningIndex }, env?.AI);
+  attachSearchIndexes(store, { searchIndex, meaningIndex, meaningOn }, env?.AI);
 
   /**
    * The key that opens this context's encrypted notes, for this request only.
@@ -514,7 +514,7 @@ export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
 
   const store = storeForBinding(binding, env, { managedEncryption: managedEncryptionForStore(opened, binding), texStore: gatewayTexStore(env), workspaceStore: (workspaceId) => workspaceClient(env, workspaceId) });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
-  attachSearchIndexes(store, { searchIndex: opened?.searchIndex, meaningIndex: opened?.meaningIndex }, env?.AI);
+  attachSearchIndexes(store, { searchIndex: opened?.searchIndex, meaningIndex: opened?.meaningIndex, meaningOn: opened?.meaningOn }, env?.AI);
   Object.defineProperty(store, "encryptionKey", {
     value: readEncryptionKey(opened?.encryptionKey),
     enumerable: false,
