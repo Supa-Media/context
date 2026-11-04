@@ -201,7 +201,9 @@ export class WorkspaceStore {
     // Whether this is the first call this instance answers: a woken object, for the gateway's log line.
     const cold = this.answered !== true;
     this.answered = true;
-    const served = await serveWorkspaceStore(store, request, { arrived, cold, alarm: this.alarmRunning === true });
+    // `alarmsBefore`/`alarmsNow`: whether an alarm began while this call was here (one the call's own write armed).
+    const alarmsBefore = this.alarmStarts ?? 0;
+    const served = await serveWorkspaceStore(store, request, { arrived, cold, alarm: this.alarmRunning === true, alarmsBefore, alarmsNow: () => this.alarmStarts ?? 0 });
     const response = opOf(request) === "ws.open" && served.ok ? Response.json({ ...(await served.json()), cold }) : served;
     // Where the tree is read from changed: watchers of a workspace switched back are told to read Convex.
     if (opOf(request) === "ws.home" && response.ok) this.tree.notice({ all: true });
@@ -227,6 +229,7 @@ export class WorkspaceStore {
   async alarm() {
     // While it runs, a timed write says so (`serveWrites.js`): the alarm shares the object with the calls it overlaps.
     this.alarmRunning = true;
+    this.alarmStarts = (this.alarmStarts ?? 0) + 1;
     try {
       await this.runAlarm();
     } finally {

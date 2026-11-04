@@ -417,6 +417,16 @@ test("a timed move says when the call began and when its answer left, on the obj
   assert.equal(answer.cold, true);
   assert.equal(answer.alarm, true);
 
+  // An alarm that began while the call was in the object says so; one already counted before it arrived does not.
+  let starts = 3;
+  store.settle = async () => {
+    starts += 1;
+  };
+  const during = await (await callMove(store, { from: "projects/plan-stamped.md", to: "projects/plan-during.md", ...OWNER }, { arrived: Date.now(), alarmsBefore: 3, alarmsNow: () => starts })).json();
+  assert.equal(during.alarmDuring, true, JSON.stringify(during));
+  const quiet = await (await callMove(store, { from: "projects/plan-during.md", to: "projects/plan-stamped.md", ...OWNER }, { arrived: Date.now(), alarmsBefore: 9, alarmsNow: () => 9 })).json();
+  assert.equal("alarmDuring" in quiet, false, JSON.stringify(quiet));
+
   // Without the object's view of the call (a caller that passes none), the answer says only its own time.
   const plain = await (await callMove(store, { from: "projects/plan-stamped.md", to: "projects/plan-plain.md", ...OWNER })).json();
   assert.equal(plain.ok, true);

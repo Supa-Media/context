@@ -597,7 +597,7 @@ test("an object move records the object's own time and its durable-write wait be
 test("an object move records its trip outside the op: the wire both ways, each way, and a cold or busy object", async () => {
   const now = Date.now();
   // The object's clock ran 3 ms ahead of the gateway's: each way alone carries the skew, the two ways' sum does not.
-  const answer = () => ({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }], took: 12, commit: 9, before: 2, arrived: now + 3, answered: now + 3 + 14, cold: true, alarm: true });
+  const answer = () => ({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }], took: 12, commit: 9, before: 2, arrived: now + 3, answered: now + 3 + 14, cold: true, alarm: true, alarmDuring: true });
   const { store } = objectStore(answer);
   const took = new Map();
   const timer = (name, run) => run();
@@ -621,6 +621,7 @@ test("an object move records its trip outside the op: the wire both ways, each w
   assert.equal(took.get("move_back"), 23);
   assert.equal(took.get("move_legs_cold"), 26);
   assert.equal(took.get("move_legs_alarm"), 26);
+  assert.equal(took.get("move_legs_alarm_during"), 26);
 });
 
 test("an object answer without the object's clock records no trip split", async () => {

@@ -54,4 +54,12 @@ test("a move through the object's fetch says when it arrived, that the instance 
   assert.equal(second.ok, true, JSON.stringify(second));
   assert.equal("cold" in second, false);
   assert.equal(second.alarm, true);
+  // An alarm that begins while the call waits for its writes is counted as during it.
+  object.alarmRunning = false;
+  state.storage.sync = async () => {
+    object.alarmStarts = (object.alarmStarts ?? 0) + 1;
+  };
+  const third = await call("ws.write.move", { from: "projects/plan-3.md", to: "projects/plan-4.md", scope: "private" });
+  assert.equal(third.ok, true, JSON.stringify(third));
+  assert.equal(third.alarmDuring, true, JSON.stringify(third));
 });
