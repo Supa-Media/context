@@ -371,8 +371,8 @@ async function runEndToEnd(check) {
     const handed = await second.json();
     const modelSaw = JSON.stringify(calls);
     check(
-      "a handoff texts the person's own /tex/<handle> page, added by the gateway, and the model never sees it",
-      handed.answer.endsWith("https://app.context.test/tex/browse?view=computer") && !modelSaw.includes("/tex/browse") &&
+      "a handoff texts the person's own /tex/@<handle> page, added by the gateway, and the model never sees it",
+      handed.answer.endsWith("https://app.context.test/tex/@browse?view=computer") && !modelSaw.includes("/tex/@browse") &&
         modelSaw.includes("A link to this browser will be added to your reply"),
     );
     check(
