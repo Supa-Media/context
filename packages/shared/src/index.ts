@@ -319,3 +319,11 @@ export {
   TRANSCRIPTION_SETTINGS_COPY,
   isCurrentTranscriptionConsent,
 } from "./transcriptionConsent";
+
+/**
+ * The machine protocol's types, generated from `machineProtocol.schema.json`:
+ * what a person's machine runner and its workspace object say to each other
+ * (docs/decisions/texting-assistant/machines.md). A namespace, because its
+ * short names (`Status`, `Result`, `Tool`) would collide with others here.
+ */
+export * as MachineProtocol from "./machineProtocol.generated";
