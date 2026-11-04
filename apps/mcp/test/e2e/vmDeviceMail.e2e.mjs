@@ -385,9 +385,9 @@ test("a Claude Code VM pairs through its own Context connection, shows up mail-o
   const waiting = vm.run(["mail", "wait", "--timeout", "15"]);
   await new Promise((resolve) => setTimeout(resolve, 300));
   const sentAt = Date.now();
-  const boxes = async () => [{ mailboxId: "mb_vm1", name: "vm-builder", machineId: device.id }];
+  const boxes = async () => [{ mailboxId: "mb_vm1", name: "vm-builder", machineId: device.id, machineWorkspaceId: WORKSPACE }];
   const line = { path: "projects/tex/vm-network.md", at: new Date().toISOString(), from: "lead", app: "Claude", to: "vm-builder", mailKind: "ask", text: "Did the API types move?" };
-  const delivered = await deliverMail(gw.env, { jobMailboxes: boxes, workspaceId: WORKSPACE }, line);
+  const delivered = await deliverMail(gw.env, { jobMailboxes: boxes }, line);
   assert.deepEqual(delivered, ["vm-builder"], "the sender is told it was delivered");
   const woke = await waiting;
   assert.equal(woke.code, 0, woke.stderr);
@@ -397,7 +397,7 @@ test("a Claude Code VM pairs through its own Context connection, shows up mail-o
   assert.ok(Date.now() - sentAt < 3000, "within seconds");
 
   // 6. Mail that arrives with no waiter is not lost: the Stop hook keeps the turn going until Claude has seen it.
-  await deliverMail(gw.env, { jobMailboxes: boxes, workspaceId: WORKSPACE }, { ...line, at: new Date().toISOString(), mailKind: "note", text: "Merged #3001." });
+  await deliverMail(gw.env, { jobMailboxes: boxes }, { ...line, at: new Date().toISOString(), mailKind: "note", text: "Merged #3001." });
   const stop = await until("the runner to hold the second mail", async () => {
     const answer = await vm.hook("Stop", { stop_hook_active: false });
     return answer.stdout.trim() ? answer : null;
@@ -410,7 +410,7 @@ test("a Claude Code VM pairs through its own Context connection, shows up mail-o
   assert.doesNotMatch((await vm.hook("UserPromptSubmit", { prompt: "ok" })).stdout, /Merged/);
 
   // 7. A third mail reaches Claude on its next prompt as well.
-  await deliverMail(gw.env, { jobMailboxes: boxes, workspaceId: WORKSPACE }, { ...line, at: new Date().toISOString(), mailKind: "note", text: "Third one." });
+  await deliverMail(gw.env, { jobMailboxes: boxes }, { ...line, at: new Date().toISOString(), mailKind: "note", text: "Third one." });
   const third = await until("the third mail on a prompt", async () => {
     const answer = await vm.hook("UserPromptSubmit", { prompt: "next" });
     return /Third one\./.test(answer.stdout) ? answer : null;
@@ -422,7 +422,7 @@ test("a Claude Code VM pairs through its own Context connection, shows up mail-o
   assert.equal(end.code, 0, end.stderr);
   await until("the device to leave", () => gw.object.machines.list().length === 0);
   assert.ok([...gw.plane.machines.values()].every((m) => m.revoked), "its grant is revoked");
-  assert.equal(await deliverMail(gw.env, { jobMailboxes: boxes, workspaceId: WORKSPACE }, line).then((names) => names.length), 0, "mail to a device that left is kept in the note only");
+  assert.equal(await deliverMail(gw.env, { jobMailboxes: boxes }, line).then((names) => names.length), 0, "mail to a device that left is kept in the note only");
 });
 
 test("revoking the AI connection that paired a VM ends the device", { skip: !HAVE_BIN && "the runner is not built" }, async (t) => {

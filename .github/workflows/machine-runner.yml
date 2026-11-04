@@ -26,6 +26,13 @@ on:
     paths:
       - "apps/machine-runner/**"
       - "packages/shared/src/machineProtocol.*"
+      - "apps/mcp/src/machines/**"
+      - "apps/mcp/src/mail/**"
+      - "apps/mcp/src/workspaceStore/machine*"
+      - "apps/mcp/src/workspaceStore/serveMachines.js"
+      - "apps/mcp/src/tools/pairDevice.js"
+      - "apps/mcp/test/e2e/**"
+      - "scripts/context-machine-hook.sh"
       - ".github/workflows/machine-runner.yml"
 
 permissions:
@@ -54,6 +61,13 @@ jobs:
             code:
               - "apps/machine-runner/**"
               - "packages/shared/src/machineProtocol.*"
+              - "apps/mcp/src/machines/**"
+              - "apps/mcp/src/mail/**"
+              - "apps/mcp/src/workspaceStore/machine*"
+              - "apps/mcp/src/workspaceStore/serveMachines.js"
+              - "apps/mcp/src/tools/pairDevice.js"
+              - "apps/mcp/test/e2e/**"
+              - "scripts/context-machine-hook.sh"
               - ".github/workflows/machine-runner.yml"
 
   test:
@@ -89,11 +103,48 @@ jobs:
       - name: Test
         run: cargo test
 
+  # The real runner binary against the gateway's real machine routes, pair_device tool, mail delivery and workspace
+  # object sockets: a Claude Code cloud VM pairing as a mail-only device and the session seeing its mail
+  # (apps/mcp/test/e2e/vmDeviceMail.e2e.mjs). It fails, rather than skips, when the binary is not built.
+  e2e:
+    name: End to end (a VM as a mail-only device)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/machine-runner
+
+      - name: Build the runner
+        working-directory: apps/machine-runner
+        run: cargo build
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install the gateway
+        run: pnpm install --filter "@context/mcp..." --frozen-lockfile
+
+      - name: Run the end-to-end test
+        working-directory: apps/mcp
+        env:
+          CI: "true"
+        run: node --test test/e2e/vmDeviceMail.e2e.mjs
+
   # The check to require. It passes when the crate did not change (the test job
   # was skipped), and fails when the test job failed or was cancelled.
   machine-runner:
     name: Machine runner
-    needs: [changes, test]
+    needs: [changes, test, e2e]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -102,15 +153,16 @@ jobs:
         env:
           CHANGED: ${{ needs.changes.outputs.code }}
           TEST_RESULT: ${{ needs.test.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
         run: |
           set -eu
           if [ "$CHANGED" != "true" ]; then
             echo "No changes under apps/machine-runner or its workflow; nothing to test."
             exit 0
           fi
-          if [ "$TEST_RESULT" = "success" ]; then
-            echo "Tests passed on every platform."
+          if [ "$TEST_RESULT" = "success" ] && [ "$E2E_RESULT" = "success" ]; then
+            echo "Tests passed on every platform, and end to end."
             exit 0
           fi
-          echo "::error::The test job finished as '$TEST_RESULT'."
+          echo "::error::The test job finished as '$TEST_RESULT', the end-to-end job as '$E2E_RESULT'."
           exit 1

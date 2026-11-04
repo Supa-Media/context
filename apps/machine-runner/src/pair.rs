@@ -39,11 +39,21 @@ pub fn approved(status: &PairStatus, endpoint: &str, name: &str) -> Result<(Mach
         .clone()
         .filter(|g| g.len() >= 16)
         .context("the approval has no grant")?;
-    let loopback = |u: &str| ["ws://127.0.0.1:", "ws://localhost:"].iter().any(|p| u.starts_with(p));
+    let loopback = |u: &str| {
+        ["ws://127.0.0.1:", "ws://localhost:"]
+            .iter()
+            .any(|p| u.starts_with(p))
+    };
     let socket_url = match status.socket_url.clone() {
         Some(u) if u.starts_with("wss://") => u,
         // A gateway on this computer, as in the end-to-end test; never a remote plain-text socket.
-        Some(u) if loopback(&u) && crate::rules::endpoint_ok(endpoint) && endpoint.starts_with("http://") => u,
+        Some(u)
+            if loopback(&u)
+                && crate::rules::endpoint_ok(endpoint)
+                && endpoint.starts_with("http://") =>
+        {
+            u
+        }
         Some(_) => bail!("the socket address is not wss"),
         None => crate::conn::socket_url(endpoint)?,
     };

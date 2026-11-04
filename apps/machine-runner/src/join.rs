@@ -48,6 +48,17 @@ fn pending_path(state: &State) -> PathBuf {
     state.dir.join("joining.json")
 }
 
+/// Written when a pairing ends without a device (expired, declined): the hooks stop showing new codes on every
+/// prompt, as a session with no Context connection could never approve one. A new session tries again.
+fn ended_path(state: &State) -> PathBuf {
+    state.dir.join("joining.ended")
+}
+
+/// Lets the next `ensure` pair again after one that ran out (`SessionStart`).
+pub fn allow_retry(state: &State) {
+    let _ = std::fs::remove_file(ended_path(state));
+}
+
 pub fn pending(state: &State) -> Option<Pending> {
     let raw = std::fs::read(pending_path(state)).ok()?;
     let p: Pending = serde_json::from_slice(&raw).ok()?;
@@ -76,7 +87,11 @@ fn alive(pid: i32) -> bool {
 }
 
 pub fn daemon_pid(state: &State) -> Option<i32> {
-    let pid: i32 = std::fs::read_to_string(pid_path(state)).ok()?.trim().parse().ok()?;
+    let pid: i32 = std::fs::read_to_string(pid_path(state))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
     alive(pid).then_some(pid)
 }
 
@@ -100,7 +115,8 @@ pub fn spawn_daemon(state: &State, endpoint: &str, name: &str) -> Result<()> {
         // Its own group: the hook's group is ended when the hook returns.
         cmd.process_group(0);
     }
-    cmd.spawn().context("cannot start the device in the background")?;
+    cmd.spawn()
+        .context("cannot start the device in the background")?;
     Ok(())
 }
 
@@ -109,6 +125,9 @@ pub async fn ensure(state: &State, endpoint: &str, name: &str) -> Result<Joined>
     let paired = state.grant(None).is_ok() && !state.machine().machine_id.is_empty();
     if daemon_pid(state).is_none() {
         if !paired {
+            if ended_path(state).exists() {
+                bail!("the last pairing ended without approval; a new session tries again");
+            }
             let _ = std::fs::remove_file(pending_path(state));
         }
         spawn_daemon(state, endpoint, name)?;
@@ -130,7 +149,10 @@ pub async fn ensure(state: &State, endpoint: &str, name: &str) -> Result<Joined>
             });
         }
         if tokio::time::Instant::now() > deadline {
-            bail!("the device did not get a pairing code; see {}", state.dir.join("daemon.log").display());
+            bail!(
+                "the device did not get a pairing code; see {}",
+                state.dir.join("daemon.log").display()
+            );
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -141,7 +163,10 @@ pub async fn daemon(state: State, endpoint: &str, name: &str) -> Result<()> {
     crate::state::write_private(&pid_path(&state), std::process::id().to_string().as_bytes())?;
     let _gone = PidFile(pid_path(&state));
     if state.grant(None).is_err() || state.machine().machine_id.is_empty() {
-        pair_by_session(&state, endpoint, name).await?;
+        if let Err(e) = pair_by_session(&state, endpoint, name).await {
+            let _ = crate::state::write_private(&ended_path(&state), format!("{e:#}").as_bytes());
+            return Err(e);
+        }
     }
     crate::run(
         state,
@@ -204,7 +229,9 @@ async fn pair_by_session(state: &State, endpoint: &str, name: &str) -> Result<()
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10 * 60);
     let ended = loop {
         if tokio::time::Instant::now() > deadline {
-            break Err(anyhow::anyhow!("the code expired before the session approved it"));
+            break Err(anyhow::anyhow!(
+                "the code expired before the session approved it"
+            ));
         }
         tokio::time::sleep(interval).await;
         let status: PairStatus = match http
@@ -259,7 +286,7 @@ pub async fn leave(state: &State, endpoint: &str) -> Result<()> {
             libc::kill(pid, libc::SIGTERM);
         }
     }
-    for name in ["daemon.pid", "joining.json"] {
+    for name in ["daemon.pid", "joining.json", "joining.ended"] {
         let _ = std::fs::remove_file(state.dir.join(name));
     }
     crate::mailbox::clear(state);
@@ -275,11 +302,33 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let s = State::open(Some(d.path().to_path_buf())).unwrap();
         assert!(pending(&s).is_none());
-        let write = |p: &Pending| crate::state::write_private(&pending_path(&s), &serde_json::to_vec(p).unwrap()).unwrap();
-        write(&Pending { code: "ABC-DEF".into(), approve_url: "https://e.test".into(), expires_at: 1 });
+        let write = |p: &Pending| {
+            crate::state::write_private(&pending_path(&s), &serde_json::to_vec(p).unwrap()).unwrap()
+        };
+        write(&Pending {
+            code: "ABC-DEF".into(),
+            approve_url: "https://e.test".into(),
+            expires_at: 1,
+        });
         assert!(pending(&s).is_none(), "expired");
-        write(&Pending { code: "ABC-DEF".into(), approve_url: "https://e.test".into(), expires_at: u64::MAX });
+        write(&Pending {
+            code: "ABC-DEF".into(),
+            approve_url: "https://e.test".into(),
+            expires_at: u64::MAX,
+        });
         assert_eq!(pending(&s).unwrap().code, "ABC-DEF");
+    }
+
+    #[tokio::test]
+    async fn a_pairing_that_ended_is_not_retried_until_a_new_session_allows_it() {
+        let d = tempfile::tempdir().unwrap();
+        let s = State::open(Some(d.path().to_path_buf())).unwrap();
+        crate::state::write_private(&ended_path(&s), b"the code expired").unwrap();
+        let refused = ensure(&s, "https://e.test", "vm").await.unwrap_err();
+        assert!(refused.to_string().contains("new session"), "{refused}");
+        assert!(daemon_pid(&s).is_none(), "no daemon is started for it");
+        allow_retry(&s);
+        assert!(!ended_path(&s).exists());
     }
 
     #[test]

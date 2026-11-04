@@ -26,6 +26,7 @@ import { toolReadGoogleChat } from "./googleChatRead.js";
 import { toolForwardRule } from "./forwardRule.js";
 import { toolApplyLayout, toolConnectGoogle, toolCreateWorkspace, toolInviteMember } from "./workspaces.js";
 import { toolDreamNow } from "./dreamNow.js";
+import { toolPairDevice } from "./pairDevice.js";
 import { toolNotifyMe } from "./attention.js";
 import { toolVaultAddLink, toolVaultList, toolVaultShareLink, toolVaultViewLink } from "./vault.js";
 import { toolError, toolText } from "./results.js";
@@ -280,6 +281,8 @@ async function runTool(name, args, store, scope) {
       return toolInviteMember(store, args);
     case "dream_now":
       return toolDreamNow(store, scope);
+    case "pair_device":
+      return toolPairDevice(store, args);
     case "notify_me":
       return toolNotifyMe(store, scope, rules, overrides, args);
     case "list_links":

@@ -131,6 +131,12 @@ a background job Tex started, mail is no longer only checked on a rhythm.
   each naming the project's note in `start_background_job`'s `mail`; each
   job's first step is joining that note's mail under its part's name.
 
+A session on one of the person's own computers (a cloud VM's Claude Code,
+paired as a mail-only device) joins with `{ join, device }` and gets each
+line the same way, down that computer's socket instead of the texting
+Worker ([machines](./texting-assistant/machines.md), "A cloud VM as a
+mail-only device").
+
 Not yet: a line a person writes in the app's editor is in the note but is
 not delivered at once (the app writes it through the collaborative editor,
 not the mail tool); mail shown in History tagged with sender and receiver

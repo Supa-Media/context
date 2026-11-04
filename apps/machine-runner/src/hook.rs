@@ -63,11 +63,12 @@ pub fn device_name(event: &Value) -> String {
         .or_else(|| std::env::current_dir().ok())
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
         .unwrap_or_else(|| "session".into());
-    let app = if std::env::var_os("CODEX_HOME").is_some() && std::env::var_os("CLAUDECODE").is_none() {
-        "Codex"
-    } else {
-        "Claude Code"
-    };
+    let app =
+        if std::env::var_os("CODEX_HOME").is_some() && std::env::var_os("CLAUDECODE").is_none() {
+            "Codex"
+        } else {
+            "Claude Code"
+        };
     let name = format!("{app} · {folder}");
     name.chars().take(100).collect()
 }
@@ -90,20 +91,50 @@ pub fn waiting(state: &State) -> bool {
         })
 }
 
-const WAIT_LINE: &str = "Keep `context-machine mail wait` running as a background command (run_in_background), and start it again each time it ends: it ends the moment mail arrives, which wakes you.";
-
-fn pair_words(code: &str) -> String {
+/// The exact command the session runs to wait for mail: this binary by its full path and its folder, so it works
+/// whether or not `context-machine` is on the session's PATH.
+pub fn wait_command(state: &State) -> String {
+    let exe = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "context-machine".into());
     format!(
-        "This computer is joining Context as a mail-only device for this session, so other agents and Tex can mail you here. \
-         Approve it now, from your own Context connection: call the Context tool `manage` with action \"pair_device\" and args {{\"code\": \"{code}\"}}. \
-         It never takes jobs and leaves when this session ends. Then: {WAIT_LINE}"
+        "{} --dir {} mail wait",
+        quoted(&exe),
+        quoted(&state.dir.display().to_string())
     )
 }
 
-fn device_words(machine_id: &str) -> String {
+fn quoted(s: &str) -> String {
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/._-+".contains(c))
+    {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
+fn wait_line(wait: &str) -> String {
+    format!(
+        "Keep `{wait}` running as a background command (run_in_background), and start it again each time it ends: \
+         it ends the moment mail arrives, which wakes you."
+    )
+}
+
+fn pair_words(code: &str, wait: &str) -> String {
+    let wait_line = wait_line(wait);
+    format!(
+        "This computer is joining Context as a mail-only device for this session, so other agents and Tex can mail you here. \
+         Approve it now, from your own Context connection: call the Context tool `manage` with action \"pair_device\" and args {{\"code\": \"{code}\"}}. \
+         It never takes jobs and leaves when this session ends. Then: {wait_line}"
+    )
+}
+
+fn device_words(machine_id: &str, wait: &str) -> String {
+    let wait_line = wait_line(wait);
     format!(
         "This session is Context device {machine_id} (mail only). To get a note's mail here at once, join it with Context write action \"mail\", \
-         args {{\"join\": \"<a short name>\", \"device\": \"{machine_id}\"}}, and pass the mailbox id it gives on later calls. {WAIT_LINE}"
+         args {{\"join\": \"<a short name>\", \"device\": \"{machine_id}\"}}, and pass the mailbox id it gives on later calls. {wait_line}"
     )
 }
 
@@ -123,20 +154,27 @@ fn mail_words(state: &State) -> Option<String> {
     if mail.is_empty() {
         return None;
     }
-    Some(mailbox::words(&mail, &state.machine().machine_id))
+    Some(mailbox::words(
+        &mail,
+        &state.machine().machine_id,
+        &wait_command(state),
+    ))
 }
 
 /// Runs one hook. Never an error to the caller: what went wrong is one line in the output, or nothing.
 pub async fn run(state: &State, event: Event, endpoint: &str) -> Result<()> {
     let given = input();
     let name = device_name(&given);
+    let wait = wait_command(state);
     match event {
         Event::SessionStart => {
+            // A new session (or /clear) may try pairing again after one that ran out.
+            join::allow_retry(state);
             let mut out = match join::ensure(state, endpoint, &name).await {
-                Ok(Joined::Pairing { code }) => pair_words(&code),
+                Ok(Joined::Pairing { code }) => pair_words(&code, &wait),
                 Ok(Joined::Paired { machine_id }) => {
                     announced(state, &machine_id);
-                    device_words(&machine_id)
+                    device_words(&machine_id, &wait)
                 }
                 Err(e) => format!("Context device: not connected ({e:#})."),
             };
@@ -148,12 +186,15 @@ pub async fn run(state: &State, event: Event, endpoint: &str) -> Result<()> {
         Event::Prompt => {
             let mut parts = Vec::new();
             match join::ensure(state, endpoint, &name).await {
-                Ok(Joined::Pairing { code }) => parts.push(pair_words(&code)),
+                Ok(Joined::Pairing { code }) => parts.push(pair_words(&code, &wait)),
                 Ok(Joined::Paired { machine_id }) => {
                     if !announced(state, &machine_id) {
-                        parts.push(device_words(&machine_id));
+                        parts.push(device_words(&machine_id, &wait));
                     } else if !waiting(state) {
-                        parts.push(format!("Context device {machine_id}: no `mail wait` is running. {WAIT_LINE}"));
+                        parts.push(format!(
+                            "Context device {machine_id}: no `mail wait` is running. {}",
+                            wait_line(&wait)
+                        ));
                     }
                 }
                 Err(_) => {}
@@ -204,7 +245,23 @@ mod tests {
 
     #[test]
     fn the_pairing_words_name_the_action_and_the_code() {
-        let w = pair_words("KQ7-4MP");
-        assert!(w.contains("\"pair_device\"") && w.contains("KQ7-4MP") && w.contains("mail wait"));
+        let w = pair_words("KQ7-4MP", "/opt/cm --dir /tmp/x mail wait");
+        assert!(
+            w.contains("\"pair_device\"")
+                && w.contains("KQ7-4MP")
+                && w.contains("`/opt/cm --dir /tmp/x mail wait`")
+        );
+    }
+
+    #[test]
+    fn the_wait_command_names_this_binary_and_its_folder_and_quotes_spaces() {
+        let d = tempfile::tempdir().unwrap();
+        let spaced = d.path().join("my dir");
+        std::fs::create_dir_all(&spaced).unwrap();
+        let s = State::open(Some(spaced.clone())).unwrap();
+        let w = wait_command(&s);
+        assert!(w.ends_with(" mail wait"), "{w}");
+        assert!(w.contains(&format!("--dir '{}'", spaced.display())), "{w}");
+        assert_eq!(quoted("it's"), "'it'\\''s'");
     }
 }

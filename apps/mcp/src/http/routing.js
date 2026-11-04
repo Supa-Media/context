@@ -64,7 +64,7 @@ export function attachLinkCalls(store, session, controlPlane, env) {
       join: (path, name, jobId, machineId) => controlPlane.joinMailbox(session.accessToken, session.workspaceId, path, name, jobId, machineId),
       get: (mailboxId) => controlPlane.getMailbox(session.accessToken, mailboxId),
       read: (mailboxId, readThrough) => controlPlane.markMailRead(session.accessToken, mailboxId, readThrough),
-      deliver: (line) => deliverMail(env, { jobMailboxes, workspaceId: session.workspaceId }, line),
+      deliver: (line) => deliverMail(env, { jobMailboxes }, line),
     },
     enumerable: false,
     writable: false,

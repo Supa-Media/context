@@ -13,8 +13,9 @@ import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import type { QueryCtx } from "../_generated/server";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { addressable, contextsForGrant, resolveLiveGrant } from "./lib/controlPlane/liveGrants";
+import { deviceStillLive } from "./texMachineDevices";
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
 const MAX_PATH = 1024;
@@ -67,6 +68,11 @@ export const joinMailbox = internalMutation({
     mailboxId: v.string(),
     /** The Tex background job whose turn is joining, when it is one. Bound to the mailbox; see `jobMailboxes`. */
     jobId: v.optional(v.string()),
+    /**
+     * The person's own machine whose session is joining (a cloud VM's Claude Code). It must be live and the joining
+     * grant's own person's; the gateway pushes new mail down its socket. See `jobMailboxes`.
+     */
+    machineId: v.optional(v.string()),
   },
   returns: v.union(
     v.object({ ok: v.literal(true), mailbox: mailboxView }),
@@ -79,6 +85,13 @@ export const joinMailbox = internalMutation({
     if (args.jobId !== undefined && !JOB_ID_RE.test(args.jobId)) return refused;
     const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
     if (live === null) return refused;
+    let machineId: Id<"texMachines"> | undefined;
+    if (args.machineId !== undefined) {
+      const id = ctx.db.normalizeId("texMachines", args.machineId);
+      const machine = id === null ? null : await ctx.db.get(id);
+      if (machine === null || machine.ownerId !== live.grant.userId || !(await deviceStillLive(ctx, machine))) return refused;
+      machineId = machine._id;
+    }
     const target = addressable(await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === args.workspaceId);
     if (!target) return refused;
     // A group chat's home in the pin is the one place in the pin it may hold a mailbox: its folder, never the pin.
@@ -93,6 +106,7 @@ export const joinMailbox = internalMutation({
     if (mine) {
       // A rejoin that names a job re-binds the mailbox to it; a rejoin that names none leaves the binding as it is.
       if (args.jobId !== undefined && mine.jobId !== args.jobId) await ctx.db.patch(mine._id, { jobId: args.jobId });
+      if (machineId !== undefined && mine.machineId !== machineId) await ctx.db.patch(mine._id, { machineId });
       return { ok: true as const, mailbox: view((await ctx.db.get(mine._id))!) };
     }
     if (existing.length > 0) return { ok: false as const, error: "name_taken" as const };
@@ -104,6 +118,7 @@ export const joinMailbox = internalMutation({
       name: args.name,
       readThrough: new Date().toISOString(),
       ...(args.jobId !== undefined ? { jobId: args.jobId } : {}),
+      ...(machineId !== undefined ? { machineId } : {}),
       createdAt: Date.now(),
     });
     return { ok: true as const, mailbox: view((await ctx.db.get(id))!) };
@@ -135,13 +150,23 @@ export const markMailRead = internalMutation({
 });
 
 /**
- * The mailboxes on this note that a Tex background job joined, and whose own grant is still active. The gateway reads
- * these to deliver new mail to the job at once. Empty unless the presenting grant reaches the workspace; capped at
+ * The mailboxes on this note that a Tex background job joined, or a session on one of the person's own machines, and
+ * whose own grant (and machine) is still live. The gateway reads these to deliver new mail at once: to the job, or
+ * down the machine's socket in its own workspace's object (`machineWorkspaceId`). Empty unless the presenting grant reaches the workspace; capped at
  * `MAX_JOB_MAILBOXES`. Names and ids only, never mail text.
  */
 export const jobMailboxes = internalQuery({
   args: { hashedAccessToken: v.string(), workspaceId: v.string(), path: v.string() },
-  returns: v.array(v.object({ mailboxId: v.string(), name: v.string(), jobId: v.string(), own: v.boolean() })),
+  returns: v.array(
+    v.object({
+      mailboxId: v.string(),
+      name: v.string(),
+      jobId: v.optional(v.string()),
+      machineId: v.optional(v.id("texMachines")),
+      machineWorkspaceId: v.optional(v.id("workspaces")),
+      own: v.boolean(),
+    }),
+  ),
   handler: async (ctx, args) => {
     if (!args.path || args.path.length > MAX_PATH) return [];
     const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
@@ -153,14 +178,27 @@ export const jobMailboxes = internalQuery({
       .query("noteMailboxes")
       .withIndex("by_workspace_path_name", (q) => q.eq("workspaceId", target.workspaceId).eq("path", args.path))
       .collect();
-    const out: Array<{ mailboxId: string; name: string; jobId: string; own: boolean }> = [];
+    const out: Array<{
+      mailboxId: string;
+      name: string;
+      jobId?: string;
+      machineId?: Id<"texMachines">;
+      machineWorkspaceId?: Id<"workspaces">;
+      own: boolean;
+    }> = [];
     for (const row of rows) {
       if (out.length >= MAX_JOB_MAILBOXES) break;
-      if (row.jobId === undefined) continue;
+      if (row.jobId === undefined && row.machineId === undefined) continue;
       const grant = await ctx.db.get(row.grantId);
       if (grant === null || grant.status !== "active") continue;
       // `own`: joined by the presenting grant, so the sender is that job's own Tex (the gateway lets only Tex's own turn interrupt it).
-      out.push({ mailboxId: row.mailboxId, name: row.name, jobId: row.jobId, own: row.grantId === live.grant._id });
+      const own = row.grantId === live.grant._id;
+      if (row.jobId !== undefined) out.push({ mailboxId: row.mailboxId, name: row.name, jobId: row.jobId, own });
+      else if (row.machineId !== undefined) {
+        const machine = await ctx.db.get(row.machineId);
+        if (machine === null || !(await deviceStillLive(ctx, machine))) continue;
+        out.push({ mailboxId: row.mailboxId, name: row.name, machineId: machine._id, machineWorkspaceId: machine.workspaceId, own });
+      }
     }
     return out;
   },

@@ -1,5 +1,6 @@
 /**
- * The gateway's routes for Tex machines: pairing, claiming, resolving, registering and revoking
+ * The gateway's routes for Tex machines: pairing, claiming, resolving, registering, revoking, a session's own
+ * computer approved from its connection, and a machine leaving
  * (`docs/decisions/texting-assistant/machines.md`).
  *
  * Split out of `http.ts`, which registers these routes in one loop over `TEX_MACHINE_GATEWAY_ROUTES`, each built by
@@ -45,6 +46,9 @@ const REFUSAL_STATUS = new Map<string, number>([
   ["BAD_RUN", 400],
   ["CHAT_NOT_FOUND", 404],
   ["TOO_MANY_MACHINES", 409],
+  ["UNAUTHORIZED", 401],
+  ["WORKSPACE_MISMATCH", 404],
+  ["RATE_LIMITED", 429],
   [UNKNOWN_WORKSPACE_REFUSAL, 404],
 ]);
 
@@ -91,6 +95,37 @@ async function startHandler(ctx: ActionCtx, body: Record<string, unknown>): Prom
         facts: factsJson,
       }),
     );
+  } catch (error) {
+    return refusal(error);
+  }
+}
+
+/**
+ * A session approving the code its own computer's runner shows, with its own Context connection (`pair_device`). The
+ * connection's access token and the code are hashed here; `texMachineDevices.ts` decides, and its refusals come back
+ * as values so the attempt it counted stands.
+ */
+async function approveFromGrantHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const accessToken = stringField(body, "accessToken");
+  const workspaceId = stringField(body, "workspaceId");
+  const code = stringField(body, "code");
+  if (accessToken === null || workspaceId === null || code === null) return badRequest();
+  const normalized = normalizePairingCode(code);
+  const answer = await ctx.runMutation(internal.functions.texMachineDevices.approveTexMachinePairingFromGrant, {
+    hashedAccessToken: await hashToken(accessToken),
+    workspaceId,
+    hashedCode: normalized === null ? null : await hashToken(pairingCodeHashInput(normalized)),
+  });
+  if (answer.ok) return json({ name: answer.name, os: answer.os });
+  return json({ code: answer.code }, REFUSAL_STATUS.get(answer.code) ?? 403);
+}
+
+/** A machine giving its own grant back (`/machines/leave` at the gateway). Unknown and revoked grants are one 401. */
+async function leaveHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const grant = stringField(body, "grant");
+  if (grant === null) return badRequest();
+  try {
+    return json(await ctx.runMutation(internal.functions.texMachineDevices.leaveTexMachine, { hashedGrant: await hashToken(grant) }));
   } catch (error) {
     return refusal(error);
   }
@@ -264,6 +299,8 @@ export const TEX_MACHINE_GATEWAY_ROUTES: ReadonlyArray<readonly [string, Handler
   ["/gateway/machines/pair/start", startHandler],
   ["/gateway/machines/pair/read", readHandler],
   ["/gateway/machines/pair/claim", claimHandler],
+  ["/gateway/machines/pair/approve-grant", approveFromGrantHandler],
+  ["/gateway/machines/leave", leaveHandler],
   ["/gateway/machines/resolve", resolveHandler],
   ["/gateway/machines/register", registerHandler],
   ["/gateway/machines/revoke", revokeHandler],

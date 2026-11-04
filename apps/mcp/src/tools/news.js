@@ -41,6 +41,15 @@ import { unlistedArgumentAdvice } from "./liveList.js";
 export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-11-04",
+    newTool: true,
+    text:
+      "manage action pair_device (args `{ code }`) pairs the computer this session runs on (a cloud VM's Claude Code) as a mail-only " +
+      "device: pass the code its context-machine runner printed at session start, never one somebody sent you. It shows up in the " +
+      "person's devices, gets note mail at once, never takes Tex's jobs, and leaves when the session ends, after a day, or when this " +
+      "connection is revoked. Then write action mail takes args `{ join, device }` to have a note's mail pushed to that device.",
+  },
+  {
+    date: "2026-11-04",
     text: "search no longer takes args { rerank }: the ranking model did not beat the order search already gives, so it was removed.",
   },
   {
@@ -388,7 +397,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "ad5e3487";
+export const TOOL_SHAPE = "0ebc890a";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

@@ -42,6 +42,7 @@ fn every_server_frame_round_trips() {
             "challenge",
             "goodbye",
             "interrupt",
+            "mail",
             "message",
             "rules",
             "welcome"

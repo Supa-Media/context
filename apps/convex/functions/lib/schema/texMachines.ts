@@ -40,6 +40,12 @@ export const texMachineTables = {
      * most 8000 characters, parsed only when read back. Never a credential.
      */
     facts: v.optional(v.string()),
+    /**
+     * Set when a session approved its own computer's code with its Context connection (`pair_device`,
+     * `functions/texMachineDevices.ts`): the machine it becomes takes mail and never jobs, and ends with that grant.
+     */
+    mailOnly: v.optional(v.literal(true)),
+    pairedByGrantId: v.optional(v.id("oauthGrants")),
     createdAt: v.number(),
     expiresAt: v.number(),
   })
@@ -62,10 +68,19 @@ export const texMachineTables = {
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),
     lastSeenAt: v.optional(v.number()),
+    /**
+     * A mail-only device: a session's own computer (a cloud VM's Claude Code), paired by that session's Context
+     * connection (`pairedByGrantId`). It takes note mail and never jobs, stops resolving the moment that grant is
+     * revoked or `expiresAt` passes, and is deleted by the purge an hour later (`functions/texMachineDevices.ts`).
+     */
+    mailOnly: v.optional(v.literal(true)),
+    pairedByGrantId: v.optional(v.id("oauthGrants")),
+    expiresAt: v.optional(v.number()),
   })
     .index("by_grant", ["hashedGrant"])
     .index("by_workspace", ["workspaceId"])
-    .index("by_owner", ["ownerId"]),
+    .index("by_owner", ["ownerId"])
+    .index("by_expires", ["expiresAt"]),
 
   /**
    * A run grant: the short-lived token a Tex background job's part presents on a paired machine. It acts exactly as

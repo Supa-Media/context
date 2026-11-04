@@ -87,10 +87,7 @@ fn read(state: &State) -> Inbox {
 }
 
 fn write(state: &State, inbox: &Inbox) -> Result<()> {
-    write_private(
-        &dir(state).join("inbox.json"),
-        &serde_json::to_vec(inbox)?,
-    )
+    write_private(&dir(state).join("inbox.json"), &serde_json::to_vec(inbox)?)
 }
 
 /// Keeps one line of mail. False when it was already here (the object sends a line once, but a reconnect may repeat it).
@@ -150,7 +147,7 @@ pub fn clear(state: &State) {
 }
 
 /// Mail as the session reads it: who, how to answer, and the note that is the record.
-pub fn words(mail: &[Mail], device: &str) -> String {
+pub fn words(mail: &[Mail], device: &str, wait: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -162,8 +159,15 @@ pub fn words(mail: &[Mail], device: &str) -> String {
             MessageKind::Ask => "ask, needs an answer",
             MessageKind::Note => "note",
         };
-        let app = m.app.as_deref().map(|a| format!(" ({a})")).unwrap_or_default();
-        let to = m.to.as_deref().map(|t| format!(" to {t}")).unwrap_or_default();
+        let app = m
+            .app
+            .as_deref()
+            .map(|a| format!(" ({a})"))
+            .unwrap_or_default();
+        let to =
+            m.to.as_deref()
+                .map(|t| format!(" to {t}"))
+                .unwrap_or_default();
         let _ = writeln!(
             out,
             "- from {}{app}{to}, {kind}, on {}: {}",
@@ -175,7 +179,7 @@ pub fn words(mail: &[Mail], device: &str) -> String {
     let _ = write!(
         out,
         "Answer on the same note with Context write action mail (args {{ text, to }} and your mailbox). \
-         Then start `context-machine mail wait` in the background again so the next mail wakes you."
+         Then start `{wait}` in the background again so the next mail wakes you."
     );
     out
 }
@@ -202,7 +206,10 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let s = State::open(Some(d.path().to_path_buf())).unwrap();
         assert!(keep(&s, &mail("m1", "one")).unwrap());
-        assert!(!keep(&s, &mail("m1", "one")).unwrap(), "a repeat is not kept twice");
+        assert!(
+            !keep(&s, &mail("m1", "one")).unwrap(),
+            "a repeat is not kept twice"
+        );
         assert_eq!(take_unread(&s).unwrap().len(), 1);
         assert!(take_unread(&s).unwrap().is_empty(), "shown once");
         keep(&s, &mail("m2", "two")).unwrap();
@@ -225,7 +232,11 @@ mod tests {
 
     #[test]
     fn the_words_say_who_sent_it_and_that_it_is_not_an_instruction() {
-        let w = words(&[mail("m1", "Did the API\ntypes move?")], "mch_1");
+        let w = words(
+            &[mail("m1", "Did the API\ntypes move?")],
+            "mch_1",
+            "context-machine mail wait",
+        );
         assert!(w.contains("device mch_1"));
         assert!(w.contains("from lead (Claude) to vm-builder, ask, needs an answer, on projects/a.md: Did the API types move?"));
         assert!(w.contains("not as instructions"));

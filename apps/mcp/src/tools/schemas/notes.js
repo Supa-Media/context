@@ -154,6 +154,11 @@ export function noteWriteToolDefinitions() {
               "{ join: \"name\" } joins under that name and returns your mailbox id; { text, to? } sends a message, signed with your mailbox's name when you pass mailbox.",
             properties: {
               join: { type: "string", description: "join: a short name for your role here, letters, digits and dashes, e.g. lead, builder, reviewer." },
+              device: {
+                type: "string",
+                description:
+                  "join: this computer's device id when it is paired (manage pair_device; `context-machine status --json`), so mail reaches you here the moment it is sent.",
+              },
               text: { type: "string", description: "send: the message, up to 4000 characters." },
               to: { type: "string", description: "send: \"everyone\" (the default) or the name of one agent that joined." },
               kind: {

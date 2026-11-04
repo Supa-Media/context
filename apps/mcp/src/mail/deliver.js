@@ -57,7 +57,7 @@ async function toMachine(env, workspaceId, box, line) {
 
 /**
  * @param {{ TEXTING?: { mailDeliver?: (call: object) => Promise<{ taken?: boolean }> }, WORKSPACE_STORE?: object }} env
- * @param {{ jobMailboxes: (path: string) => Promise<Array<{ mailboxId: string, name: string, jobId?: string, machineId?: string, own?: boolean }>>, workspaceId?: string }} mail
+ * @param {{ jobMailboxes: (path: string) => Promise<Array<{ mailboxId: string, name: string, jobId?: string, machineId?: string, machineWorkspaceId?: string, own?: boolean }>> }} mail
  * @param {{ path: string, at: string, from: string, app: string | null, to: string, mailKind: "note" | "ask" | "interrupt", text: string }} line
  * @returns {Promise<string[]>} the names of the jobs and machines that took the line
  */
@@ -74,8 +74,9 @@ export async function deliverMail(env, mail, line) {
     .filter((box) => line.to === "everyone" || box.name === line.to)
     .slice(0, MAX_DELIVERIES);
   // A session on a machine (a cloud VM's Claude Code): through its workspace object, never an interrupt from another agent.
-  const machines = addressed.filter((box) => typeof box.machineId === "string" && typeof mail.workspaceId === "string" && (line.mailKind !== "interrupt" || box.own === true));
-  const toMachines = machines.map(async (box) => ((await toMachine(env, mail.workspaceId, box, line).catch(() => false)) ? box.name : null));
+  // The machine lives in its own workspace's object, which need not be the note's (`machineWorkspaceId`).
+  const machines = addressed.filter((box) => typeof box.machineId === "string" && typeof box.machineWorkspaceId === "string" && (line.mailKind !== "interrupt" || box.own === true));
+  const toMachines = machines.map(async (box) => ((await toMachine(env, box.machineWorkspaceId, box, line).catch(() => false)) ? box.name : null));
   const texting = env?.TEXTING;
   const jobs = typeof texting?.mailDeliver === "function" ? addressed.filter((box) => typeof box.jobId === "string") : [];
   const to = jobs

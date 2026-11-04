@@ -267,7 +267,14 @@ async fn real_main(args: Args) -> Result<()> {
         } => {
             let mail = mailbox::take_unread(&state)?;
             if !mail.is_empty() {
-                println!("{}", mailbox::words(&mail, &state.machine().machine_id));
+                println!(
+                    "{}",
+                    mailbox::words(
+                        &mail,
+                        &state.machine().machine_id,
+                        &hook::wait_command(&state)
+                    )
+                );
             }
             Ok(())
         }
@@ -299,7 +306,14 @@ async fn mail_wait(state: &State, timeout: Option<u64>) -> Result<()> {
     }
     match got {
         Some(mail) => {
-            println!("{}", mailbox::words(&mail, &state.machine().machine_id));
+            println!(
+                "{}",
+                mailbox::words(
+                    &mail,
+                    &state.machine().machine_id,
+                    &hook::wait_command(state)
+                )
+            );
             Ok(())
         }
         None => std::process::exit(3),
@@ -307,7 +321,10 @@ async fn mail_wait(state: &State, timeout: Option<u64>) -> Result<()> {
 }
 
 fn default_endpoint(state: &State) -> String {
-    if let Some(e) = std::env::var("CONTEXT_MACHINE_ENDPOINT").ok().filter(|e| !e.is_empty()) {
+    if let Some(e) = std::env::var("CONTEXT_MACHINE_ENDPOINT")
+        .ok()
+        .filter(|e| !e.is_empty())
+    {
         return e;
     }
     let saved = state.machine().endpoint;
