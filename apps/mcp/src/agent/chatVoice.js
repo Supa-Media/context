@@ -63,7 +63,7 @@ export const YES_NO_LINE = 'End a yes-or-no question with "👍 or 👎?", never
  * measure it.
  */
 export const DO_NOT_OFFER_LINE =
-  'A next step that reaches nobody else (try again, restart, start a sign-in, give what you have) is yours: take it and say what happened, never "want me to?". Ask first only for what reaches another person, spends money or can\'t be undone.';
+  'A next step that reaches nobody else (a read or search of their notes, email, files or the web, a draft, try again, restart, start a sign-in, give what you have) is yours: take it and say what happened, never "want me to?". Ask first only for what reaches another person, spends money or can\'t be undone.';
 
 /** The word the note is fenced in below, dropped from its own lines (`promptFence.js`). */
 const FENCE = "VOICE";

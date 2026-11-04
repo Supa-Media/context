@@ -38,6 +38,7 @@ import { sleepLineNote } from "../timeLog.js";
 import { agentTools, runTurn } from "../turn.js";
 import { chatHubUrl, hubPrompt } from "../hubLinks.js";
 import { withVaultWatch } from "../vaultSaved.js";
+import { doItChecks } from "../doItChecks.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function runTheModel(t) {
@@ -49,6 +50,8 @@ export async function runTheModel(t) {
   // Their computers, told to the turn, and code no longer delegated to the web while one is paired (`machines/forTurn.js`).
   const computers = computersRead === null || computersRead === undefined ? [] : await tex.wait("computers", computersRead);
   const delegation = delegationBeside(delegated, computers);
+  // A read offered back instead of done, and an advisor they asked for and nobody asked, go back once, on the front door too (`doItChecks.js`).
+  const doIt = chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
   if (planning) background.plan = planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) });
   if (planning) splitFirst(background); // a lone job is offered the planner once
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
@@ -65,7 +68,7 @@ export async function runTheModel(t) {
     // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
     // per-call scope refusal. An agent that reached past it would be a second, untested authority.
     onModel: (model) => void (store.usageModel = model),
-    answerCheck: claims?.check ?? tries?.check ?? null, endsTurn: background?.endsTurn ?? null, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`)
+    answerCheck: doIt?.check ?? claims?.check ?? tries?.check ?? null, endsTurn: background?.endsTurn ?? null, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`)
     callTool: allowedFirst(tex.lean ? allowedRead : null, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,
@@ -90,7 +93,7 @@ export async function runTheModel(t) {
     web: steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
     history: logged?.history ?? shown,
     threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (job === null ? computersLine(computers, { planning }) : "") + (chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : "") + jobPrompt(job) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
-    local: [...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
+    local: (doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])]), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
     localNow: { now: Date.now(), timeZone },

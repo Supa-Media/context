@@ -44,6 +44,8 @@ const REASON_WORDS = {
 
 export function speaker(from) {
   if (from?.kind === "tex") return "You";
+  // A message another of their agents asked Tex to pass on (`sentOnItsOwn.js`): that agent's words, never Tex's or theirs.
+  if (from?.kind === "agent") return "Their other agent, passed on by you";
   if (from?.kind === "system") return "Context";
   // A person is always "@name" ("@someone" unnamed): no name, a look-alike of "You" included, renders as Tex's or Context's label.
   const name = typeof from?.name === "string" ? oneLine(from.name).replace(/^@+/, "") : "";
@@ -64,6 +66,7 @@ export function words(event) {
     case "picture":
       return text ? `(a picture) ${text}` : "(a picture)";
     case "file":
+      if (event.heard === "voice") return text ? `(a voice message) ${text}` : "(a voice message)";
       return text ? `(a file) ${text}` : "(a file)";
     case "reaction":
       return `(a tapback) ${text}`.trim();
@@ -111,6 +114,7 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
     if (event.from?.kind === "person" && INBOUND.has(event.kind) && event.at >= newestAnswered && !answered.has(event.id)) line += "   (not answered)";
     lines.push(line);
     if (event.delivered === false) lines.push(`${NOTE_INDENT}(not delivered: ${REASON_WORDS[event.reason] ?? "it didn't go out"})`);
+    if (typeof event.why === "string" && event.why !== "") lines.push(`${NOTE_INDENT}(${oneLine(event.why)})`);
     const used = event.from?.kind === "tex" && typeof event.turn === "string" && !named.has(event.turn) ? tools?.get(event.turn) : undefined;
     if (Array.isArray(used) && used.length > 0) {
       named.add(event.turn);

@@ -346,18 +346,22 @@ const STEER_TOOL = {
  * starts its job as the turn's first call, the brief carrying what the turn
  * already knows, and the turn ends the moment the job starts with a fixed
  * line: no model round after it. A turn still working after two rounds (or
- * SLOW_TURN_MS) without one is told once to hand the rest over.
+ * SLOW_TURN_MS) without one is told once to hand the rest over or keep going,
+ * never to "answer now" (Dev2, 2026-11-04: that line made Tex stop and offer
+ * three reads it could have done; `doItChecks.js`).
  */
 const JOB_FIRST =
   "\n\nA task that takes more than a couple of tool calls (research across many sources, an application, a plan, a draft built from " +
   'several notes, a multi-step task on a site) goes to a background job (send { action: "background" }) as your FIRST call: before ' +
-  "reading notes, searching, browsing or asking your advisor. The job does the reading; put what you already know from this chat in the brief. " +
+  "reading notes, searching or browsing. The job does the reading; put what you already know from this chat in the brief. " +
+  "A question a few reads answer is not a task: do those reads yourself, and ask your advisor yourself whenever they ask you to. " +
   "They hear \"on it\" the moment it starts, and you can take their next text while it runs.";
 /** How long a texted turn works before it is told to hand the rest to a job. */
 export const SLOW_TURN_MS = 12_000;
 export const SLOW_TURN_NOTE =
-  "(This is taking a while and they're waiting on the line. If what's left takes more than one more step, hand it to a background job " +
-  'now with send { action: "background" }, putting what you found so far in the brief; otherwise answer now.)';
+  "(This is taking a while and they're waiting on the line. If what's left is more than a few more steps, hand it to a background job " +
+  'now with send { action: "background" }, putting what you found so far in the brief. Otherwise keep going and finish it here: ' +
+  "never stop early to offer a read, search, check or draft you could do yourself.)";
 /**
  * A start or restart they asked to hear nothing about until it's done (Dev, 2026-11-03: "don't come back to me until
  * you are done" was answered with "On it" three times): the turn ends texting nothing (`texEntryPoint.js`), and the chat keeps

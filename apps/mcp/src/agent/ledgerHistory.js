@@ -23,6 +23,7 @@
 
 import { checkEvent, EVENT_ID, EVENT_KINDS, READ_CHARS, READ_LIMIT } from "./log.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
+import { sentOnItsOwn } from "./sentOnItsOwn.js";
 
 /** The most entries one read of the ledger asks for; a turn reads at most `MAX_PAGES` of them. */
 const PAGE = DESK_LEDGER.options.limit;
@@ -129,7 +130,8 @@ export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTE
   }
   // Tex's own answers are shown only when the gateway recorded their turn clean; a check-in by its own mark.
   const held = events.map((event) => {
-    if (event.from?.kind !== "tex" || untrusted) return event;
+    if (!event.byItself && event.from?.kind !== "tex") return event;
+    if (untrusted) return event;
     const proven = event.byItself ? event.tainted !== true : clean.has(event.turn);
     return proven ? event : { ...event, text: HELD_BACK };
   });
@@ -139,5 +141,6 @@ export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTE
 /** A check-in or other text Tex sent by itself, as an event; anything else kept as a note is not shown. */
 function noteEvent(entry, chat) {
   if (typeof entry.about !== "string" || !BY_ITSELF.test(entry.about) || typeof entry.text !== "string" || entry.text.trim() === "") return null;
-  return { id: `note-${entry.id}`, at: entry.at, chat, from: { kind: "tex" }, kind: "text", text: entry.text.trim(), delivered: true, byItself: true, ...(entry.tainted === true ? { tainted: true } : {}) };
+  // Why it went out stays with it (`sentOnItsOwn.js`): a ping another agent asked for is that agent's, passed on.
+  return { id: `note-${entry.id}`, at: entry.at, chat, from: { kind: "tex" }, kind: "text", text: entry.text.trim(), delivered: true, byItself: true, ...sentOnItsOwn(entry.about), ...(entry.tainted === true ? { tainted: true } : {}) };
 }

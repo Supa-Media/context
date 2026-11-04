@@ -206,7 +206,7 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
   const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [], tainted: false };
   const transcript = renderEvents(withSentByItself([...earlier.events, ...shown], own.shown), { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools });
-  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: own.tainted || (await showsTainted(store, shown, workspace, warm, records, group === null ? cleanByReply(read?.entries) : new Map())) };
+  return { covered, history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: own.tainted || (await showsTainted(store, shown, workspace, warm, records, group === null ? cleanByReply(read?.entries) : new Map())) };
 }
 
 /**
