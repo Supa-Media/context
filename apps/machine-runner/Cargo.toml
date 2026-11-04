@@ -1,6 +1,6 @@
 [package]
 name = "context-machine"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "Lets Tex run jobs on your own computer with your own Claude Code and Codex"

@@ -104,7 +104,7 @@ check("win32 has no target yet", targetFor("win32", "x64") === null);
 check("linux ia32 has no target", targetFor("linux", "ia32") === null);
 check("freebsd has no target", targetFor("freebsd", "x64") === null);
 
-check("the version constant is 0.1.0", MACHINE_RUNNER_VERSION === "0.1.0");
+check("the version constant is 0.2.0", MACHINE_RUNNER_VERSION === "0.2.0");
 
 /* ---------------------------- checksum parsing --------------------------- */
 
