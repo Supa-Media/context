@@ -120,13 +120,13 @@ export function withGatewayMachines(base: TexPageSource, options: MachineSourceO
 
   return {
     ...base,
-    async overview(chat) {
-      const read = await base.overview(chat);
+    async overview(chat, part) {
+      // The machines' asks go on the person's own first screen: read beside the page, never after it.
+      const wantsAsks = chat === "me" && (part === undefined || part === "core");
+      const [read, machines] = await Promise.all([base.overview(chat, part), wantsAsks ? list() : null]);
       if (read.kind !== "ok") return read;
-      groupChats = read.value.chats.filter((c) => c.key !== "me").map((c) => ({ key: c.key, name: c.name }));
-      if (chat !== "me") return read;
-      const machines = await list();
-      if (machines.kind !== "ok") return read;
+      if (part !== "tiles") groupChats = read.value.chats.filter((c) => c.key !== "me").map((c) => ({ key: c.key, name: c.name }));
+      if (machines === null || machines.kind !== "ok") return read;
       const asks = asksOf(machines.value);
       const o: Overview = { ...read.value, asks, status: { ...read.value.status, needsYou: read.value.status.needsYou + asks.length } };
       return { kind: "ok", value: o };
