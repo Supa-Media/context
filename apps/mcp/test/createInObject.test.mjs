@@ -214,3 +214,20 @@ test("an object that cannot wait for its writes says nothing of them", async () 
   assert.equal(answer.served, true);
   assert.equal(Object.hasOwn(answer, "commit"), false);
 });
+
+test("a new note sets its flush alarm before waiting for durable writes, so one flush carries both", async () => {
+  const { routed, store } = started({ settleMs: 1 });
+  const order = [];
+  store.mirrorSoon = () => new Promise((resolve) => setTimeout(() => {
+    order.push("alarm set");
+    resolve();
+  }, 5));
+  const settle = store.settle;
+  store.settle = async () => {
+    order.push("settle");
+    await settle();
+  };
+  const { store: layer } = layered(routed);
+  await layer.put("1-projects/armed.md", "# Armed\n", { onlyIf: { absent: true }, tier: "team" });
+  assert.deepEqual(order, ["alarm set", "settle"]);
+});

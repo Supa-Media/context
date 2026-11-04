@@ -476,3 +476,18 @@ test("an archive names no `to`, and a move with both is refused", async () => {
   const bad = await callMove(store, { from: "projects/plan.md", archive: { root: 3, roots: [] }, ...OWNER });
   assert.equal(bad.status, 422);
 });
+
+test("a move sets its flush alarm before waiting for durable writes, so one flush carries both", async () => {
+  const { store } = await ready();
+  const order = [];
+  store.mirrorSoon = () => new Promise((resolve) => setTimeout(() => {
+    order.push("alarm set");
+    resolve();
+  }, 5));
+  store.settle = async () => {
+    order.push("settle");
+  };
+  const answer = await (await callMove(store, { from: "projects/plan.md", to: "projects/plan-armed.md", ...OWNER })).json();
+  assert.equal(answer.ok, true, JSON.stringify(answer));
+  assert.deepEqual(order, ["alarm set", "settle"]);
+});
