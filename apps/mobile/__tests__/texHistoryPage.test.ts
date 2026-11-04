@@ -90,9 +90,9 @@ async function type(id: string, value: string) {
 const SHOWN_KINDS = ["text", "tool", "note", "advisor", "mail_check", "job"];
 
 describe("the chat's history file", () => {
-  test("is one tap from Behind the scenes, one line a message, the turn in the order it happened", async () => {
+  test("is one tap from the hub's history, one line a message, the turn in the order it happened", async () => {
     await render(fixtureSource());
-    await press("tex-behind-history");
+    await press("tex-history-open-full");
     expect(byTestId("tex-history")).not.toBeNull();
     expect(byTestId("tex-history-day-2026-11-02")?.textContent).toContain("Today");
     const line = (id: string) => byTestId(`tex-history-entry-${id}`)?.textContent ?? "";

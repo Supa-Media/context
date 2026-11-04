@@ -272,6 +272,20 @@ describe("texPlace: readPlace and placeHref", () => {
     expect(place.machine).toBeUndefined();
   });
 
+  test("History's day and kinds round-trip, and only what differs from the defaults is written", () => {
+    const history = { day: "yesterday" as const, picked: "", shown: { texts: true, tools: false, thinking: true, background: true } };
+    const href = placeHref("seyi", { chat: "me", view: "history", history }, []);
+    expect(href).toBe("/tex/@seyi/history?day=yesterday&show=texts%2Cthinking%2Cbackground");
+    expect(readPlace({ rest: ["history"], day: "yesterday", show: "texts,thinking,background" })).toEqual({ chat: "me", view: "history", history });
+    const picked = readPlace({ rest: ["history"], day: "2026-11-03" });
+    expect(picked.history).toEqual({ day: "pick", picked: "2026-11-03", shown: { texts: true, tools: true, thinking: false, background: true } });
+    // Today with the usual kinds writes nothing; junk reads as the defaults.
+    expect(placeHref("seyi", { chat: "me", view: "history", history: { day: "today", picked: "", shown: { texts: true, tools: true, thinking: false, background: true } } }, [])).toBe("/tex/@seyi/history");
+    expect(readPlace({ rest: ["history"], day: "<script>", show: "nope" }).history).toEqual({ day: "today", picked: "", shown: { texts: true, tools: true, thinking: false, background: true } });
+    // The filters belong to History alone.
+    expect(readPlace({ rest: ["routines"], day: "yesterday" }).history).toBeUndefined();
+  });
+
   test("a machine id with bad characters is rejected", () => {
     const place = readPlace({ view: "machine", machine: "../x" });
     expect(place.view).toBe("machines");

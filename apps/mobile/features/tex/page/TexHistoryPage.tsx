@@ -18,10 +18,10 @@ import type { LedgerSees } from "./texPageTypes";
  * a copy.
  */
 
-export function HistoryPage({ source, chat, group }: ViewProps) {
+export function HistoryPage({ source, chat, group, history }: ViewProps) {
   return (
     <SubPage title={group ? `History · ${group}` : "History"} testID="tex-history">
-      <TexHistoryLines source={source} chat={chat} group={group !== null} />
+      <TexHistoryLines source={source} chat={chat} group={group !== null} {...(history ? { initial: history } : {})} />
     </SubPage>
   );
 }

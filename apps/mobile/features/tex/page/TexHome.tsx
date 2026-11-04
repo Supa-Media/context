@@ -1,25 +1,23 @@
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Circle, G, Path, Rect, Svg } from "react-native-svg";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   Figure,
-  LinkWord,
   More,
   SectionHead,
   T,
-  ThinkBlock,
   useNow,
   useWide,
 } from "./TexPageParts";
 import { TexSelect } from "./TexSelect";
+import { TexHistoryLines } from "../history/TexHistoryLines";
 import type { ViewProps } from "./TexPageBody";
 import { MachineAskCard } from "./TexMachineAsk";
 import { EarlierRow, MinionPool } from "./TexMinionPool";
 import { MinionFigure } from "./TexMinionFigure";
 import { activityOf } from "./minionProps";
 import {
-  actionPieces,
   advisorLine,
   busyLine,
   minionMood,
@@ -29,13 +27,13 @@ import {
   slotLine,
   statusLine,
   tileLines,
-  turnHead,
-  turnTail,
 } from "./texPageFormat";
-import type { Overview, Slot, Turn, TurnAction } from "./texPageTypes";
+import type { Overview, Slot } from "./texPageTypes";
 
 /** The Tex page's first screen, the mock's `template#page` and `#page-g`. */
 export function TexHome({
+  source,
+  chat,
   go,
   page,
   group,
@@ -49,11 +47,6 @@ export function TexHome({
   const lines = tileLines(overview.tiles, group !== null, new Date(now));
   const titleSize = wide ? 34 : 26;
 
-  const open = (action: TurnAction) => {
-    if (action.kind === "advisor") go({ view: "advisor" });
-    else if (action.kind === "mailcheck") go({ view: "mailcheck" });
-    else if (action.kind === "job" && action.ref) go({ job: action.ref });
-  };
 
   // A tile's line is drawn once it is known; until then a quiet bar, and after `TILES_WAIT_MS` the title alone.
   const known = (view: TileView) => (view === "computer" ? page.tiles.computer : page.tiles.lines);
@@ -129,31 +122,13 @@ export function TexHome({
       )}
 
       <View>
-        <SectionHead>{"Tex's thinking"}</SectionHead>
-        {overview.thinking.length === 0 ? (
-          <T size={13} tone="muted">
-            Nothing yet today.
-          </T>
-        ) : (
-          overview.thinking.map((turn, i) => (
-            <ThinkBlock key={`${turn.at}:${i}`} testID={`tex-think-${i}`}>
-              <T size={13} tone="muted">
-                {turnHead(turn, new Date(now))}
-              </T>
-              <T size={15} serif line={1.55}>
-                {turn.thought}
-              </T>
-              <T size={13} tone="muted">
-                {thoughtLine(turn, open)}
-              </T>
-            </ThinkBlock>
-          ))
-        )}
-        {overview.thinkingToday > overview.thinking.length ? (
-          <More onPress={() => go({ view: "thinking" })} testID="tex-more-thinking">
-            {`Show all ${overview.thinkingToday} from today`}
-          </More>
-        ) : null}
+        <SectionHead>History</SectionHead>
+        <TexHistoryLines
+          source={source}
+          chat={chat}
+          group={group !== null}
+          mini={{ openFull: (history) => go({ view: "history", history }) }}
+        />
       </View>
 
       {overview.places ? (
@@ -214,13 +189,6 @@ export function TexHome({
             onPress={() => go({ view: "mailcheck" })}
           />
           <BehindCard
-            testID="tex-behind-history"
-            title="History"
-            line="Everything said and done here"
-            wide={wide}
-            onPress={() => go({ view: "history" })}
-          />
-          <BehindCard
             testID="tex-behind-sees"
             title="What Tex sees"
             line="The chat as Tex reads it on the next text"
@@ -277,29 +245,6 @@ const ICONS: Record<TileView, ReactNode> = {
     </>
   ),
 };
-
-/** `Asked the Advisor › · replied “…” · 3.8 s`: each action, then the tail, separated by " · ". */
-function thoughtLine(turn: Turn, open: (action: TurnAction) => void): ReactNode {
-  const items: ReactNode[] = [
-    ...turn.did.map((action, j) => {
-      const p = actionPieces(action);
-      return (
-        <Fragment key={`a${j}`}>
-          {p.before}
-          {p.link ? <LinkWord onPress={() => open(action)}>{`${p.link} ›`}</LinkWord> : null}
-          {p.after}
-        </Fragment>
-      );
-    }),
-    ...turnTail(turn).map((text, k) => <Fragment key={`t${k}`}>{text}</Fragment>),
-  ];
-  return items.map((item, k) => (
-    <Fragment key={k}>
-      {k > 0 ? " · " : null}
-      {item}
-    </Fragment>
-  ));
-}
 
 export function Minion({ slot, now, wide, go }: { slot: Slot; now: number; wide: boolean; go: ViewProps["go"] }) {
   const styles = useThemedStyles(makeStyles);

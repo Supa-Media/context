@@ -11,6 +11,7 @@
  *   …/job/<id>                     one job's steps
  *   ?full=1                        Tex's computer, full screen
  *   …/machine?machine=<id>         one of the person's own machines
+ *   …/history?day=&show=           the History page with the hub's filters
  *
  * The older query (`?chat=&view=&job=&full=`) is still read, so a link texted
  * before keeps working. Anything that is not a known view, a well-formed chat
@@ -23,6 +24,7 @@ import { loginHref } from "../../auth/redirect";
 import { groupWordsOf, normalizeHandle, texGroupHref, texHref } from "../texComputer";
 import { SUB_VIEWS, type ChatRef, type SubView } from "./texPageTypes";
 import type { Place } from "./TexPageBody";
+import { choiceQuery, readChoice } from "../history/historyChoice";
 
 const KEY = /^[A-Za-z0-9_.:-]{1,80}$/;
 
@@ -51,16 +53,21 @@ export function readPlace(params: Record<string, string | string[] | undefined>)
     if (machine && KEY.test(machine)) place.machine = machine;
     else place.view = "machines";
   }
+  if (place.view === "history") {
+    const history = readChoice(one(params.day), one(params.show));
+    if (history) place.history = history;
+  }
   return place;
 }
 
-/** A place under an address (`/tex/@seyi`, `/tex/group/<words>`): its sub-page or job, `?full=1` and `?machine=`. */
+/** A place under an address (`/tex/@seyi`, `/tex/group/<words>`): its sub-page or job, `?full=1`, `?machine=` and History's `?day=&show=`. */
 export function addressOf(base: string, place: Omit<Place, "chat">, query: Record<string, string> = {}): string {
   const path = place.job ? `${base}/job/${encodeURIComponent(place.job)}` : place.view ? `${base}/${place.view}` : base;
   const search = new URLSearchParams({
     ...query,
     ...(place.view === "computer" && place.full ? { full: "1" } : {}),
     ...(place.view === "machine" && place.machine ? { machine: place.machine } : {}),
+    ...(place.view === "history" && place.history ? choiceQuery(place.history) : {}),
   }).toString();
   return search ? `${path}?${search}` : path;
 }
