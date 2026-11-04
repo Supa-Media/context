@@ -316,6 +316,8 @@ test("Ask me first waits for the owner's own yes, kept by the object, never the 
   assert.equal((await ask("/agent/machine/assign", assignBody(), groupSession("user_ade"))).body.askId, first.askId);
   const listed = await w.call("ws.machine.get", { id: "mch_1" });
   assert.deepEqual(listed.machine.asks.map((entry) => [entry.id, entry.askerId, entry.chat]), [[first.askId, "user_ade", key]]);
+  // The group's full key rides on the ask, from the grant, so the owner's card can name who asked.
+  assert.equal(listed.machine.asks[0].chatKey, CHAT);
   assert.equal((await w.call("ws.machine.answer", { id: "mch_1", askId: first.askId, yes: true })).ok, true);
   assert.equal((await ask("/agent/machine/assign", assignBody(), groupSession("user_ade"))).body.ok, true);
   // The yes was for that job: another job asks again.

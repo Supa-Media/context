@@ -250,6 +250,15 @@ async function machinesForChatHandler(ctx: ActionCtx, body: Record<string, unkno
   return json({ machines: await ctx.runQuery(internal.functions.texMachineChats.texMachinesForChat, { groupKey }) });
 }
 
+/** A chat's people with their ids, for one of them choosing who may use their computer there; 404 for anyone else. */
+async function chatPeopleHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const userId = stringField(body, "userId");
+  const groupKey = stringField(body, "groupKey");
+  if (userId === null || groupKey === null) return badRequest();
+  const people = await ctx.runQuery(internal.functions.texMachineChats.chatPeopleAs, { userId, groupKey });
+  return people === null ? json({ code: "CHAT_NOT_FOUND" }, 404) : json({ people });
+}
+
 /** The paths http.ts registers, each POST and each behind `gatewayRoute`. */
 export const TEX_MACHINE_GATEWAY_ROUTES: ReadonlyArray<readonly [string, Handler]> = [
   ["/gateway/machines/pair/start", startHandler],
@@ -263,4 +272,5 @@ export const TEX_MACHINE_GATEWAY_ROUTES: ReadonlyArray<readonly [string, Handler
   ["/gateway/machines/chat/attach", attachChatHandler],
   ["/gateway/machines/chat/detach", detachChatHandler],
   ["/gateway/machines/for-chat", machinesForChatHandler],
+  ["/gateway/machines/chat/people", chatPeopleHandler],
 ];

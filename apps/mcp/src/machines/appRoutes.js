@@ -24,6 +24,11 @@
  *   there may send it work: "Only me" unless the owner says `everyone` or
  *   names people, with "Ask me first" on unless they turn it off.
  * - `POST /machines/app/unlend` `{ workspaceId, machineId, chat }` → `{ ok }`.
+ * - `POST /machines/app/raise` `{ workspaceId, machineId, minutes }` → `{ ok,
+ *   machine }`: "more time today", added to today's limit and gone tomorrow.
+ * - `POST /machines/app/chat-people` `{ chat }` → `{ ok, people: [{ userId,
+ *   handle }] }`: a group chat's people, for one of them naming who may use
+ *   their computer there (a rule names people by id).
  * - `POST /machines/app/answer` `{ workspaceId, machineId, askId, yes,
  *   always? }` → `{ ok }`: its owner's answer to "Ask me first" (the asks
  *   waiting are listed with the computer, `asks`). A yes holds for that job
@@ -42,7 +47,7 @@ import { groupChatId } from "./reach.js";
 const CONSOLE_CLIENT_ID = "context_console";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-export const MACHINE_APP_PATHS = new Set(["/machines/app/list", "/machines/app/set", "/machines/app/disconnect", "/machines/app/lend", "/machines/app/unlend", "/machines/app/answer"]);
+export const MACHINE_APP_PATHS = new Set(["/machines/app/list", "/machines/app/set", "/machines/app/disconnect", "/machines/app/lend", "/machines/app/unlend", "/machines/app/answer", "/machines/app/raise", "/machines/app/chat-people"]);
 const CHAT_KEY = /^[0-9a-f]{64}$/;
 
 const forbidden = () => json({ error: "forbidden" }, 403);
@@ -85,13 +90,45 @@ async function call(env, workspaceId, op, fields) {
 /** What another member sees of a computer they don't run. */
 const glimpse = (machine) => ({ id: machine.id, name: machine.name, os: machine.os ?? null, ownerId: machine.ownerId, online: machine.online === true });
 
-async function list(env, session, body) {
+/**
+ * The asks waiting on a computer this person runs, each with who asked by handle when the ask came from a group chat
+ * they are in (read from the control plane, one read per chat): a card says "@ade asks", not only the chat.
+ */
+async function namedAsks(machines, session, controlPlane) {
+  const keys = [...new Set(machines.flatMap((machine) => (machine.asks ?? []).map((ask) => ask.chatKey)).filter((key) => typeof key === "string" && CHAT_KEY.test(key)))].slice(0, 10);
+  const handles = new Map();
+  await Promise.all(keys.map(async (key) => {
+    const people = await controlPlane.texMachineChatPeople(session.actorUserId, key).catch(() => null);
+    for (const person of people ?? []) if (typeof person?.userId === "string" && typeof person.handle === "string" && person.handle !== "") handles.set(`${key}:${person.userId}`, person.handle);
+  }));
+  return machines.map((machine) => ({ ...machine, asks: (machine.asks ?? []).map(({ chatKey, ...ask }) => ({ ...ask, askerHandle: handles.get(`${chatKey}:${ask.askerId}`) ?? null })) }));
+}
+
+async function list(env, session, body, controlPlane) {
   const row = memberOf(session, body.workspaceId);
   if (row === null) return refused("unknown_workspace");
   const answer = await call(env, row.workspaceId, "ws.machine.list", {});
   if (answer === null) return json({ error: "machines_unavailable" }, 501);
   if (answer.ok !== true) return refused(answer.code ?? "server_error");
-  return json({ ok: true, machines: answer.machines.map((machine) => (runsMachine(session, row, machine) ? { ...machine, runs: true } : glimpse(machine))) });
+  const run = answer.machines.filter((machine) => runsMachine(session, row, machine)).map((machine) => ({ ...machine, runs: true }));
+  const named = new Map((await namedAsks(run, session, controlPlane)).map((machine) => [machine.id, machine]));
+  return json({ ok: true, machines: answer.machines.map((machine) => named.get(machine.id) ?? glimpse(machine)) });
+}
+
+/** A chat's people with their ids, for its member choosing who may use their computer there; nothing for anyone else. */
+async function chatPeople(session, body, controlPlane) {
+  if (typeof body.chat !== "string" || !CHAT_KEY.test(body.chat)) return invalid("chat");
+  const people = await controlPlane.texMachineChatPeople(session.actorUserId, body.chat);
+  return people === null ? refused("unknown_chat") : json({ ok: true, people: people.map(({ userId, handle }) => ({ userId, handle })) });
+}
+
+/** "More time today" on a computer this person runs: today's limit only, gone tomorrow. */
+async function raise(env, session, body) {
+  if (!Number.isSafeInteger(body.minutes) || body.minutes < 1 || body.minutes > 24 * 60) return invalid("minutes");
+  const found = await runnable(env, session, body);
+  if (found === null) return refused("unknown_machine");
+  const answer = await call(env, found.row.workspaceId, "ws.machine.raise", { id: found.machine.id, minutes: body.minutes });
+  return answer?.ok === true ? json({ ok: true, machine: { ...answer.machine, runs: true } }) : refused(answer?.code ?? "server_error");
 }
 
 /** The computer, when this session may run it; null reads the same as no such computer. */
@@ -165,15 +202,17 @@ async function answerAsk(env, session, body) {
 export async function handleMachineApp(request, env, session, { path, controlPlane }) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
   if (session.actorClientId !== CONSOLE_CLIENT_ID) return forbidden();
-  if (path !== "/machines/app/list" && !hasScope(session, SCOPE_WRITE)) return forbidden();
+  if (path !== "/machines/app/list" && path !== "/machines/app/chat-people" && !hasScope(session, SCOPE_WRITE)) return forbidden();
   if (!env.WORKSPACE_STORE) return json({ error: "machines_unavailable" }, 501);
   const body = await bodyOf(request);
   if (body === null) return invalid("body");
-  if (path === "/machines/app/list") return await list(env, session, body);
+  if (path === "/machines/app/list") return await list(env, session, body, controlPlane);
+  if (path === "/machines/app/chat-people") return await chatPeople(session, body, controlPlane);
   if (path === "/machines/app/set") return await set(env, session, body);
   if (path === "/machines/app/disconnect") return await disconnect(env, session, body, controlPlane);
   if (path === "/machines/app/lend") return await lend(env, session, body, controlPlane);
   if (path === "/machines/app/unlend") return await unlend(env, session, body, controlPlane);
   if (path === "/machines/app/answer") return await answerAsk(env, session, body);
+  if (path === "/machines/app/raise") return await raise(env, session, body);
   return new Response(null, { status: 404 });
 }

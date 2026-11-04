@@ -131,6 +131,8 @@ async function assign(request, env, session, controlPlane, origin, now) {
     // Who asked comes from the grant, never the body: in their own texts the person, in a group the one who tagged Tex.
     // One chat per person's own texts and one per group, so an owner's rule for one chat never covers another.
     chat: jobChatOf(session),
+    // A group's full key, so the owner's ask card can name who asked among the chat's people (`appRoutes.js`).
+    ...(typeof session.texChatId === "string" ? { chatKey: session.texChatId } : {}),
     askerId: session.actorUserId,
     fromOwner: machine.machine.ownerId === session.actorUserId,
     grant: { token: runGrant.accessToken, expiresAt: Math.min(runGrant.expiresAt, deadline), mcpUrl: `${origin.replace(/\/+$/, "")}/mcp` },

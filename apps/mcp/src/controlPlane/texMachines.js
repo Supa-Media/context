@@ -74,6 +74,11 @@ export function createTexMachineMethods({ post }) {
       const answer = await call("/gateway/machines/for-chat", { groupKey });
       return answer.ok && Array.isArray(answer.value?.machines) ? answer.value.machines : [];
     },
+    /** A chat's people `[{userId, handle}]` for one of them, or null when `userId` is not in it. */
+    async texMachineChatPeople(userId, groupKey) {
+      const answer = await call("/gateway/machines/chat/people", { userId, groupKey });
+      return answer.ok && Array.isArray(answer.value?.people) ? answer.value.people : null;
+    },
     /** Takes a run's grant back when the part ended or was refused. */
     async texMachineRunRevoke(runId) {
       const answer = await call("/gateway/machines/run-grant/revoke", { runId });
