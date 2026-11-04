@@ -39,10 +39,14 @@ jobs:
           set -euo pipefail
           case "$HOURS" in ''|*[!0-9]*) echo "hours must be a number" >&2; exit 1 ;; esac
           if [ "$HOURS" -lt 1 ] || [ "$HOURS" -gt 168 ]; then echo "hours must be 1 to 168" >&2; exit 1; fi
+          # The API's own error (a bad query, never data) goes to the log, so a refusal says why.
           sql() {
-            curl -sS --fail-with-body -X POST \
+            if ! curl -sS --fail-with-body -X POST \
               "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/analytics_engine/sql" \
-              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data "$1"
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data "$1" -o sql.out; then
+              head -c 600 sql.out >&2; echo >&2; return 1
+            fi
+            cat sql.out
           }
           # One column at a time, so a step not reached (-1) never drags a median down.
           names="queueMs gatewayMs beforeSendMs sendMs toFirstTextMs toLastTextMs afterSendMs parts sessionMs beforeAskMs"
