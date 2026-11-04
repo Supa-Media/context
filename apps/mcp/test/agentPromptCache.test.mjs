@@ -30,7 +30,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { aiGatewayConfig, resetCreditState } from "../src/agent/aiGateway.js";
+import { aiGatewayConfig, gatewayBody, prefixHashes, resetCreditState } from "../src/agent/aiGateway.js";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { runTurn } from "../src/agent/turn.js";
 
@@ -207,4 +207,18 @@ test("the tools are offered in one fixed order, whatever order they were granted
   const names = forward.body.tools.map((entry) => entry.name);
   assert.deepEqual(names, ["orient", "search", "fetch", "write", "manage"], "the six, in the order the table fixes");
   assert.deepEqual(reversed.body.tools, forward.body.tools, "granted in reverse, offered the same");
+});
+
+test("prefixHashes gives each cached stretch a short hash that moves only with that stretch", async () => {
+  const messages = [{ role: "user", content: "hi" }, { role: "assistant", content: "hello" }, { role: "user", content: "now" }];
+  const call = { model: HAIKU, system: { stable: "rules", context: "facts" }, messages, tools: [tool("search_notes")], cachedThrough: 2 };
+  const hashes = await prefixHashes(call, gatewayBody(call));
+  for (const value of Object.values(hashes)) assert.match(value, /^[0-9a-f]{8}$/);
+  const newText = { ...call, messages: [...messages.slice(0, 2), { role: "user", content: "later" }] };
+  assert.deepEqual(await prefixHashes(newText, gatewayBody(newText)), hashes, "a new text after the breakpoint changes no stretch");
+  const newContext = { ...call, system: { stable: "rules", context: "other facts" } };
+  const moved = await prefixHashes(newContext, gatewayBody(newContext));
+  assert.deepEqual(Object.keys(hashes).filter((part) => hashes[part] !== moved[part]), ["context"]);
+  assert.equal(await prefixHashes({ ...call, cachedThrough: null }, gatewayBody(call)), null, "only a layered call is hashed");
+  assert.doesNotMatch(JSON.stringify(hashes), /rules|facts|hello/);
 });
