@@ -17,7 +17,9 @@
  */
 
 import type { GatewayAttachment } from "./attachments";
-import { readSettings, type Settings } from "./texStyle";
+import { type Settings } from "./texStyle";
+import { linkedFrom, type LinkedSession } from "./gatewaySession";
+export { openGatewaySession, type TextsBinding } from "./gatewaySession";
 import type { Reaction, Tapback } from "./reactions";
 import type { JobReport } from "./jobs";
 import { readPictures, type OutgoingPicture } from "./outgoing";
@@ -178,8 +180,7 @@ export async function shareLinqContactCard(fetcher: Fetch, apiKey: string, chatI
 
 /** `timeZone` is the person's own (their reminders run in it), when the control plane sent one. */
 /** `settings`: how their own Tex talks to them (`texStyle.ts`): their instructions and progress updates, only what is set. */
-export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string; settings?: Settings } | { status: "unlinked" };
-
+export type SessionAnswer = LinkedSession | { status: "unlinked" };
 export async function openSession(
   fetcher: Fetch,
   origin: string,
@@ -191,11 +192,8 @@ export async function openSession(
   });
   if (status !== 200) throw new ServiceError("control_plane", status);
   const body = record(json);
-  if (body.status === "linked" && typeof body.accessToken === "string" && body.accessToken) {
-    const zone = typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {};
-    const settings = readSettings(body);
-    return { status: "linked", accessToken: body.accessToken, ...zone, ...(Object.keys(settings).length > 0 ? { settings } : {}) };
-  }
+  const linked = linkedFrom(body);
+  if (linked !== null) return linked;
   if (body.status === "unlinked") return { status: "unlinked" };
   throw new ServiceError("control_plane", status);
 }
@@ -295,6 +293,7 @@ export async function askAgent(
     told = [],
     settings = {},
     arrivedAt,
+    worker,
     warm, beside,
     recent,
   }: {
@@ -320,6 +319,8 @@ export async function askAgent(
     settings?: Settings;
     /** When the first text this turn answers came in (`apps/mcp/src/agent/turnLog.js` `waitBefore`). */
     arrivedAt?: number;
+    /** The Worker's own wait before this ask: the session lookup and the work after it (`apps/mcp/src/agent/turnTiming.js`). */
+    worker?: { sessionMs: number; beforeAskMs: number };
     /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
     warm?: string; beside?: readonly string[]; // and what was written to the history beside it (`warm.ts` `keepBeside`)
     recent?: readonly TexEvent[]; // the outbox: what the gateway has not taken yet, added to the ledger's day (`warmCopy.js` `mergeEvents`)
@@ -345,6 +346,7 @@ export async function askAgent(
     ...(told.length > 0 ? { told } : {}),
     ...settings,
     ...(arrivedAt !== undefined ? { arrivedAt } : {}),
+    ...(worker ? { worker } : {}),
     ...(warm ? { warm, ...(beside && beside.length > 0 ? { beside } : {}) } : {}),
     ...(recent && recent.length > 0 ? { recent } : {}),
   };

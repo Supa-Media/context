@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_LINKS, MAX_TEXT_CHARS, READ_SOURCE, parseReadRequest, read } from "./read";
+import { FRAME_TEXT_SOURCE, MAX_FRAME_CHARS_BESIDE, MAX_LINKS, MAX_TEXT_CHARS, READ_SOURCE, parseReadRequest, read, withFrames } from "./read";
 import type { BrowserLike, PageLike } from "./shoot";
 
 function fakeBrowser(page: { text?: string; links?: Array<{ text: string; href: string }>; images?: Array<{ alt: string; src: string }>; logos?: unknown[]; href?: string; fail?: boolean }) {
@@ -107,5 +107,100 @@ describe("read", () => {
     const { browser, calls } = fakeBrowser({ fail: true });
     await expect(read(browser, "https://example.com/")).rejects.toThrow();
     expect(calls).toContain("browser closed");
+  });
+});
+
+describe("read, a page whose words are in a frame", () => {
+  /** A claude.ai-style shell: the top page says almost nothing, its frame from another site holds the content. */
+  function shell(frames: Array<{ url: string; texts: string[] }>, top = "Claude Artifact") {
+    const main = { url: () => "https://claude.ai/artifact/abc", evaluate: async () => "" };
+    const reads = frames.map(() => 0);
+    const listed = frames.map((frame, i) => ({
+      url: () => frame.url,
+      async evaluate<T>(source: string) {
+        expect(source).toBe(FRAME_TEXT_SOURCE);
+        const said = frame.texts[Math.min(reads[i], frame.texts.length - 1)];
+        reads[i] += 1;
+        return said as T;
+      },
+    }));
+    const browser: BrowserLike = {
+      async newPage() {
+        return {
+          async setViewport() {},
+          async goto() {},
+          async waitForSelector() {},
+          async evaluate<T>(source: string) {
+            if (source === READ_SOURCE) return { title: "Claude Artifact", text: top, links: [], images: [], logos: [] } as T;
+            if (source === "location.href") return "https://claude.ai/artifact/abc" as T;
+            return undefined as T;
+          },
+          async screenshot() {
+            return "";
+          },
+          on() {},
+          async close() {},
+          frames: () => [main, ...listed],
+          mainFrame: () => main,
+        } as PageLike;
+      },
+      async close() {},
+    };
+    return { browser, reads };
+  }
+
+  const ARTIFACT = "Tex can work on your own computers\n\nConnect a laptop or a VM, and it becomes extra minions for Tex. ".repeat(4);
+
+  it("reads the frame's words after the page's, under its site's name", async () => {
+    const { browser } = shell([{ url: "https://abc.frame.claudeusercontent.com/", texts: [ARTIFACT] }]);
+    const page = await read(browser, "https://claude.ai/artifact/abc", { frameWaitMs: 0 });
+    expect(page.text).toBe(`Claude Artifact\n\nIn a frame from abc.frame.claudeusercontent.com:\n${ARTIFACT.trim()}`);
+    expect(page.truncated).toBe(false);
+  });
+
+  it("waits for a thin shell's frame to draw its words", async () => {
+    const { browser, reads } = shell([{ url: "https://abc.frame.claudeusercontent.com/", texts: ["", "", ARTIFACT] }]);
+    const page = await read(browser, "https://claude.ai/artifact/abc", { frameWaitMs: 5_000 });
+    expect(page.text).toContain("Tex can work on your own computers");
+    expect(reads[0]).toBe(3);
+  });
+
+  it("leaves out blank, private and empty frames", async () => {
+    const { browser } = shell([
+      { url: "about:blank", texts: ["hidden"] },
+      { url: "https://10.0.0.1/", texts: ["internal"] },
+      { url: "https://ads.example.com/", texts: [""] },
+      { url: "https://abc.frame.claudeusercontent.com/", texts: [ARTIFACT] },
+    ]);
+    const page = await read(browser, "https://claude.ai/artifact/abc", { frameWaitMs: 0 });
+    expect(page.text).not.toMatch(/hidden|internal|ads\.example/);
+    expect(page.text).toContain("claudeusercontent.com");
+  });
+
+  it("a page with words of its own is not held for its frames", async () => {
+    const { browser, reads } = shell([{ url: "https://widget.example.com/", texts: [""] }], "A long article. ".repeat(40));
+    const started = Date.now();
+    await read(browser, "https://example.com/", { frameWaitMs: 5_000 });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(reads[0]).toBe(1);
+  });
+
+  it("cuts the page's words first and keeps the frame's whole", () => {
+    const frame = { host: "abc.frame.claudeusercontent.com", text: "content" };
+    const { text, truncated } = withFrames("x".repeat(MAX_TEXT_CHARS), [frame]);
+    expect(text.length).toBeLessThanOrEqual(MAX_TEXT_CHARS);
+    expect(text.endsWith("In a frame from abc.frame.claudeusercontent.com:\ncontent")).toBe(true);
+    expect(truncated).toBe(true);
+    expect(withFrames("short", [])).toEqual({ text: "short", truncated: false });
+  });
+});
+
+describe("read, frames beside a page with words of its own", () => {
+  it("keeps the page's words and only the start of each frame", () => {
+    const top = "Article. ".repeat(100);
+    const { text, truncated } = withFrames(top, [{ host: "ads.example.com", text: "y".repeat(MAX_TEXT_CHARS) }]);
+    expect(text.startsWith(top.trim())).toBe(true);
+    expect(text.length).toBeLessThan(top.length + MAX_FRAME_CHARS_BESIDE + 100);
+    expect(truncated).toBe(true);
   });
 });

@@ -169,6 +169,17 @@ Convex's rows and read the body by key, so for up to the mirror's lag they may s
 trashed, only to people who could open it a moment earlier. Nobody gains access. Moves, which can change who sees a
 note, still wait.
 
+## Every object write tells the live tree (2026-11-04)
+
+While the object serves a workspace's tree, the app's tree listens to the object's socket and to nothing else: the
+Convex queries are off. A write the object makes itself (`ws.write.*`) therefore has to tell the socket's watchers
+what it changed, as a row pushed in from Convex does (`serve.js`). Before this, only a push did, so a trash from the
+web landed in the object and the note stayed drawn: "Move to trash" did nothing (reported by the owner,
+2026-11-04). The notice is made in one place, `serveWrites.js` `runWriteOp`, after the transaction commits, from the
+paths each queued change names (`pathsOfChange`: both ends of a move, folders stood up, a note adopted or written,
+and the folders above any rows removed); new rules re-judge everything. A write op added later is covered without
+being asked. Moving the notice into each op instead, or dropping it, is what `writesTellTree.test.mjs` fails on.
+
 ## New notes and missing paths in the object (2026-11-03)
 
 The owner's bar, 2026-11-03: every read and every write answers in under 0.1 s in production, so nothing on a save's
@@ -185,6 +196,16 @@ path waits on Convex.
   before. A `DEFER` keeps the bytes and asks the control plane to adopt them, as after the gateway's own put. The
   bucket's backup copy is written after the response. `apps/mcp/test/createInObject.test.mjs` fails if the id layer
   skips that adoption, or if a held key is overwritten.
+- **A new private note can leave its find and name checks to that call** (`checks: true`, 2026-11-03). The save
+  skips its row lookup and its name-twin check, which cost about 25 to 38 ms side by side, and the object makes the
+  checks before writing anything. This applies only when nothing the save does before its put needs those answers:
+  a private connection, no etag, no link or images, outside `tex/`, and a note its folders already make private.
+  The object declines, writing nothing, if there is a live row at the path, a file on its way, or a case-only twin
+  at any depth. It also declines for a top-level name with no row. Because these checks are wider than the gateway's,
+  a decline never stands as an answer: the save runs the long way from the start. A served note that is not adopted
+  is discarded, and that is treated as a decline. The cost is one extra trip for an overwrite of an existing private
+  note without an etag. `apps/mcp/test/checkedCreate.test.mjs` fails in these cases: a team connection leaves its
+  checks, a decline is not rerun, a twin is compared case-sensitively, or an unadopted key is left behind.
 - **A note meant to be private is adopted only where the object's rules already make it private.** The writer names
   the tier it wrote for (`tier` on the put, `tools/notes/write.js`). The narrowing it persisted first may not have
   reached the object yet, and without that check a member reading the object could see the note before its rule
@@ -288,3 +309,20 @@ not a note, a source or destination with its own rule, a source seen through a g
 home. The caller is judged by the session, source first, so a source they cannot see is `not_found` whatever the
 destination holds. Duplicate tries the control plane's "… copy", "… copy 2" names in order against every live name,
 seen or not, and leaves the choice to the control plane after 20. The tests are `apps/mcp/test/fileCopy.test.mjs`.
+
+## People added by name in the object (2026-11-04)
+
+Adding people to one row's list (`addRowPeople`, `set_visibility`'s `people`) is written in the workspace object
+first when it serves the workspace (`objectFirstAddGrantees`, `apps/mcp/src/store/objectAccess.js`): `ws.write.access`
+with `mode: "add"`, an email as an `email` grantee and a `@name` from the object's own cache of resolved handles
+(`ws_handles`, `apps/mcp/src/workspaceStore/handleCache.js`). A name the object has not been told answers `RESOLVE`
+with nothing written; the gateway asks the control plane once (`/gateway/privacy` `resolveHandles`, read only, owner
+only, `apps/convex/functions/gatewayHandles.ts`) and sends the answer back with the same write, which keeps it. A name
+nobody holds is `GRANTEE_NOT_FOUND`, as before. Owner only, as the control plane's list is; anything the object cannot
+decide alone goes to the control plane's `addGrantees` (decided by the owner, 2026-11-04: names cached in the gateway
+so a repeat add skips Convex).
+
+Why a cache is safe: a username or group name is released only when its account or group is deleted, so a stale
+entry points at someone who no longer exists and grants nobody. Entries are kept an hour (`HANDLE_TTL_MS`), so a name
+re-claimed by someone new is resolved afresh within it, and a group resolves only within its own workspace. The
+tests are `accessHandles.test.mjs`, `objectAddGrantees.test.mjs` and `apps/convex/__tests__/gatewayHandles.test.ts`.

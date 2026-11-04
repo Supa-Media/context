@@ -61,6 +61,12 @@ export const workspaceTables = {
   workspaces: defineTable({
     /** Normalized, globally unique, also present as a row in `names`. */
     slug: v.string(),
+    /**
+     * The Sort setting of the workspace's top level, from the sort button at the top of the tree, and of every folder
+     * with none of its own (`LISTING_SORTS`, `functions/folderSort.ts`, owner 2026-11-04). Absent: the order a folder
+     * with no setting draws.
+     */
+    treeSort: v.optional(v.string()),
     displayName: v.string(),
     createdBy: v.id("users"),
     kind: v.union(v.literal("personal"), v.literal("shared")),

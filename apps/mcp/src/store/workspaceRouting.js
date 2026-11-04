@@ -33,9 +33,14 @@
  * and compare check finds and repairs it.
  */
 
+import { r2Shaped } from "../texStore/wire.js";
 import { HOMES, REVISIONS, documentStateId, isHome, isRevisionKey, isWorkspaceObjectKey } from "../workspaceStore/api.js";
 
 const routedPrefix = (prefix) => typeof prefix === "string" && (prefix.startsWith("notes/") || prefix.startsWith(".context/collaboration/"));
+
+/** A workspace note's key in its object, the one form `ws.collab.read` serves (`workspaceStore/collabRead.js`). */
+const OBJECT_NOTE_KEY = /^notes\/[A-Za-z0-9-]{1,128}\.md$/;
+
 /** A listing that could name an older saved version, which only the bucket holds whole. */
 const coversRevisions = (prefix) => typeof prefix === "string" && (REVISIONS.startsWith(prefix) || prefix.startsWith(REVISIONS));
 /**
@@ -272,8 +277,10 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
       await copyHandedBack(answer);
       if (answer?.served === true) return answer;
       // Why the save ran the engine from here instead: a short code from the object, never the path.
-      log("workspace_object_collab_not_served", { workspaceId, reason: typeof answer?.reason === "string" ? answer.reason : null });
-      return null;
+      const reason = typeof answer?.reason === "string" && /^[a-z_]{1,32}$/.test(answer.reason) ? answer.reason : null;
+      log("workspace_object_collab_not_served", { workspaceId, reason });
+      // Said to the save too, with the object's time on it, so its timings show why (`tools/notes/replaceInObject.js`).
+      return { served: false, reason, ...(Number.isFinite(answer?.took) ? { took: answer.took } : {}) };
     };
   }
 
@@ -285,6 +292,8 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
   if (typeof client.collab?.read === "function") {
     wrapped.readInObject = async ({ path, key, noteId }) => {
       if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
+      // Only a workspace note's own key: a Tex note's (`tex/…`) lives in Tex's store, so asking would be a wasted trip.
+      if (typeof key !== "string" || !OBJECT_NOTE_KEY.test(key)) return null;
       const answer = await client.collab.read({ path, key, noteId });
       await copyHandedBack(answer);
       const markdown = answer?.markdown;
@@ -296,13 +305,24 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
   }
 
   /**
+   * A note's Markdown as its row's lookup carried it (`workspaceStore/lookupBody.js`), shaped as `get` answers it from
+   * the object, for the id layer's edit (`idLayout.js` `oneWrite`). Only where `get` would read that key from the
+   * object (home `object`); else `null`, and the id layer reads it with `get`.
+   */
+  wrapped.storedFromLookup = (key, body) => {
+    if (held.home !== HOMES.OBJECT || typeof key !== "string" || !OBJECT_NOTE_KEY.test(key)) return null;
+    if (body?.meta?.key !== key || typeof body.meta.etag !== "string" || typeof body.text !== "string") return null;
+    return r2Shaped(body.meta, new TextEncoder().encode(body.text));
+  };
+
+  /**
    * A new note's bytes and row in one call to the workspace object (`workspaceStore/createNote.js`), for the id layer's
    * create (`idLayout.js` `keyedCreate`). `null` where the object does not serve it, and the caller puts as before.
    */
   if (typeof client.collab?.create === "function") {
-    wrapped.createInObject = async ({ path, noteId, key, text, tier, at, contentType = null }) => {
+    wrapped.createInObject = async ({ path, noteId, key, text, tier, at, contentType = null, checks = false }) => {
       if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
-      const answer = await client.collab.create({ path, noteId, key, text, tier, at, ...(typeof contentType === "string" ? { contentType } : {}) });
+      const answer = await client.collab.create({ path, noteId, key, text, tier, at, ...(typeof contentType === "string" ? { contentType } : {}), ...(checks === true ? { checks: true } : {}) });
       for (const write of Array.isArray(answer?.writes) ? answer.writes : []) {
         if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
         await mirror("put", write.key, () => store.put(write.key, write.body, typeof contentType === "string" ? { httpMetadata: { contentType } } : {}));

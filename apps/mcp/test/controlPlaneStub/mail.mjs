@@ -1,6 +1,6 @@
 /**
  * The control plane's note-mail mailboxes, for the stub: `/gateway/mail/join`,
- * `/get` and `/read`, kept as `apps/convex/functions/noteMail.ts` keeps them.
+ * `/get`, `/read` and `/jobs` (the mailboxes joined from a Tex job's turn), kept as `apps/convex/functions/noteMail.ts` keeps them.
  * A mailbox belongs to the grant that joined it; another grant gets nothing.
  */
 
@@ -19,7 +19,12 @@ export function createMailRoutes(grantForAccessToken, coveredContexts) {
       (row) => row.workspaceId === body.workspaceId && row.path === body.path && row.name === body.name
     );
     const mine = same.find((row) => row.grantId === grant.grantId);
-    if (mine) return { mailbox: view(mine) };
+    const jobId = typeof body.jobId === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(body.jobId) ? body.jobId : undefined;
+    if (body.jobId !== undefined && jobId === undefined) return { error: "refused" };
+    if (mine) {
+      if (jobId) mine.jobId = jobId;
+      return { mailbox: view(mine) };
+    }
     if (same.length) return { error: "name_taken" };
     const row = {
       mailboxId: `mb_${(++counter).toString(16).padStart(16, "0")}`,
@@ -28,6 +33,7 @@ export function createMailRoutes(grantForAccessToken, coveredContexts) {
       path: body.path,
       name: body.name,
       readThrough: new Date().toISOString(),
+      ...(jobId ? { jobId } : {}),
     };
     mailboxes.set(row.mailboxId, row);
     return { mailbox: view(row) };
@@ -50,6 +56,13 @@ export function createMailRoutes(grantForAccessToken, coveredContexts) {
       const row = await own(body);
       if (row && Date.parse(body.readThrough) > Date.parse(row.readThrough)) row.readThrough = body.readThrough;
       return { ok: true };
+    }
+    if (path === "/gateway/mail/jobs") {
+      const grant = await grantForAccessToken(body.accessToken);
+      const reach = grant ? coveredContexts(grant).some((entry) => entry.workspaceId === body.workspaceId) : false;
+      if (!reach) return { mailboxes: [] };
+      const rows = [...mailboxes.values()].filter((row) => row.workspaceId === body.workspaceId && row.path === body.path && row.jobId);
+      return { mailboxes: rows.map(({ mailboxId, name, jobId, grantId }) => ({ mailboxId, name, jobId, own: grantId === grant.grantId })) };
     }
     return undefined;
   }

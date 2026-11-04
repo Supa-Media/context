@@ -28,7 +28,7 @@ const SEED_SLOTS = 4096;
  * spacing out. Adding a note only nudges its neighbours, and the disc grows by
  * √((n+1)/n), which is why a new note does not rearrange the rest.
  */
-export function scatter(ids: readonly string[], r: number): Point[] {
+export function scatter(ids: readonly string[], r: number, spacing = SPACING): Point[] {
   const n = ids.length;
   if (n === 0) return [];
   if (n === 1) return [{ x: 0, y: 0 }];
@@ -40,7 +40,7 @@ export function scatter(ids: readonly string[], r: number): Point[] {
     const a = slot * GOLDEN + ((h >>> 12) % 1000) / 1000;
     return { x: rad * Math.cos(a), y: rad * Math.sin(a) };
   });
-  relax(pts, R, Math.min(SPACING * 1.05, (R * 1.7) / Math.sqrt(n)));
+  relax(pts, R, Math.min(spacing * 1.05, (R * 1.7) / Math.sqrt(n)));
   return pts;
 }
 

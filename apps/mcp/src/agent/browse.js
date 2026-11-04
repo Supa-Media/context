@@ -348,7 +348,7 @@ function readingText(reading, ran, { from = null } = {}) {
  * One question's browser. `allowed` is `webSession`'s set of openable
  * addresses, shared so a link seen by either tool may be opened by both;
  * `takePages(n)` spends the question's page budget and says whether it could.
- * `addresses` is the person's own words this question (see `route.js` on why
+ * `addresses` is the person's own words this question (see `texEntryPoint.js` on why
  * a routine's are its body, not its prompt).
  */
 export function browserSession(computer, { allowed, addresses, takePages, say = null, files = null, keep = null, savedLogin = null, handoffRefused = false }) {

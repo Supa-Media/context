@@ -91,7 +91,7 @@ export function setAsideLine(setAside, dropped = []) {
 
 /**
  * The yes and what it released go in the conversation too, as any answered
- * text does (`route.js`). Left out, the next turn never saw them: it said a
+ * text does (`texEntryPoint.js`). Left out, the next turn never saw them: it said a
  * bug report filed on that yes was "still waiting", and filed it again
  * (@context-lc tex-bugs, 2026-10-18 and 2026-10-19). Best effort, as there.
  */

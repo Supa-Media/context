@@ -1,6 +1,6 @@
 /**
  * What the turn log (`apps/convex/functions/agentTurns.ts`) keeps of a turn's
- * trace, from `route.js`.
+ * trace, from `texEntryPoint.js`.
  */
 
 /** The router's confidence as the turn log takes it: 0 to 1, or nothing. A number Clef got wrong never costs the turn its log. */

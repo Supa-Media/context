@@ -332,7 +332,7 @@ test("the dream's upkeep moves a stale skill under tex/skills/retired/ and delet
   };
   const retired = await retireUnusedSkills(dispatch, Date.parse("2026-10-19T03:00:00Z"));
   assert.deepEqual(retired, ["stale"]);
-  assert.deepEqual(calls.filter((c) => !["list_notes", "read_note"].includes(c.name)), [
+  assert.deepEqual(calls.filter((c) => !["list_notes", "read_notes", "read_note"].includes(c.name)), [
     { name: "move_note", args: { source: "tex/skills/stale.md", destination: "tex/skills/retired/stale.md" } },
   ]);
   const entry = dreamEntry({ now: Date.now(), timeZone: "UTC", transcripts: [], model: null, changes: { added: [], removed: [] }, why: "", events: [], outcome: "unchanged", retired });

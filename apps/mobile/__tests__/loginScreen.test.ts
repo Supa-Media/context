@@ -6,8 +6,8 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 /**
  * A-01 and A-02, driven: an address becomes a code request, six digits become
  * a verification, and the two ways off the code screen do what they say. The
- * page opens on the phone (board p1); the email tests take its "Use email
- * instead" link first, and the phone tests at the end drive that half.
+ * page opens on email (Dev2, 2026-11-04); the phone tests at the end take its
+ * "Sign in with your phone instead" link first and drive that half.
  *
  * The OTP itself is `@convex-dev/auth`'s; what this proves is the screen's own
  * wiring — the calls it makes and the state it leaves behind.
@@ -85,9 +85,9 @@ function mount(options: { phone?: boolean } = {}) {
   // The country list is a modal, drawn outside the container.
   const byId = (id: string) =>
     (container.querySelector(`[data-testid="${id}"]`) ?? document.querySelector(`[data-testid="${id}"]`)) as HTMLElement | null;
-  if (!options.phone) {
+  if (options.phone) {
     act(() => {
-      byId("login-use-email")!.click();
+      byId("login-use-phone")!.click();
     });
   }
   const type = async (id: string, value: string) => {
@@ -248,9 +248,8 @@ describe("the request screen on a phone", () => {
     const view = mount();
     expect(view.text()).toContain("Already in? We'll email you a code. Not yet? We'll add you to the waitlist.");
     expect(view.text()).not.toContain("control plane");
-    // Email is the way round the phone, never round needing one (Dev2, 2026-10-09).
-    expect(view.text()).toContain("You'll still need a phone number");
-    expect(view.text()).toContain("If this email already has an account, the number is added to it.");
+    // The phone check can be skipped (Dev2, 2026-10-29), so email never promises one is needed.
+    expect(view.text()).not.toContain("You'll still need a phone number");
     view.unmount();
   });
 
@@ -269,7 +268,15 @@ describe("the request screen on a phone", () => {
 });
 
 describe("signing in with a phone", () => {
-  test("the page opens on the phone; a held phone is texted, and the code signs in", async () => {
+  test("the page opens on email, with the phone one link away", () => {
+    const view = mount();
+    expect(view.byId("login-email")).not.toBeNull();
+    expect(view.byId("login-phone")).toBeNull();
+    expect(view.byId("login-use-phone")).not.toBeNull();
+    view.unmount();
+  });
+
+  test("the phone link swaps in the phone form; a held phone is texted, and the code signs in", async () => {
     mockCalls.length = 0;
     mockProviders.length = 0;
     mockStarted.length = 0;
@@ -385,7 +392,7 @@ describe("arriving from a shared note", () => {
 
   test("says someone shared a note, and opens on the email field", () => {
     mockParams.next = "/console/@seyi?note=3-resources%2Fsetlist.md";
-    const view = mount({ phone: true });
+    const view = mount();
     expect(view.text()).toContain("Someone shared a note with you");
     expect(view.text()).toContain("Sign in with your work email to open it.");
     expect(view.text()).toContain("If you don't have an account yet, we'll make one next.");
@@ -395,7 +402,7 @@ describe("arriving from a shared note", () => {
 
   test("names nothing it could only know by looking up", () => {
     mockParams.next = "/console/@public-worship?note=1-projects%2Fsunday-setlist.md";
-    const view = mount({ phone: true });
+    const view = mount();
     expect(view.text()).not.toContain("public-worship");
     expect(view.text()).not.toContain("Sunday setlist");
     expect(view.text()).not.toContain("publicworship");
@@ -404,7 +411,7 @@ describe("arriving from a shared note", () => {
 
   test("offers the phone instead, and that switches to the phone form", async () => {
     mockParams.next = "/console/@seyi?note=3-resources%2Fsetlist.md";
-    const view = mount({ phone: true });
+    const view = mount();
     expect(view.byId("login-use-phone")?.textContent).toBe("Use my phone instead");
     await view.press("login-use-phone");
     expect(view.byId("login-email")).toBeNull();
@@ -412,11 +419,12 @@ describe("arriving from a shared note", () => {
     view.unmount();
   });
 
-  test("an ordinary link keeps the phone-first page", () => {
+  test("an ordinary link opens on email without the shared-note words", () => {
     mockParams.next = "/console";
-    const view = mount({ phone: true });
+    const view = mount();
     expect(view.text()).not.toContain("Someone shared a note with you");
-    expect(view.byId("login-use-phone")).toBeNull();
+    expect(view.byId("login-email")).not.toBeNull();
+    expect(view.byId("login-use-phone")?.textContent).toBe("Sign in with your phone instead");
     view.unmount();
   });
 });

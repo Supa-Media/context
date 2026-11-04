@@ -123,7 +123,7 @@ export function conversationFromLedger(entries, { question: asQuestion = null } 
         }
       }
     } else if (entry.kind === "note" && entry.others !== true && entry.backfill === undefined && typeof entry.text === "string" && entry.text.trim() !== "") {
-      // A routine's text to other people is not this chat's (`route.js`); a copied-in note is already among the texts.
+      // A routine's text to other people is not this chat's (`texEntryPoint.js`); a copied-in note is already among the texts.
       flush();
       const about = typeof entry.about === "string" ? entry.about : typeof entry.routine === "string" ? routineLine(entry.routine) : null;
       const at = Number.isSafeInteger(entry.at) ? { at: entry.at } : {};

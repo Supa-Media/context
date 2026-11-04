@@ -29,6 +29,7 @@ import { estimateChoices } from "../EstimateCell";
 import { DuePanel, TagPanel, type Anchor } from "../tasks/QuickAddParts";
 import { DUE_PRESET_LABELS, PRIORITIES, duePreset, type DuePreset } from "../tasks/taskWords";
 import { dueLong, ownersValue } from "./panelModel";
+import { SketchBox } from "../../../../design/components/sketch/SketchBox";
 
 export type PanelWrite = (key: string, value: string | readonly string[] | null) => void;
 
@@ -146,20 +147,22 @@ export function PanelProperties({
             </Text>
           ) : null}
           {tags.map((tag) => (
-            <View key={tag.toLowerCase()} style={[styles.chip, styles.tag]}>
+            <SketchBox key={tag.toLowerCase()} look="tape" color={colors.text} seed={`panel-tag:${tag}`} style={[styles.chip, styles.tag]}>
               <Text variant="meta" numberOfLines={1} style={styles.tagText}>
                 {isolateForDisplay(tag)}
               </Text>
               {write === null ? null : (
                 <Remove label={`Remove tag ${tag}`} onPress={() => write("tags", tagsValue(tags.filter((each) => each !== tag)))} testID="task-panel-tag-remove" />
               )}
-            </View>
+            </SketchBox>
           ))}
           {written.map((tag) => (
-            <View key={`#${tag.toLowerCase()}`} style={[styles.chip, styles.tag]} accessibilityLabel={`Tag ${tag}, written in the note`}>
-              <Text variant="meta" numberOfLines={1} style={styles.tagText}>
-                {isolateForDisplay(`#${tag}`)}
-              </Text>
+            <View key={`#${tag.toLowerCase()}`} accessibilityLabel={`Tag ${tag}, written in the note`}>
+              <SketchBox look="tape" color={colors.text} seed={`panel-tag:#${tag}`} style={[styles.chip, styles.tag]}>
+                <Text variant="meta" numberOfLines={1} style={styles.tagText}>
+                  {isolateForDisplay(`#${tag}`)}
+                </Text>
+              </SketchBox>
             </View>
           ))}
           {write === null ? null : (
@@ -320,7 +323,8 @@ const makeStyles = (colors: Colors) =>
     press: { flexDirection: "row", alignItems: "center", gap: space.x2, alignSelf: "flex-start", paddingVertical: 4, paddingHorizontal: space.x2, marginLeft: -space.x2, borderRadius: radii.sm },
     pressHover: { backgroundColor: colors.surface3 },
     chip: { flexDirection: "row", alignItems: "center", gap: space.x1 + 2, minWidth: 0 },
-    tag: { backgroundColor: colors.chipFill, borderRadius: radii.sm, paddingHorizontal: space.x2, paddingVertical: 2 },
-    tagText: { color: colors.muted },
+    // A tag is a strip of paper tape (owner, 2026-11-04, `design/components/sketch`).
+    tag: { paddingHorizontal: space.x2, paddingVertical: 2 },
+    tagText: { color: colors.text2 },
     inline: { paddingLeft: 80 + space.x3, paddingBottom: space.x1 },
   });

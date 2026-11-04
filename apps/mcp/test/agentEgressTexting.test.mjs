@@ -298,15 +298,26 @@ export async function runAgentEgressTextingChecks(check) {
     check("a second yes does not release it either", !claimed("tenth-co"));
     await sweep();
 
-    // Shown again after Tex's own text, the ask is the newest thing a yes answers.
+    /*
+      Asked again after Tex's own text. Since 2026-11-03 (owner: "get rid of the waiting asks step entirely")
+      the side text "one sec" no longer disarms an ask the chat moved past, so the same call asked again finds
+      the old record still armed and is not shown again. The yes is still checked against the chat at the
+      yes (`askOvertaken.js`): it releases nothing and the old ask is dropped. Asked once more, it is fresh,
+      and that yes releases it.
+    */
     model.install([claim("eleventh-co"), { text: "Want @eleventh-co?" }]);
     await ask(env, TOKEN_TEXTS, "set up eleventh co");
     model.install([{ text: "Sure." }]);
     await request(env, TOKEN_TEXTS, "/agent", { question: "one sec", conversation: "texts", told: ["ready"] });
     model.install([claim("eleventh-co"), { text: "Want @eleventh-co?" }]);
     await ask(env, TOKEN_TEXTS, "ok set up eleventh co again");
+    model.install([{ text: "Want me to ask again?" }]);
     await ask(env, TOKEN_TEXTS, "yes");
-    check("an ask shown again after Tex's own text is released by the next yes", claimed("eleventh-co"));
+    check("a yes to an ask the chat moved past, not shown again, still releases nothing", !claimed("eleventh-co"));
+    model.install([claim("eleventh-co"), { text: "Want @eleventh-co?" }]);
+    await ask(env, TOKEN_TEXTS, "ok set up eleventh co");
+    await ask(env, TOKEN_TEXTS, "yes");
+    check("asked afresh after it was dropped, the next yes releases it", claimed("eleventh-co"));
     await sweep();
 
     // An ask the person was never shown cannot be released by a later yes.

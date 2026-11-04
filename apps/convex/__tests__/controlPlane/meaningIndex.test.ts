@@ -111,9 +111,66 @@ describe("/gateway/binding — the meaning index", () => {
     await seedMeaningIndex(t, aliceWs);
     const body = JSON.parse(await bindingText(t, aliceWs)) as Record<string, unknown>;
     // The rows' access rules and `keyed` (every workspace is) ride beside the binding on every answer, and
-    // nothing else does: no meaning index, and no credential for one.
-    expect(Object.keys(body).sort()).toEqual(["binding", "idLayout", "keyed", "privacy"]);
+    // the owner's switch (a bare `true`), and nothing else does: no meaning index, and no credential for one.
+    expect(Object.keys(body).sort()).toEqual(["binding", "idLayout", "keyed", "meaningOn", "privacy"]);
+    expect(body.meaningOn).toBe(true);
     expect(body).not.toHaveProperty("meaningIndex");
+  });
+
+  test("the owner's switch rides apart from the index's health, and carries no credential", async () => {
+    // @seyi, 2026-11-02 to 11-04: a failed Vectorize row sent no `meaningIndex`, and the gateway asked no index at all,
+    // its workspace object's own included. `meaningOn` says the owner's switch alone.
+    const { t, aliceWs } = await twoConnectedTenants();
+    await configureD1(t);
+    await seedMeaningIndex(t, aliceWs, { status: "failed", indexName: "context-meaning-alice" });
+    const text = await bindingText(t, aliceWs);
+    const body = JSON.parse(text) as Record<string, unknown>;
+    expect(body.meaningOn).toBe(true);
+    expect(body).not.toHaveProperty("meaningIndex");
+    expect(text).not.toContain(FAKE_D1.apiToken);
+    expect(text).not.toContain("context-meaning-alice");
+  });
+
+  test("off, opted out, released or never turned on is no switch at all", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    await configureD1(t);
+    expect(JSON.parse(await bindingText(t, aliceWs))).not.toHaveProperty("meaningOn");
+    await seedMeaningIndex(t, aliceWs, { status: "ready" });
+    const states: Array<{ status: "ready" | "releasing" | "off"; enabled: boolean; optedOut?: boolean }> = [
+      { status: "ready", enabled: false },
+      { status: "releasing", enabled: false, optedOut: true },
+      { status: "off", enabled: false, optedOut: true },
+      { status: "ready", enabled: true, optedOut: true },
+    ];
+    for (const state of states) {
+      await t.run(async (ctx) => {
+        const row = await ctx.db
+          .query("meaningIndexes")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", aliceWs))
+          .unique();
+        await ctx.db.patch(row!._id, state);
+      });
+      expect(JSON.parse(await bindingText(t, aliceWs)), JSON.stringify(state)).not.toHaveProperty("meaningOn");
+    }
+  });
+
+  test("the gateway's store carries the switch, read out of the real response", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    await configureD1(t);
+    await seedMeaningIndex(t, aliceWs, { status: "failed" });
+    const wire = await bindingText(t, aliceWs);
+    const { createControlPlane } = await import("../../../mcp/src/controlPlane.js");
+    const { storeForSession } = await import("../../../mcp/src/session.js");
+    const controlPlane = createControlPlane(
+      { CONTROL_PLANE_URL: "https://control-plane.test", GATEWAY_SECRET: TEST_GATEWAY_SECRET },
+      { fetchImpl: async () => new Response(wire, { status: 200, headers: { "Content-Type": "application/json" } }) },
+    );
+    const store = (await storeForSession({ workspaceId: aliceWs, accessToken: ACCESS_A }, {}, controlPlane)) as unknown as {
+      meaningOn: boolean;
+      meaningIndex: unknown;
+    };
+    expect(store.meaningOn).toBe(true);
+    expect(store.meaningIndex).toBeNull();
   });
 
   test("a caller cannot obtain another tenant's meaning index by naming it", async () => {

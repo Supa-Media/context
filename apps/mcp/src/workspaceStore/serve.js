@@ -6,10 +6,11 @@
  * The `ws.*` calls carry JSON bodies and answer JSON.
  */
 
+import { serveMachineCall } from "./serveMachines.js";
 import { canSee, PrivacyOverrides } from "../privacy/engine.js";
 import { serveTexStore } from "../texStore/wire.js";
 import { HOMES, isWorkspaceObjectKey, MAX_READ_IDS } from "./api.js";
-import { ACCESS_HOMES, AccessRowRefused } from "./access.js";
+import { ACCESS_HOMES, ACCESS_OPS, AccessRowRefused } from "./access.js";
 import { judgedReader } from "./members.js";
 import { AUDIENCES, WorkspaceRowRefused } from "./rows.js";
 import { chatRulesFrom, chatTokens } from "./chatRules.js";
@@ -26,12 +27,14 @@ import { isWriteOp, serveWrites } from "./serveWrites.js";
 import { serveCollabRead } from "./collabRead.js";
 import { serveCollabReplace } from "./collabReplace.js";
 import { serveCreateNote } from "./createNote.js";
+import { withOpen } from "./sessionOpen.js";
 import { treeRows } from "./treeRows.js";
 import { absentHere } from "./lookupMiss.js";
 import { namesTaken } from "./namesTaken.js";
 import { SearchAskRefused } from "./searchIndex.js";
 import { MeaningAskRefused } from "./meaningIndex.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
+import { withLookupBody } from "./lookupBody.js";
 
 const CALL = "x-tex-call";
 
@@ -185,7 +188,7 @@ function listingAnswer(store, fields) {
   const tree = treeRows(store.sql);
   const { rows: children, more } = tree.children(folder);
   const clearance = { scope: fields.scope, names: new Set(Array.isArray(fields.groups) ? fields.groups.filter((group) => typeof group === "string") : []) };
-  return { served: true, listing: listFolderFromRows({ folder, clearance, held, children, more, own: tree.own(folder), roots: tree.jobRows() }) };
+  return { served: true, listing: listFolderFromRows({ folder, clearance, held, children, more, own: tree.own(folder), roots: tree.jobRows(), sortAt: (path) => tree.sortAt(path) }) };
 }
 
 /** The paths a row change touches, before and after, for a tree watcher (`store.onTreeChange`). */
@@ -214,18 +217,28 @@ export async function serveWorkspaceStore(store, request) {
   // An old refresh token's index object (`workspaceStore/tokenIndex.js`): never a workspace, so it pins none.
   if (isTokenIndexCall(op) && store.sql) return serveTokenIndex(store.sql, op, fields);
   // A person object's calls (`workspaceStore/access.js`): the personal workspace's reach, shares and connections.
-  if (isPersonCall(op) && store.person) return await servePersonCall(store, op, fields);
+  if (isPersonCall(op) && store.person) {
+    const answered = await servePersonCall(store, op, fields);
+    // A session asked with its store's open, where both are this object's (`sessionOpen.js`).
+    return op === ACCESS_OPS.SESSION ? await withOpen(store, answered, fields) : answered;
+  }
   // Write ops: the change and its mirror entry land in one transaction; they check and pin their workspace themselves (`serveWrites.js`).
   if (isWriteOp(op)) return await serveWrites(store, op, fields);
   try {
     rows.pinWorkspace(fields.workspaceId);
     const membership = await serveMembersCall(store, op, fields);
     if (membership !== null) return membership;
+    // The computers this workspace owns and their runs (`serveMachines.js`).
+    const machine = await serveMachineCall(store, op, fields);
+    if (machine !== null) return machine;
     // The sealed binding and the one call a request's store is opened from (`bindingRows.js`).
     // `ws.open` waits for an open mark like every read, and says whether one is still open (`marks.js`), so the
     // gateway need not ask the control plane whether the object is behind before a read (`store/objectBinding.js`).
+    const waitStarted = Date.now();
     const behind = op === BINDING_OPS.OPEN ? await waitForMarks(store.marks ?? null) : false;
     const opened = serveBindingCall(store, op, fields, ACCESS_HOMES.OBJECT, { behind });
+    // How long the open waited for a mark's push, for the gateway's log line (`sessionStore.js` `openBinding`).
+    if (opened !== null && op === BINDING_OPS.OPEN && opened.ok) return Response.json({ ...(await opened.json()), waitedMs: Date.now() - waitStarted });
     if (opened !== null) return opened;
     // The grant rows and the rules rendered from them (`serveAccess.js`).
     const access = accessCall(store, op, fields);
@@ -289,7 +302,8 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(answer);
       }
       case "ws.rows.lookup":
-        return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "path", store.members ?? null)));
+        // An edit's one lookup carries its note's Markdown too (`withBody`, `lookupBody.js`), for this reader's found row only.
+        return Response.json(await settledAnswer(store, () => withLookupBody(store, lookUp(rows, fields, "path", store.members ?? null), fields)));
       case "ws.rows.resolve":
         return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "noteId", store.members ?? null)));
       case "ws.rows.names":
@@ -323,9 +337,14 @@ export async function serveWorkspaceStore(store, request) {
         let built;
         try {
           built = await store.meaning.catchUp();
-        } catch {
-          // The model failed; what changed stays on the log for the next build.
-          return Response.json({ served: true, failed: true, waiting: null });
+        } catch (error) {
+          // The model failed; what changed stays on the log for the next build. Our code and the provider's number
+          // only, for the build's log line (`../workspaceStore.js`), never a message.
+          const codes = Array.isArray(error?.providerCodes) ? error.providerCodes.filter(Number.isSafeInteger) : [];
+          const hint = typeof error?.hint === "string" ? [error.hint] : [];
+          const reason = typeof error?.code === "string" ? [error.code, ...codes, ...hint].join(":").toLowerCase() : "error";
+          const words = typeof error?.providerWords === "string" ? { providerWords: error.providerWords } : {};
+          return Response.json({ served: true, failed: true, waiting: null, reason, ...words });
         }
         return Response.json(built === null ? { served: false } : { served: true, ...built });
       }

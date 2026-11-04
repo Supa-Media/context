@@ -9,6 +9,10 @@
  *
  * Sabotage: change `const tierKept = exists && ...` to `const tierKept = false;` and the no-op tests fail, because
  * the existing team note and the existing private note are each re-pinned on save.
+ *
+ * A NEW NOTE ITS FOLDERS ALREADY GIVE ITS TIER MAKES NO TRIP (2026-11-03, `rowAccess.inherits`). Its tier write was
+ * `inherit` on a path with nothing to clear, a no-op the object still answered in about 20 to 50 ms per save. Sabotage:
+ * `inherits` answering false fails the two no-write tests; dropping its own-rule check fails the left-rule test.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -67,6 +71,46 @@ test("creating a new note sets its tier", async () => {
     [["notes/new.md", "private"]],
     "a new note's tier is one row write",
   );
+});
+
+test("a new note its folder already gives the tier it asks for makes no row write", async () => {
+  const { store, asked, overrides } = harness();
+  const result = await save(store, overrides, { path: "notes/plain.md", content: "# Plain\n", visibility: "team", confirm_team_publish: true });
+  assert.notEqual(result?.isError, true, JSON.stringify(result));
+  assert.deepEqual(asked, [], "a tier the folder already gives was written as a row");
+});
+
+test("a new private note in a private folder makes no row write; one in a team folder still does", async () => {
+  const asked = [];
+  const store = withPrivacyAuthority(withServedTree(createMemoryStore()), {
+    rules: { etag: "rows-v1", accessVersion: 1, folders: [FOLDER, { prefix: "mine", visibility: "private" }], notes: [] },
+    async setAccess(change) {
+      asked.push(change);
+      return { ok: true, version: (change.expectedVersion ?? 1) + 1 };
+    },
+  });
+  const rules = [FOLDER_RULE, { prefix: "mine", vis: "private" }];
+  const inMine = await toolWriteNote(store, "private", rules, new PrivacyOverrides(), { path: "mine/new.md", content: "# Mine\n", visibility: "private" });
+  assert.notEqual(inMine?.isError, true, JSON.stringify(inMine));
+  assert.deepEqual(asked, [], "a private folder's new note was given a row write of its own");
+  const inTeam = await toolWriteNote(store, "private", rules, new PrivacyOverrides(), { path: "notes/secret.md", content: "# Secret\n", visibility: "private" });
+  assert.notEqual(inTeam?.isError, true, JSON.stringify(inTeam));
+  assert.deepEqual(asked.map((call) => [call.path, call.base]), [["notes/secret.md", "private"]], "a private note in a team folder must narrow first");
+});
+
+test("a new note at a path that already holds a rule of its own still writes its tier", async () => {
+  const asked = [];
+  const store = withPrivacyAuthority(withServedTree(createMemoryStore()), {
+    // A rule left at a path with no note (a create that failed after its tier landed): the save must set it again.
+    rules: { etag: "rows-v1", accessVersion: 1, folders: [FOLDER], notes: [{ path: "notes/left.md", visibility: "private" }] },
+    async setAccess(change) {
+      asked.push(change);
+      return { ok: true, version: (change.expectedVersion ?? 1) + 1 };
+    },
+  });
+  const result = await toolWriteNote(store, "private", [FOLDER_RULE], new PrivacyOverrides(), { path: "notes/left.md", content: "# Left\n", visibility: "team", confirm_team_publish: true });
+  assert.notEqual(result?.isError, true, JSON.stringify(result));
+  assert.deepEqual(asked.map((call) => [call.path, call.base]), [["notes/left.md", "inherit"]]);
 });
 
 test("an existing note saved with explicit visibility keeps that visibility, and sets the row", async () => {

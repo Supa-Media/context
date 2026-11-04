@@ -1,7 +1,7 @@
 /**
  * A turn's computer and web search (`computer.js`, `search.js`), opened once
  * per question and wrapped so that reading anything from them marks the turn
- * untrusted (`privacy/egress.js`). Moved out of `route.js`, which calls it.
+ * untrusted (`privacy/egress.js`). Moved out of `texEntryPoint.js`, which calls it.
  *
  * The person's own texted turn (and a routine's run) gets their computer:
  * their browser tag, so a later text carries on in the same browser, their
@@ -66,7 +66,7 @@ export function pagesOpenedBefore(history) {
  * what `runTurn` is handed of it.
  *
  * `vouched` is the text whose addresses count as the person's own
- * (`route.js` says why a routine's is its body and never its prompt).
+ * (`texEntryPoint.js` says why a routine's is its body and never its prompt).
  */
 export async function openTurnWeb(env, { session, texting, group, question, vouched, history = [], channel, store, dispatch, ledger }) {
   // The person's browser tag lets a later text carry on in the same browser

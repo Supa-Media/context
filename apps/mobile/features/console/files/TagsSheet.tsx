@@ -9,6 +9,7 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useFieldFont } from "../../design/fieldFont";
 import { Shell } from "./DialogShell";
 import { cleanTag, tagSuggestions } from "../home/folderTags";
+import { SketchBox } from "../../design/components/sketch/SketchBox";
 
 /**
  * Tag a folder (board 14 of the phone Home artboards, approved by the owner
@@ -68,11 +69,12 @@ export function TagsSheet({
             accessibilityRole="button"
             accessibilityLabel={`Remove ${tag}`}
             onPress={() => setTags((current) => current.filter((one) => one !== tag))}
-            style={styles.chip}
             testID="tag-chip"
           >
-            <Text style={styles.chipText}>{tag}</Text>
-            <Icon name="close" size={14} color={colors.accentText} />
+            <SketchBox look="tape" color={colors.text} seed={`tags-sheet:${tag}`} style={styles.chip}>
+              <Text style={styles.chipText}>{tag}</Text>
+              <Icon name="close" size={14} color={colors.text2} />
+            </SketchBox>
           </Pressable>
         ))}
         <TextInput
@@ -173,12 +175,9 @@ const makeStyles = (colors: Colors) =>
       gap: space.x1,
       minHeight: 32,
       paddingHorizontal: space.x3,
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      borderColor: colors.accent,
-      backgroundColor: colors.accentDim,
     },
-    chipText: { fontFamily: fonts.body, fontSize: touchType.meta + 1, color: colors.accentText, fontWeight: "500" },
+    // A tag is a strip of paper tape (owner, 2026-11-04, `design/components/sketch`).
+    chipText: { fontFamily: fonts.body, fontSize: touchType.meta + 1, color: colors.text, fontWeight: "500" },
     input: {
       flexGrow: 1,
       minWidth: 90,

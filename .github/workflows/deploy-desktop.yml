@@ -1,8 +1,8 @@
-name: Deploy Desktop (build the Mac app)
+name: Deploy Desktop (build the Mac and Linux apps)
 
 # A `.dmg` of the meeting recorder, built on a Mac runner — signed and notarised
-# when the credentials exist, and honestly unsigned when they do not.
-#
+# when the credentials exist, and honestly unsigned when they do not. Linux is
+# the `linux` and `publish-linux` jobs at the end (`deploy-desktop-linux.yml`).
 # Desktop builds and releases are manual. Use the publish input to release a
 # signed, notarised build; a merge to main only deploys staging.
 #
@@ -17,7 +17,6 @@ name: Deploy Desktop (build the Mac app)
 #
 # What an unsigned build does **not** get, and this is the whole reason the
 # signed path matters:
-#
 #  - Gatekeeper refuses it on any other Mac.
 #  - macOS does not grant a hardened-runtime app TCC permissions it has not
 #    verified, so **system audio does not work** — the app degrades to mic-only
@@ -30,7 +29,6 @@ name: Deploy Desktop (build the Mac app)
 # without them.
 #
 # ## What this cannot check
-#
 # That the signature is trusted on somebody else's Mac, that notarisation
 # actually granted TCC, or that ScreenCaptureKit hands over system audio. All
 # three need a person, a Mac and a meeting. The artifact is what they need to do
@@ -59,6 +57,9 @@ concurrency:
 jobs:
   build:
     name: Build the Mac app
+    outputs: # read by `publish-linux`, to attach Linux to this very release
+      version: ${{ steps.version.outputs.value }}
+      published: ${{ steps.publish.outputs.published }}
     # macOS, and not optional: codesign, notarytool and dmg creation are all
     # Apple's own tools. A Linux runner can produce a directory that looks like
     # an app and nothing that installs.
@@ -431,6 +432,9 @@ jobs:
       # separate step, "Publish the release" below, gated on the launch step
       # in between actually passing. This step's only job is to produce the
       # bits; nothing it does can put them in front of an installed base.
+      - name: Build the machine runner # Let Tex use this Mac; see the script
+        if: hashFiles('apps/machine-runner/Cargo.toml') != ''
+        run: bash apps/desktop/build/build-machine-runner.sh
       - name: Build
         working-directory: apps/desktop
         env:
@@ -911,6 +915,7 @@ jobs:
       # now backstopped here too rather than trusted to have been the only
       # check.
       - name: Publish the release
+        id: publish
         if: steps.decide.outputs.publish == 'true' && steps.smoke.outcome == 'success'
         working-directory: apps/desktop
         env:
@@ -924,6 +929,7 @@ jobs:
             --title "$TAG" \
             --notes "Built and smoke-tested by deploy-desktop.yml — the app in this release opened a window before it was published."
           echo "Published $TAG — electron-updater reads latest-mac.yml and the zip(s) it names; the dmg is for a first, manual install."
+          echo "published=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -965,3 +971,30 @@ jobs:
             echo "The signing keychain is gone."
           fi
           rm -rf "$dir"
+
+  # Linux, built beside the Mac job: `deploy-desktop-linux.yml` says the rest.
+  linux:
+    uses: ./.github/workflows/deploy-desktop-linux.yml
+    with:
+      publish: ${{ inputs.publish == true }}
+
+  # Attaches Linux only to a release the Mac job created, at the same version.
+  publish-linux:
+    name: Attach the Linux app to the release
+    needs: [build, linux]
+    if: needs.build.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@v4
+        with: { name: context-desktop-linux, path: linux }
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAC_VERSION: ${{ needs.build.outputs.version }}
+          LINUX_VERSION: ${{ needs.linux.outputs.version }}
+        run: bash apps/desktop/build/attach-linux-release.sh linux

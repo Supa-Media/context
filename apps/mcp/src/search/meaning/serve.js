@@ -86,10 +86,43 @@ export const MEANING_ONLY_LABEL = "Same topic, different words";
 /** Reciprocal-rank constant: the usual 60, so neither list's top dominates. */
 const RRF_K = 60;
 
-/** Does this store have a meaning index worth asking? A filling one is: its notes are real. */
-export function meaningSearchable(store) {
+/** Whether this store's Vectorize index may be asked: one that takes writes. A filling one may: its notes are real. */
+function vectorizeAnswers(store) {
   const state = store?.meaningIndex?.state;
   return state === "ready" || state === "backfilling";
+}
+
+/**
+ * Does this store have a meaning index worth asking? Its Vectorize index where that takes writes, or, for a workspace
+ * whose notes live in its object, the object's own index (`objectMeaning.js`) wherever the owner's switch is on, with
+ * the model bound to embed the query. The object's index is built from the notes it holds, so the health of the
+ * control plane's Vectorize row says nothing about it: a row that failed on 2026-11-02 silenced @seyi's meaning
+ * search for two days while its object's index stood ready (`apps/mcp/test/meaningFromObjectGate.test.mjs`).
+ */
+export function meaningSearchable(store) {
+  return meaningGate(store) === null;
+}
+
+/** Why meaning search is not asked here, as a code, or `null` when it is. */
+export function meaningGate(store) {
+  if (vectorizeAnswers(store)) return null;
+  if (!store?.objectMeaning) return "no_object_index";
+  if (store?.meaningOn !== true) return "switch_off";
+  if (typeof store?.ai?.run !== "function") return "no_model";
+  return null;
+}
+
+/**
+ * One line when a search asks no meaning index, or the object's has not finished its first build: codes and a count,
+ * never a query or a path. Read with the `Texting assistant logs` workflow's tail on `context-mcp` (2026-11-04: why
+ * @seyi's meaning search stayed silent was otherwise invisible).
+ */
+function logMeaningSkipped(store, reason, waiting = null) {
+  try {
+    console.log(JSON.stringify({ event: "meaning_skipped", reason, ...(Number.isFinite(waiting) ? { meaningWaiting: waiting } : {}), workspace: store?.actor?.workspaceId ?? null }));
+  } catch {
+    // A log line cannot fail a search.
+  }
 }
 
 /**
@@ -110,18 +143,27 @@ export async function meaningMatches(
   { query, scope, isVisible, prefix = "", grantedGroups = false, fetchImpl, embed, minScore },
 ) {
   const floor = typeof minScore === "number" ? minScore : searchSettingsOf(store).minScore;
-  if (!meaningSearchable(store) || typeof query !== "string" || !query.trim()) return null;
+  if (typeof query !== "string" || !query.trim()) return null;
+  const gate = meaningGate(store);
+  if (gate !== null) {
+    logMeaningSkipped(store, gate);
+    return null;
+  }
   try {
     // Timed as `phase:meaning_embed` and `phase:meaning_query` beside the word search (`mcp/phase.js`).
     const [vector] = await phase(store, "meaning_embed", () => (embed ?? meaningEmbedderFor(store, { fetchImpl }))([query.trim()]));
-    const client = createMeaningClient(store.meaningIndex, { fetchImpl });
     // A team caller with no group grants sees team notes only, so asking the
     // index for anything else would only crowd the top of the list. One who
     // answers to a group can see some notes indexed as `private` (a group
     // note's tier), so asks for every tier and lets `isVisible` decide.
     const tiers = scope === "private" || grantedGroups ? null : ["team"];
     // The workspace's object first, where it holds the notes and has built its index; Vectorize otherwise.
-    const raw = await phase(store, "meaning_query", async () => (await objectMeaningMatches(store, vector, { tiers })) ?? (await client.query(vector, { tiers })));
+    // Vectorize only where it takes writes: an object-only store has no index there worth asking.
+    const raw = await phase(store, "meaning_query", async () => (await objectMeaningMatches(store, vector, { tiers })) ?? (vectorizeAnswers(store) ? await createMeaningClient(store.meaningIndex, { fetchImpl }).query(vector, { tiers }) : null));
+    if (raw === null) {
+      logMeaningSkipped(store, "object_not_built");
+      return null;
+    }
     return rankMeaningMatches(raw).filter(
       (match) =>
         match.score >= floor &&

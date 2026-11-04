@@ -6,7 +6,7 @@
  * speaking first, and a "yes" after it answers it (2026-10-26, @context-lc
  * tex-reviews "stray yes sends pending ask": a "yes" to a routine's reminder
  * sent a bug report held before it, with the person's last 12 texts). Those
- * runs disarm the ask themselves (`route.js`, `heartbeat.js`); this is the
+ * runs disarm the ask themselves (`texEntryPoint.js`, `heartbeat.js`); this is the
  * second check, at the yes, read from the conversation as the person saw it,
  * so a disarm that missed (a race, a failed delete) still sends nothing.
  *

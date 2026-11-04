@@ -98,7 +98,7 @@ import { FolderRow } from "./FolderRow";
 import { NestedRows, useOpenRows, type RowNesting } from "./NestedRows";
 import { FolderSelectBar, useFolderSelection } from "./folderSelect";
 import { showSelectBar, type BulkActions } from "./selectActions";
-import { useListingOrder } from "./listingOrder";
+import { sortOfListing, useWorkspaceSort } from "./listingOrder";
 import { baseName, folderLabel } from "./paths";
 import type { SyncMark } from "./pendingMarks";
 import { useRightClick } from "./rightClick";
@@ -281,17 +281,18 @@ export function FolderView({
     neither of them draws. See `tree.ts`. No `keep` here: the open thing on
     this screen is the folder, so there is no note to hold visible.
 
-    `descending` is the *same* answer the tree is drawn with, and that is the
-    point of it coming from `listingOrder.ts` rather than from a prop nobody
-    passed. The sort control lives in the tree's header, and until this the
-    direction it set lived in that component — so sorting Z to A reordered the
-    sidebar and left the very same folder, drawn as a page beside it, still A
-    to Z. "It is the tree, in the other place" is this file's first claim about
-    itself, and the one screen where a person would check it was where it was
-    false.
+    The sort is the *same* answer the tree is drawn with: the folder's own
+    setting on its listing, else the workspace's from `listingOrder.ts`. A sort
+    that reached the sidebar and left the very same folder, drawn as a page
+    beside it, in another order was this page's first defect, and "it is the
+    tree, in the other place" is this file's first claim about itself.
   */
-  const descending = useListingOrder();
-  const rows = listedEntries(listing?.entries ?? [], { descending, aboutDrawn: true });
+  const workspaceSort = useWorkspaceSort();
+  const rows = listedEntries(listing?.entries ?? [], {
+    sort: sortOfListing(listing, workspaceSort),
+    parent: listing?.path ?? "",
+    aboutDrawn: true,
+  });
   // The contacts folder: its letter folders as an A–Z index, everything else
   // as rows (`communications/ContactsIndex.tsx`). `null` for every other folder.
   const contacts = contactsIndex(entry.path, rows);
@@ -512,7 +513,7 @@ export function FolderView({
                           nesting={nesting}
                           open={opened.paths}
                           onToggle={opened.toggle}
-                          descending={descending}
+                          workspaceSort={workspaceSort}
                           rowProps={(child) => ({
                             onSelect,
                             menu,

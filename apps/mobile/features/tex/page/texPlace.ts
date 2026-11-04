@@ -1,5 +1,5 @@
 /**
- * The Tex page's place in its address: `?chat=&view=&job=&full=`. Pure.
+ * The Tex page's place in its address: `?chat=&view=&job=&full=&machine=`. Pure.
  *
  * Anything that is not a known view, a well-formed chat key or a job id reads
  * as absent, so a hand-edited address lands on the first screen of the
@@ -22,6 +22,12 @@ export function readPlace(params: Record<string, string | string[] | undefined>)
   if (job && KEY.test(job)) place.job = job;
   else if (view && (SUB_VIEWS as readonly string[]).includes(view)) place.view = view as SubView;
   if (place.view === "computer" && one(params.full) === "1") place.full = true;
+  // One machine's page needs which machine; without a well-formed id it is the list of them.
+  if (place.view === "machine") {
+    const machine = one(params.machine);
+    if (machine && KEY.test(machine)) place.machine = machine;
+    else place.view = "machines";
+  }
   return place;
 }
 
@@ -32,5 +38,6 @@ export function placeParams(place: Place): Record<string, string> {
   if (place.job) out.job = place.job;
   else if (place.view) out.view = place.view;
   if (place.view === "computer" && place.full) out.full = "1";
+  if (place.view === "machine" && place.machine) out.machine = place.machine;
   return out;
 }

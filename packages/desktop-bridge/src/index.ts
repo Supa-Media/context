@@ -54,6 +54,8 @@ export type {
   OutboxStatus,
   PendingMachineApproval,
   SpellingCheck,
+  MachineRunState,
+  MachineRunStatus,
   UpcomingMeetings,
   UpcomingMeetingView,
   StartCaptureRequest,
@@ -78,3 +80,5 @@ export {
   SHELL_TRAFFIC_LIGHTS,
 } from "./layout.ts";
 export type { ShellTrafficLightsPosition } from "./layout.ts";
+
+export { machineStatusFrom } from "./machine.ts";

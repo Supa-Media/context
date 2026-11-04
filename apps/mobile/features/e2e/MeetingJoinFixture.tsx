@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { MeetingsTab } from "../console/aside/MeetingsTab";
-import { NextUpRow } from "../meetings/components/NextUpRow";
+import { CreateButton } from "../console/CreateButton";
+import { NextUpPill } from "../meetings/components/NextUpPill";
 import { MeetingsListScreen } from "../meetings/MeetingsListScreen";
 import { meetings } from "../meetings/controller";
 import type { CalendarEvent } from "../meetings/protocol";
@@ -15,7 +16,7 @@ import type { AskBefore } from "../meetings/joinPreferences";
  * Join and take notes, for screenshots (boards w1 and w2, 2026-10-27).
  *
  * `/e2e-fixture?screen=meeting-join&at=console|live|phone`: `console` draws the
- * sidebar's next-up row beside the Meetings tab's Today list, `live` the
+ * next-up pill (as it sits beside the console's +) above the Meetings tab's Today list, `live` the
  * running card with its Open Google Meet button, `phone` the meetings list,
  * `settings` the Settings › Meetings card.
  * The calendar store and the controller's snapshot are set directly: nothing
@@ -85,11 +86,18 @@ export function MeetingJoinFixture({ view }: { view?: string }) {
   if (view === "settings") return <SettingsCard />;
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.surface, gap: 40, padding: 24 }} testID="meeting-join-fixture">
-      <View style={{ width: 262, backgroundColor: colors.chrome }}>
-        <NextUpRow onJoin={() => {}} />
-      </View>
       <View style={{ width: 340 }}>
         <MeetingsTab onOpenNote={null} onJoin={() => {}} />
+      </View>
+      <View style={{ flex: 1, position: "relative" }}>
+        <CreateButton
+          compact={false}
+          onNewMeeting={() => {}}
+          onNewNote={() => {}}
+          onNewDrawing={() => {}}
+          onNewFolder={() => {}}
+          beside={<NextUpPill onJoin={() => {}} />}
+        />
       </View>
     </View>
   );

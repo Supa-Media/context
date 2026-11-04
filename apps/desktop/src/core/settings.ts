@@ -60,6 +60,12 @@ export interface DesktopSettings {
   /** "What's copied": pictures and documents, and videos, each up to 25 MB (owner's pick: pictures on, videos off). */
   messagesBackupPictures: boolean;
   messagesBackupVideos: boolean;
+  /**
+   * "Let Tex use this Mac": run Tex's coding jobs here with this Mac's own
+   * Claude Code and Codex (`core/machine/runner.ts`). Off until the person
+   * turns it on: it lets jobs run code under their account.
+   */
+  machineEnabled: boolean;
   transcription: TranscriptionMode;
   /**
    * The MCP endpoint this machine connects to, e.g. `https://…/mcp`.
@@ -121,6 +127,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = Object.freeze({
   messagesBackupPictures: true,
   // Videos take most of the space (board 2, 2026-10-26).
   messagesBackupVideos: false,
+  machineEnabled: false,
   /*
     On device, which is where audio stays until somebody says otherwise.
 
@@ -204,6 +211,8 @@ export function normalizeSettings(raw: unknown): DesktopSettings {
     messagesBackup: bool(source["messagesBackup"], DEFAULT_SETTINGS.messagesBackup),
     messagesBackupPictures: bool(source["messagesBackupPictures"], DEFAULT_SETTINGS.messagesBackupPictures),
     messagesBackupVideos: bool(source["messagesBackupVideos"], DEFAULT_SETTINGS.messagesBackupVideos),
+    // Only an explicit `true` turns it on; anything else a file says is off.
+    machineEnabled: source["machineEnabled"] === true,
     transcription: source["transcription"] === "cloud" ? "cloud" : "on-device",
     // The same guard as the base URL: https, or a loopback address for a local
     // gateway. A settings file naming an `http://` endpoint would otherwise

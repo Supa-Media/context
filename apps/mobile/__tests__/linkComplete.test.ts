@@ -175,6 +175,70 @@ describe("what is offered", () => {
   });
 });
 
+describe("loose matching", () => {
+  /*
+    Reported as "[[Deut 32" finding nothing: the name was "Deuteronomy 32", and
+    "deut 32" is not a substring of it. Each word typed is the start of a word in
+    the name, which is how people shorten a name they half remember.
+  */
+  const BIBLE = [
+    "3-resources/bible/Deuteronomy 32.md",
+    "3-resources/bible/Deuteronomy 3.md",
+    "3-resources/bible/Deuteronomy 10.md",
+    "3-resources/bible/Genesis 32.md",
+    "3-resources/sermons/song-of-moses.md",
+    "2-areas/Café notes.md",
+  ];
+  const labels = (query: string, paths: readonly string[] = BIBLE) =>
+    noteChoices(query, paths, null).map((choice) => choice.label);
+
+  test("each word typed may be the start of a word in the name", () => {
+    expect(labels("Deut 32")).toEqual(["Deuteronomy 32"]);
+  });
+
+  test("the words may come in any order", () => {
+    expect(labels("32 deut")).toEqual(["Deuteronomy 32"]);
+  });
+
+  test("numbers sort as numbers, so chapter 3 comes before 10 and 32", () => {
+    expect(labels("deut")).toEqual(["Deuteronomy 3", "Deuteronomy 10", "Deuteronomy 32"]);
+  });
+
+  test("a word of the folder can narrow it", () => {
+    expect(labels("sermons moses")).toEqual(["song-of-moses"]);
+  });
+
+  test("a missing letter still finds the note, after closer matches", () => {
+    expect(labels("deutronomy 32")).toEqual(["Deuteronomy 32"]);
+    expect(labels("dt32")).toEqual(["Deuteronomy 32"]);
+  });
+
+  test("accents need not be typed", () => {
+    // Both start with "cafe" once the accent is off, so they sit in one band in
+    // alphabetical order; read "é" as a different letter and `cafeteria` jumps
+    // ahead, with `Café notes` found only by the loosest band.
+    expect(labels("cafe", ["2-areas/Café notes.md", "2-areas/cafeteria.md"])).toEqual([
+      "Café notes",
+      "cafeteria",
+    ]);
+  });
+
+  test("words of the name rank before words of the folder", () => {
+    const paths = ["a/deut/32 sermon.md", "a/Deuteronomy 32.md"];
+    expect(labels("deut 32", paths)).toEqual(["Deuteronomy 32", "32 sermon"]);
+  });
+
+  test("a word-start match ranks after a plain substring match", () => {
+    const paths = ["a/deut 32 summary.md", "a/Deuteronomy 32.md"];
+    expect(labels("deut 32", paths)).toEqual(["deut 32 summary", "Deuteronomy 32"]);
+  });
+
+  test("letters scattered across words do not count as a match", () => {
+    // A subsequence that starts mid-word ("e" of "genesis") is noise.
+    expect(labels("ens")).toEqual([]);
+  });
+});
+
 /* -------------------------------------------------------------------------- */
 
 const views: EditorView[] = [];

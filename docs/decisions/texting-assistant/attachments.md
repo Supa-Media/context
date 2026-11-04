@@ -105,7 +105,7 @@ background job with the file's id in its brief.
 The bucket is the tenancy boundary, so an id names nothing outside it, and
 what a kept file holds is someone else's words like any file: reading it marks
 the turn untrusted. Undo: drop `keepSentFiles` and `withKeptFiles` from
-`apps/mcp/src/agent/route.js`; `agentKeptFiles.test.mjs` fails.
+`apps/mcp/src/agent/texEntryPoint.js`; `agentKeptFiles.test.mjs` fails.
 
 ## A table is read whole, its repeats counted, its totals summed (owner's review, 2026-10-24)
 
@@ -132,7 +132,7 @@ new part (the Worker's `changed`), and that answer was never texted, but the
 gateway had already saved it to the conversation, and the next part worked
 the figures out again, differently: two "finished" results. Now a job's answer
 is not saved while a steer waits unread (`steer.pending()` in
-`apps/mcp/src/agent/route.js`), and the Worker hands the unsent answer to the
+`apps/mcp/src/agent/texEntryPoint.js`), and the Worker hands the unsent answer to the
 next part as `draft` (`apps/agent/src/jobRun.ts`), which is told to build on
 it and keep its figures unless the new text changes them; its answer replaces
 the draft. Undo: drop the `replaced` check; `agentBackgroundRoute.test.mjs`

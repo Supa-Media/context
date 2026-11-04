@@ -44,6 +44,8 @@
  */
 
 import { PAGE_JOB_LINE } from "../pages.js";
+import { mailLine, mailOf } from "./steer.js";
+import { pickMachine } from "../machines/forJobs.js";
 export { jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, reportReply } from "./jobReport.js";
 
 export const START_JOB_TOOL = "start_background_job";
@@ -52,6 +54,8 @@ export const JOB_STATUS_TOOL = "job_status";
 export const RESTART_JOB_TOOL = "restart_background_job";
 /** Their later texts a job's turn is shown, newest last. */
 export const MAX_FOLLOW_UPS = 5;
+/** Note mail lines a job's part is shown from between parts (`apps/agent/src/jobMail.ts`). */
+export const MAX_MAIL_SHOWN = 20;
 const MAX_FOLLOW_UP = 4_000;
 /** The most of a replaced answer (`jobRun.ts` `draft`) the next part is shown. */
 const MAX_DRAFT = 4_000;
@@ -141,6 +145,19 @@ export function runningJobsOf(value) {
     .filter(Boolean);
 }
 
+const MAIL_PART = /^[a-z0-9][a-z0-9-]{0,23}$/;
+const CONTEXT_NAME = /^@[a-z0-9][a-z0-9-]{0,63}$/;
+
+/** A split ask's shared note and this part's name there, read strictly; null for anything else. */
+export function jobMailOf(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const path = typeof value.path === "string" ? value.path.trim().replace(/^\/+/, "") : "";
+  const name = typeof value.name === "string" ? value.name.trim().toLowerCase().replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 24) : "";
+  if (path === "" || path.length > 1024 || /[\u0000-\u001f]/.test(path) || !path.endsWith(".md") || !MAIL_PART.test(name) || name === "everyone") return null;
+  const context = typeof value.context === "string" && CONTEXT_NAME.test(value.context.trim()) ? value.context.trim() : null;
+  return { path, name, ...(context ? { context } : {}) };
+}
+
 /** `body.job`: the background job this turn runs, or null. */
 export function jobOf(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -160,7 +177,19 @@ export function jobOf(value) {
           .slice(-MAX_FOLLOW_UPS)
           .map((words) => words.trim().slice(0, MAX_FOLLOW_UP))
       : [],
+    // Note mail that came for it since its last part (`apps/agent/src/jobMail.ts`): another agent's words, never theirs.
+    mail: Array.isArray(value.mail)
+      ? value.mail
+          .flatMap((entry) => {
+            const marker = mailOf(entry);
+            const text = typeof entry?.text === "string" ? entry.text.trim().slice(0, MAX_FOLLOW_UP) : "";
+            return marker !== null && text !== "" ? [{ ...marker, text }] : [];
+          })
+          .slice(-MAX_MAIL_SHOWN)
+      : [],
     draft: typeof value.draft === "string" ? value.draft.trim().slice(0, MAX_DRAFT) : "",
+    // The project note it shares with the other parts of a split ask (`START_JOB_TOOL`'s `mail`).
+    project: jobMailOf(value.project),
     // The draft stopped short of what they asked (`stopsShort.js`, `jobCheck.js`), rather than being overtaken by a text of theirs.
     unfinished: value.unfinished === true,
     // The advisor's advice on the last part (`jobCheck.js`): what this part starts on.
@@ -256,7 +285,10 @@ const TOOL = {
     "own with the same access as you, writes the result where it belongs and reports back to you when done: you decide what they get. Never for a quick " +
     "answer or a single note you can write now, and never for something already in the background list. When one fact only they " +
     "know would change what the job does (do they want to cook, or have it catered? which city?), ask that one question first and " +
-    "start the job on their answer; anything you can find or safely assume goes in the brief instead.",
+    "start the job on their answer; anything you can find or safely assume goes in the brief instead. " +
+    "A big ask whose parts can go side by side runs in parallel by default: write one task note per part in the project's folder " +
+    "(what it does, done when), then start one job per part in this same turn, up to the free slots, each with mail naming the project's " +
+    "overview note and a short name for its part. Each job joins that note's mail, so they ask and tell each other at once, and you follow them there.",
   inputSchema: {
     type: "object",
     properties: {
@@ -270,6 +302,31 @@ const TOOL = {
         description:
           "What finished looks like, in one line, with every figure they asked for: \"a note comparing five competitors in @supa projects/tex/\", " +
           "\"three caterers with the full cost per person, sides and drinks included\".",
+      },
+      mail: {
+        type: "object",
+        description:
+          "For one part of a split ask: the project note whose mail every part's job joins (path, and context \"@name\" when it is in another workspace), " +
+          "and this job's short name there (\"pricing\", \"research\").",
+        properties: {
+          path: { type: "string" },
+          context: { type: "string" },
+          name: { type: "string" },
+        },
+        required: ["path", "name"],
+      },
+      on_computer: {
+        type: "object",
+        description:
+          "Run it on one of their own paired computers (in a group chat, one lent to the chat) instead of the cloud, with Claude Code or Codex signed in to its owner's plan: " +
+          "for coding in their repos, or anything that needs their machine. name: the computer as they call it (left out when they have one); " +
+          "tool: claude or codex; folder and repo: where on it, when they said. Runs up to four hours, checked every fifteen minutes.",
+        properties: {
+          name: { type: "string" },
+          tool: { type: "string", enum: ["claude", "codex"] },
+          folder: { type: "string" },
+          repo: { type: "string" },
+        },
       },
       quiet: {
         type: "boolean",
@@ -359,7 +416,7 @@ export const SLOW_TURN_NOTE =
   'now with send { action: "background" }, putting what you found so far in the brief; otherwise answer now.)';
 /**
  * A start or restart they asked to hear nothing about until it's done (Dev, 2026-11-03: "don't come back to me until
- * you are done" was answered with "On it" three times): the turn ends texting nothing (`route.js`), and the chat keeps
+ * you are done" was answered with "On it" three times): the turn ends texting nothing (`texEntryPoint.js`), and the chat keeps
  * `QUIET_ACK_LINE` as what was said.
  */
 export const QUIET_ACK = "[[tex:quiet-ack]]";
@@ -378,7 +435,7 @@ const text = (words, isError = false) => ({ content: [{ type: "text", text: word
  *
  * @param {{ running: Array|null, job: object|null, now: number, report?: boolean, read?: () => void }} options
  */
-export function backgroundSession({ running, job, now, report = false, read = () => {} }) {
+export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null, inGroup = false }) {
   if (running === null) return null;
   const started = [];
   let justStarted = null; // the title of the job the last call started, read once by `endsTurn`
@@ -420,7 +477,16 @@ export function backgroundSession({ running, job, now, report = false, read = ()
         true,
       );
     }
-    started.push({ id: crypto.randomUUID(), title, brief, doneWhen: line(args?.done_when, MAX_STATUS), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
+    const mail = jobMailOf(args?.mail);
+    // On one of their own computers (`machines/forJobs.js`): found now, and admitted by its owner's rules at every part.
+    let machine = null;
+    if (args?.on_computer !== undefined && args?.on_computer !== null) {
+      if (machines === null) return text("Only a job from their own chat, or a group chat a computer was lent to, can run on a computer.", true);
+      const picked = pickMachine(await machines(), { ...args.on_computer, group: inGroup });
+      if (picked.error) return text(picked.error, true);
+      machine = picked.machine;
+    }
+    started.push({ id: crypto.randomUUID(), title, brief, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
     justStarted = title;
     return text(
       `Started in the background as "${title}". Tell them in one short line that you're on it and will text the result, ` +
@@ -484,7 +550,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     const title = line(args?.title, MAX_TITLE);
     const picked = title === "" ? running : running.filter((entry) => entry.title.toLowerCase() === title.toLowerCase() || sameJob(entry.title, title));
     if (picked.length === 0) return text("No background job by that title in this chat. Your list has them all.", true);
-    // A job's report and its advisor's advice are what it read from outside, as its report to the coordinator is (`route.js`).
+    // A job's report and its advisor's advice are what it read from outside, as its report to the coordinator is (`texEntryPoint.js`).
     if (picked.some((entry) => entry.result || entry.advice)) read();
     return text(picked.map((entry) => jobStatusText(entry, now)).join("\n\n"));
   };
@@ -568,6 +634,17 @@ export function jobPrompt(job) {
         "new way, and fix anything you already made the old way; a text telling you to stop or not to do something is a rule for the rest of the job, retries included):\n" +
         job.followUps.map((words) => `- ${words}`).join("\n")
       : "") +
+    (job.project
+      ? `\nYou are one part of a bigger ask that runs in parallel. Before anything else, join the mail of ${job.project.path}` +
+        `${job.project.context ? ` in ${job.project.context}` : ""} as "${job.project.name}" (write action mail, args { join: "${job.project.name}" }), ` +
+        "and read what is there. The other parts' jobs and Tex are on it: tell them when you finish or when something you found changes their part, " +
+        "ask them (kind \"ask\") rather than guess what they are doing, and keep your own task note's status current."
+      : "") +
+    (job.mail?.length > 0
+      ? "\nMail came for you on the notes you joined while you were between parts, oldest first. Answer each ask with a note to its sender " +
+        "on that note; an interrupt means drop what you were doing and do what it says:\n" +
+        job.mail.map((entry) => `- ${mailLine(entry.text, entry)}`).join("\n")
+      : "") +
     (job.draft && job.unfinished
       ? "\nYour last part ended with this answer, which was never sent because it stopped short of what they asked (a part still missing, " +
         `a next step named, or an offer to look further):\n<<<\n${job.draft}\n>>>\n` +
@@ -604,7 +681,7 @@ export function startedJobs(background, tainted) {
   if (background === null) return {};
   return {
     ...(background.started.length > 0
-      ? { jobs: background.started.map(({ id, title, brief, doneWhen }) => ({ id, title, brief, doneWhen, ...(tainted ? { tainted: true } : {}) })) }
+      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })) }
       : {}),
     ...(background.steered.length + background.resumed.length > 0
       ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true }))] }

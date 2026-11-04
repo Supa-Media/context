@@ -28,7 +28,7 @@
  * error. Errors carry a code from `MEANING_ERROR_CODES` and a cause of ours.
  */
 
-import { CLOUDFLARE_API_BASE, MeaningError } from "./errors.js";
+import { CLOUDFLARE_API_BASE, MeaningError, providerHint, providerWords } from "./errors.js";
 
 export const MEANING_MODEL = "@cf/baai/bge-m3";
 export const MEANING_DIMENSIONS = 1024;
@@ -82,7 +82,20 @@ function isInputRefusal(error) {
   return error instanceof MeaningError &&
     error.code === "REFUSED" &&
     error.failureCause === "http_400" &&
-    error.providerCodes.includes(3030);
+    (error.providerCodes.includes(3030) || error.providerCodes.includes(8006));
+}
+
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g;
+
+/**
+ * A passage as the model can take it: half of a broken emoji (a lone surrogate) becomes U+FFFD and control
+ * characters become spaces. The Workers AI binding answered every build of one workspace's object with 8006,
+ * "invalid data, not valid JSON" (2026-11-04), for a passage that did not survive the trip as JSON; the meaning of a
+ * passage does not live in either.
+ */
+export function modelInput(text) {
+  return typeof text === "string" ? text.replace(LONE_SURROGATE, "\uFFFD").replace(CONTROL, " ") : "";
 }
 
 /** Keep a refused passage useful while bounding a model input. No note text enters errors. */
@@ -113,21 +126,32 @@ async function withTimeout(promise) {
  */
 export function bindingEmbedder(ai) {
   if (!ai || typeof ai.run !== "function") return null;
+  async function request(group) {
+    let answer;
+    try {
+      answer = await withTimeout(ai.run(MEANING_MODEL, { text: group }));
+    } catch (error) {
+      if (error instanceof MeaningError) throw error;
+      // The binding's error can quote the input, which is a note: only a leading numeric provider code is kept
+      // (Workers AI's "3030: ..." for an input it refused), never the words after it. A refusal reads as the REST
+      // API's does, so both embedders isolate and shorten a refused passage alike (`withInputFallback`).
+      const code = /^\s*(\d{4})\b/.exec(typeof error?.message === "string" ? error.message : "");
+      const providerCodes = code ? [Number(code[1])] : [];
+      // 8006 is the binding's "invalid data" for a request it could not read: like 3030, about this input.
+      if (providerCodes[0] === 3030 || providerCodes[0] === 8006) throw new MeaningError("REFUSED", { cause: "http_400", operation: "embed", providerCodes });
+      // Past the code, only which of our words the message was about (`providerHint`), never the message.
+      const hint = providerHint(typeof error?.message === "string" ? error.message.replace(/^\s*\d{4}\s*:?/, "") : "");
+      const words = providerWords(error?.message, group);
+      throw new MeaningError("UNAVAILABLE", { cause: "model", operation: "embed", providerCodes, hint, providerWords: words });
+    }
+    return vectorsFrom(answer, group.length);
+  }
+  const fallback = withInputFallback(request);
   return async function embed(texts) {
     const list = Array.isArray(texts) ? texts : [];
     if (list.length === 0) return [];
     const out = [];
-    for (const group of batches(list)) {
-      let answer;
-      try {
-        answer = await withTimeout(ai.run(MEANING_MODEL, { text: group }));
-      } catch (error) {
-        if (error instanceof MeaningError) throw error;
-        // The binding's error can quote the input, which is a note. Dropped.
-        throw new MeaningError("UNAVAILABLE", { cause: "model" });
-      }
-      out.push(...vectorsFrom(answer, group.length));
-    }
+    for (const group of batches(list)) out.push(...(await fallback(group)));
     return out;
   };
 }
@@ -165,7 +189,26 @@ export function createRestEmbedder({ accountId, apiToken, fetchImpl } = {}) {
     return vectorsFrom(body.result, group.length);
   }
 
-  async function requestWithInputFallback(group) {
+  const requestWithInputFallback = withInputFallback(request);
+  return async function embed(texts) {
+    const list = Array.isArray(texts) ? texts : [];
+    if (list.length === 0) return [];
+    const out = [];
+    for (const group of batches(list)) {
+      out.push(...await requestWithInputFallback(group));
+    }
+    return out;
+  };
+}
+
+/**
+ * `request` (one model call for a group of passages) with Workers AI's input refusal (3030) isolated: a refused
+ * group is split, a refused passage is tried shorter and in other sections, and only a passage the model refuses
+ * every way is thrown, as `REFUSED` with the probe's verdict. Shared by both embedders.
+ */
+function withInputFallback(request) {
+  async function requestWithInputFallback(raw) {
+    const group = raw.map(modelInput);
     try {
       return await request(group);
     } catch (error) {
@@ -223,15 +266,7 @@ export function createRestEmbedder({ accountId, apiToken, fetchImpl } = {}) {
       });
     }
   }
-  return async function embed(texts) {
-    const list = Array.isArray(texts) ? texts : [];
-    if (list.length === 0) return [];
-    const out = [];
-    for (const group of batches(list)) {
-      out.push(...await requestWithInputFallback(group));
-    }
-    return out;
-  };
+  return requestWithInputFallback;
 }
 
 /**

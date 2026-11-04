@@ -20,7 +20,7 @@
  *     other. A routine's own run is never offered note writes
  *     (`textingWrites.js`); this is narrower than any of them.
  *   - **Delivers to the main loop.** What a run texts is also put in the
- *     texting conversation (`route.js`), so the person's next text to Tex
+ *     texting conversation (`texEntryPoint.js`), so the person's next text to Tex
  *     carries it, and a finished job's note is marked done and its line taken
  *     out of `tex/jobs.md`.
  *

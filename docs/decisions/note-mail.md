@@ -86,6 +86,60 @@ waiting. The deadline is words in the join answer (`CHECK_DEADLINE`), like the
 rhythm; dropping it fails `noteMail.test.mjs`. A longer task names a longer
 deadline; it never goes without one.
 
+## Mail reaches Tex's own jobs at once (2026-11-04)
+
+The owner, approving "Tex on your own machines": agents Tex started message
+each other instantly. Everything above still holds for any other agent; for
+a background job Tex started, mail is no longer only checked on a rhythm.
+
+- **A mailbox joined from a job's turn is the job's.** The gateway knows a
+  turn is a job's from the grant and the texting Worker's request
+  (`store.mailTurn`, `readTheText.js`) and passes its id with the join; the
+  control plane keeps it on the mailbox (`noteMailboxes.jobId`). A person's
+  texting grant is the same across turns, so a later part of the job gets
+  the same mailbox back. The job is told its mail comes to it and to set no
+  timer (`JOB_MAIL_RHYTHM`).
+- **Delivered after it is written.** The line goes into the note first, as
+  before, and stays there. Then the gateway lists that note's job-bound
+  mailboxes (`/gateway/mail/jobs`) and hands each recipient the line through
+  the texting Worker's named entrypoint `TexRoutines.mailDeliver`
+  (`apps/mcp/src/mail/deliver.js`, `apps/agent/src/jobMail.ts`). The job's
+  object steers it into the part running now, which takes it in after its
+  next tool call; one it never took is shown to the next part. Delivery
+  never fails the send: a job that cannot be reached reads the note.
+- **Never the person's words.** A delivered line is shown as another
+  agent's words that vouch for nothing (`steer.js` `mailLine`), is never a
+  follow-up text, and has its own room (20 lines) so a busy note never
+  pushes out what the person texted. An ask or interrupt that arrives after
+  a part's last look gets another part; a plain note does not hold the job.
+- **Kinds.** A tag after the recipient: `to lead [ask]:`, `to builder
+  [interrupt]:`; no tag is a note, so every older line reads the same. An
+  ask may wait in the same call for its answer, at most 120 seconds.
+- **Only Tex interrupts, and only its own jobs.** The gateway refuses an
+  interrupt from any turn but Tex's own (chat or routine), to everyone, or to
+  a job another grant joined as (`own` on the listing): one person's Tex
+  never stops another person's job, and an agent never stops another. A
+  person interrupts by texting Tex. An interrupt tells the running part to
+  drop the step it is on after its current tool call; on a machine it maps
+  to the runner's interrupt.
+- **Loop guards, from the note's own mail:** at most 20 lines from one
+  sender to one recipient an hour, and asks at most 3 deep (an ask sent
+  while answering an ask is one deeper). Answers are never refused for
+  depth.
+- **Parallel by default.** A big ask whose parts can run side by side is
+  split into task notes and started as one job per part in the same turn,
+  each naming the project's note in `start_background_job`'s `mail`; each
+  job's first step is joining that note's mail under its part's name.
+
+Not yet: a line a person writes in the app's editor is in the note but is
+not delivered at once (the app writes it through the collaborative editor,
+not the mail tool); mail shown in History tagged with sender and receiver
+waits for its artboard.
+
+Tested by `apps/mcp/test/noteMailDelivery.test.mjs`,
+`apps/mcp/test/noteMailKinds.test.mjs`, `apps/agent/src/jobMail.test.ts`
+and `apps/convex/__tests__/noteMail/mailboxes.test.ts`.
+
 ## Tested by
 
 `apps/mcp/test/noteMail.test.mjs` (join, signing, footer, privacy of

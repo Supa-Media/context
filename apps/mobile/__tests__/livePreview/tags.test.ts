@@ -71,14 +71,17 @@ describe("the editor draws #tags as tags", () => {
     expect(tagged(doc).map((tag) => tag.slice(1))).toEqual(inlineTags(doc));
   });
 
-  test("drawn in the accent, the same in both themes", () => {
+  // Was the accent; a tag is a strip of paper tape in ink since the owner's
+  // drawn-pills pick (2026-11-04), the same object as a tag on a card.
+  test("drawn in ink on paper tape, the same in both themes", () => {
     const { livePreviewStyles } = require("../../features/console/files/livePreview") as {
       livePreviewStyles: string;
     };
     const rule = /\.cm-lp-tag \{([^}]*)\}/.exec(livePreviewStyles)?.[1] ?? "";
     expect(rule).toContain("var(--lp-tag)");
     for (const colors of [darkColors, lightColors]) {
-      expect(themeVars(colors, undefined, true)["--lp-tag"]).toBe(colors.accentText);
+      expect(themeVars(colors, undefined, true)["--lp-tag"]).toBe(colors.text);
+      expect(themeVars(colors, undefined, true)["--lp-tag-wash"]).toBe(colors.tapeWash);
     }
   });
 });

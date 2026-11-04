@@ -392,3 +392,33 @@ or when no window was created at all. The release gate still runs plain
 `--smoke`, unchanged. Sabotaging the rule back to `loaded` alone — the exact
 bug — reddens exactly one check, `test/mirror.test.mjs`'s `OFFLINE WITH A
 USABLE MIRROR IS ALSO A PASS`.
+
+### Linux ships beside the Mac build, on the same release, unsigned and not auto-updating
+
+Asked for by the owner on 2026-11-03 ("can you make a linux build available"),
+with a Linux VM connecting as a machine in mind. `deploy-desktop.yml` calls
+`deploy-desktop-linux.yml` beside its Mac job, which builds an AppImage and a
+`.deb` for x64 and arm64 on an Ubuntu runner. **Beside, not after**: the Mac job
+signs and notarises for most of its run, so a Linux job that waited for it would
+leave `context.lc/download/linux` a 404 for the length of a Linux build after
+every release. `publish-linux` then attaches the four files to the release, and
+only to a release the Mac job reports it created, at the version the Linux build
+stamped (`build/attach-linux-release.sh` refuses a mismatch). One release, one
+tag, every platform: a Linux-only release would become "latest" and take the
+Mac dmg's address down with it.
+
+**The launch gate installs the package.** It `apt install`s the x64 `.deb` and
+runs `/opt/Context/context --smoke` under Xvfb, because on Ubuntu 24.04
+Chromium's sandbox needs the AppArmor profile the `.deb`'s post-install script
+puts in place; launching the unpacked directory would prove the app's code and
+nothing about the thing a person installs. arm64 is built and not launched.
+
+**No updater on Linux.** `shouldArmUpdater` arms only a signed build, and a Linux
+build is never signed, so `latest-linux.yml` is not published and a Linux
+install updates by downloading again. Arming it there is a decision about what
+an unsigned update is allowed to replace, not a missing line.
+
+**What runs there.** The meeting collectors and system-audio capture are
+macOS-only (`src/platform/macos/`); on Linux they report "unknown", and the app
+is the signed-in shell, the tray and the local agent. Reversing "beside, not
+after" or dropping the published gate fails `test/packaging/linuxBuild.test.mjs`.

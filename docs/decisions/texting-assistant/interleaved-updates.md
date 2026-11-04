@@ -22,7 +22,7 @@ answer goes, and is logged in the chat's event log as Tex's outbound event
 with the turn's id. A line that only says Tex is on it, or will text later, is
 still ruled out ([progress](./progress.md)). A routine, a group check-in and a
 job's report get no lines (they text once), and neither does a chat set to
-one bubble (`agent/route.js`; a group routine's Worker drops any, as its
+one bubble (`agent/texEntryPoint.js`; a group routine's Worker drops any, as its
 gateway cannot tell it from a tag).
 
 **Never done mid-turn, checked in code.** A progress line opens with what Tex

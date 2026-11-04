@@ -1,6 +1,6 @@
 /**
  * The meetings on a person's own Google calendars, for the app's Meetings
- * page, its sidebar row and the Mac app's menu bar: "Join and take notes"
+ * page, the pill beside its + and the Mac app's menu bar: "Join and take notes"
  * (docs/decisions/meetings/joining-from-the-calendar.md).
  *
  * Read live from Google at the moment the app asks, like every other calendar

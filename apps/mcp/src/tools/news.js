@@ -40,6 +40,10 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-04",
+    text: "search no longer takes args { rerank }: the ranking model did not beat the order search already gives, so it was removed.",
+  },
+  {
     date: "2026-11-03",
     text:
       "Proposals are gone: write action propose, manage action review_proposal, fetch \"proposals:\" and the tools propose_note, " +

@@ -228,7 +228,7 @@ describe("the address", () => {
 });
 
 function fakeSockets() {
-  const made: (SocketLike & { url: string; protocols: string[]; sent: string[] })[] = [];
+  const made: (SocketLike & { url: string; protocols: string[]; sent: string[]; closed?: boolean })[] = [];
   const timers: { fn: () => void; ms: number }[] = [];
   return {
     made,
@@ -238,9 +238,12 @@ function fakeSockets() {
         url: string;
         protocols: string[];
         sent: string[];
+        closed?: boolean;
       };
       s.send = (d: string) => void s.sent.push(d);
-      s.close = () => {};
+      s.close = () => {
+        s.closed = true;
+      };
       made.push(s);
       return s;
     },
@@ -257,6 +260,8 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 describe("the live socket", () => {
   test("the grant rides as a subprotocol, never in the address", () => {
     expect(liveSocketUrl("https://mcp.example.test")).toBe("wss://mcp.example.test/tex/page/live");
+    // The gateway decides whose page and which chat at the upgrade, from the query: without them every socket is refused.
+    expect(liveSocketUrl("https://mcp.example.test", "ada", "g1")).toBe("wss://mcp.example.test/tex/page/live?handle=ada&chat=g1");
     expect(liveProtocols("tok")).toEqual(["context.tex-page", "context.token.tok"]);
   });
 
@@ -286,24 +291,39 @@ describe("the live socket", () => {
     await flush();
     const first = f.made[0]!;
     expect(first.url).not.toContain("tok");
+    expect(first.url).toBe("wss://mcp.example.test/tex/page/live?handle=ada&chat=me");
     first.readyState = 1;
     first.onopen!({});
     expect(JSON.parse(first.sent[0]!)).toEqual({ t: "watch", handle: "ada", chat: "me" });
     first.onmessage!({ data: JSON.stringify({ t: "patch", section: "about" }) });
     expect(patches).toEqual([{ section: "about" }]);
+    // Another chat is another chat's object: a new socket, opened on that chat.
     live.watch("g1");
-    expect(JSON.parse(first.sent[1]!)).toEqual({ t: "watch", handle: "ada", chat: "g1" });
+    expect(first.closed).toBe(true);
+    await flush();
+    const second = f.made[1]!;
+    expect(second.url).toBe("wss://mcp.example.test/tex/page/live?handle=ada&chat=g1");
+    // The old socket's close, arriving late, neither reconnects nor speaks for the new one.
+    const timersBefore = f.timers.length;
+    first.onclose!({ code: 1000 });
+    first.onmessage!({ data: JSON.stringify({ t: "patch", section: "stale" }) });
+    expect(f.timers.length).toBe(timersBefore);
+    expect(patches).toEqual([{ section: "about" }]);
+    second.readyState = 1;
+    second.onopen!({});
+    expect(JSON.parse(second.sent[0]!)).toEqual({ t: "watch", handle: "ada", chat: "g1" });
     // Closed to be authorized again: back at once, on the chat it follows now.
-    first.onclose!({ code: 4001 });
+    second.onclose!({ code: 4001 });
     const again = f.timers.at(-1)!;
     expect(again.ms).toBe(0);
     again.fn();
     await flush();
-    const second = f.made[1]!;
-    second.readyState = 1;
-    second.onopen!({});
-    expect(JSON.parse(second.sent[0]!)).toEqual({ t: "watch", handle: "ada", chat: "g1" });
-    expect(ups).toEqual([true, false, true]);
+    const third = f.made[2]!;
+    expect(third.url).toContain("chat=g1");
+    third.readyState = 1;
+    third.onopen!({});
+    expect(JSON.parse(third.sent[0]!)).toEqual({ t: "watch", handle: "ada", chat: "g1" });
+    expect(ups).toEqual([true, false, true, false, true]);
     live.close();
   });
 

@@ -76,8 +76,12 @@ export interface FileEntry {
    * job's original name whatever the folder is called now. Folders only.
    */
   role?: string;
-  /** A folder's place among its siblings, once somebody set one (`folderOrder.set`). */
+  /** A row's place among its siblings, once somebody set one (`folderOrder.set`): a folder's, or a note's in custom order. */
   order?: number;
+  /** When the row was made (`listingSort.cjs` sorts by it). */
+  createdAt?: number;
+  /** A folder's own Sort setting (`functions/folderSort.ts`), on its entry in its parent's listing. */
+  sort?: string;
   /** On a folder in Archive: the built-in folder it is the archive copy of, drawn grey with a box (`JobIcon`). */
   archiveOf?: string;
 }
@@ -92,6 +96,8 @@ export interface FolderListing {
   manifestUsable: boolean;
   /** The folder's own built-in job, so a nested Website knows it before its parent lists (`folderJobs.ts`). */
   role?: string;
+  /** The Sort setting the folder draws by, its own or the nearest above it that is passed down (`listingSort.cjs`). */
+  sort?: string;
 }
 
 export interface OpenNote {

@@ -128,6 +128,12 @@ function bridgeLike(overrides = {}) {
     calendar: {
       setUpcoming: () => {},
     },
+    // Version 10. Let Tex use this Mac.
+    machine: {
+      status: async () => ({ available: false, enabled: false, state: "off", slots: 0, busy: 0, awake: false, message: null }),
+      setEnabled: async () => ({ available: false, enabled: false, state: "off", slots: 0, busy: 0, awake: false, message: null }),
+      onChange: () => () => {},
+    },
     ...overrides,
   };
 }
@@ -503,8 +509,16 @@ export function runBridgeChecks(check) {
     refusalFor(Object.freeze({ ...bridgeLike(), calendar: undefined, version: 8 })) === null,
   );
   check(
+    "A VERSION-10 SHELL WITHOUT `machine` IS REFUSED — it promised it",
+    refusalFor(Object.freeze({ ...bridgeLike(), machine: undefined, version: 10 })) === "surface-incomplete",
+  );
+  check(
+    "...but a VERSION-9 shell with no `machine` is fine, and the page draws no Let Tex use this Mac",
+    refusalFor(Object.freeze({ ...bridgeLike(), machine: undefined, version: 9 })) === null,
+  );
+  check(
     "...and this bundle's own version is accepted by its own table",
-    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 9,
+    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 10,
   );
   check(
     "a version between the floor and the ceiling is still not an integer version",

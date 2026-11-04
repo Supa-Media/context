@@ -5,6 +5,7 @@ import { Text } from "../../design/components/Text";
 import { fonts, layout, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { findPlaces, taggedLabel, type FolderHit, type LookIn, type TagHit } from "../home/searchPlaces";
+import { SketchBox } from "../../design/components/sketch/SketchBox";
 
 /**
  * A phone's search, beyond notes (boards 03 and 04 of the phone Home
@@ -114,16 +115,13 @@ function LookInChips({
               accessibilityState={{ selected: on }}
               accessibilityLabel={chip.count === null ? chip.label : `${chip.label}, ${chip.count}`}
               onPress={() => onChange(chip.look)}
-              style={[styles.chip, on && styles.chipOn]}
               testID={`look-in-${chip.look}`}
             >
-              {chip.icon === null ? null : (
-                <Icon name={chip.icon} size={15} color={on ? colors.accentText : colors.text2} />
-              )}
-              <Text style={[styles.chipText, on && styles.chipTextOn]}>{chip.label}</Text>
-              {chip.count === null ? null : (
-                <Text style={[styles.chipCount, on && styles.chipTextOn]}>{String(chip.count)}</Text>
-              )}
+              <SketchBox look={on ? "loop" : null} color={colors.text} seed={`look-in:${chip.look}`} style={styles.chip}>
+                {chip.icon === null ? null : <Icon name={chip.icon} size={15} color={on ? colors.text : colors.text2} />}
+                <Text style={[styles.chipText, on && styles.chipTextOn]}>{chip.label}</Text>
+                {chip.count === null ? null : <Text style={styles.chipCount}>{String(chip.count)}</Text>}
+              </SketchBox>
             </Pressable>
           );
         })}
@@ -261,22 +259,19 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     lookIn: { gap: space.x2, paddingBottom: space.x2 },
     eyebrow: { paddingHorizontal: layout.readingMargin + space.x1 },
-    chips: { gap: space.x2, paddingHorizontal: layout.readingMargin },
+    // Room above and below for the pencil loop, which a scroll view would clip.
+    chips: { gap: space.x1, paddingHorizontal: layout.readingMargin, paddingVertical: 4 },
     chip: {
       flexDirection: "row",
       alignItems: "center",
       gap: space.x1 + 2,
       minHeight: 36,
       paddingHorizontal: space.x3 + 1,
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      borderColor: colors.line,
-      backgroundColor: colors.cardSurface,
     },
-    chipOn: { backgroundColor: colors.accentDim, borderColor: colors.accent },
+    // The place in force is circled in pencil (owner, 2026-11-04, `sketch/`).
     chipText: { fontFamily: fonts.body, fontSize: touchType.ui, color: colors.text2, fontWeight: "500" },
     chipCount: { fontFamily: fonts.body, fontSize: touchType.meta, color: colors.muted },
-    chipTextOn: { color: colors.accentText },
+    chipTextOn: { color: colors.text, fontWeight: "600" },
     places: { gap: space.x2, paddingBottom: space.x3 },
     none: { paddingHorizontal: layout.readingMargin + space.x1, paddingVertical: space.x3 },
     card: {

@@ -11,6 +11,7 @@ import type { CameraStore } from "./CanvasOverlay";
 import { FollowPanel } from "./FollowPanel";
 import { MapBar } from "./MapBar";
 import { MapCanvas, type OpenMapNote } from "./MapCanvas";
+import { MapSettings } from "./MapSettings";
 import { Feed, WorkingNow } from "./MapPanel";
 import { NotePeek } from "./NotePeek";
 import { ReplayBar } from "./ReplayBar";
@@ -20,9 +21,8 @@ const FOLDED_ROWS = 3;
 const OPEN_ROWS = 8;
 
 /**
- * The map on a phone: the canvas fills the screen, Live / 24h / Week / a
- * calendar for a custom stretch
- * float over its top, and a sheet at the bottom says who is working and on
+ * The map on a phone: the canvas fills the screen, the layout, scope and the
+ * settings gear (Replay is in the settings) float over its top, and a sheet at the bottom says who is working and on
  * what. The sheet folds to the faces and the latest three lines, and opens for
  * the rest; its height is handed to the engine as an inset, so the camera
  * fits the map into the part of the glass the sheet leaves. Pinch, pan and a
@@ -39,6 +39,7 @@ export function PhoneMap({ page, camera, peek, onOpenNote }: { page: MapPageStat
   const following = page.follow !== null;
   const [box, setBox] = useState({ width: 0, height: 0 });
   const card = peek.peek;
+  const [settings, setSettings] = useState(false);
   return (
     <View
       style={styles.page}
@@ -47,7 +48,7 @@ export function PhoneMap({ page, camera, peek, onOpenNote }: { page: MapPageStat
     >
       <MapCanvas page={page} camera={camera} peek={peek} inset={inset} />
       <View style={styles.top} onLayout={(e) => setBar(Math.round(e.nativeEvent.layout.height))} pointerEvents="box-none">
-        <MapBar page={page} />
+        <MapBar page={page} onSettings={() => setSettings(true)} />
         {page.replaying && page.replay !== null ? (
           <View style={styles.badge} pointerEvents="none" testID="map-replay-badge">
             <Text style={styles.badgeText}>{replayBadge(page.replay)}</Text>
@@ -100,6 +101,19 @@ export function PhoneMap({ page, camera, peek, onOpenNote }: { page: MapPageStat
       </View>
       {card !== null ? (
         <NotePeek page={page} peek={card} compact box={box} onClose={peek.close} onExpand={() => onOpenNote(card.workspaceId, card.path)} onPeek={peek.onTapNote} />
+      ) : null}
+      {settings ? (
+        <MapSettings
+          page={page}
+          compact
+          onClose={() => setSettings(false)}
+          onFind={(note) => {
+            // On a phone the sheet covers the map: close it to show the note.
+            setSettings(false);
+            page.engineRef.current?.focusPath(note.workspaceId, note.path);
+            peek.onTapNote({ ...note, at: null });
+          }}
+        />
       ) : null}
     </View>
   );

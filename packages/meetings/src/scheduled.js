@@ -1,6 +1,6 @@
 // Meetings on the person's calendar that they can join and take notes in.
 //
-// The console's Meetings page, its sidebar row and the Mac app's menu bar all
+// The console's Meetings page, the pill beside its + and the Mac app's menu bar all
 // ask the same three questions of the same Google events, so the answers live
 // here as pure functions:
 //
@@ -30,7 +30,7 @@ export const JOIN_HOSTS = Object.freeze([
   "facetime.apple.com",
 ]);
 
-/** The sidebar row and the menu bar name a meeting from this long before it. */
+/** The console's next-up pill names a meeting from this long before it. */
 export const NEXT_MEETING_LEAD_MS = 10 * 60 * 1000;
 
 /** The most guests one meeting carries into the app. */

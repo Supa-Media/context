@@ -18,7 +18,7 @@
  * The turn's question is this module's fixed line, never the Worker's words,
  * and the report is shown apart from it as the job's own words: a job reads
  * pages and mail, so its result vouches for nothing a guard allows, and the
- * turn is marked as having read from outside (`route.js`).
+ * turn is marked as having read from outside (`texEntryPoint.js`).
  *
  * Staying quiet is a flag, never a word that could be texted (self-reviews
  * fa3f7a and a0365e, 2026-10-31: "SKIP" stood as Tex's reply to three job

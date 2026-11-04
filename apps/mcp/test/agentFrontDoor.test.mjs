@@ -3,28 +3,28 @@
  * "hi Tex" took about three minutes, 3.5 seconds of it the model).
  *
  * A text goes to the model and its answer comes back with nothing of the old
- * turn around it: no reply checks, the waiting asks listed once, the chat saved
- * after the answer. A yes or no on a held change is still matched in code
+ * turn around it: no reply checks, no waiting ask read (owner, 2026-11-03), the
+ * chat saved after the answer. A yes or no on a held change is still matched in code
  * before any model runs, and `front_door: off` brings the old turn back.
  *
  * Sabotage (temporary local edits, reverted):
- *  - `!front ||` dropped from `claims` in `route.js`: "an answer that claims a
+ *  - `!front ||` dropped from `claims` in `texEntryPoint.js`: "an answer that claims a
  *    change goes out as it is" fails (the claim check sends it back);
- *  - `waitingAsks` returning null: "the model is told one still waits"
+ *  - `waiting_asks` put back in `texEntryPoint.js` (listing the asks for any other
+ *    text): "on any other text the model is told nothing of a waiting ask"
  *    fails;
  *  - `front_door` read as always on: "off brings the old turn back" fails;
  *  - `textedAsk` handing its disarm to a host deferral: "a reply that asks
  *    something disarms the older ask before it answers" fails;
- *  - `waitingAsks` trusting a warm copy's "none waited", or `textedAsk`
- *    skipping its disarm on a reading taken before the model: "an ask armed
- *    since the last turn is still found and disarmed" fails.
+ *  - `textedAsk` skipping its disarm on a reading taken before the model: "an
+ *    ask armed since the last turn is still found and disarmed" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ask, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { mayAnswerAsk, readFrontDoor, waitingAsks } from "../src/agent/frontDoor.js";
+import { mayAnswerAsk, readFrontDoor } from "../src/agent/frontDoor.js";
 import { textedAsk } from "../src/agent/textedApprovals.js";
 import { EVERY_CHAT, createPending, listPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
@@ -73,7 +73,9 @@ test("off brings the old turn back: the same answer is sent back once by the cla
   }
 });
 
-test("on any other text the model is told one still waits, and a yes still releases it with no model", async () => {
+// Owner, 2026-11-03: "get rid of the waiting asks step entirely" (it cost ~5 s a text). The ask still stands,
+// and a yes still settles it in code, gateway-checked; the model is just not told about it.
+test("on any other text the model is told nothing of a waiting ask, and a yes still releases it with no model", async () => {
   const world = await createEgressWorld();
   const { model, env, controlPlane } = world;
   const claimed = (slug) => controlPlane.workspaceSetupCalls.some((entry) => entry.dryRun === false && entry.slug === slug);
@@ -85,7 +87,7 @@ test("on any other text the model is told one still waits, and a yes still relea
     model.install([{ text: "Hey Seyi." }]);
     const hi = await ask(env, TOKEN_TEXTS, "hi Tex");
     assert.equal(hi.status, 200, JSON.stringify(hi.body));
-    assert.match(JSON.stringify(model.requests.at(-1)), /it still waits/);
+    assert.doesNotMatch(JSON.stringify(model.requests.at(-1)), /it still waits/);
 
     const before = model.requests.length;
     const yes = await ask(env, TOKEN_TEXTS, "yes");
@@ -156,7 +158,7 @@ test("a reply that asks something always lists the waiting asks, whatever the tu
 
 test("an ask armed since the last turn is still found and disarmed", async () => {
   // A job, a routine or the heartbeat arms an ask beside the chat. None of them writes the person's warm copy
-  // (`route.js` keeps one only for an ordinary text), and arming never clears it, so a copy sealed "none waited"
+  // (`texEntryPoint.js` keeps one only for an ordinary text), and arming never clears it, so a copy sealed "none waited"
   // outlives the fact. The listing and the disarm are what stand between that ask and a bare yes meant for Tex's
   // own question (`askOvertaken` only drops an ask after a text Tex sent by itself), so neither may be skipped on
   // a reading older than the ask.
@@ -170,11 +172,6 @@ test("an ask armed since the last turn is still found and disarmed", async () =>
     detail: "To: jo@example.com\n\nshort",
     texting: true,
   });
-  const warm = { noAsks: async () => true, log: () => null };
-
-  const waiting = await waitingAsks(store, session, { conversation: null, told: null, now: Date.now(), warm });
-  assert.equal(waiting?.setAside?.length, 1, "the ask is listed though the warm copy said none waited");
-
   const { ask } = await textedAsk(store, session, [], "Sunny — want the hourly too?");
   assert.equal(ask, null);
   assert.equal((await listPending(store, { userId: "u1", texting: true, chat: EVERY_CHAT })).length, 0, "and it is disarmed before the reply goes");

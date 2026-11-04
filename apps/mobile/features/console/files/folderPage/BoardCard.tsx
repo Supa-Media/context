@@ -19,7 +19,7 @@ import { Pressable, StyleSheet, View, type ViewStyle } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
 import { radii, space } from "../../../design/tokens";
-import { useThemedStyles, type Colors } from "../../../design/theme";
+import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { useCardDrag } from "./boardDrag";
 import { useNoteIntent } from "../noteIntent";
 import { useHoverIntent } from "../../../design/useHoverIntent";
@@ -31,6 +31,7 @@ import { PropertyValue } from "./PropertyValue";
 import { faceFor } from "./taskFace";
 import { allTagsOf, dueOf, dueWord, estimateOf, ownersOf } from "./taskProps";
 import { estimateLabel } from "./EstimateCell";
+import { SketchBox } from "../../../design/components/sketch/SketchBox";
 
 export function BoardCard({
   item,
@@ -51,6 +52,7 @@ export function BoardCard({
   onLift: (lifted: boolean) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const [hovered, setHovered] = useState(false);
   const intent = useNoteIntent();
   const hoverIntent = useHoverIntent(item.kind === "note" && intent !== undefined ? () => intent(item.path) : undefined);
@@ -86,9 +88,11 @@ export function BoardCard({
             <PriorityGlyph priority={item.priority} />
             <View style={styles.push} />
             {tag === undefined ? null : (
-              <Text variant="meta" numberOfLines={1} style={styles.tag} testID="folder-card-tag">
-                {isolateForDisplay(tag)}
-              </Text>
+              <SketchBox look="tape" color={colors.text} seed={`card-tag:${tag}`} style={styles.tagBox}>
+                <Text variant="meta" numberOfLines={1} style={styles.tag} testID="folder-card-tag">
+                  {isolateForDisplay(tag)}
+                </Text>
+              </SketchBox>
             )}
           </View>
         )}
@@ -169,14 +173,9 @@ const makeStyles = (colors: Colors) =>
     lifted: { opacity: 0.4 },
     line: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
     push: { flexGrow: 1, flexShrink: 1 },
-    tag: {
-      flexShrink: 1,
-      color: colors.muted,
-      backgroundColor: colors.chipFill,
-      borderRadius: radii.sm,
-      paddingHorizontal: space.x2,
-      paddingVertical: 2,
-    },
+    // A tag is a strip of paper tape (owner, 2026-11-04, `design/components/sketch`).
+    tagBox: { flexShrink: 1, paddingHorizontal: space.x2, paddingVertical: 2 },
+    tag: { flexShrink: 1, color: colors.text2 },
     name: { color: colors.text },
     nameDone: { color: colors.muted },
     bar: { height: 4, borderRadius: 2, backgroundColor: colors.lineStrong, overflow: "hidden" },

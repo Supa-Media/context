@@ -23,7 +23,7 @@
  * decline an ask the everyday model can handle, in one line, and the
  * everyday model answers itself.
  *
- * Its spend is metered under its own model (`route.js` `meter`), never
+ * Its spend is metered under its own model (`texEntryPoint.js` `meter`), never
  * folded into the turn's. A turn may ask at most `MAX_ASKS` times (Dev2,
  * 2026-10-31: 10, and the everyday model is never told there is a limit).
  */
@@ -78,7 +78,7 @@ const quoted = (value) => BRIEF_TAGS.reduce((text, tag) => withoutTag(tag, text)
  * @param {Array<{role: string, text: string}>} options.history the earlier texts the turn shows, read only when no live turn is passed
  * @param {string} options.question the person's text, likewise
  * @param {Function} options.request `(params) => answer`, `requestBuiltin` bound to the turn's provider
- * @param {Function} [options.meter] `(usage, failed, model, whole)`, `route.js`'s
+ * @param {Function} [options.meter] `(usage, failed, model, whole)`, `texEntryPoint.js`'s
  * @returns {Array<{tool: object, call: Function}>}
  */
 export function advisorTools({ model, effort, history, question, request, meter = async () => {} }) {

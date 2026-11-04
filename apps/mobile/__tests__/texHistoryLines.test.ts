@@ -203,6 +203,7 @@ describe("the history file opened in the app", () => {
 let mockSource = fixtureSource();
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => async () => ({ accessToken: "t" }) }));
+jest.mock("../features/tex/history/useSeesTurnTiming", () => ({ useSeesTurnTiming: () => false }));
 // A new source each call, as the real one is: a view that builds it again reads again.
 jest.mock("../features/tex/page/texPageSource", () => ({ gatewaySource: () => ({ ...mockSource }) }));
 

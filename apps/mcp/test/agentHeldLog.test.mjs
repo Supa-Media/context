@@ -30,6 +30,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { warmTurn } from "../src/agent/warmCopy.js";
 import { afterTurn } from "../src/agent/deferred.js";
 import { readFileSync } from "node:fs";
+import { texEntryPointSource } from "./texEntryPointSource.mjs";
 
 const env = { GATEWAY_SECRET: "a-test-secret-of-some-length" };
 const session = { workspaceId: "ws_1", actorUserId: "user_1", actorClientId: "context_texts" };
@@ -96,7 +97,7 @@ test("a group chat's own turn takes its outbox too, but makes no warm copy", asy
   const turn = warmTurn(env, group, { recent: [event(now - 1_000, { text: "Tex, now" })] }, { eligible: false, logEligible: true, now });
   assert.deepEqual((await turn.events(CHAT, async () => stored)).map((entry) => entry.text), ["from the ledger", "Tex, now"]);
   assert.equal(await turn.seal({}), null, "no warm copy for a group");
-  const source = readFileSync(new URL("../src/agent/route.js", import.meta.url), "utf8");
+  const source = texEntryPointSource();
   assert.match(source, /logEligible: group !== null && job === null && !runner/, "route.js marks a group's own turn");
 });
 
@@ -155,7 +156,7 @@ test("after-work starts only when the turn's queue is run, and one that fails fa
 });
 
 test("a group turn's history is read beside the plan check, with the egress ledger set first (2026-10-31)", () => {
-  const source = readFileSync(new URL("../src/agent/route.js", import.meta.url), "utf8");
+  const source = texEntryPointSource();
   const ledger = source.indexOf("session.egress = {");
   const read = source.search(/historyRead = tex\.ahead\("history", \(\) => turnReads\(/);
   const provider = source.indexOf("await tex.wait(\"allowed\", allowedRead)");

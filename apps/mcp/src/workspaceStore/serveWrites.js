@@ -19,13 +19,14 @@ export const isWriteOp = (op) => typeof op === "string" && op.startsWith("ws.wri
  * Throws `WriteOpRefused` for a call the op refuses. Also run by a call that writes bytes first (`createNote.js`).
  */
 export function runWriteOp(store, handler, fields, now = Date.now(), mintId = objectRowId) {
-  return store.transact(() => {
+  const result = store.transact(() => {
     const result = handler(
       {
         rows: store.rows,
         sql: store.sql,
         members: store.members ?? null,
         access: store.access ?? null,
+        handles: store.handles ?? null,
         mirrorPending: () => store.mirror.pending(1).length > 0,
         now,
         lookupLive: (path) => liveRowByPath(store.sql, path),
@@ -34,9 +35,45 @@ export function runWriteOp(store, handler, fields, now = Date.now(), mintId = ob
       fields,
     );
     // An op that makes more than one change (a move and its narrowing) hands them over in order as `changes`.
-    for (const change of result.changes ?? (result.change ? [result.change] : [])) store.mirror.enqueue(fields.workspaceId, change, now);
+    for (const change of changesOf(result)) store.mirror.enqueue(fields.workspaceId, change, now);
     return result;
   });
+  // Committed: the app's live tree hears of it here, once for every write op, as it does of a row pushed in
+  // (`serve.js`). The object is the tree's only source while it serves it, so a write it is not told of stays drawn.
+  treeChanged(store, result);
+  return result;
+}
+
+const changesOf = (result) => result.changes ?? (result.change ? [result.change] : []);
+const ancestorsOf = (path) => path.split("/").slice(0, -1).map((_, index, parts) => parts.slice(0, index + 1).join("/"));
+
+/**
+ * Every path a landed change named, before and after: a move's both ends, the folders it stood up, the note it
+ * adopted or wrote. A change that removed rows (folders a move emptied, an erase) names only their ids, and every
+ * row it removed sits above a path it moved, so their ancestors are listed again too.
+ */
+export function pathsOfChange(change) {
+  const record = change?.record ?? {};
+  const paths = [];
+  for (const move of record.moves ?? []) paths.push(move.from, move.to);
+  for (const folder of record.folders ?? []) paths.push(folder.path);
+  if (typeof record.path === "string") paths.push(record.path);
+  const named = paths.filter((path) => typeof path === "string" && path !== "");
+  if ((record.removed ?? []).length > 0) named.push(...named.flatMap(ancestorsOf));
+  return named;
+}
+
+/** Tell the tree's watchers what a committed op changed; never the op's failure. */
+function treeChanged(store, result) {
+  if (typeof store.onTreeChange !== "function") return;
+  // New rules re-judge everything a socket shows (`ws.write.access`), as after a push's rules.
+  const change = result.rules === true ? { paths: null, rules: true } : { paths: [...new Set(changesOf(result).flatMap(pathsOfChange))], rules: false };
+  if (change.paths !== null && change.paths.length === 0) return;
+  try {
+    store.onTreeChange(change);
+  } catch {
+    // The watcher catches up on its next change; the write has landed.
+  }
 }
 
 /**
@@ -62,14 +99,6 @@ export async function serveWrites(store, op, fields, now = Date.now(), mintId = 
   } catch (error) {
     if (error instanceof WriteOpRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
-  }
-  // New rules (`ws.write.access`): the live tree's sockets re-judge what they show, as after a push's rules.
-  if (outcome.rules === true && typeof store.onTreeChange === "function") {
-    try {
-      store.onTreeChange({ paths: null, rules: true });
-    } catch {
-      // The watcher catches up on its next change; the write has landed.
-    }
   }
   if (outcome.narrows) {
     const flushed = await store.flushMirror();

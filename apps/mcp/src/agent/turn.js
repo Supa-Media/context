@@ -234,12 +234,12 @@ export async function openProvider(controlPlane, session, requested, env = {}, {
  *   the production setup's prompt from `@context-lc` (`production.js`), or
  *   null for the built-in words
  * @param {string} [options.builtinModelOverride] the built-in model to run
- *   instead of `builtinModel(env)`; `route.js` checks it can be called
+ *   instead of `builtinModel(env)`; `texEntryPoint.js` checks it can be called
  * @param {number} [options.maxRounds] the most model rounds this turn may take,
  *   clamped to 1..MAX_ROUNDS
  * @param {{decide: Function|null, think: string, routeAt?: number, thinkRounds?: number, jobsOnly?: boolean}} [options.router] the setup's
  *   model router (`router.js`): the decision engine that picks a tier for this
- *   text, and the model a `think` text runs on; `route.js` checks it can be called.
+ *   text, and the model a `think` text runs on; `texEntryPoint.js` checks it can be called.
  *   With `thinkRounds`, a `think` text plans on `think` and drives on `main` (`modelPlan.js`);
  *   `jobsOnly` (a planner, no router) plans a `planned` turn and leaves every other on `main`
  * @param {() => number} [options.clock] milliseconds, for `timing`
@@ -326,7 +326,7 @@ export async function runTurn(options) {
     ...local.map((entry) => entry.tool),
     ...(progress ? [progress.tool] : []),
   ];
-  // Tools answered here rather than by the MCP (`route.js`'s earlier texts).
+  // Tools answered here rather than by the MCP (`texEntryPoint.js`'s earlier texts).
   const localCalls = new Map(local.map((entry) => [entry.tool.name, entry.call]));
   /*
     THE SIX (`sixTools.js`): the model is shown orient, search, fetch, write,
@@ -491,7 +491,7 @@ export async function runTurn(options) {
         continue;
       }
       // A failed turn is the one most worth seeing in the log, so the trace
-      // so far travels with the error to `route.js`.
+      // so far travels with the error to `texEntryPoint.js`.
       if (error instanceof ProviderError) {
         const ms = clock() - asked;
         error.model = model;
@@ -640,7 +640,7 @@ export async function runTurn(options) {
       const toolMs = clock() - called;
       timing.toolMs += toolMs;
       // A call the egress gate held for the person's yes is not a failure: it
-      // runs when they give it (`route.js`), and a log that called it failed
+      // runs when they give it (`texEntryPoint.js`), and a log that called it failed
       // would read as a broken tool.
       trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });

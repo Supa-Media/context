@@ -19,7 +19,7 @@ import { useHomePlaces } from "../../home/useHomePlaces";
 import { useHomeSource } from "../../home/useHomeSource";
 import { bulkTagTargets, folderTagTarget, listedIn } from "../../home/folderTags";
 import { useFolderLists } from "../../../offline/useFolderLists";
-import { listingIsDescending } from "../../files/listingOrder";
+import { workspaceSortNow } from "../../files/listingOrder";
 import { folderMenuFacts } from "../../files/menuBuiltIn";
 
 /** Select mode asked for on a folder page: from its •••, or from a row's hold with that row picked. */
@@ -191,7 +191,7 @@ export function useFolderListing({
             (compact && target.kind === "row")),
         clipboard: files.clipboard,
         // The root's names, each folder's job and its place among its siblings (`menuBuiltIn.ts`).
-        ...folderMenuFacts(files, listingIsDescending()),
+        ...folderMenuFacts(files, workspaceSortNow()),
         /*
           The `touch` arm's first real caller, and exactly what it was kept for.
 

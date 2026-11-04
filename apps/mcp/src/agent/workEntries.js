@@ -12,7 +12,7 @@
  * second copy.
  *
  * Never in the way of a reply: the writer never throws, and its writes are
- * waited for after the answer has gone (`route.js`).
+ * waited for after the answer has gone (`texEntryPoint.js`).
  */
 
 import { storeLedger } from "./ledger.js";

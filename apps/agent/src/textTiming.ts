@@ -20,9 +20,13 @@ export type TimingDataset = { writeDataPoint(point: { blobs?: string[]; doubles?
  * pause, decide), the gateway's answer, the work between the answer and the
  * first send, the sends, arrival to the first bubble out (what the person
  * waits), arrival to the last, the work after the sends, and how many parts
- * went. A step not reached, or a text whose arrival was not kept, is -1.
+ * went; then, inside the gateway's answer, the control plane's session
+ * lookup (from the turn starting) and the Worker's own work between it and
+ * asking the gateway (Dev, 2026-11-04: "why are we waiting 0.9s in the texting
+ * worker?"). New columns go at the end, so old rows keep their meaning. A step
+ * not reached, or a text whose arrival was not kept, is -1.
  */
-export const TEXT_COLUMNS = ["queueMs", "gatewayMs", "beforeSendMs", "sendMs", "toFirstTextMs", "toLastTextMs", "afterSendMs", "parts"] as const;
+export const TEXT_COLUMNS = ["queueMs", "gatewayMs", "beforeSendMs", "sendMs", "toFirstTextMs", "toLastTextMs", "afterSendMs", "parts", "sessionMs", "beforeAskMs"] as const;
 
 export type TextTimingRow = Partial<Record<(typeof TEXT_COLUMNS)[number], number>>;
 

@@ -31,11 +31,14 @@ import {
   askAgent,
   askLine,
   linkPhone,
+  openGatewaySession,
   openSession,
   requestLinkInvite,
   ServiceError,
   unlinkPhone,
   type Fetch,
+  type SessionAnswer,
+  type TextsBinding,
 } from "./clients";
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
@@ -110,6 +113,8 @@ export type ReplyDeps = {
   covers?: string[];
   /** When the first text this turn answers came in, sent to `/agent` so the turn log shows how long it waited. */
   arrivedAt?: number;
+  /** Told when the session lookup answered, and when the gateway is about to be asked, so a turn's timing shows each (`textTiming.ts`). */
+  onStage?: (stage: "session" | "asking") => void;
   /** Handed the approval records the turn armed and the ask line shown for them, so each is logged as an ask (`events.ts`). */
   onAsks?: (askIds: string[], askText: string) => void;
   /**
@@ -125,7 +130,34 @@ export type ReplyDeps = {
   settings?: { state: () => Promise<MenuState | undefined>; open: (step?: SettingStep) => Promise<void>; close: () => Promise<void> };
   /** A texted yes to sharing with the devs: file what this chat keeps, once (`reviewWatch.ts` `watchShared`). */
   onShared?: () => Promise<void>;
+  /**
+   * A text's session from the person object, without Convex (`openGatewaySession`): the gateway's binding, the
+   * personal workspace id this inbox remembers, and where a new one is kept. Absent, every session is Convex's.
+   */
+  texts?: TextsSessionDeps;
 };
+
+export type TextsSessionDeps = { binding: TextsBinding; workspaceId: () => Promise<string | undefined>; remember: (personalWorkspaceId: string | null) => Promise<void> };
+
+/**
+ * The person object first, when this inbox knows whose phone it is; Convex otherwise, or on any miss. Convex's answer
+ * names the personal workspace, which the inbox keeps for the next text; a refusal clears what it kept, so a stale id
+ * costs one slow text and never a wrong one (the object answers only for a phone it holds).
+ */
+async function textSession(phone: string, deps: ReplyDeps): Promise<SessionAnswer> {
+  const texts = deps.texts;
+  const kept = texts ? await texts.workspaceId() : undefined;
+  if (texts && kept) {
+    const fast = await openGatewaySession(texts.binding, phone, kept);
+    if (fast !== null) return fast;
+  }
+  const slow = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, phone);
+  if (texts) {
+    const own = slow.status === "linked" ? slow.personalWorkspaceId ?? null : null;
+    if (own !== (kept ?? null)) await texts.remember(own).catch(() => undefined);
+  }
+  return slow;
+}
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
 export class TryLater extends Error {
@@ -206,14 +238,12 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       return result === "unlinked" ? COPY.unlinkDone : COPY.unlinkNothing;
     }
 
-    const session = await openSession(
-      deps.fetch,
-      deps.controlPlaneOrigin,
-      deps.workerSecret,
-      message.from,
-    ).catch((error) => {
+    const lookup = Date.now();
+    const session = await textSession(message.from, deps).catch((error) => {
       throw deps.retry && error instanceof ServiceError ? new TryLater() : error;
     });
+    deps.onStage?.("session");
+    const sessioned = Date.now();
     // Nobody texted a save's turn (`vaultWatch.ts`): a phone unlinked since is told nothing.
     if (message.event !== undefined && session.status === "unlinked") return [];
     if (session.status === "unlinked") {
@@ -259,6 +289,10 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       : [];
     // The session is the chat's: its buffered events are written before the turn reads the log (`events.ts`).
     await deps.steer?.onSession(session.accessToken);
+    const warm = { warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId) };
+    deps.onStage?.("asking");
+    // The Worker's own wait, said to the gateway so the turn's timing in the ledger shows it (`apps/mcp/src/agent/turnTiming.js`).
+    const worker = { sessionMs: sessioned - lookup, beforeAskMs: Date.now() - sessioned };
     const answer = await askAgent(
       deps.fetch,
       deps.gatewayOrigin,
@@ -270,7 +304,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId) },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm },
     );
     if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.

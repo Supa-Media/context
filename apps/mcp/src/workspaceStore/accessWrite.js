@@ -26,6 +26,7 @@
 
 import { CHAT_HOMES_FOLDER, PENDING_TTL_MS } from "./accessRows.js";
 import { WriteOpRefused } from "./writeRefusal.js";
+import { handleKey } from "./handleCache.js";
 
 /** The client the chat homes are kept under (`lib/nodes/sealedChats.ts` `CHAT_HOMES_CLIENT_ID`). */
 export const CHAT_HOMES_CLIENT_ID = "context_chat_homes";
@@ -98,7 +99,10 @@ export function writeAccess(ctx, body) {
   if (!ACTOR_ROLES.has(actor.role)) throw new WriteOpRefused("an access write names its actor's role");
   if (actor.userId !== undefined && !text(actor.userId, 64)) throw new WriteOpRefused("not an account id");
   if (actor.clientId !== undefined && !text(actor.clientId, 256)) throw new WriteOpRefused("not a client id");
-  const asked = body.grantees === undefined ? undefined : checkGrantees(body.grantees);
+  const named = namedGrantees(ctx, body);
+  if (named.missing.length > 0) return refusal("RESOLVE", { handles: named.missing });
+  const listed = body.grantees === undefined && named.grantees.length === 0 ? undefined : [...(body.grantees ?? []), ...named.grantees];
+  const asked = listed === undefined ? undefined : checkGrantees(listed);
   if (body.base === undefined && asked === undefined) throw new WriteOpRefused("an access write changes a base or a list");
   if (mode === "add" && (asked === undefined || body.base !== undefined)) throw new WriteOpRefused("adding names grantees and no base");
 
@@ -162,6 +166,33 @@ export function writeAccess(ctx, body) {
     ...(actor.clientId !== undefined ? { clientId: actor.clientId } : {}),
   };
   return { answer: { ok: true, version }, change: { op: "access", record: { ...record, narrowing }, objectAt: version }, narrows, rules: true };
+}
+
+/**
+ * People named by handle (`body.handles`: `[{handle, role}]`, for `mode: "add"`), resolved from the handles this
+ * object has been told (`handleCache.js`), with `body.resolved` (`[{handle, kind, id}]`, the control plane's answer
+ * the gateway passes back after a `RESOLVE`) kept first. `missing`: the handles nobody has resolved yet; the op then
+ * answers `RESOLVE` and writes nothing.
+ */
+function namedGrantees(ctx, body) {
+  if (body.handles === undefined) return { grantees: [], missing: [] };
+  if (!Array.isArray(body.handles) || body.handles.length > MAX_GRANTEES || (body.mode ?? "set") !== "add") {
+    throw new WriteOpRefused("handles come as a list, to add");
+  }
+  if (body.resolved !== undefined) {
+    if (!Array.isArray(body.resolved) || body.resolved.length > MAX_GRANTEES || !ctx.handles?.put(body.resolved, ctx.now)) {
+      throw new WriteOpRefused("not a list of resolved handles");
+    }
+  }
+  const grantees = [];
+  const missing = [];
+  for (const entry of body.handles) {
+    if (!entry || handleKey(entry.handle) === null || !ROLES.has(entry.role)) throw new WriteOpRefused("not a handle");
+    const resolved = ctx.handles?.get(entry.handle, ctx.now) ?? null;
+    if (resolved === null) missing.push(entry.handle);
+    else grantees.push({ kind: resolved.kind, id: resolved.id, role: entry.role });
+  }
+  return { grantees, missing };
 }
 
 /**
