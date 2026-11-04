@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { floatingStackBottom, useBottomChromeHeight } from "../app/bottomChrome";
@@ -52,6 +52,7 @@ export function CreateButton({
   onNewFolder,
   resume = null,
   bottomInset = 0,
+  beside = null,
 }: {
   /** The phone's bottom row is on screen; this stands down. See the header. */
   compact: boolean;
@@ -76,6 +77,11 @@ export function CreateButton({
    * is mounted by surfaces that render without one. Zero is right for a browser.
    */
   bottomInset?: number;
+  /**
+   * Drawn to the left of the button, on its line: the next meeting on the
+   * calendar (`NextUpPill`), the thing the `+` would start next.
+   */
+  beside?: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -158,18 +164,21 @@ export function CreateButton({
 
   return (
     <View style={[styles.dock, { bottom }]} pointerEvents="box-none">
-      <Pressable
-        ref={buttonRef}
-        onPress={press}
-        role="button"
-        accessibilityLabel="Create"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        testID="console-create"
-        style={({ pressed }) => [styles.fab, (pressed || open) && styles.fabActive]}
-      >
-        <Icon name="plus" size={23} color={open ? colors.ink : colors.accent} />
-      </Pressable>
+      <View style={styles.line}>
+        {beside}
+        <Pressable
+          ref={buttonRef}
+          onPress={press}
+          role="button"
+          accessibilityLabel="Create"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          testID="console-create"
+          style={({ pressed }) => [styles.fab, (pressed || open) && styles.fabActive]}
+        >
+          <Icon name="plus" size={23} color={open ? colors.ink : colors.accent} />
+        </Pressable>
+      </View>
 
       {!open ? null : (
         <Menu<string>
@@ -238,6 +247,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       gap: 10,
       zIndex: 5,
     },
+    line: { flexDirection: "row", alignItems: "center", gap: 12, pointerEvents: "box-none" },
     fab: {
       width: 56,
       height: 56,
