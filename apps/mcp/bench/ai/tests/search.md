@@ -29,6 +29,13 @@ fails if one is listed. The `first` bar counts a question whose first result is
 an expected note. The AI Benchmark Action runs the copy in `@context-lc
 ai/tests/search.md`, which is kept the same as this one.
 
+Written 2026-11-04, questions 60 to 67 are questions in a person's own words,
+built from "how", "what", "should", "I" and "my", where the note that answers
+uses other words for the topic. Production that day: "how should I work with
+Seyi" did not show the note about working with Seyi in the first twelve,
+because chat logs and transcripts hold every one of those words and the note
+does not.
+
 The queries are the texting assistant's own questions and the words a person
 would type, not the words the note uses, so the two halves of search are both
 measured: the ones that share a word with the note are the word search's, and
@@ -312,3 +319,41 @@ Priya is a member of the brand, and `people/john.md` is held back from members (
 
 - as: Priya
 - expect: @band/gigs/velvet-anchor-oct.md
+
+## 60. what should I bring when I go to get my teeth cleaned
+
+- expect: @maya/health/dentist.md
+
+## 61. what have we already decided for the wedding
+
+- as: Priya
+- expect: @wedding-planning/decisions/log.md
+
+## 62. why do the lights in my garage keep flickering and how do I fix them
+
+- as: John
+- expect: @john/home/garage-lights.md
+
+## 63. how is my shoulder doing and when do I see the physio again
+
+- as: John
+- expect: @john/health/shoulder-physio.md
+
+## 64. how much more will I pay for my apartment next year
+
+- as: Priya
+- expect: @priya/home/lease-renewal.md
+
+## 65. what do I need to bring to band practice
+
+- expect: @band/rehearsal/schedule.md
+
+## 66. what is still left to do before the big day
+
+- as: Priya
+- expect: @wedding-planning/timeline/checklist.md
+
+## 67. how am I getting on with my language lessons
+
+- as: Priya
+- expect: @priya/projects/learn-spanish.md
