@@ -34,7 +34,7 @@
 
 import { attachmentsLine } from "./attachments.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin, systemText } from "./builtin.js";
-import { ProviderError } from "./providers.js";
+import { ProviderError, THINKING_REFUSED } from "./providers.js";
 import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
 import { turnPrompt } from "./turnPrompt.js";
 import { pickTier } from "./router.js";
@@ -428,15 +428,18 @@ export async function runTurn(options) {
   /*
     CHANGING MODEL MID-TURN: the fallback, and a planned turn moving between
     `think` and `main` (`modelPlan.js`). The prompt is the new model's (it is
-    told which model it is), and the earlier rounds' thinking blocks are
-    dropped, because they are the other model's; their words and tool calls
-    stay, so the new model reads what was done.
+    told which model it is). The earlier rounds' blocks go back unchanged: the
+    API drops the thinking a model cannot read and keeps what it can
+    (platform.claude.com/docs/en/build-with-claude/thinking, "Switching models
+    mid-conversation"). A gateway that refuses them instead is met below, once.
   */
   const switchTo = (next) => {
     model = next;
     prompt = promptFor(model);
-    for (const message of messages) if (message.content) delete message.content;
   };
+  // The blocks were stripped after a 400 that named them: once a turn, and the next round's trace says so.
+  let stripped = false;
+  let strippedNote = false;
   // The last round's tool calls included one that failed: the next one plans again.
   let escalate = false;
   // The fallback is taken once a turn: a turn that moved models must never loop back to it.
@@ -467,6 +470,15 @@ export async function runTurn(options) {
         providerOptions,
       );
     } catch (error) {
+      // A provider that refused the earlier blocks (`aiGateway.js` names it): once more without them, as before.
+      if (error instanceof ProviderError && error.reason === THINKING_REFUSED && !stripped && messages.some((message) => message.content)) {
+        stripped = true;
+        strippedNote = true;
+        timing.modelMs += clock() - asked;
+        for (const message of messages) if (message.content) delete message.content;
+        round -= 1;
+        continue;
+      }
       /*
         THE FALLBACK MODEL (decided by the owner, 2026-10-09). A provider that
         failed after its retry costs the person a slower answer, never no
@@ -520,9 +532,12 @@ export async function runTurn(options) {
       // Stopped at the output cap (`aiGateway.js`): the round's thinking and
       // answer ran out of room, which the turn log and a benchmark count.
       ...(answer.stop === "max_tokens" ? { cut: true } : {}),
+      // Answered only once the earlier thinking was stripped (see `switchTo`).
+      ...(strippedNote ? { code: "thinking_stripped" } : {}),
       // What the round cost in tokens, and how much of its output was words or calls (the rest is thinking): `turnStages.js` `callPoints`.
       ...(answer.usage ? { usage: answer.usage, said: (answer.text ?? "").length, calls: answer.toolCalls.length } : {}),
     });
+    strippedNote = false;
     if (answer.usage) {
       usage.input += answer.usage.input;
       usage.output += answer.usage.output;
@@ -543,12 +558,12 @@ export async function runTurn(options) {
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
       if (late !== null) {
-        messages.push({ role: "assistant", text: answer.text }, { role: "user", text: `${LATE_TEXT}\n\n${late}` });
+        messages.push({ role: "assistant", text: answer.text, ...(Array.isArray(answer.content) ? { content: answer.content } : {}) }, { role: "user", text: `${LATE_TEXT}\n\n${late}` });
         tell({ kind: "steered", text: steer.words.at(-1) ?? "" });
         continue;
       }
       if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: { system: systemText(prompt.system), messages } }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
-      messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheckNote(recheck) });
+      messages.push({ role: "assistant", text: answer.text, ...(Array.isArray(answer.content) ? { content: answer.content } : {}) }, { role: "user", text: recheckNote(recheck) });
       continue;
     }
 
