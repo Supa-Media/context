@@ -157,6 +157,27 @@ npx -y @supa-media/context logout       # delete this machine's stored sign-in
 
 `--endpoint <url>` points any of them at your own gateway.
 
+## Let Tex use this computer
+
+Tex, the texting assistant, can run things on a computer you own through a small
+runner, `context-machine`. This command only fetches that runner from its GitHub
+release, checks it against the published SHA-256, and runs it with whatever you
+add after `machine`:
+
+```sh
+npx @supa-media/context machine pair
+npx @supa-media/context machine service install
+```
+
+Or install the runner by itself, without Node:
+
+```sh
+curl -fsSL https://github.com/Supa-Media/context/releases/download/machine-runner-v0.1.0/install.sh | sh
+```
+
+It is installed under `~/.context-machine` (set `CONTEXT_MACHINE_DIR` to move it)
+and downloaded again only when the version changes. Windows is not supported yet.
+
 ## Moving from `@supa-media/context-hook`
 
 This package replaces it. `install` removes the hooks the old package wrote into

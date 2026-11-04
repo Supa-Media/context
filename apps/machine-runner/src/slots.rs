@@ -31,16 +31,11 @@ pub struct SlotAdvice {
 pub fn advise(memory_mb: u64, cores: u32) -> SlotAdvice {
     let by_mem = |kept: u64| (memory_mb.saturating_sub(kept) / SESSION_MB) as u32;
     let recommended = by_mem(KEEP_FOR_PERSON_MB).min(cores / 2).max(1);
-    let most = by_mem(KEEP_FOR_SYSTEM_MB).min(cores).min(MOST_CEILING).max(1);
+    let most = by_mem(KEEP_FOR_SYSTEM_MB).min(cores).clamp(1, MOST_CEILING);
     SlotAdvice {
         recommended: recommended.min(most),
         most,
     }
-}
-
-/// The slots actually offered: the owner's pick, clamped to 1..=most.
-pub fn offered(chosen: u32, advice: SlotAdvice) -> u32 {
-    chosen.clamp(1, advice.most)
 }
 
 #[cfg(test)]
@@ -51,22 +46,38 @@ mod tests {
     fn the_design_docs_examples() {
         // A 2-core 4 GB VM, 1 and 1; a 4-core 8 GB VM, 2 and 4; a 16 GB
         // laptop with 8 cores, 4 and 8.
-        assert_eq!(advise(4096, 2), SlotAdvice { recommended: 1, most: 1 });
-        assert_eq!(advise(8192, 4), SlotAdvice { recommended: 2, most: 4 });
-        assert_eq!(advise(16384, 8), SlotAdvice { recommended: 4, most: 8 });
+        assert_eq!(
+            advise(4096, 2),
+            SlotAdvice {
+                recommended: 1,
+                most: 1
+            }
+        );
+        assert_eq!(
+            advise(8192, 4),
+            SlotAdvice {
+                recommended: 2,
+                most: 4
+            }
+        );
+        assert_eq!(
+            advise(16384, 8),
+            SlotAdvice {
+                recommended: 4,
+                most: 8
+            }
+        );
     }
 
     #[test]
     fn never_zero_and_never_over_eight() {
-        assert_eq!(advise(512, 1), SlotAdvice { recommended: 1, most: 1 });
+        assert_eq!(
+            advise(512, 1),
+            SlotAdvice {
+                recommended: 1,
+                most: 1
+            }
+        );
         assert_eq!(advise(1 << 20, 128).most, 8);
-    }
-
-    #[test]
-    fn offered_is_clamped() {
-        let a = SlotAdvice { recommended: 2, most: 4 };
-        assert_eq!(offered(0, a), 1);
-        assert_eq!(offered(9, a), 4);
-        assert_eq!(offered(3, a), 3);
     }
 }

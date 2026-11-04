@@ -48,7 +48,10 @@ impl Ledger {
 
     /// The seven days ending with `day`.
     pub fn week_secs(&self, day: i64) -> u64 {
-        self.days.range(day - 6..=day).map(|(_, d)| d.total_secs()).sum()
+        self.days
+            .range(day - 6..=day)
+            .map(|(_, d)| d.total_secs())
+            .sum()
     }
 
     /// A run started by someone other than the owner counts against their
@@ -100,7 +103,13 @@ mod tests {
     fn week_is_the_seven_days_ending_today() {
         let mut l = Ledger::default();
         for d in 0..10 {
-            l.days.insert(d, Day { own_secs: 60, ..Default::default() });
+            l.days.insert(
+                d,
+                Day {
+                    own_secs: 60,
+                    ..Default::default()
+                },
+            );
         }
         assert_eq!(l.week_secs(9), 7 * 60);
     }

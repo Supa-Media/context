@@ -35,8 +35,23 @@ pub struct Facts {
 
 /// Tools worth naming in the good-at note. Presence only.
 const NOTABLE_TOOLS: &[&str] = &[
-    "git", "gh", "node", "pnpm", "npm", "bun", "python3", "cargo", "go", "docker", "wrangler", "op",
-    "xcodebuild", "gcloud", "aws", "fly", "vercel",
+    "git",
+    "gh",
+    "node",
+    "pnpm",
+    "npm",
+    "bun",
+    "python3",
+    "cargo",
+    "go",
+    "docker",
+    "wrangler",
+    "op",
+    "xcodebuild",
+    "gcloud",
+    "aws",
+    "fly",
+    "vercel",
 ];
 
 pub async fn gather() -> Facts {
@@ -52,12 +67,18 @@ pub async fn gather() -> Facts {
         memory_mb: mem.total_mb,
         claude,
         codex,
-        tools: NOTABLE_TOOLS.iter().filter(|t| which(t).is_some()).map(|t| t.to_string()).collect(),
+        tools: NOTABLE_TOOLS
+            .iter()
+            .filter(|t| which(t).is_some())
+            .map(|t| t.to_string())
+            .collect(),
     }
 }
 
 pub fn cores() -> u32 {
-    std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(1)
+    std::thread::available_parallelism()
+        .map(|n| n.get() as u32)
+        .unwrap_or(1)
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -93,7 +114,9 @@ pub fn parse_meminfo(text: &str) -> Memory {
     };
     Memory {
         total_mb: field("MemTotal:").unwrap_or(0),
-        available_mb: field("MemAvailable:").or_else(|| field("MemFree:")).unwrap_or(0),
+        available_mb: field("MemAvailable:")
+            .or_else(|| field("MemFree:"))
+            .unwrap_or(0),
     }
 }
 
@@ -113,9 +136,13 @@ fn macos_memory() -> Memory {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| parse_vm_stat(&s))
         .unwrap_or(0);
-    Memory { total_mb: total, available_mb: available }
+    Memory {
+        total_mb: total,
+        available_mb: available,
+    }
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// Free + inactive + speculative + purgeable pages, as macOS counts what a new
 /// process can have.
 pub fn parse_vm_stat(text: &str) -> u64 {
@@ -133,13 +160,18 @@ pub fn parse_vm_stat(text: &str) -> u64 {
             .and_then(|v| v.trim().trim_end_matches('.').parse::<u64>().ok())
             .unwrap_or(0)
     };
-    let free = pages("Pages free") + pages("Pages inactive") + pages("Pages speculative") + pages("Pages purgeable");
+    let free = pages("Pages free")
+        + pages("Pages inactive")
+        + pages("Pages speculative")
+        + pages("Pages purgeable");
     free * page / (1024 * 1024)
 }
 
 async fn os_version() -> Option<String> {
     if cfg!(target_os = "macos") {
-        return run_text("sw_vers", &["-productVersion"]).await.map(|v| format!("macOS {v}"));
+        return run_text("sw_vers", &["-productVersion"])
+            .await
+            .map(|v| format!("macOS {v}"));
     }
     let text = tokio::fs::read_to_string("/etc/os-release").await.ok()?;
     text.lines()
@@ -161,7 +193,10 @@ async fn chip() -> Option<String> {
 async fn run_text(cmd: &str, args: &[&str]) -> Option<String> {
     let out = tokio::time::timeout(
         Duration::from_secs(5),
-        tokio::process::Command::new(cmd).args(args).kill_on_drop(true).output(),
+        tokio::process::Command::new(cmd)
+            .args(args)
+            .kill_on_drop(true)
+            .output(),
     )
     .await
     .ok()?
@@ -172,7 +207,9 @@ async fn run_text(cmd: &str, args: &[&str]) -> Option<String> {
 
 /// Whether a coding CLI is installed and signed in, asked of the CLI itself.
 pub async fn cli_state(name: &str) -> ToolState {
-    let Some(path) = which(name) else { return ToolState::Missing };
+    let Some(path) = which(name) else {
+        return ToolState::Missing;
+    };
     let args: &[&str] = match name {
         "claude" => &["auth", "status"],
         _ => &["login", "status"],
@@ -187,7 +224,13 @@ pub async fn cli_state(name: &str) -> ToolState {
     )
     .await;
     match out {
-        Ok(Ok(o)) if signed_in(name, o.status.success(), &String::from_utf8_lossy(&o.stdout)) => {
+        Ok(Ok(o))
+            if signed_in(
+                name,
+                o.status.success(),
+                &String::from_utf8_lossy(&o.stdout),
+            ) =>
+        {
             ToolState::SignedIn
         }
         _ => ToolState::Installed,
@@ -218,7 +261,9 @@ fn is_executable(p: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        p.metadata().map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+        p.metadata()
+            .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
     }
     #[cfg(not(unix))]
     {
@@ -232,7 +277,9 @@ mod tests {
 
     #[test]
     fn meminfo() {
-        let m = parse_meminfo("MemTotal:       8000000 kB\nMemFree:  100 kB\nMemAvailable:   4096000 kB\n");
+        let m = parse_meminfo(
+            "MemTotal:       8000000 kB\nMemFree:  100 kB\nMemAvailable:   4096000 kB\n",
+        );
         assert_eq!(m.total_mb, 7812);
         assert_eq!(m.available_mb, 4000);
     }
@@ -245,7 +292,11 @@ mod tests {
 
     #[test]
     fn claude_signed_in_reads_its_json() {
-        assert!(signed_in("claude", true, r#"{"loggedIn": true, "authMethod": "oauth_token"}"#));
+        assert!(signed_in(
+            "claude",
+            true,
+            r#"{"loggedIn": true, "authMethod": "oauth_token"}"#
+        ));
         assert!(!signed_in("claude", true, r#"{"loggedIn": false}"#));
         assert!(!signed_in("claude", true, "garbage"));
     }

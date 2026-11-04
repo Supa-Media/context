@@ -124,7 +124,10 @@ impl Rules {
 
 /// A program name for `Bash(<name>:*)`: no spaces, no shell, no path tricks.
 fn is_program_name(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 64 && s.chars().all(|c| c.is_ascii_alphanumeric() || "._-+".contains(c))
+    !s.is_empty()
+        && s.len() <= 64
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._-+".contains(c))
 }
 
 /// Where the machine stands when an assignment arrives.
@@ -178,7 +181,11 @@ pub fn check(rules: &Rules, a: &Assignment, s: &Snapshot) -> Result<PathBuf, Ref
     if s.available_mb < crate::slots::MIN_FREE_MB {
         return Err(Refusal::LowMemory);
     }
-    if rules.pause_near_plan && s.ledger.paused_until_ms(a.cli).is_some_and(|until| until > s.now_ms) {
+    if rules.pause_near_plan
+        && s.ledger
+            .paused_until_ms(a.cli)
+            .is_some_and(|until| until > s.now_ms)
+    {
         return Err(Refusal::PlanLimit);
     }
     let day = s.ledger.day_of(s.now_ms, rules.utc_offset_minutes);
@@ -209,12 +216,19 @@ pub fn endpoint_ok(url: &str) -> bool {
     if url.starts_with("https://") {
         return url.len() > "https://".len();
     }
-    ["http://127.0.0.1:", "http://localhost:"].iter().any(|p| url.starts_with(p))
+    ["http://127.0.0.1:", "http://localhost:"]
+        .iter()
+        .any(|p| url.starts_with(p))
 }
 
 /// Job ids end up in folder names, so they are kept to a safe alphabet.
 pub fn valid_job_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 128 && id.chars().all(|c| c.is_ascii_alphanumeric() || "-_:.".contains(c)) && !id.starts_with('.')
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_:.".contains(c))
+        && !id.starts_with('.')
 }
 
 /// The allowed folder that holds `folder`, compared after resolving symlinks
@@ -237,7 +251,11 @@ pub fn allowed_root(allowed: &[PathBuf], folder: &Path) -> Option<PathBuf> {
 /// A folder that would put the whole machine or the person's whole home in
 /// reach is never an allowed folder, whatever the settings say.
 pub fn is_too_broad(p: &Path) -> bool {
-    if p.components().filter(|c| matches!(c, Component::Normal(_))).count() == 0 {
+    if p.components()
+        .filter(|c| matches!(c, Component::Normal(_)))
+        .count()
+        == 0
+    {
         return true;
     }
     if let Some(home) = home_dir() {
@@ -257,7 +275,9 @@ pub fn inside(child: &Path, parent: &Path) -> bool {
 }
 
 pub fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)
+    std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
 }
 
 #[cfg(test)]

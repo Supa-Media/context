@@ -1,8 +1,9 @@
 //! The messages between this runner and the workspace object that owns the
 //! machine.
 //!
-//! The gateway can send exactly five things: a challenge to sign, the
-//! machine's rules, an assignment, a message for a running job, and a cancel.
+//! The gateway can send: a challenge to sign, the machine's rules, an
+//! assignment, a message or an interrupt for a running job, a cancel, a
+//! release (the job is over), and an ack of a result.
 //! Nothing here runs a command: a brief is words handed to the agent, never a
 //! shell line. Every assignment is checked against the local rules
 //! (`rules.rs`) before anything starts, so a gateway that sends something it
@@ -55,7 +56,18 @@ pub enum ServerMsg {
     Message(JobMessage),
     Interrupt(Interrupt),
     Cancel(Cancel),
+    /// The job is over: its folder may go, unless it holds work.
+    Release(Cancel),
+    /// The job object has a part's result; the runner forgets its copy.
+    Ack(Ack),
     Ping,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Ack {
+    pub job_id: String,
+    pub part: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -167,13 +179,31 @@ pub struct Cancel {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum RunnerMsg {
     Hello(Hello),
-    Accepted { #[serde(rename = "jobId")] job_id: String, part: u32, #[serde(rename = "sessionId")] session_id: String },
-    Refused { #[serde(rename = "jobId")] job_id: String, part: u32, reason: Refusal },
+    Accepted {
+        #[serde(rename = "jobId")]
+        job_id: String,
+        part: u32,
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
+    Refused {
+        #[serde(rename = "jobId")]
+        job_id: String,
+        part: u32,
+        reason: Refusal,
+    },
     Step(Step),
     Usage(Usage),
     Limit(LimitSignal),
     Result(PartResult),
     Status(Status),
+    /// A released job's folder was kept because it holds work.
+    Released {
+        #[serde(rename = "jobId")]
+        job_id: String,
+        kept: bool,
+        branch: Option<String>,
+    },
     Pong,
 }
 
@@ -320,7 +350,9 @@ mod tests {
     #[test]
     fn mail_defaults_to_a_note() {
         let raw = r#"{"type":"message","jobId":"j","mail":{"from":"tex","text":"hi"}}"#;
-        let ServerMsg::Message(m) = serde_json::from_str(raw).unwrap() else { panic!() };
+        let ServerMsg::Message(m) = serde_json::from_str(raw).unwrap() else {
+            panic!()
+        };
         assert_eq!(m.mail.kind, MailKind::Note);
     }
 
@@ -332,6 +364,9 @@ mod tests {
             reason: Refusal::FolderNotAllowed,
         })
         .unwrap();
-        assert_eq!(s, r#"{"type":"refused","jobId":"j","part":1,"reason":"folderNotAllowed"}"#);
+        assert_eq!(
+            s,
+            r#"{"type":"refused","jobId":"j","part":1,"reason":"folderNotAllowed"}"#
+        );
     }
 }
