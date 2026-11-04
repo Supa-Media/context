@@ -22,6 +22,12 @@ name = "context-mcp"
 main = "src/index.js"
 compatibility_date = "2026-08-01"
 
+# Run beside the workspace objects (placed `enam`) and the control plane, not at the caller's edge (decided by the
+# owner, 2026-11-04; docs/decisions/gateway-protocol/gateway-placement.md). A note read makes about four trips to
+# its workspace object, each 25 to 60 ms from the edge and a few ms from here. Staging inherits it.
+[placement]
+region = "aws:us-east-1"
+
 [vars]
 
 # The sharing judge (docs/decisions/privacy-and-sharing/agent-egress.md): an AI
