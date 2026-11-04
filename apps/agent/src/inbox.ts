@@ -311,7 +311,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     const line = first.channel === "simulator" ? undefined : lineFor(lineDeps(deps), first.chatId);
     // Only "ok", "thanks", tapbacks: read, and no bubble until decide picks an answer (`answerTexts` starts it then).
     const acksOnly = pending.every(([, item]) => item.message.chatId !== first.chatId || (!item.force && pureAck(item.message)));
-    if (acksOnly) await line?.markRead(first.chatId, first.messageId);
+    const read = acksOnly ? line?.markRead(first.chatId, first.messageId) : undefined; // never blocks decide (Dev, 2026-11-04)
     const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first, { aimLater: true });
     try {
       const choice = await chooseTurn(storage, deps, pending);
@@ -326,6 +326,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       if (choice.answer.length > 0 && !(await answerTurn(storage, deps, choice.answer, presence))) return;
     } finally {
       await presence?.stop();
+      await read;
     }
   }
   await pruneSeen(storage, deps.now());
@@ -647,7 +648,10 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
       return reply;
     });
   const simulator = message.channel === "simulator";
-  let chain: Promise<void> = Promise.resolve();
+  const shown = simulator ? undefined : presence ?? (await startPresence(lineFor(lineDeps(deps), message.chatId), message));
+  // Tex's own texts wait for the read receipt and the bubble (`presence.ts` `ready`); the turn never does.
+  let chain: Promise<void> = shown?.ready ?? Promise.resolve();
+  const bubbles: Promise<void>[] = [];
   const say = (text: string): Promise<void> => {
     if (isControlWord(text)) return chain; // a word meant for us, never a text (`controlWords.ts`)
     chain = chain.then(async () => {
@@ -660,8 +664,8 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
         else await line.sendText(message.chatId, text, `progress:${work}:${hash.slice(0, 16)}`, threadFor(message));
         await storage.put(sentKey, deps.now());
         await addEvent(storage, { at: deps.now(), chat: message.chatId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: true, ...(deps.steer ? { turn: deps.steer.turn } : {}) });
-        // Sending a text clears the bubble; the task is still going.
-        await line?.startTyping(message.chatId);
+        // Sending a text clears the bubble; the task is still going. Asked for again beside the next line, never before it.
+        if (line) bubbles.push(line.startTyping(message.chatId));
       } catch {
         // A progress line that failed costs the person a line, never the answer.
       }
@@ -677,19 +681,12 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
   // has something to say (Dev, 2026-10-19: "most useless message ... I don't
   // want to see it ever again").
 
-  if (simulator) {
-    try {
-      return await replied(replyTo(message, { ...deps, onProgress }));
-    } finally {
-      await chain;
-    }
-  }
-  const shown = presence ?? (await startPresence(lineFor(lineDeps(deps), message.chatId), message));
   try {
     return await replied(replyTo(message, { ...deps, onProgress }));
   } finally {
-    await shown.stop();
+    await shown?.stop();
     await chain;
+    await Promise.all(bubbles);
   }
 }
 
