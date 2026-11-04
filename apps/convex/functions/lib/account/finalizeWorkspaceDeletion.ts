@@ -102,6 +102,13 @@ export async function finalizeWorkspaceDeletion(
     .collect();
   for (const event of events) await ctx.db.delete(event._id);
 
+  // The workspace's own computers: their grants go with it, and a pairing approved into it is never claimed.
+  const machines = await ctx.db
+    .query("texMachines")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const machine of machines) await ctx.db.delete(machine._id);
+
   const memberships = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))

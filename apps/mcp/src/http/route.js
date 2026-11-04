@@ -5,6 +5,7 @@
  * is one statement, so a pure move cannot make this file shorter.
  */
 
+import { MACHINE_PATHS, handleMachines } from "../machines/routes.js";
 import { openaiAppsChallengeResponse } from "./openaiAppsChallenge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { attachLinkCalls, matchWellKnown } from "./routing.js";
@@ -143,7 +144,7 @@ export async function route(request, env, ctx) {
     // `isTransportPath`'s reasoning about `/inbox` — and the list itself lives
     // in `origin.js`, so this asks the question here rather than editing
     // another module's idea of what speaks the MCP transport.
-    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH || isMessagesBackupPath(path)) {
+    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH || isMessagesBackupPath(path) || MACHINE_PATHS.has(path)) {
       const refusal = enforceOrigin(request, env);
       if (refusal) return refusal;
     }
@@ -214,6 +215,9 @@ export async function route(request, env, ctx) {
     }
     // The Tex page's socket, held by the chat's Tex object (`texPage/live.js`): a GET answering 101, as `/presence`.
     if (path === TEX_PAGE_SOCKET_PATH) return await handleTexPageLive(request, env, { slug, pathToken, origin });
+
+    // A person's own computers: pairing and the runner's socket (`machines/routes.js`). Their own grant, not a session.
+    if (MACHINE_PATHS.has(path)) return await handleMachines(request, env, { path, origin });
 
     // The MCP transport: every step timed by the MCP entry point (`mcpRoute.js`).
     if (path === "/mcp") return await serveMcp(request, env, ctx, { slug, pathToken, origin });

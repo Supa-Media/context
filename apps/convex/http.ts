@@ -140,12 +140,8 @@ import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 import * as siteCards from "./functions/lib/publicRoutes/siteCards";
 import * as siteHomeRoute from "./functions/lib/publicRoutes/siteHome";
 import * as sitePageRoute from "./functions/lib/publicRoutes/sitePage";
-import {
-  calendarChannelRoute,
-  calendarPushHandler,
-  pubsubPushHandler,
-  pubsubPushRoute,
-} from "./functions/lib/googlePush/routes";
+import { calendarChannelRoute, calendarPushHandler, pubsubPushHandler, pubsubPushRoute } from "./functions/lib/googlePush/routes";
+import { TEX_MACHINE_GATEWAY_ROUTES } from "./functions/lib/gatewayRoutes/texMachines";
 import { ingestEncryptionSiblings } from "./functions/lib/managedEncryptionFns/storeOption";
 import { addAuthHttpRoutes, withSecurityHeaders } from "./functions/lib/httpSecurityHeaders";
 
@@ -996,5 +992,8 @@ http.route({ path: "/agent-texts/heartbeats/result", method: "POST", handler: ag
 /* Tex's housekeeping (`functions/housekeeping.ts`): the same shape as dreams; it texts nobody. */
 http.route({ path: "/agent-texts/housekeeping/due", method: "POST", handler: agentWorkerRoute(housekeeping.agentHousekeepingDueHandler) });
 http.route({ path: "/agent-texts/housekeeping/result", method: "POST", handler: agentWorkerRoute(housekeeping.agentHousekeepingResultHandler) });
+
+/* A person's own computer, paired for Tex (`docs/decisions/texting-assistant/machines.md`). Each path is built by the gateway factory. */
+for (const [path, handler] of TEX_MACHINE_GATEWAY_ROUTES) http.route({ path, method: "POST", handler: gatewayRoute(handler) });
 
 export default http;

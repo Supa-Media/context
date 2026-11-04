@@ -88,3 +88,35 @@ an implied one:
 The person's subscription logins (`~/.claude`, `~/.codex`) never leave their
 machine: we never read, copy, seal or store them. The runner starts the
 unmodified CLI, which signs itself in.
+
+### Pairing: a code compared on both screens, a grant only the machine can collect (2026-11-04)
+
+- **A runner pairs with a short code** (`POST /machines/pair`, `apps/mcp/src/machines/routes.js`):
+  six characters without 0/O or 1/I, shown on the machine and in the app, approved
+  by the person signed in. Only a personal workspace's owner, or a shared
+  workspace's owner or editor, may approve (`mayOwnTexMachine` in the control
+  plane). The control plane keeps the code's hash, ten minutes, and nothing else
+  of it.
+- **The grant is collected with the machine's key.** The runner polls with an
+  Ed25519 signature over `pairSigningText(pairingId)`; the gateway checks it
+  against the public key the pairing started with, and only then mints the
+  grant (`cmg_` and 32 random bytes), which the control plane stores hashed.
+  An unknown pairing and a bad signature answer the same 404. The grant is
+  returned once. Test: `machineRoutes.test.mjs` ("only the machine that asked
+  can collect the grant").
+- **The Mac app registers its own Mac** (`POST /machines/register`) with its
+  signed-in connection's session instead of a code. The Mac still gets a grant
+  of its own bound to its own key, so revoking the Mac never touches the app's
+  connection.
+- **The socket** (`GET /machines/socket`) resolves the grant with the control
+  plane, and the owning workspace object takes it and asks for a signed hello
+  before reading anything (`workspaceStore/machineSockets.js`). A socket lives
+  an hour, then the runner reconnects through the gateway, so a revoked grant
+  stops working within the hour even without the object being told; the app's
+  Disconnect tells the object at once. A browser `Origin` header on any
+  machine route is refused.
+- **Known risk: a pairing code can be phished**, as any device-code flow can:
+  somebody sends a person a link with their own machine's code. The approval
+  screen names the machine, its OS and when it asked, and says to approve only a
+  computer being set up right now; and a machine only ever gets the jobs Tex
+  sends it, under its owner's rules. Accepted by the design; revisit if abused.
