@@ -13,8 +13,10 @@
  *   never deleting the grant file at the first status line                   1
  *   not clearing the stored grant on exit code 3                             1
  *   sending `kind` in the register body (PairStart refuses unknown keys)       1
+ *   services.ts handing the register the keychain record (`tokens.read()`)   1
  */
 
+import { readFileSync } from "node:fs";
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -198,5 +200,14 @@ export async function runMachineRunnerChecks(check) {
     await h.runner.setEnabled(true);
     check("...and turning it on starts nothing", h.spawned.length === 0 && h.runner.status().state === "unavailable");
     await rm(h.dataDir, { recursive: true, force: true });
+  }
+  {
+    // The keychain holds the whole connection record as JSON; sent as a bearer it is always 401,
+    // which the switch showed as "Sign in to Context on this Mac again" (Dev2, 2026-11-04).
+    const services = readFileSync(new URL("../src/main/services.ts", import.meta.url), "utf8");
+    check(
+      "the register and the local agent get the connection's access token, never the keychain record",
+      /consoleToken: \(\) => connection\.token\(\)/.test(services) && !/tokens\.read\(\)/.test(services),
+    );
   }
 }
