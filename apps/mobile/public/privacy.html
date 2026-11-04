@@ -1,0 +1,80 @@
+<!doctype html>
+<!-- Generated from features/legal/content.ts with: node scripts/build-public-privacy.mjs -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy | Context.LC</title>
+<meta name="description" content="Context.lc is a workspace for notes and connected information. This policy explains what we collect, why we collect it, how Google-connected data is used, and what an AI assistant you connect can see and do.">
+<link rel="canonical" href="https://context.lc/privacy.html">
+<style>
+:root{color-scheme:light dark}body{margin:0;background:#f7f5f0;color:#1e2223;font:18px/1.7 system-ui,sans-serif}main{max-width:880px;margin:0 auto;padding:32px 24px 72px}nav{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:56px}a{color:inherit}nav a:first-child{font-weight:700;margin-right:auto}h1{font-size:clamp(36px,7vw,64px);line-height:1.1;margin:12px 0 20px}h2{font-size:26px;line-height:1.3;margin:44px 0 16px}p{margin:0 0 20px}.updated,footer{color:#61686c}footer{margin-top:56px;border-top:1px solid #aab2b5;padding-top:24px}@media(prefers-color-scheme:dark){body{background:#161b1d;color:#edf0ed}.updated,footer{color:#acb5b7}}
+</style>
+</head>
+<body><main>
+<nav aria-label="Legal pages"><a href="/">Context.LC</a><a href="/privacy.html" aria-current="page">Privacy</a><a href="/terms">Terms</a></nav>
+<header><h1>Privacy Policy</h1><p class="updated">Last updated October 29, 2026</p><p>Context.lc is a workspace for notes and connected information. This policy explains what we collect, why we collect it, how Google-connected data is used, and what an AI assistant you connect can see and do.</p></header>
+<section><h2>Information we collect</h2>
+<p>We collect account information you provide when you sign in, such as your email address, your phone number if you sign in with one, authentication identifiers, the profile photo you choose, workspace memberships, and settings.</p>
+<p>If you record a meeting, and only after you allow AI for meeting notes, the audio is sent through Context.lc to an AI provider, today Cloudflare Workers AI, to be turned into text, and the transcript and your typed notes are sent to Anthropic to write a summary. The transcript and its summary are saved in your workspace like any other note. See &quot;Meeting transcripts and summaries&quot; below.</p>
+<p>When you connect storage or an integration, we store the configuration needed to operate that connection, including encrypted OAuth tokens or provider credentials where applicable.</p>
+<p>When you connect Google, Context.lc receives your Google account identity and, at the moment it is asked for, Gmail message metadata and content, Google Calendar event details, and Google Chat spaces and messages, depending on the scopes you approve.</p>
+</section>
+<section><h2>How we use Google data</h2>
+<p>When you connect Google, Context.lc and its assistant, Tex, use the permissions you approve to read Gmail messages, Calendar events and Google Chat spaces and messages from Google when they are needed: when you ask, when an AI assistant you connected asks for you, or during a check-in or routine Tex runs for you, which you can pause or turn off. Your mail, calendar and chat are not copied into your notes in bulk, and no background job syncs them into your workspace.</p>
+<p>Where you turn the matching features on, we also use those permissions to act for you: to create Gmail drafts, to send email you approve, to create or change events on your calendar (asking you first when a change would notify a guest), and to send Google Chat messages you approve, starting a direct conversation with the person when it is your first message to them. Read-only permissions cannot do any of these.</p>
+<p>Some Google data is kept in your personal workspace as part of your conversations with Tex. What you asked, Tex&#39;s answers, and the quotes, summaries and source names (such as a sender, a subject or an event title) those answers use are saved in Tex&#39;s transcripts and conversation history, and check-ins keep a record of what they looked at and texted. Anything you, Tex or an assistant you connected save as a note is kept the same way. These notes stay until you delete them.</p>
+<p>Before October 21, 2026, Context.lc copied Gmail, Calendar and Google Chat into notes in your workspace. Those historical copies are hidden from search and from AI, are included when you download your workspace, and stay until you delete them, which you can do from Settings.</p>
+<p>Google data may be processed by Tex and by AI assistants you connect, within the access you grant them. Disconnecting a Google account stops all future access to it. It does not delete notes already in your workspace, such as saved conversations and historical copies; deleting those is a separate step. Revoking Google access and deleting saved notes are separate controls.</p>
+<p>We do not sell Google user data, use it for advertising, or use it to train third-party AI models.</p>
+</section>
+<section><h2>Where your data is stored</h2>
+<p>Context.lc stores context as files and folders in the storage connected to your account or in Context-managed storage when you choose that option.</p>
+<p>Notes that hold Google data, such as saved Tex conversations and historical copies, are private to your personal workspace by default. Your mail, calendar and chat are read for your personal workspace only, never for a shared workspace.</p>
+<p>OAuth tokens are encrypted server-side and are used only to maintain the connection you authorized.</p>
+</section>
+<section><h2>Diagnostics and feedback</h2>
+<p>Context.lc is in early beta. To find and fix problems, the app sends crash reports and a sample of performance timings to Sentry, and counts which screens are opened, which of the app&#39;s buttons are pressed (by a fixed name, never their words), how long the app is in use and when it is opened or closed with PostHog, linked to your internal account id rather than your name or email. On the web, PostHog also records some visits with every word, picture and form field hidden.</p>
+<p>These never include your notes, their titles, your folder names, your links, your email address or your @handle. Addresses in the app are reduced to the kind of screen before they are sent.</p>
+<p>You can turn crash reports, screen counts and recordings off in Settings, under Feedback. The switches follow your account to every device you sign in on.</p>
+<p>Our public homepage at context.lc loads the advertising pixels of X (Twitter) and Meta (Facebook and Instagram), so we can tell whether our ads there bring people who join. They run only on that page, never inside the app or on your notes. When you join the waitlist or create an account on the web, we also tell X and Meta about the signup with a one-way hash of your email address and, if you arrived from one of their ads, that ad&#39;s click id and their browser id, never the address itself. Signups made in the iPhone or Android app are never reported to X, Meta or any other advertising network.</p>
+<p>When you send a feedback report, it goes through Context.lc to Sentry with what you typed and only the attachments you left ticked: the app version and your browser or system version, a log of the screens and errors from the last ten minutes, and a screenshot, whose words are hidden unless you choose to show them. We use reports only to fix Context.lc and to reply to you.</p>
+</section>
+<section><h2>AI assistants you connect</h2>
+<p>You can connect AI assistants, such as Claude, ChatGPT, or Codex, to Context.lc. Each one signs in with your permission and gets its own access, which you can revoke at any time from your Context.lc settings.</p>
+<p>A connected assistant can read and search only the notes you can already see, in the workspaces you belong to, filtered by each workspace&#39;s privacy settings. It can write, move, or comment only where your role allows, and every change it makes is recorded in that workspace&#39;s activity under the assistant&#39;s name.</p>
+<p>Notes reach an assistant only when it asks for them on your behalf. What the assistant&#39;s provider does with that content is governed by its own terms and privacy policy, not this one.</p>
+<p>We do not use your notes to train AI models, and we do not sell them.</p>
+</section>
+<section><h2>Meeting transcripts and summaries</h2>
+<p>Recording a meeting or sending a voice message to the assistant you text turns speech into text with an AI provider. Today that is Whisper, a speech recognition model made by OpenAI that runs on Cloudflare Workers AI. The audio goes to Cloudflare, not to OpenAI. A meeting&#39;s summary is written from its transcript and your typed notes by Anthropic&#39;s Claude, reached through Cloudflare. The recording can include your voice, other people&#39;s voices, and anything personal said during it.</p>
+<p>Nothing is sent until you allow it. The first time you start a meeting, Context.lc asks once whether to use AI for meeting notes, which covers both transcripts and summaries. The question names Cloudflare for transcripts and Anthropic for summaries before you choose. If you choose Not now, no audio is recorded or sent, no summary is written, and you can still type notes. Your answer is kept on your account, so another person&#39;s answer never covers you. We ask again if the provider or what the AI is used for changes. The providers can change; this section always names the ones in use. A voice message you send to the assistant you text is different: sending it is asking the assistant to listen, so it is transcribed without this question, the same way a typed message is read without one.</p>
+<p>You can turn it off at any time in Settings, under Meetings. The device you turn it off on stops sending straight away, including from a recording that is already running, and audio still waiting on it to be sent is deleted. No new summaries are written once it is off. Your other devices and our servers stop once the change reaches them, which takes moments when they are online. A piece of audio that was already on its way when you turned it off cannot be called back.</p>
+<p>Context.lc does not store the audio: it is passed to Cloudflare for transcription and discarded once the words are in your note. Audio recorded without a connection waits on your device until it can be sent, or until you turn transcription off. Cloudflare states that it does not use content sent to Workers AI to train AI models.</p>
+</section>
+<section><h2>AI built into Context.lc</h2>
+<p>Some features use AI models that Context.lc runs for you: meeting transcripts and summaries, search by meaning, organizing your inbox, and the assistant you can text. They read only the notes and recordings the feature needs, from the workspaces you can see.</p>
+<p>These features use Anthropic and Cloudflare Workers AI, which process your content only to answer the request and do not train their models on it. Tex makes pictures with Google&#39;s Gemini image model, which receives the description of the picture.</p>
+</section>
+<section><h2>Sharing</h2>
+<p>Your private context is not shared with other users unless you explicitly share it, invite someone, publish a note, or move information into a workspace with broader access.</p>
+<p>We process data with service providers that help operate Context.lc: Convex (accounts and workspace records), Cloudflare (hosting, storage, transcription and AI), Anthropic and Google (AI), Browserbase (the web browser Tex uses when you ask it to visit a site), Brave Search (Tex&#39;s web searches), Sendblue, Linq and Whapi (carrying your texts with Tex over iMessage, SMS and WhatsApp), Sentry and PostHog (diagnostics), Resend (email), Twilio (text messages and sign-in codes) and Stripe (payments, on the web). They are permitted to process data only for the service we provide.</p>
+</section>
+<section><h2>Google API Limited Use</h2>
+<p>Context.lc&#39;s use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements.</p>
+<p>We request only the Google scopes needed for the features you enable, and you can disconnect a Google account from Context.lc or revoke access from your Google Account permissions at any time.</p>
+</section>
+<section><h2>Retention and deletion</h2>
+<p>We retain your notes, including saved Tex conversations and historical Google copies, and your account records while your account or workspace remains active, unless you delete them sooner.</p>
+<p>You can disconnect an integration, delete saved notes from your workspace, or revoke provider access at any time. You can delete your account yourself in Settings, under Profile; that removes your account, your sign-in details and every workspace you are the only owner of. Notes in storage you own stay in your storage. Notes and attachments in Context-managed storage for those workspaces are permanently erased, and the storage credentials are revoked; the app offers a download of every note first. Erasure starts when you delete your account and is retried automatically until it completes.</p>
+</section>
+<section><h2>Security</h2>
+<p>We use HTTPS in transit, encrypted credential storage, access controls, and operational monitoring to protect account and integration data.</p>
+<p>No system can guarantee perfect security. If we learn of a security incident affecting your data, we will notify affected users when required by law and appropriate for the risk.</p>
+</section>
+<section><h2>Contact</h2>
+<p>For privacy questions, security concerns, or data requests, contact context@supa.media.</p>
+</section>
+<footer><p>Context.LC is operated by Supa Media.</p><p>Questions: <a href="mailto:context@supa.media">context@supa.media</a></p></footer>
+</main></body>
+</html>
