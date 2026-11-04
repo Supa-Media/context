@@ -66,7 +66,7 @@ export const PLANNER_PROMPT =
   "than slots, or than a computer's slots for its parts, group them. Code always runs on a computer with Claude Code or Codex when they have one, never in the cloud: " +
   "a question about how a codebase works (theirs or a public one on GitHub), reading or searching a repo, and every change to their code. A small code " +
   "change is one job on a computer, not a split; a big one (several pieces of a feature that can be built at once) splits into parts on the computer. " +
-  "Anything that is not code runs in the cloud (null). " +
+  "Anything that is not code prefers the cloud (null), so their computer's slots stay free for code. " +
   "Each part's brief names the parts it must tell or ask through the overview's mail. Never invent a fact that is not in the conversation.";
 
 const clip = (value, max) => (typeof value === "string" ? value.trim().slice(0, max) : "");

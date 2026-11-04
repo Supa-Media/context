@@ -378,7 +378,9 @@ computer with Claude Code or Codex when they have one. The rule is written
 into `start_background_job`'s `on_computer` and into the planner's prompt,
 and a planner's "one job" answer names the computer
 (`on_computer { name }`). A small code change is one job on the computer; a
-big one splits into parts there. The planner is told each computer's tools
+big one splits into parts there. Work that isn't code prefers the cloud,
+but a part of it on the computer is not a failure (Dev, 2026-11-04), so the
+bench says so with a `may:` line, never a check. The planner is told each computer's tools
 and slots (`machinesFor` lists `slots`). The bench gives every case the same
 invented computer (`computer:` in a test, read through `MACHINE_STORE`,
 which answers only the computer reads), and `must start: … on a computer` /

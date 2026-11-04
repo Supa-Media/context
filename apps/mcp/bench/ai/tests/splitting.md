@@ -22,7 +22,7 @@ every_answer:
 
 # Splitting big asks
 
-Asked for by Dev on 2026-11-04: a big ask whose parts can run side by side is split into one background job per part while job slots are free, and a simple ask is never split. Tex runs three jobs at once in a chat (`MAX_RUNNING_JOBS`), and every setup gets the same slots: `background: on` sends the chat's running jobs with every text, none unless a case says `- running: N` (`run.mjs` `benchRunning`). Every case's person has one paired computer, `computer: Studio Mac (claude, codex) 3 slots` (`bench/world.mjs` `benchMachines`), the same for every setup. Code goes to it, never the cloud (Dev, 2026-11-04): a question about how a codebase works, reading a repo, and any change to code; everything else runs in the cloud. A small code change is one job on the computer, a big one splits there. Nothing runs the jobs here: the test is what the texted turn starts.
+Asked for by Dev on 2026-11-04: a big ask whose parts can run side by side is split into one background job per part while job slots are free, and a simple ask is never split. Tex runs three jobs at once in a chat (`MAX_RUNNING_JOBS`), and every setup gets the same slots: `background: on` sends the chat's running jobs with every text, none unless a case says `- running: N` (`run.mjs` `benchRunning`). Every case's person has one paired computer, `computer: Studio Mac (claude, codex) 3 slots` (`bench/world.mjs` `benchMachines`), the same for every setup. Code goes to it, never the cloud (Dev, 2026-11-04): a question about how a codebase works, reading a repo, and any change to code; everything else prefers the cloud, and a part of it on the computer is not a failure (Dev, 2026-11-04). A small code change is one job on the computer, a big one splits there. Nothing runs the jobs here: the test is what the texted turn starts.
 
 What a turn started is checked from the run's record, never by the judge (`bench/checks.mjs` `start`): `must start: 2+ jobs on one note's mail` needs two or more jobs, every one joined to the same project note's mail under a name of its own; `must not start: a job` needs none; `on a computer` and `in the cloud` count only the jobs that ran there. The task notes are checked with `must write` under the folder the project goes in. A setup may split by starting the jobs itself or through its advisor's planner (`plan_big_ask`, `src/agent/planBigAsk.js`); the test does not say which. The facts are Maya's, from `maya/trips/lisbon.md`, `maya/health/running-plan.md` and `maya/todo.md`.
 
@@ -34,7 +34,7 @@ What a turn started is checked from the run's record, never by the judge (`bench
 - if asked about food: "anything, we like seafood, nothing too fancy"
 - if asked about the budget: "whatever's in my budget note"
 - must start: 2+ jobs on one note's mail
-- must not start: a job on a computer
+- may: run a part on her computer, though Tex's cloud is the better place for work that isn't code
 - must write: maya/projects/
 - must: tell her in one short text that it's on it, in parts, and will text the result
 - must not: ask more than one question before starting
