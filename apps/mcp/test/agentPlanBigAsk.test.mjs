@@ -20,6 +20,10 @@
  *     → "a project note already there is never written over" fails.
  *  6. `readPlanSetting` reading anything but on as on, or the setup allowing it with no advisor.
  *     → "the planner is a setup switch, on only with an advisor" fails.
+ *  7. `splitFirst` starting a lone job at once (2026-11-04, splitting bench gh-149).
+ *     → "with the planner on, a lone job is offered the planner once, then starts" fails.
+ *  8. `splitFirst` asking a part the planner started, or a job after the planner was called.
+ *     → "the planner's own parts and its one-job answer are never asked" fails.
  */
 
 import assert from "node:assert/strict";
@@ -28,7 +32,7 @@ import { test } from "node:test";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { runTurn } from "../src/agent/turn.js";
 import { MAX_RUNNING_JOBS, backgroundSession, withBackground } from "../src/agent/background.js";
-import { PLAN_DEFINITION, PLAN_TOOL, parsePlan, planCall, planFolder, readPlanSetting } from "../src/agent/planBigAsk.js";
+import { PLAN_DEFINITION, PLAN_TOOL, parsePlan, planCall, planFolder, readPlanSetting, splitFirst } from "../src/agent/planBigAsk.js";
 import { parseSetup } from "../src/agent/production.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
@@ -261,4 +265,42 @@ test("code goes to a computer: a one-job answer names theirs, and the planner is
   assert.match(fake.asked[0].messages[0].text, /Studio Mac \(claude, codex, 3 slots\)/);
   assert.match(fake.asked[0].system, /good at always runs on one/);
   assert.match(fake.asked[0].system, /heavy computing/);
+});
+
+test("with the planner on, a lone job is offered the planner once, then starts", async () => {
+  const background = splitFirst(backgroundSession({ running: [], job: null, now: NOW }));
+  const call = withBackground(background, async () => ({ content: [] }));
+  const lisbon = { title: "Lisbon week", brief: "Dinners, a day trip and packing." };
+  const first = await call("start_background_job", lisbon);
+  assert.equal(first.isError, true);
+  assert.match(words(first), /call plan_big_ask once/);
+  assert.equal(background.started.length, 0, "nothing started yet");
+  assert.equal(background.endsTurn("start_background_job"), null, "the turn goes on");
+  const again = await call("start_background_job", lisbon);
+  assert.equal(again.isError, undefined, words(again));
+  assert.deepEqual(background.started.map((job) => job.title), ["Lisbon week"]);
+
+  // One slot free: nothing to split into, so it starts at once.
+  const one = splitFirst(backgroundSession({ running: [{ id: "job-cccccccc-1", title: "A", state: "running", startedAt: NOW }, { id: "job-cccccccc-2", title: "B", state: "running", startedAt: NOW }], job: null, now: NOW }));
+  assert.equal((await withBackground(one, async () => ({ content: [] }))("start_background_job", lisbon)).isError, undefined);
+  assert.equal(one.started.length, 1);
+});
+
+test("the planner's own parts and its one-job answer are never asked", async () => {
+  const background = backgroundSession({ running: [], job: null, now: NOW });
+  planner(background, PLAN);
+  splitFirst(background);
+  const { callTool } = notesDispatcher();
+  const call = withBackground(background, callTool);
+  await call(PLAN_TOOL, { ask: "plan my lisbon week", folder: "1-projects/lisbon/" });
+  assert.equal(background.started.length, 3, "every part started");
+
+  const single = backgroundSession({ running: [], job: null, now: NOW });
+  planner(single, { split: false, how: "one_job", why: "steps in order" });
+  splitFirst(single);
+  const callSingle = withBackground(single, notesDispatcher().callTool);
+  await callSingle(PLAN_TOOL, { ask: "insurance", folder: "1-projects/insurance/" });
+  const started = await callSingle("start_background_job", { title: "Travel insurance", brief: "Pick one." });
+  assert.equal(started.isError, undefined, words(started));
+  assert.equal(single.started.length, 1);
 });

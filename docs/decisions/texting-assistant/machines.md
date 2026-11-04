@@ -169,8 +169,21 @@ unmodified CLI, which signs itself in.
   `on_computer`, `apps/mcp/src/machines/forJobs.js`): by name, or none when
   they have one; its tool and folder are checked against the machine's own
   lists, and a repo is a name under the folder, never a path out of it. The
-  machines are read only when a job asks for one, never on every text, and
-  only from a person's own 1:1 chat. Test: `machineForJobs.test.mjs`.
+  machines are read only for a chat's own turn: a person's own 1:1 chat, or
+  a group chat for what was lent to it. Test: `machineForJobs.test.mjs`.
+- **The turn is told their computers** (`apps/mcp/src/machines/forTurn.js`,
+  2026-11-04, replacing "read only when a job asks for one"). The first
+  splitting round (gh-149) gave every person a paired computer. All twelve
+  code answers still ran in Tex's cloud or went to Claude Code on the web
+  (`delegate`), because the turn never knew a computer was there. So a chat
+  turn reads its computers beside the history (`tex.ahead("computers")`,
+  one workspace-object read per workspace it reaches, never holding up the
+  model longer than that read). When one with Claude Code or Codex is there,
+  the turn is told it by name and what goes to it, and `delegate` drops
+  Claude Code and Codex: a call naming either is answered with the computer,
+  so code has one road while a computer is paired. With none, the turn is
+  unchanged. Tests: `machineForTurn.test.mjs`, and "a texted turn with a
+  paired computer is told it by name" (`agentBackgroundRoute.test.mjs`).
 - **The job's object runs each part there** (`apps/agent/src/machineTurn.ts`):
   it assigns the part through the gateway with the job's own texting grant,
   reads the run every ten seconds, streams its steps to the chat as a cloud

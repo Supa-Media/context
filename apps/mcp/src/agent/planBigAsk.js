@@ -242,6 +242,38 @@ export function planCall({ model, effort, request, meter = async () => {}, histo
   };
 }
 
+/**
+ * A LONE JOB IS OFFERED THE PLANNER ONCE (the splitting bench, gh-149: with
+ * the planner offered, the everyday model still started the Lisbon week, three
+ * parts that run side by side, as one job in four answers of four).
+ *
+ * With the planner on and two or more slots free, the turn's first job started
+ * by the model itself, with no mail, is answered with the choice instead of
+ * starting: a big ask with parts goes to `plan_big_ask`; one piece of work is
+ * started by the same call again, which then goes through. The planner's own
+ * parts carry mail and are never asked, and nor is a job after the planner was called. Call it once `background.plan` is set; it
+ * changes `background.call` and `background.plan` in place.
+ */
+export function splitFirst(background) {
+  const start = background.call;
+  let asked = false;
+  background.call = async (args) => {
+    const lone = !args?.mail && background.started.length === 0 && background.freeSlots() >= 2;
+    if (asked || !lone) return start(args);
+    asked = true;
+    return text(
+      "Not started yet. Does this ask have parts that can run at the same time, each real work on its own (say dinners, a day trip and a " +
+        "packing list, or a shoe comparison, a physio and a plan)? Then call plan_big_ask once with the whole ask and a new folder for the " +
+        "project in their projects folder, and start nothing yourself. If it is truly one piece of work, call start_background_job again the same way.",
+      true,
+    );
+  };
+  // A turn that went to the planner already chose: its one-job answer starts at once.
+  const plan = background.plan;
+  if (typeof plan === "function") background.plan = (args, callTool) => ((asked = true), plan(args, callTool));
+  return background;
+}
+
 /** Told to the everyday model when the planner is offered: it, not a run of job starts, is how a big ask splits. */
 export const PLAN_HINT =
   "\n\nA big ask with parts that can run at the same time goes to send with action plan (plan_big_ask), never to several background jobs you start yourself: your advisor " +
