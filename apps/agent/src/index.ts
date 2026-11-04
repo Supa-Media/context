@@ -24,7 +24,7 @@
  * grant, exactly as it does for any other connected client.
  */
 
-import { mailJob, readMailDelivery } from "./jobMail";
+import { jobMailResponse } from "./jobMail";
 import { logged } from "./agentError";
 import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
@@ -565,12 +565,7 @@ export class SenderInbox implements DurableObject {
       if (steer.resume) return Response.json({ taken: await resumeJob(this.state.storage, Date.now(), this.env.JOB_RUN ? (id, resumes) => startJobFlow(this.env.JOB_RUN!, id, resumes) : undefined, steer) });
       return Response.json({ taken: await steerJob(this.state.storage, steer) });
     }
-    // Note mail delivered to this job the moment it was sent (`jobMail.ts`, from `TexRoutines.mailDeliver`).
-    if (path === "/job-mail") {
-      const delivery = readMailDelivery(await request.json().catch(() => null));
-      if (delivery === null) return new Response(null, { status: 400 });
-      return Response.json({ taken: await mailJob(this.state.storage, delivery, steerJob) });
-    }
+    if (path === "/job-mail") return await jobMailResponse(this.state.storage, await request.json().catch(() => null), steerJob); // note mail, the moment it was sent (`jobMail.ts`)
     if (path === "/job-update") {
       const update = readJobUpdate(await request.json());
       if (update === null) return new Response(null, { status: 400 });

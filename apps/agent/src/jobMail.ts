@@ -67,3 +67,10 @@ export function mailSteer(delivery: MailDelivery): JobSteer {
 export async function mailJob(storage: InboxStorage, delivery: MailDelivery, steer: (storage: InboxStorage, steer: JobSteer) => Promise<boolean>): Promise<boolean> {
   return await steer(storage, mailSteer(delivery));
 }
+
+/** `POST /job-mail` in the job's object: the body read strictly (400 when it is not a delivery), then `mailJob`'s answer as `{taken}`. */
+export async function jobMailResponse(storage: InboxStorage, body: unknown, steer: (storage: InboxStorage, steer: JobSteer) => Promise<boolean>): Promise<Response> {
+  const delivery = readMailDelivery(body);
+  if (delivery === null) return new Response(null, { status: 400 });
+  return Response.json({ taken: await mailJob(storage, delivery, steer) });
+}
