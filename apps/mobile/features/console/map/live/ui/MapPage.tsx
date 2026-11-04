@@ -98,6 +98,7 @@ function DesktopMap({
                 onClose={peek.close}
                 onExpand={() => onOpenNote(open.workspaceId, open.path)}
                 onPeek={peek.onTapNote}
+                fading={peek.fading}
               />
             ) : null}
             {settings ? (

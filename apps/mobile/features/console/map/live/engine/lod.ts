@@ -50,13 +50,17 @@ export const edgeWidth = (s: number): number => 0.6 + 0.4 * clamp((notePx(s) - 8
 /** Note names (still subject to collisions). */
 export const noteLabelAlpha = (s: number): number => clamp((notePx(s) - 17) / 5, 0, 1);
 
+/** The smallest a dot's radius gets, in pixels (the approved prototype's). */
+export const DOT_MIN_R = 1.5;
+
 /** Radius of a resting note dot; hubs grow once there is room to tell them apart, times the person's dot size. */
 export function dotRadius(s: number, deg: number, size = 1): number {
   const px = notePx(s);
   const base = clamp(0.7 + px * 0.13, 1, 4.6);
   const hub = clamp((px - 10) / 8, 0, 1) * Math.sqrt(deg) * 1.1;
-  // The person's "dot size" (`look.ts`); never below a pixel, so a note is always there to see.
-  return Math.max(0.8, (base + Math.min(hub, 4.2)) * size);
+  // The person's "dot size" (`look.ts`); never smaller than the prototype's
+  // smallest dot, three pixels across, so every note reads as a dot far out.
+  return Math.max(DOT_MIN_R, (base + Math.min(hub, 4.2)) * size);
 }
 
 /** One face per note up close; further out, a pile per container. */

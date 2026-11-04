@@ -30,14 +30,21 @@ function touchCanvas() {
     listeners.get("pointerdown")?.(e);
     listeners.get("pointerup")?.(e);
   };
-  return { canvas, tap };
+  const drag = (x: number, y: number, steps: number) => {
+    t += 1000;
+    const at = (i: number) => ({ clientX: x + i * 12, clientY: y, pointerId: 1, pointerType: "touch", timeStamp: t + i, preventDefault: () => {} });
+    listeners.get("pointerdown")?.(at(0));
+    for (let i = 1; i <= steps; i += 1) listeners.get("pointermove")?.(at(i));
+    listeners.get("pointerup")?.(at(steps));
+  };
+  return { canvas, tap, drag };
 }
 
 function engineWith(options: MapEngineOptions) {
-  const { canvas, tap } = touchCanvas();
+  const { canvas, tap, drag } = touchCanvas();
   const engine = createMapEngine(canvas, { now: () => 0, requestFrame: () => 1, cancelFrame: () => {}, reducedMotion: true, minimap: false, ...options });
   engine.resize(W, H, 1);
-  return { engine, tap };
+  return { engine, tap, drag };
 }
 
 /** A point on the canvas over a note, found the way a finger would: by looking. */
@@ -73,6 +80,21 @@ describe("taps", () => {
     tap(2, H - 2);
     expect(empty).toBe(1);
     expect(opened).toEqual([]);
+  });
+});
+
+describe("dragging", () => {
+  // Dev2, 2026-11-04: the card "should automatically fade out if someone starts dragging to look at other nodes".
+  test("a drag says so once per gesture, and a tap is no drag", () => {
+    let drags = 0;
+    const { engine, tap, drag } = engineWith({ onDrag: () => (drags += 1) });
+    engine.setData(mapData());
+    tap(500, 350);
+    expect(drags).toBe(0);
+    drag(400, 300, 6);
+    expect(drags).toBe(1);
+    drag(400, 300, 6);
+    expect(drags).toBe(2);
   });
 });
 

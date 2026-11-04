@@ -6,7 +6,6 @@ import { clamp, lerp, quad, type Point } from "../math";
 import { DUR } from "../scene";
 import { BOW, bowOf, grain, textureOf } from "./board";
 import type { DrawEnv } from "./env";
-import { BREATH } from "../motion";
 import { dotColour } from "./colour";
 import { drawBundles, linesShown } from "./lines";
 import { TRACE_REST } from "./marks";
@@ -159,8 +158,8 @@ export function drawLinks(env: DrawEnv): void {
     if (scene.actors.find((a) => a.id === id)?.doing === "create") creating.add(key);
   }
   if (ea > 0) {
-    const lo = toWorld(env.cam, env.vp, { x: -40, y: -40 });
-    const hi = toWorld(env.cam, env.vp, { x: env.vp.w + 40, y: env.vp.h + 40 });
+    const lo = toWorld(env.cam, env.vp, { x: -env.cull, y: -env.cull });
+    const hi = toWorld(env.cam, env.vp, { x: env.vp.w + env.cull, y: env.vp.h + env.cull });
     const view = { x0: lo.x, y0: lo.y, x1: hi.x, y1: hi.y };
     const width = edgeWidth(s) * style.look.lineWidth;
     // Pencil on paper, chalk on the board: a grainy stroke with a slight bow.
@@ -185,7 +184,7 @@ export function drawLinks(env: DrawEnv): void {
       ctx.beginPath();
       for (const [ka, kb] of model.layout.edges) {
         if (!scene.present.has(ka) || !scene.present.has(kb)) continue;
-        if (env.selected !== null && env.trace && (ka === env.selected || kb === env.selected)) continue;
+        if (env.traceFrom !== null && env.trace && (ka === env.traceFrom || kb === env.traceFrom)) continue;
         if (popping.has(ka) || popping.has(kb) || creating.has(ka) || creating.has(kb)) continue;
         const na = notes.get(ka)!;
         const nb = notes.get(kb)!;
@@ -327,6 +326,9 @@ function crosses(env: DrawEnv, a: Point, b: Point): boolean {
 /** From this much messiness on, every link gets a second, rougher pencil pass. */
 export const SECOND_PASS_FROM = 0.25;
 
+/** Over this many notes in view, the smallest dots are painted as squares. */
+export const SQUARE_FROM = 4000;
+
 /** A resting dot gets its drawn rim from this radius up; smaller ones are only grain. */
 export const RIM_FROM = 2.4;
 
@@ -340,40 +342,48 @@ export function drawNotes(env: DrawEnv): void {
   // Resting dots, the great majority, go into one path and one fill: what a
   // frame costs is how many times the canvas paints, and a workspace of
   // 20,000 notes painted one dot at a time is a slide show.
-  const rims: Array<{ x: number; y: number; r: number; off: number }> = [];
+  const rims = new Map<string, number[]>();
   const sketch = style.look.sketch;
-  // One path per pencil colour ("Colour by" in the map's settings): a handful of fills, never one per dot.
+  // One path per pencil colour ("Colour by" in the map's settings) and depth
+  // band in 3D: a handful of fills, never one per dot.
   const colourOf = dotColour(env);
-  const buckets = new Map<string, number[]>();
+  const buckets = new Map<string, { colour: string; alpha: number; list: number[] }>();
+  // A big workspace far out is thousands of dots a few pixels across: squares paint far faster and look the same.
+  const square = env.near.length > SQUARE_FROM ? 2 : 1.2;
   for (const n of env.near) {
     const key = n.key;
     if (scene.hidden.has(key) || popping.has(key) || scene.editing.has(key) || scene.reading.has(key) || follow.has(key)) continue;
     if (env.selected === key || env.trace?.has(key)) continue;
     const p = env.screen(n);
     if (!env.onScreen(p, 30)) continue;
-    const R = dotRadius(s, n.deg, env.style.look.dotSize) * openingScale(env.opening, n);
+    const per = p.per ?? 1;
+    const R = dotRadius(s, n.deg, env.style.look.dotSize) * per * openingScale(env.opening, n);
     if (R <= 0) continue;
-    if (R >= RIM_FROM) rims.push({ x: p.x, y: p.y, r: R + 0.7 + sketch * 1.2, off: bowOf(n.x, n.y, n.y, n.x) * (0.4 + sketch * 1.6) });
     const colour = colourOf(n);
-    let list = buckets.get(colour);
-    if (!list) buckets.set(colour, (list = []));
-    // Breathing: each dot swells and settles a little, out of step with its neighbours.
-    list.push(p.x, p.y, env.breathe ? R * (1 + BREATH * Math.sin(scene.phase * 1.2 + bowOf(n.x, n.y, n.y, n.x) * 6)) : R);
+    // Further in 3D is fainter, as in the prototype; four bands are enough to read.
+    const depthBand = per === 1 ? 4 : Math.max(1, Math.min(4, Math.round((0.35 + 0.65 * per) * 4)));
+    const id = `${colour}|${depthBand}`;
+    let b = buckets.get(id);
+    if (!b) buckets.set(id, (b = { colour, alpha: depthBand / 4, list: [] }));
+    b.list.push(p.x, p.y, R);
+    if (R >= RIM_FROM) {
+      let r = rims.get(id);
+      if (!r) rims.set(id, (r = []));
+      r.push(p.x, p.y, R + 0.7 + sketch * 1.2, bowOf(n.x, n.y, n.y, n.x));
+    }
     env.hit.circle(p.x, p.y, Math.max(R, 3), { kind: "note", workspaceId: n.workspaceId, path: n.path }, LAYER.note);
   }
-  // Drawn dots: a grainy fill, and round the bigger ones a loose rim, as a
-  // pencil or chalk dot has, a little off centre.
+  // Drawn dots: a grainy fill, and round the bigger ones a loose pencil rim
+  // in the dot's own colour, a little off centre and not quite closed.
   const rest = (env.dim ? 0.5 : 1) * (env.trace ? TRACE_REST + 0.1 : 1) * (1 - 0.6 * env.far);
-  ctx.globalAlpha = rest;
-  for (const [colour, list] of buckets) {
+  for (const [id, { colour, alpha, list }] of buckets) {
+    ctx.globalAlpha = rest * alpha;
     ctx.beginPath();
     for (let i = 0; i < list.length; i += 3) {
       const x = list[i]!;
       const y = list[i + 1]!;
       const R = list[i + 2]!;
-      // A dot a pixel or two across looks the same as a square and paints far
-      // faster, which is what a whole workspace of tiny dots is made of.
-      if (R <= 1.5) ctx.rect(x - R, y - R, R * 2, R * 2);
+      if (R <= square) ctx.rect(x - R, y - R, R * 2, R * 2);
       else {
         ctx.moveTo(x + R, y);
         ctx.arc(x, y, R, 0, Math.PI * 2);
@@ -381,18 +391,22 @@ export function drawNotes(env: DrawEnv): void {
     }
     ctx.fillStyle = grain(ctx, C, colour);
     ctx.fill();
-  }
-  if (rims.length > 0) {
+    const rim = rims.get(id);
+    if (!rim) continue;
     ctx.beginPath();
-    for (const m of rims) {
-      ctx.moveTo(m.x + m.off + m.r, m.y - m.off);
-      ctx.arc(m.x + m.off, m.y - m.off, m.r, 0, Math.PI * 2);
+    for (let i = 0; i < rim.length; i += 4) {
+      const off = rim[i + 3]! * (0.4 + sketch * 1.6);
+      const x = rim[i]! + off;
+      const y = rim[i + 1]! - off;
+      const r = rim[i + 2]!;
+      const a0 = (rim[i + 3]! + 1) * 3;
+      ctx.moveTo(x + Math.cos(a0) * r, y + Math.sin(a0) * r);
+      ctx.arc(x, y, r, a0, a0 + 5.3);
     }
-    ctx.strokeStyle = C.dot;
-    ctx.lineWidth = 0.9;
-    ctx.globalAlpha = rest * 0.6;
-    ctx.stroke();
+    ctx.strokeStyle = colour;
     ctx.lineWidth = 1;
+    ctx.globalAlpha = rest * alpha * 0.75;
+    ctx.stroke();
   }
   ctx.globalAlpha = 1;
   // Then the few with something happening to them, each with its own marks.
@@ -405,7 +419,7 @@ export function drawNotes(env: DrawEnv): void {
     if (!n || n.sub.folder.collapsed) continue;
     const p = env.screen(n);
     if (!env.onScreen(p, 30)) continue;
-    const R = dotRadius(s, n.deg, env.style.look.dotSize);
+    const R = dotRadius(s, n.deg, env.style.look.dotSize) * (p.per ?? 1);
     const ed = scene.editing.has(key);
     const rd = scene.reading.has(key) || follow.has(key);
     const sel = env.selected === key;
