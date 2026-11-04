@@ -15,7 +15,7 @@
 import { v } from "convex/values";
 import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
+import { internalQuery, query } from "../_generated/server";
 import { mutation } from "./lib/rowWatch/mutations";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { mapLookValidator } from "./lib/schema/mapLook";
@@ -89,5 +89,30 @@ export const setMyMapLook = mutation({
       await ctx.db.replace(row._id, { userId, look: args.look, updatedAt });
     }
     return updatedAt;
+  },
+});
+
+/**
+ * One person's look, by their username: only the look's own fields (sliders
+ * and choices), never an id. Run by hand from the `Map look of a person`
+ * workflow, so the owner can make a look someone set up the map's default
+ * (Dev2, 2026-11-04). Internal only: no client can call it.
+ */
+export const lookOfUsername = internalQuery({
+  args: { username: v.string() },
+  returns: v.union(v.object({ look: mapLookValidator, updatedAt: v.number() }), v.null()),
+  handler: async (ctx, args) => {
+    const name = args.username.trim().replace(/^@/, "").toLowerCase();
+    const claim = await ctx.db
+      .query("names")
+      .withIndex("by_name", (q) => q.eq("name", name))
+      .unique();
+    if (claim === null || claim.kind !== "user" || claim.userId === undefined) return null;
+    const userId = claim.userId;
+    const row = await ctx.db
+      .query("mapLookPreferences")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .unique();
+    return row === null ? null : { look: row.look, updatedAt: row.updatedAt };
   },
 });

@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { asUser, createUser, setupTest } from "./fixtures.helpers";
 
 const read = api.functions.mapLook.myMapLook;
@@ -126,4 +126,18 @@ describe("leaving", () => {
     await asUser(t, seyi).mutation(api.functions.account.deleteAccount, {});
     expect(await t.run((ctx) => ctx.db.query("mapLookPreferences").collect())).toEqual([]);
   });
+});
+
+describe("the owner reading one person's look by username", () => {
+  test("only the look, by username, and nothing for an unknown name or a workspace's", async () => {
+    const t = setupTest();
+    const seyi = await createUser(t, "seyi@example.invalid");
+    await t.run((ctx) => ctx.db.insert("names", { name: "seyi", kind: "user", userId: seyi, claimedBy: seyi, claimedAt: 0 }));
+    const at = await asUser(t, seyi).mutation(set, { look: { board: "graph", dotSize: 1.2 } });
+    const byName = internal.functions.mapLook.lookOfUsername;
+    expect(await t.query(byName, { username: "@Seyi" })).toEqual({ look: { board: "graph", dotSize: 1.2 }, updatedAt: at });
+    expect(await t.query(byName, { username: "nobody" })).toBeNull();
+  });
+
+
 });
