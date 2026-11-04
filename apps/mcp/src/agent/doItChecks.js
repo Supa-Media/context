@@ -36,6 +36,9 @@ const NAMES_ADVISOR = /\b(?:ask|check with|run (?:it|this|that) (?:by|past)|cons
 const OFFERED_READ = [
   /\b(?:want|would you like|do you want|should|shall)\s+(?:me\s+to|I)\s+(?:also\s+|go\s+(?:ahead\s+and\s+)?|quickly\s+)?(?:check|read|search|look|open|pull(?:\s+up)?|find|dig|scan|go\s+through|review|draft|write\s+(?:up|out)?|summari[sz]e)\b/i,
   /\b(?:let me know|tell me|just say)\s+if\s+you(?:'d)?\s+(?:want|like)\s+me\s+to\s+(?:check|read|search|look|open|pull|find|dig|scan|go\s+through|review|draft|summari[sz]e)\b/i,
+  // "Want me to keep looking in the brand notes?" (a customer's group chat, 2026-11-04): going on with a search is a search.
+  /\b(?:want|would you like|do you want|should|shall)\s+(?:me\s+to|I)\s+(?:keep|continue|carry\s+on|go\s+on)\s+(?:looking|searching|digging|checking|reading|trying)\b/i,
+  /\b(?:want|would you like|do you want|should|shall)\s+(?:me\s+to|I)\s+(?:look|search|dig|check)\s+(?:further|more|deeper|elsewhere|again)\b/i,
   /\bI\s+(?:haven't|have not|didn't|did not)\s+(?:yet\s+)?(?:searched|checked|read|opened|looked(?:\s+(?:at|in|through))?)\b[^.?!\n]{0,80}[.?!]?\s*(?:want|should|shall)\b/i,
 ];
 
@@ -47,6 +50,50 @@ export const READ_NOTICE =
 export const ADVISOR_NOTICE =
   "Before this goes: they asked you to ask your advisor, and you haven't. Ask it now (ask_advisor; it sees this whole turn), " +
   "then answer with what it said, in your own words.";
+
+/**
+ * Said it couldn't find something and sent them to a person instead ("Jo or
+ * Sam would know", "ask Sam"): in a customer's group chat (2026-11-04) the
+ * person named was the one asking, after a single search of the notes.
+ */
+const COULD_NOT_FIND = /\b(?:couldn't|could not|can't|cannot|didn't|did not|wasn't able to|unable to)\s+(?:find|locate|see|spot|track\s+down)\b|\b(?:don't|doesn't|do not|does not)\s+say\s+where\b|\bno\s+(?:note|mention|record)\s+of\b/i;
+const SENDS_TO_PERSON = /\b(?:would|should|might|may|will)\s+know\b|\b(?:[Aa]sk|[Cc]heck\s+with)\s+(?!me\b|you\b|them\b)[A-Z@][\w-]*/;
+
+export const PERSON_NOTICE =
+  "Before this goes: you said you couldn't find it and pointed them at a person. First look everywhere you can reach: other words in the notes (the name, the file type, the folder), " +
+  "this chat's earlier messages, the web, and a site you can open with a saved login. Say who would know only after that, never to the person asking, and say in a few words where you looked.";
+
+/**
+ * An answer that only thanks or acknowledges, in a turn that used no tool,
+ * to words that weren't themselves a thanks (a customer's group chat,
+ * 2026-11-04: told where the file Tex couldn't find lives, Tex answered
+ * "Thanks, Jon. That helps." and did nothing with it).
+ */
+/** What an acknowledgment is made of; whatever is left, but for one name, is more than one. */
+const ACK_WORDS = /\b(?:ok(?:ay)?|got it|noted|thanks?(?: you)?(?: so much)?|thx|ty|great|perfect|cool|nice|good to know|understood|will do|sounds good|that(?:'s| is)? (?:helpful|useful|great|good to know)|that helps|appreciate (?:it|that)|makes sense|I'll (?:remember|keep) (?:that|it)(?: in mind)?)\b/gi;
+const THEIR_ACK = /^\s*(?:(?:ok(?:ay)?|k|got it|thanks?(?: you)?|thx|ty|great|perfect|cool|nice|lol|haha|yes|yep|yeah|no|nope|sure|👍|🙏|❤️|😂)[\s,.!]*)+$/i;
+
+export const CARRY_ON_NOTICE =
+  "Before this goes: you only acknowledged their message and used no tool. If it gives you something toward an ask you couldn't finish or a question you asked, carry that ask on now: " +
+  "go where it points with your tools, save what it told you to the workspace note it belongs in so nobody has to say it again, and answer with the result. " +
+  "If you can't reach where it points (an app with no connection or saved login), say so plainly in one line and the one way to let you in. " +
+  "If it truly needs nothing from you, send your answer again as it was.";
+
+/** Whether an answer says it couldn't find something and sends them to a person. */
+export function sendsToAPerson(answer) {
+  const words = String(answer ?? "").replace(/[‘’]/g, "'");
+  return COULD_NOT_FIND.test(words) && SENDS_TO_PERSON.test(words);
+}
+
+/** Whether an answer only thanks or acknowledges, to words that were more than a thanks. At most one name ("Thanks, Jo") is left over. */
+export function onlyAcknowledges(answer, question) {
+  const words = String(answer ?? "").replace(/[‘’]/g, "'").trim();
+  const theirs = String(question ?? "").replace(/[‘’]/g, "'").trim();
+  if (words === "" || words.length > 120 || theirs === "" || THEIR_ACK.test(theirs)) return false;
+  if (!new RegExp(ACK_WORDS.source, "i").test(words)) return false;
+  const left = words.replace(ACK_WORDS, " ").split(/[^\p{L}\p{N}@'-]+/u).filter((word) => /[\p{L}\p{N}]/u.test(word));
+  return left.length === 0 || (left.length === 1 && /^(?:@[\p{L}\p{N}]|\p{Lu})/u.test(left[0]));
+}
 
 /** Whether an answer offers back a read, search, check or draft. */
 export function offersARead(answer) {
@@ -70,6 +117,8 @@ export function doItChecks({ question, inner = null }) {
   let askedAdvisor = false;
   let readNoticed = false;
   let advisorNoticed = false;
+  let personNoticed = false;
+  let carryNoticed = false;
   return {
     wrapLocal(local) {
       return (Array.isArray(local) ? local : []).map((entry) => {
@@ -78,7 +127,8 @@ export function doItChecks({ question, inner = null }) {
         return { ...entry, call: (...args) => ((askedAdvisor = true), entry.call(...args)) };
       });
     },
-    async check(answer) {
+    // `turn.steps`: the calls this turn has made so far (`turn.js`); unknown counts as some, so nothing is sent back on a guess.
+    async check(answer, turn = {}) {
       if (advisorAsked && hasAdvisor && !askedAdvisor && !advisorNoticed) {
         advisorNoticed = true;
         return ADVISOR_NOTICE;
@@ -87,7 +137,15 @@ export function doItChecks({ question, inner = null }) {
         readNoticed = true;
         return READ_NOTICE;
       }
-      return typeof inner?.check === "function" ? await inner.check(answer) : null;
+      if (!personNoticed && sendsToAPerson(answer)) {
+        personNoticed = true;
+        return PERSON_NOTICE;
+      }
+      if (!carryNoticed && turn?.steps === 0 && onlyAcknowledges(answer, question)) {
+        carryNoticed = true;
+        return CARRY_ON_NOTICE;
+      }
+      return typeof inner?.check === "function" ? await inner.check(answer, turn) : null;
     },
   };
 }

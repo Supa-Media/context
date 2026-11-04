@@ -27,6 +27,25 @@ export async function handleOf(ctx: MutationCtx, userId: Id<"users">): Promise<s
   return personal === null ? "" : ((await ctx.db.get(personal))?.slug ?? "");
 }
 
+/** Longest account name a chat's turn is told: a name, never a paragraph. */
+const MAX_NAME = 80;
+
+/**
+ * A person's name on their account, on one line, or "" when they gave none. Told to a chat's turn beside their
+ * handle, so Tex knows that `@jo` is the "Jo Rivers" the notes name, and never tells the person who asked that
+ * they would know (a customer's group chat, 2026-11-04).
+ */
+export async function nameOf(ctx: MutationCtx, userId: Id<"users">): Promise<string> {
+  const name = (await ctx.db.get(userId))?.name;
+  return typeof name === "string" ? name.replace(/\s+/g, " ").trim().slice(0, MAX_NAME) : "";
+}
+
+/** A chat person's handle and, when their account has one, their name. */
+export async function chatPerson(ctx: MutationCtx, phone: string, userId: Id<"users">): Promise<{ phone: string; handle: string; name?: string }> {
+  const name = await nameOf(ctx, userId);
+  return { phone, handle: await handleOf(ctx, userId), ...(name ? { name } : {}) };
+}
+
 /**
  * The account a number holds by its own sign-in, with no Tex link: the light account a guest's texted code makes
  * (`functions/guestPass.ts`). Only one confirmed account carrying the number counts, and not one with texting paused.

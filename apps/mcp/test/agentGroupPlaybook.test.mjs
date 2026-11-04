@@ -47,7 +47,7 @@ const bodyAt = (path) => {
 };
 
 test("every turn is shown the workspace's playbook", async () => {
-  world.model.install([{ text: "Got it." }]);
+  world.model.install([{ text: "It goes to payroll on Fridays." }]); // a bare "Got it." to a question goes back once (`doItChecks.js`)
   const asked = await tagged("Tex what do we do with the hours sheet?");
   assert.equal(asked.status, 200, JSON.stringify(asked.body));
   const system = JSON.stringify(world.model.requests[0].system);

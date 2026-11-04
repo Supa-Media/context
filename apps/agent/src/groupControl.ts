@@ -27,7 +27,7 @@ export type ControlAnswer =
       timeZone?: string;
       handle?: string;
       accessToken?: string;
-      names?: { phone: string; handle: string }[];
+      names?: { phone: string; handle: string; name?: string }[];
       guests?: { phone: string; label: string }[];
       /** Mailboxes shared with this chat (`chat-mail.md`): the turn is told whose and which. */
       mail?: { handle: string; address: string }[];
