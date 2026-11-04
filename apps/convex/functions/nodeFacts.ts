@@ -469,14 +469,17 @@ export const propsAt = internalQuery({
  */
 export const propsNow = internalQuery({
   args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
-  returns: v.array(v.object({ path: v.string(), current: v.boolean(), sealed: v.boolean(), props: v.union(v.string(), v.null()) })),
+  returns: v.array(
+    v.object({ path: v.string(), current: v.boolean(), sealed: v.boolean(), props: v.union(v.string(), v.null()), key: v.union(v.string(), v.null()) }),
+  ),
   handler: async (ctx, { workspaceId, paths }) => {
     if (paths.length > PROPS_AT_PATHS) throw new Error("nodes.props_at_too_many");
     const found = [];
     for (const path of new Set(paths)) {
       const row = await liveNode(ctx.db, workspaceId, path);
       if (row === null) continue;
-      found.push({ path, current: factsCurrent(row), sealed: row.sealed === true, props: row.props ?? null });
+      // The key says where the text lives: a Tex note's is in Tex's objects, which a scan may read it from (`lib/routines/texFacts.ts`).
+      found.push({ path, current: factsCurrent(row), sealed: row.sealed === true, props: row.props ?? null, key: row.storageKey ?? null });
     }
     return found;
   },
