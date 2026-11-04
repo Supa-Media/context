@@ -17,6 +17,7 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   normalizeHandle,
+  ownTexHref,
   readFrame,
   resolveTexPage,
   texComputerEndpoint,
@@ -104,5 +105,33 @@ describe("telemetry", () => {
     expect(telemetryRoute("/tex/seyi")).toBe("/tex/:context");
     expect(redactTelemetryText("https://context.lc/tex/seyi")).toBe("https://context.lc/tex/:context");
     expect(redactTelemetryText("https://context.lc/texts/abc")).toBe("https://context.lc/texts/:token");
+  });
+});
+
+describe("bare /tex", () => {
+  const signedIn = { isLoading: false, isAuthenticated: true };
+  const mine = [
+    { workspaceId: "ws_other", slug: "friend", kind: "personal", role: "member" },
+    { workspaceId: "ws_me", slug: "seyi", kind: "personal", role: "owner" },
+  ];
+
+  // A runner's pairing link is made before anyone is known, so it has no handle.
+  test("goes to the person's own page with the query kept", () => {
+    expect(ownTexHref({ auth: signedIn, workspaces: mine }, "view=machines&code=NQJ-FSV")).toEqual({
+      kind: "go",
+      href: "/tex/seyi?view=machines&code=NQJ-FSV",
+    });
+  });
+
+  test("signed out, signs in and comes back to the same link", () => {
+    const next = ownTexHref({ auth: { isLoading: false, isAuthenticated: false }, workspaces: undefined }, "view=machines");
+    expect(next.kind).toBe("go");
+    expect(next.kind === "go" && next.href).toContain(encodeURIComponent("/tex?view=machines"));
+  });
+
+  test("waits while sign-in or the workspaces load, and never lands on a workspace the person only joined", () => {
+    expect(ownTexHref({ auth: { isLoading: true, isAuthenticated: false }, workspaces: undefined }, "")).toEqual({ kind: "wait" });
+    expect(ownTexHref({ auth: signedIn, workspaces: undefined }, "")).toEqual({ kind: "wait" });
+    expect(ownTexHref({ auth: signedIn, workspaces: [mine[0]] }, "")).toEqual({ kind: "go", href: null });
   });
 });
