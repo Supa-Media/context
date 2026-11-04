@@ -86,7 +86,8 @@ export function workspaceStub(env, workspaceId) {
  *
  * - `bodies`: a ContextStore (`store/r2.js`) over the object's keys.
  * - `userId` (optional on every read): who is reading, judged by the object's own members where it decides access
- * - `rows.lookup({paths, scope, groups, audience})`, `rows.resolve({noteIds, ...})` → `{rows: [{found, path, noteId, key, etag, kind, collaborates}], accessVersion}`
+ * - `rows.lookup({paths, scope, groups, audience, withBody?})`, `rows.resolve({noteIds, ...})` → `{rows: [{found, path, noteId, key, etag, kind, collaborates, body?}], accessVersion}`;
+ *   `withBody` on a one-path lookup carries the found note's Markdown as `body: {meta, text}` (`lookupBody.js`)
  * - `read({ids, scope, groups, audience})` → `{notes: Array<{id, found: true, path, etag, contentType, text}|{id, found: false}>, accessVersion}`
  * - `visible({ids, scope, groups})` → booleans, the same check (for the parity checker)
  * - `rows.manifest({folder, cursor, scope, groups, audience})` → `{served: true, entries: [{path, etag, size, updatedAt, noteId}], cursor}`
@@ -131,7 +132,7 @@ export function workspaceClient(env, workspaceId) {
       put: async (rows) => await ask("ws.rows.put", { rows }),
       remove: async (ids, at) => await ask("ws.rows.remove", { ids, at }),
       get: async (ids) => await ask("ws.rows.get", { ids }),
-      lookup: async ({ paths, scope, groups = [], audience = "member", userId = null, chatNames = null }) => await ask("ws.rows.lookup", { paths, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
+      lookup: async ({ paths, scope, groups = [], audience = "member", userId = null, chatNames = null, withBody = false }) => await ask("ws.rows.lookup", { paths, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}), ...(withBody === true ? { withBody: true } : {}) }),
       resolve: async ({ noteIds, scope, groups = [], audience = "member", userId = null, chatNames = null }) => await ask("ws.rows.resolve", { noteIds, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
       list: async ({ after = null, limit = 1000 } = {}) => await ask("ws.rows.list", { after, limit }),
       listing: async (/** @type {{path: string, scope: string, groups?: string[], audience?: string}} */ options) =>

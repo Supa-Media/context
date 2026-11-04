@@ -69,8 +69,11 @@ async function openBinding(session, env, controlPlane, later = () => {}) {
   }
   const logged = (source, extra = {}) =>
     console.log(JSON.stringify({ event: "workspace_binding_opened", workspaceId: session.workspaceId, source, reason: fromObject.reason, ms: Date.now() - started, ...(fromObject.wake ? { cold: fromObject.wake.cold, waitedMs: fromObject.wake.waitedMs } : {}), ...extra }));
+  // Where it came from, for the entry point's timings (`http/mcpRoute.js`): a source and a short code, never a key.
+  const from = { source: fromObject.opened !== null ? "object" : "control_plane", reason: typeof fromObject.reason === "string" && /^[a-z_]{1,32}$/.test(fromObject.reason) ? fromObject.reason : null };
   if (fromObject.opened !== null) {
     logged("object");
+    sources.set(fromObject.opened, from);
     // A kept copy past fresh was served; the control plane is asked behind the response, for the next request.
     if (typeof fromObject.refresh === "function") later(refreshBehind(session, controlPlane, fromObject.refresh));
     return fromObject.opened;
@@ -89,8 +92,12 @@ async function openBinding(session, env, controlPlane, later = () => {}) {
   }
   const kept = typeof fromObject.keep === "function" ? await fromObject.keep(opened) : null;
   logged("control_plane", kept === null ? {} : { kept: kept.kept, keptReason: kept.reason });
+  if (opened && typeof opened === "object") sources.set(opened, from);
   return opened;
 }
+
+/** Where each opened binding came from (`openBinding`), read once by the store built from it. */
+const sources = new WeakMap();
 
 /** Ask the control plane for the binding and keep it in the object. Never throws: a failed refresh is tried next time. */
 async function refreshBehind(session, controlPlane, keep) {
@@ -276,6 +283,8 @@ async function openSessionStore(session, env, controlPlane) {
   // For the agent tools' listing (`http/routing.js` `treeManifest`, `store/objectManifest.js`). Non-enumerable: it holds
   // the object's client, which nothing that spreads or logs a store should carry.
   Object.defineProperty(store, "objectReading", { value: objectReading, enumerable: false, writable: false, configurable: true });
+  // Where its binding came from (`openBinding`): `{source, reason}`, so a slow open can say why (`http/mcpRoute.js`).
+  Object.defineProperty(store, "bindingFrom", { value: sources.get(opened) ?? null, enumerable: false, writable: false, configurable: true });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
   // Where the bucket's backup writes go behind the response, once the request names it (`http/requestStore.js`).
   Object.defineProperty(store, "backupBehind", { value: behind, enumerable: false, writable: false, configurable: true });

@@ -46,7 +46,11 @@ export function audienceOf(names) {
  */
 function entryOf(row) {
   if (row.kind === "folder") return { state: "folder" };
-  return narrowNote({ state: "keyed", key: row.key, etag: row.etag, ...(typeof row.noteId === "string" ? { noteId: row.noteId } : {}) });
+  const entry = narrowNote({ state: "keyed", key: row.key, etag: row.etag, ...(typeof row.noteId === "string" ? { noteId: row.noteId } : {}) });
+  // The note's Markdown, where an edit's lookup asked for it (`workspaceStore/lookupBody.js`): only ever for this key.
+  const body = row.body;
+  if (entry === null || !body || typeof body.text !== "string" || body.meta?.key !== entry.key || typeof body.meta.etag !== "string") return entry;
+  return { ...entry, body: { meta: body.meta, text: body.text } };
 }
 
 /**
@@ -197,10 +201,11 @@ export function objectFirstHooks(hooks, options) {
   if (reader === null) return hooks;
   const { client, workspaceId, log, judged, settledBehind } = reader;
 
-  const lookup = async (paths) => {
+  // `withBody`: an edit's one lookup (`idLayout.js` `oneWrite`) asks for the note's Markdown beside its row.
+  const lookup = async (paths, { withBody = false } = {}) => {
     let answer;
     try {
-      answer = await client.rows.lookup({ paths, ...judged });
+      answer = await client.rows.lookup({ paths, ...judged, ...(withBody === true && paths.length === 1 ? { withBody: true } : {}) });
     } catch (error) {
       log("workspace_object_lookup_failed", { workspaceId, error: String(error?.message ?? error) });
       return await hooks.lookup(paths);

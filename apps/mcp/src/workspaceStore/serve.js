@@ -33,6 +33,7 @@ import { namesTaken } from "./namesTaken.js";
 import { SearchAskRefused } from "./searchIndex.js";
 import { MeaningAskRefused } from "./meaningIndex.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
+import { withLookupBody } from "./lookupBody.js";
 
 const CALL = "x-tex-call";
 
@@ -297,7 +298,8 @@ export async function serveWorkspaceStore(store, request) {
         return Response.json(answer);
       }
       case "ws.rows.lookup":
-        return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "path", store.members ?? null)));
+        // An edit's one lookup carries its note's Markdown too (`withBody`, `lookupBody.js`), for this reader's found row only.
+        return Response.json(await settledAnswer(store, () => withLookupBody(store, lookUp(rows, fields, "path", store.members ?? null), fields)));
       case "ws.rows.resolve":
         return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "noteId", store.members ?? null)));
       case "ws.rows.names":

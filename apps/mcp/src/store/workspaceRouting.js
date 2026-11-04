@@ -33,6 +33,7 @@
  * and compare check finds and repairs it.
  */
 
+import { r2Shaped } from "../texStore/wire.js";
 import { HOMES, REVISIONS, documentStateId, isHome, isRevisionKey, isWorkspaceObjectKey } from "../workspaceStore/api.js";
 
 const routedPrefix = (prefix) => typeof prefix === "string" && (prefix.startsWith("notes/") || prefix.startsWith(".context/collaboration/"));
@@ -302,6 +303,17 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
       return null;
     };
   }
+
+  /**
+   * A note's Markdown as its row's lookup carried it (`workspaceStore/lookupBody.js`), shaped as `get` answers it from
+   * the object, for the id layer's edit (`idLayout.js` `oneWrite`). Only where `get` would read that key from the
+   * object (home `object`); else `null`, and the id layer reads it with `get`.
+   */
+  wrapped.storedFromLookup = (key, body) => {
+    if (held.home !== HOMES.OBJECT || typeof key !== "string" || !OBJECT_NOTE_KEY.test(key)) return null;
+    if (body?.meta?.key !== key || typeof body.meta.etag !== "string" || typeof body.text !== "string") return null;
+    return r2Shaped(body.meta, new TextEncoder().encode(body.text));
+  };
 
   /**
    * A new note's bytes and row in one call to the workspace object (`workspaceStore/createNote.js`), for the id layer's

@@ -309,6 +309,19 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     }
   };
 
+  /**
+   * The note's Markdown as its row's lookup carried it (`objectLookup.js`, `workspaceStore/lookupBody.js`), shaped as
+   * the store's own `get` answers (`workspaceRouting.js` `storedFromLookup`), or `null`, and the store is asked. Only a
+   * plain `get` (no range or condition), and only once: a second read in the same view asks the store, as before.
+   */
+  const carriedBody = (entry, rest) => {
+    const body = entry.body;
+    if (body === undefined || typeof store.storedFromLookup !== "function") return null;
+    if (rest.some((option) => option !== undefined && (option === null || typeof option !== "object" || Object.keys(option).length > 0))) return null;
+    entry.body = undefined;
+    return store.storedFromLookup(entry.key, body);
+  };
+
   /** A read routed by the tree: `method` is `get`, `head`, `exists` or `existsMetadata`. */
   // A read's lookup: the same answer, from where a read may take "no note here" without the control plane.
   const readLookup = typeof lookupRead === "function" ? lookupRead : lookup;
@@ -316,7 +329,10 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     if (!mirroredPath(path)) return await store[method](path, ...rest);
     const resolved = await resolveWith(ask, path);
     const { entry } = resolved;
-    if (keyedEntry(entry)) return await store[method](entry.key, ...rest);
+    if (keyedEntry(entry)) {
+      const carried = method === "get" ? carriedBody(entry, rest) : null;
+      return carried ?? (await store[method](entry.key, ...rest));
+    }
     // No note here, or a folder: nothing to read.
     return method === "exists" || method === "existsMetadata" ? false : null;
   };
@@ -624,7 +640,8 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
    * check and the object's row check (`replaceInObject`, `wrote`) judge the write against what is there now.
    */
   wrapped.oneWrite = (outer = wrapped) => {
-    const ask = rememberingLookup(lookup);
+    // A one-path question asks for the note's Markdown too, so an edit's load is served from the same trip.
+    const ask = rememberingLookup((paths) => lookup(paths, { withBody: paths.length === 1 }));
     const view = Object.create(outer);
     const define = (name, value) =>
       Object.defineProperty(view, name, { value, enumerable: false, writable: false, configurable: true });
