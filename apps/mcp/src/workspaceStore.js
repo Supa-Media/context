@@ -156,8 +156,9 @@ export class WorkspaceStore {
       mirror: mirrorOutbox(sql),
       // Sends them on, oldest first, one flush at a time (`workspaceStore/mirrorFlush.js`, `controlPlane/rowsMirror.js`).
       flushMirror: () => flushMirror(store, (workspaceId, changes) => createControlPlane(this.env).rowsMirror(workspaceId, changes), log),
-      // A flush soon: the alarm runs at once, unless one is already set earlier. Nothing waits on it.
-      mirrorSoon: () => {
+      // A flush soon: the alarm runs at once, unless one is already set earlier. The promise says when the alarm is set;
+      // a write waits for it before its durable-write wait, so one flush carries both (`serveWrites.js`), never fails.
+      mirrorSoon: () =>
         this.state.storage
           .getAlarm()
           .then(async (set) => {
@@ -166,8 +167,7 @@ export class WorkspaceStore {
           })
           .catch(() => {
             // The change is queued; the next write or alarm arms the flush again.
-          });
-      },
+          }),
     };
     // The search indexes caught up on the alarm while changes wait, not only behind a search.
     store.indexBuild = indexBuilder(store);

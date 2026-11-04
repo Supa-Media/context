@@ -111,7 +111,9 @@ export async function serveWrites(store, op, fields, now = Date.now(), mintId = 
     // says (an erase's files, which the bucket half deletes).
     if (!flushed.done) return Response.json({ ok: false, code: "MIRROR_PENDING", answer: outcome.answer }, { status: 503 });
   } else if (outcome.change || outcome.changes?.length > 0) {
-    store.mirrorSoon();
+    // The alarm is set before the answer leaves: set after the durable-write wait below, it is a second write the
+    // output gate holds the answer for, unseen by `commit` (2026-11-04: a move's trip ran ~25 ms past its own time).
+    await store.mirrorSoon();
   }
   if (op === TIMED_OP && outcome.answer?.ok === true) {
     // A move's own time and its wait for durable writes (`createNote.js` `committed`), for the move's timings: the
