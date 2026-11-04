@@ -53,10 +53,13 @@ export function TexHome({
     else if (action.kind === "job" && action.ref) go({ job: action.ref });
   };
 
+  // A tile's line is drawn once it is known; until then a quiet bar, and after `TILES_WAIT_MS` the title alone.
+  const known = (view: TileView) => (view === "computer" ? page.tiles.computer : page.tiles.lines);
   const strip = tilesFor(group !== null).map(({ view, title }) => (
     <Pressable
       key={view}
       accessibilityRole="button"
+      accessibilityLabel={known(view) ? `${title}, ${lines[view]}` : title}
       onPress={() => go({ view })}
       testID={`tex-tile-${view}`}
       style={[styles.tile, wide ? styles.tileWide : styles.tilePhone]}
@@ -71,9 +74,15 @@ export function TexHome({
       <T size={14} weight="500" numberOfLines={1}>
         {title}
       </T>
-      <T size={12} tone="muted" numberOfLines={1}>
-        {lines[view]}
-      </T>
+      <View style={styles.tileLine}>
+        {known(view) ? (
+          <T size={12} tone="muted" numberOfLines={1}>
+            {lines[view]}
+          </T>
+        ) : page.tiles.waiting ? (
+          <View testID={`tex-tile-${view}-wait`} style={styles.tileWait} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+        ) : null}
+      </View>
     </Pressable>
   ));
 
@@ -396,7 +405,11 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 12,
       backgroundColor: colors.surface,
     },
-    tilePhone: { minWidth: 112, flexShrink: 0 },
+    // Wide enough for most lines, so a line landing after the page rarely widens its tile.
+    tilePhone: { minWidth: 128, flexShrink: 0 },
+    // One 12px line's height whether it holds the line, the bar or nothing: nothing below moves when it lands.
+    tileLine: { height: 18, justifyContent: "center" },
+    tileWait: { width: 56, height: 8, borderRadius: 4, backgroundColor: colors.surface3 },
     tileWide: { flex: 1, minWidth: 0 },
     icon: {
       width: 26,
