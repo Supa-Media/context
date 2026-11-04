@@ -196,7 +196,13 @@ export class WorkspaceStore {
     // A build behind a search that left changes waiting: the alarm builds on (`workspaceStore/indexBuild.js`).
     if (INDEX_BUILDS.has(opOf(request)) && response.ok) {
       try {
-        store.indexBuild.noted(await response.clone().json());
+        const answer = await response.clone().json();
+        // Whether a build behind a search did anything: counts and a code, never a path (2026-11-04: @seyi's meaning
+        // index never finished its first build, and nothing said why).
+        if (opOf(request) === "ws.meaning.build") {
+          console.log(JSON.stringify({ event: "meaning_build", reason: answer?.failed === true ? (typeof answer.reason === "string" ? answer.reason : "failed") : answer?.served === true ? (answer.busy === true ? "busy" : "built") : "not_served", ...(Number.isFinite(answer?.waiting) ? { meaningWaiting: answer.waiting } : {}) }));
+        }
+        store.indexBuild.noted(answer);
         if (store.indexBuild.wake() !== null) this.tex().arm();
       } catch {
         // The next search's build call notes it again.

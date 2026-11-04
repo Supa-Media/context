@@ -123,8 +123,10 @@ export function bindingEmbedder(ai) {
         answer = await withTimeout(ai.run(MEANING_MODEL, { text: group }));
       } catch (error) {
         if (error instanceof MeaningError) throw error;
-        // The binding's error can quote the input, which is a note. Dropped.
-        throw new MeaningError("UNAVAILABLE", { cause: "model" });
+        // The binding's error can quote the input, which is a note: only a leading numeric provider code is kept
+        // (Workers AI's "3030: ..." for an input it refused), never the words after it.
+        const code = /^\s*(\d{4})\b/.exec(typeof error?.message === "string" ? error.message : "");
+        throw new MeaningError("UNAVAILABLE", { cause: "model", operation: "embed", providerCodes: code ? [Number(code[1])] : [] });
       }
       out.push(...vectorsFrom(answer, group.length));
     }
