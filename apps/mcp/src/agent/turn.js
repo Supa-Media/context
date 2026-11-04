@@ -438,8 +438,7 @@ export async function runTurn(options) {
     prompt = promptFor(model);
   };
   // The blocks were stripped after a 400 that named them: once a turn, and the next round's trace says so.
-  let stripped = false;
-  let strippedNote = false;
+  let stripped = false, strippedNote = false;
   // The last round's tool calls included one that failed: the next one plans again.
   let escalate = false;
   // The fallback is taken once a turn: a turn that moved models must never loop back to it.
@@ -472,8 +471,7 @@ export async function runTurn(options) {
     } catch (error) {
       // A provider that refused the earlier blocks (`aiGateway.js` names it): once more without them, as before.
       if (error instanceof ProviderError && error.reason === THINKING_REFUSED && !stripped && messages.some((message) => message.content)) {
-        stripped = true;
-        strippedNote = true;
+        stripped = strippedNote = true;
         timing.modelMs += clock() - asked;
         for (const message of messages) if (message.content) delete message.content;
         round -= 1;
