@@ -1,0 +1,48 @@
+# Count search by meaning's rows by status and error code, and show the
+# largest rows' standing (2026-11-04: @seyi's meaning search had been silent
+# for two days and nothing an agent can read said why).
+#
+# Manual only, read only. It runs `functions/meaningCensus:run`, which answers
+# counts and our own closed-set codes only, never a workspace id, a slug, an
+# index name or a path: this repository is public, and so is this job's log.
+name: Meaning index census
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to count."
+        type: choice
+        options:
+          - staging
+          - production
+        default: production
+
+permissions:
+  contents: read
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Count meaning index rows
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          # stderr is dropped: `convex run` prints the function's own log lines there (`scripts/check-convex-run-stderr.mjs`).
+          answer=$(npx convex run functions/meaningCensus:run '{}' 2>/dev/null)
+          echo "census: $(echo "$answer" | jq -c .)"
