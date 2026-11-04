@@ -316,8 +316,17 @@ export async function runImessageServiceChecks(check, skip) {
       nativeWatcherCalls += 1;
     });
     try {
-      await writeFile(join(messagesDir, "chat.db-wal"), "changed");
-      check("the native Messages watcher reacts to chat.db's WAL sidecar", await waitUntil(() => nativeWatcherCalls > 0));
+      // macOS delivers fs.watch through FSEvents, which can drop a change made in
+      // the moment the stream starts and coalesces events with latency. A 1 s wait
+      // on one write failed a release build on a Mac (2026-11-04) while the same
+      // source passed minutes earlier, so the sidecar is rewritten until the
+      // watcher fires, for up to 5 s. A watcher that never reacts still fails.
+      let reacted = false;
+      for (let attempt = 0; attempt < 10 && !reacted; attempt += 1) {
+        await writeFile(join(messagesDir, "chat.db-wal"), `changed ${attempt}`);
+        reacted = await waitUntil(() => nativeWatcherCalls > 0, 500);
+      }
+      check("the native Messages watcher reacts to chat.db's WAL sidecar", reacted);
     } finally {
       nativeWatcher.close();
     }
