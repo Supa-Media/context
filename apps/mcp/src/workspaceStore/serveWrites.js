@@ -48,6 +48,24 @@ export function runWriteOp(store, handler, fields, now = Date.now(), mintId = ob
   return result;
 }
 
+/**
+ * The object's side of a timed answer's trip (2026-11-04: a move's trip ran 30 to 60 ms past the object's own time,
+ * with nothing saying where): when the call began here and when its answer left (`arrived`, `answered`, epoch ms on
+ * the object's clock), how long it took to reach the op (`before`), and whether the instance was cold or its alarm was
+ * running. The gateway puts them beside its own send and receive times. Numbers and flags only.
+ */
+function timesOf(timing, started) {
+  const arrived = typeof timing?.arrived === "number" && Number.isFinite(timing.arrived) ? timing.arrived : null;
+  if (arrived === null) return {};
+  return {
+    arrived,
+    answered: Date.now(),
+    before: Math.max(0, started - arrived),
+    ...(timing.cold === true ? { cold: true } : {}),
+    ...(timing.alarm === true ? { alarm: true } : {}),
+  };
+}
+
 const changesOf = (result) => result.changes ?? (result.change ? [result.change] : []);
 const ancestorsOf = (path) => path.split("/").slice(0, -1).map((_, index, parts) => parts.slice(0, index + 1).join("/"));
 
@@ -82,9 +100,11 @@ function treeChanged(store, result) {
 
 /**
  * `store` is the object's `ready()` store: `{rows, sql, transact, mirror, flushMirror, mirrorSoon}`.
- * `now` is the object's clock for the change.
+ * `now` is the object's clock for the change. `timing` is what the object's `fetch` saw of this call before it got
+ * here: `arrived` (its clock when the call began), `cold` (the first call this instance answered) and `alarm` (its
+ * alarm was running then), so a timed answer can say where a trip's time went outside the op (`objectMove.js`).
  */
-export async function serveWrites(store, op, fields, now = Date.now(), mintId = objectRowId) {
+export async function serveWrites(store, op, fields, now = Date.now(), mintId = objectRowId, timing = {}) {
   const started = Date.now();
   const handler = Object.hasOwn(WRITE_OPS, op) ? WRITE_OPS[op] : null;
   if (handler === null) return Response.json({ error: "unknown_op" }, { status: 400 });
@@ -120,7 +140,7 @@ export async function serveWrites(store, op, fields, now = Date.now(), mintId = 
     // answer waits for those writes anyway (the output gate), so waiting here adds nothing.
     // Without a way to wait for its writes (a test's store) the object's clock does not move, so it says nothing.
     const commit = await committed(store);
-    if (commit !== null) return Response.json({ ...outcome.answer, took: Date.now() - started, commit });
+    if (commit !== null) return Response.json({ ...outcome.answer, took: Date.now() - started, commit, ...timesOf(timing, started) });
   }
   return Response.json(outcome.answer);
 }

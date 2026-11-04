@@ -201,7 +201,7 @@ function pathsTouched(rows, ids, incoming = []) {
  * `store` is `{rows: workspaceRows(sql), objects: texObjects(sql), onTreeChange?}`. `onTreeChange({paths, rules})`
  * runs after a row or rules change lands (the app's live tree), and never fails the call.
  */
-export async function serveWorkspaceStore(store, request) {
+export async function serveWorkspaceStore(store, request, timing = {}) {
   const op = opOf(request);
   if (typeof op !== "string" || !(op.startsWith("ws.") || isPersonCall(op) || isTokenIndexCall(op))) {
     // A note's text written or removed reaches the word index by its own triggers (`searchIndex.js`).
@@ -223,7 +223,8 @@ export async function serveWorkspaceStore(store, request) {
     return op === ACCESS_OPS.SESSION ? await withOpen(store, answered, fields) : answered;
   }
   // Write ops: the change and its mirror entry land in one transaction; they check and pin their workspace themselves (`serveWrites.js`).
-  if (isWriteOp(op)) return await serveWrites(store, op, fields);
+  // `timing` is the object's `fetch`'s view of the call (`serveWrites.js` `timesOf`).
+  if (isWriteOp(op)) return await serveWrites(store, op, fields, undefined, undefined, timing);
   try {
     rows.pinWorkspace(fields.workspaceId);
     const membership = await serveMembersCall(store, op, fields);
