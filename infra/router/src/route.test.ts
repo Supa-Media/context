@@ -15,6 +15,10 @@ const BROWSER_UA =
 const SLACKBOT_UA = "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)";
 
 describe("route: the apex is the Expo web app", () => {
+  it.each([undefined, SLACKBOT_UA, "GPTBot/1.0"])("serves the complete public privacy document to %s", (userAgent) => {
+    for (const path of ["/legal/privacy", "/legal/privacy/"]) expect(at(`https://context.lc${path}`, userAgent)).toEqual({kind:"proxy",upstream:"expo",path});
+  });
+
   it.each(["/", "/onboarding", "/dashboard", "/settings/storage"])(
     "%s goes to the Expo upstream with the path unchanged",
     (path) => {

@@ -23,11 +23,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # These guards use only Node built-ins. The hosted runner already carries
-      # Node, so this lane needs no runtime or package-manager setup and no
-      # install. Print the version so a runner change is visible in the log.
+      # These guards use only Node built-ins and need no package install.
+      # Pin the runtime: the public policy check reads its canonical TypeScript
+      # data with Node's built-in type stripping.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
       - name: Record the runner Node version
         run: node --version
+
+      - name: The public privacy page contains the current policy without app execution
+        run: node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/public-privacy.test.mjs
 
       - name: Workflow files and triggers are valid
         run: |
