@@ -153,4 +153,6 @@ test("the vault link's action tells the model to look a login's site up, not gue
   assert.ok(line, "vault_add is listed");
   assert.match(line, /never guess the site from the name/);
   assert.match(line, /search_web the company/);
+  // golden task 3: asked to save a login, Tex asked "Gmail or another email?" instead of sending the link.
+  assert.match(line, /never ask first which email/);
 });
