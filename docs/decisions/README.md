@@ -216,6 +216,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Orient again with `since`, and only what changed comes back](./gateway-protocol/orient-since.md)
 - [Each workspace draws orient's map in its own object](./gateway-protocol/orient-map-in-object.md)
 - [A note is read inside its workspace object in one call](./gateway-protocol/note-read-in-object.md)
+- [An edit's row lookup carries the note's Markdown](./gateway-protocol/edit-lookup-body.md)
 - [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
 - [An agent with a picture as a file sends it with a one-use upload link](./gateway-protocol/image-upload-links.md)
 - [The live map reads the activity feed, and every path in it is the caller's](./gateway-protocol/live-map-feed.md)

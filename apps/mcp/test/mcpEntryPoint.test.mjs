@@ -222,6 +222,8 @@ test("a call naming another workspace times that open too", async () => {
   const { status, points } = await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "fetch", arguments: { id: "1-projects/a.md", context: "@entry-other" } } });
   assert.equal(status, 200);
   assert.ok(steps(points).includes("open_other_context"), steps(points).join(", "));
+  // And again by where its binding came from, and why: here no workspace object, so the control plane.
+  assert.ok(steps(points).includes("open_other_context:control_plane:no_object"), steps(points).join(", "));
   assert.doesNotMatch(JSON.stringify(points), /entry-other|ws_other/);
 });
 
