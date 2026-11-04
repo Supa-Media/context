@@ -28,7 +28,7 @@
  * error. Errors carry a code from `MEANING_ERROR_CODES` and a cause of ours.
  */
 
-import { CLOUDFLARE_API_BASE, MeaningError, providerHint } from "./errors.js";
+import { CLOUDFLARE_API_BASE, MeaningError, providerHint, providerWords } from "./errors.js";
 
 export const MEANING_MODEL = "@cf/baai/bge-m3";
 export const MEANING_DIMENSIONS = 1024;
@@ -127,7 +127,8 @@ export function bindingEmbedder(ai) {
       if (providerCodes[0] === 3030) throw new MeaningError("REFUSED", { cause: "http_400", operation: "embed", providerCodes });
       // Past the code, only which of our words the message was about (`providerHint`), never the message.
       const hint = providerHint(typeof error?.message === "string" ? error.message.replace(/^\s*\d{4}\s*:?/, "") : "");
-      throw new MeaningError("UNAVAILABLE", { cause: "model", operation: "embed", providerCodes, hint });
+      const words = providerWords(error?.message, group);
+      throw new MeaningError("UNAVAILABLE", { cause: "model", operation: "embed", providerCodes, hint, providerWords: words });
     }
     return vectorsFrom(answer, group.length);
   }

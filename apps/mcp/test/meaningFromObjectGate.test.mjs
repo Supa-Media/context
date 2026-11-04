@@ -142,7 +142,7 @@ test("the binding isolates a refused passage as the REST API does, and keeps the
 test("an undocumented model failure keeps one word of ours for what it was about, never its message", async () => {
   const { bindingEmbedder } = await import("../src/search/meaning/embed.js");
   const embed = bindingEmbedder({ run: async () => { throw new Error("8006: input too long for secret note words"); } });
-  await assert.rejects(embed(["x"]), (error) => {
+  await assert.rejects(embed(["a secret note, in words"]), (error) => {
     assert.equal(error.code, "UNAVAILABLE");
     assert.deepEqual(error.providerCodes, [8006]);
     assert.equal(error.hint, "too_long");
@@ -151,4 +151,13 @@ test("an undocumented model failure keeps one word of ours for what it was about
   });
   const odd = bindingEmbedder({ run: async () => { throw new Error("8006: purple elephants"); } });
   await assert.rejects(odd(["x"]), (error) => error.hint === "other");
+});
+
+test("a model failure's words reach the log only where no input holds them, and never a digit", async () => {
+  const { providerWords } = await import("../src/search/meaning/errors.js");
+  assert.equal(providerWords("8006: Request quota exceeded for account 12ab34", ["my quota notes"]), "request exceeded for account ab");
+  assert.equal(providerWords("8006: secret plan", ["the Secret plan"]), undefined);
+  const { bindingEmbedder } = await import("../src/search/meaning/embed.js");
+  const embed = bindingEmbedder({ run: async () => { throw new Error("8006: purple elephants said diary words"); } });
+  await assert.rejects(embed(["dear diary, my words"]), (error) => error.providerWords === "purple elephants said");
 });

@@ -339,7 +339,8 @@ export async function serveWorkspaceStore(store, request) {
           const codes = Array.isArray(error?.providerCodes) ? error.providerCodes.filter(Number.isSafeInteger) : [];
           const hint = typeof error?.hint === "string" ? [error.hint] : [];
           const reason = typeof error?.code === "string" ? [error.code, ...codes, ...hint].join(":").toLowerCase() : "error";
-          return Response.json({ served: true, failed: true, waiting: null, reason });
+          const words = typeof error?.providerWords === "string" ? { providerWords: error.providerWords } : {};
+          return Response.json({ served: true, failed: true, waiting: null, reason, ...words });
         }
         return Response.json(built === null ? { served: false } : { served: true, ...built });
       }
