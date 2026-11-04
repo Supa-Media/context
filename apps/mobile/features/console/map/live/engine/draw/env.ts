@@ -35,6 +35,11 @@ export type DrawEnv = {
   trace: Set<string> | null;
   /** How far out the map is, 0 to 1: folders turn into pencil scribbles and the notes step back. */
   far: number;
+  /** Where the pointer is on the canvas (null once it left, undefined if never seen), and the note under it. */
+  pointer: Point | null | undefined;
+  hoverKey: string | null;
+  /** The dots breathe this frame (the map's settings, never with reduced motion). */
+  breathe: boolean;
   /** The map's opening while it plays, or null. */
   opening: Opening | null;
   /** Notes present per folder and subfolder key, and per workspace. */

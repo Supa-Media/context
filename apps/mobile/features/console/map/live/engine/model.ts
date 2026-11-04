@@ -67,10 +67,15 @@ export function buildModel(
   now: number,
   options: { idleMs: number; reducedMotion: boolean; following: string | null },
 ): Model {
-  const graphs = graphsInScope(data.graphs, data.scope);
+  const look = data.look;
+  // "Notes with no links" off in the map's settings: they are left out of the drawing.
+  const graphs = graphsInScope(data.graphs, data.scope).map((g) => (look && !look.showOrphans ? withoutOrphans(g) : g));
   const ids = new Set(graphs.map((g) => g.workspaceId));
   const live = data.clock.kind === "live";
-  let events = eventsInScope(data.events, ids);
+  // "AIs at work" off: the map shows people only.
+  const agents = !look || look.showAgents;
+  const actors = agents ? data.actors : data.actors.filter((a) => a.kind !== "agent");
+  let events = eventsInScope(data.events, ids).filter((e) => agents || e.actor.kind !== "agent");
 
   if (live) {
     // A late event animates from when it arrived; the first batch is history.
@@ -87,10 +92,11 @@ export function buildModel(
   events.sort(byTime);
 
   const extra = historyPaths(events, data.graphs).filter((p) => ids.has(p.workspaceId));
-  const spread = data.look?.spread ?? 1;
-  const sig = `${spread}\n${layoutSignature(graphs, extra)}`;
+  const spread = look?.spread ?? 1;
+  const openArchive = look?.showArchive ?? false;
+  const sig = `${spread}|${openArchive}\n${layoutSignature(graphs, extra)}`;
   if (!memory.layout || sig !== memory.layoutSig) {
-    memory.layout = buildLayout(graphs, extra, memory.layoutCache, spread);
+    memory.layout = buildLayout(graphs, extra, memory.layoutCache, spread, openArchive);
     memory.layoutSig = sig;
     if (memory.layoutCache.size > 4000) memory.layoutCache.clear();
   }
@@ -98,8 +104,8 @@ export function buildModel(
   const liveReads = new Map<string, Array<{ workspaceId: string; path: string }>>();
   let steps: Map<string, Step[]>;
   if (live) {
-    steps = liveSteps(data.actors, graphs, memory, now);
-    for (const a of data.actors) {
+    steps = liveSteps(actors, graphs, memory, now);
+    for (const a of actors) {
       if (!a.reads || a.reads.length === 0) continue;
       const ws = a.workspaceId ?? workspaceOf(a.path, graphs) ?? graphs[0]?.workspaceId;
       if (!ws) continue;
@@ -128,6 +134,23 @@ export function buildModel(
     reducedMotion: options.reducedMotion,
     following: options.following,
   };
+}
+
+/** A graph without the notes that link to nothing and nothing links to. */
+export function withoutOrphans(g: WorkspaceGraph): WorkspaceGraph {
+  const linked = new Set<number>();
+  for (const [a, b] of g.edges) {
+    linked.add(a);
+    linked.add(b);
+  }
+  if (linked.size === g.nodes.length) return g;
+  const index = new Map<number, number>();
+  const nodes = g.nodes.filter((_, i) => {
+    if (!linked.has(i)) return false;
+    index.set(i, index.size);
+    return true;
+  });
+  return { ...g, nodes, edges: g.edges.map(([a, b]) => [index.get(a)!, index.get(b)!] as [number, number]) };
 }
 
 function layoutSignature(graphs: readonly WorkspaceGraph[], extra: ReadonlyArray<{ workspaceId: string; path: string }>): string {

@@ -114,3 +114,41 @@ test("a model refusal keeps its number and drops its words", async () => {
     return true;
   });
 });
+
+test("the binding isolates a refused passage as the REST API does, and keeps the rest of the batch", async () => {
+  const { bindingEmbedder } = await import("../src/search/meaning/embed.js");
+  const ai = {
+    run: async (_model, { text }) => {
+      if (text.some((t) => t.includes("poison"))) throw new Error("3030: input rejected");
+      return { data: text.map(() => VECTOR) };
+    },
+  };
+  const embed = bindingEmbedder(ai);
+  // The poison passage shortened to its opening still holds the poison, and so does every section: refused.
+  await assert.rejects(embed(["fine", "poison"]), (error) => error.code === "REFUSED" && error.probeStatus === "accepted");
+  // A batch that is refused as a whole but fine passage by passage is split and fully answered.
+  let calls = 0;
+  const batchy = bindingEmbedder({
+    run: async (_model, { text }) => {
+      calls += 1;
+      if (text.length > 1) throw new Error("3030: batch too large");
+      return { data: text.map(() => VECTOR) };
+    },
+  });
+  assert.equal((await batchy(["a", "b", "c"])).length, 3);
+  assert.ok(calls > 1);
+});
+
+test("an undocumented model failure keeps one word of ours for what it was about, never its message", async () => {
+  const { bindingEmbedder } = await import("../src/search/meaning/embed.js");
+  const embed = bindingEmbedder({ run: async () => { throw new Error("8006: input too long for secret note words"); } });
+  await assert.rejects(embed(["x"]), (error) => {
+    assert.equal(error.code, "UNAVAILABLE");
+    assert.deepEqual(error.providerCodes, [8006]);
+    assert.equal(error.hint, "too_long");
+    assert.equal(JSON.stringify({ ...error, message: error.message }).includes("secret"), false);
+    return true;
+  });
+  const odd = bindingEmbedder({ run: async () => { throw new Error("8006: purple elephants"); } });
+  await assert.rejects(odd(["x"]), (error) => error.hint === "other");
+});

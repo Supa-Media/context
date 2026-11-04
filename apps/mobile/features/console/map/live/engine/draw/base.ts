@@ -1,11 +1,14 @@
 import { toWorld } from "../camera";
 import { LAYER } from "../hit";
-import { ICON_R, type IslandPlace } from "../layout";
+import { ICON_R, type FolderPlace, type IslandPlace } from "../layout";
 import { boardHaze, dotRadius, edgeAlpha, edgeWidth, highwayAlpha, subRimAlpha } from "../lod";
 import { clamp, lerp, quad, type Point } from "../math";
 import { DUR } from "../scene";
 import { BOW, bowOf, grain, textureOf } from "./board";
 import type { DrawEnv } from "./env";
+import { BREATH } from "../motion";
+import { dotColour } from "./colour";
+import { drawBundles, linesShown } from "./lines";
 import { TRACE_REST } from "./marks";
 import { openingLink, openingScale } from "./sketch";
 import { circle, fontOf, roundRect } from "./primitives";
@@ -172,9 +175,12 @@ export function drawLinks(env: DrawEnv): void {
     const sketch = style.look.sketch;
     const bowK = BOW * (0.3 + sketch * 2.4);
     const second = sketch > SECOND_PASS_FROM;
+    const shown = linesShown(env);
+    const merge = style.look.mergeLines ? env.far : 0;
+    const bundles = merge > 0 ? new Map<string, { a: FolderPlace; b: FolderPlace; n: number }>() : null;
     for (const across of [true, false]) {
      for (const pass of second ? [0, 1] : [0]) {
-      const passAlpha = pass === 0 ? 1 : 0.35 + 0.3 * sketch;
+      const passAlpha = (pass === 0 ? 1 : 0.35 + 0.3 * sketch) * (across ? 1 - merge : 1);
       ctx.globalAlpha = (across ? base * CROSS_FOLDER_LINK : base) * passAlpha;
       ctx.beginPath();
       for (const [ka, kb] of model.layout.edges) {
@@ -186,6 +192,14 @@ export function drawLinks(env: DrawEnv): void {
         // Links into a folder drawn as an icon would all meet on it: left out.
         if (na.sub.folder.collapsed || nb.sub.folder.collapsed) continue;
         if ((na.sub.folder !== nb.sub.folder) !== across) continue;
+        if (!shown(na, nb)) continue;
+        // Far out, the links between two folders are gathered into one stroke.
+        if (across && bundles && pass === 0) {
+          const id = na.sub.folder.key < nb.sub.folder.key ? `${na.sub.folder.key}\t${nb.sub.folder.key}` : `${nb.sub.folder.key}\t${na.sub.folder.key}`;
+          const b = bundles.get(id);
+          if (b) b.n += 1;
+          else bundles.set(id, { a: na.sub.folder, b: nb.sub.folder, n: 1 });
+        }
         // A note moving within its workspace takes its links with it.
         const fa = env.flyingAt.get(ka);
         const fb = env.flyingAt.get(kb);
@@ -228,6 +242,7 @@ export function drawLinks(env: DrawEnv): void {
       ctx.stroke();
      }
     }
+    if (bundles) drawBundles(env, bundles, merge * ea * (env.dim ? 0.55 : 1));
     ctx.globalAlpha = 1;
   }
   // A new note's links, drawn out one after another in teal.
@@ -327,7 +342,9 @@ export function drawNotes(env: DrawEnv): void {
   // 20,000 notes painted one dot at a time is a slide show.
   const rims: Array<{ x: number; y: number; r: number; off: number }> = [];
   const sketch = style.look.sketch;
-  ctx.beginPath();
+  // One path per pencil colour ("Colour by" in the map's settings): a handful of fills, never one per dot.
+  const colourOf = dotColour(env);
+  const buckets = new Map<string, number[]>();
   for (const n of env.near) {
     const key = n.key;
     if (scene.hidden.has(key) || popping.has(key) || scene.editing.has(key) || scene.reading.has(key) || follow.has(key)) continue;
@@ -337,21 +354,34 @@ export function drawNotes(env: DrawEnv): void {
     const R = dotRadius(s, n.deg, env.style.look.dotSize) * openingScale(env.opening, n);
     if (R <= 0) continue;
     if (R >= RIM_FROM) rims.push({ x: p.x, y: p.y, r: R + 0.7 + sketch * 1.2, off: bowOf(n.x, n.y, n.y, n.x) * (0.4 + sketch * 1.6) });
-    // A dot a pixel or two across looks the same as a square and paints far
-    // faster, which is what a whole workspace of tiny dots is made of.
-    if (R <= 1.5) ctx.rect(p.x - R, p.y - R, R * 2, R * 2);
-    else {
-      ctx.moveTo(p.x + R, p.y);
-      ctx.arc(p.x, p.y, R, 0, Math.PI * 2);
-    }
+    const colour = colourOf(n);
+    let list = buckets.get(colour);
+    if (!list) buckets.set(colour, (list = []));
+    // Breathing: each dot swells and settles a little, out of step with its neighbours.
+    list.push(p.x, p.y, env.breathe ? R * (1 + BREATH * Math.sin(scene.phase * 1.2 + bowOf(n.x, n.y, n.y, n.x) * 6)) : R);
     env.hit.circle(p.x, p.y, Math.max(R, 3), { kind: "note", workspaceId: n.workspaceId, path: n.path }, LAYER.note);
   }
   // Drawn dots: a grainy fill, and round the bigger ones a loose rim, as a
   // pencil or chalk dot has, a little off centre.
   const rest = (env.dim ? 0.5 : 1) * (env.trace ? TRACE_REST + 0.1 : 1) * (1 - 0.6 * env.far);
-  ctx.fillStyle = grain(ctx, C, C.dot);
   ctx.globalAlpha = rest;
-  ctx.fill();
+  for (const [colour, list] of buckets) {
+    ctx.beginPath();
+    for (let i = 0; i < list.length; i += 3) {
+      const x = list[i]!;
+      const y = list[i + 1]!;
+      const R = list[i + 2]!;
+      // A dot a pixel or two across looks the same as a square and paints far
+      // faster, which is what a whole workspace of tiny dots is made of.
+      if (R <= 1.5) ctx.rect(x - R, y - R, R * 2, R * 2);
+      else {
+        ctx.moveTo(x + R, y);
+        ctx.arc(x, y, R, 0, Math.PI * 2);
+      }
+    }
+    ctx.fillStyle = grain(ctx, C, colour);
+    ctx.fill();
+  }
   if (rims.length > 0) {
     ctx.beginPath();
     for (const m of rims) {
@@ -401,7 +431,7 @@ export function drawNotes(env: DrawEnv): void {
       ctx.lineWidth = 1;
     }
     circle(ctx, p.x, p.y, ed || rd ? Math.max(R, 2.6) + 0.6 : R);
-    ctx.fillStyle = ed || sel ? C.accent : rd ? C.ink : C.dot;
+    ctx.fillStyle = ed || sel ? C.accent : rd ? C.ink : colourOf(n);
     ctx.globalAlpha = env.dim && !(ed || rd || sel) ? 0.5 : 1;
     ctx.fill();
     ctx.globalAlpha = 1;

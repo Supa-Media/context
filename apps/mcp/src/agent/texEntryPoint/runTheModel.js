@@ -38,9 +38,9 @@ import { withVaultWatch } from "../vaultSaved.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function runTheModel(t) {
-  const { allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, controlPlane, delegation, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, maker, meter, noteLinking, offerRead, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, timeZone, tries } = t;
+  const { allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, controlPlane, delegation, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, maker, meter, noteLinking, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, timeZone, tries } = t;
   if (!tex.lean) await tex.wait("steer_begin", begun);
-  const offerShown = offerRead === null ? "" : await tex.wait("google_offer", offerRead), knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
+  const knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
     question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.question ?? askedWith(question, quoted), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
@@ -79,7 +79,7 @@ export async function runTheModel(t) {
     },
     web: steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
     history: logged?.history ?? shown,
-    threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + offerShown + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
+    threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
     local: [...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)

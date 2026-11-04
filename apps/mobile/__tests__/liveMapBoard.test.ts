@@ -4,7 +4,7 @@ import { createMapEngine, type MapData } from "../features/console/map/live/engi
 import { BOW, bowOf } from "../features/console/map/live/engine/draw/board";
 import { mapPalette, type MapPalette } from "../features/console/map/live/engine/palette";
 import { darkColors, darkMapColors, lightColors, lightMapColors } from "../features/design/tokens/colors";
-import { fakeCanvas, para, type Call } from "./liveMapFixture";
+import { fakeCanvas, isDotColour, para, type Call } from "./liveMapFixture";
 
 /**
  * PAPER AND CHALKBOARD — `engine/draw/board.ts`, used by `draw/render.ts` and
@@ -127,7 +127,7 @@ describe("the board", () => {
     const calls = render(light, { patterns: false });
     expect(calls.some((c) => isPattern(c.strokeStyle) || isPattern(c.fillStyle))).toBe(false);
     expect(calls.some((c) => c.op === "stroke" && c.strokeStyle === light.edge)).toBe(true);
-    expect(calls.some((c) => c.op === "fill" && c.fillStyle === light.dot)).toBe(true);
+    expect(calls.some((c) => c.op === "fill" && isDotColour(c.fillStyle))).toBe(true);
   });
 
   test("a link keeps its bow as the view moves", () => {

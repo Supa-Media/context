@@ -1,4 +1,4 @@
-import type { MapClock, ZoomLevel } from "../types";
+import type { ZoomLevel } from "../types";
 import {
   NO_INSET,
   camAt,
@@ -24,8 +24,9 @@ import type { IslandPlace } from "./layout";
 import { buildModel, createMemory, type MapData } from "./model";
 import { noteKey } from "./paths";
 import { renderMap } from "./draw/render";
-import { OPENING_S, openingDelays, type Opening, type OpeningKind } from "./draw/sketch";
-import { DEFAULT_FONT, DEFAULT_LOOK, type FaceFor, type Style } from "./draw/primitives";
+import type { MapEngine, MapEngineOptions } from "./api";
+import { breathes, createOpening, createTilt } from "./motion";
+import { DEFAULT_FONT, DEFAULT_LOOK, type Style } from "./draw/primitives";
 import { sceneAt, type Model, type SceneAt } from "./scene";
 import { focusTarget, followSnapshot, type FollowState } from "./follow";
 
@@ -38,62 +39,7 @@ import { focusTarget, followSnapshot, type FollowState } from "./follow";
  * visible, and (for a replay) the playhead is playing.
  */
 
-export type MapEngineOptions = {
-  /** A person's picture. Agents are always drawn as the robot. */
-  faceFor?: FaceFor;
-  reducedMotion?: boolean;
-  /** Play the map's opening (`look.opening`) the first time it has notes to draw. Off for tests and fixtures. */
-  opening?: boolean;
-  /** Parts of the canvas covered by other UI (a bottom sheet); the camera fits the rest. */
-  inset?: Inset;
-  /** Draw the overview in the top-right corner once zoomed in. Default true. */
-  minimap?: boolean;
-  font?: string;
-  /** Replay: how long somebody stays on the map after their last event. Default 10 minutes. */
-  idleMs?: number;
-  onCamera?: (info: CameraDetail) => void;
-  onFollow?: (state: FollowState | null) => void;
-  onHover?: (target: HitTarget | null) => void;
-  /** A note was tapped; `at` is where, in canvas pixels, for a card beside it. */
-  onOpenNote?: (note: { workspaceId: string; path: string; at?: { x: number; y: number } }) => void;
-  /** A tap that landed on nothing: whatever a note tap opened can close. */
-  onTapEmpty?: () => void;
-  onDiveInto?: (folder: { workspaceId: string; path: string }) => void;
-  /** Replay: the playhead while the engine plays it. */
-  onTime?: (t: number) => void;
-  /** Injected for tests: wall clock and frame scheduling. */
-  now?: () => number;
-  requestFrame?: (cb: () => void) => number;
-  cancelFrame?: (id: number) => void;
-};
-
-export type MapEngine = {
-  setData(data: MapData): void;
-  setClock(clock: MapClock): void;
-  /** Replay: advance the playhead at the clock's speed. */
-  setPlaying(playing: boolean): void;
-  follow(actorId: string | null): void;
-  select(note: { workspaceId: string; path: string } | null): void;
-  zoomIn(): void;
-  zoomOut(): void;
-  zoomTo(level: ZoomLevel): void;
-  fit(): void;
-  focusPath(workspaceId: string, path: string): void;
-  diveInto(workspaceId: string, folderPath: string): void;
-  /** Put the camera back where it was (coming back to the map); before the first data, on its arrival. */
-  restoreCamera(cam: Cam): void;
-  resize(width: number, height: number, dpr?: number): void;
-  setInset(inset: Inset): void;
-  setReducedMotion(reduced: boolean): void;
-  /** Draw again (a face image finished loading). */
-  redraw(): void;
-  getCamera(): CameraDetail | null;
-  getFollow(): FollowState | null;
-  /** Draw now at time `t` (a replay frame, or a test). */
-  renderAt(t: number): HitFrame;
-  hitTest(x: number, y: number): HitTarget | null;
-  destroy(): void;
-};
+export type { MapEngine, MapEngineOptions } from "./api";
 
 const MIN_TICK = 1000 / 60;
 
@@ -120,6 +66,9 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   let visible = true;
   let hit = new HitFrame();
   let hovered = "";
+  // Where the pointer is, for "Which lines": undefined until a mouse is seen, null once it leaves.
+  let pointer: { x: number; y: number } | null | undefined = undefined;
+  let hoverKey: string | null = null;
   let lastCameraSig = "";
   let lastFollowSig = "";
   let lastScope = "";
@@ -127,9 +76,11 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   let foldersWidth = 0;
   let destroyed = false;
   let restore: Cam | null = null;
-  // The opening: when it began (wall clock) and which one, or null once played or skipped.
-  let opened = !options.opening;
-  let opening: { kind: OpeningKind; start: number } | null = null;
+  const opening = createOpening(!!options.opening, now);
+  const tilt = createTilt();
+  const ambient = !!options.ambient;
+  const slowFrame = options.slowFrame ?? ((cb: () => void) => setTimeout(cb, 66));
+  let slowPending = false;
 
   const style = (): Style => ({ palette: data!.palette, font: options.font ?? DEFAULT_FONT, faceFor: options.faceFor ?? null, look: data!.look ?? DEFAULT_LOOK });
   const timeNow = (): number => (data?.clock.kind === "replay" ? replayAt : now());
@@ -199,30 +150,23 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
         foldersWidth = out.contentW;
       }
     } else {
-      hit = renderMap(ctx, model, scene, c, vp, { style: style(), selected, minimap: options.minimap ?? true, opening: openingAt() });
+      hit = renderMap(ctx, model, scene, c, vp, { style: style(), selected, minimap: options.minimap ?? true, opening: opening.at(model.layout, reduced),
+        pointer,
+        hoverKey,
+        tilt: ambient && style().look.depth ? tilt.value : null,
+        breathe: ambient && !reduced && breathes(style().look),
+      });
       emitCamera(c);
     }
     emitFollow(scene);
     return scene;
   };
 
-  const openingAt = (): Opening | null => {
-    if (opening === null || !model) return null;
-    const t = (now() - opening.start) / 1000;
-    if (reduced || t > OPENING_S[opening.kind] + 0.6) {
-      opening = null;
-      return null;
-    }
-    return { kind: opening.kind, t, delay: openingDelays(model.layout, opening.kind) };
-  };
-
   /** The first time there are notes on the map, draw it in as the settings say. */
   const maybeOpen = () => {
-    if (opened || !model || !data || model.view !== "map" || model.layout.notes.size === 0) return;
-    opened = true;
-    if (reduced) return;
+    if (!model || !data || model.view !== "map" || model.layout.notes.size === 0) return;
     const kind = data.look?.opening ?? DEFAULT_LOOK.opening;
-    opening = { kind, start: now() };
+    if (!opening.start(kind, reduced)) return;
     if (kind === "zoom" && cam) {
       const to = cam;
       cam = { ...to, s: to.s * 0.35 };
@@ -273,11 +217,22 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
       options.onTime?.(replayAt);
       if (replayAt >= data.clock.to) playing = false;
     }
+    const leaning = tilt.step(lastTick ? wall - lastTick : MIN_TICK, reduced || !style().look.depth);
     lastTick = wall;
     const scene = drawFrame(timeNow());
-    const moving = !!flight || (scene?.animating ?? false) || playing || opening !== null;
+    const moving = !!flight || (scene?.animating ?? false) || playing || opening.active || (ambient && leaning);
     if (moving) frameId = raf(tick);
-    else lastTick = 0;
+    else {
+      lastTick = 0;
+      // Breathing needs only a slow frame, so a map nobody touches stays cheap.
+      if (ambient && !reduced && breathes(style().look) && !slowPending) {
+        slowPending = true;
+        slowFrame(() => {
+          slowPending = false;
+          wake();
+        });
+      }
+    }
   };
 
   function wake(): void {
@@ -334,6 +289,14 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     },
     hover: (x, y) => {
       const target = hitTest(hit, x, y);
+      pointer = { x, y };
+      if (ambient) {
+        tilt.aimAt((x / Math.max(1, vp.w)) * 2 - 1, (y / Math.max(1, vp.h)) * 2 - 1);
+        wake();
+      }
+      hoverKey = target?.kind === "note" ? noteKey(target.workspaceId, target.path) : null;
+      // Lines that follow the pointer redraw as it moves.
+      if ((data?.look?.lines ?? "all") !== "all") wake();
       const sig = target ? JSON.stringify(target) : "";
       if (sig === hovered) return;
       hovered = sig;
@@ -341,6 +304,13 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
       options.onHover?.(target);
     },
     leave: () => {
+      pointer = null;
+      hoverKey = null;
+      if (ambient) {
+        tilt.aimAt(0, 0);
+        wake();
+      }
+      if ((data?.look?.lines ?? "all") !== "all") wake();
       if (hovered === "") return;
       hovered = "";
       canvas.style.cursor = "";

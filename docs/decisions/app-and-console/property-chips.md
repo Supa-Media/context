@@ -91,3 +91,23 @@ though)".
 What a "simplification" would cost: a filled capsule brings back the two
 colours, and an unseeded mark redraws on every render, so the chips shimmer
 while typing. `__tests__/sketchMarks.test.ts` fails if either is undone.
+
+## Tags are paper tape and a filter in force is circled, across the app (2026-11-04)
+
+**Decided by the owner, 2026-11-04**, shown every capsule in the app sorted
+into three piles, of the pencil loop round filters: "this looks good", then
+"yes continue".
+
+- **Values about a note are drawn like its chips.** A tag is a strip of paper
+  tape (`tapeWash`) everywhere it shows: a Board card, the side panel, the
+  Tags sheet, quick add, a phone folder's head, and a `#tag` written in the
+  text. A status is the marker in its group's colour (`StatusPill`). A picked
+  owner in quick add is underlined.
+- **A filter or scope that is on is circled in pencil, and one that is off is
+  plain words** (`sketch/LoopChoice`, `SketchBox`): ⌘K's filter words, the
+  workspace scope, "In <folder>", Look in, Activity and vault filters, Shared
+  with me, and the phone's "Tagged".
+- **The app talking about itself keeps its capsules**: save state, In trash,
+  Staging, plan, connections, meeting state, Can read/Can edit, map presence
+  and every admin badge. A warning has to read at once and must not look
+  playful.

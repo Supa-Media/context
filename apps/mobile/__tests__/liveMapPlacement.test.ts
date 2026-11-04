@@ -14,7 +14,7 @@ import { flagSpot } from "../features/console/map/live/engine/folders";
 import { overlaps, type Rect } from "../features/console/map/live/engine/labels";
 import { fakeContext } from "./liveMapFixture";
 import type { MapEvent } from "../features/console/map/live/types";
-import { WHO, ev, fakeCanvas, graph, para, palette, type Call } from "./liveMapFixture";
+import { WHO, ev, fakeCanvas, graph, isDotColour, para, palette, type Call } from "./liveMapFixture";
 
 /**
  * WHAT GOES ON TOP OF WHAT — `engine/draw/containers.ts`, `engine/draw/flights.ts`,
@@ -211,13 +211,13 @@ describe("note names", () => {
     engine.renderAt(T);
     const calls = canvas.ctx.calls;
     const dots: Array<{ x: number; y: number; r: number }> = [];
-    // Resting dots share one path and one fill, so every arc in a path that
-    // is filled in the dot colour is a dot.
+    // Resting dots share one path and one fill per pencil colour, so every arc
+    // in a path filled in a dot colour is a dot.
     let path: Array<{ x: number; y: number; r: number }> = [];
     for (const c of calls) {
       if (c.op === "beginPath") path = [];
       else if (c.op === "arc") path.push({ x: Number(c.args[0]), y: Number(c.args[1]), r: Number(c.args[2]) });
-      else if (c.op === "fill" && c.fillStyle === palette.dot) dots.push(...path);
+      else if (c.op === "fill" && isDotColour(c.fillStyle)) dots.push(...path);
     }
     const names = texts(calls).filter((t) => t.text.startsWith("note "));
     expect(dots.length).toBeGreaterThan(20);

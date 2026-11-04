@@ -28,7 +28,7 @@
  * error. Errors carry a code from `MEANING_ERROR_CODES` and a cause of ours.
  */
 
-import { CLOUDFLARE_API_BASE, MeaningError } from "./errors.js";
+import { CLOUDFLARE_API_BASE, MeaningError, providerHint } from "./errors.js";
 
 export const MEANING_MODEL = "@cf/baai/bge-m3";
 export const MEANING_DIMENSIONS = 1024;
@@ -113,23 +113,30 @@ async function withTimeout(promise) {
  */
 export function bindingEmbedder(ai) {
   if (!ai || typeof ai.run !== "function") return null;
+  async function request(group) {
+    let answer;
+    try {
+      answer = await withTimeout(ai.run(MEANING_MODEL, { text: group }));
+    } catch (error) {
+      if (error instanceof MeaningError) throw error;
+      // The binding's error can quote the input, which is a note: only a leading numeric provider code is kept
+      // (Workers AI's "3030: ..." for an input it refused), never the words after it. A refusal reads as the REST
+      // API's does, so both embedders isolate and shorten a refused passage alike (`withInputFallback`).
+      const code = /^\s*(\d{4})\b/.exec(typeof error?.message === "string" ? error.message : "");
+      const providerCodes = code ? [Number(code[1])] : [];
+      if (providerCodes[0] === 3030) throw new MeaningError("REFUSED", { cause: "http_400", operation: "embed", providerCodes });
+      // Past the code, only which of our words the message was about (`providerHint`), never the message.
+      const hint = providerHint(typeof error?.message === "string" ? error.message.replace(/^\s*\d{4}\s*:?/, "") : "");
+      throw new MeaningError("UNAVAILABLE", { cause: "model", operation: "embed", providerCodes, hint });
+    }
+    return vectorsFrom(answer, group.length);
+  }
+  const fallback = withInputFallback(request);
   return async function embed(texts) {
     const list = Array.isArray(texts) ? texts : [];
     if (list.length === 0) return [];
     const out = [];
-    for (const group of batches(list)) {
-      let answer;
-      try {
-        answer = await withTimeout(ai.run(MEANING_MODEL, { text: group }));
-      } catch (error) {
-        if (error instanceof MeaningError) throw error;
-        // The binding's error can quote the input, which is a note: only a leading numeric provider code is kept
-        // (Workers AI's "3030: ..." for an input it refused), never the words after it.
-        const code = /^\s*(\d{4})\b/.exec(typeof error?.message === "string" ? error.message : "");
-        throw new MeaningError("UNAVAILABLE", { cause: "model", operation: "embed", providerCodes: code ? [Number(code[1])] : [] });
-      }
-      out.push(...vectorsFrom(answer, group.length));
-    }
+    for (const group of batches(list)) out.push(...(await fallback(group)));
     return out;
   };
 }
@@ -167,6 +174,24 @@ export function createRestEmbedder({ accountId, apiToken, fetchImpl } = {}) {
     return vectorsFrom(body.result, group.length);
   }
 
+  const requestWithInputFallback = withInputFallback(request);
+  return async function embed(texts) {
+    const list = Array.isArray(texts) ? texts : [];
+    if (list.length === 0) return [];
+    const out = [];
+    for (const group of batches(list)) {
+      out.push(...await requestWithInputFallback(group));
+    }
+    return out;
+  };
+}
+
+/**
+ * `request` (one model call for a group of passages) with Workers AI's input refusal (3030) isolated: a refused
+ * group is split, a refused passage is tried shorter and in other sections, and only a passage the model refuses
+ * every way is thrown, as `REFUSED` with the probe's verdict. Shared by both embedders.
+ */
+function withInputFallback(request) {
   async function requestWithInputFallback(group) {
     try {
       return await request(group);
@@ -225,15 +250,7 @@ export function createRestEmbedder({ accountId, apiToken, fetchImpl } = {}) {
       });
     }
   }
-  return async function embed(texts) {
-    const list = Array.isArray(texts) ? texts : [];
-    if (list.length === 0) return [];
-    const out = [];
-    for (const group of batches(list)) {
-      out.push(...await requestWithInputFallback(group));
-    }
-    return out;
-  };
+  return requestWithInputFallback;
 }
 
 /**

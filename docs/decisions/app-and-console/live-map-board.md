@@ -157,3 +157,48 @@ and chaos. In `engine/draw/sketch.ts`:
   plays once per map, not on every change.
 
 **Test:** `liveMapSketch.test.ts`.
+
+## Show, colour and lines in the map's settings (Dev2, 2026-11-04)
+
+The rest of the prototype's settings, with Dev2's choices as everyone's
+defaults:
+
+- **Show**: Archive (off: one icon, as before; on: spread out like any
+  folder, in the layout), notes with no links (on; off leaves them out of the
+  layout), and AIs at work (on; off drops agents' faces, steps and trails).
+- **Colour by** (`engine/draw/colour.ts`): workspace (default), folder, topic
+  (subfolder), pencil pressure (written in the past week dark, older faint) or
+  one colour. Coloured pencils come in a light-board and a dark-board set.
+  Resting dots are still one fill per colour, never one per dot.
+- **Which lines** (`engine/draw/lines.ts`): all (default), near the cursor,
+  or on hover; with no mouse to follow (a phone) every line shows. **One line
+  between folders** (on): far out, the links between two folders are one
+  pencil stroke, thicker for more.
+- **AI pencil trails**: a faint dashed pencil line through an AI's last few
+  reads, ending at it; only while it works, and only once it has read two
+  notes. This is not the reading stream Dev2 asked to remove: it is one faint
+  line per AI, not dots flowing between note and reader.
+
+**Test:** `liveMapShowColourLines.test.ts`.
+
+## The map's own motion: 3D depth, breathing, and Find (Dev2, 2026-11-04)
+
+Dev2 found the 3D view "tuff", asked for only a slight motion that never
+keeps a person from clicking a note, and said "wiggle near cursor shouldnt
+exist". In `engine/motion.ts` and `engine/draw/depth.ts`:
+
+- **3D depth** (on): each folder sits at its own depth, and the drawing leans
+  with the mouse, so near folders move more than far ones (at most
+  `DEPTH_PX`). The lean follows the whole window, not the note under the
+  pointer, so a note moves a fraction of a pixel as the mouse crosses it. No
+  mouse (a phone), no lean; reduced motion lies flat.
+- **Breathe** (default) or **Still**: the dots swell and settle very
+  slightly, out of step. It asks only for a slow frame (about 15 a second),
+  so a map nobody touches stays cheap; reduced motion stops it. Hit areas do
+  not breathe.
+- **Find** at the top of the settings: notes whose names hold the words,
+  names that start with them first; a pick goes to the note and opens its
+  card (on a phone the sheet closes to show it).
+
+Tests and fixtures leave the motion off (`ambient` on the engine); the web
+canvas and the phone's web view turn it on. **Test:** `liveMapMotion.test.ts`.

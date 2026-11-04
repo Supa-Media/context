@@ -394,3 +394,46 @@ test("the object answers every snippet a search asks for in one call, and nothin
   assert.equal(reads, 0, "no note was read on its own");
   assert.match(merged.hits[0].snippets[0], /acorn harvest/);
 });
+
+// Sabotage: put a refused round back (as any failure) and the build never finishes, so the index is never served.
+test("a note the model refuses every way is skipped, and the rest of the workspace is built and served", { skip }, async () => {
+  const { MeaningError } = await import("../src/search/meaning/errors.js");
+  const object = await seeded();
+  await note(object, 1, "plans/good.md", "# Good\nwillow");
+  await note(object, 2, "plans/bad.md", "# Bad\npoison willow");
+  await note(object, 3, "plans/also.md", "# Also\nwillow");
+  const plain = object.store.meaning;
+  let asked = 0;
+  object.store.meaning = workspaceMeaning(object.store.sql, {
+    rows: object.store.rows,
+    objects: object.store.objects,
+    embed: async (texts) => {
+      asked += texts.length;
+      if (texts.some((text) => text.includes("poison"))) {
+        throw new MeaningError("REFUSED", { cause: "http_400", operation: "embed", providerCodes: [3030], probeStatus: "accepted" });
+      }
+      return texts.map(fingerprint);
+    },
+  });
+  assert.ok(plain);
+  assert.deepEqual((await object.call("ws.meaning.build")).body, { served: true, waiting: 0 });
+  assert.deepEqual(paths(await query(object, "willow")).sort(), ["plans/also.md", "plans/good.md"]);
+  // Not asked again while its text is the same.
+  const before = asked;
+  assert.deepEqual((await object.call("ws.meaning.build")).body, { served: true, waiting: 0 });
+  assert.equal(asked, before);
+});
+
+test("a model that refuses everything is a failure, not a skip", { skip }, async () => {
+  const { MeaningError } = await import("../src/search/meaning/errors.js");
+  const object = await seeded();
+  await note(object, 1, "plans/a.md", "# A\nwillow");
+  object.store.meaning = workspaceMeaning(object.store.sql, {
+    rows: object.store.rows,
+    objects: object.store.objects,
+    embed: async () => {
+      throw new MeaningError("REFUSED", { cause: "http_400", operation: "embed", providerCodes: [3030], probeStatus: "refused" });
+    },
+  });
+  assert.equal((await object.call("ws.meaning.build")).body.failed, true);
+});

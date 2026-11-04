@@ -177,6 +177,49 @@ describe("the map's settings", () => {
     expect(made.resets()).toBe(1);
   });
 
+  test("the show switches, colour and lines change the look", async () => {
+    const made = withLook();
+    const host = await mount(createElement(MapSettings, { page: made.page, compact: false, onClose: () => {} }));
+    await press(find(host, "map-settings-archive"));
+    await press(find(host, "map-settings-color-pressure"));
+    await press(find(host, "map-settings-lines-near"));
+    await press(find(host, "map-settings-merge"));
+    expect(made.looks).toEqual([{ showArchive: true }, { colorBy: "pressure" }, { lines: "near" }, { mergeLines: false }]);
+    expect(find(host, "map-settings-color-workspace")!.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("Find lists notes whose names hold the words, and a pick goes to it", async () => {
+    const graphs = [
+      { workspaceId: "ws-a", slug: "seyi", name: "seyi", kind: "personal", edges: [], nodes: [
+        { path: "areas/bible/Romans 8.md", title: "Romans 8" },
+        { path: "areas/bible/Romans 12.md", title: "Romans 12" },
+        { path: "inbox/groceries.md", title: "Groceries" },
+      ] },
+    ];
+    const made = withLook({ data: { graphs, scope: { kind: "one", workspaceId: "ws-a" } } });
+    const found: Array<{ workspaceId: string; path: string }> = [];
+    const host = await mount(createElement(MapSettings, { page: made.page, compact: false, onClose: () => {}, onFind: (n: { workspaceId: string; path: string }) => found.push(n) }));
+    const input = find(host, "map-settings-find") as HTMLInputElement;
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      set.call(input, "roma");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(find(host, "map-settings-find-areas/bible/Romans 8.md")).not.toBeNull();
+    expect(find(host, "map-settings-find-inbox/groceries.md")).toBeNull();
+    expect(host.textContent).toContain("areas › bible");
+    await press(find(host, "map-settings-find-areas/bible/Romans 8.md"));
+    expect(found).toEqual([{ workspaceId: "ws-a", path: "areas/bible/Romans 8.md" }]);
+  });
+
+  test("the movement and 3D depth change the look", async () => {
+    const made = withLook();
+    const host = await mount(createElement(MapSettings, { page: made.page, compact: false, onClose: () => {} }));
+    await press(find(host, "map-settings-motion-still"));
+    await press(find(host, "map-settings-depth"));
+    expect(made.looks).toEqual([{ motion: "still" }, { depth: false }]);
+  });
+
   test("shows Dev2's defaults, and the close button closes it", async () => {
     const { page } = withLook();
     let closed = 0;

@@ -4,7 +4,7 @@ import { createMapEngine, type MapData } from "../features/console/map/live/engi
 import { buildLayout } from "../features/console/map/live/engine/layout";
 import { OPENING_S, openingDelays, scribbleAlpha, scribbleOf } from "../features/console/map/live/engine/draw/sketch";
 import { DEFAULT_LOOK, type MapLook } from "../features/console/map/live/look";
-import { fakeCanvas, para, palette } from "./liveMapFixture";
+import { fakeCanvas, isDotColour, para, palette } from "./liveMapFixture";
 
 /**
  * THE MAP AS A PENCIL DRAWING — `engine/draw/sketch.ts` (Dev2, 2026-11-04).
@@ -81,10 +81,10 @@ function strokes(calls: Calls, color: string) {
   }
   return out;
 }
-const dots = (calls: Calls) => calls.filter((c) => c.op === "fill" && c.fillStyle === palette.dot);
+const dots = (calls: Calls) => calls.filter((c) => c.op === "fill" && isDotColour(c.fillStyle));
 const arcs = (calls: Calls) => {
   // Arcs and rects in the resting dots' one path.
-  const i = calls.findIndex((c) => c.op === "fill" && c.fillStyle === palette.dot);
+  const i = calls.findIndex((c) => c.op === "fill" && isDotColour(c.fillStyle));
   let n = 0;
   for (let j = i - 1; j >= 0 && calls[j]!.op !== "beginPath"; j -= 1) if (calls[j]!.op === "arc" || calls[j]!.op === "rect") n += 1;
   return i < 0 ? 0 : n;
@@ -123,7 +123,7 @@ describe("the opening", () => {
   test("the map is drawn in: nothing at first, everything once it is over, and then it stops", () => {
     const { draw, tick } = engineWith({ opening: "sketch" }, { opening: true });
     expect(tick(NOW + 500)).toBe(true);
-    expect(dots(draw(NOW))).toHaveLength(1);
+    expect(dots(draw(NOW))).toHaveLength(0);
     expect(arcs(draw(NOW))).toBe(0);
     const mid = arcs(draw(NOW + 1_200));
     const done = arcs(draw(NOW + (OPENING_S.sketch + 1) * 1000));

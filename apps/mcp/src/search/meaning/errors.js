@@ -30,6 +30,32 @@ const CAUSES = new Set([
   "shape",
 ]);
 
+/**
+ * What a provider's message was about, as one word of ours from a closed set, for a code no page documents
+ * (Workers AI's 8006 from inside a workspace object, 2026-11-04). The message itself is never kept: it can quote
+ * the note being embedded, so only which of these words it matched survives.
+ */
+export const PROVIDER_HINTS = Object.freeze(["rate", "capacity", "allocation", "too_long", "too_many", "timeout", "internal", "auth", "other"]);
+
+const HINT_PATTERNS = [
+  ["allocation", /neuron|allocation|quota/i],
+  ["rate", /rate.?limit|too many requests/i],
+  ["capacity", /capacity|overload|busy/i],
+  ["too_long", /too long|too large|context|max(imum)?.{0,12}(token|length|size)|exceed/i],
+  ["too_many", /too many|batch|array/i],
+  ["timeout", /time.?out|timed out/i],
+  ["auth", /auth|permission|forbidden|account/i],
+  ["internal", /internal|unknown|server error/i],
+];
+
+/** The hint for a provider's message: the first word whose pattern matches, `other` when none does. */
+export function providerHint(message) {
+  if (typeof message !== "string" || message.length === 0) return undefined;
+  const head = message.slice(0, 200);
+  for (const [hint, pattern] of HINT_PATTERNS) if (pattern.test(head)) return hint;
+  return "other";
+}
+
 export class MeaningError extends Error {
   constructor(code, detail = {}) {
     const known = MEANING_ERROR_CODES.includes(code) ? code : "REFUSED";
@@ -47,6 +73,7 @@ export class MeaningError extends Error {
     this.probeStatus = ["accepted", "refused", "other_error"].includes(detail.probeStatus)
       ? detail.probeStatus
       : undefined;
+    this.hint = PROVIDER_HINTS.includes(detail.hint) ? detail.hint : undefined;
     this.inputChars = Number.isSafeInteger(detail.inputChars) && detail.inputChars >= 0
       ? detail.inputChars
       : undefined;

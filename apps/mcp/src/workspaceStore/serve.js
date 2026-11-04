@@ -337,7 +337,8 @@ export async function serveWorkspaceStore(store, request) {
           // The model failed; what changed stays on the log for the next build. Our code and the provider's number
           // only, for the build's log line (`../workspaceStore.js`), never a message.
           const codes = Array.isArray(error?.providerCodes) ? error.providerCodes.filter(Number.isSafeInteger) : [];
-          const reason = typeof error?.code === "string" ? [error.code, ...codes].join(":").toLowerCase() : "error";
+          const hint = typeof error?.hint === "string" ? [error.hint] : [];
+          const reason = typeof error?.code === "string" ? [error.code, ...codes, ...hint].join(":").toLowerCase() : "error";
           return Response.json({ served: true, failed: true, waiting: null, reason });
         }
         return Response.json(built === null ? { served: false } : { served: true, ...built });
