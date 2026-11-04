@@ -40,3 +40,26 @@ test("only a person's own chat can put a job on a computer", async () => {
   assert.equal(answer.isError, true);
   assert.equal(startedJobs(background, false).jobs, undefined);
 });
+
+test("in a group chat, the computers Tex may name are the ones lent to it", async () => {
+  const { machinesFor } = await import("../src/machines/forJobs.js");
+  const calls = [];
+  const env = {
+    WORKSPACE_STORE: {
+      idFromName: (name) => name,
+      get: (name) => ({
+        async fetch(request) {
+          const fields = JSON.parse(await request.text());
+          calls.push({ name, fields });
+          return Response.json({ ok: true, machine: { id: fields.id, name: "Studio Mac", online: true, tools: ["claude"], folders: ["/code"], ownerId: "user_owner" } });
+        },
+      }),
+    },
+  };
+  const controlPlane = { texMachinesForChat: async () => [{ machineId: "mch_1", workspaceId: "ws_seyi", ownerId: "user_owner" }] };
+  const group = { actorClientId: "context_texts_group", actorUserId: "user_ade", texChatId: "a".repeat(64), workspaces: [{ workspaceId: "ws_team", role: "editor", kind: "shared" }] };
+  const found = await machinesFor(env, group, controlPlane);
+  assert.deepEqual(found.map((machine) => [machine.workspaceId, machine.id]), [["ws_seyi", "mch_1"]]);
+  // The chat's own workspace is never listed for its computers: only what was lent.
+  assert.ok(calls.every((call) => !String(call.name).includes("ws_team")));
+});

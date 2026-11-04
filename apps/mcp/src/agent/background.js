@@ -318,7 +318,7 @@ const TOOL = {
       on_computer: {
         type: "object",
         description:
-          "Run it on one of their own paired computers instead of the cloud, with Claude Code or Codex signed in to their own plan: " +
+          "Run it on one of their own paired computers (in a group chat, one lent to the chat) instead of the cloud, with Claude Code or Codex signed in to its owner's plan: " +
           "for coding in their repos, or anything that needs their machine. name: the computer as they call it (left out when they have one); " +
           "tool: claude or codex; folder and repo: where on it, when they said. Runs up to four hours, checked every fifteen minutes.",
         properties: {
@@ -435,7 +435,7 @@ const text = (words, isError = false) => ({ content: [{ type: "text", text: word
  *
  * @param {{ running: Array|null, job: object|null, now: number, report?: boolean, read?: () => void }} options
  */
-export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null }) {
+export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null, inGroup = false }) {
   if (running === null) return null;
   const started = [];
   let justStarted = null; // the title of the job the last call started, read once by `endsTurn`
@@ -481,8 +481,8 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     // On one of their own computers (`machines/forJobs.js`): found now, and admitted by its owner's rules at every part.
     let machine = null;
     if (args?.on_computer !== undefined && args?.on_computer !== null) {
-      if (machines === null) return text("Only a job from their own one-to-one chat can run on their computer.", true);
-      const picked = pickMachine(await machines(), args.on_computer);
+      if (machines === null) return text("Only a job from their own chat, or a group chat a computer was lent to, can run on a computer.", true);
+      const picked = pickMachine(await machines(), { ...args.on_computer, group: inGroup });
       if (picked.error) return text(picked.error, true);
       machine = picked.machine;
     }

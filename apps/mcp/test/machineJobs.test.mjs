@@ -47,6 +47,10 @@ function fakeControlPlane() {
       return { accessToken, expiresAt };
     },
     usage: [],
+    lent: [],
+    async texMachinesForChat(groupKey) {
+      return this.lent.filter((entry) => entry.groupKey === groupKey).map(({ machineId, workspaceId, ownerId }) => ({ machineId, workspaceId, ownerId }));
+    },
     async recordBuiltinUsage(accessToken, workspaceId, usage) {
       this.usage.push({ accessToken, workspaceId, ...usage });
     },
@@ -256,4 +260,44 @@ test("only the person whose job it is has a run checked, and an unreachable advi
   assert.equal((await ask("/agent/machine/check", { workspaceId: "ws_a", runId: body.runId, job: { title: "", brief: "" } })).status, 400);
   advisor.reply = null;
   assert.deepEqual((await ask("/agent/machine/check", { workspaceId: "ws_a", runId: body.runId, job: JOB })).body, { ok: true, untrusted: true, idle: true });
+});
+
+const CHAT = "a".repeat(64);
+const groupSession = (tagger, fields = {}) => session({ actorClientId: "context_texts_group", actorUserId: tagger, texChatId: CHAT, workspaces: [{ workspaceId: "ws_team", slug: "devs", role: "editor", kind: "shared" }], ...fields });
+
+test("a group chat reaches only a computer lent to it, and its owner's ask there is the owner's", async () => {
+  const { server, controlPlane, ask, assignBody } = await setup();
+  // Not lent: the group's grant doesn't reach the owner's personal workspace at all.
+  assert.deepEqual((await ask("/agent/machine/assign", assignBody(), groupSession("user_owner"))).body, { ok: false, code: "unknown_machine" });
+  controlPlane.lent.push({ groupKey: CHAT, machineId: "mch_1", workspaceId: "ws_a", ownerId: "user_owner" });
+  const { body } = await ask("/agent/machine/assign", assignBody(), groupSession("user_owner"));
+  assert.equal(body.ok, true);
+  assert.equal(server.last().fromOwner, true);
+  // The run grant is minted from the group's own grant: it reaches the chat's workspace, never the owner's notes.
+  assert.equal(controlPlane.grants.get(body.runId).parentToken, "cat_parent_token_000000");
+  // Lent to a different chat is not lent to this one.
+  assert.deepEqual((await ask("/agent/machine/assign", assignBody(), groupSession("user_owner", { texChatId: "b".repeat(64) }))).body, { ok: false, code: "unknown_machine" });
+});
+
+test("somebody else in the group gets the computer only as its owner's rule for that chat says", async () => {
+  const { w, controlPlane, ask, assignBody } = await setup();
+  controlPlane.lent.push({ groupKey: CHAT, machineId: "mch_1", workspaceId: "ws_a", ownerId: "user_owner" });
+  // "Only me" by default.
+  assert.deepEqual((await ask("/agent/machine/assign", assignBody(), groupSession("user_ade"))).body, { ok: false, code: "rule" });
+  const key = `group-${CHAT.slice(0, 58)}`;
+  await w.call("ws.machine.set", { id: "mch_1", patch: { chats: { [key]: { who: "everyone" } } } });
+  // "Ask me first" stays on unless the owner turned it off.
+  assert.deepEqual((await ask("/agent/machine/assign", assignBody(), groupSession("user_ade"))).body, { ok: false, code: "ask_first" });
+  await w.call("ws.machine.set", { id: "mch_1", patch: { chats: { [key]: { who: "everyone", askFirst: false } } } });
+  const { body } = await ask("/agent/machine/assign", assignBody(), groupSession("user_ade"));
+  assert.equal(body.ok, true);
+  // Only the person who asked reads it back, even in the same chat.
+  assert.deepEqual((await ask("/agent/machine/run", { workspaceId: "ws_a", runId: body.runId }, groupSession("user_bola"))).body, { ok: false, code: "unknown_run" });
+  assert.equal((await ask("/agent/machine/run", { workspaceId: "ws_a", runId: body.runId }, groupSession("user_ade"))).body.ok, true);
+});
+
+test("a group's grant without its chat's key reaches no computer", async () => {
+  const { controlPlane, ask, assignBody } = await setup();
+  controlPlane.lent.push({ groupKey: CHAT, machineId: "mch_1", workspaceId: "ws_a", ownerId: "user_owner" });
+  assert.equal((await ask("/agent/machine/assign", assignBody(), groupSession("user_owner", { texChatId: undefined }))).status, 403);
 });

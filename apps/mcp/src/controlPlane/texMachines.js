@@ -59,6 +59,21 @@ export function createTexMachineMethods({ post }) {
       const answer = await call("/gateway/machines/run-grant", { parentToken, machineId, runId, expiresAt });
       return answer.ok && typeof answer.value?.accessToken === "string" ? answer.value : null;
     },
+    /** `{attached, workspaceId}` when the machine's own owner, a person in the chat, lends it there; else `{refused}`. */
+    async texMachineChatAttach(userId, machineId, groupKey) {
+      const answer = await call("/gateway/machines/chat/attach", { userId, machineId, groupKey });
+      return answer.ok ? answer.value : { refused: answer.status };
+    },
+    /** `{detached}`, or null when it is not this person's computer. */
+    async texMachineChatDetach(userId, machineId, groupKey) {
+      const answer = await call("/gateway/machines/chat/detach", { userId, machineId, groupKey });
+      return answer.ok ? answer.value : null;
+    },
+    /** The computers lent to a group chat, `[{machineId, workspaceId, ownerId}]`: live, and their owner still in the chat. */
+    async texMachinesForChat(groupKey) {
+      const answer = await call("/gateway/machines/for-chat", { groupKey });
+      return answer.ok && Array.isArray(answer.value?.machines) ? answer.value.machines : [];
+    },
     /** Takes a run's grant back when the part ended or was refused. */
     async texMachineRunRevoke(runId) {
       const answer = await call("/gateway/machines/run-grant/revoke", { runId });

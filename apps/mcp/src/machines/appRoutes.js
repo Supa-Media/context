@@ -17,6 +17,14 @@
  *   the object says goodbye on its socket and ends its live runs, so it stops
  *   now and not when its socket next reconnects.
  *
+ * - `POST /machines/app/lend` `{ workspaceId, machineId, chat, who?, askFirst? }`
+ *   → `{ ok, machine }`: its owner lends it to a group chat they are in
+ *   (`chat`, the chat's key). The control plane records the lending, which is
+ *   how the group's grant finds it (`reach.js`), and the object keeps who
+ *   there may send it work: "Only me" unless the owner says `everyone` or
+ *   names people, with "Ask me first" on unless they turn it off.
+ * - `POST /machines/app/unlend` `{ workspaceId, machineId, chat }` → `{ ok }`.
+ *
  * Pairing a computer is approved in the control plane itself
  * (`approveTexMachinePairing`); the runner's poll then adds it to the object.
  */
@@ -25,11 +33,13 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { workspaceStub } from "../workspaceStore/api.js";
 import { callTexStore } from "../texStore/wire.js";
+import { groupChatId } from "./reach.js";
 
 const CONSOLE_CLIENT_ID = "context_console";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-export const MACHINE_APP_PATHS = new Set(["/machines/app/list", "/machines/app/set", "/machines/app/disconnect"]);
+export const MACHINE_APP_PATHS = new Set(["/machines/app/list", "/machines/app/set", "/machines/app/disconnect", "/machines/app/lend", "/machines/app/unlend"]);
+const CHAT_KEY = /^[0-9a-f]{64}$/;
 
 const forbidden = () => json({ error: "forbidden" }, 403);
 const invalid = (detail) => json({ error: "invalid_request", error_description: detail }, 400);
@@ -108,6 +118,36 @@ async function disconnect(env, session, body, controlPlane) {
   return json({ ok: true, ended: answer?.ok === true ? answer.ended.length : 0 });
 }
 
+/** Its own owner only: a computer is lent by the person whose computer it is, never by a workspace owner. */
+async function ownComputer(env, session, body) {
+  const found = await runnable(env, session, body);
+  return found !== null && found.machine.ownerId === session.actorUserId ? found : null;
+}
+
+async function lend(env, session, body, controlPlane) {
+  if (typeof body.chat !== "string" || !CHAT_KEY.test(body.chat)) return invalid("chat");
+  const found = await ownComputer(env, session, body);
+  if (found === null) return refused("unknown_machine");
+  // The control plane checks they are one of the chat's people.
+  const lent = await controlPlane.texMachineChatAttach(session.actorUserId, found.machine.id, body.chat);
+  if (lent?.attached !== true) return refused(lent?.refused === 409 ? "too_many" : "unknown_chat");
+  const who = body.who === "everyone" ? "everyone" : Array.isArray(body.who) ? body.who : "owner";
+  const rule = { ...(found.machine.chats?.[groupChatId(body.chat)] ?? {}), who, askFirst: body.askFirst !== false };
+  const answer = await call(env, found.row.workspaceId, "ws.machine.set", { id: found.machine.id, patch: { chats: { ...found.machine.chats, [groupChatId(body.chat)]: rule } } });
+  return answer?.ok === true ? json({ ok: true, machine: { ...answer.machine, runs: true } }) : refused(answer?.code ?? "server_error");
+}
+
+async function unlend(env, session, body, controlPlane) {
+  if (typeof body.chat !== "string" || !CHAT_KEY.test(body.chat)) return invalid("chat");
+  const found = await ownComputer(env, session, body);
+  if (found === null) return refused("unknown_machine");
+  // The lending goes first: once it has, the group's grant no longer finds the computer, whatever the rule says.
+  if ((await controlPlane.texMachineChatDetach(session.actorUserId, found.machine.id, body.chat)) === null) return refused("unknown_machine");
+  const { [groupChatId(body.chat)]: _gone, ...chats } = found.machine.chats ?? {};
+  const answer = await call(env, found.row.workspaceId, "ws.machine.set", { id: found.machine.id, patch: { chats } });
+  return json({ ok: answer?.ok === true });
+}
+
 /** One of `MACHINE_APP_PATHS`, for a session already resolved from the app's own token. */
 export async function handleMachineApp(request, env, session, { path, controlPlane }) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
@@ -119,5 +159,7 @@ export async function handleMachineApp(request, env, session, { path, controlPla
   if (path === "/machines/app/list") return await list(env, session, body);
   if (path === "/machines/app/set") return await set(env, session, body);
   if (path === "/machines/app/disconnect") return await disconnect(env, session, body, controlPlane);
+  if (path === "/machines/app/lend") return await lend(env, session, body, controlPlane);
+  if (path === "/machines/app/unlend") return await unlend(env, session, body, controlPlane);
   return new Response(null, { status: 404 });
 }

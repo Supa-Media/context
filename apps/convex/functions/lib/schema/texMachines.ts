@@ -90,4 +90,22 @@ export const texMachineTables = {
     .index("by_expires", ["expiresAt"])
     .index("by_machine", ["machineId"])
     .index("by_run", ["runId"]),
+
+  /**
+   * A paired machine lent to a Tex group chat: the chat's people may run its jobs there (`docs/decisions/texting-assistant/machines.md`).
+   *
+   * Only the machine's owner attaches or detaches it, and only from inside the chat. A row does not end when its owner
+   * leaves the chat: `texMachinesForChat` filters on the chat's people at read time, so a person who left lends nothing.
+   * Rows go with their machine (revoke, and the account and workspace cascades).
+   */
+  texMachineChats: defineTable({
+    /** `textGroups.groupKey` of the chat the machine is lent to. */
+    groupKey: v.string(),
+    machineId: v.id("texMachines"),
+    workspaceId: v.id("workspaces"),
+    ownerId: v.id("users"),
+    createdAt: v.number(),
+  })
+    .index("by_group", ["groupKey"])
+    .index("by_machine", ["machineId"]),
 };

@@ -2,9 +2,9 @@
  * A background job's part on a person's own computer, asked for by the
  * texting Worker's job object (docs/decisions/texting-assistant/machines.md).
  * Each route is reached with the job's own texting token, resolved as `/agent`
- * resolves it, and answers only a person's own 1:1 texting client with write
- * scope: a group's job reaches a machine only once groups are built, and then
- * through the owner's "who may ask" rules in the workspace object.
+ * resolves it, and answers a person's own texting client, or a group chat's,
+ * with write scope (`reach.js`): a group reaches only the computers lent to
+ * it, and who there may send work is the owner's rule in the workspace object.
  *
  * - `POST /agent/machine/assign` `{ workspaceId, machineId, jobId, part, tool,
  *   folder, permission, brief, ... }` → `{ ok, runId, deadline, powers }` or
@@ -41,9 +41,9 @@ import { readProductionSetup } from "../agent/production.js";
 import { advisorRequest } from "../agent/advisor.js";
 import { aiGatewayConfig } from "../agent/aiGateway.js";
 import { builtinModel, canRunBuiltin } from "../agent/builtin.js";
+import { jobChatOf, reachedWorkspace, TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "./reach.js";
 
 export const MACHINE_RUN_CLIENT_ID = "context_tex_machine_run";
-const TEXTS_CLIENT_ID = "context_texts";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const RUN_ID = /^run_[0-9a-f]{24}$/;
 /** A part never asks for longer than this; the object clamps to the machine's own longest run as well. */
@@ -66,14 +66,6 @@ async function bodyOf(request) {
   } catch {
     return null;
   }
-}
-
-/** The workspace the body names, when this session reaches it as a member (never a group's home or setup row). */
-function coveredWorkspace(session, workspaceId) {
-  if (typeof workspaceId !== "string" || !ID.test(workspaceId)) return null;
-  const covered = (session.workspaces || []).find((entry) => entry.workspaceId === workspaceId);
-  if (!covered || covered.homeOnly === true || covered.setupOnly === true) return null;
-  return covered;
 }
 
 async function call(env, workspaceId, op, fields) {
@@ -107,9 +99,9 @@ const shownRun = (run) => ({
 async function assign(request, env, session, controlPlane, origin, now) {
   const body = await bodyOf(request);
   if (body === null) return invalid("body");
-  const covered = coveredWorkspace(session, body.workspaceId);
-  if (covered === null) return refused("unknown_machine");
   if (typeof body.machineId !== "string" || !ID.test(body.machineId)) return invalid("machineId");
+  const covered = await reachedWorkspace(session, controlPlane, body.workspaceId, body.machineId);
+  if (covered === null) return refused("unknown_machine");
   if (typeof body.jobId !== "string" || !ID.test(body.jobId)) return invalid("jobId");
   const machine = await call(env, covered.workspaceId, "ws.machine.get", { id: body.machineId });
   if (machine === null) return json({ error: "machines_unavailable" }, 501);
@@ -136,9 +128,9 @@ async function assign(request, env, session, controlPlane, origin, now) {
     deadline,
     chatName: body.chatName,
     computerUse: body.computerUse === true,
-    // Who asked comes from the grant, never the body: the person's own chat, so their own machine is "from the owner".
-    // One chat per person's own texts, so an owner's rule for one person's chat never covers another's.
-    chat: `texts-${session.actorUserId}`,
+    // Who asked comes from the grant, never the body: in their own texts the person, in a group the one who tagged Tex.
+    // One chat per person's own texts and one per group, so an owner's rule for one chat never covers another.
+    chat: jobChatOf(session),
     askerId: session.actorUserId,
     fromOwner: machine.machine.ownerId === session.actorUserId,
     grant: { token: runGrant.accessToken, expiresAt: Math.min(runGrant.expiresAt, deadline), mcpUrl: `${origin.replace(/\/+$/, "")}/mcp` },
@@ -154,7 +146,7 @@ async function assign(request, env, session, controlPlane, origin, now) {
 async function readRun(request, env, session, controlPlane) {
   const body = await bodyOf(request);
   if (body === null) return invalid("body");
-  const covered = coveredWorkspace(session, body.workspaceId);
+  const covered = await reachedWorkspace(session, controlPlane, body.workspaceId);
   if (covered === null || typeof body.runId !== "string" || !RUN_ID.test(body.runId)) return refused("unknown_run");
   const answer = await ownRun(env, session, covered.workspaceId, body.runId);
   if (answer === null) return refused("unknown_run");
@@ -166,7 +158,7 @@ async function readRun(request, env, session, controlPlane) {
 async function cancel(request, env, session, controlPlane) {
   const body = await bodyOf(request);
   if (body === null) return invalid("body");
-  const covered = coveredWorkspace(session, body.workspaceId);
+  const covered = await reachedWorkspace(session, controlPlane, body.workspaceId);
   if (covered === null || typeof body.runId !== "string" || !RUN_ID.test(body.runId)) return refused("unknown_run");
   if ((await ownRun(env, session, covered.workspaceId, body.runId)) === null) return refused("unknown_run");
   const reason = CANCEL_REASONS.has(body.reason) ? body.reason : "stopped";
@@ -175,10 +167,10 @@ async function cancel(request, env, session, controlPlane) {
   return json({ ok: answer?.ok === true });
 }
 
-async function deliver(request, env, session) {
+async function deliver(request, env, session, controlPlane) {
   const body = await bodyOf(request);
   if (body === null) return invalid("body");
-  const covered = coveredWorkspace(session, body.workspaceId);
+  const covered = await reachedWorkspace(session, controlPlane, body.workspaceId);
   if (covered === null || typeof body.runId !== "string" || !RUN_ID.test(body.runId)) return refused("unknown_run");
   if (typeof body.messageId !== "string" || !ID.test(body.messageId)) return invalid("messageId");
   if (typeof body.text !== "string" || body.text.trim() === "") return invalid("text");
@@ -220,7 +212,7 @@ const MACHINE_PART_NOTE =
 async function check(request, env, session, controlPlane, store, advise) {
   const body = await bodyOf(request);
   if (body === null) return invalid("body");
-  const covered = coveredWorkspace(session, body.workspaceId);
+  const covered = await reachedWorkspace(session, controlPlane, body.workspaceId);
   if (covered === null || typeof body.runId !== "string" || !RUN_ID.test(body.runId)) return refused("unknown_run");
   const job = jobOfBody(body.job);
   if (job === null) return invalid("job");
@@ -270,12 +262,13 @@ export const MACHINE_JOB_PATHS = new Set(["/agent/machine/assign", "/agent/machi
 /** One of `MACHINE_JOB_PATHS`, for a session already resolved from the job's texting token. */
 export async function handleMachineJob(request, env, session, { path, controlPlane, origin, store = null, now = Date.now, advise = null }) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
-  if (session.actorClientId !== TEXTS_CLIENT_ID || !hasScope(session, SCOPE_WRITE)) return forbidden();
+  // A person's own texts, or a group chat's turn on the computers lent to it (`reach.js`).
+  if ((session.actorClientId !== TEXTS_CLIENT_ID && session.actorClientId !== TEXTS_GROUP_CLIENT_ID) || !hasScope(session, SCOPE_WRITE) || jobChatOf(session) === null) return forbidden();
   if (!env.WORKSPACE_STORE) return json({ error: "machines_unavailable" }, 501);
   if (path === "/agent/machine/assign") return await assign(request, env, session, controlPlane, origin, now);
   if (path === "/agent/machine/run") return await readRun(request, env, session, controlPlane);
   if (path === "/agent/machine/cancel") return await cancel(request, env, session, controlPlane);
-  if (path === "/agent/machine/deliver") return await deliver(request, env, session);
+  if (path === "/agent/machine/deliver") return await deliver(request, env, session, controlPlane);
   if (path === "/agent/machine/check") return await check(request, env, session, controlPlane, store, advise);
   return new Response(null, { status: 404 });
 }

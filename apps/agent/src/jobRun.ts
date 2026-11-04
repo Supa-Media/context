@@ -267,7 +267,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   try {
     outcome =
       run.machine !== undefined
-        ? fromMachine(await machineTurn(run, asked, deps, { keep: (patch) => storage.put<Stored>(RUN_KEY, { ...run, ...patch, sent }), onStep, live: (machine) => void (turn.machine = machine), steerIds: shown.map((steer) => steer.id) }))
+        ? fromMachine(await machineTurn(run, asked, deps, { keep: (patch) => storage.put<Stored>(RUN_KEY, { ...run, ...patch, sent }), onStep, live: (machine) => void (turn.machine = machine), steerIds: shown.map((steer) => steer.id), groupGrant: () => groupGrant(run, deps) }))
         : run.origin.kind === "phone"
           ? await phoneTurn(run, asked, turn, deps, onProgress, onStep)
           : await groupTurn(run, asked, turn, deps, onStep);
@@ -488,6 +488,16 @@ async function phoneTurn(
   const outcome = outcomeOf(answer, (text) => textsWithExact(text, answer.kind === "answer" ? answer.verbatim : []));
   if (outcome.kind === "stop") return { kind: "stop", text: JOB_LINES.failed(run.title) };
   return outcome;
+}
+
+/** A group job's grant, minted as its own turn's is: the chat's people read again, so somebody who joined since narrows it. Null when it may not run. */
+async function groupGrant(run: JobRun, deps: JobDeps): Promise<string | null> {
+  if (run.origin.kind !== "group") return null;
+  const message = run.origin.message;
+  const app = groupLineFor(deps, message.groupId);
+  const members = await app.readMembers({ line: message.line, groupId: message.groupId });
+  const asked = await askControlPlane(deps, message, peopleOf(message.line, message.participants, members), null);
+  return asked.status === "ready" && asked.accessToken !== undefined ? asked.accessToken : null;
 }
 
 async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, onStep: (text: string, how?: StepHow) => Promise<void>): Promise<Outcome> {
