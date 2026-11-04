@@ -1,6 +1,7 @@
 import type { NotePlace } from "../layout";
 import { noteKey } from "../paths";
 import type { Model } from "../scene";
+import { mapPencils } from "../../../../../design/tokens/colors";
 import { isDarkBoard } from "../../look";
 import type { DrawEnv } from "./env";
 
@@ -17,8 +18,8 @@ import type { DrawEnv } from "./env";
  * - **none**: one pencil, the board's own.
  */
 
-export const PENCILS_LIGHT = ["#3B5BA9", "#B5473A", "#3D8A5A", "#8A5BA8", "#B9832A", "#2F8A8A"] as const;
-export const PENCILS_DARK = ["#9DB4F2", "#F0A090", "#8FD3A8", "#D2B0F0", "#F0CC80", "#86D8D8"] as const;
+export const PENCILS_LIGHT = mapPencils.light;
+export const PENCILS_DARK = mapPencils.dark;
 
 /** A week: written within it is pressed hard. */
 export const PRESSURE_MS = 7 * 24 * 3600 * 1000;
