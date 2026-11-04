@@ -28,7 +28,9 @@ import type { InboxStorage } from "./inbox";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 
 /** What a turn asked to start, as the gateway wrote it. */
-export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; tainted?: true };
+/** `mail`: one part of a split ask; the project note every part's job joins the mail of, and this part's name there. */
+export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; tainted?: true; mail?: JobProject };
+export type JobProject = { path: string; name: string; context?: string };
 /** A step a job's turn took, as the gateway told it (`withJobSteps`): tool and target, never a note's text; a failed one, with the tool's short reason. */
 export type JobStep = { at: number; text: string; failed?: true; why?: string };
 /** Whether a streamed step failed, and why (`clients.ts`). */
@@ -39,10 +41,13 @@ export type RunningJob = { id: string; title: string; state: JobState; startedAt
 export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
 /** `draft`: the last part's answer, never texted because a later text changed the job, or (`unfinished`) because it stopped short of the ask; the next part builds on it. */
-export type JobAsk = { id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; draft?: string; unfinished?: true; advice?: string };
+/** `mail`: note mail that came for it since its last part, oldest first (`jobMail.ts`), never among `followUps`. */
+export type JobAsk = { project?: JobProject; id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; mail?: Array<JobMail & { text: string }>; draft?: string; unfinished?: true; advice?: string };
 /** A later text handed to a running job (`jobRun.ts`): the person's own words and the event they came in; `stop` ends it. */
 /** `resume`: pick an ended job back up where it stopped (`jobRun.ts` `resumeJob`), never a new copy of it. */
-export type JobSteer = { id: string; text: string; stop?: true; resume?: true };
+export type JobSteer = { id: string; text: string; stop?: true; resume?: true; mail?: JobMail };
+/** Note mail delivered to a job (`jobMail.ts`): who sent it, its kind and the note it is on. Another agent's words, never the person's. */
+export type JobMail = { from: string; app?: string; kind: "note" | "ask" | "interrupt"; path: string };
 /** What a turn asked of a running job: the job, whether to stop it, and the coordinating turn's own instruction for it (`note`). */
 export type JobSteerAsk = { id: string; stop?: true; note?: string; resume?: true };
 /** What a job would have said, handed to its chat's own turn, which decides what is said (`jobTexts.ts`). */
@@ -131,15 +136,25 @@ export const JOB_LINES = {
 
 const line = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
 
+/** A split ask's shared note, read strictly (the gateway checked it too: `jobMailOf`). */
+export function readJobProject(value: unknown): JobProject | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { path, name, context } = value as Record<string, unknown>;
+  if (typeof path !== "string" || path === "" || path.length > 1024 || /[\u0000-\u001f]/.test(path) || !path.endsWith(".md")) return null;
+  if (typeof name !== "string" || !/^[a-z0-9][a-z0-9-]{0,23}$/.test(name) || name === "everyone") return null;
+  return { path, name, ...(typeof context === "string" && /^@[a-z0-9][a-z0-9-]{0,63}$/.test(context) ? { context } : {}) };
+}
+
 /** `jobs` from the gateway's answer, read strictly. */
 export function readStartedJobs(value: unknown): StartedJob[] {
   if (!Array.isArray(value)) return [];
   return value.slice(0, MAX_RUNNING_JOBS).flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
-    const { id, title, brief, doneWhen, tainted } = entry as Record<string, unknown>;
+    const { id, title, brief, doneWhen, tainted, mail } = entry as Record<string, unknown>;
     const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 2_000) : "", doneWhen: line(doneWhen, MAX_STATUS) };
     if (job.title === "" || job.brief === "") return [];
-    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(tainted === true ? { tainted: true as const } : {}) }];
+    const project = readJobProject(mail);
+    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(tainted === true ? { tainted: true as const } : {}), ...(project ? { mail: project } : {}) }];
   });
 }
 

@@ -24,6 +24,7 @@
  * grant, exactly as it does for any other connected client.
  */
 
+import { jobRoute } from "./jobRoutes";
 import { logged } from "./agentError";
 import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
@@ -49,9 +50,9 @@ import type { DueRoutine } from "./clients";
 import { textsSessionDeps, type TextsBinding } from "./gatewaySession";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
-import { mintThreadsLink, readJobSteer, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
-import { acceptJob, failJob, jobAlarm, resumeJob, runJob, steerJob } from "./jobRun";
-import { startJobFlow, type JobRunParams } from "./jobWorkflow";
+import { mintThreadsLink, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { jobAlarm, steerJob } from "./jobRun";
+import { type JobRunParams } from "./jobWorkflow";
 import { jobUpdate } from "./jobTexts";
 import { pageJobsOf, pageSteerResponse } from "./texPage";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
@@ -549,23 +550,9 @@ export class SenderInbox implements DurableObject {
       await this.state.storage.put(CHAT_WHERE_KEY, where);
       return Response.json({ ok: true });
     }
-    // A background job's own object is started here, and reports to its chat's inbox here (`jobs.ts`).
-    if (path === "/job-start") {
-      const run = (await request.json()) as JobRun;
-      const flow = this.env.JOB_RUN;
-      await acceptJob(this.state.storage, run, Date.now(), flow ? () => startJobFlow(flow, run.id) : undefined);
-      return Response.json({ ok: true });
-    }
-    // The job's workflow runs each pass here, and ends it here when every try failed (`jobWorkflow.ts`).
-    if (path === "/job-pass") return Response.json({ next: await runJob(this.state.storage, this.jobDeps()) });
-    if (path === "/job-failed") return Response.json({ next: await failJob(this.state.storage, this.jobDeps()) });
-    if (path === "/job-steer") {
-      const steer = readJobSteer(await request.json());
-      if (steer === null) return new Response(null, { status: 400 });
-      // "Restart it": the job ended here picks up where it stopped, under a new workflow (`resumeJob`).
-      if (steer.resume) return Response.json({ taken: await resumeJob(this.state.storage, Date.now(), this.env.JOB_RUN ? (id, resumes) => startJobFlow(this.env.JOB_RUN!, id, resumes) : undefined, steer) });
-      return Response.json({ taken: await steerJob(this.state.storage, steer) });
-    }
+    // A background job's own object is started, run, steered and mailed here (`jobRoutes.ts`); it reports to its chat's inbox below.
+    const job = await jobRoute(path, request, this.state.storage, this.env.JOB_RUN, () => this.jobDeps());
+    if (job !== undefined) return job;
     if (path === "/job-update") {
       const update = readJobUpdate(await request.json());
       if (update === null) return new Response(null, { status: 400 });

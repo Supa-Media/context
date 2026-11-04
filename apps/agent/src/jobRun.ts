@@ -34,7 +34,7 @@ import { groupLineFor } from "./groupLine";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
-import { JOB_SHOWN_MS, JOB_LIMIT_MS, JOB_LINES, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
+import { JOB_SHOWN_MS, JOB_LIMIT_MS, JOB_LINES, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobMail, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
 import { STEER_TIMEOUT_MS } from "./steer";
@@ -77,6 +77,8 @@ export const STOP_KEY = "jobstop";
  */
 export const PASS_KEY = "jobpass";
 const MAX_STEERS = 5;
+/** Note mail lines kept for a job's next part (`jobMail.ts`). */
+const MAX_MAIL_KEPT = 20;
 /**
  * A job that ended without finishing (stuck, waiting, stopped, failed) keeps
  * its run here for `JOB_SHOWN_MS`, as its chat keeps its entry, so "restart it"
@@ -181,7 +183,7 @@ export async function steerJob(storage: InboxStorage, steer: JobSteer): Promise<
   if ((await storage.get<JobRun>(RUN_KEY)) === undefined) return false;
   if (steer.stop) await storage.put(STOP_KEY, true);
   const steers = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
-  if (!steers.some((kept) => kept.id === steer.id)) await storage.put(STEERS_KEY, [...steers, steer].slice(-MAX_STEERS));
+  if (!steers.some((kept) => kept.id === steer.id)) await storage.put(STEERS_KEY, keptSteers([...steers, steer]));
   const running = live.get(storage);
   if (running?.accessToken !== undefined) {
     // Best effort: one the turn doesn't take is shown to the next turn.
@@ -190,6 +192,13 @@ export async function steerJob(storage: InboxStorage, steer: JobSteer): Promise<
     );
   }
   return true;
+}
+
+/** The person's last few texts and the last note mail, each in its own room, oldest first: a busy note never pushes out a text. */
+function keptSteers(steers: JobSteer[]): JobSteer[] {
+  const texts = steers.filter((steer) => steer.mail === undefined).slice(-MAX_STEERS);
+  const mail = steers.filter((steer) => steer.mail !== undefined).slice(-MAX_MAIL_KEPT);
+  return steers.filter((steer) => texts.includes(steer) || mail.includes(steer));
 }
 
 /** After a turn: drop the texts it was shown or took in, and say what is left for the next one. */
@@ -239,7 +248,11 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const shown = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
   const turn: Live = { turn: crypto.randomUUID(), fetch: deps.fetch, gatewayOrigin: deps.gatewayOrigin };
   live.set(storage, turn);
-  const asked = ask(run, shown.map((steer) => steer.text));
+  const asked = ask(
+    run,
+    shown.filter((steer) => steer.mail === undefined).map((steer) => steer.text),
+    shown.flatMap((steer) => (steer.mail === undefined ? [] : [{ ...steer.mail, text: steer.text }])),
+  );
   let outcome: Outcome;
   try {
     outcome =
@@ -270,8 +283,10 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   }
   // It texted a link to save a login: the chat's inbox watches for the save, to carry the task on (`vaultWatch.ts`).
   const watch = outcome.kind === "answer" && outcome.vaultWatch && run.origin.kind === "phone" ? { vaultWatch: run.origin.phone } : {};
-  // A text that came after the turn's last look changes the job: it is not texted the old way.
-  const changed = outcome.kind === "answer" && left.length > 0;
+  // A text that came after the turn's last look changes the job: it is not texted the old way. So does an ask or an
+  // interrupt mailed to it; a plain note mailed to it is shown to a next part if there is one, and is in the note anyway.
+  const changed = outcome.kind === "answer" && left.some((steer) => steer.mail === undefined || steer.mail.kind !== "note");
+  const mailed = changed && left.every((steer) => steer.mail !== undefined);
   // An answer the advisor says isn't finished (`apps/mcp/src/agent/jobCheck.js`; without it, `stopsShort.js`) is not done: the next part finishes it, on its advice.
   const unfinished = outcome.kind === "answer" && outcome.unfinished && !changed;
   const carryOn = (outcome.kind === "answer" && outcome.exhausted) || outcome.kind === "broken" || changed || unfinished;
@@ -292,7 +307,9 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
       state: "running",
       ...watch,
       ...checked,
-      status: changed
+      status: mailed
+        ? `Answering mail from ${left.find((steer) => steer.mail)?.mail?.from ?? "another agent"}`
+        : changed
         ? "Changing it to what you texted"
         : unfinished
           ? advice ? `Not done yet; next: ${advice}`.slice(0, 280) : "Finishing what was still missing"
@@ -314,7 +331,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           status: ended === "done" ? outcome.status : `${why}${advice || outcome.status}`.slice(0, 280),
           // A page's cover goes first, in place of the link's name card (`jobTexts.ts`); not with an answer a later text changed.
           ...(changed ? {} : await sendable(outcome.pictures, deps.images)),
-          texts: changed ? [...outcome.texts, JOB_LINES.missed] : outcome.texts,
+          texts: changed && !mailed ? [...outcome.texts, JOB_LINES.missed] : outcome.texts,
           ...watch,
         }
       : outcome.kind === "refused"
@@ -363,14 +380,16 @@ async function sendable(pictures: OutgoingPicture[], images: ImagesLike | undefi
 }
 
 /** What the job's turn is asked with. */
-function ask(run: JobRun, followUps: string[]): JobAsk {
+function ask(run: JobRun, followUps: string[], mail: Array<JobMail & { text: string }> = []): JobAsk {
   return {
     ...(followUps.length > 0 ? { followUps } : {}),
+    ...(mail.length > 0 ? { mail } : {}),
     id: run.id,
     title: run.title,
     brief: run.brief,
     attempt: run.attempt,
     ...(run.doneWhen ? { doneWhen: run.doneWhen } : {}),
+    ...(run.mail ? { project: run.mail } : {}),
     ...(run.tainted ? { tainted: true as const } : {}),
     ...(run.draft ? { draft: run.draft } : {}),
     ...(run.draft && run.unfinished ? { unfinished: true as const } : {}),

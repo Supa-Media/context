@@ -52,6 +52,8 @@ export async function readTheText(t) {
   const job = chatTurn ? jobOf(body.job) : null, report = jobReportOf(body, { chatTurn, job }); // and a job reporting to the chat's own turn, its coordinator (`jobReport.js`)
 
   store.actor = actorFor(session); tex.kind = turnKind({ runner, job, group, texting: session.actorClientId === TEXTS_CLIENT_ID }); // which steps are off (`texTiming.js`)
+  // Note mail (`tools/notes/mail.js`): a job's turn joins mail as the job, so mail reaches it at once; only Tex's own turn may interrupt one.
+  store.mailTurn = job !== null ? { role: "job", job: job.id } : chatTurn || runner ? { role: "tex" } : null;
   store.contexts = contextsFor(session); store.ledger = chatTurn || runner ? chatLedger(store, session) : null; if (job !== null && store.ledger) store.ledger = session.ledger = jobTagged(store.ledger, job); // a job's turn marks all it writes as the job's (`ledger.js` `jobTagged`) // a texted, group or routine turn's chat ledger, which the email gate and a settled ask write to (`workEntries.js`)
   const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && !runner, logEligible: group !== null && job === null && !runner, now: received }); // what the Worker kept of the last turn's reads, never the history or About me (`warmCopy.js`)
   const setupRead = readProductionSetup(store, session, { texting: session.actorClientId === TEXTS_CLIENT_ID || runner || group !== null, warm: hot.setup }); // read beside what comes before it, not after

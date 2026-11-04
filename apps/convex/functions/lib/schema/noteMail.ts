@@ -24,6 +24,11 @@ export const noteMailTables = {
     name: v.string(),
     /** The time (ISO) of the newest message this mailbox has read. */
     readThrough: v.optional(v.string()),
+    /**
+     * The Tex background job whose turn joined this mailbox, when it joined from one. The gateway looks mailboxes up
+     * by this to deliver new mail to that job at once. An id the job presents, `[A-Za-z0-9_-]{8,64}`, never a credential.
+     */
+    jobId: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_mailboxId", ["mailboxId"])
