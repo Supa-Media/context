@@ -224,8 +224,10 @@ export const SETTINGS_SECTIONS = [
   {
     /*
       How Tex talks to this person in their own chat (Dev2, 2026-10-28): the
-      settings "Tex, settings" changes by text. Reached from Profile's Tex row
-      and by search; a group chat's own are changed in that chat.
+      settings "Tex, settings" changes by text. A group chat's own are changed
+      in that chat. Listed since 2026-11-04 (Dev2: "add Tex to the settings
+      page so I don't have to search for it"), and it holds "Let Tex use this
+      Mac", which the Tex page's connect screen sends Mac owners to.
     */
     key: "tex",
     keywords:
@@ -235,7 +237,6 @@ export const SETTINGS_SECTIONS = [
     group: "You",
     icon: "chat",
     personalOnly: false,
-    folded: true,
   },
   /*
     From here the order is the settings artboard's (2026-09-29, approved by
