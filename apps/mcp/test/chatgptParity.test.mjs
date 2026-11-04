@@ -81,6 +81,7 @@ assert.equal((await call("list_connected_apps", { app: "slack", tool: "write" })
 assert.equal((await call("check_website", { action: "publish" })).isError, true);
 assert.equal((await call("post_slack_message", { channel: "#sample", text: "sample", method: "admin.users.remove" })).isError, true);
 assert.equal((await call("save_context", { platform: "chatgpt", content: "Decision summary", history: "raw transcript" })).isError, true);
+assert.match(text(await call("report_problem", { message: "The tool failed.", share_texts: true })), /unknown argument share_texts/);
 for (const name of ["write", "manage", "send", "app_change", "vault_list"]) assert.equal((await call(name, {})).isError, true);
 assert.equal((await call("update_note", { path: "tex/parity.md", content: "bad", expected_etag: "stale" })).isError, true);
 const metadata = await worker.fetch(new Request("https://x/.well-known/oauth-protected-resource/mcp/chatgpt/v2"), env, { waitUntil() {} });
