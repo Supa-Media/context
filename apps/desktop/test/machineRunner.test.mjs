@@ -12,6 +12,7 @@
  *   `wantsAwake` ignoring `onBattery`                                        2
  *   never deleting the grant file at the first status line                   1
  *   not clearing the stored grant on exit code 3                             1
+ *   sending `kind` in the register body (PairStart refuses unknown keys)       1
  */
 
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
@@ -143,6 +144,7 @@ export async function runMachineRunnerChecks(check) {
     check("turning it on registers once with the console grant", h.posts.length === 1 && h.posts[0].init.headers.authorization === "Bearer console-token");
     const body = JSON.parse(h.posts[0].init.body);
     check("...sending the public key and the Mac's name, never a private key", body.publicKey === KEY && body.name === "Ada's MacBook Pro" && !JSON.stringify(body).includes("private"));
+    check("...and nothing the register schema refuses: exactly publicKey, name and facts", Object.keys(body).sort().join(",") === "facts,name,publicKey");
     check("the machine grant is kept in the keychain store", (await h.grantStore.read())?.endsWith(GRANT));
     check("the runner is started", run !== undefined && run.args[0] === "run");
     check("the grant is in no argument", !run.args.some((a) => a.includes(GRANT)));
