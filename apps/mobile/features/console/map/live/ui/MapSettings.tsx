@@ -38,6 +38,12 @@ const NAMES: ReadonlyArray<Opt<MapLook["names"]>> = [
   { value: "hover", label: "Only what's happening" },
 ];
 
+const READING: ReadonlyArray<Opt<MapLook["reading"]>> = [
+  { value: "circle", label: "Pencil circle" },
+  { value: "pulse", label: "Pulse" },
+  { value: "halo", label: "Halo" },
+];
+
 const WHEN: ReadonlyArray<Opt<Exclude<MapMode, "custom">> & { live?: boolean }> = [
   { value: "live", label: "Live", live: true },
   { value: "day", label: "Past 24 hours" },
@@ -96,6 +102,10 @@ export function MapSettings({ page, compact, onClose }: { page: MapPageState; co
         <Section title="Names">
           <Choices label="Which names" options={NAMES} value={look.names} onChange={(names) => setLook({ names })} testID="map-settings-names" />
           <LookSlider label="Text size" value={look.textSize} min={LOOK_RANGES.textSize[0]} max={LOOK_RANGES.textSize[1]} step={1} digits={0} onChange={(textSize) => setLook({ textSize })} testID="map-settings-text" />
+        </Section>
+
+        <Section title="Reading">
+          <Choices label="When someone reads a note" options={READING} value={look.reading} onChange={(reading) => setLook({ reading })} testID="map-settings-reading" />
         </Section>
 
         <View style={styles.foot}>

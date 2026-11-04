@@ -6,6 +6,7 @@ import { clamp, lerp, quad, type Point } from "../math";
 import { DUR } from "../scene";
 import { BOW, bowOf, grain, textureOf } from "./board";
 import type { DrawEnv } from "./env";
+import { TRACE_REST } from "./marks";
 import { circle, fontOf, roundRect } from "./primitives";
 
 /** How strongly a link between two folders is drawn, against one inside a folder. */
@@ -160,7 +161,8 @@ export function drawLinks(env: DrawEnv): void {
     const width = edgeWidth(s) * style.look.lineWidth;
     // Pencil on paper, chalk on the board: a grainy stroke with a slight bow.
     const stroke = grain(ctx, C, C.edge);
-    const base = ea * boardHaze(s) * (env.dim ? 0.55 : 1);
+    // While a note is traced, its own links are drawn over in pen and the rest step back.
+    const base = ea * boardHaze(s) * (env.dim ? 0.55 : 1) * (env.trace ? TRACE_REST : 1);
     // Links inside a folder at full strength, links between folders faint:
     // the groups read, and the long cross-links do not become the picture.
     // How rough the pencil is (the person's "neat to messy"): how far links
@@ -175,6 +177,7 @@ export function drawLinks(env: DrawEnv): void {
       ctx.beginPath();
       for (const [ka, kb] of model.layout.edges) {
         if (!scene.present.has(ka) || !scene.present.has(kb)) continue;
+        if (env.selected !== null && env.trace && (ka === env.selected || kb === env.selected)) continue;
         if (popping.has(ka) || popping.has(kb) || creating.has(ka) || creating.has(kb)) continue;
         const na = notes.get(ka)!;
         const nb = notes.get(kb)!;
@@ -314,7 +317,7 @@ export function drawNotes(env: DrawEnv): void {
   for (const n of env.near) {
     const key = n.key;
     if (scene.hidden.has(key) || popping.has(key) || scene.editing.has(key) || scene.reading.has(key) || follow.has(key)) continue;
-    if (env.selected === key) continue;
+    if (env.selected === key || env.trace?.has(key)) continue;
     const p = env.screen(n);
     if (!env.onScreen(p, 30)) continue;
     const R = dotRadius(s, n.deg, env.style.look.dotSize);
@@ -330,8 +333,9 @@ export function drawNotes(env: DrawEnv): void {
   }
   // Drawn dots: a grainy fill, and round the bigger ones a loose rim, as a
   // pencil or chalk dot has, a little off centre.
+  const rest = (env.dim ? 0.5 : 1) * (env.trace ? TRACE_REST + 0.1 : 1);
   ctx.fillStyle = grain(ctx, C, C.dot);
-  ctx.globalAlpha = env.dim ? 0.5 : 1;
+  ctx.globalAlpha = rest;
   ctx.fill();
   if (rims.length > 0) {
     ctx.beginPath();
@@ -341,7 +345,7 @@ export function drawNotes(env: DrawEnv): void {
     }
     ctx.strokeStyle = C.dot;
     ctx.lineWidth = 0.9;
-    ctx.globalAlpha = (env.dim ? 0.5 : 1) * 0.6;
+    ctx.globalAlpha = rest * 0.6;
     ctx.stroke();
     ctx.lineWidth = 1;
   }
@@ -349,6 +353,7 @@ export function drawNotes(env: DrawEnv): void {
   // Then the few with something happening to them, each with its own marks.
   const marked = new Set<string>([...scene.editing.keys(), ...scene.reading.keys(), ...follow]);
   if (env.selected !== null) marked.add(env.selected);
+  if (env.trace) for (const k of env.trace) marked.add(k);
   for (const key of marked) {
     if (!scene.present.has(key) || scene.hidden.has(key) || popping.has(key)) continue;
     const n = model.layout.notes.get(key);
@@ -371,15 +376,6 @@ export function drawNotes(env: DrawEnv): void {
       ctx.fillStyle = C.accent;
       ctx.fill();
       ctx.globalAlpha = 1;
-      ctx.lineWidth = 1;
-    }
-    if (rd && !ed) {
-      circle(ctx, p.x, p.y, R + 4);
-      ctx.setLineDash([2, 3]);
-      ctx.strokeStyle = C.ink;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.setLineDash([]);
       ctx.lineWidth = 1;
     }
     if (sel) {

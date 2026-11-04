@@ -118,3 +118,21 @@ that fit, only what's happening; text size) and Restore defaults.
 loses them on the next device; scaling spread at draw time puts taps beside
 the dots. **Test:** `liveMapLook.test.ts`, `liveMapRangePicker.test.ts` ("the
 map's settings"), and `apps/convex/__tests__/mapLookPreferences.test.ts`.
+
+## Reading is a mark on the note; a clicked note traces its links (Dev2, 2026-11-04)
+
+Dev2 found the dots streaming from a read note into its reader "very annoying
+to look at", and liked the prototype's click-to-trace. Both live in
+`engine/draw/marks.ts`:
+
+- **Somebody reading a note** gets a mark on the note itself, chosen in the
+  map's settings: a loose pencil circle slowly redrawn (the default), a ring
+  that pulses out, or a soft halo. Nothing joins the note to the reader.
+  With reduced motion the mark stands still.
+- **Clicking a note** (which opens its card) draws its links to the notes one
+  step away over in pen. Those notes keep their full strength and their names,
+  and every other link and dot steps back to a quarter.
+
+**What a "simplification" would cost:** a line to the reader brings back what
+Dev2 asked to remove, and tracing more than one step lights half the map in a
+linked workspace. **Test:** `liveMapMarks.test.ts`.

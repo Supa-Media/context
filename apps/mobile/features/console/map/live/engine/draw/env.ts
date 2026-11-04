@@ -30,6 +30,8 @@ export type DrawEnv = {
   dim: boolean;
   /** A selected note, drawn teal. */
   selected: string | null;
+  /** The selected note and the notes one link away, traced in pen; null when nothing is selected. */
+  trace: Set<string> | null;
   /** Notes present per folder and subfolder key, and per workspace. */
   counts: Map<string, number>;
   /** Note keys that are hot: written, read, followed, new or selected. */

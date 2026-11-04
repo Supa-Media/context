@@ -2,10 +2,8 @@ import { flagLine, flagName, groupActors, type Group } from "../actors";
 import { LAYER } from "../hit";
 import { placeFlag, placeLabel, type Rect } from "../labels";
 import { dotRadius, flagsShown, noteLabelAlpha, facesApart } from "../lod";
-import { lerp } from "../math";
 import type { NotePlace } from "../layout";
 import type { Flight } from "../scene";
-import { quietAt } from "./containers";
 import type { DrawEnv } from "./env";
 import { placeFlights, type FlightCaption } from "./flights";
 import {
@@ -21,7 +19,8 @@ import {
 
 /**
  * What sits on top of the notes: faces and piles with their name tags, note
- * names that fit, reading dots flowing into readers, and notes in flight.
+ * names that fit, and notes in flight. Reading is a mark on the note
+ * (`marks.ts`), never a line to the reader.
  */
 
 const MAX_LABELS = 500;
@@ -138,37 +137,6 @@ function drawNoteLabels(env: DrawEnv): void {
     haloText(ctx, style, n.title, p.x, baseline, size, hot ? 700 : 500, hot ? C.text : env.dim ? C.dim : C.text2);
     ctx.globalAlpha = 1;
     env.hit.rect({ x: p.x - w / 2, y: baseline - size, w, h: size * 1.3 }, { kind: "note", workspaceId: n.workspaceId, path: n.path }, LAYER.label);
-  }
-}
-
-/** Ink dots streaming from the note being read into its reader. */
-export function drawReading(env: DrawEnv, groups: Group[]): void {
-  const { ctx, style, scene, model } = env;
-  if (model.reducedMotion) return;
-  const C = style.palette;
-  const where = new Map<string, { x: number; y: number }>();
-  for (const g of groups) for (const a of g.actors) where.set(a.id, g);
-  for (const [key, ids] of scene.reading) {
-    const n = model.layout.notes.get(key);
-    if (!n) continue;
-    const p = env.screen(n);
-    for (const id of ids) {
-      const q = where.get(id);
-      if (!q || Math.hypot(p.x - q.x, p.y - q.y) < 6) continue;
-      const lift = Math.min(16, Math.hypot(p.x - q.x, p.y - q.y) * 0.25);
-      for (let i = 0; i < 7; i += 1) {
-        const f = (scene.phase * 1.1 + i / 7) % 1;
-        const x = lerp(p.x, q.x, f);
-        const y = lerp(p.y, q.y, f) - Math.sin(f * Math.PI) * lift;
-        const quiet = quietAt(env.quiet, x, y);
-        if (quiet <= 0) continue;
-        circle(ctx, x, y, 3 * (1 - f * 0.35));
-        ctx.fillStyle = C.ink;
-        ctx.globalAlpha = 0.85 * Math.sin(f * Math.PI) * quiet;
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-    }
   }
 }
 
