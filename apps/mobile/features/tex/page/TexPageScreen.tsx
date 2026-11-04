@@ -56,8 +56,8 @@ export function TexPageScreen() {
   const workspaceId = ready?.workspaceId ?? null;
   const handle = ready?.handle ?? null;
 
-  // A pairing code from the runner's link (`?view=machines&code=KQ7-4MP`), kept while the screen is open:
-  // moving to the connect screen drops it from the address, not from the page.
+  // A pairing code from the runner's link (`?view=machines&code=KQ7-4MP`). Every address is its own
+  // screen, so `go` carries it to the connect screen's address (`placeHref`).
   const codeParam = firstParam(params.code);
   const pairingCode = useRef<string | null>(null);
   if (codeParam && PAIRING_CODE.test(codeParam)) pairingCode.current = codeParam;
@@ -103,7 +103,7 @@ export function TexPageScreen() {
   const go = useCallback(
     (to: Place) => {
       if (handle === null) return;
-      router.push(placeHref(handle, to, chats ?? []));
+      router.push(placeHref(handle, to, chats ?? [], pairingCode.current));
     },
     [handle, chats],
   );

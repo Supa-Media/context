@@ -70,10 +70,13 @@ export function addressOf(base: string, place: Omit<Place, "chat">, query: Recor
  * under its home's words, and a group with no home (none should be left) under
  * the handle with `?chat=`.
  */
-export function placeHref(handle: string, place: Place, chats: readonly ChatRef[]): string {
-  if (place.chat === "me") return addressOf(texHref(handle), place);
+export function placeHref(handle: string, place: Place, chats: readonly ChatRef[], code: string | null = null): string {
+  // Each address is its own screen, so a runner's pairing code rides to the
+  // connect screen in the address, or Review opens it with nothing to approve.
+  const extra: Record<string, string> = code && place.view === "connect" ? { code } : {};
+  if (place.chat === "me") return addressOf(texHref(handle), place, extra);
   const words = groupWordsOf(chats.find((chat) => chat.key === place.chat)?.home?.folder);
-  return words !== null ? addressOf(texGroupHref(words), place) : addressOf(texHref(handle), place, { chat: place.chat });
+  return words !== null ? addressOf(texGroupHref(words), place, extra) : addressOf(texHref(handle), place, { chat: place.chat, ...extra });
 }
 
 /** The group chat whose home is `words`, among the chats the picker offers, or null. */
