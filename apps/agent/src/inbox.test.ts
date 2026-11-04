@@ -602,6 +602,9 @@ describe("the work after a reply", () => {
     // The wait the person felt ends at the first bubble, before the last and before the work after it.
     expect(row.toFirstTextMs).toBeGreaterThan(row.queueMs + row.gatewayMs - 1);
     expect(row.toLastTextMs).toBeGreaterThanOrEqual(row.toFirstTextMs);
+    // Inside the gateway's answer: the session lookup, then the Worker's work before asking (Dev, 2026-11-04).
+    expect(row.sessionMs).toBeGreaterThan(0);
+    expect(row.sessionMs + row.beforeAskMs).toBeLessThan(row.gatewayMs);
     for (const value of points[0].doubles!) expect(value).toBeGreaterThanOrEqual(0);
     expect(JSON.stringify(points)).not.toMatch(/secret words|5555550100|chat_1/);
   });
