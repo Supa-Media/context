@@ -8,7 +8,8 @@
  * Seyi" put it first.
  *
  * Only words that never name a topic are here. "may" (the month), "will" (the document), "us" (the country), "can"
- * and the time words ("next", "last", "still", "left") stay, because a person searches for them.
+ * and the time words ("this", "these", "next", "last", "still", "left") stay, because a person searches for them
+ * ("book club this month": without "this", the club's index outranked this month's meeting, bench gh-153).
  */
 export const FUNCTION_WORDS = new Set([
   "a", "an", "the",
@@ -18,7 +19,7 @@ export const FUNCTION_WORDS = new Set([
   "do", "does", "did", "doing", "have", "has", "had",
   "should", "would", "could", "shall", "must", "might",
   "how", "what", "why", "which", "where", "when", "who", "whom", "whose",
-  "that", "this", "these", "those", "there", "here",
+  "that", "those", "there", "here",
   "to", "of", "in", "on", "at", "for", "with", "from", "by", "about", "into", "onto", "as",
   "and", "or", "but", "if", "so", "than", "then", "too", "very", "just",
 ]);
