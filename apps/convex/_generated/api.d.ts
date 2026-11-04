@@ -209,6 +209,7 @@ import type * as functions_texCommands from "../functions/texCommands.js";
 import type * as functions_texSettingsMigration from "../functions/texSettingsMigration.js";
 import type * as functions_spelling from "../functions/spelling.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
+import type * as functions_texMachines from "../functions/texMachines.js";
 import type * as functions_textGroupUsage from "../functions/textGroupUsage.js";
 import type * as functions_textGroupsMarked from "../functions/textGroupsMarked.js";
 import type * as functions_textGroupNames from "../functions/textGroupNames.js";
@@ -477,6 +478,7 @@ declare const fullApi: ApiFromModules<{
   "functions/texSettingsMigration": typeof functions_texSettingsMigration;
   "functions/spelling": typeof functions_spelling;
   "functions/textLinks": typeof functions_textLinks;
+  "functions/texMachines": typeof functions_texMachines;
   "functions/textGroupUsage": typeof functions_textGroupUsage;
   "functions/textGroupsMarked": typeof functions_textGroupsMarked;
   "functions/textGroupNames": typeof functions_textGroupNames;

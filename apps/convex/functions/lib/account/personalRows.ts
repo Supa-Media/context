@@ -211,6 +211,13 @@ export async function deletePersonalRows(
     await ctx.db.delete(grant._id);
   }
 
+  // Computers the person paired into workspaces that live on: their grants go with the person.
+  const machines = await ctx.db
+    .query("texMachines")
+    .withIndex("by_owner", (q) => q.eq("ownerId", userId))
+    .collect();
+  for (const machine of machines) await ctx.db.delete(machine._id);
+
   // Whether they ever used an AI client: one row, the invite card's answer.
   const agentUse = await ctx.db
     .query("agentUse")
