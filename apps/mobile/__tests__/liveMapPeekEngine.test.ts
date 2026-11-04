@@ -84,17 +84,18 @@ describe("taps", () => {
 });
 
 describe("dragging", () => {
-  // Dev2, 2026-11-04: the card "should automatically fade out if someone starts dragging to look at other nodes".
-  test("a drag says so once per gesture, and a tap is no drag", () => {
-    let drags = 0;
-    const { engine, tap, drag } = engineWith({ onDrag: () => (drags += 1) });
+  // Dev2, 2026-11-04: a clicked note stays selected while you drag round to see what it links to;
+  // only a tap on empty space or on another note changes it.
+  test("a drag is no tap: it neither opens a note nor clears one", () => {
+    const opened: unknown[] = [];
+    let empty = 0;
+    const { engine, drag } = engineWith({ onOpenNote: (note) => opened.push(note), onTapEmpty: () => (empty += 1) });
     engine.setData(mapData());
-    tap(500, 350);
-    expect(drags).toBe(0);
+    engine.renderAt(0);
+    drag(2, H - 2, 6);
     drag(400, 300, 6);
-    expect(drags).toBe(1);
-    drag(400, 300, 6);
-    expect(drags).toBe(2);
+    expect(empty).toBe(0);
+    expect(opened).toEqual([]);
   });
 });
 

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from "react";
-import { Animated, Linking, Platform, Pressable, ScrollView, StyleSheet, Text as RNText, View } from "react-native";
+import { useEffect, useMemo } from "react";
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text as RNText, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
@@ -9,27 +9,20 @@ import { whenText } from "../feed";
 import type { MapPageState } from "../hooks/useMapPage";
 import { useNotePeek, type NotePeekText } from "../hooks/useNotePeek";
 import { peekRuns, type PeekRun } from "../peek/peekInline";
-import { lastWritten, peekCrumbs, peekPlacement, peekPresence, presenceChips, type PeekBlock, type PeekNote, type PresenceChip } from "../peek/peekModel";
+import { lastWritten, peekCrumbs, peekPresence, presenceChips, type PeekBlock, type PeekNote, type PresenceChip } from "../peek/peekModel";
 
 /** The note a dot tap opened, and where on the canvas the tap was (none when the map came back with it open). */
 export type OpenPeek = PeekNote & { at: { x: number; y: number } | null };
 
 /**
- * The card beside a dot, kept small so the map stays the thing you look at
- * (Dev2, 2026-11-04: "the big note text box makes it hard to look around").
- */
-const CARD = { width: 300, height: 320 };
-
-/** How long the card takes to fade out once a drag on the map begins. */
-export const PEEK_FADE_MS = 180;
-
-/**
- * The card a tapped dot opens, instead of leaving the map: the note's words,
+ * The note a tapped dot opens, instead of leaving the map: the note's words,
  * who is writing it and who is reading it, and what is being typed as it is
  * typed (the blocks that changed since the last read are marked, with a caret
  * after the latest). Expand opens the whole note at its own place in history,
- * so Back comes to the map again with this card still open. On a pointer
- * layout it sits beside the dot; on a phone it is a sheet over the map's own.
+ * so Back comes to the map again with this note still open. On a pointer
+ * layout it is the Note tab of the map's side panel (Dev2, 2026-11-04: the
+ * card over the map was in the way, "maybe we can have the notes be previewed
+ * on the side instead"); on a phone it is a sheet over the map's own.
  *
  * Reading is shown for the whole note: the map knows which notes were read,
  * not which parts.
@@ -43,22 +36,17 @@ export function NotePeek({
   page,
   peek,
   compact,
-  box,
   onClose,
   onExpand,
   onPeek,
-  fading = false,
 }: {
   page: MapPageState;
   peek: OpenPeek;
   compact: boolean;
-  box: { width: number; height: number };
   onClose: () => void;
   onExpand: () => void;
   /** A link in the card to another note on the map: the card opens on it, where it is now. */
   onPeek: (next: OpenPeek) => void;
-  /** A drag on the map began: fade out, then close. */
-  fading?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -73,24 +61,6 @@ export function NotePeek({
     open: (path) => (path === peek.path ? onExpand() : onPeek({ ...peek, path })),
   };
 
-  // Dragging the map to look round: the card fades out of the way, then closes.
-  const opacity = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    if (!fading) {
-      opacity.setValue(1);
-      return;
-    }
-    if (page.reducedMotion) {
-      onClose();
-      return;
-    }
-    const fade = Animated.timing(opacity, { toValue: 0, duration: PEEK_FADE_MS, useNativeDriver: Platform.OS !== "web" });
-    fade.start(({ finished }) => {
-      if (finished) onClose();
-    });
-    return () => fade.stop();
-  }, [fading, opacity, onClose, page.reducedMotion]);
-
   useEffect(() => {
     if (Platform.OS !== "web" || typeof document === "undefined") return;
     const onKey = (e: KeyboardEvent) => {
@@ -100,15 +70,12 @@ export function NotePeek({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const card = { width: Math.min(CARD.width, box.width - 24), height: Math.min(CARD.height, box.height - 24) };
-  const place = compact ? null : peekPlacement(peek.at, box, card);
   const written = writing ? null : lastWritten(page.events, peek);
   const updated = writing ? "Being written now" : written !== null ? `Edited ${whenText({ now: false, at: written }, page.now)}` : null;
 
   return (
-    <Animated.View
-      style={[compact ? styles.sheet : [styles.card, { left: place!.left, top: place!.top, width: card.width, maxHeight: card.height }], { opacity }]}
-      pointerEvents={fading ? "none" : "auto"}
+    <View
+      style={compact ? styles.sheet : styles.docked}
       accessibilityRole="none"
       aria-label={`Preview of ${title}`}
       testID="map-peek"
@@ -151,7 +118,7 @@ export function NotePeek({
           <Text style={styles.expandText}>{compact ? "Open note" : "Expand"}</Text>
         </Pressable>
       </View>
-    </Animated.View>
+    </View>
   );
 }
 
@@ -261,18 +228,8 @@ function Run({ run, link, look }: { run: PeekRun; link: LinkTo; look: object }) 
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    card: {
-      position: "absolute",
-      borderRadius: 16,
-      backgroundColor: colors.pageSurface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.lineStrong,
-      shadowColor: "#000",
-      shadowOpacity: 0.28,
-      shadowRadius: 30,
-      shadowOffset: { width: 0, height: 12 },
-      overflow: "hidden",
-    },
+    // In the map's side panel, under its tabs: the panel's own width and height.
+    docked: { flex: 1, minHeight: 0, backgroundColor: colors.pageSurface },
     sheet: {
       position: "absolute",
       left: 0,

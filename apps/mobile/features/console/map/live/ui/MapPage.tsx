@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../../design/components/Text";
@@ -13,8 +13,9 @@ import { createCameraStore, type CameraStore } from "./CanvasOverlay";
 import { Chip } from "./controls";
 import { DOCK_GAP, MapDock, SettingsButton, WHERE_INSET, WorkspaceMenu } from "./MapDock";
 import { MapSettings } from "./MapSettings";
-import { MapPanel } from "./MapPanel";
-import { NotePeek } from "./NotePeek";
+import { MapActivity, MapColumn, MapNote } from "./MapPanel";
+import { useMapSideStore, useOfferMapSide } from "../../../aside/mapSide";
+import { useFrame } from "../../../../app/AppFrame";
 import { PhoneMap } from "./PhoneMap";
 import { mapNotice } from "./status";
 
@@ -23,8 +24,8 @@ import { mapNotice } from "./status";
  * The live map, in the document slot: `?map=1` over Browse. The canvas takes
  * the whole height, with which workspace in its top left and one dock of
  * controls at its bottom (`MapDock`, which holds the replay bar while
- * replaying), and the column of who is working and what is happening beside
- * it. A phone gets the canvas with a
+ * replaying). Who is working, what is happening and the clicked note are tabs
+ * of the console's right panel (`mapSide.tsx`), hidden with it. A phone gets the canvas with a
  * sheet over it (`PhoneMap`). In the native app the canvas is the same
  * engine inside a web view (`LiveMapCanvas.tsx`), so every layout is the
  * same on every platform.
@@ -54,20 +55,34 @@ function DesktopMap({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const [box, setBox] = useState({ width: 0, height: 0 });
   const [dock, setDock] = useState(44);
   const inset = useMemo(() => ({ top: WHERE_INSET, right: 16, bottom: dock + DOCK_GAP, left: 16 }), [dock]);
-  const open = peek.peek;
   const following = page.follow;
   const [settings, setSettings] = useState(false);
+  // The console's right panel holds the map's tabs; with no console (a harness) the map keeps its own column.
+  const ownColumn = useMapSideStore() === null;
+  const open = peek.peek;
+  const noteKey = open === null ? null : `${open.workspaceId}\n${open.path}`;
+  useOfferMapSide({
+    activity: <MapActivity page={page} onOpenNote={onOpenNote} />,
+    note: <MapNote page={page} peek={peek} onOpenNote={onOpenNote} />,
+    noteKey,
+  });
+  // A note clicked with the panel shut opens it, beside the map, where there is room for a column.
+  const frame = useFrame();
+  const asideShut = !frame.state.asideOpen;
+  const toggleAside = frame.toggleAside;
+  const wide = frame.density === "wide";
+  useEffect(() => {
+    if (noteKey !== null && asideShut && wide) toggleAside();
+    // Only a new note opens it: the panel shut by hand with a note open stays shut.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteKey]);
   return (
     <View style={styles.page} testID="map-page">
       <View style={styles.body}>
         <View style={styles.column}>
-          <View
-            style={styles.canvasBox}
-            onLayout={(e) => setBox({ width: Math.round(e.nativeEvent.layout.width), height: Math.round(e.nativeEvent.layout.height) })}
-          >
+          <View style={styles.canvasBox}>
             <MapCanvas page={page} camera={camera} peek={peek} inset={inset} />
             <WorkspaceMenu page={page} camera={camera} onSelectWorkspace={onSelectWorkspace} />
             {settings ? null : (
@@ -89,18 +104,6 @@ function DesktopMap({
             ) : null}
             <MapDock page={page} onHeight={setDock} />
             <MapNotice page={page} bottom={dock + DOCK_GAP} />
-            {open !== null && box.width > 0 ? (
-              <NotePeek
-                page={page}
-                peek={open}
-                compact={false}
-                box={box}
-                onClose={peek.close}
-                onExpand={() => onOpenNote(open.workspaceId, open.path)}
-                onPeek={peek.onTapNote}
-                fading={peek.fading}
-              />
-            ) : null}
             {settings ? (
               <MapSettings
                 page={page}
@@ -114,7 +117,7 @@ function DesktopMap({
             ) : null}
           </View>
         </View>
-        <MapPanel page={page} onOpenNote={onOpenNote} />
+        {ownColumn ? <MapColumn page={page} peek={peek} onOpenNote={onOpenNote} /> : null}
       </View>
     </View>
   );

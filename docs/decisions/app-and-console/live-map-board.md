@@ -237,3 +237,34 @@ hard to look around the map". What changed, and why:
 
 **Tests:** `liveMapMotion.test.ts` (opening, depth, sway, breathing),
 `liveMapMarks.test.ts` (hover traces), `liveMapPeekEngine.test.ts` (drag).
+
+## The clicked note is a tab of the right panel, not a card over the map (Dev2, 2026-11-04)
+
+Dev2: "lets hide the note preview ... maybe we can have the notes be
+previewed on the side instead it can be another tab ... a way to hide that
+side panel or either merge it with the meetings side bar." Dev2 chose the
+merge. So:
+
+- **No floating card.** A note clicked on the map is previewed in the
+  console's right panel, as a **Note** tab beside the map's **Activity** (who
+  is working, what is happening) and **Meetings**. The map's own column is
+  gone. The map hands its two tabs to the panel through a store the console
+  provides (`features/console/aside/mapSide.tsx`), and the panel decides where
+  they go (`tabs.ts`). Only a harness that mounts the map with no console
+  around it keeps a column of the map's own.
+- **One button hides it all.** The top bar's panel button shows and hides the
+  panel with the map's tabs in it. Clicking a note with the panel shut opens
+  it at wide density, where it is a column; at medium it would cover the map,
+  so it waits for the button. Shutting it by hand with a note open keeps it
+  shut.
+- **Which tab shows.** The map opening brings Activity forward, and a note
+  clicked brings Note forward: these are the person's own presses. The note
+  closed falls back to Activity, and the map left falls back to Meetings. A
+  meeting starting still only marks its tab.
+- **A drag is not a tap.** Dragging to look around the clicked note's links
+  neither clears it nor opens another. Only a click on empty space or on
+  another note changes the selection.
+
+Reversing it: `__tests__/asideMapTabs.test.ts` fails if the panel ignores the
+map's tabs or a click stops bringing Note forward, and
+`liveMapPeekEngine.test.ts` fails if a drag clears the selected note.

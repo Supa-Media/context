@@ -65,7 +65,6 @@ export type GuestMessage =
   | { type: "hover"; target: HitTarget | null }
   | { type: "openNote"; note: { workspaceId: string; path: string; at?: { x: number; y: number } } }
   | { type: "tapEmpty" }
-  | { type: "drag" }
   | { type: "diveInto"; folder: { workspaceId: string; path: string } }
   | { type: "time"; t: number };
 
@@ -120,8 +119,6 @@ export function parseGuestMessage(raw: unknown): GuestMessage | null {
     }
     case "tapEmpty":
       return { type: "tapEmpty" };
-    case "drag":
-      return { type: "drag" };
     case "diveInto": {
       const folder = place(value.folder);
       return folder ? { type: "diveInto", folder } : null;

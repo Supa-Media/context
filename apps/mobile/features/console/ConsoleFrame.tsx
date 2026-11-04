@@ -84,6 +84,7 @@ import { consolePalette } from "./layout/palette";
 import { ChaosProvider, useConsoleChaos } from "../chaos/ChaosContext";
 import { ChaosSheet } from "../chaos/ChaosPopover";
 import { MapRouteProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
+import { MapSideProvider } from "./aside/mapSide";
 import { TrashRouteProvider, useConsoleTrashRoute } from "./trash/TrashRouteContext";
 import { useHomeView } from "./home/homeView";
 import { usePreviousPage } from "./home/phoneHistory";
@@ -445,6 +446,7 @@ export function ConsoleFrame({
     <ConsoleDataProvider value={data}>
       <ChaosProvider value={chaos}>
       <MapRouteProvider value={mapRoute}>
+      <MapSideProvider>
       <TrashRouteProvider value={trashRoute}>
       <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
@@ -677,6 +679,7 @@ export function ConsoleFrame({
       </VoiceHostProvider>
       </ConsoleNavProvider>
       </TrashRouteProvider>
+      </MapSideProvider>
       </MapRouteProvider>
       </ChaosProvider>
     </ConsoleDataProvider>

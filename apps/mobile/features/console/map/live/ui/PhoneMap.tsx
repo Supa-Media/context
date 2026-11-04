@@ -37,15 +37,10 @@ export function PhoneMap({ page, camera, peek, onOpenNote }: { page: MapPageStat
   const [bar, setBar] = useState(0);
   const inset = useMemo(() => ({ top: bar, right: 0, bottom: sheet, left: 0 }), [bar, sheet]);
   const following = page.follow !== null;
-  const [box, setBox] = useState({ width: 0, height: 0 });
   const card = peek.peek;
   const [settings, setSettings] = useState(false);
   return (
-    <View
-      style={styles.page}
-      testID="map-page"
-      onLayout={(e) => setBox({ width: Math.round(e.nativeEvent.layout.width), height: Math.round(e.nativeEvent.layout.height) })}
-    >
+    <View style={styles.page} testID="map-page">
       <MapCanvas page={page} camera={camera} peek={peek} inset={inset} />
       <View style={styles.top} onLayout={(e) => setBar(Math.round(e.nativeEvent.layout.height))} pointerEvents="box-none">
         <MapBar page={page} onSettings={() => setSettings(true)} />
@@ -100,7 +95,7 @@ export function PhoneMap({ page, camera, peek, onOpenNote }: { page: MapPageStat
         {page.mode !== "live" ? <ReplayBar page={page} compact /> : null}
       </View>
       {card !== null ? (
-        <NotePeek page={page} peek={card} compact box={box} onClose={peek.close} onExpand={() => onOpenNote(card.workspaceId, card.path)} onPeek={peek.onTapNote} fading={peek.fading} />
+        <NotePeek page={page} peek={card} compact onClose={peek.close} onExpand={() => onOpenNote(card.workspaceId, card.path)} onPeek={peek.onTapNote} />
       ) : null}
       {settings ? (
         <MapSettings

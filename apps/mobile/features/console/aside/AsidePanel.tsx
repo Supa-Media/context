@@ -9,6 +9,7 @@ import { layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { useMeetingsSnapshot } from "../../meetings/useMeetings";
 import { MeetingsTab } from "./MeetingsTab";
+import { useMapSide } from "./mapSide";
 import type { CalendarEvent } from "../../meetings/protocol";
 import {
   ASIDE_TABS,
@@ -83,13 +84,31 @@ export function AsidePanel({
   const waiting = approvals?.items.length ?? 0;
   // The tab somebody chose, if this console still shows it; else Meetings, which every console shows.
   const wanted = asideTabFor(chosen);
+  const map = useMapSide();
   const tabs = visibleAsideTabs({
     approvals: approvalsAvailable,
     waiting,
     answered: wanted === "approvals" && approvals?.notice != null,
     failed: approvals?.phase === "failed",
+    map: map !== null,
+    note: map?.noteKey != null,
   });
-  const showing: AsideTab = tabs.includes(wanted) ? wanted : "meetings";
+  // A chosen tab that has gone (the note closed, the map left) falls back to the map's Activity, else Meetings.
+  const showing: AsideTab = tabs.includes(wanted) ? wanted : tabs.includes("activity") ? "activity" : "meetings";
+
+  /*
+    The map opening brings its Activity forward, and a note clicked on it
+    brings Note forward. These are the person's own presses on the map, so
+    they move the tab where a meeting starting does not.
+  */
+  const mapOpen = map !== null;
+  const noteKey = map?.noteKey ?? null;
+  useEffect(() => {
+    if (mapOpen) setChosen("activity");
+  }, [mapOpen]);
+  useEffect(() => {
+    if (noteKey !== null) setChosen("note");
+  }, [noteKey]);
 
   /* Somebody asked for Meetings, from the + menu or the title bar. See `started`. */
   useEffect(() => {
@@ -158,7 +177,15 @@ export function AsidePanel({
         })}
       </View>
 
-      {showing === "approvals" && approvals !== undefined ? (
+      {showing === "activity" && map !== null ? (
+        <View style={styles.body} testID="aside-map-activity">
+          {map.activity}
+        </View>
+      ) : showing === "note" && map !== null ? (
+        <View style={styles.body} testID="aside-map-note">
+          {map.note}
+        </View>
+      ) : showing === "approvals" && approvals !== undefined ? (
         <View style={styles.body} testID="aside-approvals">
           <ApprovalsPanel view={approvals} />
         </View>

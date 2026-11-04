@@ -40,7 +40,6 @@ export function mountMapGuest(
     onHover: (target) => send({ type: "hover", target }),
     onOpenNote: (note) => send({ type: "openNote", note }),
     onTapEmpty: () => send({ type: "tapEmpty" }),
-    onDrag: () => send({ type: "drag" }),
     onDiveInto: (folder) => send({ type: "diveInto", folder }),
     onTime: (t) => send({ type: "time", t }),
     get minimap() {

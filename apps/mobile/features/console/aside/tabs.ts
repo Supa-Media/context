@@ -22,6 +22,13 @@
   context happens in the AI clients people connect to it.
 */
 export const ASIDE_TABS = [
+  /*
+    The live map's two tabs, only while the map is open (Dev2, 2026-11-04:
+    the map's own column merged into this panel). Activity is who is working
+    and what is happening; Note is the note clicked on the map.
+  */
+  { key: "activity", label: "Activity" },
+  { key: "note", label: "Note" },
   { key: "meetings", label: "Meetings" },
   { key: "approvals", label: "Approvals" },
 ] as const;
@@ -33,7 +40,8 @@ export const DEFAULT_ASIDE_TAB: AsideTab = "meetings";
 /**
  * The tabs a console shows, in order.
  *
- * Meetings is always there. Approvals needs this console to have an approvals
+ * Meetings is always there. Activity, and Note with a note clicked, lead
+ * while the live map is open. Approvals needs this console to have an approvals
  * route to ask — `approvals` is false otherwise (the homepage, the demo) — and
  * something to ask about: an email, a calendar change, a new @handle or a
  * vault key's first use waiting for the person. With nothing waiting it is
@@ -48,14 +56,25 @@ export function visibleAsideTabs({
   waiting,
   answered = false,
   failed = false,
+  map = false,
+  note = false,
 }: {
   approvals: boolean;
   waiting: number;
   answered?: boolean;
   failed?: boolean;
+  /** The live map is open: its Activity tab leads. */
+  map?: boolean;
+  /** A note is clicked on the open map: its Note tab follows Activity. */
+  note?: boolean;
 }): AsideTab[] {
   const showApprovals = approvals && (waiting > 0 || answered || failed);
-  return ASIDE_TABS.map((tab) => tab.key).filter((key) => key === "meetings" || showApprovals);
+  return ASIDE_TABS.map((tab) => tab.key).filter((key) => {
+    if (key === "activity") return map;
+    if (key === "note") return map && note;
+    if (key === "approvals") return showApprovals;
+    return true;
+  });
 }
 
 /**
