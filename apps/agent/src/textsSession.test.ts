@@ -43,7 +43,7 @@ describe("a text's session", () => {
     const seen: string[] = [];
     const asked: Record<string, unknown>[] = [];
     const kept: (string | null)[] = [];
-    const texts = { binding: binding(() => [200, { status: "linked", accessToken: "cat1.ws_dev.object-token", timeZone: "America/New_York" }], asked), workspaceId: "ws_dev", remember: async (id: string | null) => void kept.push(id) };
+    const texts = { binding: binding(() => [200, { status: "linked", accessToken: "cat1.ws_dev.object-token", timeZone: "America/New_York" }], asked), workspaceId: async () => "ws_dev", remember: async (id: string | null) => void kept.push(id) };
     const reply = await replyTo(message("what's on my list?"), deps({ "/agent": answered("cat1.ws_dev.object-token") }, seen, texts));
     expect(reply).toEqual(["Three things."]);
     expect(seen).toEqual(["/agent"]);
@@ -54,7 +54,7 @@ describe("a text's session", () => {
   it("falls back to Convex on a miss, and a stale id the object refused is cleared", async () => {
     const seen: string[] = [];
     const kept: (string | null)[] = [];
-    const texts = { binding: binding(() => [200, { status: "unlinked" }], []), workspaceId: "ws_stale", remember: async (id: string | null) => void kept.push(id) };
+    const texts = { binding: binding(() => [200, { status: "unlinked" }], []), workspaceId: async () => "ws_stale", remember: async (id: string | null) => void kept.push(id) };
     const reply = await replyTo(
       message("what's on my list?"),
       deps({ "/agent-texts/session": () => [200, { status: "linked", accessToken: "cat_convex" }], "/agent": answered("cat_convex") }, seen, texts),
@@ -68,7 +68,7 @@ describe("a text's session", () => {
     const seen: string[] = [];
     const asked: Record<string, unknown>[] = [];
     const kept: (string | null)[] = [];
-    const texts = { binding: binding(() => [200, { status: "unlinked" }], asked), remember: async (id: string | null) => void kept.push(id) };
+    const texts = { binding: binding(() => [200, { status: "unlinked" }], asked), workspaceId: async () => undefined, remember: async (id: string | null) => void kept.push(id) };
     await replyTo(
       message("hi"),
       deps({ "/agent-texts/session": () => [200, { status: "linked", accessToken: "cat_convex", personalWorkspaceId: "ws_dev" }], "/agent": answered("cat_convex") }, seen, texts),
@@ -79,7 +79,7 @@ describe("a text's session", () => {
 
   it("ATTACK: a malformed workspace id from Convex is never kept, and a gateway that fails is a miss, not an error", async () => {
     const kept: (string | null)[] = [];
-    const texts = { binding: binding(() => new Error("binding down"), []), workspaceId: "ws_dev", remember: async (id: string | null) => void kept.push(id) };
+    const texts = { binding: binding(() => new Error("binding down"), []), workspaceId: async () => "ws_dev", remember: async (id: string | null) => void kept.push(id) };
     const reply = await replyTo(
       message("hi"),
       deps({ "/agent-texts/session": () => [200, { status: "linked", accessToken: "cat_convex", personalWorkspaceId: "../ws_other" }], "/agent": answered("cat_convex") }, [], texts),
@@ -90,7 +90,7 @@ describe("a text's session", () => {
 
   it("an unlinked phone is still unlinked when both say so, and nothing is kept", async () => {
     const kept: (string | null)[] = [];
-    const texts = { binding: binding(() => [200, { status: "unlinked" }], []), remember: async (id: string | null) => void kept.push(id) };
+    const texts = { binding: binding(() => [200, { status: "unlinked" }], []), workspaceId: async () => undefined, remember: async (id: string | null) => void kept.push(id) };
     const seen: string[] = [];
     await replyTo(
       message("hello"),

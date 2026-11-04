@@ -45,7 +45,8 @@ import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInbo
 import { flushWithReader } from "./chatRead";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { sha256Hex } from "./groupChat";
-import type { DueRoutine, TextsBinding } from "./clients";
+import type { DueRoutine } from "./clients";
+import { textsSessionDeps, type TextsBinding } from "./gatewaySession";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
 import { mintThreadsLink, readJobSteer, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
@@ -93,8 +94,7 @@ export interface Env {
   CONTROL_PLANE_ORIGIN: string;
   /** The gateway origin, e.g. https://mcp.context.lc */
   GATEWAY_ORIGIN: string;
-  /** The gateway's `TexTexts` entrypoint: a text's session from the person object, without Convex. Absent, Convex's. */
-  GATEWAY_TEXTS?: TextsBinding;
+  GATEWAY_TEXTS?: TextsBinding; // the gateway's `TexTexts`: a text's session from the person object (`gatewaySession.ts`)
   /** "on" serves the texts simulator (simulator.ts). Only staging sets it. */
   SIMULATOR?: string;
   /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
@@ -660,7 +660,7 @@ export class SenderInbox implements DurableObject {
       appCard: appCardConfig(this.env),
       waitUntil: (promise) => this.handOff(promise),
       textTiming: this.env.TEX_TEXTS,
-      ...(this.env.GATEWAY_TEXTS ? { textsBinding: this.env.GATEWAY_TEXTS } : {}),
+      ...(this.env.GATEWAY_TEXTS ? { texts: textsSessionDeps(this.env.GATEWAY_TEXTS, this.state.storage) } : {}),
       noteCardPicture: noteCardDrawer((input, init) => fetch(input, init), this.env.CONTROL_PLANE_ORIGIN, this.env.AGENT_WORKER_SECRET),
       hostPicture: async (picture: Picture) =>
         hostPicture(

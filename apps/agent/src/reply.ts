@@ -137,7 +137,7 @@ export type ReplyDeps = {
   texts?: TextsSessionDeps;
 };
 
-export type TextsSessionDeps = { binding: TextsBinding; workspaceId?: string; remember: (personalWorkspaceId: string | null) => Promise<void> };
+export type TextsSessionDeps = { binding: TextsBinding; workspaceId: () => Promise<string | undefined>; remember: (personalWorkspaceId: string | null) => Promise<void> };
 
 /**
  * The person object first, when this inbox knows whose phone it is; Convex otherwise, or on any miss. Convex's answer
@@ -146,14 +146,15 @@ export type TextsSessionDeps = { binding: TextsBinding; workspaceId?: string; re
  */
 async function textSession(phone: string, deps: ReplyDeps): Promise<SessionAnswer> {
   const texts = deps.texts;
-  if (texts?.workspaceId) {
-    const fast = await openGatewaySession(texts.binding, phone, texts.workspaceId);
+  const kept = texts ? await texts.workspaceId() : undefined;
+  if (texts && kept) {
+    const fast = await openGatewaySession(texts.binding, phone, kept);
     if (fast !== null) return fast;
   }
   const slow = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, phone);
   if (texts) {
     const own = slow.status === "linked" ? slow.personalWorkspaceId ?? null : null;
-    if (own !== (texts.workspaceId ?? null)) await texts.remember(own).catch(() => undefined);
+    if (own !== (kept ?? null)) await texts.remember(own).catch(() => undefined);
   }
   return slow;
 }

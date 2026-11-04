@@ -60,8 +60,7 @@ import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
 import { isWhapiChat } from "./whapi";
 import { carouselRun, isRefusal } from "./carousel";
 import { PICTURE_FAILED, describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
-import { replyTo, TryLater, type Message, type ReplyDeps, type TextsSessionDeps } from "./reply";
-import type { TextsBinding } from "./clients";
+import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
 import { clearTold, noteTold, owedTold } from "./told";
@@ -98,8 +97,6 @@ export type InboxStorage = {
 export type InboxDeps = ReplyDeps &
   Omit<LineDeps, "fetch"> & {
     now: () => number;
-    /** The gateway's `TexTexts` entrypoint (`clients.ts` `openGatewaySession`); absent, every text's session is Convex's. */
-    textsBinding?: TextsBinding;
     /** Where each answered text's wait is written (`textTiming.ts`); absent, nowhere. */
     textTiming?: TimingDataset;
     /** Starts a background job in an object of its own (`jobs.ts`); absent, texted turns are offered none. */
@@ -689,25 +686,12 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
       if (stage === "session") timing.sessioned = deps.now();
       else timing.asking = deps.now();
     };
-    return await replied(replyTo(message, { ...deps, onProgress, onStage, ...(await textsSession(deps, storage)) }));
+    return await replied(replyTo(message, { ...deps, onProgress, onStage }));
   } finally {
     await shown?.stop();
     await chain;
     await Promise.all(bubbles);
   }
-}
-
-/** Whose phone this inbox answers: the personal workspace id a session named, kept for the next text (`reply.ts` `textSession`). */
-export const TEXTS_WORKSPACE_KEY = "texts:workspace";
-
-async function textsSession(deps: InboxDeps, storage: InboxStorage): Promise<{ texts?: TextsSessionDeps }> {
-  if (deps.textsBinding === undefined) return {};
-  const workspaceId = await storage.get<string>(TEXTS_WORKSPACE_KEY);
-  const remember = async (id: string | null): Promise<void> => {
-    if (id === null) await storage.delete(TEXTS_WORKSPACE_KEY);
-    else await storage.put(TEXTS_WORKSPACE_KEY, id);
-  };
-  return { texts: { binding: deps.textsBinding, ...(typeof workspaceId === "string" ? { workspaceId } : {}), remember } };
 }
 
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {
