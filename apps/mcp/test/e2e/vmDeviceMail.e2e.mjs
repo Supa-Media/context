@@ -26,6 +26,9 @@
  * `{"decision":"block"}` keeps the turn going with its reason, and a background
  * command ending wakes the session.
  *
+ * Sabotage record: `hello` without the replay of a device's held mail → "the mail sent while down, after
+ * the runner is back" times out (2026-11-04).
+ *
  * Needs the runner built (`cargo build` in apps/machine-runner). CI builds it
  * and runs this file (.github/workflows/machine-runner.yml); without the binary
  * the test is skipped locally and fails in CI.
@@ -33,7 +36,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -422,6 +425,17 @@ test("a Claude Code VM pairs through its own Context connection, shows up mail-o
     return /Third one\./.test(answer.stdout) ? answer : null;
   });
   assert.match(third.stdout, /Third one\./);
+
+  // 7b. Mail sent while the runner is down (killed, or between sockets) reaches it when it is back.
+  const pid = Number(readFileSync(join(dir, "daemon.pid"), "utf8").trim());
+  process.kill(pid, "SIGTERM");
+  // The object may not have seen the socket close yet; either way the line must not be lost.
+  await deliverMail(gw.env, { jobMailboxes: boxes }, { ...line, at: new Date().toISOString(), mailKind: "note", text: "Sent while you were down." });
+  const back = await until("the mail sent while down, after the runner is back", async () => {
+    const answer = await vm.hook("UserPromptSubmit", { prompt: "again" });
+    return /Sent while you were down\./.test(answer.stdout) ? answer : null;
+  });
+  assert.match(back.stdout, /Sent while you were down\./);
 
   // 8. Session end: the device revokes its own grant and leaves the workspace object.
   const end = await vm.hook("SessionEnd", { reason: "exit" });
