@@ -200,7 +200,7 @@ export class WorkspaceStore {
         // Whether a build behind a search did anything: counts and a code, never a path (2026-11-04: @seyi's meaning
         // index never finished its first build, and nothing said why).
         if (opOf(request) === "ws.meaning.build") {
-          console.log(JSON.stringify({ event: "meaning_build", reason: answer?.failed === true ? (typeof answer.reason === "string" ? answer.reason : "failed") : answer?.served === true ? (answer.busy === true ? "busy" : "built") : "not_served", ...(Number.isFinite(answer?.waiting) ? { meaningWaiting: answer.waiting } : {}) }));
+          console.log(JSON.stringify({ event: "meaning_build", reason: answer?.failed === true ? (typeof answer.reason === "string" ? answer.reason : "failed") : answer?.served === true ? (answer.busy === true ? "busy" : "built") : "not_served", ...(Number.isFinite(answer?.waiting) ? { meaningWaiting: answer.waiting } : {}), ...(typeof answer?.providerWords === "string" && /^[a-z ]{1,260}$/.test(answer.providerWords) ? { providerWords: answer.providerWords } : {}) }));
         }
         store.indexBuild.noted(answer);
         if (store.indexBuild.wake() !== null) this.tex().arm();

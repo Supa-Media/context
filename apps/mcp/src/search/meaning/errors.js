@@ -56,6 +56,25 @@ export function providerHint(message) {
   return "other";
 }
 
+/**
+ * The words of a provider's message that cannot have come from the note being embedded: letters-only words that
+ * appear in none of the inputs, at most twelve, from the first 160 characters past the code. A word the inputs hold
+ * is dropped, so no note's word can reach a log through this; digits are dropped, so no id or number can either.
+ * For a code no page documents (Workers AI's 8006, 2026-11-04), where `providerHint` matched none of its patterns.
+ */
+export function providerWords(message, inputs) {
+  if (typeof message !== "string" || message.length === 0) return undefined;
+  const held = new Set();
+  for (const text of Array.isArray(inputs) ? inputs : []) {
+    if (typeof text !== "string") continue;
+    for (const word of text.toLowerCase().match(/[a-z]+/g) ?? []) held.add(word);
+  }
+  const words = (message.replace(/^\s*\d{4}\s*:?/, "").slice(0, 160).match(/[A-Za-z]+/g) ?? [])
+    .filter((word) => word.length <= 20 && !held.has(word.toLowerCase()))
+    .slice(0, 12);
+  return words.length > 0 ? words.join(" ").toLowerCase() : undefined;
+}
+
 export class MeaningError extends Error {
   constructor(code, detail = {}) {
     const known = MEANING_ERROR_CODES.includes(code) ? code : "REFUSED";
@@ -74,6 +93,7 @@ export class MeaningError extends Error {
       ? detail.probeStatus
       : undefined;
     this.hint = PROVIDER_HINTS.includes(detail.hint) ? detail.hint : undefined;
+    this.providerWords = typeof detail.providerWords === "string" && /^[a-z ]{1,260}$/.test(detail.providerWords) ? detail.providerWords : undefined;
     this.inputChars = Number.isSafeInteger(detail.inputChars) && detail.inputChars >= 0
       ? detail.inputChars
       : undefined;
