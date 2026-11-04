@@ -6,6 +6,7 @@
  */
 
 import { MACHINE_PATHS, handleMachines } from "../machines/routes.js";
+import { MACHINE_JOB_PATHS, handleMachineJob } from "../machines/jobRoutes.js";
 import { openaiAppsChallengeResponse } from "./openaiAppsChallenge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { attachLinkCalls, matchWellKnown } from "./routing.js";
@@ -249,6 +250,7 @@ export async function route(request, env, ctx) {
       path === "/agent/try" ||
       path === APP_SEARCH_PATH ||
       TEXTING_ROUTES.has(path) ||
+      MACHINE_JOB_PATHS.has(path) ||
       path === "/agent/review" ||
       path === "/collaboration" ||
       fileOpRoute ||
@@ -434,6 +436,8 @@ export async function route(request, env, ctx) {
       // setup an @context-lc editor picked, then a judge turn on its rules.
       // The texting Worker's steer, events, cancel and stale asks (`agent/textingRoutes.js`).
       if (TEXTING_ROUTES.has(path)) return await TEXTING_ROUTES.get(path)(request, store, session);
+      // A job's part on the person's own computer (`machines/jobRoutes.js`).
+      if (MACHINE_JOB_PATHS.has(path)) return await handleMachineJob(request, env, session, { path, controlPlane, origin });
       // The texting Worker saw a chat go quiet: score how it went (`agent/selfReview.js`).
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));

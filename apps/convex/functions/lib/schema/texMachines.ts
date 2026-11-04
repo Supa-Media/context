@@ -66,4 +66,28 @@ export const texMachineTables = {
     .index("by_grant", ["hashedGrant"])
     .index("by_workspace", ["workspaceId"])
     .index("by_owner", ["ownerId"]),
+
+  /**
+   * A run grant: the short-lived token a Tex background job's part presents on a paired machine. It acts exactly as
+   * the job's own texting grant (`parentGrantId`), under its own client id, and lives only as long as the part does.
+   * It is a pointer to the parent, not a grant of its own, so every live check on the parent applies on every request
+   * (`lib/controlPlane/liveGrants.ts` `resolveRunGrant`).
+   *
+   * Swept with the pairings: an expired row is deleted by the hourly purge, and a machine's rows go with the machine.
+   */
+  texMachineRunGrants: defineTable({
+    /** sha256 hex of the plain run token; the plain token is returned once, to the gateway, and never stored. */
+    hashedAccessToken: v.string(),
+    /** The job's own texting grant (`context_texts` or `context_texts_group`) this one acts as. */
+    parentGrantId: v.id("oauthGrants"),
+    machineId: v.id("texMachines"),
+    /** The workspace object's run id (`run_` + 24 hex), for revoking at the part's end. */
+    runId: v.string(),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_access_token", ["hashedAccessToken"])
+    .index("by_expires", ["expiresAt"])
+    .index("by_machine", ["machineId"])
+    .index("by_run", ["runId"]),
 };
