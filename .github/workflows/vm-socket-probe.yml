@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
   probe:
@@ -21,6 +22,11 @@ jobs:
           out="$(echo '{}' | ~/.context-machine/bin/context-machine hook SessionStart)"
           code="$(printf '%s' "$out" | grep -o '"code": "[^"]*"' | cut -d'"' -f4)"
           echo "::notice title=pairing code::$code"
+          # Annotations show only when the job ends; a check run is readable at once.
+          gh api "repos/$GITHUB_REPOSITORY/check-runs" -f name="probe pairing code" -f head_sha="${{ github.event.pull_request.head.sha }}" \
+            -f status=completed -f conclusion=neutral -f "output[title]=$code" -f "output[summary]=pairing code" > /dev/null
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Watch the socket for 25 minutes
         run: |
           log=~/.context-machine/daemon.log
