@@ -8,6 +8,8 @@
  *  1. `runsMachine` letting a shared workspace's editor in → "another editor can't open somebody else's computer to themselves".
  *  2. `disconnect` skipping `ws.machine.remove` → "disconnect revokes the grant and says goodbye on the socket at once".
  *  3. `list` showing every member the full row → "a member who doesn't run a computer sees only its name and whether it is online".
+ *  6. `assign` trusting a caller's `approved` → "only its own owner answers Ask me first".
+ *  5. `answerAsk` accepting the workspace's owner → "only its own owner answers Ask me first".
  *  4. `ownComputer` accepting the workspace's owner → "only a computer's own owner lends it to a group chat".
  */
 import assert from "node:assert/strict";
@@ -151,4 +153,20 @@ test("only a computer's own owner lends it to a group chat", async () => {
   assert.deepEqual(controlPlane.lent, []);
   assert.equal(w.machines.get("mch_1").chats[KEY], undefined);
   assert.equal((await ask("/machines/app/lend", { workspaceId: "ws_team", machineId: "mch_1", chat: "not-a-key" }, app("user_owner", "editor"))).status, 400);
+});
+
+test("only its own owner answers Ask me first", async () => {
+  const { ask, w } = await setup();
+  await w.call("ws.machine.set", { id: "mch_1", patch: { chats: { [KEY]: { who: "everyone" } } } });
+  const waiting = await w.call("ws.machine.assign", { machineId: "mch_1", jobId: "job_1", part: 1, chat: KEY, askerId: "user_ade", fromOwner: false, tool: "claude", folder: "/srv/code", permission: "edits", brief: "Fix it.", doneWhen: "" });
+  assert.equal(waiting.code, "ask_first");
+  // The object keeps the yes itself: a caller saying it was given is not one.
+  assert.equal((await w.call("ws.machine.assign", { machineId: "mch_1", jobId: "job_1", part: 1, chat: KEY, askerId: "user_ade", fromOwner: false, approved: true, tool: "claude", folder: "/srv/code", permission: "edits", brief: "Fix it.", doneWhen: "" })).code, "ask_first");
+  const body = { workspaceId: "ws_team", machineId: "mch_1", askId: waiting.askId, yes: true };
+  assert.deepEqual((await ask("/machines/app/answer", body, app("user_boss", "owner"))).body, { ok: false, code: "unknown_machine" });
+  assert.equal(w.machines.pendingAsks("mch_1").length, 1);
+  assert.equal((await ask("/machines/app/answer", body, app("user_owner", "editor"))).body.ok, true);
+  assert.equal(w.machines.pendingAsks("mch_1").length, 0);
+  // Answered once: a second answer finds nothing waiting.
+  assert.deepEqual((await ask("/machines/app/answer", body, app("user_owner", "editor"))).body, { ok: false, code: "unknown_ask" });
 });

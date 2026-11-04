@@ -138,7 +138,8 @@ async function assign(request, env, session, controlPlane, origin, now) {
   const answer = await call(env, covered.workspaceId, "ws.machine.assign", fields).catch(() => null);
   if (answer?.ok !== true) {
     await controlPlane.texMachineRunRevoke(runId).catch(() => null);
-    return refused(answer?.code ?? "server_error");
+    // "Ask me first": the ask waiting for the owner's yes, so the job can say it is waiting and try again.
+    return json({ ok: false, code: answer?.code ?? "server_error", ...(typeof answer?.askId === "string" ? { askId: answer.askId } : {}) });
   }
   return json({ ok: true, runId: answer.runId, deadline: answer.deadline, powers: answer.powers });
 }

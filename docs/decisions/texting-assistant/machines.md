@@ -215,6 +215,18 @@ unmodified CLI, which signs itself in.
   Tests: `machineJobs.test.mjs` ("a group chat reaches only a computer lent to
   it", "somebody else in the group gets the computer only as its owner's rule
   for that chat says"), `machineApp.test.mjs`, `machineTurn.test.ts`.
-- **Not yet**: "Ask me first" answered by the owner's own yes (an ask is
-  refused `ask_first` until then), and a machine's slots counted apart from
-  the chat's three cloud slots.
+- **"Ask me first" is the owner's own yes, kept by the workspace object**
+  (2026-11-04). An ask the rule holds makes one waiting ask per job, chat and
+  person (`ws_machine_asks`), listed with the computer (`asks`), and the
+  owner answers it in the app (`POST /machines/app/answer`); only the
+  computer's own owner may. A yes holds for that job for the day, a no ends
+  it (`declined`), and "always" adds that person to the chat's `always`, so
+  they are never asked again there. The object decides whether the yes was
+  given; a caller saying `approved` is ignored. The job's part waits up to
+  ten minutes for the answer, inside its own fifteen, asking again each
+  minute, then starts or says why not. Tests: `machineJobs.test.mjs` ("Ask me
+  first waits for the owner's own yes…"), `machineApp.test.mjs`,
+  `machineTurn.test.ts`.
+- **Not yet**: telling the owner an ask is waiting, beyond the app's list
+  (a text or a push), and a machine's slots counted apart from the chat's
+  three cloud slots.
