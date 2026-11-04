@@ -9,7 +9,7 @@ import type { HistoryChoice } from "./historyChoice";
 import { useHistoryRead, type HistoryRead } from "./useHistoryRead";
 import { useSeesTurnTiming } from "./useSeesTurnTiming";
 
-/** The hub's history box, as tall as the approved artboard draws it: it scrolls inside, the page around it stays put. */
+/** The hub's history box at most as tall as the approved artboard draws it, shorter on a quiet day: it scrolls inside, the page around it stays put. */
 const MINI_HEIGHT = { phone: 320, wide: 360 };
 
 /**
@@ -77,7 +77,7 @@ function MiniLines({ history, openFull }: { history: HistoryRead; openFull: (cho
       <ScrollView
         ref={box}
         nestedScrollEnabled
-        style={[styles.box, { height: wide ? MINI_HEIGHT.wide : MINI_HEIGHT.phone }]}
+        style={[styles.box, { maxHeight: wide ? MINI_HEIGHT.wide : MINI_HEIGHT.phone }]}
         contentContainerStyle={styles.boxContent}
         scrollEventThrottle={100}
         onScroll={(e) => {
