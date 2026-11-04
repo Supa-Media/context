@@ -85,6 +85,7 @@ import type * as functions_folders from "../functions/folders.js";
 import type * as functions_forms from "../functions/forms.js";
 import type * as functions_formNotify from "../functions/formNotify.js";
 import type * as functions_foundingPremium from "../functions/foundingPremium.js";
+import type * as functions_gatewayHandles from "../functions/gatewayHandles.js";
 import type * as functions_gatewayWorkspaces from "../functions/gatewayWorkspaces.js";
 import type * as functions_grants from "../functions/grants.js";
 import type * as functions_groups from "../functions/groups.js";
@@ -362,6 +363,7 @@ declare const fullApi: ApiFromModules<{
   "functions/forms": typeof functions_forms;
   "functions/formNotify": typeof functions_formNotify;
   "functions/foundingPremium": typeof functions_foundingPremium;
+  "functions/gatewayHandles": typeof functions_gatewayHandles;
   "functions/gatewayWorkspaces": typeof functions_gatewayWorkspaces;
   "functions/grants": typeof functions_grants;
   "functions/groups": typeof functions_groups;
