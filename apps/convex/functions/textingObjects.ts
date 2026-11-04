@@ -163,8 +163,9 @@ export const switchedPersonal = internalQuery({
 export const backfill = internalAction({
   args: { after: v.optional(v.union(v.string(), v.null())), limit: v.optional(v.number()) },
   returns: v.object({ pushed: v.number(), skipped: v.number(), failed: v.number(), next: v.union(v.string(), v.null()) }),
-  handler: async (ctx, { after = null, limit = 50 }) => {
-    const { ids, next } = await ctx.runQuery(internal.functions.textingObjects.switchedPersonal, { after, limit });
+  handler: async (ctx, { after = null, limit = 50 }): Promise<{ pushed: number; skipped: number; failed: number; next: string | null }> => {
+    // Typed by hand: this action schedules itself, so inferring its type from `internal` would be circular.
+    const { ids, next }: { ids: Id<"workspaces">[]; next: string | null } = await ctx.runQuery(internal.functions.textingObjects.switchedPersonal, { after, limit });
     let pushed = 0, skipped = 0, failed = 0;
     for (const workspaceId of ids) {
       try {
