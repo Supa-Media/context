@@ -1,6 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
+import { Switch } from "../../../../design/components/Switch";
 import { Text } from "../../../../design/components/Text";
 import { fonts, pointerType, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
@@ -36,6 +37,20 @@ const NAMES: ReadonlyArray<Opt<MapLook["names"]>> = [
   { value: "busy", label: "Busiest first" },
   { value: "all", label: "All that fit" },
   { value: "hover", label: "Only what's happening" },
+];
+
+const COLOR_BY: ReadonlyArray<Opt<MapLook["colorBy"]>> = [
+  { value: "workspace", label: "Workspace" },
+  { value: "folder", label: "Folder" },
+  { value: "topic", label: "Topic" },
+  { value: "pressure", label: "Pencil pressure" },
+  { value: "none", label: "One colour" },
+];
+
+const LINES: ReadonlyArray<Opt<MapLook["lines"]>> = [
+  { value: "all", label: "All" },
+  { value: "near", label: "Near the cursor" },
+  { value: "hover", label: "On hover" },
 ];
 
 const READING: ReadonlyArray<Opt<MapLook["reading"]>> = [
@@ -90,6 +105,21 @@ export function MapSettings({ page, compact, onClose }: { page: MapPageState; co
           <View ref={pickNode} collapsable={false} style={styles.pickRow}>
             <Pill label={page.mode === "custom" ? "Other dates…" : "Pick dates…"} on={page.mode === "custom"} onPress={openPicker} testID="map-settings-pick-dates" />
           </View>
+        </Section>
+
+        <Section title="Show">
+          <LookSwitch label="Archive" value={look.showArchive} onChange={(showArchive) => setLook({ showArchive })} testID="map-settings-archive" />
+          <LookSwitch label="Notes with no links" value={look.showOrphans} onChange={(showOrphans) => setLook({ showOrphans })} testID="map-settings-orphans" />
+          <LookSwitch label="AIs at work, as pencil trails" value={look.showAgents} onChange={(showAgents) => setLook({ showAgents })} testID="map-settings-agents" />
+        </Section>
+
+        <Section title="Colour">
+          <Choices label="Colour by" options={COLOR_BY} value={look.colorBy} onChange={(colorBy) => setLook({ colorBy })} testID="map-settings-color" />
+        </Section>
+
+        <Section title="Lines">
+          <Choices label="Which lines" options={LINES} value={look.lines} onChange={(lines) => setLook({ lines })} testID="map-settings-lines" />
+          <LookSwitch label="One line between folders when zoomed out" value={look.mergeLines} onChange={(mergeLines) => setLook({ mergeLines })} testID="map-settings-merge" />
         </Section>
 
         <Section title="Board">
@@ -209,6 +239,17 @@ function Pill({
   );
 }
 
+/** A switch with its words, for the settings that are on or off. */
+function LookSwitch({ label, value, onChange, testID }: { label: string; value: boolean; onChange: (v: boolean) => void; testID?: string }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={styles.switchRow}>
+      <Text style={styles.switchLabel}>{label}</Text>
+      <Switch value={value} onValueChange={onChange} label={label} testID={testID} />
+    </View>
+  );
+}
+
 /** How wide the panel is beside the map on a computer. */
 export const SETTINGS_W = 300;
 
@@ -260,6 +301,8 @@ const makeStyles = (colors: Colors) =>
     pillHover: { backgroundColor: colors.surface3 },
     pillText: { fontFamily: fonts.body, fontSize: pointerType.meta, fontWeight: "600", color: colors.text },
     pillTextOn: { color: colors.pageSurface },
+    switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingVertical: 6 },
+    switchLabel: { fontFamily: fonts.body, fontSize: pointerType.ui, color: colors.text, flexShrink: 1 },
     foot: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.lineStrong, padding: space.x4, gap: space.x2, alignItems: "flex-start" },
     note: { fontFamily: fonts.body, fontSize: pointerType.meta, color: colors.muted },
   });

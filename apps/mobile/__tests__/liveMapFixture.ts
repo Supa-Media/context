@@ -5,6 +5,10 @@
 import type { ActorRef, MapEvent, WorkspaceGraph } from "../features/console/map/live/types";
 import { lightColors, lightMapColors } from "../features/design/tokens/colors";
 import { mapPalette } from "../features/console/map/live/engine/palette";
+import { PENCILS_DARK, PENCILS_LIGHT } from "../features/console/map/live/engine/draw/colour";
+
+/** Every colour a resting dot may be filled with: the board's own, or a coloured pencil ("Colour by"). */
+export const isDotColour = (v: unknown): boolean => v === palette.dot || (PENCILS_LIGHT as readonly unknown[]).includes(v) || (PENCILS_DARK as readonly unknown[]).includes(v);
 
 export const palette = mapPalette(lightColors, lightMapColors);
 

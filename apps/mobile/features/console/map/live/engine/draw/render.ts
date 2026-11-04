@@ -12,7 +12,7 @@ import { drawContainerLabels, placeContainerLabels } from "./containers";
 import { countPresent, type DrawEnv } from "./env";
 import { drawFlights } from "./flights";
 import { drawHubFaces, drawHubLines } from "./hub";
-import { drawTrace, drawReadingMarks, traceOf } from "./marks";
+import { drawAgentTrails, drawTrace, drawReadingMarks, traceOf } from "./marks";
 import { drawScribbles, drawWorkspaceLoops, scribbleAlpha, type Opening } from "./sketch";
 import { drawActors, placeFacesAndLabels } from "./overlay";
 import { circle, fillText, fontOf, roundRect, type Ctx, type Style } from "./primitives";
@@ -26,6 +26,9 @@ export type RenderOptions = {
   minimap: boolean;
   /** The map's opening while it plays. */
   opening?: Opening | null;
+  /** The pointer, for "lines near the cursor" and "on hover". */
+  pointer?: Point | null;
+  hoverKey?: string | null;
 };
 
 /** Draw one frame of the map view and return what can be clicked. */
@@ -65,6 +68,8 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
     trace,
     far: scribbleAlpha(cam.s, opts.style.look.spread),
     opening: opts.opening ?? null,
+    pointer: opts.pointer,
+    hoverKey: opts.hoverKey ?? null,
     counts: countPresent(model, scene),
     hot,
     near,
@@ -80,6 +85,7 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
   drawTrace(env);
   drawNotes(env);
   drawReadingMarks(env);
+  drawAgentTrails(env);
   // Names of containers claim their space first and are drawn over the dots.
   const labels = placeContainerLabels(env);
   env.quiet.push(...labels.map((l) => l.rect), ...env.pills.map((p) => ({ x: p.x - p.w / 2, y: p.y - 12, w: p.w, h: 24 })));
