@@ -30,6 +30,8 @@ export const ACKNOWLEDGE_AFTER_MS = 10_000;
 export type Presence = {
   /** The bubble again, as after a progress line (sending a text clears it). */
   typing: () => Promise<void>;
+  /** The read receipt and the first bubble, in that order: started at once, waited for only before Tex's first text goes. */
+  ready: Promise<void>;
   /** Stop renewing and cancel a tapback not yet sent; waits for any still in flight. */
   stop: () => Promise<void>;
   /** The tapback, if it still goes, goes on `message`: the text decide chose to answer, not merely the first waiting. */
@@ -43,14 +45,17 @@ export type Presence = {
  * `aimLater`: several texts wait and decide has not yet said which one is answered,
  * so a tapback due before `aim` waits for it and then goes on the aimed text
  * (CI 2026-10-28: a decide slower than the timer tapped the first waiting text).
- * The first bubble is awaited (it is quick, and bounded) so it cannot land
- * after a fast reply and hang in the chat. Read first, then the bubble, as a
- * person would: the text is seen, then answered. Both never throw.
+ * Neither blocks the turn (Dev, 2026-11-04: "read receipts and typing
+ * indicator should never block"; awaited, the two Sendblue round trips held
+ * every text up before the gateway was asked). They run beside the turn as
+ * `ready`, read first and then the bubble, as a person would; anything Tex
+ * texts waits for `ready` (`stop`, and the progress lines in `inbox.ts`), so
+ * a bubble still cannot land after a fast reply and hang in the chat. Both
+ * never throw.
  */
 export async function startPresence(line: Line, message: Message, options: { aimLater?: boolean } = {}): Promise<Presence> {
-  await line.markRead(message.chatId, message.messageId);
   const typing = () => line.startTyping(message.chatId);
-  await typing();
+  const ready = line.markRead(message.chatId, message.messageId).then(typing);
   let renewal: Promise<void> = Promise.resolve();
   const again = setTimeout(() => {
     renewal = typing();
@@ -77,6 +82,7 @@ export async function startPresence(line: Line, message: Message, options: { aim
   let stopped: Promise<void> | undefined;
   return {
     typing,
+    ready,
     aim: (next) => {
       target = next;
       aimed = true;
@@ -92,6 +98,7 @@ export async function startPresence(line: Line, message: Message, options: { aim
         clearInterval(timer);
         clearTimeout(acknowledge);
         due = false;
+        await ready;
         await renewal;
         await acknowledged;
       })()),
