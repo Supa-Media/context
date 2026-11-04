@@ -28,7 +28,7 @@ export function publicOrigin(request, env) {
  * more than one legitimate spelling for the same server.
  */
 export function canonicalResources(origin, slug) {
-  const forms = [`${origin}/mcp`, origin, `${origin}/mcp/chatgpt`];
+  const forms = [`${origin}/mcp`, origin, `${origin}/mcp/chatgpt`, `${origin}/mcp/chatgpt/v2`];
   if (slug) forms.unshift(`${origin}/@${slug}/mcp`, `${origin}/${slug}/mcp`);
   return forms;
 }

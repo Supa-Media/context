@@ -144,3 +144,21 @@ reviewer-specific response or a client-name test. Directory review requires
 each operation to be exposed with its schema; dynamic capabilities stay on
 the ordinary endpoint. Reversing the route allowlist, write boundary or origin
 check fails `test/directoryEndpoint.test.mjs`.
+
+## ChatGPT capability correction (2026-11-04)
+
+The ten-tool directory adapter omitted orientation and most existing
+capabilities. The owner rejected that product reduction, then explicitly
+instructed that the Claude submission be left unchanged. Therefore its route
+and contract remain frozen. A separate `/mcp/chatgpt/v2` interface restores the
+actual orientation pipeline and maps the existing capabilities to explicit,
+independently described operations through the same authority path.
+
+The owner approved documenting two kinds of generic-dispatch exclusion:
+arbitrary vault-backed API execution and dynamically discovered connected-app
+operations. Slack offers a fixed reviewed list of methods. Context saving is
+a task-summary operation, without raw-history inputs or automatic capture.
+The exact mapping and limitations are in `docs/connectors/chatgpt-capabilities.json`
+and the new endpoint's orientation manual. Its census test rejects an existing
+action silently missing from that inventory. Both original interfaces remain
+unchanged; no client-name or reviewer-specific behavior selects the contract.

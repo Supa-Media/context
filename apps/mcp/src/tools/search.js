@@ -353,12 +353,14 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
 }
 
 /** The first heading if the note has one, else its filename. */
-export async function toolOpenAiSearch(store, scope, rules, overrides, query) {
+export async function toolOpenAiSearch(store, scope, rules, overrides, query, prefixArg) {
   if (!query || typeof query !== "string") return toolError("query required");
+  const prefix = prefixArg ? normalizePath(prefixArg) : "";
+  if (prefixArg && prefix === null) return toolError("invalid prefix");
   const { hits } = await searchBothWays(
     store,
-    () => searchVisibleNotes(store, scope, rules, overrides, query, ""),
-    { query, scope, isVisible: (path) => canSee(path, scope, rules, overrides) },
+    () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
+    { query, scope, isVisible: (path) => canSee(path, scope, rules, overrides) && (!prefix || path === prefix || path.startsWith(`${prefix}/`)) },
   );
   // Titles come from the text already fetched for the snippets, so a result
   // costs no read of its own. This used to spend a second GET per hit, which

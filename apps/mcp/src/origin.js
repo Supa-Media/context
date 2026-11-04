@@ -90,6 +90,7 @@ export function isTransportPath(path) {
   return (
     path === "/mcp" ||
     path === "/mcp/chatgpt" ||
+    path === "/mcp/chatgpt/v2" ||
     path === "/inbox" ||
     path === "/agent" ||
     path === "/presence" ||

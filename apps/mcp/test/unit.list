@@ -448,3 +448,4 @@ test/morningChat.test.mjs
 test/groupNames.test.mjs
 
 test/directoryEndpoint.test.mjs
+test/chatgptParity.test.mjs
