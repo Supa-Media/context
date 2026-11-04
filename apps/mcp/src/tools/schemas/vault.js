@@ -57,7 +57,7 @@ export function vaultToolDefinitions() {
         properties: {
           type: { type: "string", enum: ["login", "secret", "card"], description: "login (username and password), secret (named fields) or card (a payment card). Default login." },
           name: { type: "string", description: "What to call it, e.g. Netflix or OpenAI. Optional; they can change it." },
-          site: { type: "string", description: "The site it fills on, e.g. netflix.com: the domain they sign in on, which a login fills only on. When a name could be more than one company's (theCut the barber app is thecut.co; thecut.com is a magazine), find its real domain with a web search first and use the site it shows; ask them only when two sites still fit. Needed for a login. Optional for a secret or a card (a card with none fills at any checkout, each time on their yes); they can change it." },
+          site: { type: "string", description: "The site it fills on, e.g. netflix.com: the domain they sign in on, which a login fills only on. Never guess it from the name, even one you think you know: unless they texted the address, search_web for the company and what it's for first (theCut the barber app is thecut.co; thecut.com is a magazine) and use the domain of the result that is that company; ask them only when two sites still fit. Needed for a login. Optional for a secret or a card (a card with none fills at any checkout, each time on their yes); they can change it." },
           fields: {
             type: "array",
             items: { type: "string" },
