@@ -22,7 +22,9 @@ still never promotes its own draft; a setup goes live only through the gate.
   (`weakenedLines`: a case gone or drafted again, a graded line gone, a lower
   score bar, fewer runs), so a line cut in the app cannot buy a promotion
   and cutting one takes a reviewed commit; a candidate under the loop's bars
-  (core 17 of 19 in every run with no gate broken, golden tasks 75%), erring
+  (core 17 of 19 in every run with no gate broken, golden tasks 75%,
+  splitting big asks 10 of 11, added 2026-11-04 so the planner is checked
+  in every promotion), erring
   more than live, or scoring lower than live on any test; a price or speed
   over its bar and more than a tenth over live's; and a candidate not better
   by more than noise: at least two more cases passing in every run, summed
