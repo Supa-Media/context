@@ -34,6 +34,7 @@ import type { GatewayConnection } from "../core/sync/connection.ts";
 import type { DesktopCaptureRecorder } from "./capture.ts";
 import type { DesktopStore } from "./store.ts";
 import type { LocalAgentRunner } from "./localAgent.ts";
+import type { MachineRunner } from "./machineRunner.ts";
 import type { ImessageSyncService } from "./imessage.ts";
 import type { MessagesBackupService } from "./messagesBackup.ts";
 import type { AppTray } from "./tray.ts";
@@ -163,6 +164,8 @@ export interface MainServices {
   tokens: TokenStore;
   connection: GatewayConnection;
   localAgent: LocalAgentRunner;
+  /** Let Tex use this Mac: the bundled runner (`main/machineRunner.ts`). */
+  machine: MachineRunner;
   imessage: ImessageSyncService;
   messagesBackup: MessagesBackupService;
   /** `null` in console mode — see `UI_MODE`. */

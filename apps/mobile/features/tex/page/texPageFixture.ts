@@ -400,6 +400,10 @@ export function fixtureSource(): TexPageSource {
       const before = query.before ?? Number.MAX_SAFE_INTEGER;
       return ok({ manifest: { schema: "tex-ledger", version: 1, count: 6, created: at(9, 2), updated: at(9, 3) }, entries: entries.filter((e) => (e.seq ?? 0) < before).reverse() });
     },
+    async machines() {
+      // The mock's gateway predates machines, so it answers as such a gateway does.
+      return { kind: "notYours" };
+    },
     async sees(chat) {
       if (!copies.has(chat)) return { kind: "notYours" };
       const group = chat !== "me";

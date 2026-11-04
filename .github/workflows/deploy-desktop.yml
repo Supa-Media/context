@@ -3,7 +3,6 @@ name: Deploy Desktop (build the Mac and Linux apps)
 # A `.dmg` of the meeting recorder, built on a Mac runner — signed and notarised
 # when the credentials exist, and honestly unsigned when they do not. Linux is
 # the `linux` and `publish-linux` jobs at the end (`deploy-desktop-linux.yml`).
-#
 # Desktop builds and releases are manual. Use the publish input to release a
 # signed, notarised build; a merge to main only deploys staging.
 #
@@ -18,7 +17,6 @@ name: Deploy Desktop (build the Mac and Linux apps)
 #
 # What an unsigned build does **not** get, and this is the whole reason the
 # signed path matters:
-#
 #  - Gatekeeper refuses it on any other Mac.
 #  - macOS does not grant a hardened-runtime app TCC permissions it has not
 #    verified, so **system audio does not work** — the app degrades to mic-only
@@ -31,7 +29,6 @@ name: Deploy Desktop (build the Mac and Linux apps)
 # without them.
 #
 # ## What this cannot check
-#
 # That the signature is trusted on somebody else's Mac, that notarisation
 # actually granted TCC, or that ScreenCaptureKit hands over system audio. All
 # three need a person, a Mac and a meeting. The artifact is what they need to do
@@ -435,6 +432,9 @@ jobs:
       # separate step, "Publish the release" below, gated on the launch step
       # in between actually passing. This step's only job is to produce the
       # bits; nothing it does can put them in front of an installed base.
+      - name: Build the machine runner # Let Tex use this Mac; see the script
+        if: hashFiles('apps/machine-runner/Cargo.toml') != ''
+        run: bash apps/desktop/build/build-machine-runner.sh
       - name: Build
         working-directory: apps/desktop
         env:

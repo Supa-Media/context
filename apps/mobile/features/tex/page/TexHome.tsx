@@ -4,7 +4,6 @@ import { Circle, G, Path, Rect, Svg } from "react-native-svg";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   Figure,
-  JobRow,
   LinkWord,
   More,
   SectionHead,
@@ -15,6 +14,8 @@ import {
 } from "./TexPageParts";
 import { TexSelect } from "./TexSelect";
 import type { ViewProps } from "./TexPageBody";
+import { MachineAskCard } from "./TexMachineAsk";
+import { EarlierRow, MinionPool } from "./TexMinionPool";
 import {
   actionPieces,
   advisorLine,
@@ -34,6 +35,7 @@ import type { Overview, Slot, Turn, TurnAction } from "./texPageTypes";
 /** The Tex page's first screen, the mock's `template#page` and `#page-g`. */
 export function TexHome({
   go,
+  page,
   group,
   overview,
   pickChat,
@@ -97,6 +99,10 @@ export function TexHome({
         />
       </View>
 
+      {(overview.asks ?? []).map((ask) => (
+        <MachineAskCard key={ask.job} ask={ask} page={page} />
+      ))}
+
       {wide ? (
         <View style={styles.stripWide}>{strip}</View>
       ) : (
@@ -139,16 +145,20 @@ export function TexHome({
         ) : null}
       </View>
 
-      <View style={styles.column}>
-        <View style={styles.busy}>
-          <SectionHead>{busyLine(overview.minions)}</SectionHead>
+      {overview.places ? (
+        <MinionPool overview={overview} now={now} wide={wide} go={go} />
+      ) : (
+        <View style={styles.column}>
+          <View style={styles.busy}>
+            <SectionHead>{busyLine(overview.minions)}</SectionHead>
+          </View>
+          <View style={wide ? styles.rowGap : styles.columnGap}>
+            {overview.minions.map((slot) => (
+              <Minion key={slot.slot} slot={slot} now={now} wide={wide} go={go} />
+            ))}
+          </View>
         </View>
-        <View style={wide ? styles.rowGap : styles.columnGap}>
-          {overview.minions.map((slot) => (
-            <Minion key={slot.slot} slot={slot} now={now} wide={wide} go={go} />
-          ))}
-        </View>
-      </View>
+      )}
 
       <View>
         <SectionHead>Earlier today</SectionHead>
@@ -158,9 +168,10 @@ export function TexHome({
           </T>
         ) : (
           overview.earlier.map((job) => (
-            <JobRow
+            <EarlierRow
               key={job.id}
               title={job.title}
+              ranOn={job.ranOn}
               right={endedLine(job, now)}
               onPress={() => go({ job: job.id })}
               testID={`tex-earlier-${job.id}`}
@@ -279,7 +290,7 @@ function thoughtLine(turn: Turn, open: (action: TurnAction) => void): ReactNode 
   ));
 }
 
-function Minion({ slot, now, wide, go }: { slot: Slot; now: number; wide: boolean; go: ViewProps["go"] }) {
+export function Minion({ slot, now, wide, go }: { slot: Slot; now: number; wide: boolean; go: ViewProps["go"] }) {
   const styles = useThemedStyles(makeStyles);
   const { job } = slot;
   const s = job ? slotLine(job, now) : null;

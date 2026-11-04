@@ -81,6 +81,16 @@ files:
 
 asar: true
 
+# "Let Tex use this Mac": the machine runner, outside the asar because it is
+# a process the app starts. `deploy-desktop.yml` builds it into
+# `resources/machine-runner/` when `apps/machine-runner` exists; with no binary
+# there the folder ships empty and the app shows the switch as unavailable.
+extraResources:
+  - from: resources/machine-runner
+    to: machine-runner
+    filter:
+      - context-machine
+
 mac:
   category: public.app-category.productivity
   # Stated, though `build/icon.icns` is also where electron-builder looks by

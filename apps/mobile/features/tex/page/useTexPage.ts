@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PatchFrame } from "./texPageLive";
 import { readJobDetail, readSection } from "./texPageRead";
 import type { Read, TexPageSource } from "./texPageSource";
+import type { MachinesPage } from "./texMachineTypes";
 import type { JobDetail, ListKind, ListPage, Overview, PageAction } from "./texPageTypes";
 
 /** How often the page re-reads while its socket is down and it is visible. */
@@ -27,7 +28,7 @@ export interface TexPageState {
   jobPatch: (id: string) => JobDetail | null;
 }
 
-const LIST_KINDS = new Set(["routines", "checkins", "about", "settings", "advisor", "mailcheck", "jobs", "thinking"]);
+const LIST_KINDS = new Set(["routines", "checkins", "about", "settings", "advisor", "mailcheck", "jobs", "thinking", "machines"]);
 
 const hidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
 
@@ -130,7 +131,7 @@ export function useTexPage(source: TexPageSource | null, chat: string): TexPageS
       if (source === null) return { ok: false, error: "no_source" };
       const answer = await source.act(chat, action);
       const touched = action.type.split(".")[0]!;
-      const kind = touched === "group" ? "settings" : touched === "steer" || touched === "stop" || touched === "report" ? "jobs" : touched === "checkin" ? "checkins" : touched === "routine" ? "routines" : touched;
+      const kind = touched === "machine" || action.type === "job.allow" ? "machines" : touched === "group" ? "settings" : touched === "steer" || touched === "stop" || touched === "report" ? "jobs" : touched === "checkin" ? "checkins" : touched === "routine" ? "routines" : touched;
       bump(kind);
       if ("job" in action) bump(`job:${action.job}`);
       void load();
@@ -204,5 +205,27 @@ export function useTexJob(
     // `patched` is read through `version`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat, id, source, version]);
+  return read;
+}
+
+/**
+ * The person's machines as this chat sees them, re-read whenever they change
+ * live or an action touches them. `null` until the first answer; `notYours`
+ * is also what a gateway without machines answers, and reads as "no machines
+ * here", never as an error.
+ */
+export function useTexMachines(source: TexPageSource | null, chat: string, changes: Changes): Read<MachinesPage> | null {
+  const [read, setRead] = useState<Read<MachinesPage> | null>(null);
+  const version = useVersion(changes, ["machines"]);
+  useEffect(() => {
+    let stale = false;
+    if (source === null) return;
+    void source.machines(chat).then((r) => {
+      if (!stale) setRead(r);
+    });
+    return () => {
+      stale = true;
+    };
+  }, [chat, source, version]);
   return read;
 }
