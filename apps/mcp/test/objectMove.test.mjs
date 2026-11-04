@@ -579,3 +579,14 @@ test("a keyed folder move the object makes inside one top-level folder lists not
   assert.match(refused.content[0].text, /New is already here/);
   assert.deepEqual(deferred.queued, []);
 });
+
+test("an object move records the object's own time and its durable-write wait beside the call's trip", async () => {
+  const { store } = objectStore({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }], took: 12, commit: 9 });
+  const took = [];
+  const timer = (name, run) => run();
+  timer.took = (name, ms) => took.push([name, ms]);
+  Object.defineProperty(store, "phase", { value: timer, enumerable: false });
+  const result = await startObjectMove(store, "team", "a/x.md", "b/x.md", undefined, NOTE);
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.deepEqual(took, [["move", 12], ["move_commit", 9]]);
+});

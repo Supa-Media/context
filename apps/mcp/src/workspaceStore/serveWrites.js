@@ -9,8 +9,12 @@ import { liveRowByPath } from "./rowsByPath.js";
 import { objectRowId } from "./treeOps.js";
 import { WorkspaceRowRefused } from "./rows.js";
 import { WRITE_OPS, WriteOpRefused } from "./writeOps.js";
+import { committed } from "./committed.js";
 
 const WORKSPACE_ID = /^[A-Za-z0-9_-]+$/;
+
+/** The write whose answer carries its own time (`took`) and its durable-write wait (`commit`). */
+const TIMED_OP = "ws.write.move";
 
 export const isWriteOp = (op) => typeof op === "string" && op.startsWith("ws.write.");
 
@@ -81,6 +85,7 @@ function treeChanged(store, result) {
  * `now` is the object's clock for the change.
  */
 export async function serveWrites(store, op, fields, now = Date.now(), mintId = objectRowId) {
+  const started = Date.now();
   const handler = Object.hasOwn(WRITE_OPS, op) ? WRITE_OPS[op] : null;
   if (handler === null) return Response.json({ error: "unknown_op" }, { status: 400 });
   if (typeof fields.workspaceId !== "string" || fields.workspaceId.length > 64 || !WORKSPACE_ID.test(fields.workspaceId)) {
@@ -107,6 +112,13 @@ export async function serveWrites(store, op, fields, now = Date.now(), mintId = 
     if (!flushed.done) return Response.json({ ok: false, code: "MIRROR_PENDING", answer: outcome.answer }, { status: 503 });
   } else if (outcome.change || outcome.changes?.length > 0) {
     store.mirrorSoon();
+  }
+  if (op === TIMED_OP && outcome.answer?.ok === true) {
+    // A move's own time and its wait for durable writes (`createNote.js` `committed`), for the move's timings: the
+    // answer waits for those writes anyway (the output gate), so waiting here adds nothing.
+    // Without a way to wait for its writes (a test's store) the object's clock does not move, so it says nothing.
+    const commit = await committed(store);
+    if (commit !== null) return Response.json({ ...outcome.answer, took: Date.now() - started, commit });
   }
   return Response.json(outcome.answer);
 }
