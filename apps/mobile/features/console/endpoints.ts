@@ -64,6 +64,8 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "messages",
   // What a card in Messages shows, `/cards/inbox` and `/cards/week` on the gateway.
   "cards",
+  // A person's own computers, `/machines/pair` and the rest, on the gateway.
+  "machines",
 ]);
 
 /**

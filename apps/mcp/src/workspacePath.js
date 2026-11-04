@@ -140,4 +140,11 @@ export const RESERVED_FIRST_SEGMENTS = new Set([
   // `cards` at `/inbox`, the capture route. Also in the control plane's
   // RESERVED_NAMES, for the reason `presence` is.
   "cards",
+  // A person's own computers: pairing, the runner's socket and the app's
+  // machine screens, all under `/machines/` (`machines/routes.js`,
+  // `machines/appRoutes.js`). Fourth instance of the defect `meetings` above
+  // records, caught in production: `POST /machines/pair` answered 404 because
+  // it read as the context called `machines`. Also in the control plane's
+  // RESERVED_NAMES, for the reason `presence` is.
+  "machines",
 ]);
