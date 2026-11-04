@@ -4,7 +4,6 @@ import { Circle, G, Path, Rect, Svg } from "react-native-svg";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   Figure,
-  JobRow,
   LinkWord,
   More,
   SectionHead,

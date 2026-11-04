@@ -22,7 +22,7 @@ import {
   slotsLine,
   toolLine,
 } from "./texMachineFormat";
-import type { Machine, MachineValues, ToolName, ToolState } from "./texMachineTypes";
+import type { MachineValues, ToolName, ToolState } from "./texMachineTypes";
 import { useTexMachines } from "./useTexPage";
 
 /** Where each coding tool's sign-in and install instructions are. */
