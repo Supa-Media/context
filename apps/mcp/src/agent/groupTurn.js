@@ -261,7 +261,7 @@ function oldNotePlaces(group, dispatch, names) {
  * until a turn that can write moves it onto the page (`moveOntoPage`). The old notes in workspace folders are carried
  * in once. A memory that cannot be read is an empty one.
  */
-export async function readGroupMemory(store, group, dispatch = null) {
+export async function readGroupMemory(store, group, dispatch = null, { time = { reads: (run) => run(), ledger: (run) => run() } } = {}) {
   // Every read below is its own note, so they run side by side: one after another they took 3 to 5 s of each group reply (2026-10-31).
   const names = await chatNames(group);
   // Once the page is copied into the chat's ledger, the ledger is the history and the page is never read (`groupPageCopy.js`).
@@ -318,10 +318,10 @@ export async function readGroupMemory(store, group, dispatch = null) {
   })();
   // A home's open jobs, `jobs.md` as a person's Tex keeps `tex/jobs.md` (`chatJobs.js`).
   const jobsRead = group.home ? (direct ? directNote(group, direct, "jobs") : Promise.resolve(null)).then((held) => readChatJobs(group.home, held)) : Promise.resolve(null);
-  const [memory, playbook, voice, aboutUs, jobs] = await Promise.all([record, readPlaybook(inFirstReach(dispatch, group), group), voiceRead, aboutRead, jobsRead]);
+  const [memory, playbook, voice, aboutUs, jobs] = await time.reads(() => Promise.all([record, readPlaybook(inFirstReach(dispatch, group), group), voiceRead, aboutRead, jobsRead]));
   const turns = Array.isArray(memory?.turns) ? memory.turns.filter(isTurn) : [];
   Object.assign(group, { playbook, voice, aboutUs, jobs });
-  const fromLedger = await historyFromLedger(ledger, group, turns, { copied: memory?.copied === true, writes: dispatch !== null && kept.onPage === ON_PAGE });
+  const fromLedger = await time.ledger(() => historyFromLedger(ledger, group, turns, { copied: memory?.copied === true, writes: dispatch !== null && kept.onPage === ON_PAGE }));
   if (fromLedger !== null) return fromLedger;
   // The words, and what each answer used and wrote, as a person's own texts keep them (`conversation.js`).
   return trimGroupTurns(turns.map(({ role, text, tainted, tools, sources, timing }) => ({ ...keptTurn({ role, text, tainted, tools, sources }), ...timedTurn(role, timing) })));

@@ -168,10 +168,10 @@ export const LOG_PREFACE = "(The chat so far, oldest first, as it happened. \"Yo
   A group chat remembers in its own file, never the tagger's texts; its turns
   are other people's words, so untrusted (`groupTurn.js`).
 */
-export async function turnHistory(store, session, body, { runner, group, dispatch, job = false }) {
+export async function turnHistory(store, session, body, { runner, group, dispatch, job = false, time = undefined }) {
   const conversation = !runner && group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null;
   const read = () => readConversation(store, conversation, job ? { entries: JOB_HISTORY_ENTRIES } : {});
-  const history = group !== null ? await readGroupMemory(store, group, dispatch) : conversation === null ? [] : await read(); // the one record in the person's object (`history.js`), never a copy
+  const history = group !== null ? await readGroupMemory(store, group, dispatch, time ? { time } : {}) : conversation === null ? [] : await read(); // the one record in the person's object (`history.js`), never a copy
   return { conversation, history };
 }
 
@@ -218,10 +218,19 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
  */
 export const JOB_HISTORY_ENTRIES = 30;
 
-/** Today's history and the chat's event log, side by side: what a turn reads before its model (`texEntryPoint.js`). */
-export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, records }) {
-  const today = turnHistory(store, session, body, { runner, group, dispatch, job });
-  return Promise.all([today, runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records, record: today.then((read) => read.history).catch(() => []), ledger: job ? null : chatLedger(store, session) })]);
+/**
+ * Today's history and the chat's event log, side by side: what a turn reads before its model (`texEntryPoint.js`).
+ * `time` times each part as its own step (`memory`, `ledger`, `log`, and in a group the memory's notes and its ledger;
+ * the entry point names them `history_*`), so the
+ * second a group's history takes is never guessed at (2026-11-04); by default nothing is timed.
+ */
+const UNTIMED = { memory: (run) => run(), ledger: (run) => run(), log: (run) => run(), groupReads: (run) => run(), groupLedger: (run) => run() };
+export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, records, time = UNTIMED }) {
+  const today = time.memory(() => turnHistory(store, session, body, { runner, group, dispatch, job, time: { reads: time.groupReads, ledger: time.groupLedger } }));
+  const started = job ? null : chatLedger(store, session);
+  // No ledger stays null: the log is then read from the bucket (`loggedTurn`).
+  const ledger = started === null ? null : time.ledger(() => started);
+  return Promise.all([today, runner ? null : time.log(() => loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records, record: today.then((read) => read.history).catch(() => []), ledger }))]);
 }
 
 /** The chat's ledger as a turn reads it (`ledgerHistory.js`), started now, or null when the session keeps none. */
