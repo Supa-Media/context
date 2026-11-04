@@ -215,8 +215,6 @@ Tex's own jobs, each with its record:
 
 - [Transcripts](./texting-assistant/transcripts.md): retired 2026-11-02; each chat's
   [ledger](./texting-assistant/chat-ledger.md) keeps everything, and texted pictures go in `tex/pictures/`.
-- [Do the read](./texting-assistant/do-the-read.md): a voice message's words go on the person's own line once heard,
-  a message another agent asked Tex to pass on stays that agent's, and a read is done rather than offered (2026-11-04).
 - [Dreams](./texting-assistant/dreams.md): nightly, brings `tex/about-me.md`
   up to date from the chat's ledger and the facts their other AI apps saved, logged in `tex/dreams/`.
 - [Who they are](./texting-assistant/who-they-are.md): their phone, name, emails
