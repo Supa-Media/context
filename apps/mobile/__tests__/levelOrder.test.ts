@@ -44,7 +44,8 @@ function listing(path: string, entries: FileEntry[], sort?: string): FolderListi
 
 const NAMED = {
   "": listing("", [folder("Projects")]),
-  Projects: listing("Projects", [file("Projects/b.md"), folder("Projects/zeta"), file("Projects/a.md"), folder("Projects/alpha")]),
+  // In the server's order, as a listing with no setting arrives.
+  Projects: listing("Projects", [folder("Projects/alpha"), folder("Projects/zeta"), file("Projects/a.md"), file("Projects/b.md")]),
 };
 
 const CUSTOM = {

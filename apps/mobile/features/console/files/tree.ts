@@ -164,7 +164,8 @@ export function orderedEntries(
   sort: ListingSort | null = null,
   parent = "",
 ): readonly FileEntry[] {
-  return sortEntries(parent, entries, sort);
+  // No setting: the listing's own order, which is already the server's (`compareListingEntries`).
+  return sort === null ? entries : sortEntries(parent, entries, sort);
 }
 
 /**
