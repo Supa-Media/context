@@ -34,7 +34,7 @@ use std::time::Duration;
 )]
 struct Args {
     /// The runner's own folder (default ~/.context-machine).
-    #[arg(long, global = true)]
+    #[arg(long, global = true, visible_alias = "data-dir")]
     dir: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
@@ -54,9 +54,15 @@ enum Command {
     Run {
         #[arg(long)]
         endpoint: Option<String>,
-        /// A machine grant file (0600) handed over by the Mac app.
+        /// A machine grant file (0600), for the Mac app, which pairs itself.
         #[arg(long)]
         grant_file: Option<PathBuf>,
+        /// The workspace object's socket (wss://), from the pairing.
+        #[arg(long)]
+        socket_url: Option<String>,
+        /// This machine's id, from the pairing.
+        #[arg(long)]
+        machine_id: Option<String>,
         /// Print one JSON status line per change, for the Mac app.
         #[arg(long)]
         status_json: bool,
@@ -80,8 +86,9 @@ enum Command {
     Stop,
     /// Unpair: stop the service and delete the key, the grant and every run's files.
     Forget,
-    /// Print this machine's public key, for the Mac app to register.
-    Identity {
+    /// Print this machine's public key (made on first use), and with --json its facts, for the Mac app to pair with.
+    #[command(visible_alias = "identity")]
+    Key {
         #[arg(long)]
         json: bool,
     },
@@ -125,22 +132,13 @@ async fn real_main(args: Args) -> Result<()> {
             let endpoint = endpoint.unwrap_or_else(|| default_endpoint(&state));
             pair::pair(&state, &endpoint, &name.unwrap_or_else(pair::default_name)).await
         }
-        Command::Run {
-            endpoint,
-            grant_file,
-            status_json,
-            no_keep_awake,
-            name,
-        } => {
-            run(
-                state,
-                endpoint,
-                grant_file,
-                status_json,
-                no_keep_awake,
-                name,
-            )
-            .await
+        Command::Run { endpoint, grant_file, socket_url, machine_id, status_json, no_keep_awake, name } => {
+            let opts = RunOpts { endpoint, grant_file, socket_url, machine_id, status_json, no_keep_awake, name };
+            let result = run(state, &opts).await;
+            if let (Err(e), true) = (&result, status_json) {
+                println!("{}", serde_json::json!({ "state": "failed", "error": format!("{e:#}") }));
+            }
+            result
         }
         Command::Status { json } => status(&state, &home, json).await,
         Command::Service {
@@ -171,10 +169,12 @@ async fn real_main(args: Args) -> Result<()> {
             println!("Forgot this machine's key and grant. Remove it in Context too if it is still listed.");
             Ok(())
         }
-        Command::Identity { json } => {
+        Command::Key { json } => {
             let pk = state.public_key()?;
             if json {
-                println!("{}", serde_json::json!({ "publicKey": pk }));
+                let mut facts = facts::gather().await;
+                facts.repos = None;
+                println!("{}", serde_json::json!({ "publicKey": pk, "facts": facts }));
             } else {
                 println!("{pk}");
             }
@@ -193,29 +193,56 @@ fn default_endpoint(state: &State) -> String {
     }
 }
 
-async fn run(
-    state: State,
+struct RunOpts {
     endpoint: Option<String>,
     grant_file: Option<PathBuf>,
+    socket_url: Option<String>,
+    machine_id: Option<String>,
     status_json: bool,
     no_keep_awake: bool,
     name: Option<String>,
-) -> Result<()> {
-    let grant = state.grant(grant_file.as_deref())?;
-    let endpoint = endpoint.unwrap_or_else(|| default_endpoint(&state));
+}
+
+/// The socket to dial: the flag, else the one saved at pairing, else the
+/// endpoint's. Only `wss://` (or a loopback `ws://` for tests).
+fn dial_url(opts: &RunOpts, saved: &state::Machine, endpoint: &str) -> Result<String> {
+    let url = match opts.socket_url.clone().or_else(|| Some(saved.socket_url.clone()).filter(|u| !u.is_empty())) {
+        Some(u) => u,
+        None => return conn::socket_url(endpoint),
+    };
+    let loopback = ["ws://127.0.0.1:", "ws://localhost:"].iter().any(|p| url.starts_with(p));
+    if !url.starts_with("wss://") && !loopback {
+        bail!("the socket address must be wss://");
+    }
+    Ok(url)
+}
+
+async fn run(state: State, opts: &RunOpts) -> Result<()> {
+    let say = |line: serde_json::Value| {
+        if opts.status_json {
+            println!("{line}");
+        }
+    };
+    say(serde_json::json!({ "state": "starting" }));
+    let grant = state.grant(opts.grant_file.as_deref())?;
+    let saved = state.machine();
+    let machine_id = opts.machine_id.clone().unwrap_or_else(|| saved.machine_id.clone());
+    if !protocol::valid_id(&machine_id) {
+        bail!("no machine id: pair first, or pass --machine-id");
+    }
+    let endpoint = opts.endpoint.clone().unwrap_or_else(|| default_endpoint(&state));
+    let dial = conn::Dial { socket_url: dial_url(opts, &saved, &endpoint)?, grant, machine_id };
     let swept = state.sweep_secrets();
     if swept > 0 {
         eprintln!("removed {swept} credential file(s) left by runs that did not finish");
     }
     let facts = facts::gather().await;
-    let name = name
-        .or_else(|| Some(state.machine().name).filter(|n| !n.is_empty()))
-        .unwrap_or_else(pair::default_name);
+    let name = opts.name.clone().or_else(|| Some(saved.name.clone()).filter(|n| !n.is_empty())).unwrap_or_else(pair::default_name);
     let (out_tx, out_rx) = tokio::sync::mpsc::channel(1000);
     let exe = std::env::current_exe()?;
-    let m = machine::Machine::new(state, facts, out_tx, exe, name);
+    let m = machine::Machine::new(state.clone(), facts, out_tx, exe, name);
 
-    if !no_keep_awake {
+    if !opts.no_keep_awake {
         tokio::spawn(awake::keep_awake_while_plugged_in());
     }
     // Sign-ins change: look again every ten minutes.
@@ -227,30 +254,64 @@ async fn run(
             refresh.inner.lock().await.facts = f;
         }
     });
-    let advice = m.inner.lock().await.advice;
-    let watcher = m.clone();
+    // One status line per change: online, offline, paused or notReady.
+    let (conn_tx, conn_rx) = tokio::sync::watch::channel("offline".to_string());
+    if opts.status_json {
+        tokio::spawn(status_lines(m.clone(), conn_rx));
+    }
     let on_state = move |s: &str| {
-        if status_json {
-            let slots = watcher
-                .inner
-                .try_lock()
-                .map(|i| (i.rules.slots, i.running.len()))
-                .unwrap_or((0, 0));
-            println!(
-                "{}",
-                serde_json::json!({ "state": s, "slots": slots.0, "busy": slots.1, "recommended": advice.recommended, "most": advice.most })
-            );
-        } else {
-            eprintln!("{s}");
-        }
+        let _ = conn_tx.send(s.to_string());
+        eprintln!("{s}");
     };
     tokio::select! {
-        _ = conn::run_forever(m.clone(), endpoint, grant, out_rx, on_state) => {}
+        reason = conn::run_forever(m.clone(), dial, out_rx, on_state) => {
+            use protocol::GoodbyeReason::*;
+            match reason {
+                Revoked => {
+                    // The grant is dead: delete it so nothing tries it again.
+                    let _ = std::fs::remove_file(state.dir.join("grant"));
+                    bail!("this machine was disconnected in Context; run `context-machine pair` to connect it again")
+                }
+                Replaced => bail!("another runner connected as this machine"),
+                BadSignature => bail!("the gateway did not accept this machine's key; run `context-machine pair` again"),
+                Protocol => bail!("the gateway did not understand this runner; update it"),
+            }
+        }
         _ = shutdown() => eprintln!("stopping"),
     }
     // Running parts are killed with the process (kill_on_drop); their grant
     // files go with the guards, and the next start sweeps any left.
     Ok(())
+}
+
+async fn status_lines(m: machine::Machine, mut conn: tokio::sync::watch::Receiver<String>) {
+    let mut last = String::new();
+    loop {
+        let st = m.status().await;
+        let (slots, most, recommended) = {
+            let i = m.inner.lock().await;
+            (i.rules.limits.slots, i.slots.most, i.slots.recommended)
+        };
+        let online = conn.borrow().clone();
+        let state = match (online.as_str(), st.not_ready) {
+            ("online", Some(protocol::NotReady::Paused)) => "paused",
+            ("online", Some(_)) => "notReady",
+            (s, _) => if s == "online" { "online" } else { "offline" },
+        };
+        let line = serde_json::json!({
+            "state": state, "notReady": st.not_ready, "busy": st.busy, "slots": slots,
+            "recommended": recommended, "most": most, "pausedUntil": st.paused_until, "freeMemoryMb": st.free_memory_mb,
+        });
+        let key = serde_json::json!([state, st.not_ready, st.busy, slots, st.paused_until]).to_string();
+        if key != last {
+            println!("{line}");
+            last = key;
+        }
+        tokio::select! {
+            _ = conn.changed() => {}
+            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+        }
+    }
 }
 
 async fn shutdown() {
@@ -269,72 +330,46 @@ async fn shutdown() {
 
 async fn status(state: &State, home: &std::path::Path, json: bool) -> Result<()> {
     let facts = facts::gather().await;
-    let advice = slots::advise(facts.memory_mb, facts.cpus);
-    let rules = state.rules().effective(&state.local(), advice.most);
+    let advice = slots::advise(facts.memory_mb, facts.cores);
+    let rules = rules::effective(&state.rules(), &state.local(), advice.most);
+    let offset = limits::utc_offset_minutes(rules.limits.time_zone.as_deref());
     let ledger = state.ledger();
-    let now = machine::now_ms();
-    let day = ledger.day_of(now, rules.utc_offset_minutes);
+    let day = ledger.day_of(machine::now_ms(), offset);
     let m = state.machine();
     let paired = state.grant(None).is_ok();
-    let today = ledger.day(day).total_secs() / 60;
-    let week = ledger.week_secs(day) / 60;
+    let today = ledger.day(day).total_ms() / 60_000;
+    let week = ledger.week_ms(day) / 60_000;
+    let (day_limit, week_limit) = (rules.limits.day_ms / 60_000, rules.limits.week_ms / 60_000);
     if json {
         println!(
             "{}",
             serde_json::json!({
-                "paired": paired, "name": m.name, "endpoint": m.endpoint, "service": service::is_installed(home),
-                "facts": facts, "slots": rules.slots, "recommended": advice.recommended, "most": advice.most,
-                "usedTodayMinutes": today, "dailyMinutes": rules.daily_minutes, "usedWeekMinutes": week, "weeklyMinutes": rules.weekly_minutes,
+                "paired": paired, "machineId": m.machine_id, "name": m.name, "endpoint": m.endpoint, "service": service::is_installed(home),
+                "facts": facts, "slots": rules.limits.slots, "recommended": advice.recommended, "most": advice.most,
+                "usedTodayMinutes": today, "dayMinutes": day_limit, "usedWeekMinutes": week, "weekMinutes": week_limit,
                 "folders": rules.folders,
             })
         );
         return Ok(());
     }
-    println!(
-        "{}",
-        if paired {
-            format!("Paired as {} with {}", m.name, m.endpoint)
-        } else {
-            "Not paired. Run `context-machine pair`.".into()
-        }
-    );
-    println!(
-        "Service: {}",
-        if service::is_installed(home) {
-            "installed"
-        } else {
-            "not installed"
-        }
-    );
-    let tool = |t: facts::ToolState| match t {
-        facts::ToolState::SignedIn => "signed in",
-        facts::ToolState::Installed => "installed, not signed in",
-        facts::ToolState::Missing => "not installed",
+    println!("{}", if paired { format!("Paired as {} with {}", m.name, m.endpoint) } else { "Not paired. Run `context-machine pair`.".into() });
+    println!("Service: {}", if service::is_installed(home) { "installed" } else { "not installed" });
+    let tool = |name: &str| match facts.tools.iter().find(|t| t.name == name) {
+        Some(t) if t.signed_in => "signed in",
+        Some(t) if t.installed => "installed, not signed in",
+        _ => "not installed",
     };
-    println!(
-        "Claude Code: {}. Codex: {}.",
-        tool(facts.claude),
-        tool(facts.codex)
-    );
-    if facts.claude != facts::ToolState::SignedIn && facts.codex != facts::ToolState::SignedIn {
+    println!("Claude Code: {}. Codex: {}.", tool("claude"), tool("codex"));
+    if !facts::ready(&facts, protocol::Tool::Claude) && !facts::ready(&facts, protocol::Tool::Codex) {
         println!("Not ready: sign in to Claude Code or Codex on this machine.");
     }
-    println!(
-        "Slots: {} (recommended {}, most {})",
-        rules.slots, advice.recommended, advice.most
-    );
-    println!(
-        "Used today: {} of {}. This week: {} of {}.",
-        hm(today),
-        hm(rules.daily_minutes),
-        hm(week),
-        hm(rules.weekly_minutes)
-    );
+    println!("Slots: {} (recommended {}, most {})", rules.limits.slots, advice.recommended, advice.most);
+    println!("Used today: {} of {}. This week: {} of {}.", hm(today), hm(day_limit), hm(week), hm(week_limit));
     if rules.folders.is_empty() {
         println!("No folders allowed yet: set them on this machine's page in Context.");
     } else {
         for f in &rules.folders {
-            println!("Folder: {}", f.display());
+            println!("Folder: {f}");
         }
     }
     Ok(())

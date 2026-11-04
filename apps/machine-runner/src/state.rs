@@ -7,7 +7,8 @@
 //! swept at the next start.
 
 use crate::limits::Ledger;
-use crate::rules::{LocalLimits, Rules};
+use crate::protocol::Rules;
+use crate::rules::LocalLimits;
 use anyhow::{bail, Context, Result};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -25,6 +26,8 @@ pub struct Machine {
     pub machine_id: String,
     pub endpoint: String,
     pub name: String,
+    /// Where the workspace object listens, from the approved pairing.
+    pub socket_url: String,
 }
 
 #[derive(Clone)]

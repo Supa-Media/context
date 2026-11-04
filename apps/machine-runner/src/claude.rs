@@ -21,8 +21,8 @@
 //! owner trusted the repository: a repo's `.claude` settings run only for the
 //! owner.
 
-use crate::cli::{CliEvent, StepLine};
-use crate::protocol::{Cli, LimitSignal};
+use crate::cli::{CliEvent, LimitSignal, StepLine};
+use crate::protocol::PermissionMode;
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -31,7 +31,7 @@ pub struct ClaudePlan<'a> {
     pub resume: bool,
     pub mcp_config: &'a Path,
     pub settings_file: Option<&'a Path>,
-    pub permission_mode: &'a str,
+    pub permission: PermissionMode,
     pub allowed_commands: &'a [String],
     pub repo_settings: bool,
     pub helpers: bool,
@@ -61,14 +61,24 @@ pub fn args(p: &ClaudePlan) -> Vec<String> {
     } else {
         a.extend(["--session-id".into(), p.session_id.into()]);
     }
-    a.extend(["--permission-mode".into(), p.permission_mode.into()]);
-    if p.permission_mode != "bypassPermissions" {
+    // read: only reading tools; edits: file edits and the allowlisted
+    // programs; full: whatever Claude Code allows (owner's own asks only).
+    let (mode, extra): (&str, Vec<String>) = match p.permission {
+        PermissionMode::Read => ("default", ["Read", "Glob", "Grep"].iter().map(|s| s.to_string()).collect()),
+        PermissionMode::Edits => ("acceptEdits", p.allowed_commands.iter().map(|c| format!("Bash({c}:*)")).collect()),
+        PermissionMode::Full => ("bypassPermissions", vec![]),
+    };
+    a.extend(["--permission-mode".into(), mode.into()]);
+    if p.permission != PermissionMode::Full {
         let mut allowed = vec!["mcp__context".to_string()];
-        allowed.extend(p.allowed_commands.iter().map(|c| format!("Bash({c}:*)")));
+        allowed.extend(extra);
         a.push("--allowedTools".into());
         a.push(allowed.join(","));
     }
     let mut denied: Vec<&str> = vec![];
+    if p.permission == PermissionMode::Read {
+        denied.extend(["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]);
+    }
     if !p.helpers {
         denied.extend(["Task", "Agent"]);
     }
@@ -172,7 +182,6 @@ pub fn parse(line: &str) -> Vec<CliEvent> {
                 _ => return vec![],
             };
             vec![CliEvent::Limit(LimitSignal {
-                cli: Cli::Claude,
                 status: status.into(),
                 window: s(&info, "rateLimitType"),
                 utilization: info.get("utilization").and_then(|x| x.as_f64()),

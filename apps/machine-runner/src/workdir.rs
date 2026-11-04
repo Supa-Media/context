@@ -4,15 +4,64 @@
 //! A run starts clean so it never executes hooks or MCP servers a cloned repo
 //! brought with it unless the owner trusted that repo (`claude.rs`). Parts of
 //! one job share the folder, so the session resumes where it left off. When
-//! the job is released, a worktree with no new commits and no changes is
+//! a run ends, a worktree with no new commits and no changes is
 //! removed with its branch; one with work in it is kept for the person.
 
-use crate::protocol::Workdir;
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
 /// The folder all job folders live in, inside an allowed folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Workdir {
+    Worktree,
+    Scratch,
+}
+
+/// `owner/name` from a repository's origin remote, for the facts and for
+/// finding the repo an assignment names.
+pub fn origin_repo(dir: &Path) -> Option<String> {
+    let out = std::process::Command::new("git").arg("-C").arg(dir).args(["remote", "get-url", "origin"]).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
+    repo_from_url(String::from_utf8_lossy(&out.stdout).trim())
+}
+
+/// `git@github.com:Supa-Media/context.git` and
+/// `https://github.com/Supa-Media/context` are both `Supa-Media/context`.
+pub fn repo_from_url(url: &str) -> Option<String> {
+    let path = url.trim_end_matches('/').trim_end_matches(".git");
+    let mut parts = path.rsplit(['/', ':']);
+    let name = parts.next()?;
+    let owner = parts.next()?;
+    (!name.is_empty() && !owner.is_empty() && !owner.contains('@')).then(|| format!("{owner}/{name}"))
+}
+
+/// The repository an assignment names, under its folder: the folder itself or
+/// one or two levels down, matched by origin (`owner/name`) or folder name.
+/// Only ever inside the allowed root.
+pub fn find_repo(root: &Path, folder: &Path, repo: &str) -> Option<PathBuf> {
+    let short = repo.rsplit('/').next().unwrap_or(repo);
+    let matches = |dir: &Path| {
+        dir.join(".git").exists()
+            && (origin_repo(dir).is_some_and(|o| o.eq_ignore_ascii_case(repo)) || dir.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(short)))
+    };
+    let mut queue = vec![(folder.to_path_buf(), 0)];
+    while let Some((dir, depth)) = queue.pop() {
+        if matches(&dir) {
+            let real = std::fs::canonicalize(&dir).ok()?;
+            return real.starts_with(root).then_some(real);
+        }
+        if depth < 2 {
+            for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() && !e.file_name().to_string_lossy().starts_with('.') {
+                    queue.push((p, depth + 1));
+                }
+            }
+        }
+    }
+    None
+}
+
 pub const WORK_DIR_NAME: &str = ".context-machine-work";
 
 pub fn job_dir(root: &Path, job_id: &str) -> PathBuf {
@@ -44,18 +93,12 @@ pub async fn prepare(root: &Path, folder: &Path, job_id: &str, kind: Workdir) ->
                 bail!("the repository reaches outside the allowed folder");
             }
             exclude_work_dir(&top).await;
-            git(
-                &top,
-                &[
-                    "worktree",
-                    "add",
-                    "-b",
-                    &branch_name(job_id),
-                    &dir.display().to_string(),
-                    "HEAD",
-                ],
-            )
-            .await?;
+            let branch = branch_name(job_id);
+            let at = dir.display().to_string();
+            // A branch left from an earlier part is picked up again.
+            if git(&top, &["worktree", "add", "-b", &branch, &at, "HEAD"]).await.is_err() {
+                git(&top, &["worktree", "add", &at, &branch]).await?;
+            }
             // Where the job started, so release can tell whether it made commits.
             if let (Ok(base), Ok(gd)) = (
                 git(&dir, &["rev-parse", "HEAD"]).await,
@@ -110,7 +153,7 @@ pub enum Released {
 }
 
 /// The job is over: remove its folder unless it holds work.
-pub async fn release(root: &Path, job_id: &str) -> Result<Released> {
+pub async fn settle(root: &Path, job_id: &str) -> Result<Released> {
     let dir = job_dir(root, job_id);
     if !dir.exists() {
         return Ok(Released::Missing);
@@ -139,12 +182,15 @@ pub async fn release(root: &Path, job_id: &str) -> Result<Released> {
         if dirty || ahead {
             return Ok(Released::Kept(Some(branch)));
         }
+        // The branch lives in the repository, which may sit below the root.
+        let common = git(&dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).await?;
+        let repo_git = PathBuf::from(common.trim());
         git(
             &dir,
             &["worktree", "remove", "--force", &dir.display().to_string()],
         )
         .await?;
-        let _ = git(root, &["branch", "-D", &branch]).await;
+        let _ = git_in(&repo_git, &["branch", "-D", &branch]).await;
         return Ok(Released::Removed);
     }
     let empty = std::fs::read_dir(&dir)
@@ -158,9 +204,15 @@ pub async fn release(root: &Path, job_id: &str) -> Result<Released> {
 }
 
 async fn git(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
+    run_git(Command::new("git").arg("-C").arg(dir), args).await
+}
+
+async fn git_in(git_dir: &Path, args: &[&str]) -> Result<String> {
+    run_git(Command::new("git").arg("--git-dir").arg(git_dir), args).await
+}
+
+async fn run_git(cmd: &mut Command, args: &[&str]) -> Result<String> {
+    let out = cmd
         .args(args)
         .stdin(std::process::Stdio::null())
         .output()
@@ -220,8 +272,23 @@ mod tests {
             prepare(&r, &r, "job_1", Workdir::Worktree).await.unwrap(),
             wt
         );
-        assert_eq!(release(&r, "job_1").await.unwrap(), Released::Removed);
+        assert_eq!(settle(&r, "job_1").await.unwrap(), Released::Removed);
         assert!(!wt.exists());
+    }
+
+    #[tokio::test]
+    async fn a_repo_below_the_root_loses_its_branch_too() {
+        let d = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(d.path()).unwrap();
+        let r = root.join("code/repo");
+        std::fs::create_dir_all(&r).unwrap();
+        repo(&r).await;
+        prepare(&root, &r, "job_b", Workdir::Worktree).await.unwrap();
+        assert_eq!(settle(&root, "job_b").await.unwrap(), Released::Removed);
+        let branches = git(&r, &["branch", "--list", "tex/*"]).await.unwrap();
+        assert!(branches.trim().is_empty(), "branch left behind: {branches}");
+        // A later part makes it again.
+        prepare(&root, &r, "job_b", Workdir::Worktree).await.unwrap();
     }
 
     #[tokio::test]
@@ -232,7 +299,7 @@ mod tests {
         let wt = prepare(&r, &r, "job_2", Workdir::Worktree).await.unwrap();
         std::fs::write(wt.join("new.txt"), "x").unwrap();
         assert_eq!(
-            release(&r, "job_2").await.unwrap(),
+            settle(&r, "job_2").await.unwrap(),
             Released::Kept(Some("tex/job_2".into()))
         );
     }
@@ -250,15 +317,35 @@ mod tests {
             .is_err());
     }
 
+    #[test]
+    fn repo_names_from_remotes() {
+        assert_eq!(repo_from_url("git@github.com:Supa-Media/context.git").as_deref(), Some("Supa-Media/context"));
+        assert_eq!(repo_from_url("https://github.com/Supa-Media/context/").as_deref(), Some("Supa-Media/context"));
+        assert_eq!(repo_from_url("context"), None);
+    }
+
+    #[tokio::test]
+    async fn find_repo_stays_inside_the_root() {
+        let d = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(d.path()).unwrap();
+        let r = root.join("org/context");
+        std::fs::create_dir_all(&r).unwrap();
+        repo(&r).await;
+        assert_eq!(find_repo(&root, &root, "Supa-Media/context"), Some(r.clone()));
+        assert_eq!(find_repo(&root, &root, "other"), None);
+        let elsewhere = tempfile::tempdir().unwrap();
+        assert_eq!(find_repo(elsewhere.path(), &root, "context"), None);
+    }
+
     #[tokio::test]
     async fn scratch_folders() {
         let d = tempfile::tempdir().unwrap();
         let r = d.path();
         let s = prepare(r, r, "job_4", Workdir::Scratch).await.unwrap();
         assert!(s.is_dir());
-        assert_eq!(release(r, "job_4").await.unwrap(), Released::Removed);
+        assert_eq!(settle(r, "job_4").await.unwrap(), Released::Removed);
         let s = prepare(r, r, "job_5", Workdir::Scratch).await.unwrap();
         std::fs::write(s.join("out.md"), "x").unwrap();
-        assert_eq!(release(r, "job_5").await.unwrap(), Released::Kept(None));
+        assert_eq!(settle(r, "job_5").await.unwrap(), Released::Kept(None));
     }
 }

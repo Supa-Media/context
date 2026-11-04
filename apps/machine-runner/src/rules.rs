@@ -1,211 +1,169 @@
-//! The machine's own copy of its rules, and the check every assignment passes
-//! before anything starts.
+//! The check every assignment passes on the machine before anything starts.
 //!
 //! The gateway checks too, so a slot is not taken in the first place. This is
 //! the second check: neither a gateway bug nor a compromised gateway gets a job
 //! past the folders, the tools or the limits the owner set, because the runner
-//! refuses it here. The rules arrive from the workspace object and are kept in
+//! refuses it here. The rules arrive in `welcome` and `rules` and are kept in
 //! `rules.json`; `local.json`, which only the owner edits on the machine, can
 //! narrow them further and nothing the gateway sends widens it.
 
 use crate::limits::Ledger;
-use crate::protocol::{Assignment, Cli, Refusal};
+use crate::protocol::{Assign, PermissionMode, RefusalCode, Rules, Tool};
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct Rules {
-    /// Folders a run may work in. Empty means nowhere: a machine with no
-    /// folder set takes no job.
-    pub folders: Vec<PathBuf>,
-    /// Which CLIs may run here.
-    pub clis: Vec<Cli>,
-    /// Sessions at once, as the owner chose (clamped to the machine's most).
-    pub slots: u32,
-    /// Hold one slot back for the owner's own asks.
-    pub keep_one_for_me: bool,
-    pub daily_minutes: u64,
-    pub weekly_minutes: u64,
-    /// How much of the day other people's asks may use, under the daily total.
-    pub others_daily_minutes: u64,
-    /// Runs other people may start per day.
-    pub others_runs_per_day: u32,
-    /// Longest a job may run here: 4 hours by default, up to 24.
-    pub max_job_minutes: u64,
-    /// Stop taking work when a CLI says the plan is nearly used, until the
-    /// reset it names.
-    pub pause_near_plan: bool,
-    /// Network for other people's runs.
-    pub others_network: bool,
-    /// Claude Code's own helpers for other people's runs.
-    pub others_helpers: bool,
-    /// Claude Code permission mode: acceptEdits (default) or bypassPermissions.
-    pub permission_mode: String,
-    /// Shell commands a run may use, by program name (git, pnpm, cargo, ...).
-    /// Ignored under bypassPermissions.
-    pub allowed_commands: Vec<String>,
-    /// Repositories whose own `.claude` settings and `.mcp.json` may load for
-    /// other people's runs. The owner's own runs always load them.
-    pub trusted_repos: Vec<PathBuf>,
-    /// The owner's offset from UTC right now, in minutes, so "today" is the
-    /// owner's day. Sent fresh with every settings message.
-    pub utc_offset_minutes: i32,
-}
-
-impl Default for Rules {
-    fn default() -> Self {
-        Rules {
-            folders: vec![],
-            clis: vec![Cli::Claude, Cli::Codex],
-            slots: 1,
-            keep_one_for_me: false,
-            daily_minutes: 4 * 60,
-            weekly_minutes: 20 * 60,
-            others_daily_minutes: 2 * 60,
-            others_runs_per_day: 10,
-            max_job_minutes: 4 * 60,
-            pause_near_plan: true,
-            others_network: false,
-            others_helpers: false,
-            permission_mode: "acceptEdits".into(),
-            allowed_commands: vec!["git".into()],
-            trusted_repos: vec![],
-            utc_offset_minutes: 0,
-        }
-    }
-}
-
-pub const MAX_JOB_MINUTES_CEILING: u64 = 24 * 60;
-const PERMISSION_MODES: &[&str] = &["acceptEdits", "bypassPermissions", "default", "plan"];
+pub const LONGEST_RUN_CEILING_MS: u64 = 24 * 60 * 60 * 1000;
+pub const MAX_SLOTS: u32 = 8;
 
 /// Narrowing the owner keeps on the machine itself. Every field is optional;
-/// what is set can only take away.
+/// what is set only takes away.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LocalLimits {
-    pub folders: Option<Vec<PathBuf>>,
-    pub clis: Option<Vec<Cli>>,
+    pub folders: Option<Vec<String>>,
+    pub tools: Option<Vec<Tool>>,
     pub max_slots: Option<u32>,
-    pub daily_minutes: Option<u64>,
-    pub no_others: bool,
+    pub day_ms: Option<u64>,
+    /// Take no one else's asks on this machine.
+    pub owner_only: bool,
+    /// Shell programs an `edits` run may start (git, pnpm, cargo, ...).
+    /// Absent means the built-in list.
+    pub allowed_commands: Option<Vec<String>>,
 }
 
-impl Rules {
-    /// The rules after the owner's local narrowing and the hard ceilings.
-    pub fn effective(&self, local: &LocalLimits, most: u32) -> Rules {
-        let mut r = self.clone();
-        if let Some(allowed) = &local.folders {
-            r.folders.retain(|f| allowed.iter().any(|a| inside(f, a)));
-        }
-        if let Some(allowed) = &local.clis {
-            r.clis.retain(|c| allowed.contains(c));
-        }
-        r.slots = r.slots.clamp(1, most.max(1));
-        if let Some(max) = local.max_slots {
-            r.slots = r.slots.min(max.max(1));
-        }
-        if let Some(d) = local.daily_minutes {
-            r.daily_minutes = r.daily_minutes.min(d);
-        }
-        if local.no_others {
-            r.others_runs_per_day = 0;
-            r.others_daily_minutes = 0;
-        }
-        r.others_daily_minutes = r.others_daily_minutes.min(r.daily_minutes);
-        r.max_job_minutes = r.max_job_minutes.clamp(1, MAX_JOB_MINUTES_CEILING);
-        if !PERMISSION_MODES.contains(&r.permission_mode.as_str()) {
-            r.permission_mode = "acceptEdits".into();
-        }
-        r.allowed_commands.retain(|c| is_program_name(c));
-        r
+/// Programs an `edits` run may start without asking, when `local.json` names
+/// none: version control and the usual build and test tools.
+pub const DEFAULT_COMMANDS: &[&str] = &[
+    "git", "gh", "ls", "cat", "head", "tail", "grep", "rg", "find", "wc", "diff", "mkdir", "node", "npm", "npx", "pnpm",
+    "yarn", "bun", "deno", "tsc", "python", "python3", "pip", "pytest", "uv", "cargo", "rustc", "go", "make", "swift",
+    "xcodebuild",
+];
+
+/// The rules after the owner's local narrowing and the hard ceilings.
+pub fn effective(rules: &Rules, local: &LocalLimits, most: u32) -> Rules {
+    let mut r = rules.clone();
+    if let Some(allowed) = &local.folders {
+        r.folders.retain(|f| allowed.iter().any(|a| Path::new(f).starts_with(a)));
+    }
+    if let Some(allowed) = &local.tools {
+        r.tools.retain(|t| allowed.contains(t));
+    }
+    let l = &mut r.limits;
+    l.slots = l.slots.clamp(1, most.clamp(1, MAX_SLOTS));
+    if let Some(max) = local.max_slots {
+        l.slots = l.slots.min(max.max(1));
+    }
+    if let Some(d) = local.day_ms {
+        l.day_ms = l.day_ms.min(d);
+    }
+    if local.owner_only {
+        l.others_runs_per_day = 0;
+        l.others_day_ms = 0;
+    }
+    l.others_day_ms = l.others_day_ms.min(l.day_ms);
+    l.longest_run_ms = l.longest_run_ms.clamp(60_000, LONGEST_RUN_CEILING_MS);
+    r
+}
+
+pub fn allowed_commands(local: &LocalLimits) -> Vec<String> {
+    match &local.allowed_commands {
+        Some(list) => list.iter().filter(|c| is_program_name(c)).cloned().collect(),
+        None => DEFAULT_COMMANDS.iter().map(|s| s.to_string()).collect(),
     }
 }
 
 /// A program name for `Bash(<name>:*)`: no spaces, no shell, no path tricks.
-fn is_program_name(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= 64
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._-+".contains(c))
+pub fn is_program_name(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 64 && s.chars().all(|c| c.is_ascii_alphanumeric() || "._-+".contains(c))
 }
 
 /// Where the machine stands when an assignment arrives.
 pub struct Snapshot<'a> {
     pub now_ms: u64,
     pub running: u32,
-    pub running_job_ids: &'a [String],
+    pub running_runs: &'a [String],
     pub available_mb: u64,
     pub claude_ready: bool,
     pub codex_ready: bool,
     pub ledger: &'a Ledger,
+    pub utc_offset_minutes: i32,
 }
 
-/// Every reason a job must not start here, checked in order; the first wins.
-/// Returns the allowed folder the job's folder sits in.
-pub fn check(rules: &Rules, a: &Assignment, s: &Snapshot) -> Result<PathBuf, Refusal> {
-    if !valid_job_id(&a.job_id) || a.run_grant.is_empty() || !endpoint_ok(&a.endpoint) {
-        return Err(Refusal::BadAssignment);
+/// A refusal, with when it stops holding where the runner knows.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Refused {
+    pub code: RefusalCode,
+    pub until: Option<u64>,
+}
+
+fn no(code: RefusalCode) -> Refused {
+    Refused { code, until: None }
+}
+
+/// Every reason a run must not start here, checked in order; the first wins.
+/// Returns the allowed folder the run's folder resolves to.
+pub fn check(rules: &Rules, a: &Assign, s: &Snapshot) -> Result<PathBuf, Refused> {
+    use RefusalCode::*;
+    if !crate::protocol::valid_id(&a.run_id)
+        || !crate::protocol::valid_id(&a.job_id)
+        || a.grant.token.is_empty()
+        || !endpoint_ok(&a.grant.mcp_url)
+        || s.running_runs.iter().any(|r| r == &a.run_id)
+    {
+        return Err(no(BadMessage));
     }
-    if s.running_job_ids.iter().any(|j| j == &a.job_id) {
-        return Err(Refusal::AlreadyRunning);
+    if !rules.tools.contains(&a.tool) {
+        return Err(no(Tool));
     }
-    if !rules.clis.contains(&a.cli) {
-        return Err(Refusal::CliNotAllowed);
-    }
-    let ready = match a.cli {
-        Cli::Claude => s.claude_ready,
-        Cli::Codex => s.codex_ready,
+    let ready = match a.tool {
+        crate::protocol::Tool::Claude => s.claude_ready,
+        crate::protocol::Tool::Codex => s.codex_ready,
     };
     if !ready {
-        return Err(Refusal::CliNotReady);
+        return Err(no(NotReady));
     }
-    let root = allowed_root(&rules.folders, &a.folder).ok_or(Refusal::FolderNotAllowed)?;
-    if !a.own {
-        if a.computer_use {
-            return Err(Refusal::ComputerUseOwnerOnly);
-        }
-        if a.network && !rules.others_network {
-            return Err(Refusal::NetworkNotAllowed);
-        }
-        if a.helpers && !rules.others_helpers {
-            return Err(Refusal::HelpersNotAllowed);
-        }
+    let folders: Vec<PathBuf> = rules.folders.iter().map(PathBuf::from).collect();
+    let root = allowed_root(&folders, Path::new(&a.folder)).ok_or(no(Folder))?;
+    if a.computer_use && (!a.from_owner || !rules.computer_use) {
+        return Err(no(Rule));
     }
-    if s.running >= rules.slots {
-        return Err(Refusal::SlotsFull);
+    if !a.from_owner && a.permission == PermissionMode::Full {
+        return Err(no(Rule));
     }
-    if !a.own && rules.keep_one_for_me && s.running + 1 >= rules.slots {
-        return Err(Refusal::KeptForOwner);
+    let l = &rules.limits;
+    if s.running >= l.slots {
+        return Err(no(Busy));
+    }
+    if !a.from_owner && l.keep_one_for_owner == Some(true) && s.running + 1 >= l.slots {
+        return Err(no(Busy));
     }
     if s.available_mb < crate::slots::MIN_FREE_MB {
-        return Err(Refusal::LowMemory);
+        return Err(no(Memory));
     }
-    if rules.pause_near_plan
-        && s.ledger
-            .paused_until_ms(a.cli)
-            .is_some_and(|until| until > s.now_ms)
-    {
-        return Err(Refusal::PlanLimit);
+    if l.pause_near_plan_limit {
+        if let Some(until) = s.ledger.paused_until_ms(a.tool).filter(|u| *u > s.now_ms) {
+            return Err(Refused { code: PlanLimit, until: Some(until) });
+        }
     }
-    let day = s.ledger.day_of(s.now_ms, rules.utc_offset_minutes);
+    let day = s.ledger.day_of(s.now_ms, s.utc_offset_minutes);
+    let tomorrow = Some(s.ledger.day_start_ms(day + 1, s.utc_offset_minutes));
     let today = s.ledger.day(day);
-    if today.total_secs() >= rules.daily_minutes * 60 {
-        return Err(Refusal::DailyLimit);
+    if today.total_ms() >= l.day_ms {
+        return Err(Refused { code: LimitDay, until: tomorrow });
     }
-    if s.ledger.week_secs(day) >= rules.weekly_minutes * 60 {
-        return Err(Refusal::WeeklyLimit);
+    if s.ledger.week_ms(day) >= l.week_ms {
+        return Err(no(LimitWeek));
     }
-    if !a.own {
-        if today.others_secs >= rules.others_daily_minutes * 60 {
-            return Err(Refusal::OthersDailyLimit);
-        }
-        if today.others_runs >= rules.others_runs_per_day {
-            return Err(Refusal::OthersRunsLimit);
+    if let Some(cap) = l.week_tokens {
+        if s.ledger.week_tokens(day) >= cap {
+            return Err(no(LimitWeek));
         }
     }
-    if a.deadline_at <= s.now_ms || a.deadline_at - s.now_ms > rules.max_job_minutes * 60_000 {
-        return Err(Refusal::TooLong);
+    if !a.from_owner && (today.others_ms >= l.others_day_ms || today.others_runs >= l.others_runs_per_day) {
+        return Err(Refused { code: LimitOthers, until: tomorrow });
+    }
+    if a.deadline <= s.now_ms || a.deadline - s.now_ms > l.longest_run_ms {
+        return Err(no(Rule));
     }
     Ok(root)
 }
@@ -213,22 +171,10 @@ pub fn check(rules: &Rules, a: &Assignment, s: &Snapshot) -> Result<PathBuf, Ref
 /// The run grant goes only to an https endpoint, or to this machine itself for
 /// a self-hosted gateway under test.
 pub fn endpoint_ok(url: &str) -> bool {
-    if url.starts_with("https://") {
-        return url.len() > "https://".len();
+    if let Some(rest) = url.strip_prefix("https://") {
+        return !rest.is_empty();
     }
-    ["http://127.0.0.1:", "http://localhost:"]
-        .iter()
-        .any(|p| url.starts_with(p))
-}
-
-/// Job ids end up in folder names, so they are kept to a safe alphabet.
-pub fn valid_job_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 128
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "-_:.".contains(c))
-        && !id.starts_with('.')
+    ["http://127.0.0.1:", "http://localhost:"].iter().any(|p| url.starts_with(p))
 }
 
 /// The allowed folder that holds `folder`, compared after resolving symlinks
@@ -244,40 +190,26 @@ pub fn allowed_root(allowed: &[PathBuf], folder: &Path) -> Option<PathBuf> {
         if is_too_broad(&root_real) {
             return None;
         }
-        inside(&real, &root_real).then_some(root_real)
+        real.starts_with(&root_real).then_some(root_real)
     })
 }
 
 /// A folder that would put the whole machine or the person's whole home in
 /// reach is never an allowed folder, whatever the settings say.
 pub fn is_too_broad(p: &Path) -> bool {
-    if p.components()
-        .filter(|c| matches!(c, Component::Normal(_)))
-        .count()
-        == 0
-    {
+    if p.components().filter(|c| matches!(c, Component::Normal(_))).count() == 0 {
         return true;
     }
-    if let Some(home) = home_dir() {
-        if let Ok(home) = std::fs::canonicalize(home) {
-            if home.starts_with(p) {
-                return true;
-            }
+    if let Some(home) = home_dir().and_then(|h| std::fs::canonicalize(h).ok()) {
+        if home.starts_with(p) {
+            return true;
         }
     }
     false
 }
 
-/// `child` is `parent` or under it, component by component (so `/srv/code2`
-/// is not inside `/srv/code`).
-pub fn inside(child: &Path, parent: &Path) -> bool {
-    child.starts_with(parent)
-}
-
 pub fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .filter(|h| !h.is_empty())
-        .map(PathBuf::from)
+    std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)
 }
 
 #[cfg(test)]

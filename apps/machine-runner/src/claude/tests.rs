@@ -1,4 +1,5 @@
 use super::*;
+use crate::protocol::PermissionMode;
 use std::path::PathBuf;
 
 // Shapes captured from Claude Code 2.1.318 in the spike; ids replaced.
@@ -112,7 +113,7 @@ fn plan<'a>(cfg: &'a Path, cmds: &'a [String]) -> ClaudePlan<'a> {
         resume: false,
         mcp_config: cfg,
         settings_file: None,
-        permission_mode: "acceptEdits",
+        permission: PermissionMode::Edits,
         allowed_commands: cmds,
         repo_settings: false,
         helpers: false,
@@ -148,7 +149,7 @@ fn the_owners_run_keeps_repo_settings_and_resume_uses_the_id() {
     p.helpers = true;
     p.network = true;
     p.resume = true;
-    p.permission_mode = "bypassPermissions";
+    p.permission = PermissionMode::Full;
     let a = args(&p).join(" ");
     assert!(!a.contains("--setting-sources"));
     assert!(!a.contains("--disallowedTools"));
@@ -162,4 +163,16 @@ fn stdin_lines() {
     assert_eq!(v["message"]["content"], "a \"quoted\"\nline");
     let v: Value = serde_json::from_str(&interrupt_line("r1")).unwrap();
     assert_eq!(v["request"]["subtype"], "interrupt");
+}
+
+#[test]
+fn a_read_run_cannot_edit_or_run_commands() {
+    let cfg = PathBuf::from("/c");
+    let cmds = vec!["git".to_string()];
+    let mut p = plan(&cfg, &cmds);
+    p.permission = PermissionMode::Read;
+    let a = args(&p).join(" ");
+    assert!(a.contains("--allowedTools mcp__context,Read,Glob,Grep"));
+    assert!(a.contains("Edit,Write,MultiEdit,NotebookEdit,Bash"));
+    assert!(!a.contains("Bash(git"));
 }

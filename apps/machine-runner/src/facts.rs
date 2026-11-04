@@ -6,73 +6,92 @@
 //! OS user name. Sign-in is asked of each CLI's own status command; the runner
 //! never opens `~/.claude` or `~/.codex`.
 
-use serde::{Deserialize, Serialize};
+use crate::protocol::{MachineFacts, Os, Tool, ToolFact};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolState {
     SignedIn,
     Installed,
     Missing,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Facts {
-    pub os: String,
-    pub arch: String,
-    pub os_version: Option<String>,
-    pub chip: Option<String>,
-    pub cpus: u32,
-    pub memory_mb: u64,
-    pub claude: ToolState,
-    pub codex: ToolState,
-    /// Other tools found on PATH, by name only (gh, git, wrangler, op, ...).
-    pub tools: Vec<String>,
-}
-
 /// Tools worth naming in the good-at note. Presence only.
 const NOTABLE_TOOLS: &[&str] = &[
-    "git",
-    "gh",
-    "node",
-    "pnpm",
-    "npm",
-    "bun",
-    "python3",
-    "cargo",
-    "go",
-    "docker",
-    "wrangler",
-    "op",
-    "xcodebuild",
-    "gcloud",
-    "aws",
-    "fly",
-    "vercel",
+    "git", "gh", "node", "pnpm", "npm", "bun", "python3", "cargo", "go", "docker", "wrangler", "op", "xcodebuild",
+    "gcloud", "aws", "fly", "vercel",
 ];
 
-pub async fn gather() -> Facts {
+pub async fn gather() -> MachineFacts {
     let mem = memory();
-    let claude = cli_state("claude").await;
-    let codex = cli_state("codex").await;
-    Facts {
-        os: std::env::consts::OS.to_string(),
-        arch: std::env::consts::ARCH.to_string(),
-        os_version: os_version().await,
-        chip: chip().await,
-        cpus: cores(),
-        memory_mb: mem.total_mb,
-        claude,
-        codex,
-        tools: NOTABLE_TOOLS
-            .iter()
-            .filter(|t| which(t).is_some())
-            .map(|t| t.to_string())
-            .collect(),
+    let mut tools = vec![];
+    for tool in [Tool::Claude, Tool::Codex] {
+        let state = cli_state(tool.name()).await;
+        tools.push(ToolFact {
+            name: tool.name().into(),
+            installed: state != ToolState::Missing,
+            signed_in: state == ToolState::SignedIn,
+            version: None,
+        });
     }
+    tools.extend(NOTABLE_TOOLS.iter().filter(|t| which(t).is_some()).map(|t| ToolFact {
+        name: t.to_string(),
+        installed: true,
+        signed_in: false,
+        version: None,
+    }));
+    MachineFacts {
+        os: if cfg!(target_os = "macos") {
+            Os::Macos
+        } else if cfg!(windows) {
+            Os::Windows
+        } else {
+            Os::Linux
+        },
+        os_version: os_version().await.map(|v| clip(&v, 64)),
+        arch: std::env::consts::ARCH.to_string(),
+        chip: chip().await.map(|c| clip(&c, 128)),
+        memory_mb: mem.total_mb,
+        cores: cores(),
+        gpu: None,
+        has_screen: Some(cfg!(target_os = "macos")),
+        tools,
+        repos: None,
+    }
+}
+
+/// Whether a coding tool is installed and signed in, from the facts.
+pub fn ready(facts: &MachineFacts, tool: Tool) -> bool {
+    facts.tools.iter().any(|t| t.name == tool.name() && t.signed_in)
+}
+
+fn clip(s: &str, max: usize) -> String {
+    s.chars().take(max).collect()
+}
+
+/// Repository names under the allowed folders (the folder itself and one level
+/// down): `owner/name` from the origin remote, else the folder's name. Names
+/// only, never paths outside the folders.
+pub fn repos_in(folders: &[String]) -> Vec<String> {
+    let mut out = vec![];
+    for f in folders {
+        let root = Path::new(f);
+        let mut candidates = vec![root.to_path_buf()];
+        candidates.extend(std::fs::read_dir(root).into_iter().flatten().flatten().map(|e| e.path()));
+        for dir in candidates {
+            if dir.join(".git").exists() {
+                let name = crate::workdir::origin_repo(&dir)
+                    .or_else(|| dir.file_name().map(|n| n.to_string_lossy().to_string()));
+                if let Some(n) = name {
+                    if !out.contains(&n) && out.len() < 100 {
+                        out.push(n);
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 pub fn cores() -> u32 {

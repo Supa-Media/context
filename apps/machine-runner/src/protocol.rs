@@ -1,323 +1,516 @@
 //! The messages between this runner and the workspace object that owns the
-//! machine.
+//! machine, mirroring `packages/shared/src/machineProtocol.schema.json`.
 //!
-//! The gateway can send: a challenge to sign, the machine's rules, an
-//! assignment, a message or an interrupt for a running job, a cancel, a
-//! release (the job is over), and an ack of a result.
-//! Nothing here runs a command: a brief is words handed to the agent, never a
-//! shell line. Every assignment is checked against the local rules
-//! (`rules.rs`) before anything starts, so a gateway that sends something it
-//! should not is refused on the machine as well.
+//! The schema is the only definition. These types follow it field for field,
+//! closed like it (`deny_unknown_fields`), and `tests/protocol_schema.rs`
+//! reads and re-writes every example in `machineProtocol.examples.json` and
+//! checks every message the schema names has a type here, so the two cannot
+//! drift without a failing test.
 //!
-//! The canonical shape is the JSON Schema in `packages/shared`
-//! (`machineProtocol.schema.json`); `tests/protocol_schema.rs` fails when the
-//! two drift.
+//! Nothing the gateway can send runs a command: an assignment's brief is words
+//! for the agent, and every assignment is checked against the local rules
+//! (`rules.rs`) before anything starts.
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
-/// Bumped when a message changes shape incompatibly.
 pub const PROTOCOL_VERSION: u32 = 1;
 
-/// Which coding CLI a slot runs. A slot is compute, not a tool: any slot runs
-/// either, picked per job.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+/// `helloSigningText` in `machineProtocol.cjs`: bound to the purpose and the
+/// machine, so a pairing signature or another machine's never passes.
+pub fn hello_signing_text(machine_id: &str, nonce: &str) -> String {
+    format!("context-machine-hello:v{PROTOCOL_VERSION}:{machine_id}:{nonce}")
+}
+
+/// `pairSigningText` in `machineProtocol.cjs`.
+pub fn pair_signing_text(pairing_id: &str) -> String {
+    format!("context-machine-pair:v{PROTOCOL_VERSION}:{pairing_id}")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Cli {
+pub enum Tool {
     Claude,
     Codex,
 }
 
-impl Cli {
+impl Tool {
     pub fn name(self) -> &'static str {
         match self {
-            Cli::Claude => "claude",
-            Cli::Codex => "codex",
+            Tool::Claude => "claude",
+            Tool::Codex => "codex",
         }
     }
 }
 
-/// Where a job's files go: a git worktree of a repository under an allowed
-/// folder, or an empty scratch folder under one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Workdir {
-    Worktree,
-    Scratch,
+pub enum PermissionMode {
+    Read,
+    Edits,
+    Full,
 }
 
-/// What the gateway sends.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum ServerMsg {
-    Challenge(Challenge),
-    Settings(SettingsMsg),
-    Assign(Assignment),
-    Message(JobMessage),
-    Interrupt(Interrupt),
-    Cancel(Cancel),
-    /// The job is over: its folder may go, unless it holds work.
-    Release(Cancel),
-    /// The job object has a part's result; the runner forgets its copy.
-    Ack(Ack),
-    Ping,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Ack {
-    pub job_id: String,
-    pub part: u32,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Challenge {
-    pub nonce: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct SettingsMsg {
-    pub rules: crate::rules::Rules,
-}
-
-/// One part of a job, handed to a slot.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Assignment {
-    pub job_id: String,
-    pub part: u32,
-    pub cli: Cli,
-    /// The job's brief, handed to the agent as its first message.
-    pub brief: String,
-    #[serde(default)]
-    pub done_when: String,
-    /// The folder to work in. Must sit inside one of the allowed folders.
-    pub folder: PathBuf,
-    pub workdir: Workdir,
-    /// A run grant minted for this part: written to a 0600 file, never argv
-    /// or the environment, deleted when the part ends.
-    pub run_grant: String,
-    /// The Context MCP endpoint the run grant is for.
-    pub endpoint: String,
-    /// When the part must be over, Unix milliseconds.
-    pub deadline_at: u64,
-    /// True when the machine's owner asked for this job themself.
-    pub own: bool,
-    /// Who asked, for the audit line and the per-person counters.
-    #[serde(default)]
-    pub asker: Option<String>,
-    #[serde(default)]
-    pub network: bool,
-    #[serde(default)]
-    pub helpers: bool,
-    #[serde(default)]
-    pub computer_use: bool,
-    /// Resume this CLI session instead of starting a new one.
-    #[serde(default)]
-    pub resume_session_id: Option<String>,
-}
-
-/// A note-mail line for a running job (`03-instant-mail`).
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Mail {
-    pub from: String,
-    #[serde(default)]
-    pub app: Option<String>,
-    /// note, ask or interrupt.
-    #[serde(default = "MailKind::note")]
-    pub kind: MailKind,
-    #[serde(default)]
-    pub path: Option<String>,
-    pub text: String,
-    #[serde(default)]
-    pub at: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum MailKind {
+pub enum MessageKind {
     Note,
     Ask,
-    Interrupt,
 }
 
-impl MailKind {
-    fn note() -> Self {
-        MailKind::Note
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefusalCode {
+    Busy,
+    Folder,
+    Tool,
+    NotReady,
+    Memory,
+    LimitDay,
+    LimitWeek,
+    LimitOthers,
+    PlanLimit,
+    Rule,
+    UnknownRun,
+    BadMessage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Outcome {
+    Finished,
+    Failed,
+    Cancelled,
+    Limit,
+    Lost,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ToolFact {
+    pub name: String,
+    pub installed: bool,
+    pub signed_in: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Os {
+    Macos,
+    Linux,
+    Windows,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MachineFacts {
+    pub os: Os,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os_version: Option<String>,
+    pub arch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chip: Option<String>,
+    pub memory_mb: u64,
+    pub cores: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpu: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_screen: Option<bool>,
+    pub tools: Vec<ToolFact>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repos: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SlotCounts {
+    pub recommended: u32,
+    pub most: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Limits {
+    pub slots: u32,
+    pub day_ms: u64,
+    pub week_ms: u64,
+    pub others_day_ms: u64,
+    pub others_runs_per_day: u32,
+    pub longest_run_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub week_tokens: Option<u64>,
+    pub pause_near_plan_limit: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_one_for_owner: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
+}
+
+const HOUR_MS: u64 = 60 * 60 * 1000;
+
+impl Default for Limits {
+    /// `DEFAULT_LIMITS` in `machineProtocol.cjs`.
+    fn default() -> Self {
+        Limits {
+            slots: 2,
+            day_ms: 4 * HOUR_MS,
+            week_ms: 20 * HOUR_MS,
+            others_day_ms: 2 * HOUR_MS,
+            others_runs_per_day: 10,
+            longest_run_ms: 4 * HOUR_MS,
+            week_tokens: None,
+            pause_near_plan_limit: true,
+            keep_one_for_owner: None,
+            time_zone: None,
+        }
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct JobMessage {
-    pub job_id: String,
-    pub mail: Mail,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Rules {
+    pub folders: Vec<String>,
+    pub tools: Vec<Tool>,
+    pub limits: Limits,
+    pub computer_use: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trusted_repos: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunGrant {
+    pub token: String,
+    pub expires_at: u64,
+    pub mcp_url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Assign {
+    pub run_id: String,
+    pub job_id: String,
+    pub part: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub tool: Tool,
+    pub folder: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    pub permission: PermissionMode,
+    pub brief: String,
+    pub done_when: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub advice: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_session: Option<String>,
+    pub grant: RunGrant,
+    pub deadline: u64,
+    pub from_owner: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asker: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat: Option<String>,
+    pub network: bool,
+    pub helpers: bool,
+    pub computer_use: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Deliver {
+    pub run_id: String,
+    pub message_id: String,
+    pub kind: MessageKind,
+    pub from: String,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Interrupt {
-    pub job_id: String,
-    #[serde(default)]
-    pub reason: String,
-    /// Read first when the session resumes.
-    #[serde(default)]
-    pub mail: Option<Mail>,
+    pub run_id: String,
+    pub message_id: String,
+    pub from: String,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CancelReason {
+    Stopped,
+    Limit,
+    Removed,
+    Disconnected,
+    Superseded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Cancel {
-    pub job_id: String,
+    pub run_id: String,
+    pub reason: CancelReason,
 }
 
-/// What the runner sends.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Challenge {
+    pub protocol: u32,
+    pub nonce: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Welcome {
+    pub machine_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub rules: Rules,
+    pub keep_runs: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RulesChanged {
+    pub rules: Rules,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GoodbyeReason {
+    Revoked,
+    Replaced,
+    BadSignature,
+    Protocol,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Goodbye {
+    pub reason: GoodbyeReason,
+}
+
+/// Every frame the workspace object sends.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ServerMsg {
+    Challenge(Challenge),
+    Welcome(Welcome),
+    Rules(RulesChanged),
+    Assign(Box<Assign>),
+    Message(Deliver),
+    Interrupt(Interrupt),
+    Cancel(Cancel),
+    Goodbye(Goodbye),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HeldRun {
+    pub run_id: String,
+    pub alive: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_step: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Hello {
+    pub protocol: u32,
+    pub machine_id: String,
+    pub signature: String,
+    pub runner: String,
+    pub facts: MachineFacts,
+    pub slots: SlotCounts,
+    pub runs: Vec<HeldRun>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Accept {
+    pub run_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Refuse {
+    pub run_id: String,
+    pub code: RefusalCode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Session {
+    pub run_id: String,
+    pub session: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Step {
+    pub run_id: String,
+    pub seq: u64,
+    pub tool: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    pub at: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TokenUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Usage {
+    pub run_id: String,
+    pub wall_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<TokenUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_limited: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_resets_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_utilization: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_window: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunResult {
+    pub run_id: String,
+    pub outcome: Outcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_step: Option<u64>,
+    pub wall_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotReady {
+    NoTool,
+    SignedOut,
+    Memory,
+    Paused,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Status {
+    pub ready: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_ready: Option<NotReady>,
+    pub busy: u32,
+    pub free_memory_mb: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paused_until: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolFact>>,
+}
+
+/// Every frame a runner sends.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum RunnerMsg {
-    Hello(Hello),
-    Accepted {
-        #[serde(rename = "jobId")]
-        job_id: String,
-        part: u32,
-        #[serde(rename = "sessionId")]
-        session_id: String,
-    },
-    Refused {
-        #[serde(rename = "jobId")]
-        job_id: String,
-        part: u32,
-        reason: Refusal,
-    },
+    Hello(Box<Hello>),
+    Accept(Accept),
+    Refuse(Refuse),
+    Session(Session),
     Step(Step),
     Usage(Usage),
-    Limit(LimitSignal),
-    Result(PartResult),
+    Result(RunResult),
     Status(Status),
-    /// A released job's folder was kept because it holds work.
-    Released {
-        #[serde(rename = "jobId")]
-        job_id: String,
-        kept: bool,
-        branch: Option<String>,
-    },
-    Pong,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Hello {
-    pub version: u32,
-    pub runner: String,
-    /// ed25519 over the challenge nonce's bytes, base64url without padding.
-    pub signature: String,
+// Pairing, over HTTPS.
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PairStart {
     pub public_key: String,
-    pub facts: crate::facts::Facts,
-    pub slots: crate::slots::SlotAdvice,
-    pub free_memory_mb: u64,
-    /// Parts that were running when the socket dropped, so the job object can
-    /// resume the same session rather than start over.
-    pub running: Vec<RunningPart>,
+    pub name: String,
+    pub facts: MachineFacts,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct RunningPart {
-    pub job_id: String,
-    pub part: u32,
-    pub session_id: String,
-    pub last_step: Option<String>,
-    /// Still running on this machine (true) or ended while we were offline
-    /// and waiting to report (false, with the result sent right after).
-    pub alive: bool,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PairStarted {
+    pub pairing_id: String,
+    pub code: String,
+    pub approve_url: String,
+    pub expires_at: u64,
+    pub poll_ms: u64,
 }
 
-/// Why a runner refused an assignment. Said plainly to the person by Tex.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum Refusal {
-    BadAssignment,
-    CliNotAllowed,
-    CliNotReady,
-    FolderNotAllowed,
-    SlotsFull,
-    KeptForOwner,
-    DailyLimit,
-    WeeklyLimit,
-    OthersDailyLimit,
-    OthersRunsLimit,
-    TooLong,
-    PlanLimit,
-    LowMemory,
-    ComputerUseOwnerOnly,
-    NetworkNotAllowed,
-    HelpersNotAllowed,
-    AlreadyRunning,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PairPoll {
+    pub pairing_id: String,
+    pub signature: String,
 }
 
-/// One short step line: tool, action, target. Never file contents.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Step {
-    pub job_id: String,
-    pub part: u32,
-    pub tool: String,
-    pub action: String,
-    pub target: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PairState {
+    Waiting,
+    Approved,
+    Declined,
+    Expired,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Usage {
-    pub job_id: String,
-    pub part: u32,
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub cache_read_tokens: u64,
-    pub cache_write_tokens: u64,
-    pub model: Option<String>,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PairStatus {
+    pub status: PairState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub socket_url: Option<String>,
 }
 
-/// What the CLI said about the plan's own limits.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct LimitSignal {
-    pub cli: Cli,
-    /// allowed, warning or rejected.
-    pub status: String,
-    /// e.g. five_hour, seven_day, primary, secondary.
-    pub window: Option<String>,
-    /// 0..1 when the CLI reports it.
-    pub utilization: Option<f64>,
-    /// Unix seconds.
-    pub resets_at: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PartResult {
-    pub job_id: String,
-    pub part: u32,
-    pub ok: bool,
-    pub answer: String,
-    pub session_id: String,
-    /// cancelled, timedOut, interrupted, planLimit, notSignedIn, failed.
-    pub error: Option<String>,
-    pub seconds: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Status {
-    pub slots: u32,
-    pub busy: u32,
-    pub paused_until: Option<u64>,
-    pub free_memory_mb: u64,
-    pub used_today_minutes: u64,
-    pub used_week_minutes: u64,
+/// The schema's `Id`: what the gateway mints for machines, jobs, runs and
+/// messages. Run and job ids become folder names, so this is checked before
+/// any is used.
+pub fn valid_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 #[cfg(test)]
@@ -325,48 +518,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn assignment_parses_from_camel_case() {
-        let raw = r#"{"type":"assign","jobId":"j1","part":2,"cli":"claude","brief":"fix it",
-            "folder":"/srv/code","workdir":"worktree","runGrant":"g","endpoint":"https://x/mcp",
-            "deadlineAt":1,"own":true}"#;
-        let msg: ServerMsg = serde_json::from_str(raw).unwrap();
-        match msg {
-            ServerMsg::Assign(a) => {
-                assert_eq!(a.job_id, "j1");
-                assert_eq!(a.cli, Cli::Claude);
-                assert!(!a.network && !a.helpers && !a.computer_use);
-                assert_eq!(a.resume_session_id, None);
-            }
-            other => panic!("parsed as {other:?}"),
+    fn an_unknown_message_is_an_error_not_a_command() {
+        assert!(serde_json::from_str::<ServerMsg>(r#"{"type":"exec","command":"rm -rf ~"}"#).is_err());
+        assert!(serde_json::from_str::<ServerMsg>(r#"{"type":"cancel","runId":"r","reason":"stopped","then":"x"}"#).is_err());
+    }
+
+    #[test]
+    fn signing_texts_match_the_gateways() {
+        assert_eq!(hello_signing_text("mch_1", "n"), "context-machine-hello:v1:mch_1:n");
+        assert_eq!(pair_signing_text("pair_1"), "context-machine-pair:v1:pair_1");
+    }
+
+    #[test]
+    fn ids() {
+        assert!(valid_id("run_1-a"));
+        for bad in ["", "../x", "a/b", "a.b", "a:b", &"x".repeat(65)] {
+            assert!(!valid_id(bad), "{bad}");
         }
-    }
-
-    #[test]
-    fn unknown_message_type_is_an_error_not_a_command() {
-        let raw = r#"{"type":"exec","command":"rm -rf ~"}"#;
-        assert!(serde_json::from_str::<ServerMsg>(raw).is_err());
-    }
-
-    #[test]
-    fn mail_defaults_to_a_note() {
-        let raw = r#"{"type":"message","jobId":"j","mail":{"from":"tex","text":"hi"}}"#;
-        let ServerMsg::Message(m) = serde_json::from_str(raw).unwrap() else {
-            panic!()
-        };
-        assert_eq!(m.mail.kind, MailKind::Note);
-    }
-
-    #[test]
-    fn refused_serializes_with_camel_case_keys() {
-        let s = serde_json::to_string(&RunnerMsg::Refused {
-            job_id: "j".into(),
-            part: 1,
-            reason: Refusal::FolderNotAllowed,
-        })
-        .unwrap();
-        assert_eq!(
-            s,
-            r#"{"type":"refused","jobId":"j","part":1,"reason":"folderNotAllowed"}"#
-        );
     }
 }

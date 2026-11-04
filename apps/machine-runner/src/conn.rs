@@ -6,8 +6,8 @@
 //! useless. When the socket drops, running parts carry on and the runner dials
 //! again with backoff.
 
-use crate::machine::Machine;
-use crate::protocol::{RunnerMsg, ServerMsg};
+use crate::machine::{Machine, Stop};
+use crate::protocol::{GoodbyeReason, RunnerMsg, ServerMsg, PROTOCOL_VERSION};
 use anyhow::{bail, Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
@@ -45,18 +45,30 @@ pub fn backoff(attempt: u32) -> Duration {
     Duration::from_millis(ms - ms / 8 + jitter)
 }
 
-/// Runs until the process is stopped. `on_state` hears "online"/"offline".
-pub async fn run_forever(
-    machine: Machine,
-    endpoint: String,
-    grant: String,
-    mut out_rx: mpsc::Receiver<RunnerMsg>,
-    on_state: impl Fn(&str),
-) {
+/// Where and as whom to dial.
+#[derive(Clone)]
+pub struct Dial {
+    pub socket_url: String,
+    pub grant: String,
+    pub machine_id: String,
+}
+
+/// A challenge nonce as the schema allows it: 32 to 128 base64url characters.
+pub fn valid_nonce(nonce: &str) -> bool {
+    (32..=128).contains(&nonce.len()) && nonce.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// Runs until the gateway says goodbye; dials again after every other end.
+/// `on_state` hears "online" and "offline".
+pub async fn run_forever(machine: Machine, dial: Dial, mut out_rx: mpsc::Receiver<RunnerMsg>, on_state: impl Fn(&str)) -> GoodbyeReason {
     let mut attempt = 0u32;
     loop {
-        match connect_once(&machine, &endpoint, &grant, &mut out_rx, &on_state).await {
-            Ok(()) => attempt = 0,
+        match connect_once(&machine, &dial, &mut out_rx, &on_state).await {
+            Ok(Stop::Goodbye(reason)) => {
+                on_state("offline");
+                return reason;
+            }
+            Ok(Stop::No) => attempt = 0,
             Err(e) => eprintln!("connection: {e:#}"),
         }
         on_state("offline");
@@ -66,54 +78,36 @@ pub async fn run_forever(
     }
 }
 
-async fn connect_once(
-    machine: &Machine,
-    endpoint: &str,
-    grant: &str,
-    out_rx: &mut mpsc::Receiver<RunnerMsg>,
-    on_state: &impl Fn(&str),
-) -> Result<()> {
-    let mut req = socket_url(endpoint)?.into_client_request()?;
+async fn connect_once(machine: &Machine, dial: &Dial, out_rx: &mut mpsc::Receiver<RunnerMsg>, on_state: &impl Fn(&str)) -> Result<Stop> {
+    let mut req = dial.socket_url.as_str().into_client_request()?;
     req.headers_mut().insert(
         "authorization",
-        format!("Bearer {grant}")
-            .parse()
-            .context("grant has characters a header cannot carry")?,
+        format!("Bearer {}", dial.grant).parse().context("grant has characters a header cannot carry")?,
     );
-    req.headers_mut().insert(
-        "user-agent",
-        format!("context-machine/{}", env!("CARGO_PKG_VERSION")).parse()?,
-    );
-    let (ws, _) = tokio::time::timeout(
-        Duration::from_secs(20),
-        tokio_tungstenite::connect_async(req),
-    )
-    .await
-    .context("connect timed out")??;
+    req.headers_mut().insert("user-agent", format!("context-machine/{}", env!("CARGO_PKG_VERSION")).parse()?);
+    let (ws, _) = tokio::time::timeout(Duration::from_secs(20), tokio_tungstenite::connect_async(req)).await.context("connect timed out")??;
     let (mut tx, mut rx) = ws.split();
 
-    let nonce = loop {
-        let msg = tokio::time::timeout(CHALLENGE_WAIT, rx.next())
-            .await
-            .context("no challenge from the gateway")?;
+    let challenge = loop {
+        let msg = tokio::time::timeout(CHALLENGE_WAIT, rx.next()).await.context("no challenge from the gateway")?;
         match msg {
-            Some(Ok(Message::Text(t))) => {
-                if let Ok(ServerMsg::Challenge(c)) = serde_json::from_str::<ServerMsg>(&t) {
-                    break c.nonce;
-                }
-            }
+            Some(Ok(Message::Text(t))) => match serde_json::from_str::<ServerMsg>(&t) {
+                Ok(ServerMsg::Challenge(c)) => break c,
+                Ok(ServerMsg::Goodbye(g)) => return Ok(Stop::Goodbye(g.reason)),
+                _ => continue,
+            },
             Some(Ok(_)) => continue,
             Some(Err(e)) => return Err(e.into()),
             None => bail!("closed before the challenge"),
         }
     };
-    if nonce.len() < 16 || nonce.len() > 512 {
+    if challenge.protocol != PROTOCOL_VERSION {
+        bail!("the gateway speaks protocol {}, this runner {PROTOCOL_VERSION}; update the runner", challenge.protocol);
+    }
+    if !valid_nonce(&challenge.nonce) {
         bail!("the gateway's challenge is not a nonce");
     }
-    send(&mut tx, &machine.hello(&nonce).await?).await?;
-    for r in machine.unacked_results() {
-        send(&mut tx, &r).await?;
-    }
+    send(&mut tx, &machine.hello(&dial.machine_id, &challenge.nonce).await?).await?;
     send(&mut tx, &RunnerMsg::Status(machine.status().await)).await?;
     on_state("online");
     eprintln!("connected");
@@ -127,21 +121,27 @@ async fn connect_once(
                 last_heard = tokio::time::Instant::now();
                 match incoming {
                     Some(Ok(Message::Text(t))) => match serde_json::from_str::<ServerMsg>(&t) {
-                        Ok(ServerMsg::Ping) => send(&mut tx, &RunnerMsg::Pong).await?,
-                        Ok(msg) => machine.handle(msg).await,
-                        // Unknown kinds are ignored, never run: nothing in the
-                        // protocol is a command.
+                        Ok(msg) => {
+                            if let Stop::Goodbye(r) = machine.handle(msg).await {
+                                let _ = tx.send(Message::Close(None)).await;
+                                return Ok(Stop::Goodbye(r));
+                            }
+                        }
+                        // Unknown or malformed frames are ignored, never run:
+                        // nothing in the protocol is a command.
                         Err(e) => eprintln!("ignored a message the runner does not know ({e})"),
                     },
                     Some(Ok(Message::Ping(p))) => tx.send(Message::Pong(p)).await?,
-                    Some(Ok(Message::Close(_))) | None => return Ok(()),
+                    Some(Ok(Message::Close(_))) | None => return Ok(Stop::No),
                     Some(Ok(_)) => {}
                     Some(Err(e)) => return Err(e.into()),
                 }
             }
             msg = out_rx.recv() => {
-                let Some(msg) = msg else { return Ok(()) };
-                if let RunnerMsg::Limit(l) = &msg { machine.on_limit(l).await; }
+                let Some(msg) = msg else { return Ok(Stop::No) };
+                if let RunnerMsg::Usage(u) = &msg {
+                    machine.on_usage(machine.tool_of(&u.run_id), u).await;
+                }
                 send(&mut tx, &msg).await?;
             }
             _ = ping.tick() => {
@@ -178,6 +178,14 @@ mod tests {
         );
         assert!(socket_url("http://example.com").is_err());
         assert!(socket_url("http://localhost.evil.com").is_err());
+    }
+
+    #[test]
+    fn nonces_follow_the_schema() {
+        assert!(valid_nonce(&"a".repeat(32)));
+        assert!(!valid_nonce(&"a".repeat(31)));
+        assert!(!valid_nonce(&"a".repeat(129)));
+        assert!(!valid_nonce(&format!("{}:x", "a".repeat(40))));
     }
 
     #[test]

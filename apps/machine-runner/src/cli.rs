@@ -1,6 +1,17 @@
 //! What both coding CLIs report, in one shape.
 
-use crate::protocol::LimitSignal;
+/// What a CLI said about its plan's own limits.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LimitSignal {
+    /// allowed, warning or rejected.
+    pub status: String,
+    /// e.g. five_hour, seven_day.
+    pub window: Option<String>,
+    /// 0..1 when the CLI reports it.
+    pub utilization: Option<f64>,
+    /// Unix seconds.
+    pub resets_at: Option<u64>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CliEvent {
