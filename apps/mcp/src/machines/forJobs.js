@@ -17,8 +17,15 @@ const MAX_WORKSPACES = 6;
 const TOOLS = new Set(["claude", "codex"]);
 const REPO = /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99})?$/;
 
+/**
+ * Where the computers are read: the workspace objects, or `MACHINE_STORE` when a
+ * deployment binds one in their place, as the benchmark's world does with its
+ * invented computers (`bench/world.mjs`). It answers only these reads.
+ */
+const machineEnv = (env) => (env?.MACHINE_STORE ? { WORKSPACE_STORE: env.MACHINE_STORE } : env);
+
 const read = async (env, workspaceId, op, fields) => {
-  const stub = workspaceStub(env, workspaceId);
+  const stub = workspaceStub(machineEnv(env), workspaceId);
   if (stub === null) return null;
   try {
     const response = await callTexStore(stub, op, {}, new TextEncoder().encode(JSON.stringify({ workspaceId, ...fields })));
@@ -28,14 +35,14 @@ const read = async (env, workspaceId, op, fields) => {
   }
 };
 
-const listed = (workspaceId, machine) => ({ workspaceId, id: machine.id, name: machine.name, online: machine.online === true, tools: machine.tools ?? [], folders: machine.folders ?? [], ownerId: machine.ownerId });
+const listed = (workspaceId, machine) => ({ workspaceId, id: machine.id, name: machine.name, online: machine.online === true, tools: machine.tools ?? [], folders: machine.folders ?? [], ownerId: machine.ownerId, ...(Number.isSafeInteger(machine.limits?.slots) ? { slots: machine.limits.slots } : {}) });
 
 /**
  * The computers this session may name: `{workspaceId, id, name, online, tools, folders, ownerId}`. A person's own
  * texts: own workspace first. A group chat: the computers lent to it (`reach.js`).
  */
 export async function machinesFor(env, session, controlPlane = null) {
-  if (!env.WORKSPACE_STORE) return [];
+  if (!machineEnv(env)?.WORKSPACE_STORE) return [];
   const lent = controlPlane === null ? null : await lentToChat(controlPlane, session);
   if (lent !== null) {
     const found = await Promise.all(lent.map(async ({ workspaceId, machineId }) => {

@@ -31,7 +31,9 @@
  *                                    `background: on`): `a job` is one or more,
  *                                    `N+ jobs` N or more, `N jobs` exactly N;
  *                                    `on one note's mail` needs every one joined
- *                                    to the same note's mail (a split ask)
+ *                                    to the same note's mail (a split ask), and
+ *                                    `on a computer` or `in the cloud` counts only
+ *                                    the jobs that ran there
  *   - must file: tomas/1-projects/kitchen/overview.md under tomas/4-archive/
  *                                    where the note that was at that path is
  *                                    after the run (housekeeping moves notes,
@@ -102,14 +104,16 @@ function happened(check, answer) {
 
 /** A `start` check's target: `{ least, exact, shared }`; a line that isn't one throws when the test is read. */
 export function startTarget(value) {
-  const m = value.match(/^(a|\d+)(\+)? jobs?( on one note's mail)?$/);
-  if (!m) throw new Error(`start check: "${value}" is not "a job", "N jobs" or "N+ jobs", optionally "on one note's mail"`);
+  const m = value.match(/^(a|\d+)(\+)? jobs?( on one note's mail)?( on a computer| in the cloud)?$/);
+  if (!m) throw new Error(`start check: "${value}" is not "a job", "N jobs" or "N+ jobs", optionally "on one note's mail", then "on a computer" or "in the cloud"`);
   const n = m[1] === "a" ? 1 : Number(m[1]);
-  return { n, atLeast: m[1] === "a" || m[2] === "+", shared: Boolean(m[3]) };
+  return { n, atLeast: m[1] === "a" || m[2] === "+", shared: Boolean(m[3]), where: m[4] === " on a computer" ? "computer" : m[4] === " in the cloud" ? "cloud" : null };
 }
 
 /** Whether the jobs started match: their count, and with `shared`, one note's mail joined by every one. */
-function startedAsNamed({ n, atLeast, shared }, jobs) {
+function startedAsNamed({ n, atLeast, shared, where = null }, all) {
+  // Only the jobs that ran where the check names count: on one of their computers, or in the cloud.
+  const jobs = where === null ? all : all.filter((job) => (where === "computer" ? Boolean(job.on) : !job.on));
   if (atLeast ? jobs.length < n : jobs.length !== n) return false;
   if (!shared) return true;
   const notes = new Set(jobs.map((job) => job.mail ?? null));
