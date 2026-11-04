@@ -39,21 +39,27 @@ facts below, the rule that only the control plane holds account facts.
    them on every turn (decided by the owner, 2026-10-23,
    [identity](../../../apps/mcp/src/agent/identity.js)); sign-in itself stays
    in Convex.
-3. **One call, no session ask.** The Worker sends the text straight to the
-   gateway's `/agent` with the phone and the workspace id its inbox keeps,
-   behind `AGENT_WORKER_SECRET` (the owner, 2026-11-04: "is this the simplest
-   most elegant solution possible?"). The worker secret and a phone already
-   got a token from Convex, so this proves nothing less. The gateway hashes the
-   phone (HMAC-SHA256 under a gateway secret, so no object holds the number
-   itself) and asks the person object, which refuses an unknown or paused
+3. **The session ask goes to the gateway, not Convex.** The Worker asks the
+   gateway's `TexTexts` entrypoint (`apps/mcp/src/agent/textsSession.js`)
+   over a service binding, with the phone and the workspace id its inbox
+   keeps. A named entrypoint has no public URL: only a Worker in this account
+   bound to it can call it, so the ask carries no secret. The gateway hashes
+   the phone (HMAC-SHA256 under a key derived from the gateway secret, so no
+   object holds the number itself; Convex derives the same key to write the
+   record) and asks the person object, which refuses an unknown or paused
    phone and otherwise keeps a 15-minute `cat1.<personalWorkspaceId>.<secret>`
-   texting connection and answers with the zone, style and identity; the turn
-   runs in the same request, and the token comes back with the reply for the
-   Worker's later calls (events, chat reads, jobs). The call goes over a
-   service binding to the gateway Worker, not public HTTPS: the texting
-   Worker stays its own Worker (Sendblue's side: dedupe, the per-phone queue,
-   steering, presence, sends, jobs; the owner asked why not one Worker, and
-   the hop, not the split, was the cost).
+   texting connection and answers with the zone and style. The Worker then
+   sends the text to `/agent` with that token, as before; the person object
+   resolves it and carries the identity block on the session, so the turn
+   asks Convex for nothing. Every miss is `{status: "unlinked"}`, and the
+   Worker then asks Convex as it always has. The design first folded the
+   session into the `/agent` call itself (the owner, 2026-11-04: "is this the
+   simplest most elegant solution possible?"); an in-account binding call
+   costs a few milliseconds, so keeping the two steps kept `/agent`
+   unchanged, and the cost was Convex, not the hop. The texting Worker stays
+   its own Worker (Sendblue's side: dedupe, the per-phone queue, steering,
+   presence, sends, jobs; the owner asked why not one Worker, and the hop,
+   not the split, was the cost).
 4. **Nothing Convex holds is waited on.** The identity block is read from the
    texting record. The grant row, the audit row and the dream, check-in and
    housekeeping re-arming are written to Convex behind the reply, from an
@@ -101,5 +107,8 @@ to, so nobody is cut off mid-move.
 
 Tests: the isolation tests in `apps/mcp/test/textingObjects.test.mjs` (a phone
 held by one person never opens another's object; a paused or unlinked phone is
-refused at once; no object keeps the number itself), and the Convex
-side in `apps/convex/__tests__/textingObjects.test.ts`.
+refused at once) and `apps/mcp/test/textsSession.test.mjs` (a workspace id
+naming somebody else's object is the same miss; the phone is only ever a keyed
+hash, pinned to a vector Convex's copy must match; Convex is told the token's
+hash and never the token; who is texting is read off the session), and the
+Convex side in `apps/convex/__tests__/textingObjects.test.ts`.

@@ -21,6 +21,7 @@ export class SessionRefusal extends Error {
 
 /** The group chat's client (`agent/groupTurn.js`); the one a setup-only pin is honoured for. */
 const TEXTS_GROUP_CLIENT = "context_texts_group";
+const TEXTS_CLIENT = "context_texts";
 /** A group chat's home: `tex/groups/<words>` (`apps/convex/functions/lib/textGroupHome.ts`). */
 const CHAT_HOME_PATTERN = /^tex\/groups\/[a-z]+(?:-[a-z]+){1,4}$/;
 /** A group chat's key (`textGroups.groupKey`): the sha256, in hex, that names the chat's Tex object (`store/texRouting.js`). */
@@ -104,6 +105,9 @@ export function normalizeSession(raw) {
       surprise because every other field decides something.
     */
     clientName: typeof raw.clientName === "string" && raw.clientName ? raw.clientName : null,
+    // Who is texting, as their person object keeps it (`personTexting.js`): only on a text's session, and only an
+    // object. It decides nothing; it is what Tex is told about them (`agent/identity.js`).
+    ...(clientId === TEXTS_CLIENT && raw.texterIdentity !== null && typeof raw.texterIdentity === "object" && !Array.isArray(raw.texterIdentity) ? { texterIdentity: raw.texterIdentity } : {}),
   };
 }
 
