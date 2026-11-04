@@ -13,6 +13,7 @@ import { useEverywhereSearch, type EverywhereSearch } from "./useEverywhereSearc
 import type { PaletteSearch } from "../../design/components/Palette";
 import { useBlendedDeviceSearch } from "../../offline/useDeviceSearch";
 import type { Reachability } from "../../offline/copy";
+import { LoopChoice } from "../../design/components/sketch/LoopChoice";
 
 /**
  * ⌘K's chrome for searching every workspace: the timing pill beside the field,
@@ -65,21 +66,7 @@ export function WorkspaceChips({
   // One workspace is nothing to choose between.
   if (contexts.length < 2) return null;
   const chip = (slug: string | null, label: string) => {
-    const on = narrowed === slug;
-    return (
-      <Pressable
-        key={slug ?? "all"}
-        onPress={() => onNarrow(slug)}
-        accessibilityRole="button"
-        accessibilityState={{ selected: on }}
-        style={({ pressed }) => [styles.chip, on ? styles.chipOn : null, pressed ? styles.pressed : null]}
-        testID={`palette-scope-${slug ?? "all"}`}
-      >
-        <Text style={[styles.chipText, on ? styles.chipTextOn : null]} numberOfLines={1}>
-          {label}
-        </Text>
-      </Pressable>
-    );
+    return <LoopChoice key={slug ?? "all"} label={label} on={narrowed === slug} onPress={() => onNarrow(slug)} testID={`palette-scope-${slug ?? "all"}`} />;
   };
   return (
     <View style={styles.chipRow}>
@@ -242,18 +229,8 @@ const makeStyles = (colors: Colors) =>
       paddingTop: space.x3,
       paddingBottom: space.x2,
     },
-    chips: { gap: space.x2 },
-    chip: {
-      minHeight: 32,
-      paddingHorizontal: space.x3,
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      borderColor: colors.lineStrong,
-      justifyContent: "center",
-    },
-    chipOn: { backgroundColor: colors.text, borderColor: colors.text },
-    chipText: { fontFamily: fonts.body, fontSize: pointerType.ui, color: colors.text2 },
-    chipTextOn: { color: colors.ground, fontWeight: "600" },
+    // Room above and below for the pencil loop, which a scroll view would clip.
+    chips: { gap: space.x1, paddingVertical: 4, paddingHorizontal: 4 },
     pressed: { opacity: 0.6 },
     hint: { flexShrink: 1, fontFamily: fonts.body, fontSize: pointerType.meta, color: colors.muted },
     panel: {

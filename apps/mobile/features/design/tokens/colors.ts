@@ -182,6 +182,8 @@ export const darkColors = {
    * at a glance (the comment also carries an underline, this does not).
    */
   markWash: "rgba(255,226,64,0.26)",
+  /** Paper tape behind a tag or a value (`design/components/sketch`): the warm strip the owner liked on the dark board (2026-11-04). */
+  tapeWash: "rgba(220,205,160,0.20)",
 
   crit: "#F08C7C",
   critText: "#F5B0A4",
@@ -450,6 +452,8 @@ export const lightColors: Colors = {
   commentWash: "rgba(222,168,62,0.26)",
   commentWashActive: "rgba(222,168,62,0.50)",
   markWash: "rgba(255,229,0,0.42)",
+  /** Paper tape on white: a pale stone, never yellow masking tape (owner, 2026-11-04). */
+  tapeWash: "rgba(122,114,100,0.13)",
 
   crit: "#B23A2B",
   critText: "#962E21",

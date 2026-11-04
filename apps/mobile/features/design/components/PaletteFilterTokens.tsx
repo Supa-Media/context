@@ -1,8 +1,9 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import type { PaletteItem } from "../../console/files/palette";
-import { fonts, pointerType, radii, space } from "../tokens";
+import { fonts, pointerType, space } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { Icon } from "./Icon";
+import { SketchBox } from "./sketch/SketchBox";
 import { Text } from "./Text";
 
 /**
@@ -40,11 +41,13 @@ export function FilterTokens({ filters }: { filters: PaletteFilters | undefined 
           onPress={() => filters.remove(token.key)}
           accessibilityRole="button"
           accessibilityLabel={`Remove ${token.label}`}
-          style={({ pressed }) => [styles.token, pressed ? styles.pressed : null]}
+          style={({ pressed }) => (pressed ? styles.pressed : null)}
           testID={`palette-filter-${token.key}`}
         >
-          <Text style={styles.tokenText} numberOfLines={1}>{token.label}</Text>
-          <Icon name="close" size={12} color={colors.text2} />
+          <SketchBox look="loop" color={colors.text} seed={`palette-filter:${token.key}`} style={styles.token}>
+            <Text style={styles.tokenText} numberOfLines={1}>{token.label}</Text>
+            <Icon name="close" size={12} color={colors.text2} />
+          </SketchBox>
         </Pressable>
       ))}
     </View>
@@ -53,7 +56,7 @@ export function FilterTokens({ filters }: { filters: PaletteFilters | undefined 
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    tokens: { flexDirection: "row", gap: space.x1, flexShrink: 0 },
+    tokens: { flexDirection: "row", gap: space.x2, flexShrink: 0 },
     token: {
       flexDirection: "row",
       alignItems: "center",
@@ -61,9 +64,8 @@ const makeStyles = (colors: Colors) =>
       height: 26,
       paddingLeft: space.x2,
       paddingRight: 6,
-      borderRadius: radii.pill,
-      backgroundColor: colors.accentDim,
     },
-    tokenText: { fontFamily: fonts.body, fontSize: pointerType.meta, fontWeight: "600", color: colors.accentText, maxWidth: 180 },
+    // A filter in force is circled in pencil (owner, 2026-11-04, `sketch/`).
+    tokenText: { fontFamily: fonts.body, fontSize: pointerType.meta, fontWeight: "600", color: colors.text, maxWidth: 180 },
     pressed: { opacity: 0.6 },
   });

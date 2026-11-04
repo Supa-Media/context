@@ -15,6 +15,7 @@ import { useColors, useThemedStyles, type Colors } from "../../../../design/them
 import { useFieldFont } from "../../../../design/fieldFont";
 import type { MenuItem } from "../../menu";
 import { cleanTag, parseDueText } from "./taskWords";
+import { SketchBox } from "../../../../design/components/sketch/SketchBox";
 
 /** Where a menu opens: under its button, or null for wherever the menu puts itself (a sheet on a phone). */
 export type Anchor = { readonly x: number; readonly y: number } | null;
@@ -158,18 +159,29 @@ export function DuePanel({ now, onPick, onClose }: { now: Date; onPick: (day: st
 }
 
 /** A chosen tag or owner, with × to take it off. */
-export function WordChip({ word, onRemove, testID }: { word: string; onRemove: () => void; testID?: string }) {
+/** A picked word: a tag on paper tape, an owner underlined in pencil (owner, 2026-11-04). */
+export function WordChip({
+  word,
+  look = "tape",
+  onRemove,
+  testID,
+}: {
+  word: string;
+  look?: "tape" | "underline";
+  onRemove: () => void;
+  testID?: string;
+}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   return (
-    <View style={styles.chip} testID={testID}>
-      <Text variant="treeMeta" style={styles.suggestionText}>
+    <SketchBox look={look} color={colors.text} seed={`quick-add:${word}`} style={styles.chip} {...(testID === undefined ? {} : { testID })}>
+      <Text variant="treeMeta" style={styles.chipText}>
         {isolateForDisplay(word)}
       </Text>
       <Pressable role="button" accessibilityLabel={`Remove ${word}`} onPress={onRemove} hitSlop={6}>
         <Icon name="close" size={10} color={colors.chromeMuted} />
       </Pressable>
-    </View>
+    </SketchBox>
   );
 }
 
@@ -196,8 +208,7 @@ const makeStyles = (colors: Colors) =>
       gap: space.x1,
       paddingHorizontal: space.x2,
       paddingVertical: 2,
-      borderRadius: radii.sm,
-      backgroundColor: colors.chipFill,
     },
+    chipText: { color: colors.text2 },
     problem: { color: colors.critText },
   });

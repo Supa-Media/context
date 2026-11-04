@@ -47,7 +47,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/map/live/webview/entry.ts": "2b5a304a2fc06ca8f00cc99e06ec8baa526f6733e3778323c9927e00145e8f73",
   "apps/mobile/features/console/map/live/webview/guest.ts": "2fcfd13e450f722043453a42362103aadc80a0ea3cf154a4351c1819606f8e8a",
   "apps/mobile/features/console/map/live/webview/protocol.ts": "428baea2302c909d3027e255450111b35efea85f1dd76cbe90e9d7f9dff49cbd",
-  "apps/mobile/features/design/tokens/colors.ts": "ca2d3321d16a893b5642d70415145530980e808e4e0e884ffbe056699eb144c6",
+  "apps/mobile/features/design/tokens/colors.ts": "b24a4ccc906b928783592117eae9af4bb79dcabf905da9a4ba160784320f21ea",
   "packages/shared/src/displayText.cjs": "e17e34ce77bea235296d3f8806505f19391e1bb1019212f47fc2772797b65d50"
 };
 

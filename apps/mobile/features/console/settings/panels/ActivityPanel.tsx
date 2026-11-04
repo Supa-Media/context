@@ -5,7 +5,7 @@ import { Card } from "../../../design/components/Card";
 import { Icon } from "../../../design/components/Icon";
 import { FormError } from "../../../design/components/Input";
 import { Text } from "../../../design/components/Text";
-import { useThemedStyles, type Colors } from "../../../design/theme";
+import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { FaceView } from "../../faces/PersonFace";
 import { useFace } from "../../faces/useFace";
 import {
@@ -19,6 +19,7 @@ import type { ConsoleMember } from "../../members/members";
 import { PanelHead } from "./PanelHead";
 import { PickMenu } from "./PickMenu";
 import { densityFor } from "../../../app/frame";
+import { SketchBox } from "../../../design/components/sketch/SketchBox";
 
 /** The menu's key for no filter; not a name anybody can have, being empty. */
 const ANYONE = "";
@@ -178,18 +179,14 @@ function Chip({
   testID: string;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   return (
-    <Pressable
-      role="button"
-      aria-pressed={on}
-      accessibilityState={{ selected: on }}
-      onPress={onPress}
-      style={[styles.chip, on ? styles.chipOn : null]}
-      testID={testID}
-    >
-      <Text variant="rowSub" style={on ? styles.chipTextOn : styles.chipText}>
-        {label}
-      </Text>
+    <Pressable role="button" aria-pressed={on} accessibilityState={{ selected: on }} onPress={onPress} testID={testID}>
+      <SketchBox look={on ? "loop" : null} color={colors.text} seed={`activity-filter:${label}`} style={styles.chip}>
+        <Text variant="rowSub" style={on ? styles.chipTextOn : styles.chipText}>
+          {label}
+        </Text>
+      </SketchBox>
     </Pressable>
   );
 }
@@ -294,16 +291,10 @@ const makeStyles = (colors: Colors) =>
       zIndex: 10,
     },
     filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, flexShrink: 1 },
-    chip: {
-      paddingHorizontal: 14,
-      paddingVertical: 7,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: colors.line,
-    },
-    chipOn: { borderColor: colors.accent, backgroundColor: colors.accentDim },
+    // The filter in force is circled in pencil (owner, 2026-11-04, `sketch/`).
+    chip: { paddingHorizontal: 14, paddingVertical: 7 },
     chipText: { color: colors.text2 },
-    chipTextOn: { color: colors.accent, fontWeight: "600" },
+    chipTextOn: { color: colors.text, fontWeight: "600" },
     day: { marginTop: 22, marginBottom: 8 },
     card: {
       borderWidth: 1,
