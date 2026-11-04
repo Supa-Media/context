@@ -298,6 +298,7 @@ export const gatewayToolsListed = gatewayRoute(sessions.gatewayToolsListedHandle
 export const gatewayMailJoin = gatewayRoute(noteMail.gatewayMailJoinHandler);
 export const gatewayMailGet = gatewayRoute(noteMail.gatewayMailGetHandler);
 export const gatewayMailRead = gatewayRoute(noteMail.gatewayMailReadHandler);
+export const gatewayMailJobs = gatewayRoute(noteMail.gatewayMailJobsHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 1b. POST /gateway/sessions/by-grant — resolve live relay grant metadata    */
@@ -378,20 +379,12 @@ export const gatewayFormsNotify = gatewayRoute(
 
 /* -------------------------------------------------------------------------- */
 /* 2c. POST /gateway/jobs/create — mint queued gateway work                  */
-/* -------------------------------------------------------------------------- */
-
-export const gatewayJobsCreate = gatewayRoute(jobs.gatewayJobsCreateHandler);
-
-/* -------------------------------------------------------------------------- */
 /* 2d. POST /gateway/jobs/open — spend queued work for one bounded attempt    */
-/* -------------------------------------------------------------------------- */
-
-export const gatewayJobsOpen = gatewayRoute(jobs.gatewayJobsOpenHandler);
-
-/* -------------------------------------------------------------------------- */
 /* 2e. POST /gateway/jobs/report — report a queue attempt outcome             */
 /* -------------------------------------------------------------------------- */
 
+export const gatewayJobsCreate = gatewayRoute(jobs.gatewayJobsCreateHandler);
+export const gatewayJobsOpen = gatewayRoute(jobs.gatewayJobsOpenHandler);
 export const gatewayJobsReport = gatewayRoute(jobs.gatewayJobsReportHandler);
 
 /* 2f. POST /gateway/mover/open, /gateway/tex-store/open — the control plane's tickets */
@@ -836,6 +829,7 @@ http.route({ path: "/gateway/grants/tools-listed", method: "POST", handler: gate
 http.route({ path: "/gateway/mail/join", method: "POST", handler: gatewayMailJoin });
 http.route({ path: "/gateway/mail/get", method: "POST", handler: gatewayMailGet });
 http.route({ path: "/gateway/mail/read", method: "POST", handler: gatewayMailRead });
+http.route({ path: "/gateway/mail/jobs", method: "POST", handler: gatewayMailJobs });
 http.route({ path: "/gateway/ingest/resolve", method: "POST", handler: gatewayIngestResolve });
 http.route({ path: "/gateway/ingest/binding", method: "POST", handler: gatewayIngestBinding });
 http.route({ path: "/gateway/ingest/record", method: "POST", handler: gatewayIngestRecord });
