@@ -136,7 +136,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
       if (!answer?.mailbox?.mailboxId) return toolError("could not join this note's mail right now; try again");
       joined = answer.mailbox;
       const already = events.some((event) => event.kind === "joined" && event.from === name);
-      if (already) return toolText(joinedText(path, joined, events, true, store.mailTurn?.job));
+      if (already) return toolText(joinedText(path, joined, events, true, store.mailTurn?.job, device));
       entry = { kind: "joined", from: name, app };
     } else {
       const found = await mailboxFor(store, args, path);
@@ -175,7 +175,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     const conflicted = written?.isError && /^conflict:/.test(written?.content?.[0]?.text ?? "");
     if (conflicted && attempt === 0) continue;
     if (written?.isError) return written;
-    if (joined) return toolText(`${written.content[0].text}\n${joinedText(path, joined, events, false, store.mailTurn?.job)}`);
+    if (joined) return toolText(`${written.content[0].text}\n${joinedText(path, joined, events, false, store.mailTurn?.job, device)}`);
     const delivered = typeof store.mail?.deliver === "function" ? await store.mail.deliver({ path, at, from: entry.from, app, to: entry.to, mailKind, text: request.text }).catch(() => []) : [];
     const sent = `${written.content[0].text}\nmail: sent${mailKind === "note" ? "" : ` (${mailKind})`} to ${entry.to} as ${entry.from} (${app})` + (delivered.length ? `; delivered at once to ${delivered.join(", ")}` : "");
     if (wait > 0) return toolText(`${sent}\n${await waitForAnswer(store, scope, rules, overrides, path, entry.from, entry.to, at, wait)}`);
@@ -240,7 +240,22 @@ export const JOB_MAIL_RHYTHM =
   "Ask another agent with kind: \"ask\" (add wait: seconds, at most 120, to wait for the answer in the same call). " +
   "Only Tex or the person can interrupt you; an interrupt means stop the step you are on and do what it says.";
 
-function joinedText(path, mailbox, events, again, job) {
+/**
+ * What a session on one of the person's own computers is told when it joins as that computer (`device`): its mail is
+ * pushed down the computer's socket, and its runner's `mail wait` ends the moment mail arrives, which wakes the
+ * session, so the 5-minute timer is not needed (live check from a cloud VM, 2026-11-04). The owner kept a slow
+ * backup check all the same (2026-11-04: "still keep a poll every 30 minutes just to be safe"), for a runner that
+ * stopped or a push that never came.
+ */
+export const DEVICE_MAIL_RHYTHM =
+  "You joined as this computer, so mail sent to you here reaches it at once. Keep `context-machine mail wait` " +
+  "running as a background command and start it again each time it ends: it ends the moment mail arrives, which " +
+  "wakes you. Your hooks also show new mail on your next prompt. Also keep a backup check every 30 minutes, in " +
+  "case the runner stopped: Claude Code, a background shell command (sleep 1800) that wakes you to read this " +
+  "note's new mail, started again at every check; Codex, an automation every 30 minutes. Answer an ask with a note " +
+  "to its sender.";
+
+function joinedText(path, mailbox, events, again, job, device) {
   const earlier = events.filter((event) => event.kind === "mail").length;
   const id = JSON.stringify(mailbox.mailboxId);
   return [
@@ -251,7 +266,7 @@ function joinedText(path, mailbox, events, again, job) {
     earlier
       ? `${earlier} message${earlier === 1 ? " was" : "s were"} sent before you joined; read them with args: { mail: "all" }.`
       : "No mail yet. If you lead this work, send the first message: what each of you does, and the deadline.",
-    ...(job ? [JOB_MAIL_RHYTHM] : [CHECK_RHYTHM, CHECK_DEADLINE]),
+    ...(job ? [JOB_MAIL_RHYTHM] : device ? [DEVICE_MAIL_RHYTHM, CHECK_DEADLINE] : [CHECK_RHYTHM, CHECK_DEADLINE]),
   ].join("\n");
 }
 

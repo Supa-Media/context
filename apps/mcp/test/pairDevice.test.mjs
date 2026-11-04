@@ -13,6 +13,8 @@
  *  1. `store.pairDevice` sending another workspace than the session's → "manage pair_device reaches the control
  *     plane with the connection's own token, its workspace and the code".
  *  2. the mail tool dropping `device` on join → "joining a note's mail as a device binds the mailbox to it".
+ *  3. `joinedText` giving a device the 5-minute rhythm → the same test (live check, 2026-11-04: a joined VM was told
+ *     to set a 5-minute timer it does not need; the owner kept a 30-minute backup).
  */
 
 import assert from "node:assert/strict";
@@ -121,6 +123,11 @@ test("joining a note's mail as a device binds the mailbox to it; someone else's 
   assert.equal(joined.isError, false, joined.text);
   const row = [...controlPlane.mailboxes.values()].find((box) => box.name === "vm-builder");
   assert.equal(row?.machineId, "mch_vm00001");
+  // Its mail is pushed to it, so it keeps `mail wait` running, with a 30-minute backup check (owner, 2026-11-04)
+  // instead of the 5-minute timer.
+  assert.match(joined.text, /context-machine mail wait/);
+  assert.match(joined.text, /every 30 minutes/);
+  assert.doesNotMatch(joined.text, /every 5 minutes|sleep 300\b/i);
 
   const refused = await call(TOKEN, "write_note", { path: "projects/a.md", mail: { join: "vm-two", device: "mch_other01" } });
   assert.equal(refused.isError, true);
