@@ -152,6 +152,7 @@ pub fn memory() -> Memory {
     Memory::default()
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn parse_meminfo(text: &str) -> Memory {
     let field = |name: &str| {
         text.lines()
