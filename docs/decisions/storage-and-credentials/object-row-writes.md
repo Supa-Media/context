@@ -169,6 +169,17 @@ Convex's rows and read the body by key, so for up to the mirror's lag they may s
 trashed, only to people who could open it a moment earlier. Nobody gains access. Moves, which can change who sees a
 note, still wait.
 
+## Every object write tells the live tree (2026-11-04)
+
+While the object serves a workspace's tree, the app's tree listens to the object's socket and to nothing else: the
+Convex queries are off. A write the object makes itself (`ws.write.*`) therefore has to tell the socket's watchers
+what it changed, as a row pushed in from Convex does (`serve.js`). Before this, only a push did, so a trash from the
+web landed in the object and the note stayed drawn: "Move to trash" did nothing (reported by the owner,
+2026-11-04). The notice is made in one place, `serveWrites.js` `runWriteOp`, after the transaction commits, from the
+paths each queued change names (`pathsOfChange`: both ends of a move, folders stood up, a note adopted or written,
+and the folders above any rows removed); new rules re-judge everything. A write op added later is covered without
+being asked. Moving the notice into each op instead, or dropping it, is what `writesTellTree.test.mjs` fails on.
+
 ## New notes and missing paths in the object (2026-11-03)
 
 The owner's bar, 2026-11-03: every read and every write answers in under 0.1 s in production, so nothing on a save's
