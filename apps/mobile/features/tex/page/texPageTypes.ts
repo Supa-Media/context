@@ -60,6 +60,9 @@ export interface JobSummary {
   ranOn?: string;
   /** The coding tool it ran with, as the page names it: "Claude Code". */
   tool?: string;
+  /** The machine it runs on, by the key of its `places` entry, and that machine's name. Absent in Tex's cloud. */
+  machine?: string;
+  machineName?: string;
 }
 
 export interface JobStep {

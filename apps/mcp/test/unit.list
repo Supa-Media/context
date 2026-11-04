@@ -390,6 +390,7 @@ test/chatLedgerReads.test.mjs
 test/chatLedgerBackfill.test.mjs
 test/texPage.test.mjs
 test/texPageComputer.test.mjs
+test/texPageJobPlaces.test.mjs
 test/aboutLines.test.mjs
 test/texPageLive.test.mjs
 test/texPageNotes.test.mjs

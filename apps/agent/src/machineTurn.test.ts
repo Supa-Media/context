@@ -104,7 +104,7 @@ describe("a job on the person's own computer", () => {
     expect(assign.body).toMatchObject({ workspaceId: "ws_seyi", machineId: "mch_1", jobId: "job-1234-abcd", part: 1, tool: "claude", folder: "/Users/seyi/code", permission: "edits", brief: run().brief, doneWhen: run().doneWhen });
     expect(assign.body.resumeSession).toBeUndefined();
     // Each step once, in order, though the second read repeats the first.
-    expect(reports.filter((update) => update.step).map((update) => update.step)).toEqual(["Bash run pnpm test", "Edit upload.ts"]);
+    expect(reports.filter((update) => update.step).map((update) => update.step)).toEqual(["Bash run pnpm test", "Edit upload.ts", "Done on Studio Mac · checking the work"]);
     const last = reports[reports.length - 1];
     expect(last.state).toBe("done");
     expect(last.texts).toEqual(["Fixed: the test raced the upload's flush."]);

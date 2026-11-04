@@ -60,7 +60,17 @@ export function readJob(raw) {
   const status = words(raw.status, 200);
   const who = words(raw.for, 40);
   const result = words(raw.result, 1500);
-  return { id: raw.id, title, state, startedAt, ...(endedAt !== null ? { endedAt } : {}), ...(status ? { status } : {}), ...(who ? { for: who } : {}), ...(result ? { result } : {}), steps: stepsOf(raw) };
+  const on = machineOf(raw.on);
+  return { id: raw.id, title, state, startedAt, ...(endedAt !== null ? { endedAt } : {}), ...(status ? { status } : {}), ...(who ? { for: who } : {}), ...(result ? { result } : {}), ...(on ? { on } : {}), steps: stepsOf(raw) };
+}
+
+const TOOL_NAMES = { claude: "Claude Code", codex: "Codex" };
+
+/** The person's computer a job runs on, as the inbox names it (`{id, name, tool?}`); null in Tex's cloud. */
+function machineOf(raw) {
+  if (raw === null || typeof raw !== "object" || typeof raw.id !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(raw.id)) return null;
+  const name = words(raw.name, 100) || "your computer";
+  return { id: raw.id, name, ...(TOOL_NAMES[raw.tool] ? { tool: TOOL_NAMES[raw.tool] } : {}) };
 }
 
 /** The page's `JobSummary` for a read job (`slot` when it holds one). */
@@ -77,6 +87,8 @@ export function jobSummary(job, slot = null) {
     ...(job.state === "waiting" && job.status ? { needs: job.status } : {}),
     ...(job.state === "running" && last ? { now: last.text } : {}),
     ...(job.for ? { for: job.for } : {}),
+    // Where it runs: the page's place key for the computer, and its name in words (`On Cloud VM`).
+    ...(job.on ? { machine: job.on.id, machineName: job.on.name, ranOn: `On ${job.on.name}`, ...(job.on.tool ? { tool: job.on.tool } : {}) } : {}),
     ...(slot !== null ? { slot } : {}),
   };
 }
@@ -88,14 +100,24 @@ export function jobDetail(job, slot = null) {
 
 const live = (job) => job.state === "running" || job.state === "waiting";
 
-/** Which slot each live job holds: the oldest first, as they were started. */
+/** Machine jobs a computer's slots are numbered for at most (its owner sets up to eight). */
+const MACHINE_SLOTS = 8;
+
+/**
+ * Which slot each live job holds, numbered from 1 in the place it runs: Tex's
+ * cloud's three, or each computer's own (a job on a computer never takes a
+ * cloud slot: `apps/agent/src/jobs.ts`). The oldest first, as they were started.
+ */
 export function slotsOf(jobs) {
   const held = new Map();
-  jobs
-    .filter(live)
-    .sort((a, b) => a.startedAt - b.startedAt)
-    .slice(0, SLOTS)
-    .forEach((job, index) => held.set(job.id, index + 1));
+  const taken = new Map();
+  for (const job of jobs.filter(live).sort((a, b) => a.startedAt - b.startedAt)) {
+    const place = job.on?.id ?? null;
+    const next = (taken.get(place) ?? 0) + 1;
+    if (next > (place === null ? SLOTS : MACHINE_SLOTS)) continue;
+    taken.set(place, next);
+    held.set(job.id, next);
+  }
   return held;
 }
 
@@ -110,16 +132,20 @@ export function dayOf(ms, timeZone) {
 
 /**
  * The overview's job parts: `status` (live jobs, and how many need the
- * person, with `waitingMail` emails waiting for their yes), the three
- * `minions`, `earlier` (the latest jobs finished today) and `earlierWeek`.
+ * person, with `waitingMail` emails waiting for their yes), the three cloud
+ * `minions` and each computer's busy ones, `earlier` (the latest jobs finished today) and `earlierWeek`.
  */
 export function jobsOverview(jobs, now, { timeZone = null, waitingMail = 0 } = {}) {
   const slots = slotsOf(jobs);
-  const bySlot = new Map([...slots].map(([id, slot]) => [slot, id]));
+  const cloud = new Map(jobs.filter((job) => !job.on && slots.has(job.id)).map((job) => [slots.get(job.id), job]));
   const minions = [];
   for (let slot = 1; slot <= SLOTS; slot += 1) {
-    const job = jobs.find((candidate) => candidate.id === bySlot.get(slot));
+    const job = cloud.get(slot);
     minions.push({ slot, job: job ? jobSummary(job, slot) : null });
+  }
+  // A computer's busy slots follow, each with its place (the computer's id); the page draws its free ones from the computer's own count.
+  for (const job of jobs.filter((candidate) => candidate.on && slots.has(candidate.id))) {
+    minions.push({ slot: slots.get(job.id), place: job.on.id, job: jobSummary(job, slots.get(job.id)) });
   }
   const today = dayOf(now, timeZone);
   const ended = jobs

@@ -14,7 +14,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import { asksOf, machineCallOf, machinesPageOf, ruleKeyOf } from "../features/tex/page/texMachineGateway";
-import { withGatewayMachines } from "../features/tex/page/texMachineSource";
+import { slotPlacesOf, withGatewayMachines } from "../features/tex/page/texMachineSource";
 import { fixtureSource } from "../features/tex/page/texPageFixture";
 
 const NOW = 1_800_000_000_000;
@@ -174,6 +174,18 @@ describe("the wrapped source", () => {
   test("the own overview carries the waiting asks", async () => {
     const read = await harness(null).source.overview("me");
     expect(read.kind === "ok" ? read.value.asks?.map((a) => a.job) : null).toEqual(["m1/ask_1"]);
+  });
+
+  test("the pool shows each computer's slots beside Tex's cloud, on the own page and in a group it serves", async () => {
+    const own = await harness(null).source.overview("me");
+    const places = own.kind === "ok" ? own.value.places ?? [] : [];
+    expect(places[0]).toMatchObject({ key: "cloud", kind: "cloud" });
+    expect(places.find((p) => p.key === "m1")).toEqual({ key: "m1", kind: "machine", machineKind: "mac", name: "Ada's MacBook Pro", slots: 3 });
+    expect(own.kind === "ok" ? own.value.minions.filter((s) => s.place === "m1").length : 0).toBe(3);
+    // In a group it is lent to: two of its slots there, as the rule says; a group it does not serve sees none of it.
+    expect(slotPlacesOf(page([mac()]), GROUP)).toEqual([{ key: "m1", kind: "machine", machineKind: "mac", name: "Ada's MacBook Pro", slots: 2 }]);
+    expect(slotPlacesOf(page([mac()]), "b".repeat(64))).toEqual([]);
+    expect(slotPlacesOf(page([mac({ online: false, seenAt: NOW - 5 })]), "me")[0]).toMatchObject({ offline: true, since: NOW - 5 });
   });
 
   test("a code in the address is looked up once, answered, and then gone", async () => {

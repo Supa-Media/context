@@ -69,6 +69,34 @@ describe("reading the gateway", () => {
     expect(JSON.stringify(o)).not.toContain("kept out");
   });
 
+  test("a job on a computer gets that computer's place beside Tex's cloud, and keeps its name", () => {
+    const vm = { id: "v", title: "Add hello.py", state: "running", startedAt: 1, machine: "mch_1", machineName: "Cloud VM", ranOn: "On Cloud VM", tool: "Claude Code" };
+    const o = readOverview({ minions: [{ slot: 1, job: null }, { slot: 1, place: "mch_1", job: vm }] })!;
+    expect(o.places?.map((p) => [p.key, p.name, p.slots])).toEqual([
+      ["cloud", "Tex's cloud", 3],
+      ["mch_1", "Cloud VM", 1],
+    ]);
+    expect(o.minions.map((s) => [s.place, s.slot, s.job?.id ?? null])).toEqual([
+      ["cloud", 1, null],
+      ["cloud", 2, null],
+      ["cloud", 3, null],
+      ["mch_1", 1, "v"],
+    ]);
+    expect(o.minions[3]!.job).toMatchObject({ ranOn: "On Cloud VM", tool: "Claude Code", machine: "mch_1" });
+    // Nobody with a computer: no places, the three slots as always.
+    expect(readOverview({ minions: [{ slot: 2, job: { id: "a" } }] })!.places).toBeUndefined();
+  });
+
+  test("an offline computer's free slots are not counted as room", () => {
+    const places = [
+      { key: "cloud", kind: "cloud" as const, name: "Tex's cloud", slots: 3 },
+      { key: "vm", kind: "machine" as const, name: "Cloud VM", slots: 2 },
+      { key: "mac", kind: "machine" as const, name: "MacBook Pro", slots: 2, offline: true },
+    ];
+    const slots = places.flatMap((p) => Array.from({ length: p.slots }, (_, i) => ({ slot: i + 1, place: p.key, job: p.key === "vm" && i === 0 ? job() : null })));
+    expect(busyLine(slots, places)).toBe("Minions · 1 of 5 busy");
+  });
+
   test("a section not sent yet answers empty, never an error", () => {
     expect(readOverview({})).toEqual(EMPTY_OVERVIEW);
     expect(readList("routines", {})).toEqual({ items: [] });

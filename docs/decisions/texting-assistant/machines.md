@@ -54,6 +54,18 @@ the work moves to the machine.
   session, never over 8 (`slotCounts`). The chat's pool is its cloud slots plus
   each attached machine's share; the workspace object refuses an assignment
   that would overfill a machine two chats share.
+- **The Tex page shows where every job runs** (owner, 2026-11-04: a job on
+  their VM looked like a cloud job, and the Minions row showed only the cloud's
+  three). A chat's inbox keeps a job's computer (id, name, tool) on its entry;
+  the page's job parts number a computer's jobs in that computer's own slots,
+  never a cloud one (`apps/mcp/src/http/texPage/jobs.js`), and the app draws
+  Tex's cloud, then each computer the chat may use, with its free slots from
+  the computer's own count; an offline computer's free slots are not counted
+  as room. A job page says `On <computer> · <tool>`; a cloud job says nothing.
+  When the computer's part ends, a step says `Done on <computer> · checking
+  the work`, since the advisor's check and the report take a while after it.
+  Reverting it fails `apps/mcp/test/texPageJobPlaces.test.mjs` and the pool
+  tests in `apps/mobile/__tests__/texPage.test.ts`.
 - **Machine jobs run longer.** Four hours by default, up to 24, the advisor
   still checking every fifteen-minute part; cloud jobs keep thirty minutes and
   ten parts. After a disconnect a job resumes the same CLI session: the runner

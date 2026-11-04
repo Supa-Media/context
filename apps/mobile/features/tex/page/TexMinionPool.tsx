@@ -24,7 +24,7 @@ export function MinionPool({ overview, now, wide, go }: { overview: Overview; no
   return (
     <View style={styles.pool} testID="tex-pool">
       <View style={styles.head}>
-        <SectionHead>{busyLine(overview.minions)}</SectionHead>
+        <SectionHead>{busyLine(overview.minions, overview.places)}</SectionHead>
         <RowLink label="Your machines ›" onPress={() => go({ view: "machines" })} testID="tex-pool-machines" />
       </View>
 
@@ -34,12 +34,12 @@ export function MinionPool({ overview, now, wide, go }: { overview: Overview; no
         const free = slots.filter((s) => s.job === null);
         const cells: PoolCell[] = busy.map((slot) => ({
           key: `slot-${slot.slot}`,
-          // An offline place's folded card takes the full width, on the desktop too.
           full: false,
           node: <Minion slot={slot} now={now} wide={false} go={go} />,
         }));
         if (free.length > 0) {
-          cells.push({ key: "free", full: place.offline === true, node: <FreeCard place={place} slots={free} /> });
+          // A place with nothing running, or offline, folds to one full-width card, on the desktop too.
+          cells.push({ key: "free", full: place.offline === true || busy.length === 0, node: <FreeCard place={place} slots={free} /> });
         }
         return (
           <View key={place.key} style={[styles.place, place.offline ? styles.offline : null]} testID={`tex-pool-place-${place.key}`}>

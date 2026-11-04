@@ -90,6 +90,8 @@ const SHOTS: Shot[] = [
   { name: "04-group-machines", scenario: "full", place: { chat: "g-team", view: "settings" }, schemes: BOTH },
   { name: "05-approval", scenario: "full", place: { chat: "me" }, ask: true, schemes: LIGHT },
   { name: "06-minion-pool", scenario: "offline", place: { chat: "me" }, schemes: LIGHT },
+  { name: "06-minion-pool-full", scenario: "full", place: { chat: "me" }, schemes: BOTH },
+  { name: "07-job-on-machine", scenario: "full", place: { chat: "me", job: "hello" }, schemes: BOTH },
   { name: "08-machine-states", scenario: "states", place: { chat: "me", view: "machines" }, schemes: LIGHT },
   { name: "09-not-ready", scenario: "notReady", place: { chat: "me", view: "machine", machine: "m-mbp" }, schemes: LIGHT },
   { name: "10-limit-reached", scenario: "limit", place: { chat: "me", view: "machine", machine: "m-mbp" }, schemes: LIGHT },

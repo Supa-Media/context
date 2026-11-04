@@ -83,8 +83,11 @@ export function statusLine(o: Pick<Overview, "chat" | "status">): string {
   return parts.join(" · ");
 }
 
-export function busyLine(slots: Overview["minions"]): string {
-  return `Minions · ${slots.filter((s) => s.job !== null).length} of ${slots.length} busy`;
+export function busyLine(slots: Overview["minions"], places?: Overview["places"]): string {
+  // An offline machine's free slots can take nothing, so they are not counted as room; its jobs, if any, still are.
+  const off = new Set((places ?? []).filter((p) => p.offline).map((p) => p.key));
+  const counted = slots.filter((s) => s.job !== null || s.place === undefined || !off.has(s.place));
+  return `Minions · ${counted.filter((s) => s.job !== null).length} of ${counted.length} busy`;
 }
 
 /** The figure a job is drawn with. */
