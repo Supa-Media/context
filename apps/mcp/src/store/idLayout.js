@@ -309,15 +309,11 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     }
   };
 
-  /**
-   * The note's Markdown as its row's lookup carried it (`objectLookup.js`, `workspaceStore/lookupBody.js`), shaped as
-   * the store's own `get` answers (`workspaceRouting.js` `storedFromLookup`), or `null`, and the store is asked. Only a
-   * plain `get` (no range or condition), and only once: a second read in the same view asks the store, as before.
-   */
+  // The note's Markdown as its lookup carried it (`workspaceStore/lookupBody.js`, `workspaceRouting.js` `storedFromLookup`),
+  // or `null`: only for a plain `get` (no range or condition), and only once, so a second read asks the store.
   const carriedBody = (entry, rest) => {
-    const body = entry.body;
-    if (body === undefined || typeof store.storedFromLookup !== "function") return null;
-    if (rest.some((option) => option !== undefined && (option === null || typeof option !== "object" || Object.keys(option).length > 0))) return null;
+    const { body } = entry;
+    if (body === undefined || typeof store.storedFromLookup !== "function" || rest.some((option) => option !== undefined && (option === null || typeof option !== "object" || Object.keys(option).length > 0))) return null;
     entry.body = undefined;
     return store.storedFromLookup(entry.key, body);
   };
@@ -329,10 +325,7 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     if (!mirroredPath(path)) return await store[method](path, ...rest);
     const resolved = await resolveWith(ask, path);
     const { entry } = resolved;
-    if (keyedEntry(entry)) {
-      const carried = method === "get" ? carriedBody(entry, rest) : null;
-      return carried ?? (await store[method](entry.key, ...rest));
-    }
+    if (keyedEntry(entry)) return (method === "get" ? carriedBody(entry, rest) : null) ?? (await store[method](entry.key, ...rest));
     // No note here, or a folder: nothing to read.
     return method === "exists" || method === "existsMetadata" ? false : null;
   };
