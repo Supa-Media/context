@@ -71,17 +71,20 @@ async function behind(store, work) {
 /**
  * Moves `source` to `destination` in the object. `kind` words the answer (`"note"` or `"folder"`), `action` is the
  * change's name in the activity record, and `privacy` (`{rules, overrides}`) says which rooms may hear the new name.
+ * `archive` (`{root, roots}`) in place of a destination asks the object to archive `source` where it decides, and
+ * `onCode(code)` words a refusal only the caller can (`undefined` leaves it to the usual words).
  *
  * @returns {Promise<object|null>} a tool result, or null to send the move to the control plane
  */
-export async function startObjectMove(store, scope, source, destination, expectedEtag, { kind, action, privacy }) {
+export async function startObjectMove(store, scope, source, destination, expectedEtag, { kind, action, privacy, archive, onCode }) {
   const reading = objectFor(store, scope);
   if (reading === null) return null;
   let answer;
   try {
     answer = await reading.client.write.move({
       from: source,
-      to: destination,
+      // An archive names no destination: the object names it (`moveWrites.js` `archiveTo`) and answers it as `to`.
+      ...(archive === undefined ? { to: destination } : { archive }),
       ...(typeof expectedEtag === "string" && expectedEtag !== "" ? { expectedEtag } : {}),
       scope: reading.scope,
       // The session's names are a Set (`grantedGroupsOf`): sent as a list.
@@ -94,6 +97,9 @@ export async function startObjectMove(store, scope, source, destination, expecte
     return null;
   }
   if (answer?.ok !== true) {
+    // A code only the caller can word (an archive's `NO_ARCHIVE`, `ARCHIVED`, `HIDDEN_DESTINATION`).
+    const worded = typeof onCode === "function" ? onCode(answer?.code) : undefined;
+    if (worded !== undefined) return worded;
     const refusal = REFUSALS.get(answer?.code);
     if (refusal !== undefined) return toolError(refusal);
     // `DEFER`, `UNKEYED` and anything else the object did not decide: nothing moved, so the control plane decides.
@@ -105,6 +111,8 @@ export async function startObjectMove(store, scope, source, destination, expecte
   // whole trip (`obj:ws.write.move`), so a slow move says whether the time is the object's or the trip's.
   phaseTook(store, "move", answer.took);
   phaseTook(store, "move_commit", answer.commit);
+  // The object's answer names where the move went (an archive's own choice); a move it made is never sent on.
+  if (typeof answer.to === "string" && answer.to !== "") destination = answer.to;
   const files = Array.isArray(answer.files) ? answer.files : [{ from: source, to: destination }];
   // Each step after the object's answer is timed on its own (`phase:move_*`), so a move over 0.1 s says where.
   await phase(store, "move_announce", () => announceMoves(store, files, privacy));

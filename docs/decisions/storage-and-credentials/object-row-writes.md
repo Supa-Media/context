@@ -287,8 +287,12 @@ had moved. A move asked of the control plane now waits `CONTROL_PLANE_MOVE_TIMEO
 is told as one that may still finish. Removing the mark fails `objectRowsMirrorTree.test.ts` ("a move into Archive").
 
 `archive_note` asks the object before it reads anything else (`tools/moves/archive.js`): not the note's text, its
-editing history or the tree's names. The object's own `TAKEN` asks the next numbered name, and a `DEFER` falls through
-to the control plane without asking the object a second time. With those reads, an archive in the object still took
+editing history or the tree's names. Since 2026-11-04 it is one trip: the gateway sends `archive: {root, roots}` (the
+rules' archive) in place of a destination, and the object finds the folder doing the Archive's job as the caller sees
+it, refuses a note already under it or under a rules root (`ARCHIVED`) or with no archive at all (`NO_ARCHIVE`), and
+names the first free numbered destination itself (`moveWrites.js` `archiveTo`), so no `jobs` ask goes first (about
+25 ms). An absent or hidden note is `NOT_FOUND` before anything about the archive. A `DEFER` falls through to the
+control plane without asking the object a second time. With those reads, an archive in the object still took
 2.45 s in production (2026-11-03). A folder move the control plane times out on is told as one that may still finish,
 never "Nothing was changed", and is not moved the old way on top: 93 notes took 9.2 s and all moved while the answer
 said nothing had (`keyedNoteMove.test.mjs`, "a keyed folder move the gateway gave up on").
