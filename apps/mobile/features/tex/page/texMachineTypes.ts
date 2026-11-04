@@ -121,6 +121,8 @@ export interface MachineAsk {
 export interface SlotPlace {
   key: string;
   kind: "cloud" | "machine";
+  /** A machine's kind, so its card can show the right glyph. Absent for Tex's cloud. */
+  machineKind?: MachineKind;
   name: string;
   slots: number;
   offline?: boolean;

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { Figure, SectionHead, T } from "./TexPageParts";
@@ -31,26 +32,83 @@ export function MinionPool({ overview, now, wide, go }: { overview: Overview; no
         const slots = overview.minions.filter((s) => s.place === place.key);
         const busy = slots.filter((s) => s.job !== null);
         const free = slots.filter((s) => s.job === null);
+        const cells: PoolCell[] = busy.map((slot) => ({
+          key: `slot-${slot.slot}`,
+          // An offline place's folded card takes the full width, on the desktop too.
+          full: false,
+          node: <Minion slot={slot} now={now} wide={false} go={go} />,
+        }));
+        if (free.length > 0) {
+          cells.push({ key: "free", full: place.offline === true, node: <FreeCard place={place} slots={free} /> });
+        }
         return (
           <View key={place.key} style={[styles.place, place.offline ? styles.offline : null]} testID={`tex-pool-place-${place.key}`}>
             <PlaceHead place={place} busy={busy.length} />
-            <View style={styles.grid}>
-              {busy.map((slot) => (
-                <View key={slot.slot} style={wide ? styles.cellWide : styles.cellPhone}>
-                  <Minion slot={slot} now={now} wide={false} go={go} />
-                </View>
-              ))}
-              {free.length > 0 ? (
-                <View style={wide ? styles.cellWide : styles.cellPhone}>
-                  <FreeCard place={place} slots={free} />
-                </View>
-              ) : null}
-            </View>
+            <PoolGrid cells={cells} wide={wide} />
           </View>
         );
       })}
     </View>
   );
+}
+
+/** One card in a place's grid. `full` cards always take a row to themselves. */
+interface PoolCell {
+  key: string;
+  full: boolean;
+  node: ReactNode;
+}
+
+/**
+ * The cards of one place. On a phone they stack. On a desktop they sit two to a
+ * row, each taking half the row with the gap between, and an odd last card is
+ * paired with an empty spacer so it keeps its half.
+ */
+function PoolGrid({ cells, wide }: { cells: PoolCell[]; wide: boolean }) {
+  const styles = useThemedStyles(makeStyles);
+  if (!wide) {
+    return (
+      <View style={styles.stack}>
+        {cells.map((cell) => (
+          <View key={cell.key} style={styles.cellFull}>
+            {cell.node}
+          </View>
+        ))}
+      </View>
+    );
+  }
+  const rows: PoolCell[][] = [];
+  for (const cell of cells) {
+    const last = rows[rows.length - 1];
+    if (!cell.full && last && last.length === 1 && !last[0]!.full) last.push(cell);
+    else rows.push([cell]);
+  }
+  return (
+    <View style={styles.stack}>
+      {rows.map((row) =>
+        row[0]!.full ? (
+          <View key={row[0]!.key} style={styles.cellFull}>
+            {row[0]!.node}
+          </View>
+        ) : (
+          <View key={row[0]!.key} style={styles.pair}>
+            {row.map((cell) => (
+              <View key={cell.key} style={styles.cellHalf}>
+                {cell.node}
+              </View>
+            ))}
+            {row.length === 1 ? <View style={styles.cellHalf} /> : null}
+          </View>
+        ),
+      )}
+    </View>
+  );
+}
+
+/** Tex's cloud is a cloud; a machine is a terminal when it runs the command-line runner, else a laptop (the Mac app). */
+function placeGlyph(place: SlotPlace): "cloud" | "terminal" | "laptop" {
+  if (place.kind === "cloud") return "cloud";
+  return place.machineKind === "cli" ? "terminal" : "laptop";
 }
 
 /** `● Seyi's MacBook Pro · 4` with its busy count on the right, or the offline line. */
@@ -60,7 +118,7 @@ function PlaceHead({ place, busy }: { place: SlotPlace; busy: number }) {
   return (
     <View style={styles.placeHead}>
       <View style={styles.placeName}>
-        <Glyph glyph={place.kind === "cloud" ? "cloud" : "laptop"} color={colors.muted} size={13} />
+        <Glyph glyph={placeGlyph(place)} color={colors.muted} size={13} />
         <T size={13} weight="600" numberOfLines={1} style={{ flexShrink: 1 }}>
           {place.name}
         </T>
@@ -131,7 +189,7 @@ export function EarlierRow({
           {title}
         </T>
         {ranOn ? (
-          <T size={12} tone="muted" numberOfLines={1}>
+          <T size={13} tone="muted" numberOfLines={1}>
             {ranOn}
           </T>
         ) : null}
@@ -151,9 +209,10 @@ const makeStyles = (colors: Colors) =>
     offline: { opacity: 0.55 },
     placeHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minWidth: 0 },
     placeName: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1, minWidth: 0 },
-    grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-    cellPhone: { width: "100%", minWidth: 0 },
-    cellWide: { width: "48.9%", minWidth: 0 },
+    stack: { gap: 10 },
+    pair: { flexDirection: "row", gap: 10 },
+    cellFull: { width: "100%", minWidth: 0 },
+    cellHalf: { flex: 1, minWidth: 0 },
     free: {
       flexDirection: "row",
       alignItems: "center",

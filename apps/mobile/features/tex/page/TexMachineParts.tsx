@@ -22,9 +22,13 @@ export function Dot({ tone, testID }: { tone: DotTone; testID?: string }) {
 
 /** A line of type led by its state dot: `● Online · Mac app · 1h 40m of 4h today`. */
 export function DotLine({ tone, children, size = 13, testID }: { tone: DotTone; children: ReactNode; size?: number; testID?: string }) {
+  // The dot sits on the first text line, not the middle of a wrapped paragraph.
+  const dotTop = Math.round((size * 1.5 - 7) / 2);
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }} testID={testID}>
-      <Dot tone={tone} />
+    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 4, minWidth: 0 }} testID={testID}>
+      <View style={{ marginTop: dotTop }}>
+        <Dot tone={tone} />
+      </View>
       <T size={size} tone="muted" style={{ flexShrink: 1 }}>
         {children}
       </T>
@@ -170,19 +174,16 @@ export function Meter({ fraction, full = false, testID }: { fraction: number; fu
   );
 }
 
-/** `.notice`: a warn block that says what is wrong, with at most one way out. */
+/** `.notice`: a warn block that says what is wrong, with at most one way out. The status dot above says it is a warning, so the block has no dot of its own. */
 export function Notice({ children, action, testID }: { children: ReactNode; action?: ReactNode; testID?: string }) {
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.notice} testID={testID}>
-      <View style={{ marginTop: 7 }}>
-        <Dot tone="warn" />
-      </View>
       <View style={{ flex: 1, minWidth: 0, gap: 10 }}>
         <T size={14} line={1.5}>
           {children}
         </T>
-        {action ?? null}
+        {action ? <View style={{ alignSelf: "flex-start" }}>{action}</View> : null}
       </View>
     </View>
   );

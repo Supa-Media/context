@@ -95,9 +95,9 @@ export function ConnectPage({ source, page, chat, go }: ViewProps) {
       <View style={[styles.paths, wide ? styles.pathsWide : null]}>
         <View style={[card, styles.path]} testID="tex-connect-mac">
           <Heading glyph="laptop" title="A Mac with the Context app" />
-          <T size={14} tone="muted" line={1.5}>
+          <T size={13} tone="muted" line={1.5}>
             On that Mac, open Settings › Tex and turn on{" "}
-            <T size={14} weight="600" tone="text2" line={1.5}>
+            <T size={13} weight="600" tone="text2" line={1.5}>
               Let Tex use this Mac
             </T>
             . It shows up here at once, with no code.
@@ -111,15 +111,18 @@ export function ConnectPage({ source, page, chat, go }: ViewProps) {
 
         <View style={[card, styles.path]} testID="tex-connect-cli">
           <Heading glyph="terminal" title="Another computer" />
-          <T size={14} tone="muted" line={1.5}>
+          <T size={13} tone="muted" line={1.5}>
             Any Mac, Linux computer or server with Node 20 or later. Run this there:
           </T>
           <View style={styles.code}>
             <T size={13} mono line={1.5} testID="tex-connect-command">
-              {`$ ${COMMAND}`}
+              <T size={13} mono line={1.5} tone="muted">
+                {"$ "}
+              </T>
+              {COMMAND}
             </T>
           </View>
-          <T size={14} tone="muted" line={1.5}>
+          <T size={13} tone="muted" line={1.5}>
             It prints a short code. You approve it here.
           </T>
           <View style={styles.pinned}>

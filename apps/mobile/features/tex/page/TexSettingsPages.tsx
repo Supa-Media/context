@@ -10,6 +10,8 @@ import { ListBox, ListRow, SubPage, T, pageStyles } from "./TexPageParts";
 import { TexSelect, type SelectOption } from "./TexSelect";
 import { useTexList, useTexMachines } from "./useTexPage";
 import { GroupMachines } from "./TexGroupMachines";
+import { Switch } from "../../design/components/Switch";
+import { thisMacLine, useThisMac } from "./useThisMac";
 import { Chevron } from "./TexMachineParts";
 import type { MachinesPage } from "./texMachineTypes";
 
@@ -60,6 +62,8 @@ export function SettingsPage({ source, page, chat, go }: ViewProps) {
   const { read } = useTexList(source, chat, "settings", page.changes);
   // Only a gateway that knows machines answers; any other draws no row.
   const machines = useTexMachines(source, chat, page.changes);
+  // Only inside the Mac app; and only the person's own Tex settings, never a group's.
+  const thisMac = useThisMac();
   const value = read?.kind === "ok" ? read.value : undefined;
   const number = value?.number;
   const [copied, setCopied] = useState(false);
@@ -89,6 +93,24 @@ export function SettingsPage({ source, page, chat, go }: ViewProps) {
                   {copied ? "Copied" : "Copy"}
                 </T>
               </Pressable>
+            }
+          />
+        ) : null}
+        {thisMac ? (
+          <ListRow
+            title="Let Tex use this Mac"
+            sub={thisMacLine(thisMac.status)}
+            testID="tex-settings-this-mac"
+            right={
+              thisMac.status.available ? (
+                <Switch
+                  value={thisMac.status.enabled}
+                  onValueChange={thisMac.setEnabled}
+                  label="Let Tex use this Mac"
+                  style={{ alignSelf: "center" }}
+                  testID="tex-settings-this-mac-switch"
+                />
+              ) : null
             }
           />
         ) : null}

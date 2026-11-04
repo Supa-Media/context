@@ -10,6 +10,7 @@
  * a Mac app machine, whatever the gateway sends.
  */
 
+import { slotLine } from "../features/tex/page/texPageFormat";
 import { describe, expect, test } from "@jest/globals";
 
 import {
@@ -361,5 +362,23 @@ describe("texMachineFixture: machineFixtureSource", () => {
     expect(read.kind).toBe("ok");
     if (read.kind !== "ok") return;
     expect(read.value.places).toBeUndefined();
+  });
+});
+
+describe("audit additions: a place's machine kind and a slot's tool", () => {
+  test("readPlaces keeps a machine kind it knows and drops one it does not", () => {
+    const places = readPlaces([
+      { key: "m-1", kind: "machine", machineKind: "cli", name: "vm", slots: 2 },
+      { key: "m-2", kind: "machine", machineKind: "toaster", name: "x", slots: 1 },
+    ]);
+    expect(places?.[0].machineKind).toBe("cli");
+    expect(places?.[1].machineKind).toBeUndefined();
+  });
+
+  test("a busy slot's line names the coding tool when the gateway sent one", () => {
+    const now = 1_000_000_000;
+    const base = { id: "j", title: "t", state: "running" as const, startedAt: now - 24 * 60_000, failedSteps: 0 };
+    expect(slotLine({ ...base, for: "Bo", tool: "Claude Code" }, now).text).toBe("For Bo · Claude Code · 24 min");
+    expect(slotLine(base, now).text).not.toContain("Claude");
   });
 });

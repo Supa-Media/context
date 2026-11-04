@@ -58,6 +58,8 @@ export interface JobSummary {
   slot?: number;
   /** Where it ran when that was one of the person's machines: "On Seyi's MacBook Pro". */
   ranOn?: string;
+  /** The coding tool it ran with, as the page names it: "Claude Code". */
+  tool?: string;
 }
 
 export interface JobStep {

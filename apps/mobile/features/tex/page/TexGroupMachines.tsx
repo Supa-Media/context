@@ -3,14 +3,14 @@ import { Switch } from "../../design/components/Switch";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { ViewProps } from "./TexPageBody";
 import { Button, DotLine, Glyph, GlyphSquare, RowLink, Stepper, type MachineGlyph } from "./TexMachineParts";
-import { ListBox, SectionHead, T, useWide } from "./TexPageParts";
+import { ListBox, SectionHead, T } from "./TexPageParts";
 import { TexSelect, type SelectOption } from "./TexSelect";
 import { useTexList, useTexMachines } from "./useTexPage";
 import { dotOf, hereOf, whoLabel } from "./texMachineFormat";
 import type { Machine, MachineChat, MachineState, MachineWho } from "./texMachineTypes";
 
-/** The indent of a machine's own settings, under its header row, on the desktop. */
-const NEST_DESKTOP = 38;
+/** The indent of a machine's own settings, under its header row, on every width. */
+const NEST_INDENT = 38;
 const PERSON = "person:";
 
 /**
@@ -22,7 +22,6 @@ const PERSON = "person:";
  */
 export function GroupMachines(props: ViewProps) {
   const { source, page, chat } = props;
-  const wide = useWide();
   const machines = useTexMachines(source, chat, page.changes);
   const { read } = useTexList(source, chat, "settings", page.changes);
   const mine = machines?.kind === "ok" ? machines.value.machines.filter((m) => m.state !== "pending") : [];
@@ -34,7 +33,7 @@ export function GroupMachines(props: ViewProps) {
       <SectionHead>Machines</SectionHead>
       <ListBox>
         {mine.map((m) => (
-          <MachineBlock key={m.id} m={m} chat={chat} page={page} people={people} indent={wide ? NEST_DESKTOP : 0} />
+          <MachineBlock key={m.id} m={m} chat={chat} page={page} people={people} indent={NEST_INDENT} />
         ))}
       </ListBox>
     </View>
@@ -123,14 +122,16 @@ function ChatSettings({
             Besides you
           </T>
         </View>
-        <TexSelect
-          look="sel"
-          label="Who can send it work"
-          options={whoOptions}
-          selected={selected}
-          onPick={(pick) => save({ who: pick === "me" || pick === "everyone" ? pick : [pick.slice(PERSON.length)] })}
-          testID={`${base}-who`}
-        />
+        <View style={{ alignSelf: "center" }}>
+          <TexSelect
+            look="sel"
+            label="Who can send it work"
+            options={whoOptions}
+            selected={selected}
+            onPick={(pick) => save({ who: pick === "me" || pick === "everyone" ? pick : [pick.slice(PERSON.length)] })}
+            testID={`${base}-who`}
+          />
+        </View>
       </View>
       {c.who !== "me" ? (
         <View style={[styles.nested, { paddingLeft: indent }]} testID={`${base}-ask-row`}>
@@ -142,7 +143,7 @@ function ChatSettings({
               When someone else sends it work
             </T>
           </View>
-          <Switch label="Ask me first" value={c.askFirst} onValueChange={(askFirst) => save({ askFirst })} testID={`${base}-ask`} />
+          <Switch label="Ask me first" value={c.askFirst} onValueChange={(askFirst) => save({ askFirst })} style={{ alignSelf: "center" }} testID={`${base}-ask`} />
         </View>
       ) : null}
       <View style={[styles.nested, { paddingLeft: indent }]} testID={`${base}-slots-row`}>

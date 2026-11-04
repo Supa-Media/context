@@ -53,8 +53,10 @@ export type { TranscriptSegment };
 export type { LocalAgentAsk, LocalAgentReply, LocalAgentStatus };
 import type { UpcomingMeetings } from "./calendar.ts";
 import type { SpellingCheck } from "./spelling.ts";
+import type { MachineRunStatus } from "./machine.ts";
 export type { UpcomingMeetings, UpcomingMeetingView } from "./calendar.ts";
 export type { SpellingCheck } from "./spelling.ts";
+export type { MachineRunState, MachineRunStatus } from "./machine.ts";
 
 /**
  * The bridge's shape, and the only number a bundle compares against.
@@ -66,7 +68,7 @@ export type { SpellingCheck } from "./spelling.ts";
  * the **UI** is the half that has to be backward compatible, because it is the
  * half that can be updated in an afternoon.
  */
-export const BRIDGE_VERSION = 9;
+export const BRIDGE_VERSION = 10;
 
 /**
  * The oldest bridge this bundle will still talk to.
@@ -678,6 +680,18 @@ export interface DesktopBridge {
   spelling?: {
     check(word: string): Promise<SpellingCheck>;
   };
+
+  /**
+   * "Let Tex use this Mac": the runner this app carries, which runs Tex's
+   * coding jobs with this Mac's own Claude Code and Codex. **Version 10.**
+   * Optional for `MIN_BRIDGE_VERSION`'s reason; the page draws the switch
+   * only when the member is there. See `machine.ts`.
+   */
+  machine?: {
+    status(): Promise<MachineRunStatus>;
+    setEnabled(enabled: boolean): Promise<MachineRunStatus>;
+    onChange(handler: (status: MachineRunStatus) => void): Unsubscribe;
+  };
   /** Today's meetings for the menu bar. **Version 9.** See `calendar.ts` for what the shell does with them. */
   calendar?: { setUpcoming(upcoming: UpcomingMeetings): void };
 }
@@ -752,6 +766,8 @@ export const BRIDGE_CHANNELS = Object.freeze({
   agentStatus: "context:agent-status", // Version 7: is there a local CLI to ask, and asking it.
   agentAsk: "context:agent-ask",
   calendarSetUpcoming: "context:calendar-set-upcoming", // Version 9: today's meetings, for the menu bar.
+  machineStatus: "context:machine-status", // Version 10: Let Tex use this Mac.
+  machineSetEnabled: "context:machine-set-enabled",
 
   /** Main → page. Pushed; the page subscribes through the bridge. */
   segment: "context:on-segment",
@@ -763,6 +779,8 @@ export const BRIDGE_CHANNELS = Object.freeze({
   outboxChange: "context:on-outbox",
   /** Version 5. Main → page: enabled/permission/last-sync state changed. */
   imessageChange: "context:on-imessage",
+  /** Version 10. Main → page: the runner's state changed. */
+  machineChange: "context:on-machine",
   detection: "context:on-detection",
   trayCommand: "context:on-tray-command",
 });

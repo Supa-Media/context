@@ -80,7 +80,15 @@ export function MachinePage(props: ViewProps) {
     const title = TOOL_LABEL[tool];
     let right: ReactNode = null;
     if (state === "signedIn" || state === "off") {
-      right = <Switch value={state === "signedIn"} onValueChange={(on) => set(toolValues(tool, on))} label={title} testID={`tex-machine-tool-${tool}-switch`} />;
+      right = (
+        <Switch
+          value={state === "signedIn"}
+          onValueChange={(on) => set(toolValues(tool, on))}
+          label={title}
+          style={{ alignSelf: "center" }}
+          testID={`tex-machine-tool-${tool}-switch`}
+        />
+      );
     } else {
       const label = state === "installed" ? "How to sign in" : "How to add it";
       right = <RowLink label={label} onPress={() => void Linking.openURL(TOOL_HELP[tool])} testID={`tex-machine-tool-${tool}-link`} />;
@@ -146,7 +154,15 @@ export function MachinePage(props: ViewProps) {
             title="Computer use"
             sub="Tex sees the screen and uses apps, for your own asks only"
             testID="tex-machine-computer-use"
-            right={<Switch value={m.computerUse} onValueChange={(on) => set({ computerUse: on })} label="Computer use" testID="tex-machine-computer-use-switch" />}
+            right={
+              <Switch
+                value={m.computerUse}
+                onValueChange={(on) => set({ computerUse: on })}
+                label="Computer use"
+                style={{ alignSelf: "center" }}
+                testID="tex-machine-computer-use-switch"
+              />
+            }
           />
         ) : null}
       </ListBox>
@@ -206,7 +222,15 @@ export function MachinePage(props: ViewProps) {
           title="Pause near my plan's limit"
           sub="When Claude Code says you are close, new jobs wait or go to the cloud"
           testID="tex-machine-pause-row"
-          right={<Switch value={m.pauseNearPlan} onValueChange={(on) => set({ pauseNearPlan: on })} label="Pause near my plan's limit" testID="tex-machine-pause" />}
+          right={
+            <Switch
+              value={m.pauseNearPlan}
+              onValueChange={(on) => set({ pauseNearPlan: on })}
+              label="Pause near my plan's limit"
+              style={{ alignSelf: "center" }}
+              testID="tex-machine-pause"
+            />
+          }
         />
       </ListBox>
     </Section>

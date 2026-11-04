@@ -138,6 +138,7 @@ export function readPlace(v: unknown): SlotPlace | null {
   const key = str(r?.key);
   if (!r || !key || (r.kind !== "cloud" && r.kind !== "machine")) return null;
   const place: SlotPlace = { key, kind: r.kind, name: str(r.name) ?? key, slots: Math.min(MAX_MACHINE_SLOTS, count(r.slots)) };
+  if (r.machineKind === "mac" || r.machineKind === "cli") place.machineKind = r.machineKind;
   if (r.offline === true) place.offline = true;
   const since = num(r.since);
   if (since !== undefined) place.since = since;

@@ -157,8 +157,18 @@ function placesFor(page: MachinesPage): { places: SlotPlace[]; minions: (Slot & 
   ];
   for (const m of page.machines) {
     if (m.state === "pending") continue;
-    places.push({ key: m.id, kind: "machine", name: m.name, slots: m.slots, ...(m.state === "offline" ? { offline: true, ...(m.since ? { since: m.since } : {}) } : {}) });
-    m.running.forEach((r, i) => minions.push({ place: m.id, slot: i + 1, job: job(r.job, r.title, r.startedAt, r.for ? { for: r.for } : {}) }));
+    places.push({
+      key: m.id,
+      kind: "machine",
+      machineKind: m.kind,
+      name: m.name,
+      slots: m.slots,
+      ...(m.state === "offline" ? { offline: true, ...(m.since ? { since: m.since } : {}) } : {}),
+    });
+    // Each machine run is a Claude Code job in this fixture; the tool shows on the slot's line.
+    m.running.forEach((r, i) =>
+      minions.push({ place: m.id, slot: i + 1, job: job(r.job, r.title, r.startedAt, { tool: "Claude Code", ...(r.for ? { for: r.for } : {}) }) }),
+    );
   }
   return { places, minions };
 }

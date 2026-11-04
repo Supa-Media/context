@@ -98,7 +98,7 @@ export function readJob(v: unknown): JobSummary | null {
   };
   const endedAt = num(r.endedAt);
   if (endedAt !== undefined) job.endedAt = endedAt;
-  for (const key of ["needs", "for", "now", "ranOn"] as const) {
+  for (const key of ["needs", "for", "now", "ranOn", "tool"] as const) {
     const s = str(r[key]);
     if (s) job[key] = s;
   }

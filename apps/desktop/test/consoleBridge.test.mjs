@@ -12,6 +12,7 @@ import { runPreloadContractChecks } from "./consoleBridge/preloadContract.test.m
 import { runSenderGuardChecks } from "./consoleBridge/senderGuard.test.mjs";
 import { runProducerCensusChecks } from "./consoleBridge/producerCensus.test.mjs";
 import { runCalendarChannelChecks } from "./consoleBridge/calendarChannel.test.mjs";
+import { runMachineChannelChecks } from "./consoleBridge/machineChannel.test.mjs";
 
 export async function runConsoleBridgeChecks(check) {
   await runIpcCensusChecks(check);
@@ -19,4 +20,5 @@ export async function runConsoleBridgeChecks(check) {
   await runSenderGuardChecks(check);
   await runProducerCensusChecks(check);
   await runCalendarChannelChecks(check);
+  await runMachineChannelChecks(check);
 }

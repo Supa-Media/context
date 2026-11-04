@@ -114,7 +114,8 @@ function MachineRow({ m, wide, go }: { m: Machine; wide: boolean; go: Go }) {
           <RowLink label="Review" onPress={press} testID={`tex-machine-review-${m.id}`} />
         ) : (
           <>
-            <Pips slots={m.slots} busy={m.running.length} off={off} />
+            {/* A machine that cannot take work yet shows its words only, not empty pips. */}
+            {m.state === "notReady" ? null : <Pips slots={m.slots} busy={m.running.length} off={off} />}
             {wide ? (
               <T size={13} tone="text2" numberOfLines={1}>
                 {rowRight(m)}
