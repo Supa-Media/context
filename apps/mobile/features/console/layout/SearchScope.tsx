@@ -1,7 +1,8 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, radii, space, touchType } from "../../design/tokens";
-import { useThemedStyles, type Colors } from "../../design/theme";
+import { SketchBox } from "../../design/components/sketch/SketchBox";
+import { fonts, layout, space, touchType } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { baseName, folderLabel } from "../files/paths";
 
 /**
@@ -29,10 +30,13 @@ export function SearchScopeChips({
   onWiden: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   return (
     <View style={styles.row} testID="search-scope">
-      <View style={[styles.chip, styles.on]} accessibilityState={{ selected: true }} testID="search-scope-folder">
-        <Text style={[styles.text, styles.textOn]} numberOfLines={1}>{`In ${scopeLabel(folder)}`}</Text>
+      <View accessibilityState={{ selected: true }} testID="search-scope-folder">
+        <SketchBox look="loop" color={colors.text} seed={`scope:${folder}`} style={styles.chip}>
+          <Text style={[styles.text, styles.textOn]} numberOfLines={1}>{`In ${scopeLabel(folder)}`}</Text>
+        </SketchBox>
       </View>
       <Pressable
         onPress={onWiden}
@@ -53,14 +57,11 @@ const makeStyles = (colors: Colors) =>
     chip: {
       height: 36,
       paddingHorizontal: space.x3,
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      borderColor: colors.line,
       justifyContent: "center",
       maxWidth: 220,
     },
-    on: { backgroundColor: colors.accentDim, borderColor: colors.accent },
+    // The scope in force is circled in pencil (owner, 2026-11-04, `sketch/`).
     text: { fontFamily: fonts.body, fontSize: touchType.ui, color: colors.text2 },
-    textOn: { color: colors.accentText, fontWeight: "600" },
+    textOn: { color: colors.text, fontWeight: "600" },
     pressed: { opacity: 0.6 },
   });

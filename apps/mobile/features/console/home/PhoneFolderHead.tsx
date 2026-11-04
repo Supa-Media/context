@@ -9,6 +9,7 @@ import { FaceView } from "../faces/PersonFace";
 import { useFace } from "../faces/useFace";
 import { countLabel } from "./homeModel";
 import { folderActivity, type FolderActor } from "./folderHead";
+import { SketchBox } from "../../design/components/sketch/SketchBox";
 
 const FACE = 24;
 
@@ -72,13 +73,15 @@ export function PhoneFolderHead({
               disabled={onTag === undefined}
               accessibilityRole="button"
               accessibilityLabel={`Tagged ${tag}. Show on Home`}
-              style={({ pressed }) => [styles.tag, pressed ? styles.pressed : null]}
+              style={({ pressed }) => (pressed ? styles.pressed : null)}
               testID="phone-folder-tag"
             >
-              <Icon name="tag" size={13} color={colors.text2} />
-              <Text variant="meta" style={styles.tagText}>
-                {tag}
-              </Text>
+              <SketchBox look="tape" color={colors.text} seed={`folder-tag:${tag}`} style={styles.tag}>
+                <Icon name="tag" size={13} color={colors.text2} />
+                <Text variant="meta" style={styles.tagText}>
+                  {tag}
+                </Text>
+              </SketchBox>
             </Pressable>
           ))}
         </View>
@@ -202,10 +205,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       gap: space.x1,
       minHeight: 30,
       paddingHorizontal: space.x3,
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      borderColor: colors.line,
-      backgroundColor: colors.cardSurface,
     },
     tagText: { color: colors.text2 },
     latest: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 44 },

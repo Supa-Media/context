@@ -9,7 +9,7 @@ import { Icon } from "../../design/components/Icon";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { pointerType as t, radii, space } from "../../design/tokens";
-import { useThemedStyles, type Colors } from "../../design/theme";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { PersonFace } from "../faces/PersonFace";
 import { atName } from "../format";
 import { ReportLink } from "../../report/ReportLink";
@@ -30,6 +30,7 @@ import {
   shortWhen,
   type SharedItem,
 } from "./sharedInbox";
+import { SketchBox } from "../../design/components/sketch/SketchBox";
 
 /** The list's column, the width of a note's own: board A2 centres it in the page. */
 export const SHARED_MEASURE = 760;
@@ -136,6 +137,7 @@ export function SharedList({
   onBack: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const [filter, setFilter] = useState<Filter>("all");
   /*
     Every share reads today: editing somebody else's note is not built yet, so
@@ -201,12 +203,13 @@ export function SharedList({
                     selected={filter === key}
                     onPress={() => setFilter(key)}
                     radius={radii.pill}
-                    style={[styles.chip, filter === key && styles.chipOn]}
                     testID={`shared-filter-${key}`}
                   >
-                    <Text variant="mini" style={filter === key ? styles.chipOnText : undefined}>
-                      {key === "all" ? "All" : "Can edit"}
-                    </Text>
+                    <SketchBox look={filter === key ? "loop" : null} color={colors.text} seed={`shared-filter:${key}`} style={styles.chip}>
+                      <Text variant="mini" style={filter === key ? styles.chipOnText : styles.chipText}>
+                        {key === "all" ? "All" : "Can edit"}
+                      </Text>
+                    </SketchBox>
                   </PressRow>
                 ))}
               </View>
@@ -342,15 +345,10 @@ const makeStyles = (colors: Colors) =>
     head: { gap: space.x1 },
     title: { fontSize: t.h3, fontWeight: "600" },
     filters: { flexDirection: "row", gap: space.x2 },
-    chip: {
-      paddingHorizontal: space.x3,
-      paddingVertical: 5,
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      borderColor: colors.line,
-    },
-    chipOn: { backgroundColor: colors.text, borderColor: colors.text },
-    chipOnText: { color: colors.pageSurface },
+    // The filter in force is circled in pencil (owner, 2026-11-04, `sketch/`).
+    chip: { paddingHorizontal: space.x3, paddingVertical: 5 },
+    chipText: { color: colors.text2 },
+    chipOnText: { color: colors.text, fontWeight: "600" },
     nothingToEdit: { paddingVertical: space.x4 },
     group: { gap: 2 },
     heading: { paddingBottom: space.x1 },

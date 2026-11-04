@@ -53,6 +53,7 @@ import { PanelHead } from "./PanelHead";
 import { VaultInline } from "./VaultInline";
 import { liveVaultActions } from "./liveVaultActions";
 import { CutButton, VaultPeople } from "./VaultPeople";
+import { SketchBox } from "../../../design/components/sketch/SketchBox";
 
 export type VaultActions = {
   list: () => Promise<VaultEntry[]>;
@@ -115,6 +116,7 @@ export function VaultList({
   layoutWidth?: number;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const [entries, setEntries] = useState<VaultEntry[] | null>(null);
   const [picked, setPickedState] = useState<string | null>(null);
   const [opened, setOpened] = useState<{ what: Opened; token: string | null; n: number } | null>(null);
@@ -351,12 +353,13 @@ export function VaultList({
                       accessibilityRole="tab"
                       accessibilityState={{ selected: filter === option.key }}
                       onPress={() => setFilter(option.key)}
-                      style={[styles.chip, filter === option.key && styles.chipOn]}
                       testID={`vault-filter-${option.key}`}
                     >
-                      <Text variant="rowSub" style={filter === option.key ? styles.chipOnText : styles.chipText}>
-                        {option.label}
-                      </Text>
+                      <SketchBox look={filter === option.key ? "loop" : null} color={colors.text} seed={`vault-filter:${option.key}`} style={styles.chip}>
+                        <Text variant="rowSub" style={filter === option.key ? styles.chipOnText : styles.chipText}>
+                          {option.label}
+                        </Text>
+                      </SketchBox>
                     </Pressable>
                   ))}
                 </View>
@@ -601,16 +604,10 @@ const makeStyles = (colors: Colors) =>
     listSide: { flex: 1, gap: 10, padding: 18 },
     detailSide: { flex: 1.15, padding: 20, borderLeftWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong },
     filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
-    chip: {
-      paddingVertical: 6,
-      paddingHorizontal: 12,
-      borderRadius: radii.pill,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.lineStrong,
-    },
-    chipOn: { backgroundColor: colors.text, borderColor: colors.text },
-    chipText: { color: colors.text },
-    chipOnText: { color: colors.surface, fontWeight: "700" },
+    // The filter in force is circled in pencil (owner, 2026-11-04, `sketch/`).
+    chip: { paddingVertical: 6, paddingHorizontal: 12 },
+    chipText: { color: colors.text2 },
+    chipOnText: { color: colors.text, fontWeight: "600" },
     row: {
       flexDirection: "row",
       alignItems: "center",
