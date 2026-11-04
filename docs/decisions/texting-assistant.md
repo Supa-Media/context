@@ -241,6 +241,10 @@ Tex's own jobs, each with its record:
   an object of its own, up to three at once in a 1:1 or group chat, its status
   shown to every turn, and it always writes its deliverable; a later text
   steers or stops a running job, and its recent steps are shown on asking.
+- [Machines](./texting-assistant/machines.md): a person's own computer runs
+  jobs with their own `claude` and `codex` as more minion slots, over one
+  protocol schema, with the machine and run grants as the decided exception
+  to credentials on a device.
 - [Golden tasks](./texting-assistant/golden-tasks.md): jobs Tex must always
   get right, gating a setup; the task skills it reads before doing one, and
   why a read skill may vouch for an address.
