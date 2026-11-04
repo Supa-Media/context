@@ -40,3 +40,42 @@ export function chatHubUrl(env, session, group) {
   if (group !== null && group !== undefined) return groupHubUrl(env, group.home?.folder);
   return personHubUrl(env, session);
 }
+
+/**
+ * What the chat's Tex page holds, told to the turn with its address, so Tex
+ * offers the page whenever someone asks about something on it (the owner,
+ * 2026-11-04: "it should know what is in the hub page so if someone asks,
+ * what are you working on? or do you have our conversation history, or what
+ * do you know about me, or connecting a new computer, or what settings are
+ * available etc, tex can offer the hub link"). Each place has its own path
+ * (`apps/mobile/features/tex/page/texPlace.ts`), so the link lands on it.
+ *
+ * Built from `chatHubUrl`, never from the request; "" with no page to name.
+ * "What are you working on" keeps its card (`[card threads]`), which already
+ * carries this address (`sendTheReply.js`), so the link is not said twice.
+ */
+export function hubPrompt(hub, { group = false } = {}) {
+  if (typeof hub !== "string" || hub === "") return "";
+  const at = (view) => `${hub}/${view}`;
+  const places = [
+    `what you're working on and each job's steps (${at("jobs")})`,
+    `what you thought and did for each text (${at("thinking")})`,
+    `the whole chat history as you see it (${at("history")})`,
+    group ? `what you know about the group, to fix or remove (${at("about")})` : `what you know about them, to fix or remove (${at("about")})`,
+    `routines, to switch off or remove (${at("routines")})`,
+    `check-ins, to change, cancel or add (${at("checkins")})`,
+    `your browser, to watch or take over (${at("computer")})`,
+    group
+      ? `computers lent to this chat (${at("machines")}); each person connects a computer of their own on their own Tex page`
+      : `their own computers, and connecting a new one (${at("connect")})`,
+    group
+      ? `group settings: when you answer, tone, warmth, enthusiasm, emoji, length, bubbles, humor (${at("settings")})`
+      : `your settings: tone, warmth, enthusiasm, emoji, length, bubbles, humor, signing out of websites (${at("settings")})`,
+  ];
+  return (
+    `\n\n${group ? "This group's" : "Their"} Tex page is ${hub}, signed in, open only to ${group ? "the people in this chat" : "them"}. ` +
+    `It shows what you keep and do for ${group ? "the group" : "them"}: ${places.join("; ")}. ` +
+    "When someone asks about one of these (what you're doing, whether you have the conversation, what you know, a computer, a setting), answer in a line and give that place's link. " +
+    "For what you're working on, [card threads] already carries the page: don't write the link as well. Never make up another address for it."
+  );
+}

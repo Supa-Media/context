@@ -36,6 +36,7 @@ import { withTheirNotesKept } from "../theirNotes.js";
 import { threadPrompt } from "../threadView.js";
 import { sleepLineNote } from "../timeLog.js";
 import { agentTools, runTurn } from "../turn.js";
+import { chatHubUrl, hubPrompt } from "../hubLinks.js";
 import { withVaultWatch } from "../vaultSaved.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
@@ -88,7 +89,7 @@ export async function runTheModel(t) {
     },
     web: steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
     history: logged?.history ?? shown,
-    threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (job === null ? computersLine(computers, { planning }) : "") + jobPrompt(job) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
+    threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (job === null ? computersLine(computers, { planning }) : "") + (chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : "") + jobPrompt(job) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
     local: [...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
