@@ -72,7 +72,7 @@
     "apply_layout",
     "connect_google",
     "connect_app",
-    "dream_now",
+    "run_context_reflection",
     "pair_device",
     "set_folder_job",
     "get_website_status",
@@ -321,7 +321,7 @@
     {
       "capability": "manage.dream_now",
       "tools": [
-        "dream_now"
+        "run_context_reflection"
       ]
     },
     {
