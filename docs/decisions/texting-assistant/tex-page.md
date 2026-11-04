@@ -160,3 +160,19 @@ load and read its parts one after another. Now:
 
 Tests: `infra/site-shots/src/viewStatus.test.ts`, the path check in
 `apps/mcp/test/texPageComputer.test.mjs`, `apps/mobile/__tests__/texPageFast.test.ts`.
+
+## Tex knows its page (decided by the owner, 2026-11-04)
+
+"It should know what is in the hub page so if someone asks, what are you
+working on? or do you have our conversation history, or what do you know
+about me, or connecting a new computer, or what settings are available etc,
+tex can offer the hub link." A chat's turn is told its page's address and
+every place on it, each with its own path (`hubPrompt`,
+`apps/mcp/src/agent/hubLinks.js`), built from `chatHubUrl` like the card's
+link, never from the request. A group is told its group page; connecting a
+computer is each person's own page, so a group's words name no one's. "What
+are you working on" keeps its card, which already carries the page. A chat
+with no page (no handle, no home) is told nothing.
+
+Tests: the `hubPrompt` check in `apps/mcp/test/agentHubLinks.test.mjs` and
+the told-its-page check in `agentGroupTurn.test.mjs`.
