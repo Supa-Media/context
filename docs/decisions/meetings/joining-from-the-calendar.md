@@ -42,6 +42,16 @@ prompt (the Mac app's own tap, a phone's microphone) the call opens in the same
 press. `__tests__/meetingsJoin.test.ts` fails if a browser spends its press on
 the call.
 
+**On the web the next meeting is a pill beside the `+` (decided by the owner,
+2026-11-04).** From ten minutes before a meeting until it ends, and never while
+one records, `NextUpPill` names it on the line of the console's floating `+`,
+with **Join and take notes** and a × for Not now. It first sat as a block at
+the head of the sidebar (board w1); the owner found it too loud for the tree's
+column, and it pushed the tree down and back. Of four placements (project files
+`meeting-indicator-place/`) the owner picked the `+`, which is where a new
+meeting already starts and which is on every console page. Putting it back in
+the sidebar is the reversal; `__tests__/meetingsJoin.test.ts` holds the pill.
+
 **Which events are meetings.** Timed, not cancelled, not declined, and with a
 call link or another person on it. Holds, birthdays and all-day blocks are not
 offered. A meeting two of the person's accounts were both invited to shows

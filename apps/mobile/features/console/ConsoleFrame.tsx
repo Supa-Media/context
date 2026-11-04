@@ -541,7 +541,7 @@ export function ConsoleFrame({
           data, meetingsAt, router, approvals, joinMeeting,
         })}
         {...(sharedHere ? sharedFrameSlots(sharedEntry, router, <SwitcherMenu {...switcherProps} />) : {
-          explorer: consoleExplorer({ browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay, switcherProps, router, setBarDialog, joinMeeting }),
+          explorer: consoleExplorer({ browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay, switcherProps, router, setBarDialog }),
           status: <Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />,
         })}
         bottomBar={consoleBottomBar({
@@ -647,7 +647,7 @@ export function ConsoleFrame({
 
 
         {consoleCreateButton({
-          data, phone, startMeetingFlow, resumeRow, setBarDialog,
+          data, phone, startMeetingFlow, resumeRow, setBarDialog, joinMeeting,
         })}
 
         {/*
