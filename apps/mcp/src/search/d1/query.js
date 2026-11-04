@@ -29,6 +29,7 @@
  * SQL injection is closed by the placeholder and not by anything here.
  */
 
+import { contentTokens } from "../functionWords.js";
 import { wordForms } from "./wordForms.js";
 
 /**
@@ -87,11 +88,16 @@ function wordTerm(token, extra = [], forms = true) {
   return unique.length === 1 ? unique[0] : `(${unique.join(" OR ")})`;
 }
 
-function tokensOf(query) {
+function rawTokensOf(query) {
   return query
     .split(/[^\p{L}\p{N}_]+/u)
     .map((token) => token.trim())
     .filter((token) => token.length > 0);
+}
+
+/** The words a match asks for: the query's tokens without the words a question is built from (`../functionWords.js`). */
+function tokensOf(query) {
+  return contentTokens(rawTokensOf(query));
 }
 export const SNIPPET_OPEN = "";
 export const SNIPPET_CLOSE = "";
