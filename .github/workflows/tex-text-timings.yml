@@ -69,8 +69,8 @@ jobs:
           # A turn's id is opaque and is never printed: each is shown as "turn 1", "turn 2", ...
           : > turns.jsonl
           for kind in one group; do
-            sql "SELECT blob5 AS turn, double1 AS ms FROM $ENTRY WHERE blob2 = '$kind' AND blob3 = 'to_response' AND blob5 != ''
-              AND timestamp > NOW() - INTERVAL '$HOURS' HOUR ORDER BY timestamp DESC LIMIT 3 FORMAT JSON" > newest.json
+            sql "SELECT blob5 AS turn, double1 AS ms, timestamp AS t FROM $ENTRY WHERE blob2 = '$kind' AND blob3 = 'to_response' AND blob5 != ''
+              AND timestamp > NOW() - INTERVAL '$HOURS' HOUR ORDER BY t DESC LIMIT 3 FORMAT JSON" > newest.json
             for turn in $(node -e 'for (const r of JSON.parse(require("fs").readFileSync("newest.json","utf8")).data) if (/^[A-Za-z0-9_-]{1,64}$/.test(r.turn)) console.log(r.turn)'); do
               sql "SELECT '$kind' AS kind, blob3 AS step, blob4 AS state, double1 AS ms, double2 AS at FROM $ENTRY
                 WHERE blob5 = '$turn' AND timestamp > NOW() - INTERVAL '$HOURS' HOUR ORDER BY at LIMIT 150 FORMAT JSON" \
