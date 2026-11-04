@@ -378,7 +378,7 @@ describe("audit additions: a place's machine kind and a slot's tool", () => {
   test("a busy slot's line names the coding tool when the gateway sent one", () => {
     const now = 1_000_000_000;
     const base = { id: "j", title: "t", state: "running" as const, startedAt: now - 24 * 60_000, failedSteps: 0 };
-    expect(slotLine({ ...base, for: "Bo", tool: "Claude Code" }, now).text).toBe("For Bo · Claude Code · 24 min");
+    expect(slotLine({ ...base, for: "Bo", tool: "Claude Code" }, now).text).toBe("For Bo · Claude Code · 24\u00a0min");
     expect(slotLine(base, now).text).not.toContain("Claude");
   });
 });

@@ -153,7 +153,8 @@ const job = (id: string, title: string, startedAt: number, extra: Partial<JobSum
 function placesFor(page: MachinesPage): { places: SlotPlace[]; minions: (Slot & { place: string })[] } {
   const places: SlotPlace[] = [{ key: "cloud", kind: "cloud", name: "Tex's cloud", slots: page.cloud.slots }];
   const minions: (Slot & { place: string })[] = [
-    { place: "cloud", slot: 1, job: job("maritime", "Research maritime.sh pricing", now - 12 * min) },
+    { place: "cloud", slot: 1, job: job("maritime", "Research maritime.sh pricing", now - 12 * min, { now: "search_web: maritime.sh pricing" }) },
+    { place: "cloud", slot: 2, job: job("lisbon", "Plan the Lisbon trip", now - 4 * min, { now: "write_note: trips/lisbon.page.md" }) },
   ];
   for (const m of page.machines) {
     if (m.state === "pending") continue;
