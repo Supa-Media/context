@@ -18,7 +18,7 @@
 
 import { openSession, post, ServiceError, type Fetch } from "./clients";
 import { textsFromAnswer } from "./format";
-import type { JobAsk, JobRun, StepHow } from "./jobs";
+import type { JobAsk, JobRun, JobVerdict, StepHow } from "./jobs";
 
 /** One part's length on a machine; the advisor's check comes between parts. */
 export const MACHINE_PART_MS = 15 * 60 * 1000;
@@ -41,10 +41,27 @@ export type MachineDeps = {
 
 /** What the part came to, in the job's own terms (`jobRun.ts` `Outcome`). */
 export type MachineOutcome =
-  | { kind: "answer"; texts: string[]; exhausted: boolean; status: string; steered: string[] }
+  | { kind: "answer"; texts: string[]; exhausted: boolean; status: string; steered: string[]; check?: MachineCheck }
   | { kind: "retry" }
   | { kind: "broken" }
   | { kind: "stop"; text?: string };
+
+/** The advisor's check of an ended part (`/agent/machine/check`, `apps/mcp/src/agent/jobCheck.js`), as a cloud part's answer carries it. */
+export type MachineCheck = { verdict?: JobVerdict; advice?: string; unfinished?: true; untrusted?: true; idle?: true };
+
+const VERDICTS = new Set<string>(["done", "keep_going", "waiting", "stuck"]);
+
+/** The gateway's answer, read strictly: anything else is no check, and the part's own outcome decides as before. */
+function checkOf(answer: Record<string, unknown>): MachineCheck | undefined {
+  if (answer.ok !== true) return undefined;
+  const verdict = typeof answer.verdict === "string" && VERDICTS.has(answer.verdict) ? (answer.verdict as JobVerdict) : undefined;
+  return {
+    ...(verdict ? { verdict, ...(typeof answer.advice === "string" && answer.advice !== "" ? { advice: answer.advice.slice(0, 600) } : {}) } : {}),
+    ...(verdict && answer.unfinished === true ? { unfinished: true as const } : {}),
+    ...(answer.untrusted === true ? { untrusted: true as const } : {}),
+    ...(answer.idle === true ? { idle: true as const } : {}),
+  };
+}
 
 /** The running part, for a later text to reach (`jobRun.ts` `steerJob`). */
 export type MachineLive = { workspaceId: string; runId: string; accessToken: string; delivered: string[] };
@@ -181,12 +198,20 @@ export async function machineTurn(
         await hooks.keep({ machineRun: undefined });
         const words = (read.result.answer ?? "").trim();
         const steered = [...hooks.steerIds, ...delivered];
+        // The advisor checks the part against the finish line, as it checks a cloud part; unreachable, the outcome alone decides.
+        const ended = current.runId;
+        const checked = async () =>
+          checkOf(await ask("/agent/machine/check", { runId: ended, job: { title: job.title, brief: job.brief, doneWhen: job.doneWhen ?? "", attempt: job.attempt, followUps: job.followUps ?? [], advice: job.advice ?? "" } }).catch(() => ({})));
         switch (read.result.outcome) {
-          case "finished":
-            return { kind: "answer", texts: words ? textsFromAnswer(words) : [], exhausted: false, status: firstLine(words), steered };
-          case "limit":
-            // Out of time for this part: the next resumes the same session where it stopped.
-            return { kind: "answer", texts: words ? textsFromAnswer(words) : [], exhausted: true, status: firstLine(words) || "Still going on your computer", steered };
+          case "finished": {
+            const check = await checked();
+            return { kind: "answer", texts: words ? textsFromAnswer(words) : [], exhausted: false, status: firstLine(words), steered, ...(check ? { check } : {}) };
+          }
+          case "limit": {
+            // Out of time for this part: the next resumes the same session where it stopped, on the advisor's advice.
+            const check = await checked();
+            return { kind: "answer", texts: words ? textsFromAnswer(words) : [], exhausted: true, status: firstLine(words) || "Still going on your computer", steered, ...(check ? { check } : {}) };
+          }
           case "cancelled":
             return { kind: "stop" };
           default:

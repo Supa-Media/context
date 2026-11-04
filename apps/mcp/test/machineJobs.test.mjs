@@ -32,7 +32,7 @@ function objects() {
       },
     }),
   };
-  return { world, env: { WORKSPACE_STORE: namespace } };
+  return { world, env: { WORKSPACE_STORE: namespace, AI: { run: async () => ({}) } } };
 }
 
 function fakeControlPlane() {
@@ -45,6 +45,10 @@ function fakeControlPlane() {
       const accessToken = `cat_run_${grants.size + 1}_000000000000`;
       grants.set(runId, { parentToken, machineId, accessToken, expiresAt, revoked: false });
       return { accessToken, expiresAt };
+    },
+    usage: [],
+    async recordBuiltinUsage(accessToken, workspaceId, usage) {
+      this.usage.push({ accessToken, workspaceId, ...usage });
     },
     async texMachineRunRevoke(runId) {
       const grant = grants.get(runId);
@@ -66,12 +70,18 @@ async function setup() {
   const machine = await w.add("mch_1");
   const server = await w.connect(machine);
   const controlPlane = fakeControlPlane();
+  const advisor = { asked: [], reply: { text: "VERDICT: keep_going\nADVICE: Run the test ten times and show it passing.", usage: { input: 50, output: 9 } } };
+  const advise = async (params) => {
+    advisor.asked.push(params);
+    if (advisor.reply === null) throw new Error("unreachable");
+    return advisor.reply;
+  };
   const ask = async (path, body, who = session()) => {
-    const response = await handleMachineJob(new Request(`${ORIGIN}${path}`, { method: "POST", body: JSON.stringify(body) }), env, who, { path, controlPlane, origin: ORIGIN, now: () => w.clock.at });
+    const response = await handleMachineJob(new Request(`${ORIGIN}${path}`, { method: "POST", body: JSON.stringify(body) }), env, who, { path, controlPlane, origin: ORIGIN, store: { contexts: [] }, now: () => w.clock.at, advise });
     return { status: response.status, body: response.status === 204 ? null : await response.json() };
   };
   const assignBody = (fields = {}) => ({ workspaceId: "ws_a", machineId: "mch_1", jobId: "job_1", part: 1, tool: "claude", folder: "/srv/code", permission: "edits", brief: "Fix the flaky test.", doneWhen: "It passes.", ...fields });
-  return { w, server, controlPlane, ask, assignBody };
+  return { w, server, controlPlane, ask, assignBody, advisor };
 }
 
 test("the owner's own job gets a run grant for its part, bound to the job's grant, and the runner is sent it", async () => {
@@ -194,4 +204,56 @@ test("a run grant's session is never offered, and never runs, a call that reache
   const refused = await callToolForSession({ name: "send", arguments: { action: "email", args: { to: "a@example.test", subject: "x", body: "y" } } }, store, run);
   assert.equal(refused.isError, true);
   assert.match(refused.content[0].text, /can't send/);
+});
+
+const JOB = { title: "Fix the flaky test", brief: "Find why the upload test flakes and fix it.", doneWhen: "It passes ten times in a row.", attempt: 1, followUps: ["also the retry test"] };
+
+test("an ended part is checked by the advisor against the finish line, on what the run itself did", async () => {
+  const { w, server, controlPlane, ask, assignBody, advisor } = await setup();
+  const { body } = await ask("/agent/machine/assign", assignBody());
+  const runId = body.runId;
+  await w.frame(server, { type: "accept", runId });
+  await w.frame(server, { type: "step", runId, seq: 1, tool: "Bash", action: "run", target: "pnpm test upload", at: w.clock.at });
+  // Not ended yet: nothing to check.
+  assert.deepEqual((await ask("/agent/machine/check", { workspaceId: "ws_a", runId, job: JOB })).body, { ok: false, code: "not_ended" });
+  await w.frame(server, { type: "result", runId, outcome: "finished", answer: "I'll run it ten times next.", session: "sess_1", wallMs: 1000 });
+  // The body's own steps and answer are never read: the run's are.
+  const checked = await ask("/agent/machine/check", { workspaceId: "ws_a", runId, job: JOB, answer: "All done, ten passes.", steps: [] });
+  assert.deepEqual(checked.body, { ok: true, verdict: "keep_going", advice: "Run the test ten times and show it passing.", unfinished: true, untrusted: true });
+  const brief = advisor.asked[0].messages[0].text;
+  assert.match(brief, /pnpm test upload/);
+  assert.match(brief, /I'll run it ten times next\./);
+  assert.doesNotMatch(brief, /All done, ten passes/);
+  assert.match(brief, /Finish line: It passes ten times in a row\./);
+  assert.match(brief, /also the retry test/);
+  // Metered as background spend, on the job's own grant.
+  assert.equal(controlPlane.usage.length, 1);
+  assert.equal(controlPlane.usage[0].background, true);
+  assert.equal(controlPlane.usage[0].input, 50);
+});
+
+test("a part out of time is checked too, and a part that did nothing is marked idle", async () => {
+  const { w, server, ask, assignBody, advisor } = await setup();
+  const { body } = await ask("/agent/machine/assign", assignBody());
+  await w.frame(server, { type: "accept", runId: body.runId });
+  await w.frame(server, { type: "result", runId: body.runId, outcome: "limit", answer: "", session: "sess_1", wallMs: 1000 });
+  const checked = (await ask("/agent/machine/check", { workspaceId: "ws_a", runId: body.runId, job: JOB })).body;
+  // Out of time carries on anyway: the advice goes to the next part, and `unfinished` is the cloud's, for a part that stopped on its own.
+  assert.equal(checked.exhausted, true);
+  assert.equal(checked.unfinished, undefined);
+  assert.equal(checked.idle, true);
+  assert.match(advisor.asked[0].messages[0].text, /ran out of steps/);
+});
+
+test("only the person whose job it is has a run checked, and an unreachable advisor is no verdict", async () => {
+  const { w, server, ask, assignBody, advisor } = await setup();
+  const { body } = await ask("/agent/machine/assign", assignBody());
+  await w.frame(server, { type: "accept", runId: body.runId });
+  await w.frame(server, { type: "result", runId: body.runId, outcome: "finished", answer: "Fixed.", session: "sess_1", wallMs: 1000 });
+  const stranger = session({ actorUserId: "user_other", workspaces: [{ workspaceId: "ws_a", slug: "seyi", role: "editor", kind: "shared" }] });
+  assert.deepEqual((await ask("/agent/machine/check", { workspaceId: "ws_a", runId: body.runId, job: JOB }, stranger)).body, { ok: false, code: "unknown_run" });
+  assert.equal(advisor.asked.length, 0);
+  assert.equal((await ask("/agent/machine/check", { workspaceId: "ws_a", runId: body.runId, job: { title: "", brief: "" } })).status, 400);
+  advisor.reply = null;
+  assert.deepEqual((await ask("/agent/machine/check", { workspaceId: "ws_a", runId: body.runId, job: JOB })).body, { ok: true, untrusted: true, idle: true });
 });
