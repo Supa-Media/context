@@ -16,6 +16,7 @@
  *   services.ts handing the register the keychain record (`tokens.read()`)   1
  *   `runArgv` leaving out `--machine-id`                                     3
  *   a two-part stored grant (v0.1.70) kept instead of registering again      1
+ *   `runnerPath` returning the inherited launchd PATH only                   3
  */
 
 import { readFileSync } from "node:fs";
@@ -33,6 +34,7 @@ import {
   runnerBinaryPath,
   wantsAwake,
   machineName,
+  runnerPath,
 } from "../src/core/machine/runner.ts";
 import { createMachineRunner, EXIT_GRANT_REFUSED } from "../src/main/machineRunner.ts";
 import { memoryTokenStore } from "../src/core/sync/tokenStore.ts";
@@ -119,6 +121,14 @@ export async function runMachineRunnerChecks(check) {
   check("an empty data directory is refused, never defaulted to the working directory", threw);
   // The app registers the machine itself, so the runner's folder has no pairing record: without the id it
   // exits at once ("no machine id"), which the switch showed as "Tex's runner stopped" (Dev2, 2026-11-04).
+  {
+    // launchd starts a Mac app with /usr/bin:/bin:/usr/sbin:/sbin, where neither CLI lives (Dev2, 2026-11-04).
+    const path = runnerPath("/Users/a/.nvm/bin:/usr/bin", "/Users/a", "/usr/bin:/bin:/usr/sbin:/sbin").split(":");
+    check("the runner's PATH starts with the login shell's", path[0] === "/Users/a/.nvm/bin");
+    check("...adds where the CLIs' installers, Homebrew and npm put them", ["/Users/a/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "/Users/a/.claude/local"].every((dir) => path.includes(dir)));
+    check("...keeps what the app inherited, each directory once and only absolute ones", path.includes("/sbin") && path.filter((dir) => dir === "/usr/bin").length === 1 && runnerPath("rel:/x", "/h", "").split(":")[0] === "/x");
+    check("...and works with no login shell answer", runnerPath(null, "/Users/a", undefined).split(":").includes("/opt/homebrew/bin"));
+  }
   check("the runner is told its machine id", argv[argv.indexOf("--machine-id") + 1] === "m-1");
 
   check("a status line reads", readStatusLine('{"state":"online","slots":4,"busy":1}')?.busy === 1);
