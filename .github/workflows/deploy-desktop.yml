@@ -384,7 +384,15 @@ jobs:
             echo "::error::$TAG already has a release. This workflow never overwrites one — bump the version in apps/desktop/package.json and dispatch again."
             exit 1
           fi
-          echo "$TAG has no release yet; this dispatch may create it."
+          # A release made on a Mac by build/release-local.sh takes the next
+          # number after the latest release, not this run's, so a run queued
+          # behind it could otherwise publish an older version as "latest".
+          latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || echo v0.0.0)"
+          if [ "$(printf '%s\n%s\n' "${latest#v}" "${TAG#v}" | sort -V | tail -n 1)" != "${TAG#v}" ]; then
+            echo "::error::$TAG is older than the latest release $latest. Dispatch again; a newer run number gives a newer version."
+            exit 1
+          fi
+          echo "$TAG has no release yet and is newer than $latest; this dispatch may create it."
 
       # The signing half arrives as `CSC_KEYCHAIN` and
       # `CSC_IDENTITY_AUTO_DISCOVERY` from the step above, through `GITHUB_ENV`

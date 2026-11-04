@@ -314,6 +314,20 @@ app would need. `docs/decisions/desktop.md`'s "Step 7 landed" records why a
 release rather than a draft, and why a deferred install can only ever resume,
 never quietly drop.
 
+### Releasing from a Mac, when GitHub has no Mac runner
+
+`bash apps/desktop/build/release-local.sh` (or `--dry-run` to stop before
+publishing) makes the same release on a Mac. It refuses anything but a clean
+checkout of `origin/main`, takes the next version after the latest release,
+reads the five signing values from 1Password (`op://Context/<NAME>/production`,
+or the environment), signs from a throwaway keychain it deletes on exit,
+notarises, verifies each app with `codesign`, `stapler` and `spctl`, opens the
+arm64 app with `--smoke`, and only then creates the GitHub Release. Installed
+copies update from it like any other. It needs Node 22+, pnpm, Rust, `gh`
+signed in with write access, and `op` signed in. It builds no Linux app. A
+workflow run whose number is behind a local release refuses to publish rather
+than publish an older version.
+
 ### What a Mac has to confirm, because nothing here can
 
 - **An installed `0.1.0` sees a published `0.1.1` and updates itself.** Install
