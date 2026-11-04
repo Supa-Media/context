@@ -1,6 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 import type { PaletteSearch } from "../../design/components/Palette";
 import { useBlendedSearch, type BlendedDeviceSearch } from "../search/useBlendedSearch";
+import type { Id } from "@context/convex/_generated/dataModel";
+import { useConsoleGrant } from "../../agent/useConsoleGrant";
+import { MCP_ENDPOINT } from "../placeholderData";
+import { appSearchUrl, searchEverywhereThroughGateway } from "../search/gatewaySearch";
 import type { SearchableContext } from "../search/results";
 import { workspaceFilters } from "./searchFilters";
 import type { PaletteFilters } from "../../design/components/PaletteFilterTokens";
@@ -57,10 +61,32 @@ export function useEverywhereSearch({
   const [query, setQuery] = useState("");
   const [narrowed, narrow] = useState<string | null>(null);
   const onQuery = useCallback((next: string) => setQuery(next), []);
+  /*
+    The gateway's search first, the one an AI client runs, with this person's console grant for the workspace being
+    browsed (it reaches every workspace they can): one answer in one order, so the rows on screen are not replaced
+    by a second half a moment later (owner, 2026-11-04: "the right results pop up for 1 second then switches").
+  */
+  const mintGrant = useConsoleGrant();
+  const gateway = useCallback(
+    async (asked: string, contexts: readonly SearchableContext[]) => {
+      const url = appSearchUrl(MCP_ENDPOINT);
+      const grantFor = contexts.find((context) => context.slug === currentSlug) ?? contexts[0];
+      if (url === null || grantFor === undefined) return null;
+      return await searchEverywhereThroughGateway({
+        url,
+        token: async (refresh) =>
+          (await mintGrant({ workspaceId: grantFor.workspaceId as Id<"workspaces"> }, refresh)).accessToken,
+        query: asked,
+        contexts,
+      });
+    },
+    [mintGrant, currentSlug],
+  );
   const blended = useBlendedSearch({
     query: enabled ? query : "",
     slugs: narrowed === null ? [] : [narrowed],
     device,
+    gateway,
   });
 
   const items = useMemo(

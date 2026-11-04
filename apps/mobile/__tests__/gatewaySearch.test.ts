@@ -1,5 +1,5 @@
 import { describe, expect, test } from "@jest/globals";
-import { appSearchBody, appSearchUrl, readAppSearch, searchThroughGateway } from "../features/console/search/gatewaySearch";
+import { appSearchBody, appSearchUrl, readAppSearch, readAppSearchEverywhere, searchEverywhereThroughGateway, searchThroughGateway } from "../features/console/search/gatewaySearch";
 
 /**
  * The search bar's wire to the gateway's `POST /app/search` (`apps/mcp/src/http/appSearch.js`), the same search an AI
@@ -73,5 +73,37 @@ describe("the bar's gateway search", () => {
     expect(await ask(async () => { throw new Error("offline"); })).toBeNull();
     expect(await ask(async () => new Response("not json", { status: 200 }))).toBeNull();
     expect(await searchThroughGateway({ url: "https://x.test/app/search", token: async () => { throw new Error("Not authenticated"); }, query: "q", slug: "s" })).toBeNull();
+  });
+
+  test("every workspace in one answer, in the gateway's order, each row named by its workspace", async () => {
+    const contexts = [
+      { workspaceId: "ws_a", slug: "shyoh", displayName: "Shyoh" },
+      { workspaceId: "ws_b", slug: "v2l", displayName: "V2L" },
+    ];
+    const read = readAppSearchEverywhere(
+      answer([
+        { workspace: "@shyoh", path: "bible/deuteronomy-23.md", title: "Deuteronomy 23", snippet: "" },
+        { workspace: "@stranger", path: "x.md", title: "X", snippet: "" },
+        { workspace: "@v2l", path: "meetings/a.md", title: "A", snippet: "s", loose: true },
+      ]),
+      contexts,
+    );
+    expect(read?.results.map((row) => [row.workspaceId, row.slug, row.path, row.loose ?? false])).toEqual([
+      ["ws_a", "shyoh", "bible/deuteronomy-23.md", false],
+      ["ws_b", "v2l", "meetings/a.md", true],
+    ]);
+    expect(read?.cursor).toBeNull();
+    expect(read?.sources.map((source) => source.matchCount)).toEqual([1, 1]);
+    const sent: unknown[] = [];
+    const found = await searchEverywhereThroughGateway({
+      url: "https://mcp.example.test/app/search",
+      token: async () => "t",
+      query: "Deut 23",
+      contexts,
+      fetchImpl: (async (_url: string, init: RequestInit) => (sent.push(JSON.parse(String(init.body))), ok(answer([])))) as unknown as typeof fetch,
+    });
+    expect(found?.results).toEqual([]);
+    expect(sent).toEqual([{ query: "Deut 23", workspaces: ["@shyoh", "@v2l"] }]);
+    expect(await searchEverywhereThroughGateway({ url: "https://x.test/app/search", token: async () => "t", query: "q", contexts: [] })).toBeNull();
   });
 });

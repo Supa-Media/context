@@ -75,8 +75,7 @@ const { ThemeProvider } = require("../features/design/theme") as typeof import("
 const { PhoneHome } = require("../features/console/home/PhoneHome") as typeof import("../features/console/home/PhoneHome");
 const { Palette } = require("../features/design/components/Palette") as typeof import("../features/design/components/Palette");
 const { LastChangeLine } = require("../features/console/files/noteEditor/chips/LastChangeLine") as typeof import("../features/console/files/noteEditor/chips/LastChangeLine");
-const { accountRecentItems } = require("../features/console/files/palette") as typeof import("../features/console/files/palette");
-const { recentLabel } = require("../features/console/home/homeModel") as typeof import("../features/console/home/homeModel");
+const { recentItems } = require("../features/console/files/palette") as typeof import("../features/console/files/palette");
 const { Text } = require("../features/design/components/Text") as typeof import("../features/design/components/Text");
 
 type Viewport = { name: "desktop" | "phone"; width: number; height: number };
@@ -217,9 +216,7 @@ const palette = (viewport: Viewport) =>
     createElement(Palette, {
       items: [],
       placeholder: "Search",
-      recent: accountRecentItems(RECENTS, [], (row) => recentLabel(row.kind, row.at, NOW)),
-      emptyHeading: "Recent",
-      emptyNote: "Notes you opened or typed in, on any device.",
+      recent: recentItems(RECENTS.map((row) => row.path), []),
       onChoose: () => {},
       onDismiss: () => {},
     }),
