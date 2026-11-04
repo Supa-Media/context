@@ -38,6 +38,16 @@ export function reviewerTestEmail(
   return [{ email: REVIEWER_EMAIL, code, id: REVIEWER_PROVIDER_ID }];
 }
 
+/** A fresh sample-only principal, separate from the historical App Store account. */
+export const DIRECTORY_REVIEW_EMAIL = "directory-review@supa.media";
+export const DIRECTORY_REVIEW_PROVIDER_ID = "test-email-directory-review";
+export function directoryReviewTestEmail(env: Environment = process.env): Array<{ email: string; code: string; id: string }> {
+  const code = env.DIRECTORY_REVIEW_SIGNIN_CODE?.trim() ?? "";
+  const otherCodes = [env.REVIEWER_SIGNIN_CODE, env.GOOGLE_REVIEW_SIGNIN_CODE, env.APP_REVIEW_SIGNIN_CODE, env.TEST_ACCOUNT_SIGNIN_CODE].map(value => value?.trim());
+  if (!/^\d{6}$/.test(code) || code === "000000" || otherCodes.includes(code)) return [];
+  return [{ email: DIRECTORY_REVIEW_EMAIL, code, id: DIRECTORY_REVIEW_PROVIDER_ID }];
+}
+
 /** Reserved fictional NANP number. This alias never proves ownership of a phone. */
 export const APP_REVIEW_PHONE = "+12025550123";
 
@@ -125,7 +135,7 @@ async function emailOf(ctx: QueryCtx, userId: Id<"users">): Promise<string | und
  */
 export async function isReservedReviewer(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
   const email = await emailOf(ctx, userId);
-  return email === REVIEWER_EMAIL || email === GOOGLE_REVIEW_EMAIL;
+  return email === REVIEWER_EMAIL || email === GOOGLE_REVIEW_EMAIL || email === DIRECTORY_REVIEW_EMAIL;
 }
 
 /**
@@ -134,5 +144,6 @@ export async function isReservedReviewer(ctx: QueryCtx, userId: Id<"users">): Pr
  * reviewer may: that is what its review is of.
  */
 export async function mayHoldGoogleConnection(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
-  return (await emailOf(ctx, userId)) !== REVIEWER_EMAIL;
+  const email = await emailOf(ctx, userId);
+  return email !== REVIEWER_EMAIL && email !== DIRECTORY_REVIEW_EMAIL;
 }
