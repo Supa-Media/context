@@ -66,8 +66,10 @@ export function keyArgv(dataDir: string): string[] {
 }
 
 /** `context-machine run`: the grant as a file path, statuses on stdout, the app keeps the Mac awake. */
-export function runArgv(options: { dataDir: string; grantFile: string; socketUrl: string }): string[] {
+export function runArgv(options: { dataDir: string; grantFile: string; socketUrl: string; machineId: string }): string[] {
   if (!options.dataDir || !options.grantFile) throw new Error("machine runner: missing paths");
+  // The app registers the machine itself, so the runner's folder has no pairing record to read the id from.
+  if (!options.machineId) throw new Error("machine runner: missing machine id");
   return [
     "run",
     "--data-dir",
@@ -76,6 +78,8 @@ export function runArgv(options: { dataDir: string; grantFile: string; socketUrl
     options.grantFile,
     "--socket-url",
     options.socketUrl,
+    "--machine-id",
+    options.machineId,
     "--status-json",
     "--no-keep-awake",
   ];
@@ -188,4 +192,35 @@ export function wantsAwake(status: Pick<MachineStatus, "enabled" | "state">, onB
 export function machineName(computerName: string): string {
   const clean = computerName.replace(/[\u0000-\u001f]/g, "").trim();
   return (clean || "This Mac").slice(0, 60);
+}
+
+/**
+ * The PATH the runner is started with. A Mac app is launched by launchd with
+ * `/usr/bin:/bin:/usr/sbin:/sbin`, which has never seen the person's shell
+ * set-up, so the runner (which looks for `claude` and `codex` on PATH, as a
+ * shell would) found neither and said "Sign in to Claude Code or Codex on this
+ * Mac" to a Mac that had both (Dev2, 2026-11-04). This is the login shell's
+ * PATH, then the places the two CLIs' own installers and Homebrew and npm put
+ * them, then what the app inherited; absolute entries only, each once.
+ */
+export function runnerPath(loginPath: string | null, home: string, inherited: string | undefined): string {
+  const known = [
+    `${home}/.local/bin`,
+    `${home}/.claude/local`,
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    `${home}/.npm-global/bin`,
+    `${home}/.bun/bin`,
+    `${home}/.volta/bin`,
+  ];
+  const all = [...(loginPath ?? "").split(":"), ...known, ...(inherited ?? "").split(":")];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of all) {
+    const dir = entry.trim();
+    if (!dir.startsWith("/") || seen.has(dir)) continue;
+    seen.add(dir);
+    out.push(dir);
+  }
+  return out.join(":");
 }

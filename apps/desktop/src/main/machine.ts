@@ -14,10 +14,10 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { hostname } from "node:os";
+import { homedir, hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import { app, powerMonitor, powerSaveBlocker, safeStorage } from "electron";
-import { runnerBinaryPath } from "../core/machine/runner.ts";
+import { runnerBinaryPath, runnerPath } from "../core/machine/runner.ts";
 import { encryptedFileStore } from "../core/sync/encryptedFileStore.ts";
 import { run } from "../platform/exec.ts";
 import { createMachineRunner, type MachineRunner } from "./machineRunner.ts";
@@ -44,6 +44,21 @@ export async function createAppMachineRunner(deps: {
     );
   }
 
+  // The runner finds `claude` and `codex` on PATH, and launchd gave this app none of the person's.
+  // Read the login shell's once (a constant script, no interpolation), and add the CLIs' usual homes.
+  let loginPath: string | null = null;
+  if (process.platform === "darwin") {
+    let shell = "/bin/zsh";
+    try {
+      const own = userInfo().shell;
+      if (own && own.startsWith("/")) shell = own;
+    } catch {
+      // No passwd entry: the macOS default shell.
+    }
+    loginPath = await run(shell, ["-lc", 'printf "%s" "$PATH"'], { timeoutMs: 5_000 }).catch(() => null);
+  }
+  const env = { ...process.env, PATH: runnerPath(loginPath, homedir(), process.env.PATH) };
+
   const power = new Set<() => void>();
   powerMonitor.on("on-ac", () => power.forEach((fn) => fn()));
   powerMonitor.on("on-battery", () => power.forEach((fn) => fn()));
@@ -57,7 +72,7 @@ export async function createAppMachineRunner(deps: {
     computerName: () => computerName,
     exec: (command, args) => run(command, args, { timeoutMs: 20_000 }),
     // No shell, and stderr kept off: it can carry a CLI's own output, which is not ours to log.
-    spawn: (command, args) => spawn(command, [...args], { stdio: ["ignore", "pipe", "ignore"], shell: false }),
+    spawn: (command, args) => spawn(command, [...args], { stdio: ["ignore", "pipe", "ignore"], shell: false, env }),
     fetch: (...args) => fetch(...args),
     power: {
       onBattery: () => powerMonitor.isOnBatteryPower(),
