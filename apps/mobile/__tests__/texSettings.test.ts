@@ -12,6 +12,7 @@
  *
  *  1. The quick pick sent as its label. → `a quick pick is sent by id` fails.
  *  2. A blur saving the unchanged text. → `the box saves what they wrote, once` fails.
+ *  3. `<ThisMac />` taken out of the panel. → `inside the Mac app, the panel has Let Tex use this Mac` fails.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -26,6 +27,13 @@ jest.mock("convex/react", () => ({
     mockSaves.push(args);
     return 1;
   },
+}));
+
+// The Mac app's bridge, or none (a browser or a phone).
+let mockMachine: unknown = null;
+const mockEnabled: boolean[] = [];
+jest.mock("@context/desktop-bridge", () => ({
+  getDesktopBridge: () => (mockMachine === null ? null : { machine: mockMachine }),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -71,6 +79,8 @@ afterEach(() => {
   root = null;
   mockSaves.length = 0;
   mockSaved = {};
+  mockMachine = null;
+  mockEnabled.length = 0;
 });
 
 const PICKS = [
@@ -113,5 +123,33 @@ describe("Settings › Tex", () => {
     expect(mockSaves).toEqual([{ change: { replace: "Be brief. Call me Captain." } }]);
     await pick("tex-updates", "Off");
     expect(mockSaves.at(-1)).toEqual({ updates: "off" });
+  });
+});
+
+// The Tex page's connect screen tells a Mac owner to "open Settings › Tex and
+// turn on Let Tex use this Mac", and the Mac app has no link to the Tex page.
+describe("Settings › Tex, this Mac", () => {
+  const status = { available: true, enabled: false, state: "off" };
+  test("inside the Mac app, the panel has Let Tex use this Mac, and the switch turns it on", async () => {
+    mockMachine = {
+      status: async () => status,
+      onChange: () => () => {},
+      setEnabled: async (on: boolean) => {
+        mockEnabled.push(on);
+        return { ...status, enabled: on, state: on ? "starting" : "off" };
+      },
+    };
+    const view = await render();
+    await act(async () => {});
+    expect(view.textContent).toContain("Let Tex use this Mac");
+    await act(async () => {
+      (byTestId("tex-this-mac-switch").querySelector('[role="switch"]') as HTMLElement | null ?? byTestId("tex-this-mac-switch")).click();
+    });
+    expect(mockEnabled).toEqual([true]);
+  });
+
+  test("in a browser or on a phone, there is no switch", async () => {
+    const view = await render();
+    expect(view.textContent).not.toContain("Let Tex use this Mac");
   });
 });

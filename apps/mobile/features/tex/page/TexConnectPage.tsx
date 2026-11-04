@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Linking, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { writeClipboard } from "../../design/clipboard";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { ViewProps } from "./TexPageBody";
@@ -102,11 +102,6 @@ export function ConnectPage({ source, page, chat, go }: ViewProps) {
             </T>
             . It shows up here at once, with no code.
           </T>
-          {wide ? (
-            <View style={styles.pinned}>
-              <Button label="Open the Mac app" onPress={() => void Linking.openURL("context://settings/tex")} testID="tex-connect-open-mac" />
-            </View>
-          ) : null}
         </View>
 
         <View style={[card, styles.path]} testID="tex-connect-cli">

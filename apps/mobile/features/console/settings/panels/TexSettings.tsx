@@ -5,12 +5,14 @@ import { api } from "@context/convex/_generated/api";
 
 import { Button } from "../../../design/components/Button";
 import { Card, Grow, Row } from "../../../design/components/Card";
+import { Switch } from "../../../design/components/Switch";
 import { TextField } from "../../../design/components/Input";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useThemedStyles } from "../../../design/theme";
 import { settingsSectionLabel } from "../sections";
 import { PickMenu, type PickOption } from "./PickMenu";
+import { thisMacLine, useThisMac } from "../../../tex/page/useThisMac";
 
 /**
  * Settings › Tex (Dev2, 2026-11-01; docs/decisions/texting-assistant/custom-instructions.md):
@@ -39,7 +41,33 @@ export function TexSettings() {
       </Text>
       {/* Nothing to read or save without a client: the demo and the render tests. */}
       {live ? <TexSettingsLive /> : null}
+      <ThisMac />
     </View>
+  );
+}
+
+/**
+ * "Let Tex use this Mac", inside the Mac app only (`useThisMac` is null
+ * anywhere else, so nothing is drawn). The Tex page's connect screen sends a
+ * Mac owner here ("open Settings › Tex"), and the Mac app has no link to the
+ * Tex page, so the switch must be here as well as on the Tex page's settings.
+ */
+function ThisMac() {
+  const styles = useThemedStyles(makeStyles);
+  const thisMac = useThisMac();
+  if (thisMac === null) return null;
+  return (
+    <Card style={styles.mac} testID="tex-this-mac">
+      <Row>
+        <Grow>
+          <Text variant="rowTitle">Let Tex use this Mac</Text>
+          <Text variant="rowSub">{thisMacLine(thisMac.status)}</Text>
+        </Grow>
+        {thisMac.status.available ? (
+          <Switch value={thisMac.status.enabled} label="Let Tex use this Mac" onValueChange={thisMac.setEnabled} testID="tex-this-mac-switch" />
+        ) : null}
+      </Row>
+    </Card>
   );
 }
 
@@ -157,4 +185,5 @@ const makeStyles = () =>
     head: { marginBottom: space.x3 },
     actions: { flexDirection: "row", gap: space.x2, marginVertical: space.x3, alignItems: "center" },
     problem: { marginTop: space.x2 },
+    mac: { marginTop: space.x3 },
   });
