@@ -63,6 +63,12 @@ for (const name of [
   check("folders: a relative path, a non-string or an overlong path is dropped", JSON.stringify(read(["Code", 3, `/${"x".repeat(1100)}`, "/ok"])) === JSON.stringify(["/ok"]));
   check("folders: at most MAX_MACHINE_FOLDERS", read(Array.from({ length: 50 }, (_, i) => `/f${i}`)).length === index.MAX_MACHINE_FOLDERS);
 }
+// -- this Mac's id (version 12): the gateway's id shape or nothing
+{
+  const id = index.machineIdFrom;
+  check("machine id: the gateway's shape is kept", id("mch_01AbC-9") === "mch_01AbC-9");
+  check("machine id: anything else is null", [undefined, null, "", "a/b", "x".repeat(65), 3, "cmg_ zz"].every((v) => id(v) === null));
+}
 
 check(
   "the index exports nothing credential-shaped",

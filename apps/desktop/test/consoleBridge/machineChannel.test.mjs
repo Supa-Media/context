@@ -38,26 +38,28 @@ export async function runMachineChannelChecks(check) {
   const off = (await bare.handlers.get(BRIDGE_CHANNELS.machineStatus)(sender())).value;
   check("a shell wired without a runner answers off, not an error", off.state === "off" && off.available === false);
 
-  // Version 11: the folders Tex may work in, read and chosen in the Mac's own picker.
+  // Version 12: this Mac's id and the folder picker; the page saves with its own grant.
   const picks = [];
   const { ipc: folders } = mainBridge({
     deps: {
-      machineFolders: async () => ["/Users/a/Code", "relative", "/Users/a/Code"],
-      chooseMachineFolders: async () => (picks.push(true), ["/Users/a/Code/context"]),
+      machineId: async () => "mch_01abc",
+      pickMachineFolders: async () => (picks.push(true), ["/Users/a/Code/context", "relative", "/Users/a/Code/context"]),
     },
   });
-  const read = (await folders.handlers.get(BRIDGE_CHANNELS.machineFolders)(sender())).value;
-  check("the console reads the folders Tex may work in, rebuilt: absolute paths, each once", JSON.stringify(read) === JSON.stringify(["/Users/a/Code"]));
-  const chosen = (await folders.handlers.get(BRIDGE_CHANNELS.machineChooseFolders)(sender())).value;
-  check("...and opens the picker, answering what it saved", picks.length === 1 && JSON.stringify(chosen) === JSON.stringify(["/Users/a/Code/context"]));
+  const id = (await folders.handlers.get(BRIDGE_CHANNELS.machineId)(sender())).value;
+  check("the console reads this Mac's id, in the gateway's shape", id === "mch_01abc");
+  const chosen = (await folders.handlers.get(BRIDGE_CHANNELS.machinePickFolders)(sender())).value;
+  check("...and opens the picker, answering the folders chosen, rebuilt: absolute paths, each once", picks.length === 1 && JSON.stringify(chosen) === JSON.stringify(["/Users/a/Code/context"]));
   let pickRefused = false;
   try {
-    const answer = await folders.handlers.get(BRIDGE_CHANNELS.machineChooseFolders)(sender({ id: 99 }));
+    const answer = await folders.handlers.get(BRIDGE_CHANNELS.machinePickFolders)(sender({ id: 99 }));
     pickRefused = answer?.ok === false;
   } catch {
     pickRefused = true;
   }
   check("...and a frame that is not the console cannot open the folder picker", pickRefused && picks.length === 1);
-  const unknown = (await bare.handlers.get(BRIDGE_CHANNELS.machineFolders)(sender())).value;
-  check("...and a shell wired without folders answers unknown (null), not an empty list", unknown === null);
+  const { ipc: odd } = mainBridge({ deps: { machineId: async () => "cmg_" + "0".repeat(64) + "/x" } });
+  check("...and anything not shaped like an id never reaches the page", (await odd.handlers.get(BRIDGE_CHANNELS.machineId)(sender())).value === null);
+  const unknown = (await bare.handlers.get(BRIDGE_CHANNELS.machinePickFolders)(sender())).value;
+  check("...and a shell wired without a picker answers null (Cancel), not an empty list", unknown === null);
 }

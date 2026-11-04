@@ -187,6 +187,8 @@ const REQUIRED_MEMBERS: Readonly<Record<number, readonly string[]>> = Object.fre
   10: VERSION_1_MEMBERS,
   /** Version 11 adds two methods to `machine`. */
   11: VERSION_1_MEMBERS,
+  /** Version 12 swaps them for `id` and `pickFolders`. */
+  12: VERSION_1_MEMBERS,
 });
 
 /** The sub-objects, and the methods each must carry, per version. */
@@ -308,6 +310,15 @@ const REQUIRED_SUB_MEMBERS: Readonly<
     spelling: Object.freeze(["check"]),
     calendar: Object.freeze(["setUpcoming"]),
     machine: Object.freeze(["status", "setEnabled", "onChange", "folders", "chooseFolders"]),
+  }),
+  /* Version 12: the picker only, and this Mac's id; the page saves with its own grant (`contract.ts`). */
+  12: Object.freeze({
+    ...VERSION_3_SUB_MEMBERS,
+    imessage: Object.freeze(["status", "setEnabled", "requestFullDiskAccess", "onChange"]),
+    agent: Object.freeze(["status", "ask"]),
+    spelling: Object.freeze(["check"]),
+    calendar: Object.freeze(["setUpcoming"]),
+    machine: Object.freeze(["status", "setEnabled", "onChange", "id", "pickFolders"]),
   }),
 });
 

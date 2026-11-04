@@ -150,8 +150,8 @@ export interface FakeBridgeOptions {
   noMachine?: boolean;
   /** What `machine.status()` answers first. Default: available, off. */
   machine?: MachineRunStatus;
-  /** What `machine.folders()` answers first. Default: `null`, not registered yet. */
-  machineFolders?: string[] | null;
+  /** What `machine.id()` answers. Default: `null`, not registered yet. */
+  machineId?: string | null;
   /** What the folder picker returns: the chosen folders, or `null` for Cancel. Default: Cancel. */
   pickFolders?: string[] | null;
   /**
@@ -203,7 +203,6 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
   const agentAsks: LocalAgentAsk[] = [];
   let machineNow: MachineRunStatus = options.machine ?? { available: true, enabled: false, state: "off", slots: 0, busy: 0, awake: false, message: null };
   const machineListeners = new Set<(status: MachineRunStatus) => void>();
-  let foldersNow: string[] | null = options.machineFolders ?? null;
   const upcomingPushes: UpcomingMeetings[] = [];
   let imessageStatus: ImessageStatus = options.imessage ?? {
     enabled: false,
@@ -493,14 +492,13 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
                 machineListeners.delete(handler);
               };
             },
-            async folders(): Promise<string[] | null> {
-              calls.push("machine.folders");
-              return foldersNow === null ? null : [...foldersNow];
+            async id(): Promise<string | null> {
+              calls.push("machine.id");
+              return options.machineId ?? null;
             },
-            async chooseFolders(): Promise<string[] | null> {
-              calls.push("machine.chooseFolders");
-              if (options.pickFolders !== undefined && options.pickFolders !== null) foldersNow = [...options.pickFolders];
-              return foldersNow === null ? null : [...foldersNow];
+            async pickFolders(): Promise<string[] | null> {
+              calls.push("machine.pickFolders");
+              return options.pickFolders ? [...options.pickFolders] : null;
             },
           }),
         }),

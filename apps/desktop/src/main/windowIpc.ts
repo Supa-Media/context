@@ -19,11 +19,12 @@ import { createConsoleMirror } from "./consoleMirror.ts";
 import { COMMANDS } from "./ipc.ts";
 import { backupBridgeStatus, machineLabel } from "./messagesBackup.ts";
 import { createMessagesDownloader } from "./messagesDownload.ts";
+import { pickTexFolders } from "./machine.ts";
 import { CONSOLE_UI, RENDERER_DIR } from "./launchFlags.ts";
 import type { MainActions, MainContext } from "./context.ts";
 
 export function createConsoleWindowOpener(ctx: MainContext): Pick<MainActions, "openConsoleWindowIfAsked"> {
-  const { controller, messagesBackup, localAgent, machine, machineFolders } = ctx;
+  const { controller, messagesBackup, localAgent, machine } = ctx;
   // Late-bound: these live in other modules and are read from `ctx` at call time.
   const push: MainActions["push"] = () => ctx.push();
   const update: MainActions["update"] = (patch) => ctx.update(patch);
@@ -161,8 +162,8 @@ export function createConsoleWindowOpener(ctx: MainContext): Pick<MainActions, "
         await update({ machineEnabled: enabled });
         return machine.setEnabled(enabled);
       },
-      machineFolders: () => machineFolders.read(),
-      chooseMachineFolders: () => machineFolders.choose(),
+      machineId: () => machine.machineId(),
+      pickMachineFolders: () => pickTexFolders(ctx.consoleWindow ?? null),
     });
 
     ctx.consoleWindow = createConsoleWindow(url, RENDERER_DIR, {
