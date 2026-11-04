@@ -115,7 +115,12 @@ export function stubD1(): StubD1 {
     // A relaxed expression (`toRelaxedMatchExpression`) is `"a"* OR "b"*`:
     // any one word, a trailing `*` matching words that start with it.
     const expression = String(params[0] ?? "");
-    const any = expression.includes(" OR ");
+    // A strict or typing expression (`toMatchExpression`) is words joined by
+    // ` AND `, each a quoted word or a group of its forms, `("a" OR "as" OR "a"*)`.
+    const groups = /\sAND\s|^\(/.test(expression)
+      ? expression.split(/\s+AND\s+/).map((group) => group.replace(/^\(|\)$/g, "").split(/ OR /))
+      : null;
+    const any = groups === null && expression.includes(" OR ");
     const wanted = expression
       .split(any ? / OR / : /\s+/)
       .map((token) => token.replace(/^"|"\*?$/g, "").toLowerCase())
@@ -133,6 +138,12 @@ export function stubD1(): StubD1 {
         const words = new Set(haystack.split(/[^\p{L}\p{N}_]+/u));
         const has = (token: string) =>
           words.has(token) || (prefixes.has(token) && [...words].some((word) => word.startsWith(token)));
+        if (groups !== null) {
+          return groups.every((terms) => terms.some((term) => {
+            const word = term.replace(/^"|"\*?$/g, "").toLowerCase();
+            return term.endsWith("*") ? [...words].some((held) => held.startsWith(word)) : words.has(word);
+          }));
+        }
         return any ? wanted.some(has) : wanted.every(has);
       })
       .slice(0, limit)
