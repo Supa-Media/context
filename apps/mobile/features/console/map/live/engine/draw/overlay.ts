@@ -5,6 +5,7 @@ import { dotRadius, flagsShown, noteLabelAlpha, facesApart } from "../lod";
 import type { NotePlace } from "../layout";
 import type { Flight } from "../scene";
 import type { DrawEnv } from "./env";
+import { openingScale } from "./sketch";
 import { placeFlights, type FlightCaption } from "./flights";
 import {
   FACE_R,
@@ -101,6 +102,8 @@ function drawNoteLabels(env: DrawEnv): void {
     // "On hover" in the map's settings: only the notes something is happening to keep their names.
     if (!hot && style.look.names === "hover") continue;
     if (!env.onScreen(env.screen(flying ?? n), 0)) continue;
+    // While the map opens, a name waits for its note.
+    if (openingScale(env.opening, n) < 1) continue;
     cands.push({ n, hot });
   }
   cands.sort((a, b) => Number(b.hot) - Number(a.hot) || b.n.deg - a.n.deg || (a.n.title < b.n.title ? -1 : 1));

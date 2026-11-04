@@ -24,6 +24,7 @@ import type { IslandPlace } from "./layout";
 import { buildModel, createMemory, type MapData } from "./model";
 import { noteKey } from "./paths";
 import { renderMap } from "./draw/render";
+import { OPENING_S, openingDelays, type Opening, type OpeningKind } from "./draw/sketch";
 import { DEFAULT_FONT, DEFAULT_LOOK, type FaceFor, type Style } from "./draw/primitives";
 import { sceneAt, type Model, type SceneAt } from "./scene";
 import { focusTarget, followSnapshot, type FollowState } from "./follow";
@@ -41,6 +42,8 @@ export type MapEngineOptions = {
   /** A person's picture. Agents are always drawn as the robot. */
   faceFor?: FaceFor;
   reducedMotion?: boolean;
+  /** Play the map's opening (`look.opening`) the first time it has notes to draw. Off for tests and fixtures. */
+  opening?: boolean;
   /** Parts of the canvas covered by other UI (a bottom sheet); the camera fits the rest. */
   inset?: Inset;
   /** Draw the overview in the top-right corner once zoomed in. Default true. */
@@ -124,6 +127,9 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   let foldersWidth = 0;
   let destroyed = false;
   let restore: Cam | null = null;
+  // The opening: when it began (wall clock) and which one, or null once played or skipped.
+  let opened = !options.opening;
+  let opening: { kind: OpeningKind; start: number } | null = null;
 
   const style = (): Style => ({ palette: data!.palette, font: options.font ?? DEFAULT_FONT, faceFor: options.faceFor ?? null, look: data!.look ?? DEFAULT_LOOK });
   const timeNow = (): number => (data?.clock.kind === "replay" ? replayAt : now());
@@ -193,11 +199,35 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
         foldersWidth = out.contentW;
       }
     } else {
-      hit = renderMap(ctx, model, scene, c, vp, { style: style(), selected, minimap: options.minimap ?? true });
+      hit = renderMap(ctx, model, scene, c, vp, { style: style(), selected, minimap: options.minimap ?? true, opening: openingAt() });
       emitCamera(c);
     }
     emitFollow(scene);
     return scene;
+  };
+
+  const openingAt = (): Opening | null => {
+    if (opening === null || !model) return null;
+    const t = (now() - opening.start) / 1000;
+    if (reduced || t > OPENING_S[opening.kind] + 0.6) {
+      opening = null;
+      return null;
+    }
+    return { kind: opening.kind, t, delay: openingDelays(model.layout, opening.kind) };
+  };
+
+  /** The first time there are notes on the map, draw it in as the settings say. */
+  const maybeOpen = () => {
+    if (opened || !model || !data || model.view !== "map" || model.layout.notes.size === 0) return;
+    opened = true;
+    if (reduced) return;
+    const kind = data.look?.opening ?? DEFAULT_LOOK.opening;
+    opening = { kind, start: now() };
+    if (kind === "zoom" && cam) {
+      const to = cam;
+      cam = { ...to, s: to.s * 0.35 };
+      flyTo(to);
+    }
   };
 
   const foldersIsland = (c: Cam): IslandPlace | null => {
@@ -245,7 +275,7 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     }
     lastTick = wall;
     const scene = drawFrame(timeNow());
-    const moving = !!flight || (scene?.animating ?? false) || playing;
+    const moving = !!flight || (scene?.animating ?? false) || playing || opening !== null;
     if (moving) frameId = raf(tick);
     else lastTick = 0;
   };
@@ -361,6 +391,7 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
         autoFit = false;
       }
       lastScope = scopeSig;
+      maybeOpen();
       wake();
     },
     setClock(clock) {
