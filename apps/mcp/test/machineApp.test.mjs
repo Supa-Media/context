@@ -10,6 +10,8 @@
  *  3. `list` showing every member the full row → "a member who doesn't run a computer sees only its name and whether it is online".
  *  6. `assign` trusting a caller's `approved` → "only its own owner answers Ask me first".
  *  5. `answerAsk` accepting the workspace's owner → "only its own owner answers Ask me first".
+ *  7. `raise` skipping `runsMachine` → "more time today is the computer's runner's, and lasts the day".
+ *  8. `namedAsks` keeping the chat's key → "an ask names who asked, never the chat's key".
  *  4. `ownComputer` accepting the workspace's owner → "only a computer's own owner lends it to a group chat".
  */
 import assert from "node:assert/strict";
@@ -40,6 +42,11 @@ function setupWorld() {
       if (userId !== "user_owner") return { refused: 404 };
       if (!lent.some((entry) => entry.machineId === machineId && entry.groupKey === groupKey)) lent.push({ userId, machineId, groupKey });
       return { attached: true, workspaceId: "ws_team" };
+    },
+    async texMachineChatPeople(userId, groupKey) {
+      // Mirrors `chatPeopleAs`: only one of the chat's people gets them.
+      const people = [{ userId: "user_owner", handle: "seyi" }, { userId: "user_ade", handle: "ade" }];
+      return groupKey === CHAT && people.some((person) => person.userId === userId) ? people : null;
     },
     async texMachineChatDetach(userId, machineId, groupKey) {
       if (userId !== "user_owner") return null;
@@ -169,4 +176,44 @@ test("only its own owner answers Ask me first", async () => {
   assert.equal(w.machines.pendingAsks("mch_1").length, 0);
   // Answered once: a second answer finds nothing waiting.
   assert.deepEqual((await ask("/machines/app/answer", body, app("user_owner", "editor"))).body, { ok: false, code: "unknown_ask" });
+});
+
+const assignAsk = (fields = {}) => ({ machineId: "mch_1", jobId: "job_1", part: 1, chat: KEY, askerId: "user_ade", fromOwner: false, tool: "claude", folder: "/srv/code", permission: "edits", brief: "Fix it.", doneWhen: "", ...fields });
+
+test("an ask names who asked, never the chat's key", async () => {
+  const { ask, w } = await setup();
+  await w.call("ws.machine.set", { id: "mch_1", patch: { chats: { [KEY]: { who: "everyone" } } } });
+  await w.call("ws.machine.assign", assignAsk({ chatKey: CHAT }));
+  const [mine] = (await ask("/machines/app/list", { workspaceId: "ws_team" }, app("user_owner", "editor"))).body.machines;
+  assert.equal(mine.asks.length, 1);
+  assert.equal(mine.asks[0].askerHandle, "ade");
+  assert.equal(JSON.stringify(mine.asks).includes(CHAT), false);
+  // Somebody who doesn't run it sees no asks at all.
+  const [theirs] = (await ask("/machines/app/list", { workspaceId: "ws_team" }, app("user_member", "member"))).body.machines;
+  assert.equal(theirs.asks, undefined);
+});
+
+test("a chat's people come with their ids, only for one of them", async () => {
+  const { ask } = await setup();
+  assert.deepEqual((await ask("/machines/app/chat-people", { chat: CHAT }, app("user_owner", "editor"))).body, { ok: true, people: [{ userId: "user_owner", handle: "seyi" }, { userId: "user_ade", handle: "ade" }] });
+  assert.deepEqual((await ask("/machines/app/chat-people", { chat: CHAT }, app("user_member", "member"))).body, { ok: false, code: "unknown_chat" });
+});
+
+test("more time today is the computer's runner's, and lasts the day", async () => {
+  const { ask, w, server } = await setup();
+  await w.call("ws.machine.set", { id: "mch_1", patch: { limits: { dayMs: 0 } } });
+  const own = assignAsk({ askerId: "user_owner", fromOwner: true, chat: "texts-user_owner", grant: { token: "cat_run_000000000000", expiresAt: w.clock.at + 60_000, mcpUrl: "https://mcp.example.test/mcp" }, deadline: w.clock.at + 60_000 });
+  assert.equal((await w.call("ws.machine.assign", own)).code, "limit_day");
+  assert.deepEqual((await ask("/machines/app/raise", { workspaceId: "ws_team", machineId: "mch_1", minutes: 120 }, app("user_editor", "editor"))).body, { ok: false, code: "unknown_machine" });
+  const raised = await ask("/machines/app/raise", { workspaceId: "ws_team", machineId: "mch_1", minutes: 120 }, app("user_owner", "editor"));
+  assert.equal(raised.body.ok, true);
+  assert.equal(server.last().type, "rules");
+  assert.equal(server.last().rules.limits.dayMs, 120 * 60_000);
+  assert.equal((await w.call("ws.machine.assign", own)).ok, true);
+  // Tomorrow it is gone, and the daily limit itself never changed.
+  w.clock.at += 24 * 60 * 60 * 1000;
+  assert.equal(w.machines.get("mch_1").limits.dayMs, 0);
+  // (The socket has long gone by then: the limit is read as if it were online.)
+  assert.deepEqual(w.machines.admit("mch_1", { chat: "texts-user_owner", fromOwner: true, askerId: "user_owner", tool: "claude", folder: "/srv/code" }, true), { code: "limit_day" });
+  assert.equal((await ask("/machines/app/raise", { workspaceId: "ws_team", machineId: "mch_1", minutes: 0 }, app("user_owner", "editor"))).status, 400);
 });

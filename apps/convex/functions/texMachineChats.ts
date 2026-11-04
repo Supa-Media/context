@@ -14,6 +14,7 @@ import { recordAudit } from "./lib/audit";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import { CHAT_GROUP_KEY_PATTERN, TEX_MACHINE_CHAT_LIMIT } from "./lib/texMachineRules";
 import { texMachineRefusal } from "./texMachines";
+import { handleFor } from "./texPage";
 
 /** The chat's people, or `null` when no chat has this key. A key that is not even well formed names no chat. */
 async function chatPeopleFor(ctx: QueryCtx, groupKey: string): Promise<Id<"users">[] | null> {
@@ -154,5 +155,20 @@ export const texMachinesForChat = internalQuery({
       lent.push({ machineId: machine._id, workspaceId: machine.workspaceId, ownerId: machine.ownerId });
     }
     return lent;
+  },
+});
+
+/**
+ * The people of a chat, with their ids and handles, for its own member choosing who may use their computer there
+ * ("Ava and Bo, not the rest"): a rule names people by id. Null unless `userId` is one of the chat's people.
+ */
+export const chatPeopleAs = internalQuery({
+  args: { userId: v.string(), groupKey: v.string() },
+  handler: async (ctx, args): Promise<{ userId: Id<"users">; handle: string }[] | null> => {
+    const userId = ctx.db.normalizeId("users", args.userId);
+    if (userId === null) return null;
+    const people = await chatPeopleFor(ctx, args.groupKey);
+    if (people === null || !people.includes(userId)) return null;
+    return await Promise.all(people.slice(0, 64).map(async (id) => ({ userId: id, handle: await handleFor(ctx, id) })));
   },
 });

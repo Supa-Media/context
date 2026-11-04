@@ -182,7 +182,7 @@ export function machineSockets(state, sql, machines, deps = {}) {
         await runEvent(row.machine, live.runId, { kind: "result", outcome: "lost", session: live.session ?? null }, { result: { outcome: "lost", session: live.session ?? null } }, "ended");
       }
     }
-    send(ws, { type: "welcome", machineId: row.machine, name: seen.name, rules: rulesOf(seen), keepRuns });
+    send(ws, { type: "welcome", machineId: row.machine, name: seen.name, rules: rulesOf(seen, now()), keepRuns });
     await notify({ kind: "online", machineId: row.machine });
   }
 
@@ -286,7 +286,7 @@ export function machineSockets(state, sql, machines, deps = {}) {
     /** The owner changed the rules: the runner takes them for new assignments. */
     rulesChanged(machineId) {
       const machine = machines.get(machineId);
-      return machine !== null && this.send(machineId, { type: "rules", rules: rulesOf(machine) });
+      return machine !== null && this.send(machineId, { type: "rules", rules: rulesOf(machine, now()) });
     },
 
     /** Disconnected or revoked: told, closed, and not to come back. */

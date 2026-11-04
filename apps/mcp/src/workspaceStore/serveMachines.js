@@ -29,6 +29,7 @@ export const MACHINE_OPS = Object.freeze({
   CANCEL: "ws.machine.cancel",
   RUN: "ws.machine.run",
   ANSWER: "ws.machine.answer",
+  RAISE: "ws.machine.raise",
 });
 const OPS = new Set(Object.values(MACHINE_OPS));
 
@@ -56,7 +57,7 @@ function assign(store, fields) {
   const ask = { ...asked, fromOwner: fields.fromOwner === true, tool: fields.tool, folder: fields.folder, approved: machines.approved(machineId, asked), computerUse: fields.computerUse === true };
   const held = machines.admit(machineId, ask, machineSockets.online(machineId));
   if (held?.code === "ask_first") {
-    const waiting = machines.ask(machineId, { ...asked, title: fields.title, chatName: fields.chatName });
+    const waiting = machines.ask(machineId, { ...asked, title: fields.title, chatName: fields.chatName, chatKey: fields.chatKey });
     return refused(waiting.state === "no" ? "declined" : "ask_first", { askId: waiting.id });
   }
   if (held !== null) return refused(held.code, held.until ? { until: held.until } : {});
@@ -148,6 +149,12 @@ export async function serveMachineCall(store, op, fields) {
         // An offline machine's run ends here; an online one ends with the runner's result.
         if (!sent && store.machines.run(fields.runId)?.state !== "ended") store.machines.end(fields.runId, { outcome: "cancelled", error: "cancelled while offline" });
         return answer;
+      }
+      case MACHINE_OPS.RAISE: {
+        // "More time today" from the app; who may was checked by the gateway (`machines/appRoutes.js`).
+        const machine = store.machines.raise(fields.id, fields.minutes);
+        store.machineSockets.rulesChanged(machine.id);
+        return Response.json({ ok: true, machine: shown(store, machine) });
       }
       case MACHINE_OPS.ANSWER: {
         // The owner's answer from the app; who is answering was checked by the gateway (`machines/appRoutes.js`).

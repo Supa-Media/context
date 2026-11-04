@@ -227,6 +227,16 @@ unmodified CLI, which signs itself in.
   minute, then starts or says why not. Tests: `machineJobs.test.mjs` ("Ask me
   first waits for the owner's own yes…"), `machineApp.test.mjs`,
   `machineTurn.test.ts`.
+- **What the app's machine screens needed besides** (2026-11-04):
+  "more time today" (`POST /machines/app/raise`, whoever runs the computer)
+  is kept on the computer as a raise for that day in its owner's time zone,
+  added to the day's limit by `admit` and in the rules the runner gets, and
+  gone the next day; the daily limit itself never changes. Naming people in
+  a group's rule needs their ids: `POST /machines/app/chat-people` gives a
+  chat's people with ids and handles, to one of them only (the control
+  plane's `chatPeopleAs`). An ask from a group carries the chat's full key
+  from the grant, so the owner's list names who asked by handle
+  (`askerHandle`); the key itself is never sent to the app.
 - **Not yet**: telling the owner an ask is waiting, beyond the app's list
   (a text or a push), and a machine's slots counted apart from the chat's
   three cloud slots.

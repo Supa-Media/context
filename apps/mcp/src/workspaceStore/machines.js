@@ -119,15 +119,26 @@ export function chatRuleOf(raw) {
 }
 
 /** The rules the runner enforces locally, from a machine row. */
-export function rulesOf(machine) {
+export function rulesOf(machine, at = Date.now()) {
   return {
     folders: machine.folders,
     tools: machine.tools,
-    limits: machine.limits,
+    // Today's raise rides on the day's limit: the runner's copy is a ceiling, and the next rules it gets drop it.
+    limits: { ...machine.limits, dayMs: dayLimitOf(machine, at) },
     computerUse: machine.computerUse,
     ...(machine.trustedRepos.length > 0 ? { trustedRepos: machine.trustedRepos } : {}),
   };
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The day's limit on a machine: its own, plus the owner's raise when it was given for today ("2 more hours today"). */
+export function dayLimitOf(machine, at) {
+  const raise = machine.raise;
+  return raise && raise.day === dayOf(at, machine.limits.timeZone) ? Math.min(machine.limits.dayMs + raise.extraMs, DAY_MS) : machine.limits.dayMs;
+}
+
+const raiseOf = (raw) => (raw && typeof raw === "object" && typeof raw.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.day) && Number.isSafeInteger(raw.extraMs) && raw.extraMs > 0 ? { day: raw.day, extraMs: Math.min(raw.extraMs, DAY_MS) } : null);
 
 function machineOf(raw, previous = null) {
   const given = raw && typeof raw === "object" ? raw : {};
@@ -157,6 +168,8 @@ function machineOf(raw, previous = null) {
     status: pick("status", null),
     pausedUntil: Number.isSafeInteger(pick("pausedUntil", null)) ? pick("pausedUntil", null) : null,
     seenAt: Number.isSafeInteger(pick("seenAt", null)) ? pick("seenAt", null) : null,
+    // Never from the app's settings: only `raise` below sets it, for one day.
+    raise: raiseOf(base.raise ?? null),
   };
 }
 
@@ -220,6 +233,16 @@ export function workspaceMachines(sql, deps = {}) {
       return save(machineOf(patch, machine));
     },
 
+    /** The owner's "more time today": added to today's limit, gone tomorrow. `minutes` from 1 to a day. */
+    raise(id, minutes) {
+      const machine = get(id);
+      if (!machine) throw new MachineRefused("unknown_machine");
+      if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 24 * 60) throw new MachineRefused("bad_setting", "minutes");
+      const day = dayOf(now(), machine.limits.timeZone);
+      const already = machine.raise?.day === day ? machine.raise.extraMs : 0;
+      return save({ ...machine, raise: { day, extraMs: Math.min(already + minutes * 60_000, DAY_MS) } });
+    },
+
     /** What the runner reported: facts, slot counts, status. */
     seen(id, fields) {
       const machine = get(id);
@@ -271,7 +294,7 @@ export function workspaceMachines(sql, deps = {}) {
         if (live.filter((held) => held.chat === ask.chat && !held.fromOwner).length >= rule.slots) return { code: "busy" };
       }
       const today = usage(id, [dayOf(now(), limits.timeZone)]);
-      if (today.ownerMs + today.othersMs >= limits.dayMs) return { code: "limit_day" };
+      if (today.ownerMs + today.othersMs >= dayLimitOf(machine, now())) return { code: "limit_day" };
       const week = usage(id, weekOf(now(), limits.timeZone));
       if (week.ownerMs + week.othersMs >= limits.weekMs) return { code: "limit_week" };
       if (!ask.fromOwner && (today.othersMs >= limits.othersDayMs || today.othersRuns >= limits.othersRunsPerDay)) return { code: "limit_others" };
@@ -333,7 +356,7 @@ export function workspaceMachines(sql, deps = {}) {
       const found = all(sql.exec("SELECT id, state, row, at FROM ws_machine_asks WHERE machine = ? AND chat = ? AND asker = ? AND job = ? AND at > ? ORDER BY at DESC LIMIT 1", machineId, fields.chat, fields.askerId, fields.jobId, now() - ASK_KEPT_MS))[0];
       if (found) return { ...JSON.parse(found.row), id: found.id, state: found.state };
       const id = `ask_${Array.from(crypto.getRandomValues(new Uint8Array(12)), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
-      const row = { machineId, chat: fields.chat, askerId: fields.askerId, jobId: fields.jobId, title: typeof fields.title === "string" ? fields.title.slice(0, 200) : null, chatName: typeof fields.chatName === "string" ? fields.chatName.slice(0, 100) : null, askedAt: now() };
+      const row = { machineId, chat: fields.chat, askerId: fields.askerId, jobId: fields.jobId, title: typeof fields.title === "string" ? fields.title.slice(0, 200) : null, chatName: typeof fields.chatName === "string" ? fields.chatName.slice(0, 100) : null, ...(typeof fields.chatKey === "string" && /^[0-9a-f]{64}$/.test(fields.chatKey) ? { chatKey: fields.chatKey } : {}), askedAt: now() };
       sql.exec("INSERT INTO ws_machine_asks (id, machine, chat, asker, job, state, row, at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)", id, machineId, fields.chat, fields.askerId, fields.jobId, JSON.stringify(row), now());
       return { ...row, id, state: "pending" };
     },

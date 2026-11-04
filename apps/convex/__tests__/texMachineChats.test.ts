@@ -324,3 +324,24 @@ describe("the gateway's chat routes", () => {
     expect(noKey.status).toBe(400);
   });
 });
+
+describe("a chat's people, for choosing who may use a computer there", () => {
+  test("one of the chat's people gets everyone in it with their ids and handles", async () => {
+    const { t, alice, bob, carol } = await aChat();
+    const answer = await gatewayPost(t, "/gateway/machines/chat/people", { userId: alice, groupKey: KEY_A });
+    expect(answer.status).toBe(200);
+    const { people } = (await json(answer)) as { people: { userId: string; handle: string }[] };
+    expect(people.map((person) => person.userId).sort()).toEqual([alice, bob, carol].sort());
+    expect(people.find((person) => person.userId === alice)?.handle).toBe("alfa");
+  });
+
+  test("anyone not in the chat learns nothing, the same as for a chat that doesn't exist", async () => {
+    const { t, alfa } = await aChat();
+    const dave = await createUser(t, "dave@example.invalid");
+    const outsider = await gatewayPost(t, "/gateway/machines/chat/people", { userId: dave, groupKey: KEY_A });
+    const nowhere = await gatewayPost(t, "/gateway/machines/chat/people", { userId: dave, groupKey: "e".repeat(64) });
+    expect(outsider.status).toBe(404);
+    expect(await json(outsider)).toEqual(await json(nowhere));
+    expect((await gatewayPost(t, "/gateway/machines/chat/people", { userId: alfa, groupKey: KEY_A })).status).toBe(404);
+  });
+});
