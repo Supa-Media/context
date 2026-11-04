@@ -14,12 +14,20 @@
  * flow depends on it (the emailed link lands with a `?code=` that really is
  * a sign-in code).
  *
+ * The same holds for the Tex page (`/tex`, `/tex/<handle>`), whose `?code=`
+ * is a computer's pairing code.
+ *
  * The prefix is deliberately `/connect/`, not `/connect/google`: the next
  * provider added under that prefix gets the same protection without anyone
  * re-finding this bug.
  */
 export function shouldHandleAuthCode(pathname: string): boolean {
-  return !pathname.startsWith("/connect/");
+  if (pathname.startsWith("/connect/")) return false;
+  // A runner's pairing link, `/tex?view=machines&code=ABC-DEF`, carries the
+  // code shown on the person's computer. Redeemed as a sign-in code it signed
+  // the person out on every open, so they could never approve it (2026-11-04).
+  if (pathname === "/tex" || pathname.startsWith("/tex/")) return false;
+  return true;
 }
 
 /**
