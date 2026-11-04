@@ -260,7 +260,10 @@ test("each call through the workspace object's door is timed under \"door\" by i
   });
   const response = await handleWorkspaceStoreDoor(request, env, { controlPlane: { openTexStoreTicket: async () => ({ workspaceId: "w1", owners: [] }) } });
   assert.equal(response.status, 200);
-  assert.deepEqual(MCP_ENTRY.points.map((p) => [p.blobs[0], p.blobs[1], p.blobs[2], p.blobs[3], p.indexes[0]]), [
+  // On the real clock a slow runner can leave a millisecond between steps, which is written as its own "uncovered"
+  // point (tested below with a fake clock); it is not one of the door's steps, so it is left out here.
+  const doorPoints = MCP_ENTRY.points.filter((p) => p.blobs[2] !== "uncovered");
+  assert.deepEqual(doorPoints.map((p) => [p.blobs[0], p.blobs[1], p.blobs[2], p.blobs[3], p.indexes[0]]), [
     ["door", "ws.rows.snapshot", "ticket", "ok", "w1"],
     ["door", "ws.rows.snapshot", "object", "ok", "w1"],
     ["door", "ws.rows.snapshot", "to_response", "ok", "w1"],

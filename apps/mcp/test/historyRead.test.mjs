@@ -1,10 +1,12 @@
 /**
  * A person's history file read straight from their ledger by a connected AI (`src/tools/notes/historyRead.js`), so a
- * chat whose history row was never made is still readable, on the owner's own private connection and nowhere else.
+ * chat whose history row was never made is still readable, on the owner's own connection when the path is visible to it, and nowhere else.
  *
  * Sabotage record (2026-11-03), each fails a test here:
  *  - `ownHistoryRead` without `deskEligible` → "a team-tier or non-owner connection reads it as any note";
  *  - `toolReadNote` without the ledger branch → "the owner reads the chat from the ledger with no row";
+ *  - (2026-11-04) `ownHistoryRead` without its `canSee` check → "the owner's team connection reads the chat when the
+ *    path is Team, and not otherwise";
  *  - the `trust: untrusted` line dropped → "the answer marks the turn as having read other people's words".
  */
 
@@ -31,7 +33,7 @@ const entry = (n, text) => ({ id: `e${n}`, kind: "text", at: 1_700_000_000_000 +
 
 test("the owner reads the chat from the ledger with no row, newest entries oldest first", async () => {
   const store = storeWith(PRIVATE_OWNER, [entry(1, "book my haircut"), entry(2, "On it")]);
-  const answer = await toolReadNote(store, "private", {}, {}, "tex/history.ledger.json");
+  const answer = await toolReadNote(store, "private", [], new Map(), "tex/history.ledger.json");
   assert.equal(answer.isError, undefined);
   const text = answer.content[0].text;
   assert.match(text, /^path: tex\/history\.ledger\.json/);
@@ -43,11 +45,35 @@ test("the owner reads the chat from the ledger with no row, newest entries oldes
 
 test("a team-tier or non-owner connection reads it as any note", () => {
   assert.equal(ownHistoryRead(storeWith(PRIVATE_OWNER), "tex/history.ledger.json"), true);
+  // Without the rules nobody but the private tier qualifies.
   assert.equal(ownHistoryRead(storeWith([{ ...PRIVATE_OWNER[0], tier: "team" }]), "tex/history.ledger.json"), false);
   assert.equal(ownHistoryRead(storeWith([{ ...PRIVATE_OWNER[0], role: "member" }]), "tex/history.ledger.json"), false);
   assert.equal(ownHistoryRead(storeWith([{ ...PRIVATE_OWNER[0], kind: "shared" }]), "tex/history.ledger.json"), false);
   assert.equal(ownHistoryRead(storeWith(PRIVATE_OWNER), "tex/groups/orbit-lamp-river/history.ledger.json"), false, "a group's is read through its row");
   assert.equal(ownHistoryRead(storeWith(PRIVATE_OWNER), "tex/about.md"), false);
+});
+
+const TEAM_OWNER = [{ ...PRIVATE_OWNER[0], tier: "team" }];
+const TEX_TEAM = [{ prefix: "tex", vis: "team" }];
+
+test("the owner's team connection reads the chat when the path is Team, and not otherwise", async () => {
+  const path = "tex/history.ledger.json";
+  assert.equal(ownHistoryRead(storeWith(TEAM_OWNER), path, "team", TEX_TEAM, new Map()), true, "the tex folder set to Team");
+  assert.equal(ownHistoryRead(storeWith(TEAM_OWNER), path, "team", [], new Map([[path, "team"]])), true, "the file itself set to Team");
+  assert.equal(ownHistoryRead(storeWith(TEAM_OWNER), path, "team", [], new Map()), false, "private by default");
+  assert.equal(ownHistoryRead(storeWith(TEAM_OWNER), path, "team", TEX_TEAM, new Map([[path, "private"]])), false, "the file held back");
+  assert.equal(ownHistoryRead(storeWith([{ ...TEAM_OWNER[0], role: "member" }]), path, "team", TEX_TEAM, new Map()), false, "not the owner");
+  assert.equal(ownHistoryRead(storeWith([{ ...TEAM_OWNER[0], kind: "shared" }]), path, "team", TEX_TEAM, new Map()), false, "not their personal workspace");
+
+  const store = storeWith(TEAM_OWNER, [entry(1, "what's on today"), entry(2, "Two things")]);
+  const answer = await toolReadNote(store, "team", TEX_TEAM, new Map(), path);
+  assert.equal(answer.isError, undefined);
+  const text = answer.content[0].text;
+  assert.match(text, /\nvisibility: team\n/, "the header says what the path really is");
+  assert.deepEqual(JSON.parse(text.slice(text.indexOf("{"))).entries.map((e) => e.text), ["what's on today", "Two things"]);
+  const refused = await toolReadNote(storeWith(TEAM_OWNER, [entry(1, "secret")]), "team", [], new Map(), path);
+  assert.equal(refused.isError, true);
+  assert.doesNotMatch(refused.content[0].text, /secret/);
 });
 
 test("a long chat is cut to fit one answer, and says older entries are kept", async () => {
@@ -61,7 +87,7 @@ test("a long chat is cut to fit one answer, and says older entries are kept", as
 
 test("the answer marks the turn as having read other people's words", async () => {
   const store = storeWith(PRIVATE_OWNER, [entry(1, "hi")]);
-  const result = await toolReadNote(store, "private", {}, {}, "tex/history.ledger.json");
+  const result = await toolReadNote(store, "private", [], new Map(), "tex/history.ledger.json");
   const ledger = newLedger();
   recordRead(ledger, { name: "read_note", args: { path: "tex/history.ledger.json" }, result });
   assert.equal(ledger.untrusted, true);
