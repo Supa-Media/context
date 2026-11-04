@@ -208,6 +208,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       return result === "unlinked" ? COPY.unlinkDone : COPY.unlinkNothing;
     }
 
+    const lookup = Date.now();
     const session = await openSession(
       deps.fetch,
       deps.controlPlaneOrigin,
@@ -217,6 +218,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       throw deps.retry && error instanceof ServiceError ? new TryLater() : error;
     });
     deps.onStage?.("session");
+    const sessioned = Date.now();
     // Nobody texted a save's turn (`vaultWatch.ts`): a phone unlinked since is told nothing.
     if (message.event !== undefined && session.status === "unlinked") return [];
     if (session.status === "unlinked") {
@@ -264,6 +266,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     await deps.steer?.onSession(session.accessToken);
     const warm = { warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId) };
     deps.onStage?.("asking");
+    // The Worker's own wait, said to the gateway so the turn's timing in the ledger shows it (`apps/mcp/src/agent/turnTiming.js`).
+    const worker = { sessionMs: sessioned - lookup, beforeAskMs: Date.now() - sessioned };
     const answer = await askAgent(
       deps.fetch,
       deps.gatewayOrigin,
@@ -275,7 +279,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, ...warm },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm },
     );
     if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.

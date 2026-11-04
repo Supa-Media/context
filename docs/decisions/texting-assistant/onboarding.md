@@ -211,15 +211,14 @@ prepare them for the unsafe screen ... send them a picture of what it's gonna
 look like and what they should click, and make sure they also click select
 all".
 
-- **Offered once, on a texted turn.** Somebody set up by text is asked for
-  Gmail by the ready text; somebody who had Context first never saw it. Each
-  texted 1:1 turn reads their mailboxes (`/gateway/mail-health`); with no
-  Gmail, or only Gmails connected before every connect asked to send
-  (`readOnly`, see [calendar-writes](../communications/calendar-writes.md)),
-  the turn's prompt asks the model to offer the link once, after answering
-  what was asked (`apps/mcp/src/agent/googleOffer.js`). An answer in the
-  recent chat that already offered it keeps it away, so it is not said on
-  every text; mailboxes that cannot be read are never news.
+- **No longer offered on a texted turn (Dev, 2026-11-04: "remove the google
+  offer").** Each texted 1:1 turn used to read their mailboxes
+  (`/gateway/mail-health`) and, with no Gmail or only read-only ones, ask the
+  model to offer the link once. That control-plane round trip was the slowest
+  thing a reply waited on (about 0.9 s on a cold turn), so it is gone: the
+  ready text still asks somebody set up by text for Gmail, and `connect_google`
+  still answers when they ask. Bringing an offer back means one that never
+  holds the reply.
 - **The two screens, said and shown.** Google has not verified Context, so it
   warns first, and its permissions page lets a box be left unticked, which
   leaves Tex unable to do that part. `connect_google`'s result and the ready
@@ -230,9 +229,8 @@ all".
   (`infra/router/og-google-connect.source.html`, rendered by
   `scripts/render-og-card.mjs google`).
 
-Tests: `apps/mcp/test/googleOffer.test.mjs`,
-`apps/mcp/test/agentInstructions.test.mjs` (a texted turn with no Gmail is
-asked to offer it), `apps/mcp/test/workspaceSetup.test.mjs` (the link's steps
+Tests: `apps/mcp/test/agentInstructions.test.mjs` (a texted turn is never
+told to offer Google), `apps/mcp/test/workspaceSetup.test.mjs` (the link's steps
 and picture), `apps/agent/src/ready.test.ts` (the ready text's guide and
 picture), `infra/router/src/texHost.test.ts` (the picture is served) and
 `apps/convex/__tests__/mailHealth.test.ts` (`readOnly`).
