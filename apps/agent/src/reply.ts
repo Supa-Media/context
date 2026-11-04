@@ -95,7 +95,7 @@ export type ReplyDeps = {
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
   onPictures?: (pictures: OutgoingPicture[], choices: Choice[]) => void;
   /** Handed the data cards an answer offers (`dataCards.ts`); absent, none go. */
-  onOffers?: (offers: Offer[]) => void;
+  onOffers?: (offers: Offer[], hub?: string) => void; // `hub`: the chat's Tex page, when the gateway named one (`jobs.ts` `readHub`)
   /**
    * Not the last try (`inbox.ts`): a text that could not be started (the
    * control plane unreachable, or the gateway answering 503 before the turn
@@ -320,7 +320,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       const notResumed = answer.steers ? await deps.onSteers?.(answer.steers) : undefined;
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
-      if (answer.offers) deps.onOffers?.(answer.offers);
+      if (answer.offers) deps.onOffers?.(answer.offers, answer.hub);
       const after = [notStarted, notResumed].filter((line): line is string => typeof line === "string" && line !== "");
       // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`): the gateway's flag, never a word; a bare control word is never a text either.
       if (!answer.text || answer.quiet || isControlWord(answer.text)) return after;

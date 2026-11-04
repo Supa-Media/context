@@ -355,7 +355,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // Tex's objects, as in production: the person's history and turn records live there (`src/agent/history.js`).
     TEX_STORE: texStoreNamespace().namespace,
     // Where the person's own pages live, as in production: a handoff texts
-    // `<APP_ORIGIN>/tex/<handle>` (`http/texComputer.js`), and without one
+    // `<APP_ORIGIN>/tex/@<handle>` (`http/texComputer.js`), and without one
     // the browser cannot be handed over at all.
     APP_ORIGIN: "https://app.bench.invalid",
     // The deployed Worker's search budget (wrangler.toml). The free-tier default

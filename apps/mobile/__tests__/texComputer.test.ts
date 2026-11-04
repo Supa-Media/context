@@ -21,6 +21,10 @@ import {
   readFrame,
   resolveTexPage,
   texComputerEndpoint,
+  groupWordsOf,
+  normalizeGroupWords,
+  resolveTexGroupPage,
+  texGroupHref,
   texHref,
   type WorkspaceRow,
 } from "../features/tex/texComputer";
@@ -42,7 +46,7 @@ describe("who the page opens for", () => {
   test("signed out goes to sign in and comes back to the same page", () => {
     expect(resolveTexPage({ handle: "seyi", auth: { isLoading: false, isAuthenticated: false }, workspaces: undefined })).toEqual({
       kind: "signIn",
-      href: "/login?next=%2Ftex%2Fseyi",
+      href: "/login?next=%2Ftex%2F%40seyi",
     });
   });
 
@@ -59,6 +63,16 @@ describe("who the page opens for", () => {
     expect(resolveTexPage({ handle: "bola", auth: SIGNED_IN, workspaces: [ROWS[1]!] })).toEqual({ kind: "notYours", own: null });
   });
 
+  test("a group's address is always the signed-in person's own page, and its words must be words", () => {
+    expect(resolveTexGroupPage({ words: "brave-otter-lamp", auth: SIGNED_IN, workspaces: ROWS })).toEqual({ kind: "ready", handle: "seyi", workspaceId: "ws_seyi" });
+    expect(resolveTexGroupPage({ words: "brave-otter-lamp", auth: { isLoading: false, isAuthenticated: false }, workspaces: undefined })).toEqual({
+      kind: "signIn",
+      href: "/login?next=%2Ftex%2Fgroup%2Fbrave-otter-lamp",
+    });
+    expect(resolveTexGroupPage({ words: "brave-otter-lamp", auth: SIGNED_IN, workspaces: [ROWS[1]!] })).toEqual({ kind: "notYours", own: null });
+    expect(resolveTexGroupPage({ words: "../x", auth: SIGNED_IN, workspaces: ROWS })).toEqual({ kind: "notFound" });
+  });
+
   test("a handle outside the namespace is no page at all", () => {
     for (const raw of [null, "", "a", "has space", "x".repeat(33), "../seyi"]) {
       expect(normalizeHandle(raw)).toBeNull();
@@ -73,7 +87,12 @@ describe("the gateway's answer", () => {
     expect(texComputerEndpoint("https://mcp.context.lc/mcp", "input")).toBe("https://mcp.context.lc/tex/computer/input");
     expect(texComputerEndpoint("https://mcp.context.lc/mcp", "stop")).toBe("https://mcp.context.lc/tex/computer/stop");
     expect(texComputerEndpoint("not a url", "frame")).toBeNull();
-    expect(texHref("seyi")).toBe("/tex/seyi");
+    expect(texHref("seyi")).toBe("/tex/@seyi");
+    expect(texGroupHref("brave-otter-lamp")).toBe("/tex/group/brave-otter-lamp");
+    expect(normalizeGroupWords(" Brave-Otter-Lamp ")).toBe("brave-otter-lamp");
+    for (const bad of ["one", "a-b-c-d-e-f", "a_b", "../x", "", null]) expect(normalizeGroupWords(bad)).toBeNull();
+    expect(groupWordsOf("tex/groups/brave-otter-lamp")).toBe("brave-otter-lamp");
+    expect(groupWordsOf("tex/groups/brave-otter-lamp/about.md")).toBeNull();
   });
 
   test("an answer is read field by field", () => {
@@ -103,7 +122,11 @@ describe("the gateway's answer", () => {
 describe("telemetry", () => {
   test("never names whose agent computer it is", () => {
     expect(telemetryRoute("/tex/seyi")).toBe("/tex/:context");
+    expect(telemetryRoute("/tex/@seyi/job/j_123")).toBe("/tex/:context/:value/:value");
     expect(redactTelemetryText("https://context.lc/tex/seyi")).toBe("https://context.lc/tex/:context");
+    // A group's words name its home, so they go as the handle does.
+    expect(telemetryRoute("/tex/group/brave-otter-lamp")).toBe("/tex/group/:context");
+    expect(redactTelemetryText("https://context.lc/tex/group/brave-otter-lamp")).toBe("https://context.lc/tex/:context");
     expect(redactTelemetryText("https://context.lc/texts/abc")).toBe("https://context.lc/texts/:token");
   });
 });
@@ -119,7 +142,7 @@ describe("bare /tex", () => {
   test("goes to the person's own page with the query kept", () => {
     expect(ownTexHref({ auth: signedIn, workspaces: mine }, "view=machines&code=NQJ-FSV")).toEqual({
       kind: "go",
-      href: "/tex/seyi?view=machines&code=NQJ-FSV",
+      href: "/tex/@seyi?view=machines&code=NQJ-FSV",
     });
   });
 

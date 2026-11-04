@@ -38,7 +38,7 @@ import {
 } from "../features/tex/page/texPageFormat";
 import { liveProtocols, liveSocketUrl, openLive, readPatch, type SocketLike } from "../features/tex/page/texPageLive";
 import { gatewaySource, readAnswer, texPageUrl } from "../features/tex/page/texPageSource";
-import { placeParams, readPlace, signInHref } from "../features/tex/page/texPlace";
+import { addressOf, chatOfWords, placeHref, readPlace, signInHref } from "../features/tex/page/texPlace";
 import { onSite } from "../features/tex/page/texPageFormat";
 import type { JobSummary } from "../features/tex/page/texPageTypes";
 
@@ -222,8 +222,41 @@ describe("the address", () => {
     expect(readPlace({ chat: "g1", view: "routines" })).toEqual({ chat: "g1", view: "routines" });
     expect(readPlace({ chat: "../x", view: "nope", job: "<script>" })).toEqual({ chat: "me" });
     expect(readPlace({ view: "computer", full: "1" })).toEqual({ chat: "me", view: "computer", full: true });
-    expect(placeParams({ chat: "me" })).toEqual({});
-    expect(placeParams({ chat: "g1", job: "j1" })).toEqual({ chat: "g1", job: "j1" });
+  });
+
+  // The owner, 2026-11-03: Tex's links go to `/tex/@user` and `/tex/group/<words>`, and to sub-pages under them.
+  const KEY = "a".repeat(64);
+  const CHATS = [
+    { key: "me", name: "Just you" },
+    { key: KEY, name: "Band", people: 3, home: { context: "@context-lc", folder: "tex/groups/brave-otter-lamp" } },
+    { key: "b".repeat(64), name: "Old chat", people: 2 },
+  ];
+
+  test("a sub-page or a job is a path under the chat, and the old query still reads", () => {
+    expect(readPlace({ handle: "@seyi", rest: ["routines"] })).toEqual({ chat: "me", view: "routines" });
+    expect(readPlace({ handle: "@seyi", rest: ["job", "j_123"] })).toEqual({ chat: "me", job: "j_123" });
+    expect(readPlace({ handle: "@seyi", rest: ["computer"], full: "1" })).toEqual({ chat: "me", view: "computer", full: true });
+    // A path wins over the query, and anything it doesn't know is the first screen.
+    expect(readPlace({ rest: ["jobs"], view: "routines" })).toEqual({ chat: "me", view: "jobs" });
+    for (const rest of [["nope"], ["job"], ["job", "<script>"], ["job", "j1", "x"], ["routines", "x"]]) expect(readPlace({ rest })).toEqual({ chat: "me" });
+    expect(readPlace({ view: "computer" })).toEqual({ chat: "me", view: "computer" });
+  });
+
+  test("the address for a place: the person's own under their handle, a group under its words", () => {
+    expect(placeHref("seyi", { chat: "me" }, CHATS)).toBe("/tex/@seyi");
+    expect(placeHref("seyi", { chat: "me", view: "jobs" }, CHATS)).toBe("/tex/@seyi/jobs");
+    expect(placeHref("seyi", { chat: KEY }, CHATS)).toBe("/tex/group/brave-otter-lamp");
+    expect(placeHref("seyi", { chat: KEY, job: "j1" }, CHATS)).toBe("/tex/group/brave-otter-lamp/job/j1");
+    expect(placeHref("seyi", { chat: KEY, view: "computer", full: true }, CHATS)).toBe("/tex/group/brave-otter-lamp/computer?full=1");
+    // A group with no home keeps the old query under the person's own address.
+    expect(placeHref("seyi", { chat: "b".repeat(64), view: "routines" }, CHATS)).toBe(`/tex/@seyi/routines?chat=${"b".repeat(64)}`);
+    expect(addressOf("/tex/@seyi", { job: "a b" })).toBe("/tex/@seyi/job/a%20b");
+  });
+
+  test("a group's words find only that group among the person's own chats", () => {
+    expect(chatOfWords(CHATS, "brave-otter-lamp")).toBe(KEY);
+    expect(chatOfWords(CHATS, "calm-river-stone")).toBeNull();
+    expect(chatOfWords([{ key: "me", name: "Just you", home: { context: "@x", folder: "tex/groups/brave-otter-lamp" } }], "brave-otter-lamp")).toBeNull();
   });
 });
 
@@ -349,7 +382,8 @@ describe("the live socket", () => {
 // A runner's pairing link opened signed out: the code must survive signing in,
 // or the person lands on the machines list with nothing to approve.
 test("signing in keeps a pairing link's code", () => {
-  const next = decodeURIComponent(signInHref("/login", "seyi", { chat: "me", view: "machines" }, "NQJ-FSV"));
-  expect(next).toContain("/tex/seyi?view=machines&code=NQJ-FSV");
-  expect(decodeURIComponent(signInHref("/login", "seyi", { chat: "me", view: "machines" }))).not.toContain("code=");
+  const next = decodeURIComponent(signInHref("/login", { handle: "seyi" }, { chat: "me", view: "machines" }, "NQJ-FSV"));
+  expect(next).toContain("/tex/@seyi/machines?code=NQJ-FSV");
+  expect(decodeURIComponent(signInHref("/login", { handle: "seyi" }, { chat: "me", view: "machines" }))).not.toContain("code=");
+  expect(decodeURIComponent(signInHref("/login", { handle: null, words: "brave-otter-lamp" }, { chat: "me", view: "routines" }))).toContain("/tex/group/brave-otter-lamp/routines");
 });

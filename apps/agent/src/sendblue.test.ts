@@ -603,7 +603,7 @@ describe("sendblue sending", () => {
       if (parsed.pathname === "/agent-texts/ready") return Response.json({ status: "ready", url: "https://app.example/s/abc" });
       const body = JSON.parse(String(init.body));
       // The link fails the first time it is sent.
-      if (body.content === "Link: https://app.example/s/abc (tap the link)" && ++tries === 1) return new Response(null, { status: 503 });
+      if (body.content === "Link: https://app.example/s/abc." && ++tries === 1) return new Response(null, { status: 503 });
       sent.push(body);
       return new Response("{}", { status: 200 });
     }) as unknown as Fetch;
@@ -619,7 +619,7 @@ describe("sendblue sending", () => {
     await checkReady(storage, readyDeps(1_000 + READY_FIRST_MS + 60_000));
     expect(sent).toEqual([
       { number: PHONE, from_number: LINE, content: READY_COPY.ready },
-      { number: PHONE, from_number: LINE, content: "Link: https://app.example/s/abc (tap the link)" },
+      { number: PHONE, from_number: LINE, content: "Link: https://app.example/s/abc." },
       { number: PHONE, from_number: LINE, content: READY_COPY.guide },
       { number: PHONE, from_number: LINE, media_url: "https://app.example/og/google-connect.png" },
     ]);

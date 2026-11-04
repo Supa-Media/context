@@ -199,6 +199,10 @@ step checks in `apps/mcp/test/agentBackground.test.mjs`,
 
 ### The live view of what's running (2026-10-29)
 
+_Since 2026-11-03 the link is the chat's Tex page (`/tex/@<handle>`,
+`/tex/group/<words>`) whenever the chat has one; the view below is kept only
+for a chat with neither. See [the Tex page](./tex-page.md)._
+
 Dev2 asked for a card that shows the running threads, each tapped to see
 what it is doing, so iMessage works more like an agent chat, and for it to
 work in groups too. When Tex starts a job, or is asked what it is working on,

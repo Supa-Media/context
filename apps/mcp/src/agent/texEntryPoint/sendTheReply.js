@@ -7,6 +7,7 @@ import { aiGatewayConfig } from "../aiGateway.js";
 import { attachmentsLine } from "../attachments.js";
 import { QUIET_ACK, QUIET_ACK_LINE, QUIET_REPORT_LINE, reportReply, startedJobs } from "../background.js";
 import { canRunBuiltin } from "../builtin.js";
+import { chatHubUrl } from "../hubLinks.js";
 import { appendConversation } from "../conversation.js";
 import { keepGroupExchange } from "../groupTurn.js";
 import { jobTurnFields } from "../jobCheck.js";
@@ -84,7 +85,7 @@ export async function sendTheReply(t) {
     ...(verbatim.length > 0 || offerText ? { verbatim: [...verbatim, ...(offerText ? [offerText] : [])] } : {}),
     ...(offerText ? { askFor: ledger.offered.who } : {}), // the Worker takes only their 👍 or yes
     ...startedJobs(background, ledger.untrusted === true), // the Worker runs these (`background.js`)
-    ...(pictures.length > 0 ? { pictures, ...(choices.length > 0 ? { choices } : {}) } : {}), ...(offers.length > 0 ? { offers } : {}), // choices, offers: `outgoingPictures.js`
+    ...(pictures.length > 0 ? { pictures, ...(choices.length > 0 ? { choices } : {}) } : {}), ...(offers.length > 0 ? { offers, ...hubField(offers, chatHubUrl(env, session, group)) } : {}), // choices, offers: `outgoingPictures.js`; `hub`: where "what I'm working on" points (`hubLinks.js`)
     ...(ledger.vaultLink === true && group === null ? { vaultWatch: true } : {}), // the Worker watches for the save (`vaultSaved.js`)
     provider: turn.provider,
     model: turn.model,
@@ -94,3 +95,8 @@ export async function sendTheReply(t) {
   });
 }
 // TEX ENTRY POINT: end
+
+/** `hub` beside an answer that offered the live view of its jobs, when the chat has one (`hubLinks.js`). */
+function hubField(offers, hub) {
+  return offers.includes("threads") && hub !== null ? { hub } : {};
+}

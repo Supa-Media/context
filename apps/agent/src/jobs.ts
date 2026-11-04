@@ -506,17 +506,63 @@ export function threadsKey(value: string | null): { objectId: string; token: str
   return extra === undefined && THREADS_OBJECT.test(objectId ?? "") && THREADS_TOKEN.test(token ?? "") ? { objectId: objectId!, token: token! } : null;
 }
 
-/** The words that carry the view where there is no card to: a group, or a phone without the Context app. */
-export function threadsLine(link: string): string {
-  return `What I'm working on, live (tap one to see its steps): ${link}`;
+/**
+ * The signed-in Tex hub the gateway names beside an answer that offered the
+ * view (`apps/mcp/src/agent/hubLinks.js`; the owner, 2026-11-03: "it should
+ * show the hubs context.lc/tex/@user or context.lc/tex/group/<words> ...
+ * instead of random thread pages"): `/tex/@<handle>` for a person's own chat,
+ * `/tex/group/<words>` for a group's. Read strictly, so the gateway's answer
+ * can never put anything else in a text; null for anything else, and the
+ * chat's own short-lived view is minted instead.
+ */
+const HUB_PATH = /^\/tex\/(?:@[a-z0-9-]{2,32}|group\/[a-z]+(?:-[a-z]+){1,4})$/;
+export function readHub(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 200) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  const clean = url.protocol === "https:" && url.username === "" && url.password === "" && url.port === "" && url.search === "" && url.hash === "";
+  return clean && HUB_PATH.test(url.pathname) && url.href === value ? value : null;
 }
 
-/** The lines a group's answer ends with when it offered the view, or none. Never throws. */
-export async function threadsLines(offers: readonly string[] | undefined, mint: (() => Promise<string>) | undefined): Promise<string[]> {
-  if (!offers?.includes("threads") || mint === undefined) return [];
+/** The link "what I'm working on" sends: the chat's hub when the gateway named one, else a fresh link to its own view. */
+export function viewLink(hub: string | null | undefined, mint: (() => Promise<string>) | undefined): (() => Promise<string>) | undefined {
+  const named = readHub(hub);
+  return named !== null ? async () => named : mint;
+}
+
+/** The words that carry the view where there is no card to: a group, or a phone without the Context app. Short (the owner, 2026-11-03: "shorter link, and put it in the first text"). */
+export function threadsLine(link: string): string {
+  // The link sits inside the sentence, never at its end, where Messages would split it off (`linkPreviews.ts`).
+  return `Watch it live at ${link} while I work.`;
+}
+
+/**
+ * The texts with the view's line added to the first one that is not an exact text (an ask texted as written,
+ * `format.ts` `textsWithExact`), so it rides in the "On it" text rather than a bubble of its own (the owner,
+ * 2026-11-03). With no such text, it goes on its own after them.
+ */
+export function withViewLine<T>(texts: readonly T[], line: string, exact: (text: string) => boolean): (T | string)[] {
+  const at = texts.findIndex((text) => typeof text === "string" && text.trim() !== "" && !exact(text));
+  if (at === -1) return [...texts, line];
+  return texts.map((text, index) => (index === at ? `${text as string}\n\n${line}` : text));
+}
+
+/** A group's texts with the view's line in the first, when it was offered; as they were otherwise. Never throws. */
+export async function withThreadsLine(
+  texts: string[],
+  offers: readonly string[] | undefined,
+  mint: (() => Promise<string>) | undefined,
+  exact: readonly string[] = [],
+): Promise<string[]> {
+  if (!offers?.includes("threads") || mint === undefined) return texts;
   try {
-    return [threadsLine(await mint())];
+    const kept = new Set(exact.map((text) => text.trim()));
+    return withViewLine(texts, threadsLine(await mint()), (text) => kept.has(text.trim())) as string[];
   } catch {
-    return [];
+    return texts;
   }
 }
