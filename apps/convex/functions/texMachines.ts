@@ -16,6 +16,9 @@ import type { Id } from "../_generated/dataModel";
 import { action, internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { hashToken } from "./lib/crypto";
+import { resolveLiveGrant } from "./lib/controlPlane/liveGrants";
+import { TEXTS_GROUP_CLIENT_ID } from "./textGroups";
+import { TEXTS_CLIENT_ID } from "./textLinks";
 import { mutation, internalMutation } from "./lib/rowWatch/mutations";
 import { requireAuthId } from "./lib/signedIn";
 import { consumeRateLimit } from "./lib/rateLimit";
@@ -24,6 +27,8 @@ import {
   PAIRING_RETENTION_MS,
   PAIRING_TTL_MS,
   LAST_SEEN_WRITE_INTERVAL_MS,
+  TEX_MACHINE_RUN_ID_PATTERN,
+  TEX_MACHINE_RUN_MAX_MS,
   mayOwnTexMachine,
   normalizePairingCode,
   pairingCodeHashInput,
@@ -44,7 +49,9 @@ export type TexMachineRefusal =
   | "MACHINE_NOT_FOUND"
   | "MACHINE_OWNER_GONE"
   | "MACHINE_GRANT_INVALID"
-  | "INSUFFICIENT_ROLE";
+  | "INSUFFICIENT_ROLE"
+  | "MACHINE_RUN_PARENT_INVALID"
+  | "BAD_RUN";
 
 const MESSAGES: Record<TexMachineRefusal, string> = {
   PAIRING_NOT_FOUND: "That code is not waiting for approval. Check it on the computer and try again.",
@@ -56,6 +63,8 @@ const MESSAGES: Record<TexMachineRefusal, string> = {
   MACHINE_OWNER_GONE: "The person who paired this computer no longer has access to its workspace.",
   MACHINE_GRANT_INVALID: "This computer's access has been revoked.",
   INSUFFICIENT_ROLE: "Only an owner or an editor of a shared workspace can add a computer to it.",
+  MACHINE_RUN_PARENT_INVALID: "This job's texting access is no longer valid, so it cannot run on a computer.",
+  BAD_RUN: "That run's access request is not valid.",
 };
 
 export function texMachineRefusal(code: TexMachineRefusal): ConvexError<{ code: string; message: string }> {
@@ -318,7 +327,66 @@ export const declineByHash = internalMutation({
   },
 });
 
-/** Pairings an hour past their code's expiry are swept, in batches. */
+/**
+ * Mint a run grant for one job part on one machine. The parent must be a live texting grant (a 1:1 chat's or a group
+ * chat's); anything else, including an MCP client's own grant, is refused. Its lifetime is clamped to the run maximum.
+ */
+export const issueTexMachineRunGrant = internalMutation({
+  args: {
+    hashedParentToken: v.string(),
+    hashedAccessToken: v.string(),
+    machineId: v.string(),
+    runId: v.string(),
+    expiresAt: v.number(),
+  },
+  returns: v.object({ expiresAt: v.number() }),
+  handler: async (ctx, args) => {
+    const parent = await resolveLiveGrant(ctx, args.hashedParentToken);
+    if (parent === null) throw texMachineRefusal("MACHINE_RUN_PARENT_INVALID");
+    const clientId = parent.grant.clientId;
+    if (clientId !== TEXTS_CLIENT_ID && clientId !== TEXTS_GROUP_CLIENT_ID) {
+      throw texMachineRefusal("MACHINE_RUN_PARENT_INVALID");
+    }
+
+    const machineId = ctx.db.normalizeId("texMachines", args.machineId);
+    const machine = machineId === null ? null : await ctx.db.get(machineId);
+    if (machine === null || machine.status !== "active") throw texMachineRefusal("MACHINE_NOT_FOUND");
+    if (!TEX_MACHINE_RUN_ID_PATTERN.test(args.runId)) throw texMachineRefusal("BAD_RUN");
+
+    const now = Date.now();
+    const expiresAt = Math.min(args.expiresAt, now + TEX_MACHINE_RUN_MAX_MS);
+    if (expiresAt <= now) throw texMachineRefusal("BAD_RUN");
+
+    await ctx.db.insert("texMachineRunGrants", {
+      hashedAccessToken: args.hashedAccessToken,
+      parentGrantId: parent.grant._id,
+      machineId: machine._id,
+      runId: args.runId,
+      expiresAt,
+      createdAt: now,
+    });
+    return { expiresAt };
+  },
+});
+
+/** Revoke every run grant of one job part, at the part's end. Idempotent: a run with no rows revokes zero. */
+export const revokeTexMachineRunGrant = internalMutation({
+  args: { runId: v.string() },
+  returns: v.object({ revoked: v.number() }),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("texMachineRunGrants")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect();
+    for (const row of rows) await ctx.db.delete(row._id);
+    return { revoked: rows.length };
+  },
+});
+
+/**
+ * Pairings an hour past their code's expiry are swept, in batches, and so are run grants past their own expiry. The
+ * count covers both; `moreRemaining` is true when either batch was full.
+ */
 export const purgeExpiredTexMachinePairings = internalMutation({
   args: {},
   returns: v.object({ deleted: v.number(), moreRemaining: v.boolean() }),
@@ -329,7 +397,15 @@ export const purgeExpiredTexMachinePairings = internalMutation({
       .withIndex("by_expires", (q) => q.lt("expiresAt", cutoff))
       .take(PURGE_BATCH_SIZE);
     for (const row of expired) await ctx.db.delete(row._id);
-    return { deleted: expired.length, moreRemaining: expired.length === PURGE_BATCH_SIZE };
+    const expiredRuns = await ctx.db
+      .query("texMachineRunGrants")
+      .withIndex("by_expires", (q) => q.lt("expiresAt", Date.now()))
+      .take(PURGE_BATCH_SIZE);
+    for (const row of expiredRuns) await ctx.db.delete(row._id);
+    return {
+      deleted: expired.length + expiredRuns.length,
+      moreRemaining: expired.length === PURGE_BATCH_SIZE || expiredRuns.length === PURGE_BATCH_SIZE,
+    };
   },
 });
 
@@ -358,6 +434,12 @@ export async function revokeMachineAs(
   if (machine.status === "revoked") return { revoked: true, workspaceId: machine.workspaceId };
 
   await ctx.db.patch(machine._id, { status: "revoked", revokedAt: Date.now() });
+  // A revoked machine's run grants go with it: a part still running on it stops at its next request.
+  const runs = await ctx.db
+    .query("texMachineRunGrants")
+    .withIndex("by_machine", (q) => q.eq("machineId", machine._id))
+    .collect();
+  for (const run of runs) await ctx.db.delete(run._id);
   await recordAudit(ctx, {
     workspaceId: machine.workspaceId,
     actorUserId: userId,

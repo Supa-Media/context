@@ -12,7 +12,7 @@ import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
-import { badRequest, json, stringField } from "../gatewayAuth";
+import { badRequest, json, randomOpaqueToken, stringField } from "../gatewayAuth";
 import { workspaceNotFound } from "../workspaceAuth";
 import {
   isValidMachineName,
@@ -21,6 +21,9 @@ import {
   pairingCodeHashInput,
   TEX_MACHINE_PUBLIC_KEY_PATTERN,
 } from "../texMachineRules";
+
+/** A run grant's plain token has this prefix, as an access token's does. */
+const RUN_TOKEN_PREFIX = "cat_";
 
 /** Longest JSON text the runner's facts may be; stored on the pairing and shown on the approval screen. */
 const MAX_FACTS_JSON_LENGTH = 8000;
@@ -38,6 +41,8 @@ const REFUSAL_STATUS = new Map<string, number>([
   ["MACHINE_OWNER_GONE", 403],
   ["MACHINE_GRANT_INVALID", 401],
   ["INSUFFICIENT_ROLE", 403],
+  ["MACHINE_RUN_PARENT_INVALID", 401],
+  ["BAD_RUN", 400],
   [UNKNOWN_WORKSPACE_REFUSAL, 404],
 ]);
 
@@ -175,6 +180,39 @@ async function revokeHandler(ctx: ActionCtx, body: Record<string, unknown>): Pro
   }
 }
 
+/**
+ * Mint a run grant for one job part. The job presents its own texting token as `parentToken`; it is hashed here, and the
+ * plain run token is minted here and returned once.
+ */
+async function issueRunGrantHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const parentToken = stringField(body, "parentToken");
+  const machineId = stringField(body, "machineId");
+  const runId = stringField(body, "runId");
+  const expiresAt = body.expiresAt;
+  if (parentToken === null || machineId === null || runId === null || typeof expiresAt !== "number" || !Number.isFinite(expiresAt)) {
+    return badRequest();
+  }
+  const accessToken = `${RUN_TOKEN_PREFIX}${randomOpaqueToken(32)}`;
+  try {
+    const issued = await ctx.runMutation(internal.functions.texMachines.issueTexMachineRunGrant, {
+      hashedParentToken: await hashToken(parentToken),
+      hashedAccessToken: await hashToken(accessToken),
+      machineId,
+      runId,
+      expiresAt,
+    });
+    return json({ accessToken, expiresAt: issued.expiresAt });
+  } catch (error) {
+    return refusal(error);
+  }
+}
+
+async function revokeRunGrantHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const runId = stringField(body, "runId");
+  if (runId === null) return badRequest();
+  return json(await ctx.runMutation(internal.functions.texMachines.revokeTexMachineRunGrant, { runId }));
+}
+
 /** The paths http.ts registers, each POST and each behind `gatewayRoute`. */
 export const TEX_MACHINE_GATEWAY_ROUTES: ReadonlyArray<readonly [string, Handler]> = [
   ["/gateway/machines/pair/start", startHandler],
@@ -183,4 +221,6 @@ export const TEX_MACHINE_GATEWAY_ROUTES: ReadonlyArray<readonly [string, Handler
   ["/gateway/machines/resolve", resolveHandler],
   ["/gateway/machines/register", registerHandler],
   ["/gateway/machines/revoke", revokeHandler],
+  ["/gateway/machines/run-grant", issueRunGrantHandler],
+  ["/gateway/machines/run-grant/revoke", revokeRunGrantHandler],
 ];

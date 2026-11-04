@@ -31,6 +31,7 @@ export const MACHINE_OPS = Object.freeze({
 });
 const OPS = new Set(Object.values(MACHINE_OPS));
 
+const RUN_ID = /^run_[0-9a-f]{24}$/;
 const refused = (code, extra = {}) => Response.json({ ok: false, code, ...extra });
 
 function mintRunId() {
@@ -58,7 +59,8 @@ function assign(store, fields) {
   const deadline = Math.min(Number.isSafeInteger(fields.deadline) ? fields.deadline : now + machine.limits.longestRunMs, now + machine.limits.longestRunMs);
   // Only the owner's own asks may run with the tool's full permissions.
   const permission = fields.permission === "full" && !ask.fromOwner ? "edits" : fields.permission;
-  const runId = mintRunId();
+  // The gateway mints the id first when it mints the run's grant for it (`machines/jobRoutes.js`).
+  const runId = typeof fields.runId === "string" && RUN_ID.test(fields.runId) ? fields.runId : mintRunId();
   const frame = {
     type: "assign",
     runId,

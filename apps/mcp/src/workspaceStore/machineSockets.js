@@ -139,7 +139,10 @@ export function machineSockets(state, sql, machines, deps = {}) {
   const runEvent = async (machineId, runId, event, patch = {}, nextState) => {
     const held = machines.run(runId);
     if (!held || held.machineId !== machineId) return null;
-    const updated = nextState === "ended" ? machines.end(runId, patch.result ?? {}) : machines.update(runId, patch, nextState);
+    // An ending keeps the rest of its patch too (the session a later part resumes), not only the result.
+    const { result, ...rest } = patch;
+    if (nextState === "ended" && Object.keys(rest).length > 0) machines.update(runId, rest);
+    const updated = nextState === "ended" ? machines.end(runId, result ?? {}) : machines.update(runId, patch, nextState);
     if (updated) await notify({ ...event, machineId, runId, jobId: held.jobId });
     return updated;
   };

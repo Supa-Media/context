@@ -120,3 +120,33 @@ unmodified CLI, which signs itself in.
   screen names the machine, its OS and when it asked, and says to approve only a
   computer being set up right now; and a machine only ever gets the jobs Tex
   sends it, under its owner's rules. Accepted by the design; revisit if abused.
+
+### A job's part on a machine: a run grant that acts as the job and never sends (2026-11-04)
+
+- **The texting Worker's job asks the gateway, with its own texting token**
+  (`POST /agent/machine/{assign,run,cancel,deliver}`, `apps/mcp/src/machines/jobRoutes.js`).
+  Only a person's own 1:1 texting client with write scope reaches them; a
+  group's job waits for groups. Who asked, and whether it is the machine's
+  owner, come from the grant, never the body. A person's own chat is
+  `texts-<userId>` to the owner's chat rules, so a rule for one person's
+  chat never covers another's. Test: `machineJobs.test.mjs` ("who asked comes
+  from the grant, never the body").
+- **The run grant is the job's own grant, under its own client.** The gateway
+  mints the run id, then the control plane a `cat_` token kept only as a hash
+  in `texMachineRunGrants`, pointing at the job's texting grant
+  (`/gateway/machines/run-grant`). It resolves only as an MCP session
+  (`resolveRunGrant`, never `resolveLiveGrant`, so no owner clearance accepts
+  it), as `context_tex_machine_run`, with the parent's person, workspace,
+  scopes and group checks re-read every request; it lives at most thirty
+  minutes, outlives the fifteen-minute texting token it was minted under, and
+  dies with the parent grant, the machine, a refused assignment, the run's
+  end or a stop. Test: `apps/convex/__tests__/texMachineRuns.test.ts`.
+- **It never reaches outside.** A run session is not offered, and is refused,
+  every `send` action, links, invitations and the vault
+  (`tools/machineRun.js`); what should be sent goes in its answer, and Tex's
+  own turn asks the person. Test: "a run grant's session is never offered,
+  and never runs, a call that reaches outside". Sabotage record (2026-11-04):
+  dropping the refusal in `callToolForSession`, the asker check on a run, or
+  reading `fromOwner` from the body each failed its test.
+- Only the person whose job it is reads, steers or stops a run; another run
+  id answers `unknown_run`, as a run that does not exist does.

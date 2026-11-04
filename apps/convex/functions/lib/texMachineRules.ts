@@ -22,6 +22,13 @@ export const PAIRING_RETENTION_MS = 60 * 60 * 1000;
 /** A machine's `lastSeenAt` is written at most this often. */
 export const LAST_SEEN_WRITE_INTERVAL_MS = 10 * 60 * 1000;
 
+/** The OAuth client id a run grant reads as: a machine job's part, not the texting client it acts for. */
+export const TEX_MACHINE_RUN_CLIENT_ID = "context_tex_machine_run";
+/** A run grant never lives longer than this, whatever the gateway asks. */
+export const TEX_MACHINE_RUN_MAX_MS = 30 * 60 * 1000;
+/** The workspace object's run id: `run_` and 24 lower-case hex digits. */
+export const TEX_MACHINE_RUN_ID_PATTERN = /^run_[0-9a-f]{24}$/;
+
 /**
  * "May own a machine in this workspace." Personal: only the owner, who is the person the workspace is theirs by.
  * Shared: an owner or an editor. A `member` never owns one, so a machine can never be attached to a workspace its

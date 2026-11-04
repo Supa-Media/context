@@ -432,3 +432,4 @@ test/workspaceTreeSort.test.mjs
 test/machineProtocol.test.mjs
 test/machineSockets.test.mjs
 test/machineRoutes.test.mjs
+test/machineJobs.test.mjs

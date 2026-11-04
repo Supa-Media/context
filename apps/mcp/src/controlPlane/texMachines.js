@@ -50,5 +50,19 @@ export function createTexMachineMethods({ post }) {
       const answer = await call("/gateway/machines/revoke", { machineId, userId });
       return answer.ok ? answer.value : null;
     },
+    /**
+     * A run grant for one part of a job on a machine: `{accessToken, expiresAt}`, or null when the job's own grant
+     * (`parentToken`, the texting token the job presented) is no longer live or the machine is gone. The control
+     * plane keeps only its hash and resolves it as the job's own grant under `context_tex_machine_run`.
+     */
+    async texMachineRunGrant({ parentToken, machineId, runId, expiresAt }) {
+      const answer = await call("/gateway/machines/run-grant", { parentToken, machineId, runId, expiresAt });
+      return answer.ok && typeof answer.value?.accessToken === "string" ? answer.value : null;
+    },
+    /** Takes a run's grant back when the part ended or was refused. */
+    async texMachineRunRevoke(runId) {
+      const answer = await call("/gateway/machines/run-grant/revoke", { runId });
+      return answer.ok ? answer.value : null;
+    },
   };
 }
