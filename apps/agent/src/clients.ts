@@ -178,7 +178,41 @@ export async function shareLinqContactCard(fetcher: Fetch, apiKey: string, chatI
 
 /** `timeZone` is the person's own (their reminders run in it), when the control plane sent one. */
 /** `settings`: how their own Tex talks to them (`texStyle.ts`): their instructions and progress updates, only what is set. */
-export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string; settings?: Settings } | { status: "unlinked" };
+export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string; settings?: Settings; personalWorkspaceId?: string } | { status: "unlinked" };
+type LinkedSession = Extract<SessionAnswer, { status: "linked" }>;
+
+const WORKSPACE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+function linkedFrom(body: Record<string, unknown>): LinkedSession | null {
+  if (body.status !== "linked" || typeof body.accessToken !== "string" || !body.accessToken) return null;
+  const zone = typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {};
+  const settings = readSettings(body);
+  const own = typeof body.personalWorkspaceId === "string" && WORKSPACE_ID.test(body.personalWorkspaceId) ? { personalWorkspaceId: body.personalWorkspaceId } : {};
+  return { status: "linked", accessToken: body.accessToken, ...zone, ...(Object.keys(settings).length > 0 ? { settings } : {}), ...own };
+}
+
+/** The gateway's `TexTexts` entrypoint, reached over a service binding (`apps/mcp/src/agent/textsSession.js`). */
+export type TextsBinding = { fetch: (input: string, init?: RequestInit) => Promise<Response> };
+
+/**
+ * A text's session from the person object, without Convex (`docs/decisions/texting-assistant/texting-in-objects.md`):
+ * the phone and the personal workspace id this inbox remembers. Anything but a linked answer, a failure included, is
+ * `null`, and the caller asks Convex as before.
+ */
+export async function openGatewaySession(binding: TextsBinding, phone: string, personalWorkspaceId: string): Promise<LinkedSession | null> {
+  try {
+    const response = await binding.fetch("https://gateway/texts/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ phone, personalWorkspaceId }),
+    });
+    if (response.status !== 200) return null;
+    const linked = linkedFrom(record(await response.json()));
+    return linked === null ? null : { ...linked, personalWorkspaceId };
+  } catch {
+    return null;
+  }
+}
 
 export async function openSession(
   fetcher: Fetch,
@@ -191,11 +225,8 @@ export async function openSession(
   });
   if (status !== 200) throw new ServiceError("control_plane", status);
   const body = record(json);
-  if (body.status === "linked" && typeof body.accessToken === "string" && body.accessToken) {
-    const zone = typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {};
-    const settings = readSettings(body);
-    return { status: "linked", accessToken: body.accessToken, ...zone, ...(Object.keys(settings).length > 0 ? { settings } : {}) };
-  }
+  const linked = linkedFrom(body);
+  if (linked !== null) return linked;
   if (body.status === "unlinked") return { status: "unlinked" };
   throw new ServiceError("control_plane", status);
 }
