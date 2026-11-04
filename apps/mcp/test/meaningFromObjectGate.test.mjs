@@ -141,15 +141,15 @@ test("the binding isolates a refused passage as the REST API does, and keeps the
 
 test("an undocumented model failure keeps one word of ours for what it was about, never its message", async () => {
   const { bindingEmbedder } = await import("../src/search/meaning/embed.js");
-  const embed = bindingEmbedder({ run: async () => { throw new Error("8006: input too long for secret note words"); } });
+  const embed = bindingEmbedder({ run: async () => { throw new Error("5007: input too long for secret note words"); } });
   await assert.rejects(embed(["a secret note, in words"]), (error) => {
     assert.equal(error.code, "UNAVAILABLE");
-    assert.deepEqual(error.providerCodes, [8006]);
+    assert.deepEqual(error.providerCodes, [5007]);
     assert.equal(error.hint, "too_long");
     assert.equal(JSON.stringify({ ...error, message: error.message }).includes("secret"), false);
     return true;
   });
-  const odd = bindingEmbedder({ run: async () => { throw new Error("8006: purple elephants"); } });
+  const odd = bindingEmbedder({ run: async () => { throw new Error("5007: purple elephants"); } });
   await assert.rejects(odd(["x"]), (error) => error.hint === "other");
 });
 
@@ -158,6 +158,23 @@ test("a model failure's words reach the log only where no input holds them, and 
   assert.equal(providerWords("8006: Request quota exceeded for account 12ab34", ["my quota notes"]), "request exceeded for account ab");
   assert.equal(providerWords("8006: secret plan", ["the Secret plan"]), undefined);
   const { bindingEmbedder } = await import("../src/search/meaning/embed.js");
-  const embed = bindingEmbedder({ run: async () => { throw new Error("8006: purple elephants said diary words"); } });
+  const embed = bindingEmbedder({ run: async () => { throw new Error("5007: purple elephants said diary words"); } });
   await assert.rejects(embed(["dear diary, my words"]), (error) => error.providerWords === "purple elephants said");
+});
+
+test("half of a broken emoji never reaches the model, and a passage the binding cannot read is set aside alone", async () => {
+  const { bindingEmbedder, modelInput } = await import("../src/search/meaning/embed.js");
+  assert.equal(modelInput("a\uD83Db\u0001c\uDE00"), "a\uFFFDb c\uFFFD");
+  assert.equal(modelInput("ok \uD83D\uDE00"), "ok \uD83D\uDE00");
+  const sent = [];
+  const clean = bindingEmbedder({ run: async (_m, { text }) => (sent.push(...text), { data: text.map(() => VECTOR) }) });
+  await clean(["fine", "broken \uD83D"]);
+  assert.equal(sent.some((text) => /[\uD800-\uDFFF]/.test(text)), false);
+  const unreadable = bindingEmbedder({
+    run: async (_m, { text }) => {
+      if (text.some((t) => t.includes("bad"))) throw new Error("8006: Invalid data: not valid JSON");
+      return { data: text.map(() => VECTOR) };
+    },
+  });
+  await assert.rejects(unreadable(["fine", "bad"]), (error) => error.code === "REFUSED" && error.probeStatus === "accepted" && error.providerCodes.includes(8006));
 });
