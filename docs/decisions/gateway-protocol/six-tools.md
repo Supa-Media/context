@@ -127,3 +127,20 @@ holds (send browse, open_page, search_web, fill_login, progress; fetch
   are fingerprinted, so a change to the six (or to an alias) needs a news entry.
 - `apps/mcp/test/protocolBasics.test.mjs` — the connect-time instructions name
   the v2 spellings the agent must use.
+
+## Public directory contract (2026-11-04)
+
+The owner chose a separate `/mcp/chatgpt` route for the public directory. Its
+ten individually exposed note and workspace operations have fixed schemas and
+per-operation annotations; the normal `/mcp` contract remains the six tools
+above. The route uses the same authentication, workspace routing and authority
+gates. Its tool allowlist is enforced on calls as well as listing: legacy
+aliases and action dispatchers cannot be invoked there. Ordinary note writes
+exclude forms, publishing, attachments and settings paths. Creation refuses an
+existing note, while replacement requires the current revision.
+
+This is a documented product interface for every user of that route, never a
+reviewer-specific response or a client-name test. Directory review requires
+each operation to be exposed with its schema; dynamic capabilities stay on
+the ordinary endpoint. Reversing the route allowlist, write boundary or origin
+check fails `test/directoryEndpoint.test.mjs`.
