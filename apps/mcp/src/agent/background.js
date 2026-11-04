@@ -320,7 +320,7 @@ const TOOL = {
         type: "object",
         description:
           "Run it on one of their own paired computers (in a group chat, one lent to the chat) instead of the cloud, with Claude Code or Codex signed in to its owner's plan: " +
-          "always for code: a question about how a codebase works (theirs or a public one on GitHub), a change to their code, finding something in a repo; never the cloud for those when they have a computer, so try it first and the answer says if they have none. Also anything that needs their machine. name: the computer as they call it (left out when they have one); " +
+          "always for what a computer with Claude Code or Codex is good at: code (a question about how a codebase works, theirs or a public one on GitHub; finding something in a repo; a change to their code), and heavy computing (running scripts, crunching big data or many files, builds, long analysis); never the cloud for those when they have a computer, so try it first and the answer says if they have none. Also anything that needs their machine. name: the computer as they call it (left out when they have one); " +
           "tool: claude or codex; folder and repo: where on it, when they said. Runs up to four hours, checked every fifteen minutes.",
         properties: {
           name: { type: "string" },

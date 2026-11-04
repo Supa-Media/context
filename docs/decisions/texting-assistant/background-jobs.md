@@ -371,7 +371,10 @@ failed reverses this. Tests: `apps/mcp/test/agentPlanBigAsk.test.mjs`,
 `apps/mcp/bench/test/checks.test.mjs`, `bench/test/world.test.mjs` ("a
 planned split writes its notes and starts its parts").
 
-Code runs on their computer, never the cloud (Dev, 2026-11-04). This covers
+Code runs on their computer, never the cloud (Dev, 2026-11-04), and so does
+heavy computing and anything else a computer with Claude Code or Codex is
+good at (running scripts, crunching big data or many files, builds, long
+analysis). For code this covers
 a question about how a codebase works (theirs or a public one), reading or
 searching a repo, and any change to code. Every such job goes to a paired
 computer with Claude Code or Codex when they have one. The rule is written
