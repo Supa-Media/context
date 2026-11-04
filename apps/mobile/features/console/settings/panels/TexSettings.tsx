@@ -77,7 +77,7 @@ function ThisMac() {
             </Grow>
             <Button
               label={thisMac.folders.list && thisMac.folders.list.length > 0 ? "Change…" : "Choose…"}
-              look="outline"
+              variant="dialog"
               onPress={thisMac.folders.choose}
               testID="tex-this-mac-folders-choose"
             />
