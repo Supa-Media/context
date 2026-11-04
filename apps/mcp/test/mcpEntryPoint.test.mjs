@@ -266,3 +266,31 @@ test("each call through the workspace object's door is timed under \"door\" by i
   ]);
   assert.doesNotMatch(JSON.stringify(MCP_ENTRY.points), /secret|plan\.md/);
 });
+
+test("the time no step covered is its own point, so a request's steps add up to its whole", async () => {
+  const time = clock();
+  const MCP_ENTRY = dataset();
+  const mcp = mcpEntry({ MCP_ENTRY }, { now: time.now });
+  await mcp.step("session", async () => time.tick(30));
+  time.tick(40); // between steps: nothing timed
+  await mcp.step("answer", async () => {
+    // A step inside another covers nothing new.
+    await mcp.step("obj:ws.write.move", async () => time.tick(20));
+    time.tick(10);
+  });
+  time.tick(5);
+  mcp.done(new Response("{}"));
+  const byName = Object.fromEntries(MCP_ENTRY.points.map((p) => [p.blobs[2], p.doubles[0]]));
+  assert.equal(byName.to_response, 105);
+  assert.equal(byName.uncovered, 45);
+});
+
+test("a request whose steps cover it all writes no uncovered point", async () => {
+  const time = clock();
+  const MCP_ENTRY = dataset();
+  const mcp = mcpEntry({ MCP_ENTRY }, { now: time.now });
+  // Two steps at once, overlapping: their union is the whole request.
+  await Promise.all([mcp.step("a", async () => time.tick(10)), mcp.step("b", async () => {})]);
+  mcp.done(new Response("{}"));
+  assert.equal(MCP_ENTRY.points.some((p) => p.blobs[2] === "uncovered"), false);
+});
