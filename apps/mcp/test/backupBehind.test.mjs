@@ -24,3 +24,19 @@ test("decorateRequestStore with no ctx leaves the backup-behind door's defer nul
   assert.equal(store.defer, null);
   assert.equal(store.backupBehind.defer, null);
 });
+
+test("a context a call opens beside its own writes its backup copy behind the response too", async () => {
+  // ChatGPT's edits in a shared workspace took 3.5 s on 2026-11-03: the backup copy of every write the object's merge
+  // made was awaited, since the opened store's door was never given the request's defer.
+  const { attachContextOpener, onceEach } = await import("../src/http/contextOpener.js");
+  const caller = { workspaceId: "ws_mine", grantScopes: ["context:read"], workspaces: [{ workspaceId: "ws_w2", slug: "team-w2", kind: "shared", role: "member" }] };
+  Object.defineProperty(caller, "accessToken", { value: "fake-token" });
+  const store = { backupBehind: { defer: null } };
+  const handed = [];
+  decorateRequestStore(store, options({ waitUntil: (promise) => handed.push(promise) }));
+  const opened = { backupBehind: { defer: null } };
+  attachContextOpener(store, caller, { env: {}, controlPlane: { reportSearchIndexProgress: async () => {}, notifyFormSubmission: async () => {} }, origin: "https://example.test", openOnce: onceEach(async () => opened), pinnedName: "@context-lc" });
+  const { store: other } = await store.openContext("@team-w2");
+  assert.equal(other, opened);
+  assert.equal(other.backupBehind.defer, store.defer, "the opened context's backup copies are awaited");
+});
