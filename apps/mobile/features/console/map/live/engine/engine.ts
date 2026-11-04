@@ -25,7 +25,7 @@ import { buildModel, createMemory, type MapData } from "./model";
 import { noteKey } from "./paths";
 import { renderMap } from "./draw/render";
 import type { MapEngine, MapEngineOptions } from "./api";
-import { breathes, createOpening, createTilt } from "./motion";
+import { AMBIENT_FRAME_MS, BIG_MAP_NOTES, breathes, createOpening, createTilt } from "./motion";
 import { DEFAULT_FONT, DEFAULT_LOOK, type Style } from "./draw/primitives";
 import { sceneAt, type Model, type SceneAt } from "./scene";
 import { focusTarget, followSnapshot, type FollowState } from "./follow";
@@ -79,8 +79,10 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   const opening = createOpening(!!options.opening, now);
   const tilt = createTilt();
   const ambient = !!options.ambient;
-  const slowFrame = options.slowFrame ?? ((cb: () => void) => setTimeout(cb, 66));
+  const slowFrame = options.slowFrame ?? ((cb: () => void, ms: number) => setTimeout(cb, ms));
   let slowPending = false;
+  // Whether this gesture has dragged the map yet (`onDrag` is told once).
+  let dragged = false;
 
   const style = (): Style => ({ palette: data!.palette, font: options.font ?? DEFAULT_FONT, faceFor: options.faceFor ?? null, look: data!.look ?? DEFAULT_LOOK });
   const timeNow = (): number => (data?.clock.kind === "replay" ? replayAt : now());
@@ -153,8 +155,9 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
       hit = renderMap(ctx, model, scene, c, vp, { style: style(), selected, minimap: options.minimap ?? true, opening: opening.at(model.layout, reduced),
         pointer,
         hoverKey,
-        tilt: ambient && style().look.depth ? tilt.value : null,
+        tilt: ambient && !reduced && style().look.depth ? tilt.value : null,
         breathe: ambient && !reduced && breathes(style().look),
+        wall: now(),
       });
       emitCamera(c);
     }
@@ -217,22 +220,25 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
       options.onTime?.(replayAt);
       if (replayAt >= data.clock.to) playing = false;
     }
-    const leaning = tilt.step(lastTick ? wall - lastTick : MIN_TICK, reduced || !style().look.depth);
+    const leaning = tilt.step(lastTick ? Math.min(250, wall - lastTick) : MIN_TICK, reduced || !style().look.depth, wall);
     lastTick = wall;
     const scene = drawFrame(timeNow());
     const moving = !!flight || (scene?.animating ?? false) || playing || opening.active || (ambient && leaning);
+    // The sway with no mouse over the map, and the breathing, never stop, so
+    // they run on a slower frame: smooth, and a map nobody touches stays cheap.
+    const swaying = ambient && !reduced && model?.view === "map" && ((style().look.depth && tilt.idle) || breathes(style().look));
     if (moving) frameId = raf(tick);
-    else {
-      lastTick = 0;
-      // Breathing needs only a slow frame, so a map nobody touches stays cheap.
-      if (ambient && !reduced && breathes(style().look) && !slowPending) {
+    else if (swaying) {
+      if (!slowPending) {
         slowPending = true;
+        // A very big map turns at half the rate, so it never makes the page heavy.
+        const ms = (model?.layout.notes.size ?? 0) > BIG_MAP_NOTES ? AMBIENT_FRAME_MS * 2 : AMBIENT_FRAME_MS;
         slowFrame(() => {
           slowPending = false;
           wake();
-        });
+        }, ms);
       }
-    }
+    } else lastTick = 0;
   };
 
   function wake(): void {
@@ -242,6 +248,7 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   // Gestures.
   const detach = attachInput(canvas, {
     grab: () => {
+      dragged = false;
       autoFit = false;
       if (flight) {
         cam = currentCam();
@@ -251,6 +258,10 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     pan: (dx, dy) => {
       if (!model || !cam) return;
       autoFit = false;
+      if (!dragged) {
+        dragged = true;
+        options.onDrag?.();
+      }
       if (model.view === "folders") {
         foldersScroll = Math.max(0, Math.min(foldersScroll - dx, Math.max(0, foldersWidth - visibleRect(vp).w)));
       } else {
@@ -294,7 +305,10 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
         tilt.aimAt((x / Math.max(1, vp.w)) * 2 - 1, (y / Math.max(1, vp.h)) * 2 - 1);
         wake();
       }
-      hoverKey = target?.kind === "note" ? noteKey(target.workspaceId, target.path) : null;
+      const nextKey = target?.kind === "note" ? noteKey(target.workspaceId, target.path) : null;
+      // The note under the pointer traces its links.
+      if (nextKey !== hoverKey) wake();
+      hoverKey = nextKey;
       // Lines that follow the pointer redraw as it moves.
       if ((data?.look?.lines ?? "all") !== "all") wake();
       const sig = target ? JSON.stringify(target) : "";
@@ -305,9 +319,10 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     },
     leave: () => {
       pointer = null;
+      if (hoverKey !== null) wake();
       hoverKey = null;
       if (ambient) {
-        tilt.aimAt(0, 0);
+        tilt.aimAt(null);
         wake();
       }
       if ((data?.look?.lines ?? "all") !== "all") wake();
@@ -469,6 +484,8 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     setReducedMotion(next) {
       reduced = next;
       if (model) model = { ...model, reducedMotion: next };
+      // Known only after the map had its notes: the opening may still start.
+      if (!next) maybeOpen();
       wake();
     },
     redraw() {

@@ -1,9 +1,15 @@
 import { describe, expect, test } from "@jest/globals";
+import { fitIsland, NO_INSET } from "../features/console/map/live/engine/camera";
+import { DEFAULT_FONT } from "../features/console/map/live/engine/draw/primitives";
+import { renderMap } from "../features/console/map/live/engine/draw/render";
+import { buildModel, createMemory } from "../features/console/map/live/engine/model";
+import { noteKey } from "../features/console/map/live/engine/paths";
+import { sceneAt } from "../features/console/map/live/engine/scene";
 
 import { createMapEngine, type MapData } from "../features/console/map/live/engine";
 import { DEFAULT_LOOK, type MapLook } from "../features/console/map/live/look";
 import type { MapActor } from "../features/console/map/live/engine/timeline";
-import { WHO, ev, fakeCanvas, isDotColour, para, palette } from "./liveMapFixture";
+import { WHO, ev, fakeCanvas, fakeContext, isDotColour, para, palette } from "./liveMapFixture";
 
 /**
  * READING MARKS AND TRACED LINKS — `engine/draw/marks.ts` (Dev2, 2026-11-04).
@@ -111,4 +117,34 @@ describe("clicking a note", () => {
     engine.select(null);
     expect(restAlpha()).toBe(1);
   });
+
+  test("with nothing clicked, the note under the pointer traces its links, and nothing is selected", () => {
+    const data: MapData = {
+      graphs: [ws],
+      actors: [],
+      events: [],
+      scope: { kind: "one", workspaceId: "ws-a" },
+      view: "map",
+      clock: { kind: "live" },
+      palette,
+      selfId: null,
+      look: { ...DEFAULT_LOOK, sketch: 0 },
+    };
+    const model = buildModel(data, createMemory(), NOW, { idleMs: 600_000, reducedMotion: true, following: null });
+    const scene = sceneAt(model, NOW);
+    const vp = { w: 1000, h: 700, inset: NO_INSET };
+    const cam = fitIsland(vp, model.layout.islands[0]!);
+    const style = { palette, font: DEFAULT_FONT, faceFor: null, look: data.look! };
+    const draw = (hoverKey: string | null) => {
+      const ctx = fakeContext();
+      renderMap(ctx, model, scene, cam, vp, { style, selected: null, minimap: false, hoverKey });
+      return ctx.calls;
+    };
+    expect(inkStrokes(draw(null))).toEqual([]);
+    const hovered = draw(noteKey("ws-a", plan));
+    expect(inkStrokes(hovered).length).toBe(1);
+    // A hover is not a selection: no accent ring.
+    expect(hovered.some((c) => c.op === "stroke" && c.strokeStyle === palette.accent)).toBe(false);
+  });
 });
+

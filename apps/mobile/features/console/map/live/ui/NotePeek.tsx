@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from "react";
-import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text as RNText, View } from "react-native";
+import { useEffect, useMemo, useRef } from "react";
+import { Animated, Linking, Platform, Pressable, ScrollView, StyleSheet, Text as RNText, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
@@ -14,7 +14,14 @@ import { lastWritten, peekCrumbs, peekPlacement, peekPresence, presenceChips, ty
 /** The note a dot tap opened, and where on the canvas the tap was (none when the map came back with it open). */
 export type OpenPeek = PeekNote & { at: { x: number; y: number } | null };
 
-const CARD = { width: 380, height: 460 };
+/**
+ * The card beside a dot, kept small so the map stays the thing you look at
+ * (Dev2, 2026-11-04: "the big note text box makes it hard to look around").
+ */
+const CARD = { width: 300, height: 320 };
+
+/** How long the card takes to fade out once a drag on the map begins. */
+export const PEEK_FADE_MS = 180;
 
 /**
  * The card a tapped dot opens, instead of leaving the map: the note's words,
@@ -40,6 +47,7 @@ export function NotePeek({
   onClose,
   onExpand,
   onPeek,
+  fading = false,
 }: {
   page: MapPageState;
   peek: OpenPeek;
@@ -49,6 +57,8 @@ export function NotePeek({
   onExpand: () => void;
   /** A link in the card to another note on the map: the card opens on it, where it is now. */
   onPeek: (next: OpenPeek) => void;
+  /** A drag on the map began: fade out, then close. */
+  fading?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -62,6 +72,24 @@ export function NotePeek({
     find: (target) => page.book.link(peek.workspaceId, peek.path, target),
     open: (path) => (path === peek.path ? onExpand() : onPeek({ ...peek, path })),
   };
+
+  // Dragging the map to look round: the card fades out of the way, then closes.
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!fading) {
+      opacity.setValue(1);
+      return;
+    }
+    if (page.reducedMotion) {
+      onClose();
+      return;
+    }
+    const fade = Animated.timing(opacity, { toValue: 0, duration: PEEK_FADE_MS, useNativeDriver: Platform.OS !== "web" });
+    fade.start(({ finished }) => {
+      if (finished) onClose();
+    });
+    return () => fade.stop();
+  }, [fading, opacity, onClose, page.reducedMotion]);
 
   useEffect(() => {
     if (Platform.OS !== "web" || typeof document === "undefined") return;
@@ -78,8 +106,9 @@ export function NotePeek({
   const updated = writing ? "Being written now" : written !== null ? `Edited ${whenText({ now: false, at: written }, page.now)}` : null;
 
   return (
-    <View
-      style={compact ? styles.sheet : [styles.card, { left: place!.left, top: place!.top, width: card.width, maxHeight: card.height }]}
+    <Animated.View
+      style={[compact ? styles.sheet : [styles.card, { left: place!.left, top: place!.top, width: card.width, maxHeight: card.height }], { opacity }]}
+      pointerEvents={fading ? "none" : "auto"}
       accessibilityRole="none"
       aria-label={`Preview of ${title}`}
       testID="map-peek"
@@ -122,7 +151,7 @@ export function NotePeek({
           <Text style={styles.expandText}>{compact ? "Open note" : "Expand"}</Text>
         </Pressable>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -262,11 +291,11 @@ const makeStyles = (colors: Colors) =>
       overflow: "hidden",
     },
     grab: { alignSelf: "center", width: 38, height: 5, borderRadius: 3, marginTop: 8, backgroundColor: colors.lineStrong },
-    head: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingLeft: 18, paddingRight: 8, paddingTop: 10 },
+    head: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingLeft: 16, paddingRight: 8, paddingTop: 10 },
     crumbs: { flex: 1, fontFamily: fonts.body, fontSize: pointerType.meta, color: colors.chromeMuted },
     close: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
     closePhone: { width: 44, height: 44, borderRadius: 22 },
-    title: { marginHorizontal: 18, fontFamily: fonts.body, fontSize: pointerType.h3, fontWeight: "600", color: colors.text },
+    title: { marginHorizontal: 16, fontFamily: fonts.body, fontSize: pointerType.body, fontWeight: "600", color: colors.text },
     chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 18, paddingTop: 10 },
     chip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, maxWidth: "100%" },
     chipWriting: { backgroundColor: colors.accentDim },
@@ -275,13 +304,13 @@ const makeStyles = (colors: Colors) =>
     chipText: { fontFamily: fonts.body, fontSize: pointerType.meta, fontWeight: "600", flexShrink: 1 },
     chipTextWriting: { color: colors.accentText },
     chipTextReading: { color: colors.warnText },
-    body: { flexGrow: 1, flexShrink: 1, marginTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-    bodyInner: { paddingHorizontal: 18, paddingVertical: 12, gap: 8 },
+    body: { flexGrow: 1, flexShrink: 1, marginTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+    bodyInner: { paddingHorizontal: 16, paddingVertical: 10, gap: 6 },
     block: { marginHorizontal: -8, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
     blockChanged: { backgroundColor: colors.accentDim },
-    h2: { fontFamily: fonts.body, fontSize: pointerType.body, fontWeight: "600", color: colors.text },
-    h3: { fontFamily: fonts.body, fontSize: pointerType.lede, fontWeight: "600", color: colors.text },
-    para: { fontFamily: fonts.body, fontSize: pointerType.lede, lineHeight: 22, color: colors.text2 },
+    h2: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "700", color: colors.text },
+    h3: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "600", color: colors.text },
+    para: { fontFamily: fonts.body, fontSize: pointerType.ui, lineHeight: 19, color: colors.text2 },
     codeBlock: { fontFamily: fonts.mono, fontSize: pointerType.ui, lineHeight: 19, color: colors.text2 },
     caret: { color: colors.accent },
     quote: { paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: colors.line },
@@ -313,15 +342,15 @@ const makeStyles = (colors: Colors) =>
       flexDirection: "row",
       alignItems: "center",
       gap: space.x2,
-      paddingLeft: 18,
-      paddingRight: 14,
-      paddingVertical: 12,
+      paddingLeft: 16,
+      paddingRight: 10,
+      paddingVertical: 8,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: colors.line,
     },
     footPhone: { paddingHorizontal: 18, paddingBottom: 24 },
     meta: { flex: 1, fontFamily: fonts.body, fontSize: pointerType.meta, color: colors.chromeMuted },
-    expand: { height: 36, paddingHorizontal: 16, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: colors.text },
+    expand: { height: 30, paddingHorizontal: 14, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: colors.text },
     expandPhone: { flex: 1, height: 48, borderRadius: 12 },
     expandText: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "600", color: colors.pageSurface },
   });

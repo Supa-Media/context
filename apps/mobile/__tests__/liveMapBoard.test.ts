@@ -113,8 +113,8 @@ describe("the board", () => {
     const grainy = calls.filter((c) => (c.op === "stroke" && isPattern(c.strokeStyle)) || (c.op === "fill" && isPattern(c.fillStyle)));
     expect(grainy.some((c) => c.op === "stroke")).toBe(true);
     expect(grainy.some((c) => c.op === "fill")).toBe(true);
-    // Up close the bigger dots get a drawn rim.
-    expect(calls.some((c) => c.op === "stroke" && c.strokeStyle === palette.dot)).toBe(true);
+    // Up close the bigger dots get a drawn rim, in the dot's own pencil (as the prototype draws it).
+    expect(calls.some((c) => c.op === "stroke" && isDotColour(c.strokeStyle))).toBe(true);
   });
 
   test("chalk has a halo; pencil does not", () => {

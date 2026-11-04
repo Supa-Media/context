@@ -15,8 +15,8 @@ export type MapEngineOptions = {
   opening?: boolean;
   /** The map's own motion: the 3D tilt following the mouse and the dots breathing (`look.depth`, `look.motion`). Off for tests and fixtures. */
   ambient?: boolean;
-  /** Schedule a slow frame for ambient motion (default about 15 a second). */
-  slowFrame?: (cb: () => void) => unknown;
+  /** Schedule a slow frame for ambient motion, `ms` from now (about 30 a second, 15 on a very big map). */
+  slowFrame?: (cb: () => void, ms: number) => unknown;
   /** Parts of the canvas covered by other UI (a bottom sheet); the camera fits the rest. */
   inset?: Inset;
   /** Draw the overview in the top-right corner once zoomed in. Default true. */
@@ -31,6 +31,8 @@ export type MapEngineOptions = {
   onOpenNote?: (note: { workspaceId: string; path: string; at?: { x: number; y: number } }) => void;
   /** A tap that landed on nothing: whatever a note tap opened can close. */
   onTapEmpty?: () => void;
+  /** A drag to look round the map began (once per gesture): a card opened on a note gets out of the way. */
+  onDrag?: () => void;
   onDiveInto?: (folder: { workspaceId: string; path: string }) => void;
   /** Replay: the playhead while the engine plays it. */
   onTime?: (t: number) => void;

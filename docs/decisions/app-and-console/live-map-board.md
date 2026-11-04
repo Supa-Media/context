@@ -202,3 +202,38 @@ exist". In `engine/motion.ts` and `engine/draw/depth.ts`:
 
 Tests and fixtures leave the motion off (`ambient` on the engine); the web
 canvas and the phone's web view turn it on. **Test:** `liveMapMotion.test.ts`.
+
+### Matching the prototype (Dev2, 2026-11-04, after the first build)
+
+Dev2 found the first build short of the approved prototype: "the 3D is a bit
+lack luster", "none of the animations work", and the note card "makes it
+hard to look around the map". What changed, and why:
+
+- **The opening plays every time the map is opened.** `useReducedMotion`
+  starts `true` until it knows, and the map's notes are often there first,
+  so the opening gave up on that first "reduced" and never played. It now
+  waits up to `OPENING_WINDOW_MS` for the answer (`createOpening`), and the
+  engine tries again when reduced motion turns out off. A viewer who asked for
+  reduced motion still never gets it. The map page mounts a new engine each
+  time it is opened, so each opening plays once.
+- **3D is the prototype's projection**, not a parallax nudge: the view turns
+  (`YAW_MAX`, `PITCH_MAX`) about the screen's centre, every folder has a depth
+  (`FOLDER_Z`) and every note its own place in front of or behind it (`zOf`),
+  and the nearer is drawn bigger, further apart and stronger (`EYE_PX`). With
+  no mouse over the map it sways slowly on its own (`sway`), so the depth is
+  there to see, a phone included.
+- **Breathing drifts each dot a pixel or so** round its place, as the
+  prototype's "Breathe", rather than swelling it; the note under the pointer
+  stays still. The sway and the breathing run on an ambient frame of about 30
+  a second (15 over `BIG_MAP_NOTES`), never with reduced motion.
+- **Hover traces a note's links** as a click does, as in the prototype; a
+  click still selects it.
+- **Dots and lines as the prototype draws them at the same settings:** dots
+  never under `DOT_MIN_R` (three pixels across), rims in the dot's own
+  pencil, links in a darker pencil on paper and graph paper.
+- **The note card is smaller** (300 by 320) with smaller type, and **fades
+  out when a drag on the map begins** (`onDrag`, once per gesture), so it never
+  stands between a person and the notes they are looking for.
+
+**Tests:** `liveMapMotion.test.ts` (opening, depth, sway, breathing),
+`liveMapMarks.test.ts` (hover traces), `liveMapPeekEngine.test.ts` (drag).

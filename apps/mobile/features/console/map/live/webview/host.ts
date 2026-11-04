@@ -24,6 +24,7 @@ export type MapHostHandlers = {
   onHover?: (target: HitTarget | null) => void;
   onOpenNote?: (note: { workspaceId: string; path: string; at?: { x: number; y: number } }) => void;
   onTapEmpty?: () => void;
+  onDrag?: () => void;
   onDiveInto?: (folder: { workspaceId: string; path: string }) => void;
   onTime?: (t: number) => void;
   onFailed?: (message: string) => void;
@@ -175,6 +176,9 @@ export function createMapHost(post: (raw: string) => void, handlers: () => MapHo
           return;
         case "tapEmpty":
           h.onTapEmpty?.();
+          return;
+        case "drag":
+          h.onDrag?.();
           return;
         case "time":
           h.onTime?.(message.t);
