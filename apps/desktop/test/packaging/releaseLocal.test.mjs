@@ -4,6 +4,7 @@
  *
  * Sabotage record (each change made by hand, the named check went red):
  *   - passing CSC_LINK to electron-builder                       "signs from its own keychain"
+ *   - installing after the notarize.cjs --check (2026-11-04, the first real run) "installs dependencies before"
  *   - dropping the origin/main comparison                        "only from origin/main"
  *   - removing the workflow's older-than-latest refusal          "the workflow refuses an older version"
  */
@@ -20,6 +21,10 @@ export async function runReleaseLocalChecks(check) {
   check(
     "release-local: publishes only after the build verifies and the app opens with --smoke",
     at("gh release create") > at("--smoke") && at("--smoke") > at("spctl --assess") && at("spctl --assess") > at("electron-builder --mac"),
+  );
+  check(
+    "release-local: installs dependencies before the notarisation key check, which needs @electron/notarize",
+    at("pnpm install") > 0 && at("pnpm install") < at("notarize.cjs --check"),
   );
   check(
     "release-local: a dry run stops before publishing",
