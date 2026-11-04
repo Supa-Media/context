@@ -35,9 +35,10 @@ export async function serveMcp(request, workerEnv, ctx, { slug, pathToken, origi
   const controlPlane = createControlPlane(env, { fetchImpl: mcp.fetchFor("cp") });
   const session = await mcp.step("session", () => sessionOrRefusal(request, { pathToken, slug, controlPlane, origin }));
   if (session instanceof Response) {
-    if (new URL(request.url).pathname.endsWith("/mcp/chatgpt") && session.status === 401) {
+    const directoryPath = new URL(request.url).pathname.match(/\/mcp\/chatgpt(?:\/v2)?$/)?.[0];
+    if (directoryPath && session.status === 401) {
       const headers = new Headers(session.headers);
-      headers.set("WWW-Authenticate", (headers.get("WWW-Authenticate") ?? "").replace("/oauth-protected-resource/mcp", "/oauth-protected-resource/mcp/chatgpt"));
+      headers.set("WWW-Authenticate", (headers.get("WWW-Authenticate") ?? "").replace("/oauth-protected-resource/mcp", `/oauth-protected-resource${directoryPath}`));
       return mcp.done(new Response(session.body, { status: session.status, headers }));
     }
     return mcp.done(session);

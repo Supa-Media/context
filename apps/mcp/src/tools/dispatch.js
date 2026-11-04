@@ -192,7 +192,7 @@ async function runTool(name, args, store, scope, options = {}) {
     case "set_folder_visibility":
       return toolSetFolderVisibility(store, scope, args);
     case "search":
-      return toolOpenAiSearch(store, scope, rules, overrides, args.query);
+      return toolOpenAiSearch(store, scope, rules, overrides, args.query, args.args?.prefix);
     case "fetch":
       return toolOpenAiFetch(store, scope, rules, overrides, args.id);
     case "search_notes":

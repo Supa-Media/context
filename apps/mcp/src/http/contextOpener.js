@@ -179,6 +179,7 @@ export function attachContextOpener(store, session, { env, controlPlane, origin,
     targetStore.contexts = contextsFor(target);
     // The connection's own listing, wherever orient was addressed.
     targetStore.offeredTools = store.offeredTools;
+    targetStore.explicitToolContract = store.explicitToolContract;
     // Against the context that was routed to, never the connection's own.
     // `targetStore.searchIndex` came from that context's own binding, so the
     // projection and the figure describing it name one workspace.

@@ -220,6 +220,9 @@ export async function toolsForSession(session, store, { shape = "v2" } = {}) {
   */
   const off = await disabledToolNames(store);
   const enabled = off.size === 0 ? scoped : scoped.filter((tool) => !off.has(tool.name));
+  // An explicit adapter may expose a previously unlisted operation under its
+  // own reviewed schema. Keep all existing scope/plugin/machine filters.
+  if (shape === "all") return enabled.filter((tool) => !machineRunRefuses(session, tool.name));
   // Last, so that everything above still reasons about the whole surface: an
   // unlisted tool is one this server stopped *recommending*, not one it
   // stopped answering. See `UNLISTED_TOOLS`.
