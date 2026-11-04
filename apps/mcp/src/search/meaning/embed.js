@@ -82,7 +82,20 @@ function isInputRefusal(error) {
   return error instanceof MeaningError &&
     error.code === "REFUSED" &&
     error.failureCause === "http_400" &&
-    error.providerCodes.includes(3030);
+    (error.providerCodes.includes(3030) || error.providerCodes.includes(8006));
+}
+
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g;
+
+/**
+ * A passage as the model can take it: half of a broken emoji (a lone surrogate) becomes U+FFFD and control
+ * characters become spaces. The Workers AI binding answered every build of one workspace's object with 8006,
+ * "invalid data, not valid JSON" (2026-11-04), for a passage that did not survive the trip as JSON; the meaning of a
+ * passage does not live in either.
+ */
+export function modelInput(text) {
+  return typeof text === "string" ? text.replace(LONE_SURROGATE, "\uFFFD").replace(CONTROL, " ") : "";
 }
 
 /** Keep a refused passage useful while bounding a model input. No note text enters errors. */
@@ -124,7 +137,8 @@ export function bindingEmbedder(ai) {
       // API's does, so both embedders isolate and shorten a refused passage alike (`withInputFallback`).
       const code = /^\s*(\d{4})\b/.exec(typeof error?.message === "string" ? error.message : "");
       const providerCodes = code ? [Number(code[1])] : [];
-      if (providerCodes[0] === 3030) throw new MeaningError("REFUSED", { cause: "http_400", operation: "embed", providerCodes });
+      // 8006 is the binding's "invalid data" for a request it could not read: like 3030, about this input.
+      if (providerCodes[0] === 3030 || providerCodes[0] === 8006) throw new MeaningError("REFUSED", { cause: "http_400", operation: "embed", providerCodes });
       // Past the code, only which of our words the message was about (`providerHint`), never the message.
       const hint = providerHint(typeof error?.message === "string" ? error.message.replace(/^\s*\d{4}\s*:?/, "") : "");
       const words = providerWords(error?.message, group);
@@ -193,7 +207,8 @@ export function createRestEmbedder({ accountId, apiToken, fetchImpl } = {}) {
  * every way is thrown, as `REFUSED` with the probe's verdict. Shared by both embedders.
  */
 function withInputFallback(request) {
-  async function requestWithInputFallback(group) {
+  async function requestWithInputFallback(raw) {
+    const group = raw.map(modelInput);
     try {
       return await request(group);
     } catch (error) {
