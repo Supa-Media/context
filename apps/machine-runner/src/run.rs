@@ -129,6 +129,16 @@ pub async fn run_part(
         alive: true,
     };
     save_record(&ctx.state, &record);
+    // Accepted carries the session id the runner picked (Claude Code), so the
+    // job object can resume it even if the machine never reports again.
+    let _ = ctx
+        .out
+        .send(RunnerMsg::Accepted {
+            job_id: a.job_id.clone(),
+            part: a.part,
+            session_id: record.session_id.clone(),
+        })
+        .await;
 
     let network = a.own || a.network;
     let trusted = ctx.rules.trusted_repos.iter().any(|t| {

@@ -56,10 +56,20 @@ pub async fn prepare(root: &Path, folder: &Path, job_id: &str, kind: Workdir) ->
                 ],
             )
             .await?;
+            // Where the job started, so release can tell whether it made commits.
+            if let (Ok(base), Ok(gd)) = (
+                git(&dir, &["rev-parse", "HEAD"]).await,
+                git(&dir, &["rev-parse", "--absolute-git-dir"]).await,
+            ) {
+                let _ =
+                    tokio::fs::write(PathBuf::from(gd.trim()).join(BASE_FILE), base.trim()).await;
+            }
         }
     }
     Ok(dir)
 }
+
+const BASE_FILE: &str = "context-machine-base";
 
 /// When the allowed folder is the repository itself, keep the job folders out
 /// of `git status`.
@@ -111,22 +121,21 @@ pub async fn release(root: &Path, job_id: &str) -> Result<Released> {
             .await?
             .trim()
             .is_empty();
-        let ahead = git(
-            &dir,
-            &[
-                "rev-list",
-                "--count",
-                "HEAD",
-                "--not",
-                "--remotes",
-                "--exclude",
-                &format!("refs/heads/{branch}"),
-                "--branches",
-            ],
-        )
-        .await
-        .map(|n| n.trim() != "0")
-        .unwrap_or(true);
+        let base = match git(&dir, &["rev-parse", "--absolute-git-dir"]).await {
+            Ok(gd) => tokio::fs::read_to_string(PathBuf::from(gd.trim()).join(BASE_FILE))
+                .await
+                .unwrap_or_default(),
+            Err(_) => String::new(),
+        };
+        // No recorded start: keep it, rather than guess and lose work.
+        let ahead = base.trim().is_empty()
+            || git(
+                &dir,
+                &["rev-list", "--count", &format!("{}..HEAD", base.trim())],
+            )
+            .await
+            .map(|n| n.trim() != "0")
+            .unwrap_or(true);
         if dirty || ahead {
             return Ok(Released::Kept(Some(branch)));
         }

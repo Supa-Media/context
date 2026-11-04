@@ -258,15 +258,6 @@ impl Machine {
         };
         drop(inner);
 
-        let session = a.resume_session_id.clone().unwrap_or_default();
-        let _ = self
-            .out
-            .send(RunnerMsg::Accepted {
-                job_id: a.job_id.clone(),
-                part: a.part,
-                session_id: session,
-            })
-            .await;
         eprintln!(
             "job {}: part {} started with {}",
             a.job_id,
