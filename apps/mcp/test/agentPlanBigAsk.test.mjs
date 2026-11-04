@@ -22,6 +22,8 @@
  *     → "the planner is a setup switch, on only with an advisor" fails.
  *  7. `splitFirst` starting a lone job at once (2026-11-04, splitting bench gh-149).
  *     → "with the planner on, a lone job is offered the planner once, then starts" fails.
+ *  9. `planCall` skipping the folder's listing (gh-151: a split went loose into health/).
+ *     → "a project gets a folder of its own, never one that holds their notes" fails.
  *  8. `splitFirst` asking a part the planner started, or a job after the planner was called.
  *     → "the planner's own parts and its one-job answer are never asked" fails.
  */
@@ -32,7 +34,7 @@ import { test } from "node:test";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { runTurn } from "../src/agent/turn.js";
 import { MAX_RUNNING_JOBS, backgroundSession, withBackground } from "../src/agent/background.js";
-import { PLAN_DEFINITION, PLAN_TOOL, parsePlan, planCall, planFolder, readPlanSetting, splitFirst } from "../src/agent/planBigAsk.js";
+import { PLAN_DEFINITION, PLAN_TOOL, holdsNotes, parsePlan, planCall, planFolder, readPlanSetting, splitFirst } from "../src/agent/planBigAsk.js";
 import { parseSetup } from "../src/agent/production.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
@@ -75,6 +77,7 @@ function notesDispatcher({ existing = [], failing = [] } = {}) {
   const callTool = async (name, args) => {
     calls.push({ name, args });
     if (name === "read_note") return notes.has(args.path) ? { content: [{ type: "text", text: notes.get(args.path) }] } : { content: [{ type: "text", text: "not found" }], isError: true };
+    if (name === "list_notes") return { content: [{ type: "text", text: [...notes.keys()].filter((path) => path.startsWith(args.prefix ?? "")).map((path) => `${path} (12 bytes)`).join("\n") }] };
     if (name === "write_note") {
       if (failing.includes(args.path)) return { content: [{ type: "text", text: "refused" }], isError: true };
       notes.set(args.path, args.content);
@@ -304,4 +307,20 @@ test("the planner's own parts and its one-job answer are never asked", async () 
   const started = await callSingle("start_background_job", { title: "Travel insurance", brief: "Pick one." });
   assert.equal(started.isError, undefined, words(started));
   assert.equal(single.started.length, 1);
+});
+
+test("a project gets a folder of its own, never one that holds their notes", async () => {
+  assert.equal(holdsNotes({ content: [{ type: "text", text: "health/running-plan.md (812 bytes)\nhealth/Knee notes.md (40 bytes)" }] }, "health/"), true);
+  assert.equal(holdsNotes({ content: [{ type: "text", text: "" }] }, "projects/running-prep/"), false);
+  assert.equal(holdsNotes({ isError: true, content: [{ type: "text", text: "health/x.md" }] }, "health/"), false);
+  const background = backgroundSession({ running: [], job: null, now: NOW });
+  const fake = planner(background, PLAN);
+  const { notes, callTool } = notesDispatcher({ existing: ["health/running-plan.md"] });
+  const result = await withBackground(background, callTool)(PLAN_TOOL, { ask: "shoes, a physio and a plan", folder: "health/" });
+  assert.equal(result.isError, true);
+  assert.match(words(result), /new folder of its own inside their projects folder/);
+  assert.equal(fake.asked.length, 0, "the advisor isn't asked");
+  assert.equal(notes.size, 1, "nothing written");
+  const again = await withBackground(background, callTool)(PLAN_TOOL, { ask: "shoes, a physio and a plan", folder: "projects/running-prep/" });
+  assert.equal(again.isError, undefined, words(again));
 });

@@ -151,6 +151,14 @@ export function partNote(part, overviewPath) {
   );
 }
 
+/** Whether a `list_notes` answer names a note under `folder`. */
+export function holdsNotes(listed, folder) {
+  if (!listed || listed.isError === true) return false;
+  const words = (listed.content ?? []).map((part) => (typeof part?.text === "string" ? part.text : "")).join("\n");
+  // A listing is a path a line, "health/running-plan.md (812 bytes)" (`folderFit.js` reads the same).
+  return words.split("\n").some((each) => each.trim().startsWith(folder) && /\.md(\s|$)/.test(each.trim()));
+}
+
 /** The conversation as the planner reads it: earlier texts, newest kept. */
 function conversationText(history, question) {
   const lines = (Array.isArray(history) ? history : [])
@@ -189,6 +197,10 @@ export function planCall({ model, effort, request, meter = async () => {}, histo
     const overviewPath = `${folder}overview.md`;
     const there = await callTool("read_note", { path: overviewPath }).catch(() => null);
     if (there && there.isError !== true) return text(`${overviewPath} is already a note. Pick a new folder for this project.`, true);
+    // A project gets a folder of its own (gh-151: a split ask's overview and parts went loose into health/, among her own notes).
+    if (holdsNotes(await callTool("list_notes", { prefix: folder }).catch(() => null), folder)) {
+      return text(`${folder} already holds their notes. Give the project a new folder of its own inside their projects folder ("projects/running-prep/").`, true);
+    }
     planned = true;
     const brief =
       `<conversation>\n${conversationText(history, question) || "(none)"}\n</conversation>\n\n<ask>\n${ask}\n</ask>\n\n` +
