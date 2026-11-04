@@ -21,6 +21,7 @@ import {
   RECENT_ROWS_PER_WORKSPACE,
   daysInWindow,
   dayOf,
+  openWeight,
 } from "./lib/places";
 import { followMovesForMembers } from "./lib/placesFollow";
 import { getMembership, requireWorkspaceAccess } from "./lib/workspaceAuth";
@@ -228,6 +229,7 @@ const recentValidator = v.object({
   at: v.number(),
   kind: v.optional(recentKind),
   editedAt: v.optional(v.number()),
+  opens: v.optional(v.number()),
 });
 
 /** When their own hand last changed the row's note; a row from before `editedAt` that says edited, at its time. */
@@ -257,8 +259,10 @@ export const recordRecent = mutation({
       )
       .first();
     const editedAt = kind === "edited" ? now : row === null ? undefined : editedOf(row);
+    // Only an open counts: typing in a note is not going back to it.
+    const opens = (row === null ? 0 : openWeight(row, now)) + (kind === "opened" ? 1 : 0);
     if (row !== null) {
-      await ctx.db.patch(row._id, { at: now, kind, ...(editedAt === undefined ? {} : { editedAt }) });
+      await ctx.db.patch(row._id, { at: now, kind, opens, ...(editedAt === undefined ? {} : { editedAt }) });
       if (editedOf(row) === undefined && editedAt !== undefined) await trimRecents(ctx, userId, args.workspaceId, true);
       return null;
     }
@@ -269,6 +273,7 @@ export const recordRecent = mutation({
       path,
       at: now,
       kind,
+      opens,
       ...(editedAt === undefined ? {} : { editedAt }),
     });
     return null;
@@ -322,6 +327,7 @@ export const recentNotes = query({
           at: row.at,
           ...(row.kind === undefined ? {} : { kind: row.kind }),
           ...(editedAt === undefined ? {} : { editedAt }),
+          ...(row.opens === undefined ? {} : { opens: row.opens }),
         };
       });
   },

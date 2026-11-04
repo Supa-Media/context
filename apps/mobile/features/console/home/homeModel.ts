@@ -61,6 +61,8 @@ export interface HomeRecent {
   kind?: "opened" | "edited";
   /** When their own hand last changed it, kept through later opens; absent if they never did. */
   editedAt?: number;
+  /** How often they open it, fading by half every two weeks, as of `at`; absent on rows from before. */
+  opens?: number;
 }
 
 export interface HomeInput {
