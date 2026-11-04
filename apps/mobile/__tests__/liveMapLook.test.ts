@@ -12,7 +12,7 @@ import { boardColors, lightColors, lightMapColors } from "../features/design/tok
  * THE MAP'S SETTINGS — `look.ts`, read by the engine and kept on the account
  * (`useMapLook`, Convex `mapLookPreferences`; Dev2, 2026-11-04).
  *
- * The defaults are the ones Dev2 set on the prototype. A stored record is read
+ * The defaults are the look @shyoh set on their account, made everyone's by Dev2. A stored record is read
  * back through `lookOf`, so a value from an older or a hand-edited record never
  * reaches the drawing out of range.
  *
@@ -22,23 +22,23 @@ import { boardColors, lightColors, lightMapColors } from "../features/design/tok
  */
 
 describe("the map's look", () => {
-  test("defaults to Dev2's settings", () => {
+  test("defaults to the look @shyoh set, which Dev2 made everyone's (2026-11-04)", () => {
     expect(DEFAULT_LOOK).toMatchObject({
       board: "auto",
-      sketch: 0.55,
-      colorBy: "workspace",
-      names: "busy",
-      textSize: 11,
-      lines: "all",
+      sketch: 1,
+      colorBy: "topic",
+      names: "all",
+      textSize: 14,
+      lines: "near",
       mergeLines: true,
-      lineWidth: 0.4,
-      dotSize: 0.65,
+      lineWidth: 0.75,
+      dotSize: 1.2,
       spread: 1.8,
       reading: "circle",
-      opening: "sketch",
+      opening: "bloom",
       motion: "breathe",
       depth: true,
-      showArchive: false,
+      showArchive: true,
       showOrphans: true,
       showAgents: true,
     });
@@ -78,7 +78,7 @@ describe("the map's look", () => {
 
   test("tells two looks apart by any field", () => {
     expect(sameLook(DEFAULT_LOOK, { ...DEFAULT_LOOK })).toBe(true);
-    expect(sameLook(DEFAULT_LOOK, { ...DEFAULT_LOOK, showArchive: true })).toBe(false);
+    expect(sameLook(DEFAULT_LOOK, { ...DEFAULT_LOOK, showArchive: false })).toBe(false);
   });
 
   test("spread pushes notes apart in the layout", () => {

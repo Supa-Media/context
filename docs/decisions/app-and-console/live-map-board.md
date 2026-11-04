@@ -107,7 +107,13 @@ that fit, only what's happening; text size) and Restore defaults.
   on the page. The row goes with the account.
 - **The look travels in `MapData.look`**, so the canvas inside the phone's web
   view reads it the same way the web does. `lookOf` reads any stored record
-  back inside the ranges in `look.ts`, whose `DEFAULT_LOOK` is Dev2's.
+  back inside the ranges in `look.ts`. `DEFAULT_LOOK` was Dev2's prototype
+  settings; since 2026-11-04 it is the look @shyoh set on their account,
+  which Dev2 made everyone's (pencil fully messy, colour by topic, all names
+  that fit at 14, lines near the cursor, bloom opening, Archive shown). An
+  owner reads a person's look by username with the `Map look of a person`
+  workflow (`lookOfUsername`, internal: the name claim is the person's
+  personal workspace, whose one owner is the person).
 - **Spread is applied in the layout**, not in the drawing, so taps and the
   camera agree with what is drawn.
 - **No cursor wiggle**: notes never move under the pointer, so they stay easy
@@ -160,8 +166,8 @@ and chaos. In `engine/draw/sketch.ts`:
 
 ## Show, colour and lines in the map's settings (Dev2, 2026-11-04)
 
-The rest of the prototype's settings, with Dev2's choices as everyone's
-defaults:
+The rest of the prototype's settings (the defaults named here were Dev2's
+first choices; the current ones are in `DEFAULT_LOOK`, above):
 
 - **Show**: Archive (off: one icon, as before; on: spread out like any
   folder, in the layout), notes with no links (on; off leaves them out of the
@@ -237,3 +243,34 @@ hard to look around the map". What changed, and why:
 
 **Tests:** `liveMapMotion.test.ts` (opening, depth, sway, breathing),
 `liveMapMarks.test.ts` (hover traces), `liveMapPeekEngine.test.ts` (drag).
+
+## The clicked note is a tab of the right panel, not a card over the map (Dev2, 2026-11-04)
+
+Dev2: "lets hide the note preview ... maybe we can have the notes be
+previewed on the side instead it can be another tab ... a way to hide that
+side panel or either merge it with the meetings side bar." Dev2 chose the
+merge. So:
+
+- **No floating card.** A note clicked on the map is previewed in the
+  console's right panel, as a **Note** tab beside the map's **Activity** (who
+  is working, what is happening) and **Meetings**. The map's own column is
+  gone. The map hands its two tabs to the panel through a store the console
+  provides (`features/console/aside/mapSide.tsx`), and the panel decides where
+  they go (`tabs.ts`). Only a harness that mounts the map with no console
+  around it keeps a column of the map's own.
+- **One button hides it all.** The top bar's panel button shows and hides the
+  panel with the map's tabs in it. Clicking a note with the panel shut opens
+  it at wide density, where it is a column; at medium it would cover the map,
+  so it waits for the button. Shutting it by hand with a note open keeps it
+  shut.
+- **Which tab shows.** The map opening brings Activity forward, and a note
+  clicked brings Note forward: these are the person's own presses. The note
+  closed falls back to Activity, and the map left falls back to Meetings. A
+  meeting starting still only marks its tab.
+- **A drag is not a tap.** Dragging to look around the clicked note's links
+  neither clears it nor opens another. Only a click on empty space or on
+  another note changes the selection.
+
+Reversing it: `__tests__/asideMapTabs.test.ts` fails if the panel ignores the
+map's tabs or a click stops bringing Note forward, and
+`liveMapPeekEngine.test.ts` fails if a drag clears the selected note.

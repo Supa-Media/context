@@ -11,10 +11,6 @@ export type MapPeek = {
   /** The canvas's handlers: a note tap opens the card, a tap on nothing closes it. */
   onTapNote: (note: OpenPeek) => void;
   onTapEmpty: () => void;
-  /** A drag on the map began: the card fades out of the way (Dev2, 2026-11-04). */
-  onDrag: () => void;
-  /** The card is fading out; it closes when the fade ends. */
-  fading: boolean;
   /** Kept as you move, so the map comes back where you left it. */
   onCamera: (detail: CameraDetail) => void;
   /** The engine arriving: put the camera and the highlighted note back. */
@@ -35,7 +31,6 @@ export function useMapPeek(page: MapPageState): MapPeek {
     return kept === null ? null : { ...kept, at: null };
   };
   const [state, setState] = useState<{ key: string; peek: OpenPeek | null }>(() => ({ key, peek: recalled(key) }));
-  const [fading, setFading] = useState(false);
   // Another workspace or scope remembers its own card.
   const peek = state.key === key ? state.peek : recalled(key);
   const peekRef = useRef(peek);
@@ -46,7 +41,6 @@ export function useMapPeek(page: MapPageState): MapPeek {
 
   const open = useCallback(
     (next: OpenPeek | null) => {
-      setFading(false);
       setState({ key: keyRef.current, peek: next });
       rememberPeek(keyRef.current, next === null ? null : { workspaceId: next.workspaceId, path: next.path });
       engineRef.current?.select(next === null ? null : { workspaceId: next.workspaceId, path: next.path });
@@ -76,10 +70,6 @@ export function useMapPeek(page: MapPageState): MapPeek {
     onTapEmpty: useCallback(() => {
       if (peekRef.current !== null) open(null);
     }, [open]),
-    onDrag: useCallback(() => {
-      if (peekRef.current !== null) setFading(true);
-    }, []),
-    fading: fading && peek !== null,
     onCamera,
     onEngine,
   };

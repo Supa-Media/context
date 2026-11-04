@@ -81,8 +81,6 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   const ambient = !!options.ambient;
   const slowFrame = options.slowFrame ?? ((cb: () => void, ms: number) => setTimeout(cb, ms));
   let slowPending = false;
-  // Whether this gesture has dragged the map yet (`onDrag` is told once).
-  let dragged = false;
 
   const style = (): Style => ({ palette: data!.palette, font: options.font ?? DEFAULT_FONT, faceFor: options.faceFor ?? null, look: data!.look ?? DEFAULT_LOOK });
   const timeNow = (): number => (data?.clock.kind === "replay" ? replayAt : now());
@@ -248,7 +246,6 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   // Gestures.
   const detach = attachInput(canvas, {
     grab: () => {
-      dragged = false;
       autoFit = false;
       if (flight) {
         cam = currentCam();
@@ -258,10 +255,6 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     pan: (dx, dy) => {
       if (!model || !cam) return;
       autoFit = false;
-      if (!dragged) {
-        dragged = true;
-        options.onDrag?.();
-      }
       if (model.view === "folders") {
         foldersScroll = Math.max(0, Math.min(foldersScroll - dx, Math.max(0, foldersWidth - visibleRect(vp).w)));
       } else {

@@ -8,32 +8,64 @@ import type { MapPageState } from "../hooks/useMapPage";
 import { FacePile, ActorFace } from "./ActorFace";
 import { PanelHeading } from "./controls";
 import { FollowPanel } from "./FollowPanel";
+import type { MapPeek } from "../hooks/useMapPeek";
+import { NotePeek } from "./NotePeek";
 
 /**
- * The column beside the map. Live: who is working now and what is happening,
- * in words. Replaying: who was there and what was happening at the playhead.
- * Across workspaces: what moved between them. Following an AI tool: what it
- * has read, in order, and what it is writing.
+ * What is happening on the map, in words, for the console's right panel
+ * (Dev2, 2026-11-04: the map's own column merged into the meetings panel, as
+ * its Activity tab; the clicked note is the Note tab beside it).
+ *
+ * Live: who is working now and what is happening. Replaying: who was there
+ * and what was happening at the playhead. Across workspaces: what moved
+ * between them. Following an AI tool: what it has read, in order, and what it
+ * is writing.
  */
-export function MapPanel({ page, onOpenNote }: { page: MapPageState; onOpenNote: (workspaceId: string, path: string) => void }) {
+export function MapActivity({ page, onOpenNote }: { page: MapPageState; onOpenNote: (workspaceId: string, path: string) => void }) {
   const styles = useThemedStyles(makeStyles);
-  // The column scrolls, and stops above the console's floating new-note
-  // button in its corner, so the button never sits on the last row.
+  return (
+    <ScrollView style={styles.panelScroll} contentContainerStyle={styles.panelBody} testID="map-activity">
+      {page.follow !== null ? (
+        <FollowPanel page={page} onOpenNote={onOpenNote} />
+      ) : (
+        <>
+          <WorkingNow page={page} />
+          {page.scope === "all" && page.many ? <CrossMoves rows={page.crossRows} replaying={page.replaying} /> : null}
+          <PanelHeading>{page.replaying ? "At this moment" : "What's happening"}</PanelHeading>
+          <Feed items={page.feed} replaying={page.replaying} now={page.now} onOpenNote={onOpenNote} />
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+/**
+ * The same, as a column of the map's own: only where the map is mounted
+ * without a console around it to hold its tabs (a harness).
+ */
+export function MapColumn({ page, peek, onOpenNote }: { page: MapPageState; peek: MapPeek; onOpenNote: (workspaceId: string, path: string) => void }) {
+  const styles = useThemedStyles(makeStyles);
+  const open = peek.peek;
   return (
     <View style={styles.panel} testID="map-panel">
-      <ScrollView style={styles.panelScroll} contentContainerStyle={styles.panelBody}>
-        {page.follow !== null ? (
-          <FollowPanel page={page} onOpenNote={onOpenNote} />
-        ) : (
-          <>
-            <WorkingNow page={page} />
-            {page.scope === "all" && page.many ? <CrossMoves rows={page.crossRows} replaying={page.replaying} /> : null}
-            <PanelHeading>{page.replaying ? "At this moment" : "What's happening"}</PanelHeading>
-            <Feed items={page.feed} replaying={page.replaying} now={page.now} onOpenNote={onOpenNote} />
-          </>
-        )}
-      </ScrollView>
+      {open !== null ? <MapNote page={page} peek={peek} onOpenNote={onOpenNote} /> : <MapActivity page={page} onOpenNote={onOpenNote} />}
     </View>
+  );
+}
+
+/** The clicked note's preview, for the Note tab; nothing with no note clicked. */
+export function MapNote({ page, peek, onOpenNote }: { page: MapPageState; peek: MapPeek; onOpenNote: (workspaceId: string, path: string) => void }) {
+  const open = peek.peek;
+  if (open === null) return null;
+  return (
+    <NotePeek
+      page={page}
+      peek={open}
+      compact={false}
+      onClose={peek.close}
+      onExpand={() => onOpenNote(open.workspaceId, open.path)}
+      onPeek={peek.onTapNote}
+    />
   );
 }
 
@@ -131,15 +163,14 @@ function CrossMoves({ rows, replaying }: { rows: readonly CrossMoveRow[]; replay
 export const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     panel: {
-      width: 300,
+      width: 320,
       borderLeftWidth: StyleSheet.hairlineWidth,
       borderLeftColor: colors.lineStrong,
       backgroundColor: colors.pageSurface,
       flexShrink: 0,
       overflow: "hidden",
     },
-    // 16 + the 56 of the floating button + a gap.
-    panelScroll: { flexGrow: 1, flexShrink: 1, flexBasis: 0, marginBottom: 80 },
+    panelScroll: { flexGrow: 1, flexShrink: 1, flexBasis: 0 },
     panelBody: { paddingTop: space.x4, paddingBottom: space.x3, paddingHorizontal: 18, gap: space.x3 },
     section: { gap: space.x2, marginBottom: space.x1 },
     pileRow: { gap: space.x2 },

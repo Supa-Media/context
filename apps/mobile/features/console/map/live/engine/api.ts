@@ -31,8 +31,6 @@ export type MapEngineOptions = {
   onOpenNote?: (note: { workspaceId: string; path: string; at?: { x: number; y: number } }) => void;
   /** A tap that landed on nothing: whatever a note tap opened can close. */
   onTapEmpty?: () => void;
-  /** A drag to look round the map began (once per gesture): a card opened on a note gets out of the way. */
-  onDrag?: () => void;
   onDiveInto?: (folder: { workspaceId: string; path: string }) => void;
   /** Replay: the playhead while the engine plays it. */
   onTime?: (t: number) => void;

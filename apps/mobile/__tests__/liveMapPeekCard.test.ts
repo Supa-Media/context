@@ -30,6 +30,8 @@ import { createRoot, type Root } from "react-dom/client";
 import type { MapPageState } from "../features/console/map/live/hooks/useMapPage";
 import { PEEK_READ_MS, PEEK_WRITING_READ_MS } from "../features/console/map/live/peek/peekModel";
 import { NotePeek, type OpenPeek } from "../features/console/map/live/ui/NotePeek";
+import { MapColumn } from "../features/console/map/live/ui/MapPanel";
+import type { MapPeek } from "../features/console/map/live/hooks/useMapPeek";
 
 const NOTE: OpenPeek = { workspaceId: "ws-p", path: "1-projects/launch/q4.md", at: { x: 300, y: 200 } };
 
@@ -39,6 +41,12 @@ function pageWith(working: MapPageState["working"]): MapPageState {
     replaying: false,
     events: [],
     now: 0,
+    follow: null,
+    scope: "one",
+    many: false,
+    feed: [],
+    crossRows: [],
+    workingLine: "Nobody is here",
     book: {
       title: () => "Q4 launch plan",
       known: () => "Q4 launch plan",
@@ -68,7 +76,6 @@ async function render(props: {
         page: pageWith(props.working),
         peek: NOTE,
         compact: props.compact ?? false,
-        box: { width: 1200, height: 700 },
         onClose: props.onClose ?? (() => {}),
         onExpand: props.onExpand ?? (() => {}),
         onPeek: props.onPeek ?? (() => {}),
@@ -177,5 +184,28 @@ describe("the note card", () => {
     // A heading of this note opens the note itself, as Expand does.
     await act(async () => links[0]!.click());
     expect(expanded).toBe(1);
+  });
+});
+
+describe("the map's own column, with no console around it", () => {
+  // Dev2 (2026-11-04): the note is previewed on the side, not over the map.
+  const peekWith = (open: OpenPeek | null, calls: string[]): MapPeek =>
+    ({ peek: open, close: () => calls.push("close"), onTapNote: () => {}, onTapEmpty: () => {}, onCamera: () => {}, onEngine: () => {} }) as MapPeek;
+  const column = async (open: OpenPeek | null, calls: string[] = []) =>
+    act(async () => root!.render(createElement(MapColumn, { page: pageWith([]), peek: peekWith(open, calls), onOpenNote: () => {} })));
+
+  test("with no note clicked it is what is happening", async () => {
+    await column(null);
+    expect(byTest("map-feed-empty")).toHaveLength(1);
+    expect(byTest("map-peek")).toHaveLength(0);
+  });
+
+  test("a clicked note takes the column, and its close clears it", async () => {
+    const calls: string[] = [];
+    await column(NOTE, calls);
+    expect(byTest("map-peek")).toHaveLength(1);
+    expect(byTest("map-feed-empty")).toHaveLength(0);
+    await act(async () => (byTest("map-peek-close")[0] as HTMLElement).click());
+    expect(calls).toEqual(["close"]);
   });
 });

@@ -182,10 +182,10 @@ describe("the map's settings", () => {
     const host = await mount(createElement(MapSettings, { page: made.page, compact: false, onClose: () => {} }));
     await press(find(host, "map-settings-archive"));
     await press(find(host, "map-settings-color-pressure"));
-    await press(find(host, "map-settings-lines-near"));
+    await press(find(host, "map-settings-lines-hover"));
     await press(find(host, "map-settings-merge"));
-    expect(made.looks).toEqual([{ showArchive: true }, { colorBy: "pressure" }, { lines: "near" }, { mergeLines: false }]);
-    expect(find(host, "map-settings-color-workspace")!.getAttribute("aria-checked")).toBe("true");
+    expect(made.looks).toEqual([{ showArchive: false }, { colorBy: "pressure" }, { lines: "hover" }, { mergeLines: false }]);
+    expect(find(host, "map-settings-color-topic")!.getAttribute("aria-checked")).toBe("true");
   });
 
   test("Find lists notes whose names hold the words, and a pick goes to it", async () => {
@@ -220,13 +220,13 @@ describe("the map's settings", () => {
     expect(made.looks).toEqual([{ motion: "still" }, { depth: false }]);
   });
 
-  test("shows Dev2's defaults, and the close button closes it", async () => {
+  test("shows the defaults, and the close button closes it", async () => {
     const { page } = withLook();
     let closed = 0;
     const host = await mount(createElement(MapSettings, { page, compact: false, onClose: () => closed++ }));
     const text = host.textContent ?? "";
-    for (const v of ["0.55", "0.40", "0.65", "1.80", "11"]) expect(text).toContain(v);
-    expect(find(host, "map-settings-names-busy")!.getAttribute("aria-checked")).toBe("true");
+    for (const v of ["1.00", "0.75", "1.20", "1.80", "14"]) expect(text).toContain(v);
+    expect(find(host, "map-settings-names-all")!.getAttribute("aria-checked")).toBe("true");
     await press(find(host, "map-settings-close"));
     expect(closed).toBe(1);
   });

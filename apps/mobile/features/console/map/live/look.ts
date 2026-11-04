@@ -40,23 +40,27 @@ export type MapLook = {
   showAgents: boolean;
 };
 
-/** Dev2's own settings from the prototype (2026-11-04), made everyone's starting point. */
+/**
+ * Everyone's starting point: the look @shyoh had set on their account, made
+ * the default by Dev2 (2026-11-04), read with the `Map look of a person`
+ * workflow. Before that it was Dev2's prototype settings.
+ */
 export const DEFAULT_LOOK: MapLook = {
   board: "auto",
-  sketch: 0.55,
-  colorBy: "workspace",
-  names: "busy",
-  textSize: 11,
-  lines: "all",
+  sketch: 1,
+  colorBy: "topic",
+  names: "all",
+  textSize: 14,
+  lines: "near",
   mergeLines: true,
-  lineWidth: 0.4,
-  dotSize: 0.65,
+  lineWidth: 0.75,
+  dotSize: 1.2,
   spread: 1.8,
   reading: "circle",
-  opening: "sketch",
+  opening: "bloom",
   motion: "breathe",
   depth: true,
-  showArchive: false,
+  showArchive: true,
   showOrphans: true,
   showAgents: true,
 };

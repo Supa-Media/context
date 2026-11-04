@@ -16,7 +16,6 @@ import {
   lastWritten,
   peekBlocks,
   peekCrumbs,
-  peekPlacement,
   peekPresence,
   presenceChips,
 } from "../features/console/map/live/peek/peekModel";
@@ -175,42 +174,6 @@ describe("the card's header", () => {
   test("the folders the note is in, in words", () => {
     expect(peekCrumbs("1-projects/launch-plan/q4.md")).toEqual("Projects › Launch plan");
     expect(peekCrumbs("index.md")).toEqual("");
-  });
-});
-
-describe("where the card sits", () => {
-  const box = { width: 1200, height: 700 };
-  const card = { width: 380, height: 460 };
-
-  test("to the right of the dot, with room between them", () => {
-    const at = peekPlacement({ x: 400, y: 300 }, box, card);
-    expect(at.left).toBeGreaterThan(400);
-    expect(at.top).toBeLessThanOrEqual(300);
-  });
-
-  test("to the left when the right edge has no room", () => {
-    const at = peekPlacement({ x: 1100, y: 300 }, box, card);
-    expect(at.left + card.width).toBeLessThan(1100);
-  });
-
-  test("always inside the canvas, whatever the tap", () => {
-    for (const p of [{ x: 0, y: 0 }, { x: 1200, y: 700 }, { x: 600, y: 690 }, { x: 5, y: 650 }]) {
-      const at = peekPlacement(p, box, card);
-      expect(at.left).toBeGreaterThanOrEqual(12);
-      expect(at.top).toBeGreaterThanOrEqual(12);
-      expect(at.left + card.width).toBeLessThanOrEqual(box.width - 12);
-      expect(at.top + card.height).toBeLessThanOrEqual(box.height - 12);
-    }
-  });
-
-  test("a canvas smaller than the card pins it to the corner rather than off screen", () => {
-    expect(peekPlacement({ x: 100, y: 100 }, { width: 300, height: 300 }, card)).toEqual({ left: 12, top: 12 });
-  });
-
-  test("with no tap point (coming back to the map) it sits at the top right", () => {
-    const at = peekPlacement(null, box, card);
-    expect(at.left + card.width).toBe(box.width - 12);
-    expect(at.top).toBe(12);
   });
 });
 
