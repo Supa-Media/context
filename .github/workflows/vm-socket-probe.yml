@@ -1,0 +1,37 @@
+# TEMPORARY: measures whether a runner's socket to production drops on a machine with no proxy in front of it.
+# Opened as a draft PR and closed unmerged (2026-11-04). The pairing code is the only thing printed; the grant
+# stays on the CI machine, and the device leaves at the end.
+name: VM socket probe
+
+on:
+  pull_request:
+    paths: [".github/workflows/vm-socket-probe.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Install runner 0.2.0 and show a pairing code
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/Supa-Media/context/main/apps/machine-runner/install.sh | CONTEXT_MACHINE_VERSION=0.2.0 sh
+          out="$(echo '{}' | ~/.context-machine/bin/context-machine hook SessionStart)"
+          code="$(printf '%s' "$out" | grep -o '"code": "[^"]*"' | cut -d'"' -f4)"
+          echo "::notice title=pairing code::$code"
+      - name: Watch the socket for 25 minutes
+        run: |
+          log=~/.context-machine/daemon.log
+          end=$(( $(date +%s) + 1500 )); prev=0
+          while [ "$(date +%s)" -lt "$end" ]; do
+            n=$(wc -l < "$log" 2>/dev/null || echo 0)
+            if [ "$n" != "$prev" ]; then tail -n +"$((prev + 1))" "$log" | while read -r line; do echo "$(date -u +%T) $line"; done; prev=$n; fi
+            sleep 1
+          done
+      - name: Summary and leave
+        if: always()
+        run: |
+          echo "::notice title=resets::$(grep -c 'Connection reset\|protocol error\|went quiet' ~/.context-machine/daemon.log || true) resets, $(grep -c '^connected' ~/.context-machine/daemon.log || true) connects"
+          echo '{"reason":"exit"}' | ~/.context-machine/bin/context-machine hook SessionEnd || true
