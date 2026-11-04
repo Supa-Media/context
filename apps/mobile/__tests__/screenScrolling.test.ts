@@ -166,9 +166,9 @@ describe("a screen's controls stay reachable at any viewport height", () => {
   test("the login screen can scroll to its submit button", () => {
     mockParams = {};
     const { container, unmount } = render(createElement(LoginScreen));
-    // The page opens on the phone (board p1); its send button is the submit.
-    expect(container.textContent).toContain("Sign in or join");
-    expectReachable(container, "login-phone-send");
+    // The page opens on email (Dev2, 2026-11-04); its Continue button is the submit.
+    expect(container.querySelector('[data-testid="login-email"]')).not.toBeNull();
+    expectReachable(container, "login-submit");
     unmount();
   });
 
