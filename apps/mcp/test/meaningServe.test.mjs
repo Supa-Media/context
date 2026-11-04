@@ -19,6 +19,11 @@
  *   the with-words floor applied to loose hits too → "…while a question the words could not answer keeps…" fails
  *   the search-probe filter removed from meaningMatches → "a search-probe note is never a meaning match…" fails
  *   the search-probe filter removed from withMeaning   → "a search-probe note is never a word hit either" fails
+ *   `searchBothWays` not passing `options.query` to the merge → "a single-workspace search with the query counts a title…" fails
+ *   a link-only word hit not counted loose in mergeHits → "a word hit whose terms sit only inside a link is loose…" fails
+ *   `evidenceBonus` left out of mergeHits's word scores → "a single-workspace search with the query counts a title…" fails
+ *   the code-passage drop in withMeaning removed   → "a prose question is not offered a code passage…" fails
+ *   `searchBothWays` ignoring `shape.query` (null no longer means none) → all three new tests fail
  */
 
 import test from "node:test";
@@ -34,6 +39,7 @@ import {
   meaningMatches,
   meaningSearchable,
   mergeHits,
+  searchBothWays,
   withMeaning,
 } from "../src/search/meaning/serve.js";
 
@@ -372,4 +378,63 @@ test("a search-probe note is never a word hit either", async () => {
     assert.deepEqual(result.hits.map((hit) => hit.key), ["gym/weights.md"]);
     assert.equal(result.matchCount, 1);
   }
+});
+
+/**
+ * The single-workspace path knows the query, so it applies the three rules the
+ * cross-workspace fusion applies (`tools/search.js` `fuseEverywhere`): title
+ * evidence, a link-only word hit as a loose one, and no code passage found
+ * only by meaning for a prose question. A caller that passes no query (the
+ * cross-workspace search, which fuses by evidence itself) keeps the old order.
+ */
+test("a single-workspace search with the query counts a title that holds the words; a caller with no query keeps the word order", async () => {
+  const index = fakeIndex([match("elsewhere.md", 0.6)]);
+  const { store } = storeWith({ "elsewhere.md": "# Elsewhere\n\nsomething else\n" });
+  const words = {
+    hits: [
+      { key: "notes/unrelated.md", title: "Notes", snippets: [] },
+      { key: "plans/workers-comp-renewal.md", title: "Workers comp renewal", snippets: [] },
+    ],
+    matchCount: 2,
+  };
+  const options = { query: "workers comp renewal", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed };
+  const found = await searchBothWays(store, () => words, options);
+  assert.deepEqual(found.hits.filter((hit) => !hit.meaningOnly).map((hit) => hit.key), ["plans/workers-comp-renewal.md", "notes/unrelated.md"]);
+  assert.equal(found.evidence["plans/workers-comp-renewal.md"].wordRank, 1, "the evidence keeps the word search's rank, not the merged order");
+  const unchanged = await searchBothWays(store, () => words, options, { query: null });
+  assert.deepEqual(unchanged.hits.filter((hit) => !hit.meaningOnly).map((hit) => hit.key), ["notes/unrelated.md", "plans/workers-comp-renewal.md"]);
+});
+
+test("a word hit whose terms sit only inside a link is loose: it comes after the words found in prose", async () => {
+  const index = fakeIndex([match("elsewhere.md", 0.6)]);
+  const { store } = storeWith({ "elsewhere.md": "# Elsewhere\n\nsomething else\n" });
+  const words = {
+    hits: [
+      { key: "reviews/linked.md", title: "Review", snippets: ["Background: https://example.com/workers-comp-renewal/overview"] },
+      { key: "notes/prose.md", title: "Other", snippets: ["The workers comp renewal is due in March."] },
+    ],
+    matchCount: 2,
+  };
+  const options = { query: "workers comp renewal", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed };
+  const found = await searchBothWays(store, () => words, options);
+  assert.deepEqual(found.hits.filter((hit) => !hit.meaningOnly).map((hit) => hit.key), ["notes/prose.md", "reviews/linked.md"]);
+  const unchanged = await searchBothWays(store, () => words, options, { query: null });
+  assert.deepEqual(unchanged.hits.filter((hit) => !hit.meaningOnly).map((hit) => hit.key), ["reviews/linked.md", "notes/prose.md"]);
+});
+
+test("a prose question is not offered a code passage found only by meaning; a code-looking query keeps it", async () => {
+  const code = "function refresh(entId) {\n  if (entId && state.tokenUrl && ORIGIN && ORIGIN.matcher(state.tokenUrl)) {\n    return refreshToken(entId);\n  }\n}\n";
+  const prose = "# Renewal\n\nThe workers comp renewal is due in March, and the broker wants the payroll figures first.\n";
+  const index = fakeIndex([match("notes/auth-check.md", 0.8), match("plans/renewal.md", 0.7)]);
+  const { store } = storeWith({ "notes/auth-check.md": code, "plans/renewal.md": prose });
+  const found = { hits: [{ key: "w.md", title: "W", snippets: [] }], matchCount: 1 };
+  const meaningOnly = async (query) => {
+    // No query at all: the meaning search still runs on a placeholder, and the merge is told there is none.
+    const options = { query: query ?? "q", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed };
+    const result = await searchBothWays(store, () => found, options, query === undefined ? { query: null } : {});
+    return result.hits.filter((hit) => hit.meaningOnly).map((hit) => hit.key);
+  };
+  assert.deepEqual(await meaningOnly("workers comp renewal"), ["plans/renewal.md"]);
+  assert.deepEqual(await meaningOnly("entId.matcher"), ["notes/auth-check.md", "plans/renewal.md"]);
+  assert.deepEqual(await meaningOnly(undefined), ["notes/auth-check.md", "plans/renewal.md"]);
 });
