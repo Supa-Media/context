@@ -13,7 +13,7 @@ reply, with the model going back to correct itself before anything is sent.
 **What it is** (`apps/mcp/src/agent/replyJudge.js`):
 
 - A setup turns it on with `reply_judge: clef` or `reply_judge: clef-flash`,
-  and `judge_at` (0 to 1, default 0.5) the confidence a verdict needs to be
+  and `judge_at` (0 to 1, default 0: Clef Flash spreads its confidence over the nine verdicts, so its pick is the signal) the confidence a verdict needs to be
   acted on. Absent, there is no judge.
 - On a texted chat turn (one-to-one or group, front door included; not a
   background job), after the turn's other answer check, Clef reads the

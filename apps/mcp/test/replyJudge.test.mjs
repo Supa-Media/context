@@ -168,7 +168,7 @@ test("actions list each call with its arguments and each result, failures marked
 
 test("a setup names its judge", async () => {
   assert.equal(readReplyJudge(undefined, undefined), null);
-  assert.deepEqual(readReplyJudge("clef", undefined), { model: "clef", at: 0.5 });
+  assert.deepEqual(readReplyJudge("clef", undefined), { model: "clef", at: 0 });
   assert.deepEqual(readReplyJudge("clef-flash", "0.7"), { model: "clef-flash", at: 0.7 });
   assert.equal(readReplyJudge("haiku", undefined), undefined, "only a decision model");
   assert.equal(readReplyJudge("clef", "2"), undefined);
