@@ -115,6 +115,18 @@ unmodified CLI, which signs itself in.
   stops working within the hour even without the object being told; the app's
   Disconnect tells the object at once. A browser `Origin` header on any
   machine route is refused.
+- **The app's screens** (`POST /machines/app/{list,set,disconnect}`,
+  `apps/mcp/src/machines/appRoutes.js`) take only the app's own session.
+  A computer is run by its owner or the workspace's owner, the same two the
+  control plane lets disconnect it (`revokeMachineAs`): they see its settings
+  and change them, and the object tells the runner the new rules at once.
+  Another editor of a shared workspace does not, even of a team computer,
+  because who may send work to a computer is its rules, and an editor who
+  could change them could let themselves onto somebody else's computer; any
+  other member sees only its name, system, owner and whether it is online.
+  Disconnect revokes the grant in the control plane first, then the object
+  says goodbye on the socket and ends its live runs. Test:
+  `machineApp.test.mjs`, whose header records its sabotage.
 - **Known risk: a pairing code can be phished**, as any device-code flow can:
   somebody sends a person a link with their own machine's code. The approval
   screen names the machine, its OS and when it asked, and says to approve only a
