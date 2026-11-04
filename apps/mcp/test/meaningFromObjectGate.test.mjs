@@ -138,3 +138,17 @@ test("the binding isolates a refused passage as the REST API does, and keeps the
   assert.equal((await batchy(["a", "b", "c"])).length, 3);
   assert.ok(calls > 1);
 });
+
+test("an undocumented model failure keeps one word of ours for what it was about, never its message", async () => {
+  const { bindingEmbedder } = await import("../src/search/meaning/embed.js");
+  const embed = bindingEmbedder({ run: async () => { throw new Error("8006: input too long for secret note words"); } });
+  await assert.rejects(embed(["x"]), (error) => {
+    assert.equal(error.code, "UNAVAILABLE");
+    assert.deepEqual(error.providerCodes, [8006]);
+    assert.equal(error.hint, "too_long");
+    assert.equal(JSON.stringify({ ...error, message: error.message }).includes("secret"), false);
+    return true;
+  });
+  const odd = bindingEmbedder({ run: async () => { throw new Error("8006: purple elephants"); } });
+  await assert.rejects(odd(["x"]), (error) => error.hint === "other");
+});
