@@ -151,13 +151,13 @@ async function ready() {
 }
 
 /** `ws.write.move` through `serveWorkspaceStore`, as the gateway calls it. */
-function callMove(store, fields) {
+function callMove(store, fields, timing = undefined) {
   const request = new Request("https://ws.test/call", {
     method: "POST",
     headers: { "x-tex-call": encodeURIComponent(JSON.stringify({ op: "ws.write.move" })) },
     body: JSON.stringify({ workspaceId: WS, ...fields }),
   });
-  return serveWorkspaceStore(store, request);
+  return serveWorkspaceStore(store, request, timing);
 }
 
 const pathOf = (store, id) => store.rows.get([id])[0].path;
@@ -403,6 +403,24 @@ test("a move says how long the object spent on it and, of that, waiting for its 
   assert.equal(answer.ok, true);
   assert.ok(answer.commit >= 10, JSON.stringify(answer));
   assert.ok(answer.took >= answer.commit, JSON.stringify(answer));
+});
+
+test("a timed move says when the call began and when its answer left, on the object's clock, and what it found", async () => {
+  const { store } = await ready();
+  store.settle = () => new Promise((resolve) => setTimeout(resolve, 15));
+  const arrived = Date.now() - 7;
+  const answer = await (await callMove(store, { from: "projects/plan.md", to: "projects/plan-stamped.md", ...OWNER }, { arrived, cold: true, alarm: true })).json();
+  assert.equal(answer.ok, true);
+  assert.equal(answer.arrived, arrived);
+  assert.ok(answer.answered - answer.arrived >= answer.took, JSON.stringify(answer));
+  assert.ok(answer.before >= 7, JSON.stringify(answer));
+  assert.equal(answer.cold, true);
+  assert.equal(answer.alarm, true);
+
+  // Without the object's view of the call (a caller that passes none), the answer says only its own time.
+  const plain = await (await callMove(store, { from: "projects/plan-stamped.md", to: "projects/plan-plain.md", ...OWNER })).json();
+  assert.equal(plain.ok, true);
+  assert.equal("arrived" in plain || "answered" in plain || "cold" in plain || "alarm" in plain, false, JSON.stringify(plain));
 });
 
 test("a refused move says nothing of time, and waits for nothing", async () => {
