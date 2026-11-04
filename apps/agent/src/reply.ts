@@ -31,11 +31,14 @@ import {
   askAgent,
   askLine,
   linkPhone,
+  openGatewaySession,
   openSession,
   requestLinkInvite,
   ServiceError,
   unlinkPhone,
   type Fetch,
+  type SessionAnswer,
+  type TextsBinding,
 } from "./clients";
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
@@ -127,7 +130,34 @@ export type ReplyDeps = {
   settings?: { state: () => Promise<MenuState | undefined>; open: (step?: SettingStep) => Promise<void>; close: () => Promise<void> };
   /** A texted yes to sharing with the devs: file what this chat keeps, once (`reviewWatch.ts` `watchShared`). */
   onShared?: () => Promise<void>;
+  /**
+   * A text's session from the person object, without Convex (`openGatewaySession`): the gateway's binding, the
+   * personal workspace id this inbox remembers, and where a new one is kept. Absent, every session is Convex's.
+   */
+  texts?: TextsSessionDeps;
 };
+
+export type TextsSessionDeps = { binding: TextsBinding; workspaceId: () => Promise<string | undefined>; remember: (personalWorkspaceId: string | null) => Promise<void> };
+
+/**
+ * The person object first, when this inbox knows whose phone it is; Convex otherwise, or on any miss. Convex's answer
+ * names the personal workspace, which the inbox keeps for the next text; a refusal clears what it kept, so a stale id
+ * costs one slow text and never a wrong one (the object answers only for a phone it holds).
+ */
+async function textSession(phone: string, deps: ReplyDeps): Promise<SessionAnswer> {
+  const texts = deps.texts;
+  const kept = texts ? await texts.workspaceId() : undefined;
+  if (texts && kept) {
+    const fast = await openGatewaySession(texts.binding, phone, kept);
+    if (fast !== null) return fast;
+  }
+  const slow = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, phone);
+  if (texts) {
+    const own = slow.status === "linked" ? slow.personalWorkspaceId ?? null : null;
+    if (own !== (kept ?? null)) await texts.remember(own).catch(() => undefined);
+  }
+  return slow;
+}
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
 export class TryLater extends Error {
@@ -209,12 +239,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     }
 
     const lookup = Date.now();
-    const session = await openSession(
-      deps.fetch,
-      deps.controlPlaneOrigin,
-      deps.workerSecret,
-      message.from,
-    ).catch((error) => {
+    const session = await textSession(message.from, deps).catch((error) => {
       throw deps.retry && error instanceof ServiceError ? new TryLater() : error;
     });
     deps.onStage?.("session");
