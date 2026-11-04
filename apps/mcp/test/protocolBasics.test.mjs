@@ -131,6 +131,14 @@ export async function runProtocolBasicsChecks() {
   const tools = await rpc("priv-token", "tools/list");
   // What a client is offered: the six v2 tools, for a writing connection.
   check("tools/list offers exactly the six v2 tools", JSON.stringify(namesOf(tools.result?.tools ?? [])) === JSON.stringify(V2_NAMES));
+  // Claude's directory reads annotations.title even when a top-level title
+  // exists. Check the HTTP response, which is what its scanner receives.
+  check(
+    "every advertised tool has a human-readable title annotation",
+    tools.result?.tools?.length === V2_NAMES.length && tools.result.tools.every((tool) =>
+      typeof tool.annotations?.title === "string" && tool.annotations.title.trim().length > 0,
+    ),
+  );
   const readOnlyV2 = await rpc("readonly-token", "tools/list");
   check(
     "a read-only connection is offered orient, search and fetch, and no tool that writes",

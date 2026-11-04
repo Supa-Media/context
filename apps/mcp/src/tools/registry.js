@@ -228,6 +228,9 @@ export function toolDefinitions() {
     const schema = tool.inputSchema || { type: "object" };
     return {
       ...tool,
+      // Directory scanners still consume the annotation form of the display
+      // name. Keep both MCP title locations consistent from one source.
+      annotations: { ...tool.annotations, title: tool.annotations?.title ?? tool.title },
       // Concatenated rather than templated, so a definition that somehow has no
       // description gets the sentence alone instead of the word "undefined" in
       // the field a model reads to decide what the tool does.
