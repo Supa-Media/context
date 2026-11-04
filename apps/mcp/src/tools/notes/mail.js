@@ -243,13 +243,17 @@ export const JOB_MAIL_RHYTHM =
 /**
  * What a session on one of the person's own computers is told when it joins as that computer (`device`): its mail is
  * pushed down the computer's socket, and its runner's `mail wait` ends the moment mail arrives, which wakes the
- * session, so a polling timer would only add checks (live check from a cloud VM, 2026-11-04).
+ * session, so the 5-minute timer is not needed (live check from a cloud VM, 2026-11-04). The owner kept a slow
+ * backup check all the same (2026-11-04: "still keep a poll every 30 minutes just to be safe"), for a runner that
+ * stopped or a push that never came.
  */
 export const DEVICE_MAIL_RHYTHM =
   "You joined as this computer, so mail sent to you here reaches it at once. Keep `context-machine mail wait` " +
   "running as a background command and start it again each time it ends: it ends the moment mail arrives, which " +
-  "wakes you. Your hooks also show new mail on your next prompt. Set no other check and do not poll. Answer an ask " +
-  "with a note to its sender.";
+  "wakes you. Your hooks also show new mail on your next prompt. Also keep a backup check every 30 minutes, in " +
+  "case the runner stopped: Claude Code, a background shell command (sleep 1800) that wakes you to read this " +
+  "note's new mail, started again at every check; Codex, an automation every 30 minutes. Answer an ask with a note " +
+  "to its sender.";
 
 function joinedText(path, mailbox, events, again, job, device) {
   const earlier = events.filter((event) => event.kind === "mail").length;
