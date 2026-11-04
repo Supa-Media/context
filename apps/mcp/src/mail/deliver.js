@@ -40,6 +40,7 @@ function messageIdOf(line, mailboxId) {
 async function toMachine(env, workspaceId, box, line) {
   const stub = workspaceStub(env, workspaceId);
   if (stub === null) return false;
+  // Every call to a workspace object names its workspace, and the object refuses one that does not (`rows.pinWorkspace`).
   const mail = {
     messageId: messageIdOf(line, box.mailboxId),
     // An interrupt is Tex's to its own job; to a machine it is an ask that needs reading now.
@@ -51,7 +52,7 @@ async function toMachine(env, workspaceId, box, line) {
     path: line.path,
     at: Date.parse(line.at) || Date.now(),
   };
-  const response = await callTexStore(stub, "ws.machine.mail", {}, new TextEncoder().encode(JSON.stringify({ id: box.machineId, mail })));
+  const response = await callTexStore(stub, "ws.machine.mail", {}, new TextEncoder().encode(JSON.stringify({ workspaceId, id: box.machineId, mail })));
   return (await response.json())?.sent === true;
 }
 
