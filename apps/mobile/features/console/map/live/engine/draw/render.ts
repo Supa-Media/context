@@ -12,7 +12,8 @@ import { drawContainerLabels, placeContainerLabels } from "./containers";
 import { countPresent, type DrawEnv } from "./env";
 import { drawFlights } from "./flights";
 import { drawHubFaces, drawHubLines } from "./hub";
-import { drawActors, drawReading, placeFacesAndLabels } from "./overlay";
+import { drawTrace, drawReadingMarks, traceOf } from "./marks";
+import { drawActors, placeFacesAndLabels } from "./overlay";
 import { circle, fillText, fontOf, roundRect, type Ctx, type Style } from "./primitives";
 
 /** Below this width the map behaves like a phone: anything that does not fit is dropped. */
@@ -32,7 +33,9 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
   const v = visibleRect(vp);
   const screen = (p: Point) => toScreen(cam, vp, p);
   const hot = new Set<string>([...scene.editing.keys(), ...scene.reading.keys()]);
-  if (opts.selected) hot.add(opts.selected);
+  // A clicked note and the notes it links to keep their names.
+  const trace = traceOf(model, scene, opts.selected);
+  if (trace) for (const k of trace) hot.add(k);
   for (const a of scene.actors) if (a.note && a.doing) hot.add(a.note.key);
   // The widest margin any pass tests with is 30 + 40 pixels; a little more.
   const lo = toWorld(cam, vp, { x: -120, y: -120 });
@@ -56,6 +59,7 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
     narrow: v.w < NARROW,
     dim: model.following !== null,
     selected: opts.selected,
+    trace,
     counts: countPresent(model, scene),
     hot,
     near,
@@ -66,14 +70,15 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
   drawGround(env);
   const hub = drawHubLines(env);
   drawLinks(env);
+  drawTrace(env);
   drawNotes(env);
+  drawReadingMarks(env);
   // Names of containers claim their space first and are drawn over the dots.
   const labels = placeContainerLabels(env);
   env.quiet.push(...labels.map((l) => l.rect), ...env.pills.map((p) => ({ x: p.x - p.w / 2, y: p.y - 12, w: p.w, h: 24 })));
   const mini = opts.minimap ? minimapRect(env) : null;
   if (mini) env.occ.claim(mini);
   const { groups, flags, captions } = placeFacesAndLabels(env);
-  drawReading(env, groups);
   drawContainerLabels(env, labels, env.pills);
   drawFlights(env, captions);
   drawHubFaces(env, hub);
