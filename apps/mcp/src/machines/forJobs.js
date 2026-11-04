@@ -84,5 +84,6 @@ export function pickMachine(machines, ask) {
   if (!found.folders.includes(folder)) return { error: found.folders.length === 0 ? `"${found.name}" has no folder Tex may work in yet: they choose one in Tex's settings.` : `On "${found.name}" Tex may work only in ${found.folders.join(", ")}.` };
   // A repo is a name under the folder (`context`, `Supa-Media/context`), never a path that climbs out of it.
   const repo = typeof ask?.repo === "string" && REPO.test(ask.repo.trim()) ? ask.repo.trim() : undefined;
-  return { machine: { workspaceId: found.workspaceId, machineId: found.id, name: found.name, tool, folder, ...(repo ? { repo } : {}) } };
+  // `computer`: its id and slots, which the chat counts a job there against (`agent/jobSlots.js`).
+  return { machine: { workspaceId: found.workspaceId, machineId: found.id, name: found.name, tool, folder, ...(repo ? { repo } : {}) }, computer: { id: found.id, slots: found.slots } };
 }

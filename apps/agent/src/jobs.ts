@@ -38,7 +38,7 @@ export type JobStep = { at: number; text: string; failed?: true; why?: string };
 /** Whether a streamed step failed, and why (`clients.ts`). */
 export type StepHow = { failed?: true; why?: string };
 /** One line of the chat's job list, sent with every texted turn, with its steps; `verdict`/`advice`: the advisor's last check (`apps/mcp/src/agent/jobCheck.js`); `result`: a finished job's report, for the chat's turns only. */
-export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string };
+export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string; on?: string };
 /** The advisor's call on a job's part that just ended (`apps/mcp/src/agent/jobCheck.js`). */
 export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
@@ -98,7 +98,17 @@ export function jobPictures(pictures: OutgoingPicture[]): OutgoingPicture[] {
   return kept;
 }
 
+/** Cloud jobs at once in a chat. A job on their computer counts against that computer's own slots instead (`apps/mcp/src/agent/jobSlots.js`). */
 export const MAX_RUNNING_JOBS = 3;
+/** The most jobs one computer runs for a chat (`slotCounts`'s most); its owner's own count is checked by the gateway and the workspace object. */
+export const MAX_MACHINE_JOBS = 8;
+/** The most jobs one turn may start or steer: the cloud's and one computer's. */
+const MAX_TURN_JOBS = MAX_RUNNING_JOBS + MAX_MACHINE_JOBS;
+/** The computer a job's entry runs on, by machine id; null in the cloud. An entry from before ids were kept is on an unnamed one. */
+const machineOfEntry = (entry: { machine?: true; on?: string }): string | null => (typeof entry.on === "string" ? entry.on : entry.machine ? "machine" : null);
+/** Whether one more job fits where it would run: the cloud's three, or that computer's own. */
+const fits = (running: readonly { on?: string; machine?: true }[], on: string | null) =>
+  on === null ? running.filter((entry) => machineOfEntry(entry) === null).length < MAX_RUNNING_JOBS : running.filter((entry) => machineOfEntry(entry) === on).length < MAX_MACHINE_JOBS;
 /** Parts one job may take before it reports what it has (the gateway clamps to the same); Dev2, 2026-10-31: 10 parts or 30 minutes. */
 export const MAX_JOB_ATTEMPTS = 10;
 /** How long a job keeps going after the advisor says "keep going" before it is reported stuck. */
@@ -176,7 +186,7 @@ export function readJobMachine(value: unknown): JobMachine | null {
 /** `jobs` from the gateway's answer, read strictly. */
 export function readStartedJobs(value: unknown): StartedJob[] {
   if (!Array.isArray(value)) return [];
-  return value.slice(0, MAX_RUNNING_JOBS).flatMap((entry) => {
+  return value.slice(0, MAX_TURN_JOBS).flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
     const { id, title, brief, doneWhen, tainted, mail, machine } = entry as Record<string, unknown>;
     const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 2_000) : "", doneWhen: line(doneWhen, MAX_STATUS) };
@@ -199,7 +209,7 @@ export function readSteers(value: unknown): JobSteerAsk[] {
       if (typeof id !== "string" || !ID.test(id)) return [];
       return [resume === true ? { id, resume: true as const } : { id, ...(stop === true ? { stop: true as const } : {}), ...(said ? { note: said } : {}) }];
     })
-    .slice(0, MAX_RUNNING_JOBS);
+    .slice(0, MAX_TURN_JOBS);
 }
 
 /** `POST /job-steer`'s body, read strictly. */
@@ -244,7 +254,7 @@ export async function steerJobs(
  * `JOB_KEPT_MS` is deleted, and a running one past `JOB_STALE_MS` is marked
  * stopped: its object is gone, so it never will say.
  */
-export async function chatJobs(storage: InboxStorage, now: number, { results = false }: { results?: boolean } = {}): Promise<RunningJob[]> {
+export async function chatJobs(storage: InboxStorage, now: number, { results = false, all = false }: { results?: boolean; all?: boolean } = {}): Promise<RunningJob[]> {
   const entries = await storage.list<JobEntry>({ prefix: JOB_PREFIX });
   const kept: JobEntry[] = [];
   for (const [key, entry] of entries) {
@@ -262,12 +272,15 @@ export async function chatJobs(storage: InboxStorage, now: number, { results = f
   }
   return kept
     .sort((a, b) => Number(b.state === "running") - Number(a.state === "running") || b.startedAt - a.startedAt)
-    .slice(0, MAX_SHOWN)
-    .map(({ id, title, state, startedAt, finishedAt, status, steps, verdict, advice, result }) => ({
+    // Every running one, so the gateway counts each place's slots right; finished ones fill what is left of six. `all`: every job.
+    .filter((entry, index) => all || entry.state === "running" || index < MAX_SHOWN)
+    .map(({ id, title, state, startedAt, finishedAt, status, steps, verdict, advice, result, on }) => ({
       id,
       title,
       state,
       startedAt,
+      // The computer it runs on, so the gateway counts it against that computer's slots, not the cloud's.
+      ...(typeof on === "string" ? { on } : {}),
       ...(finishedAt !== undefined ? { finishedAt } : {}),
       ...(status ? { status } : {}),
       // A finished job keeps its steps: what it did is all it will ever do (2026-10-31: the chat called a stopped job running).
@@ -305,9 +318,9 @@ export async function resumeJobs(
   for (const { id } of asks.filter((ask) => ask.resume)) {
     const entry = await storage.get<JobEntry>(entryKey(id));
     if (entry === undefined || entry.state === "running") continue;
-    const running = (await chatJobs(storage, now)).filter((job) => job.state === "running").length;
+    const running = (await chatJobs(storage, now, { all: true })).filter((job) => job.state === "running");
     // A finished job has nothing to pick up: its object kept no run (`resumeJob`).
-    const ok = entry.state !== "done" && running < MAX_RUNNING_JOBS && (await send(id, { id: steer.id, text: steer.text.trim() || PICKED_UP, resume: true }).catch(() => false));
+    const ok = entry.state !== "done" && fits(running, machineOfEntry(entry)) && (await send(id, { id: steer.id, text: steer.text.trim() || PICKED_UP, resume: true }).catch(() => false));
     if (ok) {
       const { finishedAt: _f, finalPass: _p, verdict: _v, advice: _a, result: _r, stopped: _s, ...kept } = entry;
       await storage.put<JobEntry>(entryKey(id), { ...kept, state: "running", startedAt: now, status: "Picking up where it stopped" });
@@ -340,10 +353,10 @@ export async function startJobs(
   let count = 0;
   const notStarted: string[] = [];
   for (const job of started) {
-    const running = (await chatJobs(storage, context.now)).filter((entry) => entry.state === "running");
+    const running = (await chatJobs(storage, context.now, { all: true })).filter((entry) => entry.state === "running");
     // The same job already running is the one they asked for; a job over the limit was promised and never runs, so they hear so.
     if (running.some((entry) => sameTitle(entry.title, job.title))) continue;
-    if (running.length >= MAX_RUNNING_JOBS) {
+    if (!fits(running, job.machine?.machineId ?? null)) {
       notStarted.push(job.title);
       log("over_limit", "");
       continue;
@@ -351,7 +364,7 @@ export async function startJobs(
     // The gateway's id is used when it is well formed and no entry holds it yet; otherwise a fresh one.
     const gatewayId = job.id !== undefined && ID.test(job.id) && (await storage.get(entryKey(job.id))) === undefined ? job.id : undefined;
     const id = gatewayId ?? crypto.randomUUID();
-    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place, ...(job.machine ? { machine: true as const } : {}) };
+    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place, ...(job.machine ? { machine: true as const, on: job.machine.machineId } : {}) };
     await storage.put(entryKey(id), entry);
     try {
       await context.spawn(id, { ...job, id, inbox: context.inbox, origin: context.origin, attempt: 1, tries: 0, startedAt: context.now });

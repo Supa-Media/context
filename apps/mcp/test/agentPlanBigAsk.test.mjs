@@ -170,7 +170,7 @@ test("a big ask is planned, its notes written, and one job per part started on t
   for (const job of background.started) assert.equal(job.mail.path, "1-projects/lisbon-trip/overview.md");
   assert.deepEqual(background.started.map((job) => job.mail.name), ["flights", "stay", "days"]);
   assert.match(background.started[0].brief, /Your task note: 1-projects\/lisbon-trip\/flights\.md/);
-  assert.match(fake.asked[0].messages[0].text, /Free job slots now: 3\./);
+  assert.match(fake.asked[0].messages[0].text, /Free job slots now: 3 \(3 in the cloud\)\./);
   assert.match(background.endsTurn(PLAN_TOOL), /^On it, in 3 parts at once: Find flights; Find a flat; Plan the days\./);
   const again = await call(PLAN_TOOL, { ask: "again", folder: "1-projects/other" });
   assert.equal(again.isError, true, "one plan a turn");
@@ -262,7 +262,8 @@ test("code goes to a computer: a one-job answer names theirs, and the planner is
   const fake = planner(background, { split: false, how: "one_job", why: "a small change", computer: "Studio Mac" });
   const result = await withBackground(background, notesDispatcher().callTool)(PLAN_TOOL, { ask: "change the on it text in the context repo", folder: "1-projects/on-it/" });
   assert.match(words(result), /on_computer \{ name: "Studio Mac" \}/);
-  assert.match(fake.asked[0].messages[0].text, /Studio Mac \(claude, codex, 3 slots\)/);
+  assert.match(fake.asked[0].messages[0].text, /Studio Mac \(claude, codex, 3 slots, 3 free\)/);
+  assert.match(fake.asked[0].messages[0].text, /Free job slots now: 6 \(3 in the cloud, 3 on Studio Mac\)/, "a computer's slots are its own");
   assert.match(fake.asked[0].system, /good at always runs on one/);
   assert.match(fake.asked[0].system, /heavy computing/);
 });
