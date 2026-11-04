@@ -28,7 +28,7 @@ export function publicOrigin(request, env) {
  * more than one legitimate spelling for the same server.
  */
 export function canonicalResources(origin, slug) {
-  const forms = [`${origin}/mcp`, origin];
+  const forms = [`${origin}/mcp`, origin, `${origin}/mcp/chatgpt`];
   if (slug) forms.unshift(`${origin}/@${slug}/mcp`, `${origin}/${slug}/mcp`);
   return forms;
 }
@@ -159,8 +159,8 @@ export function forbiddenResponse(origin, slug, refusal) {
 /* ------------------------------- discovery -------------------------------- */
 
 /** RFC 9728 protected resource metadata. */
-export function protectedResourceMetadata(origin, slug) {
-  const [resource] = canonicalResources(origin, slug);
+export function protectedResourceMetadata(origin, slug, resourcePath = null) {
+  const resource = resourcePath ? `${origin}${resourcePath}` : canonicalResources(origin, slug)[0];
   return metadataResponse({
     resource,
     // MCP upgrades this from RFC 9728's OPTIONAL to a MUST, and real clients

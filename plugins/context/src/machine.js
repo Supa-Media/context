@@ -26,7 +26,7 @@ import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 /** The runner release this CLI installs. The tag is `machine-runner-v<version>`. */
-export const MACHINE_RUNNER_VERSION = "0.1.0";
+export const MACHINE_RUNNER_VERSION = "0.2.0";
 
 const RELEASE_REPOSITORY = "https://github.com/Supa-Media/context";
 const BINARY_NAME = "context-machine";

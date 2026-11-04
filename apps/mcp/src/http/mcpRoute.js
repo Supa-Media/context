@@ -34,7 +34,14 @@ export async function serveMcp(request, workerEnv, ctx, { slug, pathToken, origi
   const env = mcp.watchObjects(workerEnv);
   const controlPlane = createControlPlane(env, { fetchImpl: mcp.fetchFor("cp") });
   const session = await mcp.step("session", () => sessionOrRefusal(request, { pathToken, slug, controlPlane, origin }));
-  if (session instanceof Response) return mcp.done(session);
+  if (session instanceof Response) {
+    if (new URL(request.url).pathname.endsWith("/mcp/chatgpt") && session.status === 401) {
+      const headers = new Headers(session.headers);
+      headers.set("WWW-Authenticate", (headers.get("WWW-Authenticate") ?? "").replace("/oauth-protected-resource/mcp", "/oauth-protected-resource/mcp/chatgpt"));
+      return mcp.done(new Response(session.body, { status: session.status, headers }));
+    }
+    return mcp.done(session);
+  }
   mcp.workspace = session.workspaceId;
   mcp.client = session.actorClientName;
   armSharingJudge(session, env);

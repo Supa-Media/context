@@ -43,7 +43,7 @@ export function MinionPool({ overview, now, wide, go }: { overview: Overview; no
         }
         return (
           <View key={place.key} style={[styles.place, place.offline ? styles.offline : null]} testID={`tex-pool-place-${place.key}`}>
-            <PlaceHead place={place} busy={busy.length} />
+            <PlaceHead place={place} busy={busy.length} go={go} />
             <PoolGrid cells={cells} wide={wide} />
           </View>
         );
@@ -111,12 +111,24 @@ function placeGlyph(place: SlotPlace): "cloud" | "terminal" | "laptop" {
   return place.machineKind === "cli" ? "terminal" : "laptop";
 }
 
-/** `● Seyi's MacBook Pro · 4` with its busy count on the right, or the offline line. */
-function PlaceHead({ place, busy }: { place: SlotPlace; busy: number }) {
+/**
+ * `● Seyi's MacBook Pro · 4` with its busy count on the right, or the offline
+ * line. A connected machine's head opens its settings; Tex's cloud has none
+ * to open (Dev, 2026-11-04: "not for Tex Cloud minions but for connected
+ * devices there should be a click link to go to the settings and configure").
+ */
+function PlaceHead({ place, busy, go }: { place: SlotPlace; busy: number; go: ViewProps["go"] }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  const machine = place.kind === "machine";
+  const Head = machine ? Pressable : View;
   return (
-    <View style={styles.placeHead}>
+    <Head
+      style={[styles.placeHead, machine ? styles.placeLink : null]}
+      {...(machine
+        ? { accessibilityRole: "link" as const, accessibilityLabel: `${place.name} settings`, onPress: () => go({ view: "machine", machine: place.key }), testID: `tex-pool-settings-${place.key}` }
+        : {})}
+    >
       <View style={styles.placeName}>
         <Glyph glyph={placeGlyph(place)} color={colors.muted} size={13} />
         <T size={13} weight="600" numberOfLines={1} style={{ flexShrink: 1 }}>
@@ -126,16 +138,23 @@ function PlaceHead({ place, busy }: { place: SlotPlace; busy: number }) {
           {` · ${place.slots}`}
         </T>
       </View>
-      {place.offline ? (
-        <DotLine tone="off" size={13}>
-          {place.since ? `Offline since ${at12(place.since)}` : "Offline"}
-        </DotLine>
-      ) : (
-        <T size={13} tone="muted">
-          {`${busy} busy`}
-        </T>
-      )}
-    </View>
+      <View style={styles.placeRight}>
+        {place.offline ? (
+          <DotLine tone="off" size={13}>
+            {place.since ? `Offline since ${at12(place.since)}` : "Offline"}
+          </DotLine>
+        ) : (
+          <T size={13} tone="muted">
+            {`${busy} busy`}
+          </T>
+        )}
+        {machine ? (
+          <T size={13} weight="500" tone="accent">
+            Settings ›
+          </T>
+        ) : null}
+      </View>
+    </Head>
   );
 }
 
@@ -207,7 +226,10 @@ const makeStyles = (colors: Colors) =>
     head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
     place: { gap: 8 },
     offline: { opacity: 0.55 },
-    placeHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minWidth: 0 },
+    placeHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minWidth: 0, minHeight: 32 },
+    // A link is tall enough to tap.
+    placeLink: { minHeight: 44 },
+    placeRight: { flexDirection: "row", alignItems: "center", gap: 12, flexShrink: 0 },
     placeName: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1, minWidth: 0 },
     stack: { gap: 10 },
     pair: { flexDirection: "row", gap: 10 },

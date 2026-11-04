@@ -215,16 +215,16 @@ export async function runToolArgumentCensusChecks(check, harness) {
   */
   const sessionBody = functionBody(
     SESSION.text,
-    "async function routeToolCall(params, store, session, routed)"
+    "async function routeToolCall(params, store, session, routed, options = {})"
   );
   const wrapperBody = functionBody(
     SESSION.text,
-    "export async function callToolForSession(params, store, session)"
+    "export async function callToolForSession(params, store, session, options = {})"
   );
   check(
     "callToolForSession is the only way into routeToolCall",
     (SESSION.text.match(/routeToolCall\(/g) || []).length === 2 &&
-      /measuredCall\(store, session, (params|call), \(routed\) => routeToolCall\(\1, store, session, routed\)\)/.test(wrapperBody)
+      /measuredCall\(store, session, (params|call), \(routed\) => routeToolCall\(\1, store, session, routed, options\)\)/.test(wrapperBody)
   );
   /*
     Counted over every module that can reach the dispatcher — the one that

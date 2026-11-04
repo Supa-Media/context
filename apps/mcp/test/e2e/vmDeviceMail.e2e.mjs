@@ -16,7 +16,10 @@
  *    `pair_device` tool (`tools/pairDevice.js`), the real mail delivery
  *    (`mail/deliver.js`), and the workspace object's real machine rows and
  *    sockets (`workspaceStore/machines.js`, `machineSockets.js`,
- *    `serveMachines.js`).
+ *    `serveMachines.js`), every call reaching them through the object's real
+ *    entry (`serve.js`), which refuses a call that names no workspace. The
+ *    first live check from a cloud VM (2026-11-04) found mail and leaving both
+ *    sent such calls; an entry that skipped that check had let them pass here.
  *
  * The session's side is what Claude Code does with a hook's output: SessionStart
  * and UserPromptSubmit stdout is added to what the model reads, a Stop hook's
@@ -43,8 +46,10 @@ import { toolPairDevice } from "../../src/tools/pairDevice.js";
 import { deliverMail } from "../../src/mail/deliver.js";
 import { workspaceMachines } from "../../src/workspaceStore/machines.js";
 import { MACHINE_HEADER, machineSockets } from "../../src/workspaceStore/machineSockets.js";
-import { serveMachineCall } from "../../src/workspaceStore/serveMachines.js";
-import { opOf } from "../../src/texStore/move.js";
+import { serveWorkspaceStore } from "../../src/workspaceStore/serve.js";
+import { workspaceRows } from "../../src/workspaceStore/rows.js";
+import { workspaceMembers } from "../../src/workspaceStore/members.js";
+import { texObjects } from "../../src/texStore/objects.js";
 
 const require = createRequire(import.meta.url);
 const protocol = require("../../../../packages/shared/src/machineProtocol.cjs");
@@ -144,7 +149,8 @@ function workspaceObject() {
   const state = { acceptWebSocket: (ws) => accepted.push(ws), getWebSockets: () => accepted.filter((ws) => ws.readyState === 1) };
   const machines = workspaceMachines(sql);
   const sockets = machineSockets(state, sql, machines, { pair: () => [null, bridging], upgraded: () => ({ status: 101 }) });
-  const store = { machines, machineSockets: sockets };
+  // The object's real entry answers every call, so a call it would refuse in production (one naming no workspace) is refused here too.
+  const store = { sql, objects: texObjects(sql), rows: workspaceRows(sql), members: workspaceMembers(sql), machines, machineSockets: sockets };
   return {
     machines,
     sockets,
@@ -164,7 +170,7 @@ function objects() {
       async fetch(request) {
         assert.equal(name, `workspace:${WORKSPACE}`, "every call reaches the owner's own workspace object");
         if ((request.headers.get("Upgrade") || "").toLowerCase() === "websocket") return object.sockets.accept(request);
-        return await serveMachineCall(object.store, opOf(request), JSON.parse(await request.text()));
+        return await serveWorkspaceStore(object.store, request);
       },
     }),
   };

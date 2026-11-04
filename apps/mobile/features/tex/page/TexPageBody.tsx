@@ -15,6 +15,7 @@ import { ConnectPage } from "./TexConnectPage";
 import type { TexPageSource } from "./texPageSource";
 import type { TexPageState } from "./useTexPage";
 import type { SubView } from "./texPageTypes";
+import type { HistoryChoice } from "../history/historyChoice";
 
 /** Where on the page the person is: the chat, and a sub-page or a job, or neither for the first screen. */
 export interface Place {
@@ -25,6 +26,8 @@ export interface Place {
   full?: boolean;
   /** Which machine, on `view: "machine"`. */
   machine?: string;
+  /** The day and kinds the History page opens with, on `view: "history"` (`historyChoice.ts`). */
+  history?: HistoryChoice;
 }
 
 /** What every view below the first screen is given. */
@@ -38,6 +41,8 @@ export interface ViewProps {
   go: (to: Omit<Place, "chat"> & { chat?: string }) => void;
   /** Which machine, on the machine page. */
   machine?: string;
+  /** The day and kinds the History page opens with. */
+  history?: HistoryChoice;
 }
 
 /**
@@ -78,6 +83,7 @@ export function TexPageBody({
     group,
     go: (to) => go({ chat: place.chat, ...to }),
     ...(place.machine ? { machine: place.machine } : {}),
+    ...(place.history ? { history: place.history } : {}),
   };
   const home = () => go({ chat: place.chat });
 

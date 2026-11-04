@@ -96,15 +96,15 @@ function pathsNamed(value, found = []) {
   return found;
 }
 
-export async function callTool(name, args, store, scope) {
+export async function callTool(name, args, store, scope, options = {}) {
   // A chat's history file is a view of its log, read only (`agent/historyFile.js`): nothing changes it, whoever asks.
   if (changes(name)) {
     const refusal = pathsNamed(args ?? {}).map(historyWriteRefusal).find((words) => words !== null);
     if (refusal !== undefined) return toolError(refusal);
   }
-  if (!TREE_LISTING_TOOLS.has(name)) return await runTool(name, args, store, scope);
+  if (!TREE_LISTING_TOOLS.has(name)) return await runTool(name, args, store, scope, options);
   try {
-    return await runTool(name, args, servedListingStore(store), scope);
+    return await runTool(name, args, servedListingStore(store), scope, options);
   } catch (error) {
     if (error instanceof TreeUnavailable) return toolError(error.message);
     throw error;
@@ -123,7 +123,7 @@ export async function readNoteForGateway(store, scope, path) {
   return toolReadNote(store, scope, privacy.rules, privacy.overrides, path);
 }
 
-async function runTool(name, args, store, scope) {
+async function runTool(name, args, store, scope, options = {}) {
   const privacy = await loadPrivacyState(store);
   if (privacy.error) {
     return toolError(
@@ -173,7 +173,7 @@ async function runTool(name, args, store, scope) {
       if (args.upload !== undefined) return toolImageUploadLinks(store, args);
       if (args.comment !== undefined) return toolCommentNote(store, scope, rules, overrides, args);
       if (args.mail !== undefined) return toolMailNote(store, scope, rules, overrides, args);
-      return toolWriteNote(store, scope, rules, overrides, args);
+      return toolWriteNote(store, scope, rules, overrides, args, options.noteWrite);
     case "remember":
       return toolRemember(store, scope, rules, overrides, args);
     case "set_visibility":

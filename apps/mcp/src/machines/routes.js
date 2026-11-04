@@ -171,7 +171,7 @@ async function leave(request, env, deps) {
   const left = await controlPlane.texMachineLeave(grant);
   if (!left?.machineId) return json({ error: "unauthorized" }, 401);
   const stub = workspaceStub(env, left.workspaceId);
-  if (stub !== null) await callTexStore(stub, "ws.machine.remove", {}, new TextEncoder().encode(JSON.stringify({ id: left.machineId, reason: "left" }))).catch(() => null);
+  if (stub !== null) await callTexStore(stub, "ws.machine.remove", {}, new TextEncoder().encode(JSON.stringify({ workspaceId: left.workspaceId, id: left.machineId, reason: "left" }))).catch(() => null);
   return json({ left: true });
 }
 

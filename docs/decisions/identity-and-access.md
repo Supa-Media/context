@@ -165,3 +165,15 @@ Decided by the owner, 2026-10-16. Somebody who is not signed in opens a shared n
 
 The app's version of that setup also asks for a confirmed phone and a confirmed personal email before Continue is offered (`features/auth/AccountSetupScreen.tsx`, rules in `accountSetupModel.ts`). `finishSetup` itself checks only the name, so today that requirement lives in the app: a client that calls `finishSetup` directly skips it. `__tests__/accountSetupScreen.test.ts` fails if Continue ignores the phone or the email. Whether the server should refuse without both is open.
 
+
+## Directory sample account (2026-11-04)
+
+Public connector review uses a dedicated principal and a fixed-code provider
+of its own, disabled unless its private deployment code is valid and distinct
+from every other review/test code. The existing App Store and Google review
+identities remain independent. Like the original directory principal, this
+account cannot join other workspaces, accept outside grants, attach another
+sign-in address or hold a Google connection. It receives ordinary workspace
+permissions, never the production test account privileges. Reviewer sign-in
+and reach tests prove these boundaries; the deployment and local setup sync
+the code from 1Password rather than source.

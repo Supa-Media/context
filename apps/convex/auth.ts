@@ -1,6 +1,6 @@
 import { createSupaAuth } from "@supa-media/convex/auth";
 import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
-import { APP_REVIEW_PHONE, appReviewPhoneCodeMatches, googleReviewTestEmail, reviewerTestEmail } from "./functions/lib/reviewerAccount";
+import { APP_REVIEW_PHONE, appReviewPhoneCodeMatches, googleReviewTestEmail, reviewerTestEmail, directoryReviewTestEmail } from "./functions/lib/reviewerAccount";
 import { testAccountEmail } from "./functions/lib/testAccount";
 import { mayCreateUser } from "./functions/lib/waitlist";
 import { limitEmailCodeSends } from "./functions/lib/emailCodeSends";
@@ -115,7 +115,7 @@ const supaAuth = createSupaAuth({
   // deployment's environment (`TEST_ACCOUNT_SIGNIN_CODE`,
   // `REVIEWER_SIGNIN_CODE`, `GOOGLE_REVIEW_SIGNIN_CODE`); unset, that provider
   // does not exist.
-  testEmail: [...testAccountEmail(), ...reviewerTestEmail(), ...googleReviewTestEmail()],
+  testEmail: [...testAccountEmail(), ...reviewerTestEmail(), ...googleReviewTestEmail(), ...directoryReviewTestEmail()],
   // The framework honours `DEV_OTP_BYPASS` — which changes what the ORDINARY
   // customer provider mints, for every address — unless this is truthy and
   // `CONVEX_SITE_URL` contains it. Passing nothing is not "no opinion": it is
