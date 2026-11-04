@@ -137,7 +137,11 @@ bash apps/desktop/build/build-machine-runner.sh
 (
   cd apps/desktop
   rm -rf release
-  pnpm run build
+  # The signed flag is baked into the JavaScript at build time (scripts/build.mjs), so it must be set
+  # here, not only for electron-builder: v0.1.71 and v0.1.72 were built without it and cannot update.
+  CONTEXT_DESKTOP_SIGNED=true pnpm run build
+  grep -q "signed: true" dist/main/index.cjs && ! grep -q "signed: false" dist/main/index.cjs \
+    || die "the bundle was not built as a signed release (CONTEXT_DESKTOP_SIGNED)"
   CSC_KEYCHAIN="$keychain" CSC_IDENTITY_AUTO_DISCOVERY=true CONTEXT_DESKTOP_SIGNED=true \
     pnpm exec electron-builder --mac --config electron-builder.yml --publish never 2>&1 \
     | bash build/redact-signing-log.sh
