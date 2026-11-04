@@ -29,7 +29,9 @@ import { readPictures, type OutgoingPicture } from "./outgoing";
 
 /** What a turn asked to start, as the gateway wrote it. */
 /** `mail`: one part of a split ask; the project note every part's job joins the mail of, and this part's name there. */
-export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; tainted?: true; mail?: JobProject };
+/** One of the person's own computers a job runs on (`machineTurn.ts`), as the gateway picked it (`apps/mcp/src/machines/forJobs.js`). */
+export type JobMachine = { workspaceId: string; machineId: string; name: string; tool: "claude" | "codex"; folder: string; repo?: string };
+export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; tainted?: true; mail?: JobProject; machine?: JobMachine };
 export type JobProject = { path: string; name: string; context?: string };
 /** A step a job's turn took, as the gateway told it (`withJobSteps`): tool and target, never a note's text; a failed one, with the tool's short reason. */
 export type JobStep = { at: number; text: string; failed?: true; why?: string };
@@ -61,10 +63,12 @@ export type JobOrigin =
   | { kind: "group"; message: GroupMessage; at: number };
 
 /** Everything a job's object needs to run it. */
-export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true; advice?: string; resumes?: number; idle?: true };
+export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true; advice?: string; resumes?: number; idle?: true; machineRun?: MachineRunRef; machineSession?: string };
+/** The part running on the machine now, kept so a pass that restarts reads the same run instead of assigning another. */
+export type MachineRunRef = { runId: string; part: number; deadline: number };
 
 /** The chat's record of a job: no ask, only where its answer goes. */
-export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; stopped?: true; finalPass?: string };
+export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; stopped?: true; finalPass?: string; machine?: true };
 
 /** What a job's object tells the chat's inbox. `first`: the job's count of texts before these, so a retry repeats none. */
 /** `vaultWatch`: the phone a job's turn texted a link to save a login to, so its inbox watches for the save (`vaultWatch.ts`). */
@@ -107,6 +111,11 @@ export const JOB_KEPT_MS = 7 * 24 * 60 * 60 * 1000;
 export const JOB_SHOWN_MS = 2 * 60 * 60 * 1000;
 /** A job still "running" this long after it started died with its object: it is marked stopped. */
 export const JOB_STALE_MS = JOB_LIMIT_MS + 15 * 60 * 1000 + 5 * 60 * 1000; // its last part may start just inside the limit and run fifteen minutes
+/** A job on the person's own computer runs four hours by default (owner, 2026-11-03), in fifteen-minute parts. */
+export const MACHINE_JOB_LIMIT_MS = 4 * 60 * 60 * 1000;
+/** Parts a machine job may take: twenty-four hours of them, the most a machine's owner may allow. */
+export const MAX_MACHINE_JOB_ATTEMPTS = 96;
+export const MACHINE_JOB_STALE_MS = MACHINE_JOB_LIMIT_MS + 20 * 60 * 1000 + 5 * 60 * 1000;
 export const JOB_PREFIX = "job:";
 export const RUN_KEY = "jobrun";
 const MAX_SHOWN = 6;
@@ -145,16 +154,36 @@ export function readJobProject(value: unknown): JobProject | null {
   return { path, name, ...(typeof context === "string" && /^@[a-z0-9][a-z0-9-]{0,63}$/.test(context) ? { context } : {}) };
 }
 
+/** The computer a job runs on, read strictly; the gateway and the machine's owner rules check it again at every part. */
+export function readJobMachine(value: unknown): JobMachine | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { workspaceId, machineId, name, tool, folder, repo } = value as Record<string, unknown>;
+  const id = /^[A-Za-z0-9_-]{1,64}$/;
+  if (typeof workspaceId !== "string" || !id.test(workspaceId) || typeof machineId !== "string" || !id.test(machineId)) return null;
+  if (tool !== "claude" && tool !== "codex") return null;
+  if (typeof folder !== "string" || folder === "" || folder.length > 1024 || /[\u0000-\u001f]/.test(folder)) return null;
+  return {
+    workspaceId,
+    machineId,
+    name: line(name, 100) || "your computer",
+    tool,
+    folder,
+    // A name under the folder, never a path that climbs out of it (`apps/mcp/src/machines/forJobs.js`).
+    ...(typeof repo === "string" && /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99})?$/.test(repo) ? { repo } : {}),
+  };
+}
+
 /** `jobs` from the gateway's answer, read strictly. */
 export function readStartedJobs(value: unknown): StartedJob[] {
   if (!Array.isArray(value)) return [];
   return value.slice(0, MAX_RUNNING_JOBS).flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
-    const { id, title, brief, doneWhen, tainted, mail } = entry as Record<string, unknown>;
+    const { id, title, brief, doneWhen, tainted, mail, machine } = entry as Record<string, unknown>;
     const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 2_000) : "", doneWhen: line(doneWhen, MAX_STATUS) };
     if (job.title === "" || job.brief === "") return [];
     const project = readJobProject(mail);
-    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(tainted === true ? { tainted: true as const } : {}), ...(project ? { mail: project } : {}) }];
+    const computer = readJobMachine(machine);
+    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(tainted === true ? { tainted: true as const } : {}), ...(project ? { mail: project } : {}), ...(computer ? { machine: computer } : {}) }];
   });
 }
 
@@ -223,7 +252,7 @@ export async function chatJobs(storage: InboxStorage, now: number, { results = f
       await storage.delete(key);
       continue;
     }
-    if (entry.state === "running" && now - entry.startedAt > JOB_STALE_MS) {
+    if (entry.state === "running" && now - entry.startedAt > (entry.machine ? MACHINE_JOB_STALE_MS : JOB_STALE_MS)) {
       const stopped = { ...entry, state: "failed" as const, finishedAt: now };
       await storage.put(key, stopped);
       kept.push(stopped);
@@ -322,7 +351,7 @@ export async function startJobs(
     // The gateway's id is used when it is well formed and no entry holds it yet; otherwise a fresh one.
     const gatewayId = job.id !== undefined && ID.test(job.id) && (await storage.get(entryKey(job.id))) === undefined ? job.id : undefined;
     const id = gatewayId ?? crypto.randomUUID();
-    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place };
+    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place, ...(job.machine ? { machine: true as const } : {}) };
     await storage.put(entryKey(id), entry);
     try {
       await context.spawn(id, { ...job, id, inbox: context.inbox, origin: context.origin, attempt: 1, tries: 0, startedAt: context.now });

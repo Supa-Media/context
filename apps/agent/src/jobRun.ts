@@ -34,7 +34,8 @@ import { groupLineFor } from "./groupLine";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
-import { JOB_SHOWN_MS, JOB_LIMIT_MS, JOB_LINES, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobMail, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
+import { machineTurn, type MachineLive, type MachineOutcome } from "./machineTurn";
+import { JOB_SHOWN_MS, JOB_LIMIT_MS, JOB_LINES, MACHINE_JOB_LIMIT_MS, MAX_MACHINE_JOB_ATTEMPTS, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobMail, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
 import { STEER_TIMEOUT_MS } from "./steer";
@@ -47,6 +48,8 @@ export type JobDeps = {
   sendblue?: SendblueKeys | null;
   whapi?: WhapiKeys | null;
   now: () => number;
+  /** How a part on their computer waits between reads (`machineTurn.ts`); tests pass one that only moves the clock. */
+  sleep?: (ms: number) => Promise<void>;
   /** Shrinks a big picture before it goes to the chat's inbox (`outgoing.ts`); absent, it goes as it is. */
   images?: ImagesLike;
   /** Tell the chat's inbox; true once it took the update (and sent its texts). */
@@ -91,7 +94,7 @@ type Ended = { run: JobRun; endedAt: number };
 const MAX_DRAFT = 4_000;
 
 /** The turn running now, in memory only: its access token is a credential. */
-type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: string };
+type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: string; machine?: MachineLive | null };
 const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
@@ -185,7 +188,14 @@ export async function steerJob(storage: InboxStorage, steer: JobSteer): Promise<
   const steers = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
   if (!steers.some((kept) => kept.id === steer.id)) await storage.put(STEERS_KEY, keptSteers([...steers, steer]));
   const running = live.get(storage);
-  if (running?.accessToken !== undefined) {
+  if (running?.machine) {
+    // A part on their computer: the words go into its session, and a stop cancels it there (`machines/jobRoutes.js`).
+    const { workspaceId, runId, accessToken, delivered } = running.machine;
+    const messageId = steer.id.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
+    const path = steer.stop ? "/agent/machine/cancel" : "/agent/machine/deliver";
+    const sent = await post(running.fetch, "gateway", `${running.gatewayOrigin}${path}`, accessToken, steer.stop ? { workspaceId, runId, reason: "stopped" } : { workspaceId, runId, messageId, text: steer.text }, STEER_TIMEOUT_MS).catch(() => null);
+    if (!steer.stop && (sent?.json as { ok?: unknown } | null)?.ok === true) delivered.push(steer.id);
+  } else if (running?.accessToken !== undefined) {
     // Best effort: one the turn doesn't take is shown to the next turn.
     await post(running.fetch, "gateway", `${running.gatewayOrigin}/agent/steer`, running.accessToken, { turn: running.turn, ...steer }, STEER_TIMEOUT_MS).catch(
       () => null,
@@ -256,7 +266,11 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   let outcome: Outcome;
   try {
     outcome =
-      run.origin.kind === "phone" ? await phoneTurn(run, asked, turn, deps, onProgress, onStep) : await groupTurn(run, asked, turn, deps, onStep);
+      run.machine !== undefined
+        ? fromMachine(await machineTurn(run, asked, deps, { keep: (patch) => storage.put<Stored>(RUN_KEY, { ...run, ...patch, sent }), onStep, live: (machine) => void (turn.machine = machine), steerIds: shown.map((steer) => steer.id) }))
+        : run.origin.kind === "phone"
+          ? await phoneTurn(run, asked, turn, deps, onProgress, onStep)
+          : await groupTurn(run, asked, turn, deps, onStep);
   } catch (error) {
     outcome = error instanceof ServiceError ? { kind: "retry" } : { kind: "broken" };
   } finally {
@@ -293,7 +307,8 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const advice = outcome.kind === "answer" ? outcome.advice : undefined;
   const checked = outcome.kind === "answer" && outcome.verdict ? { verdict: outcome.verdict, ...(advice ? { advice } : {}) } : {};
   // Dev2, 2026-10-31: a job keeps going for at most 30 minutes or 10 parts, then reports where it got to.
-  const roomLeft = run.attempt < MAX_JOB_ATTEMPTS && deps.now() - run.startedAt < JOB_LIMIT_MS;
+  // A job on their own computer runs for hours, in fifteen-minute parts (`machineTurn.ts`).
+  const roomLeft = run.machine !== undefined ? run.attempt < MAX_MACHINE_JOB_ATTEMPTS && deps.now() - run.startedAt < MACHINE_JOB_LIMIT_MS : run.attempt < MAX_JOB_ATTEMPTS && deps.now() - run.startedAt < JOB_LIMIT_MS;
   // Two parts in a row that called no tool and still weren't done are going nowhere (2026-10-31: three restarted jobs
   // answered "it's running again" eight times each): it ends stuck and says so, instead of spending more parts.
   const idle = outcome.kind === "answer" && outcome.idle === true && unfinished;
@@ -395,6 +410,12 @@ function ask(run: JobRun, followUps: string[], mail: Array<JobMail & { text: str
     ...(run.draft && run.unfinished ? { unfinished: true as const } : {}),
     ...(run.advice ? { advice: run.advice } : {}),
   };
+}
+
+/** A part on their computer, as a cloud part's outcome. */
+function fromMachine(outcome: MachineOutcome): Outcome {
+  if (outcome.kind !== "answer") return outcome;
+  return { kind: "answer", texts: outcome.texts, pictures: [], exhausted: outcome.exhausted, unfinished: false, status: outcome.status, steered: outcome.steered };
 }
 
 /** The first line of an answer, as the job's status once it is done. */

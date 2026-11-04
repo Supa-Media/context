@@ -150,3 +150,30 @@ unmodified CLI, which signs itself in.
   reading `fromOwner` from the body each failed its test.
 - Only the person whose job it is reads, steers or stops a run; another run
   id answers `unknown_run`, as a run that does not exist does.
+
+### Tex runs a job on the person's computer by name, in fifteen-minute parts (2026-11-04)
+
+- **The texted turn names the computer** (`start_background_job`'s
+  `on_computer`, `apps/mcp/src/machines/forJobs.js`): by name, or none when
+  they have one; its tool and folder are checked against the machine's own
+  lists, and a repo is a name under the folder, never a path out of it. The
+  machines are read only when a job asks for one, never on every text, and
+  only from a person's own 1:1 chat. Test: `machineForJobs.test.mjs`.
+- **The job's object runs each part there** (`apps/agent/src/machineTurn.ts`):
+  it assigns the part through the gateway with the job's own texting grant,
+  reads the run every ten seconds, streams its steps to the chat as a cloud
+  part's are, and keeps the run in progress on the job's run, so a pass that
+  restarts reads the same run and never starts a second. A part is fifteen
+  minutes; one out of time, or whose machine dropped, is carried on by the
+  next part resuming the same CLI session. A later text goes into the running
+  session and a stop cancels it there. A computer that refuses the part
+  (offline, busy, over its limits, not allowed) is told in words, and the job
+  can be picked back up.
+- **Four hours by default, at most 96 parts** (`MACHINE_JOB_LIMIT_MS`,
+  `MAX_MACHINE_JOB_ATTEMPTS`); a cloud job keeps thirty minutes and ten parts,
+  and the chat marks a machine job stale only past its own limit. Raising one
+  job past four hours, up to the machine's longest run, is the app's to
+  offer. Test: `machineTurn.test.ts`, whose header records its sabotage.
+- **Not yet**: the advisor's check between machine parts (a finished part is
+  done), a machine's slots counted apart from the chat's three cloud slots,
+  and group chats.
