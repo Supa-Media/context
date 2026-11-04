@@ -86,6 +86,8 @@ test/managedEncryption.test.mjs
 test/meaningCatchup.test.mjs
 test/meaningSearch.test.mjs
 test/meaningFromObjectGate.test.mjs
+test/searchWordsRevamp.test.mjs
+test/appSearch.test.mjs
 test/meaningServe.test.mjs
 test/meaningById.test.mjs
 test/meaningWrite.test.mjs
@@ -379,6 +381,7 @@ test/chatLedger.test.mjs
 test/objectManifest.test.mjs
 test/objectChildren.test.mjs
 test/objectBinding.test.mjs
+test/objectBindingSetupRead.test.mjs
 test/sessionOpen.test.mjs
 test/bindingRefreshBehind.test.mjs
 test/chatLedgerWrites.test.mjs
@@ -400,6 +403,8 @@ test/accessWrite.test.mjs
 test/accessPending.test.mjs
 test/accessDrop.test.mjs
 test/accessMove.test.mjs
+test/accessHandles.test.mjs
+test/objectAddGrantees.test.mjs
 test/workspaceSearchIndex.test.mjs
 test/workspaceMeaningIndex.test.mjs
 test/workspaceIndexBuild.test.mjs
@@ -424,3 +429,4 @@ test/turnTiming.test.mjs
 test/agentUntriedWeb.test.mjs
 test/readerNames.test.mjs
 test/workspaceTreeSort.test.mjs
+test/machineProtocol.test.mjs

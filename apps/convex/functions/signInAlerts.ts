@@ -1,4 +1,5 @@
 import { getAuthUserId } from "./lib/signedIn";
+import { refreshTexting } from "./lib/textingRefresh";
 import { ConvexError, v } from "convex/values";
 import { action, internalAction, query } from "../_generated/server";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
@@ -146,6 +147,7 @@ export const resumePhoneSignIn = mutation({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
     for (const pause of pauses) await ctx.db.delete(pause._id);
+    if (pauses.length > 0) await refreshTexting(ctx, userId);
     return null;
   },
 });
@@ -154,6 +156,7 @@ export const resumePhoneSignIn = mutation({
 export async function lockOutPhone(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
   if (!(await phoneSignInPaused(ctx, userId))) {
     await ctx.db.insert("phoneSignInPauses", { userId, pausedAt: Date.now() });
+    await refreshTexting(ctx, userId); // the person object refuses the next text and revokes its tokens (`lib/textingRefresh.ts`)
   }
   await signOutSessions(ctx, userId, null);
   // A new email the intruder started adding goes too: it would otherwise

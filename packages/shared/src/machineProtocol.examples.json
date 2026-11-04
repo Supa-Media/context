@@ -1,0 +1,154 @@
+{
+  "description": "One valid example of every message in machineProtocol.schema.json. The gateway's test validates each against the schema, and the runner's Rust test deserializes and re-serializes each, so both sides prove they read the same shapes.",
+  "server": [
+              {"type": "challenge", "protocol": 1, "nonce": "n0nce_n0nce_n0nce_n0nce_n0nce_n0nce_00"},
+              {
+                "type": "welcome",
+                "machineId": "mch_tex-devs-vm",
+                "name": "tex-devs-vm",
+                "rules": {
+                          "folders": ["/home/tex/code"],
+                          "tools": ["claude", "codex"],
+                          "limits": {
+                                      "slots": 2,
+                                      "dayMs": 14400000,
+                                      "weekMs": 72000000,
+                                      "othersDayMs": 7200000,
+                                      "othersRunsPerDay": 10,
+                                      "longestRunMs": 14400000,
+                                      "pauseNearPlanLimit": true,
+                                      "keepOneForOwner": false,
+                                      "timeZone": "America/New_York"
+                                    },
+                          "computerUse": false,
+                          "trustedRepos": ["Supa-Media/context"]
+                        },
+                "keepRuns": ["run_1"]
+              },
+              {
+                "type": "rules",
+                "rules": {
+                          "folders": ["/home/tex/code"],
+                          "tools": ["claude"],
+                          "limits": {
+                                      "slots": 1,
+                                      "dayMs": 3600000,
+                                      "weekMs": 18000000,
+                                      "othersDayMs": 0,
+                                      "othersRunsPerDay": 0,
+                                      "longestRunMs": 3600000,
+                                      "pauseNearPlanLimit": true
+                                    },
+                          "computerUse": false
+                        }
+              },
+              {
+                "type": "assign",
+                "runId": "run_1",
+                "jobId": "job_1",
+                "part": 1,
+                "title": "Fix the flaky upload test",
+                "tool": "claude",
+                "folder": "/home/tex/code",
+                "repo": "Supa-Media/context",
+                "permission": "edits",
+                "brief": "The upload test fails one run in ten. Find out why and fix it.",
+                "doneWhen": "The test passes 50 runs in a row and a PR is open.",
+                "grant": {"token": "run-grant-0000000000000000", "expiresAt": 1793772000000, "mcpUrl": "https://mcp.example.test/mcp"},
+                "deadline": 1793772000000,
+                "fromOwner": false,
+                "asker": "@bola",
+                "chat": "Tex Devs",
+                "network": true,
+                "helpers": false,
+                "computerUse": false
+              },
+              {
+                "type": "message",
+                "runId": "run_1",
+                "messageId": "msg_1",
+                "kind": "ask",
+                "from": "minion-2",
+                "text": "Did the API types move?",
+                "app": "Claude",
+                "path": "projects/upload/flaky-test.md",
+                "at": 1793771100000
+              },
+              {"type": "interrupt", "runId": "run_1", "messageId": "msg_2", "from": "tex", "text": "Stop: Seyi says leave the test alone."},
+              {"type": "cancel", "runId": "run_1", "reason": "stopped"},
+              {"type": "goodbye", "reason": "revoked"}
+            ],
+  "runner": [
+              {
+                "type": "hello",
+                "protocol": 1,
+                "machineId": "mch_tex-devs-vm",
+                "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "runner": "0.1.0",
+                "facts": {
+                          "os": "linux",
+                          "osVersion": "Ubuntu 24.04",
+                          "arch": "x86_64",
+                          "memoryMb": 8192,
+                          "cores": 4,
+                          "hasScreen": false,
+                          "tools": [
+                                    {"name": "claude", "installed": true, "signedIn": true, "version": "2.1.0"},
+                                    {"name": "gh", "installed": true, "signedIn": true}
+                                  ],
+                          "repos": ["Supa-Media/context"]
+                        },
+                "slots": {"recommended": 2, "most": 4},
+                "runs": [{"runId": "run_1", "alive": false, "session": "8f0c0d7e-claude-session", "lastStep": 12}]
+              },
+              {"type": "accept", "runId": "run_1"},
+              {"type": "refuse", "runId": "run_2", "code": "limit_day", "until": 1793800000000},
+              {"type": "session", "runId": "run_1", "session": "8f0c0d7e-claude-session"},
+              {"type": "step", "runId": "run_1", "seq": 1, "tool": "Bash", "action": "run", "target": "pnpm test", "at": 1793771000000},
+              {
+                "type": "usage",
+                "runId": "run_1",
+                "wallMs": 600000,
+                "tokens": {"input": 1200, "output": 300, "cacheRead": 40000},
+                "planLimited": false,
+                "planUtilization": 0.42,
+                "planWindow": "five_hour"
+              },
+              {
+                "type": "result",
+                "runId": "run_1",
+                "outcome": "finished",
+                "answer": "Fixed: the test raced the upload's flush. PR is open.",
+                "session": "8f0c0d7e-claude-session",
+                "lastStep": 40,
+                "wallMs": 1500000,
+                "branch": "tex/fix-flaky-upload"
+              },
+              {"type": "status", "ready": true, "busy": 1, "freeMemoryMb": 4200, "tools": [{"name": "claude", "installed": true, "signedIn": true}]}
+            ],
+  "pairing": {
+              "PairStart": {
+                            "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                            "name": "tex-devs-vm",
+                            "facts": {"os": "linux", "arch": "x86_64", "memoryMb": 8192, "cores": 4, "tools": []}
+                          },
+              "PairStarted": {
+                              "pairingId": "pair_1",
+                              "code": "KQ7-4MP",
+                              "approveUrl": "https://context.example.test/tex?view=machines&code=KQ7-4MP",
+                              "expiresAt": 1793772000000,
+                              "pollMs": 3000
+                            },
+              "PairPoll": {
+                            "pairingId": "pair_1",
+                            "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                          },
+              "PairStatus": {
+                              "status": "approved",
+                              "machineId": "mch_tex-devs-vm",
+                              "workspace": "@supa",
+                              "grant": "machine-grant-00000000",
+                              "socketUrl": "wss://mcp.example.test/machines/socket"
+                            }
+            }
+}

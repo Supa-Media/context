@@ -84,6 +84,10 @@
   // Read with the account's Analytics Engine SQL API. Optional when
   // self-hosting: without it nothing is written.
   "analytics_engine_datasets": [{ "binding": "TEX_TEXTS", "dataset": "tex_text_timing" }],
+  // The gateway's `TexTexts` entrypoint (apps/mcp/src/agent/textsSession.js): a text's session from the person object,
+  // without Convex. A named entrypoint is reachable only through this binding, so there is no secret to set. The
+  // gateway must have deployed the entrypoint first. Self-hosting without it: delete this block; sessions are Convex's.
+  "services": [{ "binding": "GATEWAY_TEXTS", "service": "context-mcp", "entrypoint": "TexTexts" }],
   "env": {
     "staging": {
       "name": "context-agent-staging",
@@ -99,6 +103,7 @@
       "triggers": { "crons": ["* * * * *"] },
       "images": { "binding": "IMAGES" },
       "analytics_engine_datasets": [{ "binding": "TEX_TEXTS", "dataset": "tex_text_timing_staging" }],
+      "services": [{ "binding": "GATEWAY_TEXTS", "service": "context-mcp-staging", "entrypoint": "TexTexts" }],
       "vars": {
         "GATEWAY_ORIGIN": "https://mcp-staging.context.lc",
         "SIMULATOR": "on",

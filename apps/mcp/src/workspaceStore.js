@@ -22,6 +22,7 @@
  */
 
 import { workspaceMarks } from "./workspaceStore/marks.js";
+import { workspaceHandles } from "./workspaceStore/handleCache.js";
 import { workspaceAccess } from "./workspaceStore/accessRows.js";
 import { texObjects } from "./texStore/objects.js";
 import { TexObjectRefused } from "./texStore/objects.js";
@@ -114,6 +115,7 @@ export class WorkspaceStore {
       marks: workspaceMarks(sql),
       // Who each note and folder is open to, and the rules rendered from it (`workspaceStore/accessRows.js`).
       access: workspaceAccess(sql),
+      handles: workspaceHandles(sql),
       // The storage binding, sealed so this object cannot read it (`workspaceStore/bindingRows.js`).
       binding: bindingRows(sql),
       // A personal workspace's object is also its person's: reach, shares to them and their connections.

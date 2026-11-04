@@ -65,7 +65,9 @@ export async function agentTextsSessionHandler(
   const timeZone: string = await ctx.runQuery(internal.functions.textLinks.textsTimeZone, { phone });
   // How their own Tex talks (`functions/texStyle.ts`): their instructions and progress updates, only what is set.
   const settings = await ctx.runQuery(internal.functions.texStyle.textsStyle, { phone });
-  return json({ status, accessToken, timeZone, ...settings });
+  // Whose person object answers this phone's next text, once its texting is there (`functions/textingObjects.ts`).
+  const personalWorkspaceId: string | null = await ctx.runMutation(internal.functions.textingObjects.sessionHint, { phone });
+  return json({ status, accessToken, timeZone, ...settings, ...(personalWorkspaceId === null ? {} : { personalWorkspaceId }) });
 }
 
 /**

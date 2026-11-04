@@ -20,7 +20,7 @@ import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
 import { SCOPE_WRITE, TEX_SETUP_CLIENTS, hasScope } from "./session.js";
 import { withPrivacyAuthority } from "./store/privacyAuthority.js";
-import { objectFirstSetAccess } from "./store/objectAccess.js";
+import { objectFirstAddGrantees, objectFirstSetAccess } from "./store/objectAccess.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
 
 /**
@@ -102,7 +102,8 @@ const sources = new WeakMap();
 /** Ask the control plane for the binding and keep it in the object. Never throws: a failed refresh is tried next time. */
 async function refreshBehind(session, controlPlane, keep) {
   try {
-    const opened = await controlPlane.getStorageBinding(session.accessToken, session.workspaceId);
+    // Asked as the store was opened: Tex's setup read as that (`session.js` `sessionForSetup`), never as the person.
+    const opened = await controlPlane.getStorageBinding(session.accessToken, session.workspaceId, ...(session.setupRead === true ? [undefined, { setupRead: true }] : []));
     const kept = await keep(opened);
     console.log(JSON.stringify({ event: "workspace_binding_refreshed", workspaceId: session.workspaceId, kept: kept?.kept === true, keptReason: kept?.reason ?? null }));
   } catch {
@@ -207,23 +208,34 @@ async function openSessionStore(session, env, controlPlane) {
     typeof controlPlane.privacyAuthority === "function"
       ? controlPlane.privacyAuthority({ accessToken: session.accessToken }, session.workspaceId, opened.privacy ?? null)
       : null;
-  // A tier-only change in an object-home workspace is decided there first (`store/objectAccess.js`); the control
-  // plane's `setAccess` is the fallback and what grantee lists still use. The actor is this request's own grant.
+  // A tier change, or people added by name or address, in an object-home workspace is decided there first
+  // (`store/objectAccess.js`); the control plane's `setAccess` / `addGrantees` is the fallback, and resolves a handle
+  // the object has not been told. The actor is this request's own grant.
+  const objectAccessOptions = {
+    client: workspaceClient(env, session.workspaceId),
+    home: binding.notesHome ?? null,
+    role: session.role,
+    userId: session.actorUserId ?? null,
+    clientId: session.actorClientId ?? null,
+    canWrite: (session.role === "owner" || session.role === "editor") && hasScope(session, SCOPE_WRITE),
+    workspaceId: session.workspaceId,
+    log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
+  };
   const authority =
     controlAuthority === null || typeof controlAuthority.setAccess !== "function"
       ? controlAuthority
       : {
           ...controlAuthority,
-          setAccess: objectFirstSetAccess(controlAuthority.setAccess.bind(controlAuthority), {
-            client: workspaceClient(env, session.workspaceId),
-            home: binding.notesHome ?? null,
-            role: session.role,
-            userId: session.actorUserId ?? null,
-            clientId: session.actorClientId ?? null,
-            canWrite: (session.role === "owner" || session.role === "editor") && hasScope(session, SCOPE_WRITE),
-            workspaceId: session.workspaceId,
-            log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
-          }),
+          setAccess: objectFirstSetAccess(controlAuthority.setAccess.bind(controlAuthority), objectAccessOptions),
+          ...(typeof controlAuthority.addGrantees === "function"
+            ? {
+                addGrantees: objectFirstAddGrantees(
+                  controlAuthority.addGrantees.bind(controlAuthority),
+                  typeof controlAuthority.resolveHandles === "function" ? controlAuthority.resolveHandles.bind(controlAuthority) : null,
+                  objectAccessOptions,
+                ),
+              }
+            : {}),
         };
   // The free plan's cap counts the Convex tree's notes, never the bucket
   // (`store/noteCap.js`); asked only when a capped write would add a note.
