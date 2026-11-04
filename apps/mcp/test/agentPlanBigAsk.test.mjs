@@ -259,5 +259,6 @@ test("code goes to a computer: a one-job answer names theirs, and the planner is
   const result = await withBackground(background, notesDispatcher().callTool)(PLAN_TOOL, { ask: "change the on it text in the context repo", folder: "1-projects/on-it/" });
   assert.match(words(result), /on_computer \{ name: "Studio Mac" \}/);
   assert.match(fake.asked[0].messages[0].text, /Studio Mac \(claude, codex, 3 slots\)/);
-  assert.match(fake.asked[0].system, /Code always runs on a computer/);
+  assert.match(fake.asked[0].system, /good at always runs on one/);
+  assert.match(fake.asked[0].system, /heavy computing/);
 });
