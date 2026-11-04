@@ -120,6 +120,9 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   let visible = true;
   let hit = new HitFrame();
   let hovered = "";
+  // Where the pointer is, for "Which lines": undefined until a mouse is seen, null once it leaves.
+  let pointer: { x: number; y: number } | null | undefined = undefined;
+  let hoverKey: string | null = null;
   let lastCameraSig = "";
   let lastFollowSig = "";
   let lastScope = "";
@@ -199,7 +202,7 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
         foldersWidth = out.contentW;
       }
     } else {
-      hit = renderMap(ctx, model, scene, c, vp, { style: style(), selected, minimap: options.minimap ?? true, opening: openingAt() });
+      hit = renderMap(ctx, model, scene, c, vp, { style: style(), selected, minimap: options.minimap ?? true, opening: openingAt(), pointer, hoverKey });
       emitCamera(c);
     }
     emitFollow(scene);
@@ -334,6 +337,10 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     },
     hover: (x, y) => {
       const target = hitTest(hit, x, y);
+      pointer = { x, y };
+      hoverKey = target?.kind === "note" ? noteKey(target.workspaceId, target.path) : null;
+      // Lines that follow the pointer redraw as it moves.
+      if ((data?.look?.lines ?? "all") !== "all") wake();
       const sig = target ? JSON.stringify(target) : "";
       if (sig === hovered) return;
       hovered = sig;
@@ -341,6 +348,9 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
       options.onHover?.(target);
     },
     leave: () => {
+      pointer = null;
+      hoverKey = null;
+      if ((data?.look?.lines ?? "all") !== "all") wake();
       if (hovered === "") return;
       hovered = "";
       canvas.style.cursor = "";

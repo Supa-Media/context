@@ -177,6 +177,17 @@ describe("the map's settings", () => {
     expect(made.resets()).toBe(1);
   });
 
+  test("the show switches, colour and lines change the look", async () => {
+    const made = withLook();
+    const host = await mount(createElement(MapSettings, { page: made.page, compact: false, onClose: () => {} }));
+    await press(find(host, "map-settings-archive"));
+    await press(find(host, "map-settings-color-pressure"));
+    await press(find(host, "map-settings-lines-near"));
+    await press(find(host, "map-settings-merge"));
+    expect(made.looks).toEqual([{ showArchive: true }, { colorBy: "pressure" }, { lines: "near" }, { mergeLines: false }]);
+    expect(find(host, "map-settings-color-workspace")!.getAttribute("aria-checked")).toBe("true");
+  });
+
   test("shows Dev2's defaults, and the close button closes it", async () => {
     const { page } = withLook();
     let closed = 0;

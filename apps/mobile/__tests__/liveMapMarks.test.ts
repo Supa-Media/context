@@ -3,7 +3,7 @@ import { describe, expect, test } from "@jest/globals";
 import { createMapEngine, type MapData } from "../features/console/map/live/engine";
 import { DEFAULT_LOOK, type MapLook } from "../features/console/map/live/look";
 import type { MapActor } from "../features/console/map/live/engine/timeline";
-import { WHO, ev, fakeCanvas, para, palette } from "./liveMapFixture";
+import { WHO, ev, fakeCanvas, isDotColour, para, palette } from "./liveMapFixture";
 
 /**
  * READING MARKS AND TRACED LINKS — `engine/draw/marks.ts` (Dev2, 2026-11-04).
@@ -102,7 +102,7 @@ describe("clicking a note", () => {
     const restAlpha = () => {
       canvas.ctx.calls.length = 0;
       engine.renderAt(NOW);
-      const fills = canvas.ctx.calls.filter((c) => c.op === "fill" && c.fillStyle === palette.dot);
+      const fills = canvas.ctx.calls.filter((c) => c.op === "fill" && isDotColour(c.fillStyle));
       return fills[0]?.alpha ?? 1;
     };
     expect(restAlpha()).toBe(1);

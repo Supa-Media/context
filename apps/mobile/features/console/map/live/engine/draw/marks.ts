@@ -1,4 +1,6 @@
 import { dotRadius } from "../lod";
+import { noteKey } from "../paths";
+import { readsAt } from "../timeline";
 import type { Model, SceneAt } from "../scene";
 import { BOW, bowOf, grain } from "./board";
 import type { DrawEnv } from "./env";
@@ -121,4 +123,48 @@ export function drawReadingMarks(env: DrawEnv): void {
     ctx.globalAlpha = 1;
     ctx.lineWidth = 1;
   }
+}
+
+/** How many of an AI's last reads its trail runs through. */
+export const TRAIL_READS = 5;
+
+/**
+ * "AIs at work, as pencil trails": a faint dashed pencil line through the
+ * notes an AI read last, ending where it is now. Only AIs, only while they
+ * work, and never a stream of dots (Dev2, 2026-11-04).
+ */
+export function drawAgentTrails(env: DrawEnv): void {
+  const { ctx, style, model, scene } = env;
+  if (!style.look.showAgents) return;
+  const C = style.palette;
+  ctx.strokeStyle = grain(ctx, C, C.ink);
+  ctx.lineWidth = 1.2;
+  ctx.lineCap = "round";
+  ctx.setLineDash([3, 5]);
+  for (const a of scene.actors) {
+    if (a.kind !== "agent" || a.doing === null || a.onCard) continue;
+    const reads = model.live ? (model.liveReads.get(a.id) ?? []) : readsAt(model.events, a.id, scene.t);
+    const pts = reads
+      .slice(-TRAIL_READS)
+      .map((r) => model.layout.notes.get(noteKey(r.workspaceId, r.path)))
+      .filter((n): n is NonNullable<typeof n> => !!n && scene.present.has(n.key) && !n.sub.folder.collapsed)
+      .map((n) => env.screen(n));
+    // A trail needs somewhere to have come from: two reads at least.
+    if (pts.length < 2) continue;
+    pts.push(env.screen(a));
+    ctx.globalAlpha = 0.35 * (env.dim ? 0.6 : 1);
+    ctx.beginPath();
+    ctx.moveTo(pts[0]!.x, pts[0]!.y);
+    for (let i = 1; i < pts.length; i += 1) {
+      const p = pts[i - 1]!;
+      const q = pts[i]!;
+      const bow = bowOf(p.x, p.y, q.x, q.y) * BOW * 3;
+      ctx.quadraticCurveTo((p.x + q.x) / 2 - (q.y - p.y) * bow, (p.y + q.y) / 2 + (q.x - p.x) * bow, q.x, q.y);
+    }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.lineCap = "butt";
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 1;
 }
