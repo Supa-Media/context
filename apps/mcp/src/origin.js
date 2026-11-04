@@ -89,6 +89,7 @@ export function isTransportPath(path) {
   // not origin-checked here, the check would not exist anywhere.
   return (
     path === "/mcp" ||
+    path === "/mcp/chatgpt" ||
     path === "/inbox" ||
     path === "/agent" ||
     path === "/presence" ||

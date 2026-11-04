@@ -168,7 +168,7 @@ export async function route(request, env, ctx) {
       // `/.well-known/oauth-protected-resource/@seyi/mcp` before the root form,
       // so the slug can arrive in the prefix or in the suffix. Either way it
       // describes the same resource.
-      return protectedResourceMetadata(origin, slug || wellKnown.slug);
+      return protectedResourceMetadata(origin, slug || wellKnown.slug, path === "/.well-known/oauth-protected-resource/mcp/chatgpt" ? "/mcp/chatgpt" : null);
     }
 
     if (path.startsWith("/oauth/")) {
@@ -222,7 +222,7 @@ export async function route(request, env, ctx) {
     if (MACHINE_PATHS.has(path)) return await handleMachines(request, env, { path, origin });
 
     // The MCP transport: every step timed by the MCP entry point (`mcpRoute.js`).
-    if (path === "/mcp") return await serveMcp(request, env, ctx, { slug, pathToken, origin });
+    if (path === "/mcp" || path === "/mcp/chatgpt") return await serveMcp(request, env, ctx, { slug, pathToken, origin });
 
     // A meeting route resolves a session exactly as `/mcp` does — same token,
     // same grant, same clamps — so it shares this block rather than growing a

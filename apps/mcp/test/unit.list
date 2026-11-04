@@ -444,3 +444,5 @@ test/agentPlanBigAsk.test.mjs
 test/machineForTurn.test.mjs
 test/agentJobSlots.test.mjs
 test/morningChat.test.mjs
+
+test/directoryEndpoint.test.mjs

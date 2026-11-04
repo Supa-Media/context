@@ -26,12 +26,12 @@ export async function runToolArgumentSourceCensusChecks(check, harness) {
   const GATEWAY = gatewaySourceFiles();
   const DISPATCH = soleSource(
     GATEWAY,
-    /^(?:export )?async function runTool\(name, args, store, scope\)/m,
+    /^(?:export )?async function runTool\(name, args, store, scope, options = \{\}\)/m,
     "tools/dispatch.js"
   );
   const SESSION = soleSource(
     GATEWAY,
-    /^(?:export )?async function callToolForSession\(params, store, session\)/m,
+    /^(?:export )?async function callToolForSession\(params, store, session, options = \{\}\)/m,
     "tools/session.js"
   );
   const ALIASES = soleSource(GATEWAY, /^(?:export )?const TOOL_NAME_ALIASES\b/m, "tools/advertised.js");
@@ -55,7 +55,7 @@ export async function runToolArgumentSourceCensusChecks(check, harness) {
 
   // `runTool` holds the dispatch switch; `callTool` in the same file only
   // decides whether the call lists from the Convex tree.
-  const dispatchBody = functionBody(DISPATCH.text, "async function runTool(name, args, store, scope)");
+  const dispatchBody = functionBody(DISPATCH.text, "async function runTool(name, args, store, scope, options = {})");
   const dispatched = [...dispatchBody.matchAll(/^\s*case "([a-z_]+)":/gm)].map((m) => m[1]);
   // The parser's own self-test. A census built on a regex that silently
   // matched nothing would pass every check below by finding no tools at all,

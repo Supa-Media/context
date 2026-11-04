@@ -30,6 +30,12 @@ import { instructionsForSession } from "./sessionInstructions.js";
 import { json } from "../http/responses.js";
 import { reportSessionUsage, reportToolsListed } from "./usage.js";
 import { toolsForSession } from "../tools/advertised.js";
+import { directoryTools, DIRECTORY_INSTRUCTIONS } from "./directoryTools.js";
+import { directoryCall } from "./directoryCall.js";
+
+const listedTools = (session, store) => session.directoryContract ? directoryTools(session) : toolsForSession(session, store);
+const serverInstructions = (store, session) => session.directoryContract ? DIRECTORY_INSTRUCTIONS : instructionsForSession(store, session);
+const invokeTool = (params, store, session) => session.directoryContract ? directoryCall(params, store, session) : callToolForSession(params, store, session);
 
 export async function handleMcp(request, store, session) {
   /**
@@ -45,6 +51,7 @@ export async function handleMcp(request, store, session) {
    * `actor_scope: "team"` stops meaning anything the moment "team" is four
    * people, so the record names the human and the client too.
    */
+  if (new URL(request.url).pathname.endsWith("/mcp/chatgpt")) session = { ...session, directoryContract: true };
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
   /*
@@ -53,7 +60,7 @@ export async function handleMcp(request, store, session) {
     for the plugin-settings read. The listing is the connection's, never the
     addressed context's, so `openContext` hands the same one along.
   */
-  store.offeredTools = () => toolsForSession(session, store);
+  store.offeredTools = () => listedTools(session, store);
 
   let body;
   try {
@@ -165,17 +172,17 @@ async function handleModernMcp(request, msg, store, session) {
         return modernResultResponse(id, {
           supportedVersions: MODERN_PROTOCOLS,
           capabilities: { tools: {} },
-          instructions: await instructionsForSession(store, session),
+          instructions: await serverInstructions(store, session),
           ...CACHEABLE,
         });
       case "tools/list":
         reportToolsListed(store);
         return modernResultResponse(id, {
-          tools: await toolsForSession(session, store),
+          tools: await listedTools(session, store),
           ...CACHEABLE,
         });
       case "tools/call":
-        return modernResultResponse(id, withOutcome(params?.name, await callToolForSession(params, store, session)));
+        return modernResultResponse(id, withOutcome(params?.name, await invokeTool(params, store, session)));
       default:
         // On this transport an unknown method is `404`, not `200` with an error
         // body. The status is what lets a dual-era client tell "this server
@@ -230,7 +237,7 @@ async function handleRpc(msg, store, session) {
           protocolVersion,
           capabilities: { tools: {} },
           serverInfo: SERVER_INFO,
-          instructions: await instructionsForSession(store, session),
+          instructions: await serverInstructions(store, session),
         });
       }
       case "notifications/initialized":
@@ -240,10 +247,10 @@ async function handleRpc(msg, store, session) {
         return rpcResult(id, {});
       case "tools/list":
         reportToolsListed(store);
-        return rpcResult(id, { tools: await toolsForSession(session, store) });
+        return rpcResult(id, { tools: await listedTools(session, store) });
       case "tools/call": {
         if (isNotification) return null;
-        return rpcResult(id, withOutcome(params?.name, await callToolForSession(params, store, session)));
+        return rpcResult(id, withOutcome(params?.name, await invokeTool(params, store, session)));
       }
       default:
         return isNotification ? null : jsonRpcErrorObj(id, -32601, `method not found: ${method}`);
