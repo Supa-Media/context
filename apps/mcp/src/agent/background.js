@@ -46,6 +46,7 @@
 import { PAGE_JOB_LINE } from "../pages.js";
 import { mailLine, mailOf } from "./steer.js";
 import { pickMachine } from "../machines/forJobs.js";
+import { PLAN_TOOL } from "./planBigAsk.js";
 export { jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, reportReply } from "./jobReport.js";
 
 export const START_JOB_TOOL = "start_background_job";
@@ -424,7 +425,10 @@ export const QUIET_ACK_LINE = "(You texted them nothing: they asked not to hear 
 
 /** What they're texted when a job starts: at once, by the gateway, not another model round. */
 export function ackLine(title) {
-  return `On it: ${line(title, MAX_TITLE)}. I'll text you when it's done.\n[card threads]`;
+  const titles = (Array.isArray(title) ? title : [title]).map((each) => line(each, MAX_TITLE)).filter(Boolean);
+  if (titles.length <= 1) return `On it: ${titles[0] ?? ""}. I'll text you when it's done.\n[card threads]`;
+  // Several parts started together (a split ask, `planBigAsk.js`): one text names them all.
+  return `On it, in ${titles.length} parts at once: ${titles.join("; ")}. I'll text you when it's done.\n[card threads]`;
 }
 
 const text = (words, isError = false) => ({ content: [{ type: "text", text: words }], ...(isError ? { isError: true } : {}) });
@@ -438,7 +442,7 @@ const text = (words, isError = false) => ({ content: [{ type: "text", text: word
 export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null, inGroup = false }) {
   if (running === null) return null;
   const started = [];
-  let justStarted = null; // the title of the job the last call started, read once by `endsTurn`
+  let justStarted = []; // the titles of the jobs started since `endsTurn` last read them: a round may start several
   const resumed = []; // ended jobs this turn picks back up, by id: steered to the Worker with `resume`
   let justResumed = []; // their titles, read once by `endsTurn`
   let quietAck = false; // they asked to hear nothing until it's done: the start or restart texts nothing (`QUIET_ACK`)
@@ -487,7 +491,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
       machine = picked.machine;
     }
     started.push({ id: crypto.randomUUID(), title, brief, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
-    justStarted = title;
+    justStarted.push(title);
     return text(
       `Started in the background as "${title}". Tell them in one short line that you're on it and will text the result, ` +
         "with [card threads] on its own line so they can watch it; don't do the work in this turn.",
@@ -579,9 +583,10 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     endsTurn:
       job === null
         ? (name) => {
-            const title = name === START_JOB_TOOL ? justStarted : null;
-            const picked = name === START_JOB_TOOL || name === RESTART_JOB_TOOL ? justResumed : [];
-            justStarted = null;
+            const starts = name === START_JOB_TOOL || name === PLAN_TOOL;
+            const title = starts && justStarted.length > 0 ? justStarted : null;
+            const picked = starts || name === RESTART_JOB_TOOL ? justResumed : [];
+            justStarted = [];
             justResumed = [];
             if (picked.length === 0 && title === null) return null;
             if (quietAck) return QUIET_ACK;
@@ -598,6 +603,10 @@ export function backgroundSession({ running, job, now, report = false, read = ()
           }
         : null,
     call,
+    /** Slots a new job may take now, and their computers, for the planner (`planBigAsk.js`), which sets `plan`. */
+    freeSlots: () => Math.max(0, MAX_RUNNING_JOBS - busy()),
+    machines,
+    plan: null,
     steer,
     restart,
     status,
@@ -612,7 +621,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
 export function withBackground(background, callTool) {
   if (background === null) return callTool;
   return (name, args) =>
-    name === START_JOB_TOOL ? background.call(args) : name === STEER_JOB_TOOL ? background.steer(args) : name === JOB_STATUS_TOOL ? background.status(args) : name === RESTART_JOB_TOOL ? background.restart(args) : callTool(name, args);
+    name === START_JOB_TOOL ? background.call(args) : name === PLAN_TOOL && typeof background.plan === "function" ? background.plan(args, callTool) : name === STEER_JOB_TOOL ? background.steer(args) : name === JOB_STATUS_TOOL ? background.status(args) : name === RESTART_JOB_TOOL ? background.restart(args) : callTool(name, args);
 }
 
 /** What a job's own turn is told: the plan it started with, and to deliver. */

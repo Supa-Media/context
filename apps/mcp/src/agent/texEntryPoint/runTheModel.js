@@ -27,6 +27,7 @@ import { withSkills } from "../skills.js";
 import { withMailAgent } from "../supervise.js";
 import { allowedFirst } from "../texTiming.js";
 import { paidLine } from "../textedPay.js";
+import { PLAN_DEFINITION, PLAN_HINT, planCall } from "../planBigAsk.js";
 import { setAsideLine } from "../textedSettle.js";
 import { cancelledTurn } from "../textingRoutes.js";
 import { textingAwareCallTool } from "../textingWrites.js";
@@ -41,6 +42,9 @@ export async function runTheModel(t) {
   const { allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, controlPlane, delegation, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, maker, meter, noteLinking, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, timeZone, tries } = t;
   if (!tex.lean) await tex.wait("steer_begin", begun);
   const knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
+  // A big ask the advisor plans and the gateway splits into jobs, when the setup says so (`planBigAsk.js`).
+  const planning = background !== null && job === null && !routine && production?.planBigAsks === true && productionModel !== null && canRunBuiltin(production.advisor, env);
+  if (planning) background.plan = planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) });
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
     question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.question ?? askedWith(question, quoted), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
@@ -49,7 +53,7 @@ export async function runTheModel(t) {
       ...agentTools(offered),
       ...textingWriting, ...groupWriting, ...forwarding,
       ...(skills?.tools ?? []), ...(learned?.tools ?? []),
-      ...(delegation?.tools ?? []), ...(background?.tools ?? []),
+      ...(delegation?.tools ?? []), ...(background?.tools ?? []), ...(planning ? [PLAN_DEFINITION] : []),
       ...(supervision?.mail.tools ?? []), ...(maker?.tools ?? []),
     ],
     // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
@@ -79,7 +83,7 @@ export async function runTheModel(t) {
     },
     web: steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
     history: logged?.history ?? shown,
-    threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
+    threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + jobPrompt(job) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
     local: [...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)

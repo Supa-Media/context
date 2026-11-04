@@ -864,6 +864,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A long ask runs as a background job, so Tex works on several things at once (2026-10-21)](./texting-assistant/background-jobs.md)
 - [A running job can be steered, stopped and audited from the chat (2026-10-21)](./texting-assistant/background-jobs.md)
 - [A job's turns are off the daily cap (2026-10-31)](./texting-assistant/background-jobs.md)
+- [A big ask splits into parallel jobs, planned by the advisor (2026-11-04)](./texting-assistant/background-jobs.md)
 - [A person's own computer becomes more minion slots, run by one Rust runner (2026-11-03, 2026-11-04)](./texting-assistant/machines.md)
 - [Credentials on a device: the machine grant and the run grant (2026-11-04)](./texting-assistant/machines.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
