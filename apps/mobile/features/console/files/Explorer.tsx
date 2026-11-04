@@ -91,7 +91,7 @@ export function Explorer({
   const styles = useThemedStyles(makeStyles);
   const frame = useFrame();
   const {
-    descending,
+    workspaceSort,
     query,
     dialog,
     setDialog,
@@ -145,7 +145,7 @@ export function Explorer({
       files={files}
       selectedFolder={selectedFolder}
       setDialog={setDialog}
-      descending={descending}
+      workspaceSort={workspaceSort}
       query={query}
       closeFilter={closeFilter}
       inBar={frame.columnTools !== null}

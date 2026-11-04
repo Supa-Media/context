@@ -6,7 +6,8 @@ import { isApplePlatform } from "../../../design/applePlatform";
 import { describeBinding } from "../../../design/keymap";
 import { useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../browser";
-import { setListingOrder } from "../listingOrder";
+import { SORT_CHOICES } from "../sortChoices";
+import type { ListingSort } from "@context/shared/src/listingSort.cjs";
 import type { MenuItem } from "../menu";
 import { baseName, folderLabel } from "../paths";
 import { IconButton } from "./IconButton";
@@ -15,7 +16,7 @@ import type { ExplorerState } from "./useExplorer";
 import { useMapRoute } from "../../map/live/MapRouteContext";
 
 type NewId = "new-note" | "new-folder" | "new-drawing";
-type ViewId = "sort-asc" | "sort-desc" | "collapse";
+type ViewId = `sort-${ListingSort}` | "sort-default" | "collapse";
 
 /**
  * The column's header: `Notes`, then three buttons that never move.
@@ -56,7 +57,7 @@ export function ExplorerToolbar({
   files,
   selectedFolder,
   setDialog,
-  descending,
+  workspaceSort,
   query,
   closeFilter,
   inBar = false,
@@ -64,7 +65,7 @@ export function ExplorerToolbar({
   files: FileBrowser;
   selectedFolder: ExplorerState["selectedFolder"];
   setDialog: ExplorerState["setDialog"];
-  descending: ExplorerState["descending"];
+  workspaceSort: ExplorerState["workspaceSort"];
   query: string;
   closeFilter: ExplorerState["closeFilter"];
   /** Drawn in the title row over the column rather than at its head. */
@@ -113,13 +114,37 @@ export function ExplorerToolbar({
     { id: "new-folder", label: "New folder", testID: "explorer-new-folder" },
     { id: "new-drawing", label: "New drawing", testID: "explorer-new-drawing" },
   ];
+  /*
+    The top level's Sort setting, saved for everybody in the workspace and drawn
+    by every folder with none of its own (owner, 2026-11-04;
+    `docs/decisions/app-and-console/folder-sort.md`). It changes what everybody
+    sees, so it is offered to an editor only, like every other write here.
+  */
+  const sortItems: MenuItem<ViewId>[] =
+    files.canEdit && files.setFolderSort !== undefined
+      ? [
+          {
+            id: "sort-default",
+            label: "Default order",
+            detail: "Built-in folders first, then by name.",
+            checked: workspaceSort === null,
+            testID: "explorer-sort-default",
+          },
+          ...SORT_CHOICES.map(({ sort, label, groupStart }) => ({
+            id: `sort-${sort}` as const,
+            label,
+            checked: workspaceSort === sort,
+            ...(groupStart === true ? { separatorBefore: true } : {}),
+            testID: `explorer-sort-${sort}`,
+          })),
+        ]
+      : [];
   const viewItems: MenuItem<ViewId>[] = [
-    { id: "sort-asc", label: "Sort A to Z", checked: !descending, testID: "explorer-sort-asc" },
-    { id: "sort-desc", label: "Sort Z to A", checked: descending, testID: "explorer-sort-desc" },
+    ...sortItems,
     {
       id: "collapse",
       label: "Collapse all folders",
-      separatorBefore: true,
+      separatorBefore: sortItems.length > 0,
       testID: "explorer-collapse",
     },
   ];
@@ -133,8 +158,8 @@ export function ExplorerToolbar({
 
   const chooseView = (id: ViewId) => {
     dismiss();
-    if (id === "sort-asc") setListingOrder(false);
-    if (id === "sort-desc") setListingOrder(true);
+    if (id === "sort-default") files.setFolderSort?.("", null);
+    else if (id.startsWith("sort-")) files.setFolderSort?.("", id.slice("sort-".length) as ListingSort);
     if (id === "collapse") files.collapseAll();
   };
 

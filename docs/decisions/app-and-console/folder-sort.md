@@ -30,7 +30,8 @@ was a Z to A flip that reset on every reload.
   what was dragged in one folder, and a folder beneath has nothing dragged in
   it. So dragging at the top level reorders the top level and nothing else.
   "Apply to folders inside" clears the setting of every folder beneath that
-  the caller can see, so they draw by this one.
+  the caller can see, so they draw by this one; it is not offered on a folder
+  in custom order, which has nothing to pass down.
 - **Custom order mixes notes and folders** by each row's `order`
   (`functions/folderOrder.ts`, which takes notes beside folders since this
   decision). A row with none yet, a new note or one moved in, is drawn first,
@@ -39,6 +40,18 @@ was a Z to A flip that reset on every reload.
 - **New notes follow the folder's setting** (owner): at the top in custom
   order and in newest-first sorts, at the bottom in oldest-first ones, by name
   otherwise. Nothing is written for that: it is what the sort gives.
+- **Reordering switches a folder to custom order.** Move up, Move down or a
+  drag between two rows in a folder drawn by name or date sends the whole
+  level as drawn, with the moved row in its new place, and sets the folder to
+  custom order, so nothing else jumps; the app says so and points at the
+  folder's Sort menu to go back. There is no Undo button. Outside custom
+  order Move up and Move down move a folder among the folders only, since
+  notes are drawn below them.
+- **The Sort menu is an editor's**: a folder's ••• and right-click menus have
+  Sort › with the drawn one ticked (Name, A to Z where nothing is set), and
+  the tree's View menu has the top level's. A reader gets none of it rather
+  than greyed rows, as for every other write in those menus. The phone's
+  Folders list draws the top level by the same setting.
 - **Every row carries when it was made** (`createdAt` on a listing entry: the
   Convex row's creation time, the object's `ws_rows.created`). The object sets
   it on a row it makes, and a push without one keeps the one held. It is not in
@@ -56,4 +69,7 @@ plain field would mismatch every object until it was copied again.
 
 **Tests.** `apps/convex/__tests__/nodes/folderSort.test.ts`,
 `apps/mcp/test/workspaceTreeSort.test.mjs`, the digest parity case in
-`apps/convex/__tests__/workspaceObjects.test.ts`.
+`apps/convex/__tests__/workspaceObjects.test.ts`; in the app
+`__tests__/levelOrder.test.ts`, `__tests__/fileMenu/sortMenu.test.ts`,
+`__tests__/treeDrop.test.ts`, `__tests__/treeDragHook.test.ts` and
+`__tests__/phoneFolderOrder.test.ts`.

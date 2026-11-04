@@ -58,6 +58,7 @@ function browser(calls: string[] = []): FileBrowser {
   return {
     createUntitled: (folder: string, kind: string) => calls.push(`createUntitled ${folder}|${kind}`),
     collapseAll: () => calls.push("collapseAll"),
+    setFolderSort: (folder: string, sort: string | null) => calls.push(`setFolderSort ${folder}|${sort}`),
     canEdit: true,
     loading: false,
     busy: false,
@@ -231,9 +232,21 @@ describe("New and View are menus", () => {
     mount(calls);
 
     press(byId("explorer-view"));
-    expect(document.body.textContent).toContain("Sort A to Z");
-    expect(document.body.textContent).toContain("Sort Z to A");
+    for (const label of ["Default order", "Custom order", "Name, A to Z", "Name, Z to A", "Edited, newest first", "Created, oldest first"]) {
+      expect(document.body.textContent).toContain(label);
+    }
+    expect(document.body.textContent).not.toContain("Size");
+    pressLabelled("Custom order");
+    expect(calls).toEqual(["setFolderSort |custom"]);
+    press(byId("explorer-view"));
     pressLabelled("Collapse all folders");
-    expect(calls).toEqual(["collapseAll"]);
+    expect(calls).toEqual(["setFolderSort |custom", "collapseAll"]);
+  });
+
+  test("a reader's View has no Sort: the setting is everybody's", () => {
+    mount([], false);
+    press(byId("explorer-view"));
+    expect(document.body.textContent).not.toContain("Custom order");
+    expect(document.body.textContent).toContain("Collapse all folders");
   });
 });
