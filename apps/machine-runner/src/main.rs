@@ -8,8 +8,11 @@ mod codex;
 mod conn;
 mod drive;
 mod facts;
+mod hook;
+mod join;
 mod limits;
 mod machine;
+mod mailbox;
 mod mcp_proxy;
 mod pair;
 mod protocol;
@@ -92,6 +95,28 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Join Context as a mail-only device for this session (a cloud VM): prints a code to approve with the Context
+    /// `pair_device` action, and stays connected in the background.
+    Join {
+        #[arg(long)]
+        endpoint: Option<String>,
+        #[arg(long)]
+        name: Option<String>,
+        /// The background half: pair, then stay connected (started by `join` and the hooks).
+        #[arg(long, hide = true)]
+        daemon: bool,
+    },
+    /// What a Claude Code hook runs: SessionStart, UserPromptSubmit, PostToolUse, Stop or SessionEnd. Always exits 0.
+    Hook {
+        event: String,
+        #[arg(long)]
+        endpoint: Option<String>,
+    },
+    /// This device's mail.
+    Mail {
+        #[command(subcommand)]
+        action: MailAction,
+    },
     /// A stdio MCP server forwarding to Context with a run grant (Codex runs).
     #[command(hide = true)]
     McpProxy {
@@ -100,6 +125,18 @@ enum Command {
         #[arg(long)]
         endpoint: String,
     },
+}
+
+#[derive(Subcommand)]
+enum MailAction {
+    /// Wait for mail, print it and exit: run it in the background, and it ends the moment mail arrives.
+    /// Exits 3 with nothing printed when `--timeout` seconds pass first.
+    Wait {
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+    /// Print mail not yet shown, and mark it shown.
+    Read,
 }
 
 #[derive(Subcommand)]
@@ -199,11 +236,80 @@ async fn real_main(args: Args) -> Result<()> {
             }
             Ok(())
         }
+        Command::Join {
+            endpoint,
+            name,
+            daemon,
+        } => {
+            let endpoint = endpoint.unwrap_or_else(|| default_endpoint(&state));
+            let name = name.unwrap_or_else(|| hook::device_name(&serde_json::Value::Null));
+            if daemon {
+                return join::daemon(state, &endpoint, &name).await;
+            }
+            match join::ensure(&state, &endpoint, &name).await? {
+                join::Joined::Pairing { code } => println!("Approve this device from the session's Context connection: manage action pair_device, code {code}"),
+                join::Joined::Paired { machine_id } => println!("Joined as device {machine_id}."),
+            }
+            Ok(())
+        }
+        Command::Hook { event, endpoint } => {
+            let endpoint = endpoint.unwrap_or_else(|| default_endpoint(&state));
+            if let Some(event) = hook::Event::parse(&event) {
+                if let Err(e) = hook::run(&state, event, &endpoint).await {
+                    eprintln!("context-machine hook: {e:#}");
+                }
+            }
+            // A hook never fails the session.
+            Ok(())
+        }
+        Command::Mail {
+            action: MailAction::Read,
+        } => {
+            let mail = mailbox::take_unread(&state)?;
+            if !mail.is_empty() {
+                println!("{}", mailbox::words(&mail, &state.machine().machine_id));
+            }
+            Ok(())
+        }
+        Command::Mail {
+            action: MailAction::Wait { timeout },
+        } => mail_wait(&state, timeout).await,
         Command::McpProxy { .. } => unreachable!(),
     }
 }
 
+/// Waits for this device's mail and prints it; exit 3 on a timeout. Its pid is kept so the hooks know one is waiting.
+async fn mail_wait(state: &State, timeout: Option<u64>) -> Result<()> {
+    let waiter = state.dir.join("mail").join("waiter.pid");
+    state::make_private_dir(&state.dir.join("mail"))?;
+    state::write_private(&waiter, std::process::id().to_string().as_bytes())?;
+    let deadline = timeout.map(|t| tokio::time::Instant::now() + Duration::from_secs(t));
+    let got = loop {
+        let mail = mailbox::take_unread(state)?;
+        if !mail.is_empty() {
+            break Some(mail);
+        }
+        if deadline.is_some_and(|d| tokio::time::Instant::now() > d) {
+            break None;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
+    if std::fs::read_to_string(&waiter).ok().as_deref() == Some(&std::process::id().to_string()) {
+        let _ = std::fs::remove_file(&waiter);
+    }
+    match got {
+        Some(mail) => {
+            println!("{}", mailbox::words(&mail, &state.machine().machine_id));
+            Ok(())
+        }
+        None => std::process::exit(3),
+    }
+}
+
 fn default_endpoint(state: &State) -> String {
+    if let Some(e) = std::env::var("CONTEXT_MACHINE_ENDPOINT").ok().filter(|e| !e.is_empty()) {
+        return e;
+    }
     let saved = state.machine().endpoint;
     if saved.is_empty() {
         state::DEFAULT_ENDPOINT.to_string()
@@ -212,14 +318,15 @@ fn default_endpoint(state: &State) -> String {
     }
 }
 
-struct RunOpts {
-    endpoint: Option<String>,
-    grant_file: Option<PathBuf>,
-    socket_url: Option<String>,
-    machine_id: Option<String>,
-    status_json: bool,
-    no_keep_awake: bool,
-    name: Option<String>,
+#[derive(Default)]
+pub(crate) struct RunOpts {
+    pub endpoint: Option<String>,
+    pub grant_file: Option<PathBuf>,
+    pub socket_url: Option<String>,
+    pub machine_id: Option<String>,
+    pub status_json: bool,
+    pub no_keep_awake: bool,
+    pub name: Option<String>,
 }
 
 /// The socket to dial: the flag, else the one saved at pairing, else the
@@ -242,7 +349,7 @@ fn dial_url(opts: &RunOpts, saved: &state::Machine, endpoint: &str) -> Result<St
     Ok(url)
 }
 
-async fn run(state: State, opts: &RunOpts) -> Result<()> {
+pub(crate) async fn run(state: State, opts: &RunOpts) -> Result<()> {
     let say = |line: serde_json::Value| {
         if opts.status_json {
             println!("{line}");

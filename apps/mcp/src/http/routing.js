@@ -61,10 +61,10 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   Object.defineProperty(store, "mail", {
     value: {
       workspaceId: session.workspaceId,
-      join: (path, name, jobId) => controlPlane.joinMailbox(session.accessToken, session.workspaceId, path, name, jobId),
+      join: (path, name, jobId, machineId) => controlPlane.joinMailbox(session.accessToken, session.workspaceId, path, name, jobId, machineId),
       get: (mailboxId) => controlPlane.getMailbox(session.accessToken, mailboxId),
       read: (mailboxId, readThrough) => controlPlane.markMailRead(session.accessToken, mailboxId, readThrough),
-      deliver: (line) => deliverMail(env, { jobMailboxes }, line),
+      deliver: (line) => deliverMail(env, { jobMailboxes, workspaceId: session.workspaceId }, line),
     },
     enumerable: false,
     writable: false,
@@ -172,6 +172,14 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   // every store a request touches. `texts` only from `tools/reportGate.js`.
   Object.defineProperty(store, "reportProblem", {
     value: (message, texts) => controlPlane.reportProblem(session.accessToken, message, texts),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // `pair_device`: this connection's session approves the code its own computer's runner shows. The control plane
+  // approves it as this token's person, into this workspace, and always as a mail-only device tied to this grant.
+  Object.defineProperty(store, "pairDevice", {
+    value: (code) => controlPlane.texMachinePairApproveFromGrant(session.accessToken, session.workspaceId, code),
     enumerable: false,
     writable: false,
     configurable: true,

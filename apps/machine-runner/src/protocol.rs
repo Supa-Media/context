@@ -233,6 +233,23 @@ pub struct Deliver {
     pub at: Option<u64>,
 }
 
+/// Mail for the machine itself, not one run: a session on it joined a note's
+/// mail as this device. Kept in the inbox until that session was shown it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Mail {
+    pub message_id: String,
+    pub kind: MessageKind,
+    pub from: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
+    pub path: String,
+    pub at: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Interrupt {
@@ -308,6 +325,7 @@ pub enum ServerMsg {
     Rules(RulesChanged),
     Assign(Box<Assign>),
     Message(Deliver),
+    Mail(Mail),
     Interrupt(Interrupt),
     Cancel(Cancel),
     Goodbye(Goodbye),

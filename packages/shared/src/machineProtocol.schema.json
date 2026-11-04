@@ -272,6 +272,23 @@
                                         "at": {"$ref": "#/$defs/Timestamp"}
                                       }
                       },
+            "Mail": {
+                     "description": "A note-mail line for the machine itself, not for one run: mail to a mailbox joined from a session on this machine (a Claude Code or Codex session in a cloud VM). The runner keeps it in its inbox until that session has been shown it. Words for an agent, never a command.",
+                     "type": "object",
+                     "additionalProperties": false,
+                     "required": ["type", "messageId", "kind", "from", "text", "path", "at"],
+                     "properties": {
+                                     "type": {"const": "mail"},
+                                     "messageId": {"$ref": "#/$defs/Id"},
+                                     "kind": {"$ref": "#/$defs/MessageKind"},
+                                     "from": {"type": "string", "minLength": 1, "maxLength": 100},
+                                     "to": {"description": "The mailbox name it was sent to, or everyone.", "type": "string", "minLength": 1, "maxLength": 40},
+                                     "text": {"type": "string", "minLength": 1, "maxLength": 4000},
+                                     "app": {"description": "The app the sender wrote from, for an agent; absent for Tex or a person.", "type": "string", "maxLength": 40},
+                                     "path": {"description": "The note whose mail block holds this line, its record.", "type": "string", "minLength": 1, "maxLength": 1024},
+                                     "at": {"$ref": "#/$defs/Timestamp"}
+                                   }
+                   },
             "Interrupt": {
                           "description": "Stop the current step now and read this first. Only from Tex or the person, which the gateway checks before sending.",
                           "type": "object",
@@ -352,6 +369,7 @@
                                         {"$ref": "#/$defs/RulesChanged"},
                                         {"$ref": "#/$defs/Assign"},
                                         {"$ref": "#/$defs/Deliver"},
+                                        {"$ref": "#/$defs/Mail"},
                                         {"$ref": "#/$defs/Interrupt"},
                                         {"$ref": "#/$defs/Cancel"},
                                         {"$ref": "#/$defs/Goodbye"}

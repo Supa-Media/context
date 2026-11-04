@@ -189,6 +189,12 @@ impl Machine {
                 let run_id = m.run_id.clone();
                 self.input(&run_id, RunInput::Mail(m)).await;
             }
+            ServerMsg::Mail(m) => {
+                // Held for the session on this machine; the note already has the line.
+                if let Err(e) = crate::mailbox::keep(&self.state, &m) {
+                    eprintln!("could not keep mail: {e:#}");
+                }
+            }
             ServerMsg::Interrupt(i) => {
                 let run_id = i.run_id.clone();
                 self.input(&run_id, RunInput::Interrupt(i)).await;

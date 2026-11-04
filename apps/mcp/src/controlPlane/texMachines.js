@@ -7,6 +7,9 @@
  */
 import { ControlPlaneError } from "./client.js";
 
+/** The control plane's statuses for a refused `pair_device` approval, as the codes `tools/pairDevice.js` words. */
+const APPROVE_REFUSALS = { 401: "UNAUTHORIZED", 403: "INSUFFICIENT_ROLE", 404: "PAIRING_NOT_FOUND", 410: "PAIRING_EXPIRED", 429: "RATE_LIMITED" };
+
 export function createTexMachineMethods({ post }) {
   /** The control plane's refusal code for a 4xx, or null when it was not a refusal. */
   const refusalOf = (error) => (error instanceof ControlPlaneError && error.status >= 400 && error.status < 500 ? error.status : null);
@@ -78,6 +81,25 @@ export function createTexMachineMethods({ post }) {
     async texMachineChatPeople(userId, groupKey) {
       const answer = await call("/gateway/machines/chat/people", { userId, groupKey });
       return answer.ok && Array.isArray(answer.value?.people) ? answer.value.people : null;
+    },
+    /**
+     * A session approving the code its own computer shows, with this connection's own token (`pair_device`): the
+     * control plane approves it as the token's person, into `workspaceId`, as a mail-only device tied to this grant.
+     * `{ approved: { name, os } }`, or `{ refused: code }` with the control plane's refusal code.
+     */
+    async texMachinePairApproveFromGrant(accessToken, workspaceId, code) {
+      try {
+        return { approved: await post("/gateway/machines/pair/approve-grant", { accessToken, workspaceId, code }) };
+      } catch (error) {
+        const status = refusalOf(error);
+        if (status === null) throw error;
+        return { refused: APPROVE_REFUSALS[status] ?? "REFUSED" };
+      }
+    },
+    /** A machine giving its own grant back (`/machines/leave`): `{ machineId, workspaceId }`, or null for a dead grant. */
+    async texMachineLeave(grant) {
+      const answer = await call("/gateway/machines/leave", { grant });
+      return answer.ok ? answer.value : null;
     },
     /** Takes a run's grant back when the part ended or was refused. */
     async texMachineRunRevoke(runId) {

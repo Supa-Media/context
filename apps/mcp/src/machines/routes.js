@@ -13,6 +13,9 @@
  * - `POST /machines/register`: the Mac app, already signed in, registers its
  *   own Mac with its connection's session instead of a code. The machine still
  *   gets a grant of its own, bound to its own key.
+ * - `POST /machines/leave`: a machine gives its own grant back, as a cloud VM
+ *   does when its session ends. The grant is revoked and the workspace object
+ *   drops the machine, so it leaves the devices list at once.
  *
  * The private key never leaves the machine, the control plane keeps only
  * hashes, and the plain grant is returned once, to the machine.
@@ -28,7 +31,7 @@ import protocol from "../../../../packages/shared/src/machineProtocol.cjs";
 
 const { invalid, pairSigningText } = protocol;
 
-export const MACHINE_PATHS = new Set(["/machines/pair", "/machines/pair/poll", "/machines/socket", "/machines/register"]);
+export const MACHINE_PATHS = new Set(["/machines/pair", "/machines/pair/poll", "/machines/socket", "/machines/register", "/machines/leave"]);
 /** Codes avoid 0/O and 1/I, so one read aloud or retyped is the same code. */
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const POLL_MS = 3000;
@@ -68,6 +71,8 @@ async function addToObject(env, claimed, started) {
   const stub = workspaceStub(env, claimed.workspaceId);
   if (stub === null) return false;
   const machine = { id: claimed.machineId, ownerId: claimed.ownerId, publicKey: started.publicKey, name: claimed.name ?? started.name, os: started.os, facts: started.facts ?? null };
+  // A device a session paired through its own Context connection takes mail and never jobs, and leaves by a time (`pair_device`).
+  if (claimed.mailOnly === true) Object.assign(machine, { mailOnly: true, ...(Number.isSafeInteger(claimed.expiresAt) ? { expiresAt: claimed.expiresAt } : {}) });
   const response = await callTexStore(stub, "ws.machine.add", {}, new TextEncoder().encode(JSON.stringify({ workspaceId: claimed.workspaceId, machine })));
   return (await response.json())?.ok === true;
 }
@@ -115,8 +120,7 @@ async function pairPoll(request, env, deps, origin) {
 async function socket(request, env, deps) {
   if (request.method !== "GET") return new Response(null, { status: 405 });
   if ((request.headers.get("Upgrade") || "").toLowerCase() !== "websocket") return new Response("expected a websocket upgrade", { status: 426 });
-  const header = request.headers.get("Authorization") || "";
-  const grant = /^Bearer (cmg_[0-9a-f]{64})$/.exec(header)?.[1] ?? null;
+  const grant = grantOf(request);
   if (grant === null) return json({ error: "unauthorized" }, 401);
   const controlPlane = deps.controlPlane ?? createControlPlane(env);
   const machine = await controlPlane.texMachineResolve(grant);
@@ -153,7 +157,26 @@ async function register(request, env, deps, origin) {
   return json({ machineId: registered.machineId, workspace: registered.workspaceHandle, grant, socketUrl: socketUrlFor(origin) });
 }
 
-const socketUrlFor = (origin) => `${origin.replace(/^https:/, "wss:").replace(/\/+$/, "")}/machines/socket`;
+/** The grant a runner presents as `Authorization: Bearer cmg_…`, or null. */
+const grantOf = (request) => /^Bearer (cmg_[0-9a-f]{64})$/.exec(request.headers.get("Authorization") || "")?.[1] ?? null;
+
+/**
+ * A machine leaving: its grant is revoked first, then its workspace object drops it and says goodbye on its socket.
+ * Unknown and already-revoked grants answer the same 401, so a guess learns nothing.
+ */
+async function leave(request, env, deps) {
+  const grant = grantOf(request);
+  if (grant === null) return json({ error: "unauthorized" }, 401);
+  const controlPlane = deps.controlPlane ?? createControlPlane(env);
+  const left = await controlPlane.texMachineLeave(grant);
+  if (!left?.machineId) return json({ error: "unauthorized" }, 401);
+  const stub = workspaceStub(env, left.workspaceId);
+  if (stub !== null) await callTexStore(stub, "ws.machine.remove", {}, new TextEncoder().encode(JSON.stringify({ id: left.machineId, reason: "left" }))).catch(() => null);
+  return json({ left: true });
+}
+
+// https → wss in every deployment; http → ws only ever answers a loopback gateway in a test, which the runner alone accepts.
+const socketUrlFor = (origin) => `${origin.replace(/^http(s?):/, "ws$1:").replace(/\/+$/, "")}/machines/socket`;
 
 /** One of `MACHINE_PATHS`, answered. */
 export async function handleMachines(request, env, { path, origin }, deps = {}) {
@@ -164,6 +187,7 @@ export async function handleMachines(request, env, { path, origin }, deps = {}) 
     if (path === "/machines/pair") return await pairStart(request, env, deps, origin);
     if (path === "/machines/pair/poll") return await pairPoll(request, env, deps, origin);
     if (path === "/machines/register") return await register(request, env, deps, origin);
+    if (path === "/machines/leave") return await leave(request, env, deps);
   } catch {
     // Never relay a control-plane failure: the caller is a program on the open internet.
     return json({ error: "server_error" }, 503);

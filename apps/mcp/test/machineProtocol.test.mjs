@@ -63,10 +63,12 @@ test("a runner frame is parsed only when it is valid", () => {
 });
 
 test("the protocol has no message that runs a command", () => {
-  // Design, "Security": the workspace object can only assign, deliver, interrupt and cancel.
+  // Design, "Security": the workspace object can only assign, deliver, mail, interrupt and cancel.
   const types = protocol.schema.$defs.ServerMessage.oneOf.map((o) => protocol.schema.$defs[o.$ref.replace("#/$defs/", "")].properties.type.const);
-  assert.deepEqual(types.sort(), ["assign", "cancel", "challenge", "goodbye", "interrupt", "message", "rules", "welcome"]);
+  assert.deepEqual(types.sort(), ["assign", "cancel", "challenge", "goodbye", "interrupt", "mail", "message", "rules", "welcome"]);
   for (const key of Object.keys(protocol.schema.$defs.Assign.properties)) assert.doesNotMatch(key, /command|shell|exec|argv|env/i);
+  // Mail to a whole machine is words for its session and nothing else (2026-11-04).
+  for (const key of Object.keys(protocol.schema.$defs.Mail.properties)) assert.doesNotMatch(key, /command|shell|exec|argv|env|run/i);
 });
 
 test("a run grant must be https and a machine job lasts at most 24 hours", () => {

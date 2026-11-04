@@ -239,6 +239,8 @@ export function machineSockets(state, sql, machines, deps = {}) {
       const named = machineHeaderOf(request.headers.get(MACHINE_HEADER));
       if (named === null) return new Response("bad machine", { status: 400 });
       if (machines.get(named.machineId) === null) return new Response("unknown machine", { status: 404 });
+      // A mail-only device past its time is dropped here, before it is let back in.
+      if (machines.leaving(() => false).includes(named.machineId) && this.prune()) return new Response("unknown machine", { status: 404 });
       const [client, server] = pair();
       state.acceptWebSocket(server, [TAG]);
       // Rows of sockets no longer held (a hibernated object woke without them) are dropped as new ones come.
@@ -273,8 +275,23 @@ export function machineSockets(state, sql, machines, deps = {}) {
       const id = socketId(ws);
       const row = id ? socketRow(id) : null;
       if (id) forget(id);
+      // When it went offline is when it was last seen: a mail-only device leaves on its own 15 minutes later.
+      if (row?.verified === 1) machines.seen(row.machine, {});
       // Only the verified socket going means the machine is offline; its runs wait for it to come back.
       if (row?.verified === 1 && socketFor(row.machine) === null) await notify({ kind: "offline", machineId: row.machine });
+    },
+
+    /**
+     * Mail-only devices whose time is up or whose session is gone (`machines.leaving`), removed with a goodbye.
+     * Run before anything lists, mails or lets one in, so a gone device is never shown or written to. True when one went.
+     */
+    prune() {
+      const gone = machines.leaving((machineId) => socketFor(machineId) !== null);
+      for (const machineId of gone) {
+        this.goodbye(machineId, "revoked");
+        machines.remove(machineId);
+      }
+      return gone.length > 0;
     },
 
     /** Sends a server frame to a machine's verified socket; false when it is offline. */

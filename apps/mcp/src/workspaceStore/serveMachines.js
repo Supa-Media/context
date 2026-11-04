@@ -30,6 +30,7 @@ export const MACHINE_OPS = Object.freeze({
   RUN: "ws.machine.run",
   ANSWER: "ws.machine.answer",
   RAISE: "ws.machine.raise",
+  MAIL: "ws.machine.mail",
 });
 const OPS = new Set(Object.values(MACHINE_OPS));
 
@@ -112,6 +113,20 @@ function toRun(store, runId, frame) {
   return Response.json({ ok: store.machineSockets.send(run.machineId, message) });
 }
 
+/**
+ * A note-mail line for a whole machine, not one run: a mailbox was joined from a session on it (`mail/deliver.js`).
+ * `sent` is false when the machine is offline or gone; the line is in the note either way, which is the record.
+ */
+function mail(store, fields) {
+  store.machineSockets.prune?.();
+  const machine = store.machines.get(fields.id);
+  if (!machine) return refused("unknown_machine");
+  const frame = { type: "mail", ...fields.mail };
+  const why = invalid("Mail", frame);
+  if (why !== null) return refused("bad_message", { why });
+  return Response.json({ ok: true, sent: store.machineSockets.send(machine.id, frame) });
+}
+
 /** A `ws.machine.*` call, or null when `op` is not one. */
 export async function serveMachineCall(store, op, fields) {
   if (!OPS.has(op)) return null;
@@ -121,8 +136,12 @@ export async function serveMachineCall(store, op, fields) {
       case MACHINE_OPS.ADD:
         return Response.json({ ok: true, machine: shown(store, store.machines.add(fields.machine)) });
       case MACHINE_OPS.LIST:
+        store.machineSockets.prune?.();
         return Response.json({ ok: true, machines: store.machines.list().map((machine) => shown(store, machine)) });
+      case MACHINE_OPS.MAIL:
+        return mail(store, fields);
       case MACHINE_OPS.GET: {
+        store.machineSockets.prune?.();
         const machine = store.machines.get(fields.id);
         return machine ? Response.json({ ok: true, machine: shown(store, machine) }) : refused("unknown_machine");
       }
