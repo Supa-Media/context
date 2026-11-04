@@ -232,7 +232,8 @@ export function readSection(overview: Overview, section: string, value: unknown)
       return places ? { ...rest, places } : rest;
     }
     case "asks":
-      return { ...overview, asks: readAsks(value) };
+      // Absent means a gateway without machines: no key, as with `places`.
+      return Array.isArray(value) ? { ...overview, asks: readAsks(value) } : overview;
     case "earlier":
       return { ...overview, earlier: list(value, readJob).slice(0, 2) };
     case "earlierWeek":
