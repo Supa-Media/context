@@ -195,7 +195,7 @@ async function runTool(name, args, store, scope) {
     case "fetch":
       return toolOpenAiFetch(store, scope, rules, overrides, args.id);
     case "search_notes":
-      return toolSearchNotes(store, scope, rules, overrides, args.query, args.prefix);
+      return toolSearchNotes(store, scope, rules, overrides, args.query, args.prefix, { rerank: args.rerank === true });
     case "related_notes":
       return toolRelatedNotes(store, scope, rules, overrides, args);
     case "archive_note":
