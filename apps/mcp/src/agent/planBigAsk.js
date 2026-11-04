@@ -57,13 +57,16 @@ export const PLANNER_PROMPT =
   "You plan work for Tex, a texting assistant that can run background jobs side by side. Below are the conversation, the ask, how many job " +
   "slots are free now and the person's computers. Decide whether the ask splits.\n\n" +
   "It does not split when it is one piece of work: a question, a lookup, one note or email, a reminder, a short task, or steps where each " +
-  "needs the one before. Then reply with JSON only: {\"split\": false, \"how\": \"now\" or \"one_job\", \"why\": \"one sentence\"}. " +
+  "needs the one before. Then reply with JSON only: {\"split\": false, \"how\": \"now\" or \"one_job\", \"why\": \"one sentence\", \"computer\": null or a computer's name}. " +
   "\"now\" is for anything Tex can finish in this turn; \"one_job\" is for long work that does not split.\n\n" +
   "It splits when two or more parts can run at once and each is real work on its own. Then reply with JSON only: " +
   "{\"split\": true, \"title\": \"the project in a few words\", \"goal\": \"what the whole ask is for, one or two sentences\", " +
   "\"parts\": [{\"name\": \"short-lowercase-name\", \"title\": \"a few words\", \"brief\": \"what this part does, with every fact it needs\", " +
   "\"done_when\": \"one line\", \"computer\": null or a computer's name}]}. Never more parts than free slots; when there are more pieces " +
-  "than slots, group them. A part that needs code on their own machine names that computer; anything else runs in the cloud (null). " +
+  "than slots, or than a computer's slots for its parts, group them. Code always runs on a computer with Claude Code or Codex when they have one, never in the cloud: " +
+  "a question about how a codebase works (theirs or a public one on GitHub), reading or searching a repo, and every change to their code. A small code " +
+  "change is one job on a computer, not a split; a big one (several pieces of a feature that can be built at once) splits into parts on the computer. " +
+  "Anything that is not code runs in the cloud (null). " +
   "Each part's brief names the parts it must tell or ask through the overview's mail. Never invent a fact that is not in the conversation.";
 
 const clip = (value, max) => (typeof value === "string" ? value.trim().slice(0, max) : "");
@@ -102,7 +105,9 @@ export function parsePlan(answer, { slots, computers = [] }) {
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   if (value.split === false) {
-    return { split: false, how: value.how === "one_job" ? "one_job" : "now", why: oneLine(value.why, 300) };
+    const known = new Map(computers.map((computer) => [String(computer.name).toLowerCase(), computer.name]));
+    const computer = value.how === "one_job" && typeof value.computer === "string" ? (known.get(value.computer.trim().toLowerCase()) ?? null) : null;
+    return { split: false, how: value.how === "one_job" ? "one_job" : "now", why: oneLine(value.why, 300), ...(computer ? { computer } : {}) };
   }
   if (value.split !== true || !Array.isArray(value.parts)) return null;
   const names = new Set();
@@ -185,7 +190,7 @@ export function planCall({ model, effort, request, meter = async () => {}, histo
     const brief =
       `<conversation>\n${conversationText(history, question) || "(none)"}\n</conversation>\n\n<ask>\n${ask}\n</ask>\n\n` +
       `Free job slots now: ${slots}.\n` +
-      `Their computers: ${computers.length === 0 ? "none (every part runs in the cloud)" : computers.map((each) => `${each.name}${each.online ? "" : " (offline)"} (${(each.tools ?? []).join(", ") || "no coding tool"})`).join("; ")}.`;
+      `Their computers: ${computers.length === 0 ? "none (every part runs in the cloud)" : computers.map((each) => `${each.name}${each.online ? "" : " (offline)"} (${(each.tools ?? []).join(", ") || "no coding tool"}${Number.isSafeInteger(each.slots) ? `, ${each.slots} slots` : ""})`).join("; ")}.`;
     let answer;
     try {
       answer = await request({ model, system: PLANNER_PROMPT, messages: [{ role: "user", text: brief }], tools: [], display: "summarized", ...(effort ? { effort } : {}) });
@@ -202,7 +207,8 @@ export function planCall({ model, effort, request, meter = async () => {}, histo
       return withThought(
         text(
           plan.how === "one_job"
-            ? `Your advisor says this is one piece of work: ${plan.why || "it doesn't split"}. Start one background job for it, with no mail.`
+            ? `Your advisor says this is one piece of work: ${plan.why || "it doesn't split"}. Start one background job for it, with no mail` +
+              (plan.computer ? `, on_computer { name: "${plan.computer}" }.` : ", in the cloud.")
             : `Your advisor says this doesn't need jobs: ${plan.why || "it's small"}. Do it now yourself.`,
         ),
       );

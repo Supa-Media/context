@@ -38,6 +38,22 @@ import { texStoreNamespace } from "../test/texStoreFixture.mjs";
 import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 import { calendarAnswer, calendarWrites } from "./calendar.mjs";
 
+/** An invented paired computer, in the person's own workspace only, as its object lists it (`ws.machine.list`, `ws.machine.get`). */
+export function benchMachines({ name, tools, slots }, workspaceId) {
+  const machine = { id: "mch_bench_computer", name, online: true, tools, folders: ["~/code"], ownerId: "bench-owner", limits: { slots } };
+  return {
+    idFromName: (id) => id,
+    get: (objectName) => ({
+      async fetch(request) {
+        const op = new URL(request.url).pathname.slice(1);
+        if (op === "ws.machine.list") return Response.json({ ok: true, machines: objectName === `workspace:${workspaceId}` ? [machine] : [] });
+        if (op === "ws.machine.get") return Response.json({ ok: true, machine });
+        return Response.json({ error: "unknown_op" }, { status: 400 });
+      },
+    }),
+  };
+}
+
 /** Brave's search endpoint (`src/agent/search.js`). */
 const BRAVE_SEARCH = "https://api.search.brave.com/";
 
@@ -354,6 +370,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // a run offers the same tools (decided 2026-10-09; round two measured a
     // shorter tool list than production). The run command passes the key.
     ...(typeof models.searchKey === "string" && models.searchKey ? { BRAVE_SEARCH_API_KEY: models.searchKey } : {}),
+    // The person's paired computer, when the test names one (`run.mjs` `readComputer`): read through
+    // MACHINE_STORE (`src/machines/forJobs.js`), the only reads it answers. Nothing runs on it here.
+    ...(models.computer ? { MACHINE_STORE: benchMachines(models.computer, ids.get(own.workspace)) } : {}),
     // The hand-back judge, as production runs it (`agent/handbackJudge.js`); a scripted model leaves it off, since it would answer the judge's call too.
     ...(models.handbackJudge === true ? { HANDBACK_JUDGE: "on" } : {}),
     // A scripted web answers searches itself, so no real key is needed or sent.

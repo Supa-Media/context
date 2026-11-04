@@ -248,3 +248,16 @@ test("the planner is a setup switch, on only with an advisor", async () => {
   assert.equal(await parseSetup(setup("plan_big_asks: on\n")), null, "no advisor to plan");
   assert.equal(await parseSetup(setup("  advisor: anthropic/claude-opus-5-5\nplan_big_asks: maybe\n")), null);
 });
+
+test("code goes to a computer: a one-job answer names theirs, and the planner is told each computer's tools and slots", async () => {
+  const computers = [{ name: "Studio Mac", online: true, tools: ["claude", "codex"], slots: 3 }];
+  assert.deepEqual(parsePlan('{"split": false, "how": "one_job", "why": "a small change", "computer": "studio mac"}', { slots: 3, computers }), { split: false, how: "one_job", why: "a small change", computer: "Studio Mac" });
+  assert.equal(parsePlan('{"split": false, "how": "one_job", "computer": "Someone Else"}', { slots: 3, computers }).computer, undefined, "not theirs");
+  assert.equal(parsePlan('{"split": false, "how": "now", "computer": "Studio Mac"}', { slots: 3, computers }).computer, undefined, "now runs no job");
+  const background = backgroundSession({ running: [], job: null, now: NOW, machines: async () => computers });
+  const fake = planner(background, { split: false, how: "one_job", why: "a small change", computer: "Studio Mac" });
+  const result = await withBackground(background, notesDispatcher().callTool)(PLAN_TOOL, { ask: "change the on it text in the context repo", folder: "1-projects/on-it/" });
+  assert.match(words(result), /on_computer \{ name: "Studio Mac" \}/);
+  assert.match(fake.asked[0].messages[0].text, /Studio Mac \(claude, codex, 3 slots\)/);
+  assert.match(fake.asked[0].system, /Code always runs on a computer/);
+});

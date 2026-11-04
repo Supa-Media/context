@@ -71,6 +71,9 @@ this folder: it is public, like the rest of the repository.
   unless a case says `- running: N`), so Tex is offered background jobs with
   the same free slots for every setup. Graded by `must start: 2+ jobs on one
   note's mail`, `must not start: a job` and the like (`bench/checks.mjs`).
+  `computer: Studio Mac (claude, codex) 3 slots` gives every case the same
+  paired computer, and `on a computer` / `in the cloud` on a start check
+  counts only the jobs that ran there: code goes to the computer.
 - `tests/housekeeping.md`: Tex's housekeeping (`mode: housekeeping`, decided
   2026-10-17). Nobody texts: each case is one run over Tomas's deliberately
   messy workspace, graded by `must file: <note> under <folder>/` lines, which

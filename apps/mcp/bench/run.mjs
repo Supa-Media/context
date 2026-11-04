@@ -162,6 +162,17 @@ async function benchPicture(name) {
 }
 
 /** One conversation: the person's opening text, then as many turns as they take. */
+/**
+ * A test's `computer: Studio Mac (claude, codex) 3 slots`: the one computer its
+ * person has paired, as `{ name, tools, slots }`, or null with none named.
+ */
+export function readComputer(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const m = String(value).trim().match(/^(.+?) \(((?:claude|codex)(?:, (?:claude|codex))?)\)(?: (\d) slots?)?$/);
+  if (!m) throw new Error(`computer: "${value}" is not "<name> (claude, codex) <n> slots"`);
+  return { name: m[1], tools: m[2].split(", "), slots: m[3] ? Number(m[3]) : 1 };
+}
+
 /** The jobs a case's chat has running before it starts: the same for every setup, so each has the same free slots. */
 export function benchRunning(count) {
   return Array.from({ length: Math.max(0, Math.min(6, count)) }, (_, i) => ({ id: `bench-running-${i + 1}`, title: `Earlier job ${i + 1}`, state: "running", startedAt: Date.now() - 10 * 60_000, status: "working" }));
@@ -321,6 +332,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
     delete models.searchKey;
   }
   models.skills = skills;
+  // The computer every case's person has paired, the same for every setup (`computer:` in the test, `world.mjs`).
+  models.computer = readComputer(test.front.computer);
   const person = { fake: options.fake === true, send, model: test.front.played_by };
 
   // Warm by default (decided 2026-10-08): every workspace indexed once, every
