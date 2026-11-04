@@ -15,14 +15,16 @@ import { workspaceStub } from "./api.js";
 import { mcpEntry } from "../mcp/mcpEntryPoint.js";
 import { BINDING_OPS } from "./bindingRows.js";
 import { ACCESS_OPS } from "./access.js";
+import { TEXTING_OPS } from "./personTexting.js";
 
 export const WORKSPACE_STORE_PATH = "/internal/workspace-store";
 const CALL = "x-tex-call";
 /**
  * The gateway's own calls, never the control plane's: `ws.open` answers a member's rules and the sealed binding,
- * and `ws.binding.put` keeps one (`bindingRows.js`). The control plane only ever clears it.
+ * and `ws.binding.put` keeps one (`bindingRows.js`). The control plane only ever clears it. `person.texting.open`
+ * opens a text's session: the control plane writes the texting record, never a session (`personTexting.js`).
  */
-const GATEWAY_ONLY = new Set([BINDING_OPS.OPEN, BINDING_OPS.PUT]);
+const GATEWAY_ONLY = new Set([BINDING_OPS.OPEN, BINDING_OPS.PUT, TEXTING_OPS.OPEN]);
 
 function opOf(call) {
   try {
