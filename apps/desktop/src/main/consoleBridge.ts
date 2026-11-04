@@ -84,8 +84,7 @@ import {
   type TranscriptSegment,
   type TrayCommand,
   type UpcomingMeetings,
-  machineFoldersFrom,
-  machineStatusFrom,
+  machineFoldersFrom, machineStatusFrom,
   type MachineRunStatus,
 } from "@context/desktop-bridge";
 import { originOfUrl } from "../core/shell/mirror.ts";
@@ -212,13 +211,12 @@ export interface ConsoleBridgeDeps {
   /** Today's meetings for the menu bar (version 9), already rebuilt by `upcomingFrom`. */
   setUpcoming: (upcoming: UpcomingMeetings) => void;
   /**
-   * Let Tex use this Mac (version 10): the bundled runner's state, and the
-   * person's switch. Optional so a shell wired without it answers "off".
-   * Nothing here is a credential or a path (`main/machineRunner.ts`).
+   * Let Tex use this Mac: the runner's state and switch (version 10), and the
+   * folders Tex may work in, chosen in the Mac's picker (version 11). Optional,
+   * so a shell without them answers "off". No credential crosses here.
    */
   machine?: () => MachineRunStatus;
   setMachineEnabled?: (enabled: boolean) => Promise<MachineRunStatus>;
-  /** Version 11: the folders Tex may work in, read and chosen in the Mac's own picker. */
   machineFolders?: () => Promise<string[] | null>;
   chooseMachineFolders?: () => Promise<string[] | null>;
 }
@@ -690,10 +688,8 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.agentStatus,
         BRIDGE_CHANNELS.agentAsk,
         BRIDGE_CHANNELS.calendarSetUpcoming,
-        BRIDGE_CHANNELS.machineStatus,
-        BRIDGE_CHANNELS.machineSetEnabled,
-        BRIDGE_CHANNELS.machineFolders,
-        BRIDGE_CHANNELS.machineChooseFolders,
+        BRIDGE_CHANNELS.machineStatus, BRIDGE_CHANNELS.machineSetEnabled,
+        BRIDGE_CHANNELS.machineFolders, BRIDGE_CHANNELS.machineChooseFolders,
       ]) {
         deps.ipc.removeHandler(channel);
       }
