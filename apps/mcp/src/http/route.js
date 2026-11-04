@@ -52,6 +52,7 @@ import { handleMessagesBackupFile } from "../communications/messagesBackupFiles.
 import { MESSAGES_BACKUP_ROUTE, parseFileRoute } from "../../../../packages/communications/src/backup.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
 import { handleTexPage, TEX_PAGE_PATHS } from "./texPage/serve.js";
+import { APP_SEARCH_PATH, handleAppSearch } from "./appSearch.js";
 import { handleTexPageLive, TEX_PAGE_SOCKET_PATH } from "./texPage/live.js";
 import { ACCESS_SOCKET_PATH, handleAccess, handleAgentActivity, handlePresence, handleTree, TREE_SOCKET_PATH } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
@@ -242,6 +243,7 @@ export async function route(request, env, ctx) {
       path === "/inbox" ||
       path === "/agent" ||
       path === "/agent/try" ||
+      path === APP_SEARCH_PATH ||
       TEXTING_ROUTES.has(path) ||
       path === "/agent/review" ||
       path === "/collaboration" ||
@@ -432,6 +434,8 @@ export async function route(request, env, ctx) {
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
       if (appRoute) return await appRoute(request, store, session, path);
+      // The app's search bar, on the same search an AI client runs (`appSearch.js`).
+      if (path === APP_SEARCH_PATH) return await withSearchPassesHeld(store, () => handleAppSearch(request, store, session));
       if (texPageRoute) return await handleTexPage(request, env, store, session, { path, controlPlane });
       if (messagesBackupRoute) {
         const file = parseFileRoute(path);
