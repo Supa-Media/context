@@ -9,6 +9,8 @@
 
 import { SUB_VIEWS, type SubView } from "./texPageTypes";
 import type { Place } from "./TexPageBody";
+import { loginHref } from "../../auth/redirect";
+import { normalizeHandle, texHref } from "../texComputer";
 
 const KEY = /^[A-Za-z0-9_.:-]{1,80}$/;
 
@@ -40,4 +42,14 @@ export function placeParams(place: Place): Record<string, string> {
   if (place.view === "computer" && place.full) out.full = "1";
   if (place.view === "machine" && place.machine) out.machine = place.machine;
   return out;
+}
+
+/**
+ * Sign in, then back to this place. A runner's pairing code rides along, or
+ * signing in would drop the approval the link came for.
+ */
+export function signInHref(fallback: string, raw: string | null | undefined, place: Place, code: string | null = null): string {
+  const query = new URLSearchParams({ ...placeParams(place), ...(code ? { code } : {}) }).toString();
+  const handle = normalizeHandle(raw);
+  return query && handle ? loginHref(`${texHref(handle)}?${query}`) : fallback;
 }

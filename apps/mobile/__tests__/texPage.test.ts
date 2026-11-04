@@ -38,7 +38,7 @@ import {
 } from "../features/tex/page/texPageFormat";
 import { liveProtocols, liveSocketUrl, openLive, readPatch, type SocketLike } from "../features/tex/page/texPageLive";
 import { gatewaySource, readAnswer, texPageUrl } from "../features/tex/page/texPageSource";
-import { placeParams, readPlace } from "../features/tex/page/texPlace";
+import { placeParams, readPlace, signInHref } from "../features/tex/page/texPlace";
 import { onSite } from "../features/tex/page/texPageFormat";
 import type { JobSummary } from "../features/tex/page/texPageTypes";
 
@@ -344,4 +344,12 @@ describe("the live socket", () => {
     f.made[0]!.onclose!({ code: 4403 });
     expect(f.timers.at(-1)!.ms).toBe(5 * 60_000);
   });
+});
+
+// A runner's pairing link opened signed out: the code must survive signing in,
+// or the person lands on the machines list with nothing to approve.
+test("signing in keeps a pairing link's code", () => {
+  const next = decodeURIComponent(signInHref("/login", "seyi", { chat: "me", view: "machines" }, "NQJ-FSV"));
+  expect(next).toContain("/tex/seyi?view=machines&code=NQJ-FSV");
+  expect(decodeURIComponent(signInHref("/login", "seyi", { chat: "me", view: "machines" }))).not.toContain("code=");
 });

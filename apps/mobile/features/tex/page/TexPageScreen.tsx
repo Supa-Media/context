@@ -9,14 +9,13 @@ import { MCP_ENDPOINT } from "../../console/placeholderData";
 import { useColors } from "../../design/theme";
 import { Screen } from "../../app/Screen";
 import { firstParam } from "../../invite/invite";
-import { loginHref } from "../../auth/redirect";
-import { normalizeHandle, resolveTexPage, texHref } from "../texComputer";
+import { resolveTexPage, texHref } from "../texComputer";
 import { useTexComputer } from "../useTexComputer";
 import { TexComputerBody } from "../TexComputerScreen";
 import { TexPageBody, type Place } from "./TexPageBody";
 import { gatewaySource } from "./texPageSource";
 import { withGatewayMachines } from "./texMachineSource";
-import { readPlace, placeParams } from "./texPlace";
+import { placeParams, readPlace, signInHref } from "./texPlace";
 import { useTexPage } from "./useTexPage";
 import { T } from "./TexPageParts";
 
@@ -99,7 +98,7 @@ export function TexPageScreen() {
   );
 
   // Back to the same place after signing in: a handoff's `?view=computer` included.
-  if (view.kind === "signIn") return <Redirect href={signInHref(view.href, firstParam(params.handle), place)} />;
+  if (view.kind === "signIn") return <Redirect href={signInHref(view.href, firstParam(params.handle), place, pairingCode.current)} />;
   if (view.kind === "notFound" || view.kind === "notYours") {
     return <NotYours own={view.kind === "notYours" ? view.own : null} />;
   }
@@ -119,12 +118,6 @@ export function TexPageScreen() {
       />
     </Screen>
   );
-}
-
-function signInHref(fallback: string, raw: string | null | undefined, place: Place): string {
-  const query = new URLSearchParams(placeParams(place)).toString();
-  const handle = normalizeHandle(raw);
-  return query && handle ? loginHref(`${texHref(handle)}?${query}`) : fallback;
 }
 
 function Ground() {
