@@ -1,5 +1,6 @@
 import type { MapClock, MapEvent, MapHub, MapScope, MapView, WorkspaceGraph } from "../types";
 import { buildLayout, createLayoutCache, type Layout, type LayoutCache } from "./layout";
+import type { MapLook } from "../look";
 import type { MapPalette } from "./palette";
 import type { Model } from "./scene";
 import { byTime, historyPaths, stepsFromEvents, type MapActor, type Step } from "./timeline";
@@ -25,6 +26,8 @@ export type MapData = {
   selfId: string | null;
   /** The all-workspaces view's middle; absent, the view has none. */
   hub?: MapHub | null;
+  /** How the person chose to have the map drawn; absent, the defaults. */
+  look?: MapLook;
 };
 
 export type LiveMemory = {
@@ -84,9 +87,10 @@ export function buildModel(
   events.sort(byTime);
 
   const extra = historyPaths(events, data.graphs).filter((p) => ids.has(p.workspaceId));
-  const sig = layoutSignature(graphs, extra);
+  const spread = data.look?.spread ?? 1;
+  const sig = `${spread}\n${layoutSignature(graphs, extra)}`;
   if (!memory.layout || sig !== memory.layoutSig) {
-    memory.layout = buildLayout(graphs, extra, memory.layoutCache);
+    memory.layout = buildLayout(graphs, extra, memory.layoutCache, spread);
     memory.layoutSig = sig;
     if (memory.layoutCache.size > 4000) memory.layoutCache.clear();
   }

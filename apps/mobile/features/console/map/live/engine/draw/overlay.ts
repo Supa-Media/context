@@ -75,7 +75,8 @@ export function placeFacesAndLabels(env: DrawEnv): {
 function drawNoteLabels(env: DrawEnv): void {
   const { ctx, style, model, scene, s } = env;
   const C = style.palette;
-  const base = noteLabelAlpha(s);
+  // "All that fit" brings names in a little sooner than "busiest first".
+  const base = noteLabelAlpha(style.look.names === "all" ? s * 1.35 : s);
   const follow = new Set(scene.followReads.map((n) => n.key));
   const popping = new Set(scene.pops.map((p) => p.note.key));
   const hotAlpha = Math.max(base, facesApart(s) ? 1 : 0);
@@ -98,6 +99,8 @@ function drawNoteLabels(env: DrawEnv): void {
     // A note on the move carries its name with it.
     const hot = env.hot.has(key) || follow.has(key) || popping.has(key) || !!flying;
     if (!hot && base <= 0) continue;
+    // "On hover" in the map's settings: only the notes something is happening to keep their names.
+    if (!hot && style.look.names === "hover") continue;
     if (!env.onScreen(env.screen(flying ?? n), 0)) continue;
     cands.push({ n, hot });
   }
@@ -109,7 +112,7 @@ function drawNoteLabels(env: DrawEnv): void {
       if (scene.hidden.has(n.key)) continue;
       const p = env.screen(n);
       if (!env.onScreen(p, 0)) continue;
-      const R = dotRadius(s, n.deg) + 1;
+      const R = dotRadius(s, n.deg, env.style.look.dotSize) + 1;
       env.occ.claim({ x: p.x - R, y: p.y - R, w: R * 2, h: R * 2 });
     }
   };
@@ -124,11 +127,11 @@ function drawNoteLabels(env: DrawEnv): void {
       dots = true;
     }
     const p = env.screen(env.flyingAt.get(n.key) ?? n);
-    const R = dotRadius(s, n.deg);
-    const size = 11.5;
+    const R = dotRadius(s, n.deg, env.style.look.dotSize);
+    const size = style.look.textSize;
     ctx.font = fontOf(style, size, hot ? 700 : 500);
     const w = ctx.measureText(n.title).width + 6 + gap * 2;
-    const baseline = p.y + R + 14;
+    const baseline = p.y + R + size + 2.5;
     if (!placeLabel(env.occ, p.x, baseline + gap / 2, w, size + gap, env.bounds)) continue;
     shown += 1;
     ctx.globalAlpha = hot ? hotAlpha : base;

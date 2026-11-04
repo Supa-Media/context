@@ -24,7 +24,7 @@ import type { IslandPlace } from "./layout";
 import { buildModel, createMemory, type MapData } from "./model";
 import { noteKey } from "./paths";
 import { renderMap } from "./draw/render";
-import { DEFAULT_FONT, type FaceFor, type Style } from "./draw/primitives";
+import { DEFAULT_FONT, DEFAULT_LOOK, type FaceFor, type Style } from "./draw/primitives";
 import { sceneAt, type Model, type SceneAt } from "./scene";
 import { focusTarget, followSnapshot, type FollowState } from "./follow";
 
@@ -125,7 +125,7 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   let destroyed = false;
   let restore: Cam | null = null;
 
-  const style = (): Style => ({ palette: data!.palette, font: options.font ?? DEFAULT_FONT, faceFor: options.faceFor ?? null });
+  const style = (): Style => ({ palette: data!.palette, font: options.font ?? DEFAULT_FONT, faceFor: options.faceFor ?? null, look: data!.look ?? DEFAULT_LOOK });
   const timeNow = (): number => (data?.clock.kind === "replay" ? replayAt : now());
   const rebuild = () => {
     if (!data) return;

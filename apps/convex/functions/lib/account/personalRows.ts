@@ -91,6 +91,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of appearancePreferences) await ctx.db.delete(row._id);
 
+  // The look of the live map: paper, pencil, names and motion, as switches and bounded numbers.
+  const mapLookPreferences = await ctx.db
+    .query("mapLookPreferences")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of mapLookPreferences) await ctx.db.delete(row._id);
+
   // That they skipped the phone step: a time.
   const phoneCheckSkips = await ctx.db
     .query("phoneCheckSkips")

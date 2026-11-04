@@ -6,7 +6,7 @@
  */
 export { createMapEngine, type MapEngine, type MapEngineOptions } from "./engine";
 export type { MapData } from "./model";
-export { mapPalette, type MapPalette } from "./palette";
+export { mapPalette, withBoard, type MapPalette } from "./palette";
 export type { CameraDetail, Inset, Cam } from "./camera";
 export type { HitTarget } from "./hit";
 export type { FollowState } from "./follow";

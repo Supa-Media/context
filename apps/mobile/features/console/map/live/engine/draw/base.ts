@@ -4,7 +4,7 @@ import { ICON_R, type IslandPlace } from "../layout";
 import { boardHaze, dotRadius, edgeAlpha, edgeWidth, highwayAlpha, subRimAlpha } from "../lod";
 import { clamp, lerp, quad, type Point } from "../math";
 import { DUR } from "../scene";
-import { BOW, bowOf, grain } from "./board";
+import { BOW, bowOf, grain, textureOf } from "./board";
 import type { DrawEnv } from "./env";
 import { circle, fontOf, roundRect } from "./primitives";
 
@@ -157,14 +157,21 @@ export function drawLinks(env: DrawEnv): void {
     const lo = toWorld(env.cam, env.vp, { x: -40, y: -40 });
     const hi = toWorld(env.cam, env.vp, { x: env.vp.w + 40, y: env.vp.h + 40 });
     const view = { x0: lo.x, y0: lo.y, x1: hi.x, y1: hi.y };
-    const width = edgeWidth(s);
+    const width = edgeWidth(s) * style.look.lineWidth;
     // Pencil on paper, chalk on the board: a grainy stroke with a slight bow.
     const stroke = grain(ctx, C, C.edge);
     const base = ea * boardHaze(s) * (env.dim ? 0.55 : 1);
     // Links inside a folder at full strength, links between folders faint:
     // the groups read, and the long cross-links do not become the picture.
+    // How rough the pencil is (the person's "neat to messy"): how far links
+    // bow, and whether each gets a second, rougher pass beside it.
+    const sketch = style.look.sketch;
+    const bowK = BOW * (0.3 + sketch * 2.4);
+    const second = sketch > SECOND_PASS_FROM;
     for (const across of [true, false]) {
-      ctx.globalAlpha = across ? base * CROSS_FOLDER_LINK : base;
+     for (const pass of second ? [0, 1] : [0]) {
+      const passAlpha = pass === 0 ? 1 : 0.35 + 0.3 * sketch;
+      ctx.globalAlpha = (across ? base * CROSS_FOLDER_LINK : base) * passAlpha;
       ctx.beginPath();
       for (const [ka, kb] of model.layout.edges) {
         if (!scene.present.has(ka) || !scene.present.has(kb)) continue;
@@ -187,12 +194,12 @@ export function drawLinks(env: DrawEnv): void {
         const a = env.screen(wa);
         const b = env.screen(wb);
         if (!env.onScreen(a, 0) && !env.onScreen(b, 0) && !crosses(env, a, b)) continue;
-        const bow = bowOf(wa.x, wa.y, wb.x, wb.y) * BOW;
+        const bow = bowOf(wa.x, wa.y, wb.x, wb.y) * bowK + (pass === 0 ? 0 : bowOf(wb.x, wb.y, wa.x, wa.y) * BOW * 1.6 * sketch);
         ctx.moveTo(a.x, a.y);
         ctx.quadraticCurveTo((a.x + b.x) / 2 - (b.y - a.y) * bow, (a.y + b.y) / 2 + (b.x - a.x) * bow, b.x, b.y);
       }
       // Chalk carries a soft dusty halo: the same path again, wide and faint.
-      if (C.board === "chalk") {
+      if (pass === 0 && textureOf(C.board) === "chalk") {
         ctx.strokeStyle = C.edge;
         ctx.lineWidth = width * 3.2;
         ctx.globalAlpha = (across ? base * CROSS_FOLDER_LINK : base) * 0.1;
@@ -200,8 +207,9 @@ export function drawLinks(env: DrawEnv): void {
         ctx.globalAlpha = across ? base * CROSS_FOLDER_LINK : base;
       }
       ctx.strokeStyle = stroke;
-      ctx.lineWidth = width;
+      ctx.lineWidth = pass === 0 ? width : width * 0.7;
       ctx.stroke();
+     }
     }
     ctx.globalAlpha = 1;
   }
@@ -284,6 +292,9 @@ function crosses(env: DrawEnv, a: Point, b: Point): boolean {
   return !(Math.max(a.x, b.x) < 0 || Math.min(a.x, b.x) > w || Math.max(a.y, b.y) < 0 || Math.min(a.y, b.y) > h);
 }
 
+/** From this much messiness on, every link gets a second, rougher pencil pass. */
+export const SECOND_PASS_FROM = 0.25;
+
 /** A resting dot gets its drawn rim from this radius up; smaller ones are only grain. */
 export const RIM_FROM = 2.4;
 
@@ -298,6 +309,7 @@ export function drawNotes(env: DrawEnv): void {
   // frame costs is how many times the canvas paints, and a workspace of
   // 20,000 notes painted one dot at a time is a slide show.
   const rims: Array<{ x: number; y: number; r: number; off: number }> = [];
+  const sketch = style.look.sketch;
   ctx.beginPath();
   for (const n of env.near) {
     const key = n.key;
@@ -305,8 +317,8 @@ export function drawNotes(env: DrawEnv): void {
     if (env.selected === key) continue;
     const p = env.screen(n);
     if (!env.onScreen(p, 30)) continue;
-    const R = dotRadius(s, n.deg);
-    if (R >= RIM_FROM) rims.push({ x: p.x, y: p.y, r: R + 0.7, off: bowOf(n.x, n.y, n.y, n.x) * 0.7 });
+    const R = dotRadius(s, n.deg, env.style.look.dotSize);
+    if (R >= RIM_FROM) rims.push({ x: p.x, y: p.y, r: R + 0.7 + sketch * 1.2, off: bowOf(n.x, n.y, n.y, n.x) * (0.4 + sketch * 1.6) });
     // A dot a pixel or two across looks the same as a square and paints far
     // faster, which is what a whole workspace of tiny dots is made of.
     if (R <= 1.5) ctx.rect(p.x - R, p.y - R, R * 2, R * 2);
@@ -343,7 +355,7 @@ export function drawNotes(env: DrawEnv): void {
     if (!n || n.sub.folder.collapsed) continue;
     const p = env.screen(n);
     if (!env.onScreen(p, 30)) continue;
-    const R = dotRadius(s, n.deg);
+    const R = dotRadius(s, n.deg, env.style.look.dotSize);
     const ed = scene.editing.has(key);
     const rd = scene.reading.has(key) || follow.has(key);
     const sel = env.selected === key;
@@ -387,7 +399,7 @@ export function drawNotes(env: DrawEnv): void {
   // New notes pop in with an overshoot and a ring.
   for (const pop of scene.pops) {
     const p = env.screen(pop.note);
-    const R = Math.max(dotRadius(s, pop.note.deg), 2.6) + 1.2;
+    const R = Math.max(dotRadius(s, pop.note.deg, env.style.look.dotSize), 2.6) + 1.2;
     const k = clamp(pop.age / 0.5, 0, 1);
     const scale = k < 1 ? 1.6 * Math.sin((k * Math.PI) / 2) - 0.6 * k : 1;
     if (pop.age < DUR.pop) {

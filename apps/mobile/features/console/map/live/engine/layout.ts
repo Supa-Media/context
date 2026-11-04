@@ -123,6 +123,8 @@ export function buildLayout(
   graphs: readonly WorkspaceGraph[],
   extra: readonly ExtraPath[] = [],
   cache: LayoutCache = createLayoutCache(),
+  /** The person's "spread" (`look.ts`): how far apart notes sit inside a folder, as a multiple of `SPACING`. */
+  spread = 1,
 ): Layout {
   const notes = new Map<string, NotePlace>();
   const folders = new Map<string, FolderPlace>();
@@ -147,7 +149,7 @@ export function buildLayout(
       if (e.workspaceId !== graph.workspaceId || raw.has(e.path)) continue;
       raw.set(e.path, { workspaceId: e.workspaceId, path: e.path, title: e.title || fileTitle(e.path), deg: 0 });
     }
-    islands.push(buildIsland(graph, [...raw.values()], cache, notes, folders, subs));
+    islands.push(buildIsland(graph, [...raw.values()], cache, notes, folders, subs, spread));
   }
 
   placeIslands(islands);
@@ -187,6 +189,7 @@ function buildIsland(
   notes: Map<string, NotePlace>,
   folders: Map<string, FolderPlace>,
   subs: Map<string, SubPlace>,
+  spread: number,
 ): IslandPlace {
   const island: IslandPlace = {
     workspaceId: graph.workspaceId,
@@ -244,7 +247,7 @@ function buildIsland(
         label: name === "" ? "" : folderLabel(name),
         x: 0,
         y: 0,
-        r: discRadius(members.length),
+        r: discRadius(members.length) * spread,
         folder,
         notes: [],
       };
@@ -252,7 +255,7 @@ function buildIsland(
       const signature = `${graph.workspaceId}\n${sub.r}\n${ids.join("\n")}`;
       let pts = cache.get(signature);
       if (!pts) {
-        pts = scatter(ids, sub.r);
+        pts = scatter(ids, sub.r, SPACING * spread);
         cache.set(signature, pts);
       }
       members.forEach((m, i) => {
