@@ -222,7 +222,7 @@ async function attachChatHandler(ctx: ActionCtx, body: Record<string, unknown>):
   if (userId === null || machineId === null || groupKey === null) return badRequest();
   try {
     return json(
-      await ctx.runMutation(internal.functions.texMachines.attachTexMachineToChatAs, { userId, machineId, groupKey }),
+      await ctx.runMutation(internal.functions.texMachineChats.attachTexMachineToChatAs, { userId, machineId, groupKey }),
     );
   } catch (error) {
     return refusal(error);
@@ -236,7 +236,7 @@ async function detachChatHandler(ctx: ActionCtx, body: Record<string, unknown>):
   if (userId === null || machineId === null || groupKey === null) return badRequest();
   try {
     return json(
-      await ctx.runMutation(internal.functions.texMachines.detachTexMachineFromChatAs, { userId, machineId, groupKey }),
+      await ctx.runMutation(internal.functions.texMachineChats.detachTexMachineFromChatAs, { userId, machineId, groupKey }),
     );
   } catch (error) {
     return refusal(error);
@@ -247,7 +247,7 @@ async function detachChatHandler(ctx: ActionCtx, body: Record<string, unknown>):
 async function machinesForChatHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const groupKey = stringField(body, "groupKey");
   if (groupKey === null) return badRequest();
-  return json({ machines: await ctx.runQuery(internal.functions.texMachines.texMachinesForChat, { groupKey }) });
+  return json({ machines: await ctx.runQuery(internal.functions.texMachineChats.texMachinesForChat, { groupKey }) });
 }
 
 /** The paths http.ts registers, each POST and each behind `gatewayRoute`. */

@@ -23,12 +23,10 @@ import { mutation, internalMutation } from "./lib/rowWatch/mutations";
 import { requireAuthId } from "./lib/signedIn";
 import { consumeRateLimit } from "./lib/rateLimit";
 import {
-  CHAT_GROUP_KEY_PATTERN,
   PAIRING_CLAIM_GRACE_MS,
   PAIRING_RETENTION_MS,
   PAIRING_TTL_MS,
   LAST_SEEN_WRITE_INTERVAL_MS,
-  TEX_MACHINE_CHAT_LIMIT,
   TEX_MACHINE_RUN_ID_PATTERN,
   TEX_MACHINE_RUN_MAX_MS,
   mayOwnTexMachine,
@@ -389,149 +387,6 @@ export const revokeTexMachineRunGrant = internalMutation({
   },
 });
 
-// ── Lending a machine to a group chat ──────────────────────────────────────
-
-/** The chat's people, or `null` when no chat has this key. A key that is not even well formed names no chat. */
-async function chatPeopleFor(ctx: QueryCtx, groupKey: string): Promise<Id<"users">[] | null> {
-  if (!CHAT_GROUP_KEY_PATTERN.test(groupKey)) return null;
-  const chat = await ctx.db
-    .query("textGroups")
-    .withIndex("by_key", (q) => q.eq("groupKey", groupKey))
-    .unique();
-  if (chat === null) return null;
-  return chat.homeUsers ?? [];
-}
-
-/**
- * Lend a machine to a chat. Only the machine's owner may, and only when the owner is one of the chat's people. Lending
- * the same machine to the same chat again returns the existing row unchanged.
- */
-async function attachMachineToChat(
-  ctx: MutationCtx,
-  args: { userId: Id<"users">; machineId: Id<"texMachines">; groupKey: string },
-): Promise<{ attached: true; workspaceId: Id<"workspaces"> }> {
-  const machine = await ctx.db.get(args.machineId);
-  if (machine === null || machine.status !== "active" || machine.ownerId !== args.userId) {
-    throw texMachineRefusal("MACHINE_NOT_FOUND");
-  }
-  const people = await chatPeopleFor(ctx, args.groupKey);
-  if (people === null || !people.includes(args.userId)) throw texMachineRefusal("CHAT_NOT_FOUND");
-
-  const lentHere = await ctx.db
-    .query("texMachineChats")
-    .withIndex("by_machine", (q) => q.eq("machineId", machine._id))
-    .collect();
-  if (lentHere.some((row) => row.groupKey === args.groupKey)) {
-    return { attached: true, workspaceId: machine.workspaceId };
-  }
-  const attachedToChat = await ctx.db
-    .query("texMachineChats")
-    .withIndex("by_group", (q) => q.eq("groupKey", args.groupKey))
-    .take(TEX_MACHINE_CHAT_LIMIT);
-  if (attachedToChat.length >= TEX_MACHINE_CHAT_LIMIT) throw texMachineRefusal("TOO_MANY_MACHINES");
-
-  await ctx.db.insert("texMachineChats", {
-    groupKey: args.groupKey,
-    machineId: machine._id,
-    workspaceId: machine.workspaceId,
-    ownerId: args.userId,
-    createdAt: Date.now(),
-  });
-  await recordAudit(ctx, {
-    workspaceId: machine.workspaceId,
-    actorUserId: args.userId,
-    action: "tex_machine.attached",
-    details: { os: machine.os },
-  });
-  return { attached: true, workspaceId: machine.workspaceId };
-}
-
-/** Take a machine back out of a chat. Only the machine's owner may. Idempotent: a chat it is not in detaches nothing. */
-async function detachMachineFromChat(
-  ctx: MutationCtx,
-  args: { userId: Id<"users">; machineId: Id<"texMachines">; groupKey: string },
-): Promise<{ detached: boolean }> {
-  const machine = await ctx.db.get(args.machineId);
-  if (machine === null || machine.ownerId !== args.userId) throw texMachineRefusal("MACHINE_NOT_FOUND");
-  const rows = await ctx.db
-    .query("texMachineChats")
-    .withIndex("by_machine", (q) => q.eq("machineId", machine._id))
-    .collect();
-  const matching = rows.filter((row) => row.groupKey === args.groupKey);
-  for (const row of matching) await ctx.db.delete(row._id);
-  if (matching.length === 0) return { detached: false };
-  await recordAudit(ctx, {
-    workspaceId: machine.workspaceId,
-    actorUserId: args.userId,
-    action: "tex_machine.detached",
-    details: { os: machine.os },
-  });
-  return { detached: true };
-}
-
-export const attachTexMachineToChat = internalMutation({
-  args: { userId: v.id("users"), machineId: v.id("texMachines"), groupKey: v.string() },
-  returns: v.object({ attached: v.literal(true), workspaceId: v.id("workspaces") }),
-  handler: async (ctx, args): Promise<{ attached: true; workspaceId: Id<"workspaces"> }> => {
-    return await attachMachineToChat(ctx, args);
-  },
-});
-
-export const detachTexMachineFromChat = internalMutation({
-  args: { userId: v.id("users"), machineId: v.id("texMachines"), groupKey: v.string() },
-  returns: v.object({ detached: v.boolean() }),
-  handler: async (ctx, args): Promise<{ detached: boolean }> => {
-    return await detachMachineFromChat(ctx, args);
-  },
-});
-
-/** The gateway's attach, for ids it passes as text: a malformed id is the same refusal as an unknown one. */
-export const attachTexMachineToChatAs = internalMutation({
-  args: { userId: v.string(), machineId: v.string(), groupKey: v.string() },
-  handler: async (ctx, args): Promise<{ attached: true; workspaceId: Id<"workspaces"> }> => {
-    const userId = ctx.db.normalizeId("users", args.userId);
-    const machineId = ctx.db.normalizeId("texMachines", args.machineId);
-    if (userId === null || machineId === null) throw texMachineRefusal("MACHINE_NOT_FOUND");
-    return await attachMachineToChat(ctx, { userId, machineId, groupKey: args.groupKey });
-  },
-});
-
-/** The gateway's detach, for ids it passes as text. */
-export const detachTexMachineFromChatAs = internalMutation({
-  args: { userId: v.string(), machineId: v.string(), groupKey: v.string() },
-  handler: async (ctx, args): Promise<{ detached: boolean }> => {
-    const userId = ctx.db.normalizeId("users", args.userId);
-    const machineId = ctx.db.normalizeId("texMachines", args.machineId);
-    if (userId === null || machineId === null) throw texMachineRefusal("MACHINE_NOT_FOUND");
-    return await detachMachineFromChat(ctx, { userId, machineId, groupKey: args.groupKey });
-  },
-});
-
-/**
- * The machines a chat may run jobs on: each lent machine that is still active, whose owner is still one of the chat's
- * people. Empty for a chat that does not exist. Never the grant's hash.
- */
-export const texMachinesForChat = internalQuery({
-  args: { groupKey: v.string() },
-  returns: v.array(
-    v.object({ machineId: v.id("texMachines"), workspaceId: v.id("workspaces"), ownerId: v.id("users") }),
-  ),
-  handler: async (ctx, args) => {
-    const people = await chatPeopleFor(ctx, args.groupKey);
-    if (people === null) return [];
-    const rows = await ctx.db
-      .query("texMachineChats")
-      .withIndex("by_group", (q) => q.eq("groupKey", args.groupKey))
-      .take(TEX_MACHINE_CHAT_LIMIT);
-    const lent: { machineId: Id<"texMachines">; workspaceId: Id<"workspaces">; ownerId: Id<"users"> }[] = [];
-    for (const row of rows) {
-      const machine = await ctx.db.get(row.machineId);
-      if (machine === null || machine.status !== "active" || !people.includes(machine.ownerId)) continue;
-      lent.push({ machineId: machine._id, workspaceId: machine.workspaceId, ownerId: machine.ownerId });
-    }
-    return lent;
-  },
-});
 
 /**
  * Pairings an hour past their code's expiry are swept, in batches, and so are run grants past their own expiry. The

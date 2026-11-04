@@ -65,15 +65,15 @@ async function setHomeUsers(t: TestConvex, groupKey: string, homeUsers: Id<"user
 }
 
 async function attach(t: TestConvex, userId: Id<"users">, machineId: Id<"texMachines">, groupKey = KEY_A) {
-  return await t.mutation(internal.functions.texMachines.attachTexMachineToChat, { userId, machineId, groupKey });
+  return await t.mutation(internal.functions.texMachineChats.attachTexMachineToChat, { userId, machineId, groupKey });
 }
 
 async function detach(t: TestConvex, userId: Id<"users">, machineId: Id<"texMachines">, groupKey = KEY_A) {
-  return await t.mutation(internal.functions.texMachines.detachTexMachineFromChat, { userId, machineId, groupKey });
+  return await t.mutation(internal.functions.texMachineChats.detachTexMachineFromChat, { userId, machineId, groupKey });
 }
 
 async function listed(t: TestConvex, groupKey = KEY_A) {
-  return await t.query(internal.functions.texMachines.texMachinesForChat, { groupKey });
+  return await t.query(internal.functions.texMachineChats.texMachinesForChat, { groupKey });
 }
 
 async function attachmentRows(t: TestConvex, machineId?: Id<"texMachines">) {
