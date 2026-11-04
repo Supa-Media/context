@@ -6,7 +6,9 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { handleMachines, mintMachineGrant, mintPairingCode } from "../src/machines/routes.js";
+import { MACHINE_PATHS, handleMachines, mintMachineGrant, mintPairingCode } from "../src/machines/routes.js";
+import { MACHINE_APP_PATHS } from "../src/machines/appRoutes.js";
+import { splitWorkspacePath } from "../src/workspacePath.js";
 import { serveMachineCall } from "../src/workspaceStore/serveMachines.js";
 import { opOf } from "../src/texStore/move.js";
 import { FACTS, keyPair, machineWorld, protocol } from "./machineWorld.mjs";
@@ -187,4 +189,16 @@ test("the signed-in Mac app registers its own Mac with its session, and gets a g
   assert.equal((await register(session({ actorUserId: "user_member" }))).status, 403, "the control plane's role rule holds");
   const { SessionRefusal } = await import("../src/session.js");
   assert.equal((await register(async () => { throw new SessionRefusal(401, "no"); })).status, 401);
+});
+
+// Production answered `POST /machines/pair` with 404 while every test here was
+// green: the handler was right, but the gateway read `/machines/pair` as "the
+// workspace called machines, at /pair", the defect `meetings`, `agent` and
+// `approvals` each record in RESERVED_FIRST_SEGMENTS. Sabotage: drop
+// `machines` from that list and this fails.
+test("every machine route is a route, never a workspace called machines", () => {
+  for (const path of [...MACHINE_PATHS, ...MACHINE_APP_PATHS]) {
+    assert.deepEqual(splitWorkspacePath(path), { slug: null, path }, path);
+    assert.deepEqual(splitWorkspacePath(`/@seyi${path}`), { slug: "seyi", path }, `/@seyi${path}`);
+  }
 });

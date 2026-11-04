@@ -18,7 +18,9 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_ENDPOINT: &str = "https://context.lc";
+/// The gateway. `context.lc` itself is the app's router, which does not carry
+/// the machine routes (it answered `POST /machines/pair` with 405).
+pub const DEFAULT_ENDPOINT: &str = "https://mcp.context.lc";
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

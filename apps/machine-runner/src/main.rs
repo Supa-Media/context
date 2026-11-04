@@ -295,29 +295,36 @@ async fn run(state: State, opts: &RunOpts) -> Result<()> {
     });
     // One status line per change: online, offline, paused or notReady.
     let (conn_tx, conn_rx) = tokio::sync::watch::channel("offline".to_string());
-    if opts.status_json {
-        tokio::spawn(status_lines(m.clone(), conn_rx));
-    }
+    // Stopped before `run` returns, so a closing "failed" line is always the
+    // last one: left running, it could print one more "offline" after it.
+    let status_task = opts
+        .status_json
+        .then(|| tokio::spawn(status_lines(m.clone(), conn_rx)));
     let on_state = move |s: &str| {
         let _ = conn_tx.send(s.to_string());
         eprintln!("{s}");
     };
-    tokio::select! {
+    let ended: Result<()> = tokio::select! {
         reason = conn::run_forever(m.clone(), dial, out_rx, on_state) => {
             use protocol::GoodbyeReason::*;
             match reason {
                 Revoked => {
                     // The grant is dead: delete it so nothing tries it again.
                     let _ = std::fs::remove_file(state.dir.join("grant"));
-                    bail!("this machine was disconnected in Context; run `context-machine pair` to connect it again")
+                    Err(anyhow::anyhow!("this machine was disconnected in Context; run `context-machine pair` to connect it again"))
                 }
-                Replaced => bail!("another runner connected as this machine"),
-                BadSignature => bail!("the gateway did not accept this machine's key; run `context-machine pair` again"),
-                Protocol => bail!("the gateway did not understand this runner; update it"),
+                Replaced => Err(anyhow::anyhow!("another runner connected as this machine")),
+                BadSignature => Err(anyhow::anyhow!("the gateway did not accept this machine's key; run `context-machine pair` again")),
+                Protocol => Err(anyhow::anyhow!("the gateway did not understand this runner; update it")),
             }
         }
-        _ = shutdown() => eprintln!("stopping"),
+        _ = shutdown() => { eprintln!("stopping"); Ok(()) }
+    };
+    if let Some(task) = status_task {
+        task.abort();
+        let _ = task.await;
     }
+    ended?;
     // Running parts are killed with the process (kill_on_drop); their grant
     // files go with the guards, and the next start sweeps any left.
     Ok(())
