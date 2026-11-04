@@ -471,9 +471,12 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // A fallback and a retried round are recorded the same way, because
         // they are what production does and a result must show how often.
         tools: (turn.trace ?? [])
-          .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || (entry.kind === "model" && (entry.retried || entry.cut)))
+          .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || entry.kind === "judge" || (entry.kind === "model" && (entry.retried || entry.cut)))
           .map((entry) =>
-            entry.kind === "router"
+            entry.kind === "judge"
+              ? // The reply judge's verdict (`src/agent/replyJudge.js`): `judge: only_acknowledged 0.82 sent back, 40 ms`.
+                { tool: `judge: ${entry.verdict ?? "no verdict"}${typeof entry.confidence === "number" ? ` ${entry.confidence.toFixed(2)}` : ""}${entry.acted ? " sent back" : ""}, ${Math.round(entry.ms ?? 0)} ms`, ok: true }
+              : entry.kind === "router"
               ? // `router: think (0.8)`; a think pick under the setup's cutoff is
                 // `router: main (think 0.4)`, so a result shows the near misses.
                 { tool: `router: ${entry.tier}${routerSaid(entry)}`, ok: true }

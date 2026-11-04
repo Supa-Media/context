@@ -156,6 +156,7 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
       const confidence = typeof answers?.verdict?.confidence === "number" ? answers.verdict.confidence : null;
       const acted = verdict !== null && verdict !== "accepted" && (confidence === null || confidence >= at);
       verdicts.push({ verdict, confidence, ms, acted, tokens: decisionTokens(state, QUESTIONS) });
+      turn.mark?.({ verdict, confidence, ms, acted, ok: verdict !== null });
       // Ids and numbers only: never the reply or the question (`docs/decisions/observability`).
       log(JSON.stringify({ event: "tex_reply_judge", model: pick.model, verdict, confidence, ms, acted }));
       return acted ? VERDICT_NOTICES[verdict] : null;

@@ -149,7 +149,7 @@ export function stagesOf({ start, marks, end, report }) {
   const modelMs = report?.modelMs ?? 0;
   const toolMs = report?.toolMs ?? 0;
   const turnMs = marks.ready === undefined ? 0 : Math.max(0, answered - marks.ready);
-  const rounds = (report?.trace ?? []).filter((entry) => entry.kind !== "tool" && entry.kind !== "router" && entry.kind !== "fallback");
+  const rounds = (report?.trace ?? []).filter((entry) => entry.kind !== "tool" && entry.kind !== "router" && entry.kind !== "fallback" && entry.kind !== "judge");
   const waitMs = report?.waitMs ?? 0;
   return {
     blobs: [String(report?.kind ?? "unknown"), String(report?.outcome ?? "unfinished")],

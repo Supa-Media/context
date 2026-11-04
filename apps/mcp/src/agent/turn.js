@@ -539,7 +539,7 @@ export async function runTurn(options) {
     }
 
     if (answer.toolCalls.length === 0) {
-      const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text, { messages })) ?? null : null;
+      const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text, { messages, mark: (entry) => trace.push({ ...entry, kind: "judge", at: clock() - began }) })) ?? null : null;
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
       if (late !== null) {
