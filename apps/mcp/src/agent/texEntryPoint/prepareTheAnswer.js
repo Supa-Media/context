@@ -1,11 +1,10 @@
-/** Starts the side reads (Google offer, Tex's notes) and sets up the answer checks and pictures. One step of Tex's turn (`../texEntryPoint.js`). */
+/** Starts the side read of Tex's notes and sets up the answer checks and pictures. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { standingForwardTools } from "../../tools/forwardRule.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesPictures } from "../attachments.js";
 import { claimCheck, correctsTheAsk } from "../claimCheck.js";
 import { asksDetailed, readInstructions } from "../customInstructions.js";
-import { googleOfferLine } from "../googleOffer.js";
 import { handbackJudgeFor } from "../handbackJudge.js";
 import { readTexNotes } from "../jobs.js";
 import { keptIdsOf, keptInHistory } from "../keptFiles.js";
@@ -17,9 +16,9 @@ import { untriedWebCheck } from "../untriedWeb.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function prepareTheAnswer(t) {
-  const { attachments, body, controlPlane, conversation, dispatch, env, front, group, history, hot, job, meter, noteLinking, offered, question, routine, runner, session, setAside, shown, stages, steer, store, tex, texting, web } = t;
+  const { attachments, body, controlPlane, conversation, dispatch, env, front, group, history, hot, job, meter, noteLinking, offered, question, routine, runner, session, setAside, stages, steer, store, tex, texting, web } = t;
   const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text or a group's (`pictureMaker.js`).
-  const offerRead = texted && job === null ? tex.ahead("google_offer", () => googleOfferLine(store, shown), "") : null, knowsRead = texting ? tex.ahead("tex_notes", () => deskTexts(store).then((desk) => readTexNotes(dispatch, { controlPlane, session }, desk, hot.identity))) : null; // About me and the jobs list from the person's object, with the history (`texDesk.js`)
+  const knowsRead = texting ? tex.ahead("tex_notes", () => deskTexts(store).then((desk) => readTexNotes(dispatch, { controlPlane, session }, desk, hot.identity))) : null; // About me and the jobs list from the person's object, with the history (`texDesk.js`)
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? [...(await tex.step("forward_tools", () => standingForwardTools(store, routine.path, offered))), ...routineCalendarTools(offered)] : []; // and their own calendar (`routine.js`)
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
@@ -31,6 +30,6 @@ export async function prepareTheAnswer(t) {
   const seenWeb = outgoing.wrapWeb(web); // pages read like any tool result, so cards get their photos; a card hunts more through it (`visuals/hunt.js`)
   maker?.useWeb?.(seenWeb === null ? null : (name, args) => seenWeb.call(name, args));
   const begun = steer === null ? Promise.resolve() : tex.ahead("steer_begin", () => steer.begin()); // `/agent/cancel` may stop it from now (`steer.js`); on a chat's text, beside the model
-  Object.assign(t, { begun, claims, forwarding, knowsRead, maker, offerRead, outgoing, seenWeb, texted, tries });
+  Object.assign(t, { begun, claims, forwarding, knowsRead, maker, outgoing, seenWeb, texted, tries });
 }
 // TEX ENTRY POINT: end

@@ -295,6 +295,7 @@ export async function askAgent(
     told = [],
     settings = {},
     arrivedAt,
+    worker,
     warm, beside,
     recent,
   }: {
@@ -320,6 +321,8 @@ export async function askAgent(
     settings?: Settings;
     /** When the first text this turn answers came in (`apps/mcp/src/agent/turnLog.js` `waitBefore`). */
     arrivedAt?: number;
+    /** The Worker's own wait before this ask: the session lookup and the work after it (`apps/mcp/src/agent/turnTiming.js`). */
+    worker?: { sessionMs: number; beforeAskMs: number };
     /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
     warm?: string; beside?: readonly string[]; // and what was written to the history beside it (`warm.ts` `keepBeside`)
     recent?: readonly TexEvent[]; // the outbox: what the gateway has not taken yet, added to the ledger's day (`warmCopy.js` `mergeEvents`)
@@ -345,6 +348,7 @@ export async function askAgent(
     ...(told.length > 0 ? { told } : {}),
     ...settings,
     ...(arrivedAt !== undefined ? { arrivedAt } : {}),
+    ...(worker ? { worker } : {}),
     ...(warm ? { warm, ...(beside && beside.length > 0 ? { beside } : {}) } : {}),
     ...(recent && recent.length > 0 ? { recent } : {}),
   };
