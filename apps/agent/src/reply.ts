@@ -110,6 +110,8 @@ export type ReplyDeps = {
   covers?: string[];
   /** When the first text this turn answers came in, sent to `/agent` so the turn log shows how long it waited. */
   arrivedAt?: number;
+  /** Told when the session lookup answered, and when the gateway is about to be asked, so a turn's timing shows each (`textTiming.ts`). */
+  onStage?: (stage: "session" | "asking") => void;
   /** Handed the approval records the turn armed and the ask line shown for them, so each is logged as an ask (`events.ts`). */
   onAsks?: (askIds: string[], askText: string) => void;
   /**
@@ -214,6 +216,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     ).catch((error) => {
       throw deps.retry && error instanceof ServiceError ? new TryLater() : error;
     });
+    deps.onStage?.("session");
     // Nobody texted a save's turn (`vaultWatch.ts`): a phone unlinked since is told nothing.
     if (message.event !== undefined && session.status === "unlinked") return [];
     if (session.status === "unlinked") {
@@ -259,6 +262,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       : [];
     // The session is the chat's: its buffered events are written before the turn reads the log (`events.ts`).
     await deps.steer?.onSession(session.accessToken);
+    const warm = { warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId) };
+    deps.onStage?.("asking");
     const answer = await askAgent(
       deps.fetch,
       deps.gatewayOrigin,
@@ -270,7 +275,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId) },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, ...warm },
     );
     if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.

@@ -682,7 +682,11 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
   // want to see it ever again").
 
   try {
-    return await replied(replyTo(message, { ...deps, onProgress }));
+    const onStage = (stage: "session" | "asking") => {
+      if (stage === "session") timing.sessioned = deps.now();
+      else timing.asking = deps.now();
+    };
+    return await replied(replyTo(message, { ...deps, onProgress, onStage }));
   } finally {
     await shown?.stop();
     await chain;
