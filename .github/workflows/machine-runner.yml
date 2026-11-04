@@ -128,6 +128,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # pnpm is installed below; do not try to locate its cache before then.
+          package-manager-cache: false
 
       - uses: pnpm/action-setup@v4
 
