@@ -104,3 +104,13 @@ test("the switch is not spread with the store", () => {
   const store = objectStore({ meaningOn: true });
   assert.equal(Object.keys(store).includes("meaningOn"), false);
 });
+
+test("a model refusal keeps its number and drops its words", async () => {
+  const { bindingEmbedder } = await import("../src/search/meaning/embed.js");
+  const embed = bindingEmbedder({ run: async () => { throw new Error("3030: secret note words quoted back"); } });
+  await assert.rejects(embed(["x"]), (error) => {
+    assert.deepEqual(error.providerCodes, [3030]);
+    assert.equal(String(error.message).includes("secret"), false);
+    return true;
+  });
+});
