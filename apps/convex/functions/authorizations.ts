@@ -133,7 +133,7 @@ export const approveAuthorization = action({
     }
     // A new connection reads the workspace for as long as it lives: a big
     // change (`lib/emailProof.ts`).
-    await ctx.runQuery(internal.functions.emailProof.requireProof, {});
+    await ctx.runQuery(internal.functions.emailProof.requireConnectorProof, {});
 
     const code = randomOpaqueToken(32);
     const approved: { redirectUri: string; state: string | null } =
@@ -302,7 +302,7 @@ export const approveOwnMachineGrant = action({
     }
     // A new connection reads the workspace for as long as it lives: a big
     // change (`lib/emailProof.ts`).
-    await ctx.runQuery(internal.functions.emailProof.requireProof, {});
+    await ctx.runQuery(internal.functions.emailProof.requireConnectorProof, {});
 
     const code = randomOpaqueToken(32);
     const approved: {
