@@ -563,6 +563,7 @@ export async function runTurn(options) {
       ...(Array.isArray(answer.content) ? { content: answer.content } : {}),
     });
 
+    const settling = []; // calls this round that settle the turn, read once the whole round has run: one round may start several jobs
     for (const made of answer.toolCalls) {
       // One of the six, as the granted tool that carries it; an older name as itself.
       const resolved = six.resolve(made.name, made.args);
@@ -658,8 +659,12 @@ export async function runTurn(options) {
         // second, different copy of the email texted beside the one held (Dev, 2026-10-19).
         isError: failedCall(result),
       });
-      // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
-      const settled = typeof endsTurn === "function" && result?.isError !== true ? endsTurn(call.name, call.args) : null;
+      if (typeof endsTurn === "function" && result?.isError !== true) settling.push(call);
+    }
+    // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
+    // Read after the round, not at its first start: a call after it in the same round (a second part) still runs (2026-11-04).
+    for (const call of settling) {
+      const settled = endsTurn(call.name, call.args);
       if (typeof settled === "string" && settled !== "") {
         return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: { system: systemText(prompt.system), messages } };
       }
