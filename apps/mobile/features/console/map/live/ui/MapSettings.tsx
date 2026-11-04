@@ -1,8 +1,9 @@
-import { useRef, useState, type ReactNode } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { Switch } from "../../../../design/components/Switch";
 import { Text } from "../../../../design/components/Text";
+import { useFieldFont } from "../../../../design/fieldFont";
 import { fonts, pointerType, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { MapMode, MapPageState } from "../hooks/useMapPage";
@@ -66,13 +67,29 @@ const OPENING: ReadonlyArray<Opt<MapLook["opening"]>> = [
   { value: "zoom", label: "Zoom in from everything" },
 ];
 
+const MOVEMENT: ReadonlyArray<Opt<MapLook["motion"]>> = [
+  { value: "breathe", label: "Breathe" },
+  { value: "still", label: "Still" },
+];
+
 const WHEN: ReadonlyArray<Opt<Exclude<MapMode, "custom">> & { live?: boolean }> = [
   { value: "live", label: "Live", live: true },
   { value: "day", label: "Past 24 hours" },
   { value: "week", label: "Past week" },
 ];
 
-export function MapSettings({ page, compact, onClose }: { page: MapPageState; compact: boolean; onClose: () => void }) {
+export function MapSettings({
+  page,
+  compact,
+  onClose,
+  onFind,
+}: {
+  page: MapPageState;
+  compact: boolean;
+  onClose: () => void;
+  /** A note picked in Find: the map goes to it and opens its card. */
+  onFind?: (note: { workspaceId: string; path: string }) => void;
+}) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { look, setLook } = page;
@@ -94,6 +111,8 @@ export function MapSettings({ page, compact, onClose }: { page: MapPageState; co
         </Pressable>
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
+        {onFind ? <Find page={page} onFind={onFind} /> : null}
+
         <Section title="Replay">
           <Choices
             label="When"
@@ -147,6 +166,8 @@ export function MapSettings({ page, compact, onClose }: { page: MapPageState; co
 
         <Section title="Motion">
           <Choices label="When the map opens" options={OPENING} value={look.opening} onChange={(opening) => setLook({ opening })} testID="map-settings-opening" />
+          <Choices label="Movement" options={MOVEMENT} value={look.motion} onChange={(motion) => setLook({ motion })} testID="map-settings-motion" />
+          <LookSwitch label="3D depth, leaning with the mouse" value={look.depth} onChange={(depth) => setLook({ depth })} testID="map-settings-depth" />
         </Section>
 
         <View style={styles.foot}>
@@ -155,6 +176,70 @@ export function MapSettings({ page, compact, onClose }: { page: MapPageState; co
         </View>
       </ScrollView>
       {picker !== null ? <RangePicker page={page} compact={compact} anchor={picker} onClose={() => setPicker(null)} /> : null}
+    </View>
+  );
+}
+
+/** How many notes Find lists at once. */
+export const FIND_MAX = 6;
+
+/** Find a note on the map by its name, and go to it. */
+function Find({ page, onFind }: { page: MapPageState; onFind: (note: { workspaceId: string; path: string }) => void }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const fieldFont = useFieldFont(pointerType.ui);
+  const [query, setQuery] = useState("");
+  const graphs = page.data.graphs;
+  const scope = page.data.scope;
+  const hits = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q === "") return [];
+    const out: Array<{ workspaceId: string; path: string; title: string; where: string }> = [];
+    for (const g of graphs) {
+      if (scope.kind !== "all" && g.workspaceId !== scope.workspaceId) continue;
+      for (const n of g.nodes) {
+        if (!n.title.toLowerCase().includes(q)) continue;
+        const where = n.path.split("/").slice(0, -1).join(" › ");
+        out.push({ workspaceId: g.workspaceId, path: n.path, title: n.title, where: scope.kind === "all" ? [g.name, where].filter(Boolean).join(" › ") : where });
+      }
+    }
+    // Names that start with the words first, then the shorter.
+    out.sort((a, b) => Number(!a.title.toLowerCase().startsWith(q)) - Number(!b.title.toLowerCase().startsWith(q)) || a.title.length - b.title.length);
+    return out.slice(0, FIND_MAX);
+  }, [query, graphs, scope]);
+  return (
+    <View style={styles.find}>
+      <TextInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder="Find a note"
+        placeholderTextColor={colors.muted}
+        accessibilityLabel="Find a note on the map"
+        style={[styles.findInput, fieldFont]}
+        autoCorrect={false}
+        autoCapitalize="none"
+        testID="map-settings-find"
+      />
+      {hits.map((h) => (
+        <Pressable
+          key={`${h.workspaceId}\n${h.path}`}
+          onPress={() => onFind({ workspaceId: h.workspaceId, path: h.path })}
+          accessibilityRole="button"
+          accessibilityLabel={`Go to ${h.title}`}
+          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.hit, hovered ? styles.pillHover : null]}
+          testID={`map-settings-find-${h.path}`}
+        >
+          <Text style={styles.hitTitle} numberOfLines={1}>
+            {h.title}
+          </Text>
+          {h.where !== "" ? (
+            <Text style={styles.note} numberOfLines={1}>
+              {h.where}
+            </Text>
+          ) : null}
+        </Pressable>
+      ))}
+      {query.trim() !== "" && hits.length === 0 ? <Text style={styles.note}>No note on the map has that in its name.</Text> : null}
     </View>
   );
 }
@@ -301,6 +386,19 @@ const makeStyles = (colors: Colors) =>
     pillHover: { backgroundColor: colors.surface3 },
     pillText: { fontFamily: fonts.body, fontSize: pointerType.meta, fontWeight: "600", color: colors.text },
     pillTextOn: { color: colors.pageSurface },
+    find: { paddingHorizontal: space.x4, paddingBottom: space.x3, gap: 4 },
+    findInput: {
+      height: 34,
+      borderRadius: 8,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.lineStrong,
+      paddingHorizontal: 10,
+      fontFamily: fonts.body,
+      fontSize: pointerType.ui,
+      color: colors.text,
+    },
+    hit: { paddingVertical: 6, paddingHorizontal: 8, borderRadius: 8, gap: 2 },
+    hitTitle: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "600", color: colors.text },
     switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingVertical: 6 },
     switchLabel: { fontFamily: fonts.body, fontSize: pointerType.ui, color: colors.text, flexShrink: 1 },
     foot: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.lineStrong, padding: space.x4, gap: space.x2, alignItems: "flex-start" },

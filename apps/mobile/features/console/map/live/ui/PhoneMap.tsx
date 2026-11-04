@@ -102,7 +102,19 @@ export function PhoneMap({ page, camera, peek, onOpenNote }: { page: MapPageStat
       {card !== null ? (
         <NotePeek page={page} peek={card} compact box={box} onClose={peek.close} onExpand={() => onOpenNote(card.workspaceId, card.path)} onPeek={peek.onTapNote} />
       ) : null}
-      {settings ? <MapSettings page={page} compact onClose={() => setSettings(false)} /> : null}
+      {settings ? (
+        <MapSettings
+          page={page}
+          compact
+          onClose={() => setSettings(false)}
+          onFind={(note) => {
+            // On a phone the sheet covers the map: close it to show the note.
+            setSettings(false);
+            page.engineRef.current?.focusPath(note.workspaceId, note.path);
+            peek.onTapNote({ ...note, at: null });
+          }}
+        />
+      ) : null}
     </View>
   );
 }

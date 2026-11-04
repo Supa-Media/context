@@ -38,6 +38,8 @@ export type DrawEnv = {
   /** Where the pointer is on the canvas (null once it left, undefined if never seen), and the note under it. */
   pointer: Point | null | undefined;
   hoverKey: string | null;
+  /** The dots breathe this frame (the map's settings, never with reduced motion). */
+  breathe: boolean;
   /** The map's opening while it plays, or null. */
   opening: Opening | null;
   /** Notes present per folder and subfolder key, and per workspace. */

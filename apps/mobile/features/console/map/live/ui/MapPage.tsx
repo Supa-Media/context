@@ -100,7 +100,17 @@ function DesktopMap({
                 onPeek={peek.onTapNote}
               />
             ) : null}
-            {settings ? <MapSettings page={page} compact={false} onClose={() => setSettings(false)} /> : null}
+            {settings ? (
+              <MapSettings
+                page={page}
+                compact={false}
+                onClose={() => setSettings(false)}
+                onFind={(note) => {
+                  page.engineRef.current?.focusPath(note.workspaceId, note.path);
+                  peek.onTapNote({ ...note, at: null });
+                }}
+              />
+            ) : null}
           </View>
         </View>
         <MapPanel page={page} onOpenNote={onOpenNote} />
