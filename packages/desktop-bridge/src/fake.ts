@@ -150,6 +150,10 @@ export interface FakeBridgeOptions {
   noMachine?: boolean;
   /** What `machine.status()` answers first. Default: available, off. */
   machine?: MachineRunStatus;
+  /** What `machine.folders()` answers first. Default: `null`, not registered yet. */
+  machineFolders?: string[] | null;
+  /** What the folder picker returns: the chosen folders, or `null` for Cancel. Default: Cancel. */
+  pickFolders?: string[] | null;
   /**
    * Answer no `imessage` member at all — a shell older than **version 5**,
    * which is every shell in anybody's Applications folder today.
@@ -199,6 +203,7 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
   const agentAsks: LocalAgentAsk[] = [];
   let machineNow: MachineRunStatus = options.machine ?? { available: true, enabled: false, state: "off", slots: 0, busy: 0, awake: false, message: null };
   const machineListeners = new Set<(status: MachineRunStatus) => void>();
+  let foldersNow: string[] | null = options.machineFolders ?? null;
   const upcomingPushes: UpcomingMeetings[] = [];
   let imessageStatus: ImessageStatus = options.imessage ?? {
     enabled: false,
@@ -487,6 +492,15 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
               return () => {
                 machineListeners.delete(handler);
               };
+            },
+            async folders(): Promise<string[] | null> {
+              calls.push("machine.folders");
+              return foldersNow === null ? null : [...foldersNow];
+            },
+            async chooseFolders(): Promise<string[] | null> {
+              calls.push("machine.chooseFolders");
+              if (options.pickFolders !== undefined && options.pickFolders !== null) foldersNow = [...options.pickFolders];
+              return foldersNow === null ? null : [...foldersNow];
             },
           }),
         }),

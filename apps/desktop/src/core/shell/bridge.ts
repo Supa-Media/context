@@ -77,6 +77,7 @@ import {
   type TrayCommand,
   type UpcomingMeetings,
   type Unsubscribe,
+  machineFoldersFrom,
   machineStatusFrom,
   type MachineRunStatus,
 } from "@context/desktop-bridge";
@@ -670,6 +671,9 @@ export function desktopBridge(ipc: PreloadIpc, speller?: PreloadSpeller): Deskto
         ask(ipc, BRIDGE_CHANNELS.machineSetEnabled, { enabled: enabled === true }, machineStatusFrom),
       onChange: (handler: (status: MachineRunStatus) => void): Unsubscribe =>
         subscribe(ipc, BRIDGE_CHANNELS.machineChange, machineStatusFrom, handler),
+      /* Version 11: the folders Tex may work in, chosen in the Mac's own picker. Paths only, never a grant. */
+      folders: (): Promise<string[] | null> => ask(ipc, BRIDGE_CHANNELS.machineFolders, undefined, machineFoldersFrom),
+      chooseFolders: (): Promise<string[] | null> => ask(ipc, BRIDGE_CHANNELS.machineChooseFolders, undefined, machineFoldersFrom),
     }),
   });
 }

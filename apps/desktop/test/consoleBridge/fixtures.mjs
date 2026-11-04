@@ -262,6 +262,8 @@ export function mainBridge(overrides = {}) {
       upcomings.push(upcoming);
     },
     machine: () => (calls.push("machine"), { available: false, enabled: false, state: "off", slots: 0, busy: 0, awake: false, message: null }),
+    machineFolders: async () => (calls.push("machineFolders"), null),
+    chooseMachineFolders: async () => (calls.push("chooseMachineFolders"), null),
     setMachineEnabled: async (enabled) => (calls.push("setMachineEnabled"), { available: false, enabled, state: "off", slots: 0, busy: 0, awake: false, message: null }),
     ...overrides.deps,
   });
@@ -311,6 +313,8 @@ export const HANDLED = [
   BRIDGE_CHANNELS.calendarSetUpcoming,
   BRIDGE_CHANNELS.machineStatus,
   BRIDGE_CHANNELS.machineSetEnabled,
+  BRIDGE_CHANNELS.machineFolders,
+  BRIDGE_CHANNELS.machineChooseFolders,
 ];
 
 /** A well-formed write, so a check can vary exactly one field of it. */

@@ -691,10 +691,10 @@ export async function runIpcCensusChecks(check) {
       starts its cursor over, which only stops copying.
     */
     // 39 → 40: today's meetings for the menu bar, gated and rebuilt (`consoleBridge/calendarChannel.test.mjs`).
-    // 40 → 42: Let Tex use this Mac (version 10), status and switch, gated (`consoleBridge/machineChannel.test.mjs`).
+    // 40 → 44: Let Tex use this Mac, status and switch (v10) and folders (v11), gated (`consoleBridge/machineChannel.test.mjs`).
     check(
       "...and the census adds up, so neither side can drift unnoticed",
-      registrations + gatedAsync + gatedSync === 42,
+      registrations + gatedAsync + gatedSync === 44,
     );
   }
 }

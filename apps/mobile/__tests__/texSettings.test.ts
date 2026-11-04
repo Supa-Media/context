@@ -13,6 +13,7 @@
  *  1. The quick pick sent as its label. → `a quick pick is sent by id` fails.
  *  2. A blur saving the unchanged text. → `the box saves what they wrote, once` fails.
  *  3. `<ThisMac />` taken out of the panel. → `inside the Mac app, the panel has Let Tex use this Mac` fails.
+ *  4. The empty-list auto-open dropped from `useThisMac`. → `turning it on with no folders opens the Mac's picker` fails.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -146,6 +147,75 @@ describe("Settings › Tex, this Mac", () => {
       (byTestId("tex-this-mac-switch").querySelector('[role="switch"]') as HTMLElement | null ?? byTestId("tex-this-mac-switch")).click();
     });
     expect(mockEnabled).toEqual([true]);
+  });
+
+  // Dev2, 2026-11-04: choosing folders belongs on the Mac, in its own picker.
+  function folderMac(list: string[], picked: string[] | null) {
+    const calls = { chose: 0 };
+    let state = "off";
+    let listen: ((s: unknown) => void) | null = null;
+    mockMachine = {
+      status: async () => ({ ...status, enabled: state !== "off", state, slots: 2, busy: 0 }),
+      onChange: (fn: (s: unknown) => void) => {
+        listen = fn;
+        return () => {};
+      },
+      setEnabled: async (on: boolean) => {
+        state = on ? "online" : "off";
+        const next = { ...status, enabled: on, state, slots: 2, busy: 0 };
+        listen?.(next);
+        return next;
+      },
+      folders: async () => list,
+      chooseFolders: async () => {
+        calls.chose += 1;
+        return picked ?? list;
+      },
+    };
+    return calls;
+  }
+
+  async function turnOn() {
+    await act(async () => {
+      (byTestId("tex-this-mac-switch").querySelector('[role="switch"]') as HTMLElement | null ?? byTestId("tex-this-mac-switch")).click();
+    });
+    await act(async () => {});
+    await act(async () => {});
+  }
+
+  test("turning it on with no folders opens the Mac's picker, and the row shows what was chosen", async () => {
+    const calls = folderMac([], ["/Users/dana/Code/app"]);
+    const view = await render();
+    await act(async () => {});
+    expect(view.querySelector('[data-testid="tex-this-mac-folders"]')).toBeNull();
+    await turnOn();
+    expect(calls.chose).toBe(1);
+    expect(byTestId("tex-this-mac-folders").textContent).toContain("~/Code/app");
+  });
+
+  test("turning it on with folders already chosen lists them and opens nothing; Change… opens the picker", async () => {
+    const calls = folderMac(["/Users/dana/Code"], null);
+    await render();
+    await act(async () => {});
+    await turnOn();
+    expect(calls.chose).toBe(0);
+    expect(byTestId("tex-this-mac-folders").textContent).toContain("~/Code");
+    await act(async () => {
+      (byTestId("tex-this-mac-folders-choose").querySelector('[role="button"]') as HTMLElement | null ?? byTestId("tex-this-mac-folders-choose")).click();
+    });
+    expect(calls.chose).toBe(1);
+  });
+
+  test("an older Mac app, with no folder picker, draws no folder row", async () => {
+    folderMac([], null);
+    const m = mockMachine as Record<string, unknown>;
+    delete m.folders;
+    delete m.chooseFolders;
+    const view = await render();
+    await act(async () => {});
+    await turnOn();
+    expect(view.textContent).toContain("Let Tex use this Mac");
+    expect(view.querySelector('[data-testid="tex-this-mac-folders"]')).toBeNull();
   });
 
   test("in a browser or on a phone, there is no switch", async () => {

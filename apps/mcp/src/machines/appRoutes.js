@@ -204,8 +204,11 @@ export async function handleMachineApp(request, env, session, { path, controlPla
   if (session.actorClientId !== CONSOLE_CLIENT_ID) return forbidden();
   if (path !== "/machines/app/list" && path !== "/machines/app/chat-people" && !hasScope(session, SCOPE_WRITE)) return forbidden();
   if (!env.WORKSPACE_STORE) return json({ error: "machines_unavailable" }, 501);
-  const body = await bodyOf(request);
-  if (body === null) return invalid("body");
+  const read = await bodyOf(request);
+  if (read === null) return invalid("body");
+  // The Mac app registers its computer in the session's own workspace (`/machines/register`) and knows no
+  // workspace id, so a body that names none means that one; membership is still checked as for any other.
+  const body = read.workspaceId === undefined ? { ...read, workspaceId: session.workspaceId } : read;
   if (path === "/machines/app/list") return await list(env, session, body, controlPlane);
   if (path === "/machines/app/chat-people") return await chatPeople(session, body, controlPlane);
   if (path === "/machines/app/set") return await set(env, session, body);

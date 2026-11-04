@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { getDesktopBridge, type MachineRunStatus } from "@context/desktop-bridge";
 
@@ -8,9 +8,25 @@ import { getDesktopBridge, type MachineRunStatus } from "@context/desktop-bridge
  * where the switch is not drawn at all, because a switch that cannot do
  * anything is never shown (design audit, finding 1).
  */
-export function useThisMac(): { status: MachineRunStatus; setEnabled: (on: boolean) => void } | null {
+export interface ThisMac {
+  status: MachineRunStatus;
+  setEnabled: (on: boolean) => void;
+  /**
+   * The folders Tex may work in, chosen in the Mac's own picker (bridge
+   * version 11), or `null` on an older app, where no folder row is drawn.
+   * `list` is `null` until it is read (the Mac registers when first turned on).
+   */
+  folders: { list: string[] | null; choose: () => void } | null;
+}
+
+export function useThisMac(): ThisMac | null {
   const machine = Platform.OS === "web" ? (getDesktopBridge()?.machine ?? null) : null;
   const [status, setStatus] = useState<MachineRunStatus | null>(null);
+  const [folders, setFolders] = useState<string[] | null>(null);
+  /** Turned on just now: once its folders read empty, the picker opens by itself (Dev2, 2026-11-04). */
+  const pickWhenEmpty = useRef(false);
+  const readFolders = machine?.folders;
+  const chooseFolders = machine?.chooseFolders;
   useEffect(() => {
     if (machine === null) return;
     let live = true;
@@ -21,16 +37,48 @@ export function useThisMac(): { status: MachineRunStatus; setEnabled: (on: boole
       off();
     };
   }, [machine]);
+  const online = status?.enabled === true && status.state === "online";
+  const choose = useCallback(() => {
+    if (!chooseFolders) return;
+    pickWhenEmpty.current = false;
+    void chooseFolders().then((list) => setFolders(list));
+  }, [chooseFolders]);
+  useEffect(() => {
+    if (!online || !readFolders) return;
+    let live = true;
+    void readFolders().then((list) => {
+      if (!live) return;
+      setFolders(list);
+      if (list !== null && list.length === 0 && pickWhenEmpty.current) choose();
+    });
+    return () => {
+      live = false;
+    };
+  }, [online, readFolders, choose]);
   const setEnabled = useCallback(
     (on: boolean) => {
       if (machine === null) return;
+      pickWhenEmpty.current = on;
       // Show the answer at once; the shell's own status follows.
       setStatus((s) => (s ? { ...s, enabled: on, state: on ? "starting" : "off" } : s));
       void machine.setEnabled(on).then(setStatus);
     },
     [machine],
   );
-  return machine !== null && status !== null ? { status, setEnabled } : null;
+  if (machine === null || status === null) return null;
+  return { status, setEnabled, folders: readFolders && chooseFolders ? { list: folders, choose } : null };
+}
+
+/** A folder as the owner reads it: their home folder as `~`. */
+export function folderLabel(path: string): string {
+  return path.replace(/^\/Users\/[^/]+(?=\/|$)/, "~");
+}
+
+/** The folder row's line: which folders, or what having none means. */
+export function foldersLine(list: string[] | null): string {
+  if (list === null) return "Checking…";
+  if (list.length === 0) return "None yet. Tex can't start a job here until you choose one.";
+  return list.map(folderLabel).join(" · ");
 }
 
 /** The switch row's line under "Let Tex use this Mac". */

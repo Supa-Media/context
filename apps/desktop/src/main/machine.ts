@@ -16,7 +16,7 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { homedir, hostname, userInfo } from "node:os";
 import { join } from "node:path";
-import { app, powerMonitor, powerSaveBlocker, safeStorage } from "electron";
+import { app, dialog, powerMonitor, powerSaveBlocker, safeStorage, type BrowserWindow } from "electron";
 import { runnerBinaryPath, runnerPath } from "../core/machine/runner.ts";
 import { encryptedFileStore } from "../core/sync/encryptedFileStore.ts";
 import { run } from "../platform/exec.ts";
@@ -82,4 +82,23 @@ export async function createAppMachineRunner(deps: {
     },
     onChange: deps.onChange,
   });
+}
+
+/**
+ * The Mac's own folder picker for the folders Tex may work in: folders only,
+ * several at once, starting in `~/Code` when there is one. Absolute paths, or
+ * null for Cancel. Attached to the console window when there is one, so it
+ * opens as that window's sheet.
+ */
+export async function pickTexFolders(parent: BrowserWindow | null): Promise<string[] | null> {
+  const code = join(homedir(), "Code");
+  const options: Electron.OpenDialogOptions = {
+    title: "Folders Tex can work in",
+    message: "Choose the folders Tex may work in. For each job it makes its own copy of a repository there.",
+    buttonLabel: "Allow",
+    defaultPath: existsSync(code) ? code : homedir(),
+    properties: ["openDirectory", "multiSelections", "createDirectory"],
+  };
+  const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+  return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths;
 }

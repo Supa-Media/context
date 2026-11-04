@@ -20,6 +20,9 @@ test("a computer is found by its name, or alone, with its tool and folder checke
   assert.match(pickMachine([STUDIO], { tool: "codex", folder: "/etc" }).error, /only in \/Users\/seyi\/code/);
   assert.match(pickMachine([VM], { tool: "codex" }).error, /can run claude/);
   assert.match(pickMachine([], {}).error, /no computer paired/);
+  // A Mac's folders are chosen on that Mac, in the Context app; a runner without the app has the Tex page.
+  assert.match(pickMachine([{ ...STUDIO, os: "macos", folders: [] }], {}).error, /on that Mac they open the Context app, Settings › Tex/);
+  assert.match(pickMachine([{ ...VM, os: "linux", folders: [] }], {}).error, /choose one on the Tex page/);
   for (const repo of ["../../etc", "/etc", "a/../../b", "a/b/c"]) assert.equal(pickMachine([STUDIO], { repo }).machine.repo, undefined, repo);
   assert.equal(pickMachine([STUDIO], { repo: "Supa-Media/context" }).machine.repo, "Supa-Media/context");
 });
