@@ -761,6 +761,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [No waiting asks step (2026-11-03)](./texting-assistant/front-door.md#no-waiting-asks-step-2026-11-03)
 - [A text reaches Tex without Convex (2026-11-04)](./texting-assistant/texting-in-objects.md)
 - [Tex's warm copy, sealed in the sender's object (2026-10-31)](./texting-assistant/warm-copy.md)
+- [The setup and skills are served stale while read again (2026-11-04)](./texting-assistant/warm-copy.md#served-stale-while-read-again-2026-11-04)
 - [Tex's notes live in Durable Objects, not the bucket (2026-10-31)](./texting-assistant/tex-durable-objects.md)
 - The Worker decides nothing about access
 - A webhook is acted on only with Linq's signature

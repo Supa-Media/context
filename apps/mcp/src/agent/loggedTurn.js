@@ -127,12 +127,31 @@ async function cleanTurn(store, turn) {
 }
 
 /** Whether any of Tex's events shown is not proven clean; logs how many had no readable record, by count only. */
-async function showsTainted(store, events, workspace, warm = null, records = (read) => read()) {
-  return records(() => readsTainted(store, events, workspace, warm));
+async function showsTainted(store, events, workspace, warm = null, records = (read) => read(), replies = new Map()) {
+  const turns = [...new Set(events.filter((event) => event.from?.kind === "tex").map((event) => event.turn))];
+  // Tainted already by a reply the ledger holds: no record can make it clean again, so none is read.
+  if (turns.some((turn) => replies.get(turn) === false)) return true;
+  return records(() => readsTainted(store, turns.filter((turn) => !replies.has(turn)), workspace, warm));
 }
 
-async function readsTainted(store, events, workspace, warm) {
-  const turns = [...new Set(events.filter((event) => event.from?.kind === "tex").map((event) => event.turn))];
+/**
+ * Whether each turn's answer was clean, by the gateway's own `reply` entries in the chat's ledger (`clean`, written
+ * when the turn answered, `texEntryPoint/sendTheReply.js`), the record a later turn already trusts for the chat before
+ * the day it holds (`ledgerHistory.js`). A turn with several replies (a retried id) is clean only if every one says so,
+ * as a turn record only ever moves toward not clean (`recordTurn`). A turn the ledger has no reply for is absent, and
+ * its turn record is read as before. On 2026-11-03 a cold text spent 419 ms reading the records one by one.
+ */
+export function cleanByReply(entries) {
+  const replies = new Map();
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (entry?.kind !== "reply" || typeof entry.turn !== "string" || typeof entry.clean !== "boolean") continue;
+    replies.set(entry.turn, replies.get(entry.turn) !== false && entry.clean);
+  }
+  return replies;
+}
+
+async function readsTainted(store, turns, workspace, warm) {
+  if (turns.length === 0) return false;
   const records = await Promise.all(turns.map((turn) => (warm === null ? cleanTurn(store, turn) : warm.clean(turn, () => cleanTurn(store, turn)))));
   const count = records.filter((clean) => clean === null).length;
   if (count > 0) console.log(JSON.stringify({ event: "tex_turn_unproven", workspace: String(workspace), count }));
@@ -187,7 +206,7 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
   const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [], tainted: false };
   const transcript = renderEvents(withSentByItself([...earlier.events, ...shown], own.shown), { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools });
-  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: own.tainted || (await showsTainted(store, shown, workspace, warm, records)) };
+  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: own.tainted || (await showsTainted(store, shown, workspace, warm, records, group === null ? cleanByReply(read?.entries) : new Map())) };
 }
 
 /**
