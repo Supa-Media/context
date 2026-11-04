@@ -49,6 +49,7 @@
 import { reportRoutineResult, ServiceError, type Fetch, type RoutineOutcome } from "./clients";
 import { chatRoutineMessage, type ChatRoutineRun } from "./groupRoutines";
 import { askControlPlane, type ControlAnswer } from "./groupControl";
+import { dropKept, keepAnswer, keptAnswer, refreshKept } from "./groupKept";
 import { failedLine, GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { Command, ControlAnswer };
@@ -509,8 +510,14 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.
   if (routine && (members === null || !members.includes(message.from))) return void (await routineDone(deps, message, "no_chat"));
   const people = peopleOf(message.line, message.participants, members);
-  const asked = await askControlPlane(deps, message, people, command);
-  clock?.mark("control");
+  // A plain tag from the same person, with the same people, reuses the last token and asks the control plane behind the turn (`groupKept.ts`).
+  const plain = command === null && !item.engagement && !item.setting && !routine && members !== null;
+  const kept = plain ? await keptAnswer(storage, message.line, message.from, people, deps.now()) : null;
+  if (!plain) await dropKept(storage);
+  const asked = kept ?? (await askControlPlane(deps, message, people, command));
+  if (kept === null && plain) await keepAnswer(storage, message.line, message.from, people, asked, deps.now());
+  const behind = kept === null ? null : () => askControlPlane(deps, message, people, null, { mint: false }).then((answer) => refreshKept(storage, answer), () => refreshKept(storage, null));
+  clock?.mark("control"); // near zero when kept
   const status = asked.status;
   const fixed = (text: string) => say(storage, deps, message, text, { system: true });
   // A chat that can't run it now is told nothing: nobody in it asked just now.
@@ -566,6 +573,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   // Addressed: decide is asked now, beside the turn, and its verdict is waited on only before anything is sent.
   const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, upTo, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken, silenced: decideBeside(storage, deps, entries) });
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
+  await behind?.();
   return outcome;
 }
 
