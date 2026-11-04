@@ -26,6 +26,10 @@
  *   - must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am
  *                                    a note written at that path (a folder when
  *                                    it ends in `/`), with that front matter
+ *   - must link: site=snipcutapp.example
+ *                                    a link Tex texted whose query carries that
+ *                                    key=value (a vault link's `site`, which
+ *                                    is where the login will fill)
  *   - must start: 2+ jobs on one note's mail
  *                                    background jobs the turns started (with
  *                                    `background: on`): `a job` is one or more,
@@ -49,7 +53,7 @@
 
 import { cadenceFromFolder, parseTime, parseWeekdays } from "../../../packages/shared/src/routines.cjs";
 
-const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward|download|attach|start):\s*(.+)$/;
+const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward|download|attach|start|link):\s*(.+)$/;
 
 /** A check line, or null when the line is not one. */
 export function readCheck(line) {
@@ -64,6 +68,30 @@ export function readCheck(line) {
 
 const called = (tools, name) => tools.some((label) => label === name || label === `${name} (held for OK)`);
 
+/**
+ * Whether a link Tex texted carries `key=value` in its query (2026-11-03: a theCut login's vault link said
+ * site=thecut.com, the magazine, so it could never fill on thecut.co, the barber app). Matched on the parsed
+ * query, so `site=snipcut.example` is never satisfied by `site=snipcut.example.com` or `site=snipcutapp.example`.
+ */
+function linked(conversation, value) {
+  const at = value.indexOf("=");
+  if (at <= 0) return false;
+  const key = value.slice(0, at).trim();
+  const want = value.slice(at + 1).trim().toLowerCase();
+  for (const turn of conversation) {
+    if (turn?.from !== "assistant") continue;
+    for (const url of String(turn.text ?? "").match(/https?:\/\/[^\s<>()"']+/g) ?? []) {
+      try {
+        const got = new URL(url.replace(/[.,;:!?]+$/, "")).searchParams.get(key);
+        if (got !== null && got.trim().toLowerCase() === want) return true;
+      } catch {
+        // Not a URL after all.
+      }
+    }
+  }
+  return false;
+}
+
 /** Whether the answer did what the check names. */
 function happened(check, answer) {
   const events = answer.browser ?? [];
@@ -71,6 +99,8 @@ function happened(check, answer) {
   switch (check.what) {
     case "call":
       return called(answer.tools ?? [], check.value);
+    case "link":
+      return linked(answer.conversation ?? [], check.value);
     case "reach":
       return events.some((event) => /^(open|read) /.test(event) && event.slice(5).toLowerCase().startsWith(value));
     case "hand off":

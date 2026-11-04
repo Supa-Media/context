@@ -147,6 +147,21 @@ test("a start check counts the jobs started, and a split's jobs share one note's
   assert.equal(grade("- must start: 1 job", jobs(["x"], ["y"])), false, "exactly one");
 });
 
+test("a link check reads the query of a link Tex texted, never a look-alike host", () => {
+  // 2026-11-03: theCut's vault link said site=thecut.com (a magazine), not thecut.co (the barber app).
+  const said = (text) => ({ tools: [], browser: [], changes: [], conversation: [{ from: "person", text: "https://context.lc/vault/x?site=snipcutapp.example" }, { from: "assistant", text }] });
+  const grade = (line, text) => checkVerdicts({ checks: [readCheck(line)] }, said(text))[0].pass;
+  assert.equal(readCheck("- must link: site=snipcutapp.example").what, "link");
+  const right = "Save it here: https://context.lc/vault/abc?name=SnipCut&site=snipcutapp.example.";
+  assert.equal(grade("- must link: site=snipcutapp.example", right), true);
+  assert.equal(grade("- must not link: site=snipcut.example", right), true, "the app's site is not the magazine's");
+  const wrong = "Save it here: https://context.lc/vault/abc?name=SnipCut&site=snipcut.example";
+  assert.equal(grade("- must link: site=snipcutapp.example", wrong), false);
+  assert.equal(grade("- must not link: site=snipcut.example", wrong), false);
+  assert.equal(grade("- must link: site=snipcutapp.example", "I'll save it on snipcutapp.example"), false, "a name in words is not a link");
+  assert.equal(grade("- must link: site=snipcutapp.example", "no link at all"), false, "the person's own text never counts");
+});
+
 test("a start check can count only the jobs on a computer, or only those in the cloud", async () => {
   const { startTarget } = await import("../checks.mjs");
   const grade = (line, started) => checkVerdicts({ checks: [readCheck(line)] }, { tools: [], browser: [], changes: [], jobs: started })[0].pass;
