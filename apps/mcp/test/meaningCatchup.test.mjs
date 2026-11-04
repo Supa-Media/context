@@ -521,3 +521,35 @@ test("a map already at the current cap sends nothing round again", async () => {
   assert.equal(pass.embedded, 0);
   assert.ok(!store.reads.includes("big.md"));
 });
+
+// 2026-11-04: @seyi's row failed REFUSED/http_400 on every pass for two days, one refused note holding back the rest.
+// Sabotage: rethrow every refusal and the pass fails with nothing recorded.
+test("a note the model refuses every way is recorded with no passages, and the rest of the pass lands", async () => {
+  const store = memoryStore({ "a.md": "# A\n\nalpha", "bad.md": "# Bad\n\npoison", "c.md": "# C\n\ncharlie" });
+  const index = fakeIndex();
+  const refusing = async (texts) => {
+    if (texts.some((text) => text.includes("poison"))) {
+      throw new MeaningError("REFUSED", { cause: "http_400", operation: "embed", providerCodes: [3030], probeStatus: "accepted" });
+    }
+    return embed(texts);
+  };
+  const census = new Map([["a.md", "v1"], ["bad.md", "v1"], ["c.md", "v1"]]);
+  const pass = await meaningPass(store, { client: index, embed: refusing, census, visibilityOf: team, generation: "g1" });
+  assert.equal(pass.failure, null);
+  assert.equal(pass.ready, true);
+  assert.deepEqual(stateOf(store).notes, { "a.md": "v1", "bad.md": "v1", "c.md": "v1" });
+  assert.deepEqual(new Set(index.upserts.map((vector) => vector.metadata.path)), new Set(["a.md", "c.md"]));
+  // What the refused note held before is deleted, not left answering for its new text.
+  const [head] = await meaningIdsFor("bad.md");
+  assert.ok(index.deletes.includes(head));
+});
+
+test("a model that refuses even a plain probe still fails the pass", async () => {
+  const store = memoryStore({ "a.md": "alpha" });
+  const refusing = async () => {
+    throw new MeaningError("REFUSED", { cause: "http_400", operation: "embed", providerCodes: [3030], probeStatus: "refused" });
+  };
+  const pass = await meaningPass(store, { client: fakeIndex(), embed: refusing, census: new Map([["a.md", "v1"]]), visibilityOf: team, generation: "g1" });
+  assert.equal(pass.failure, "REFUSED");
+  assert.ok(!store.objects.has(MEANING_STATE_KEY));
+});
