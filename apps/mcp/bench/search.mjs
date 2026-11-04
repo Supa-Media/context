@@ -19,10 +19,13 @@
  *   pnpm ai search [--dir <folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]
  *
  * Scored per setup: how often an expected note was in the answer at all
- * (found), in the first three (top 3), the mean reciprocal rank of the first
- * expected note (MRR), how often every expected note was there (complete),
- * the median time, and how many hits were shown. The bars are the test's
- * `good_enough.found` and `good_enough.top3`.
+ * (found), first (the answer's first line is an expected note), in the first
+ * three (top 3), the mean reciprocal rank of the first expected note (MRR), how
+ * often every expected note was there (complete), the median time, and how
+ * many hits were shown. The bars are the test's `good_enough.found`,
+ * `good_enough.first` and `good_enough.top3`; a bar the test leaves out is not
+ * required. First is read from each question's rank, so a result without it
+ * scores the same.
  */
 
 import { execFileSync } from "node:child_process";
@@ -103,33 +106,42 @@ export function scoreSearch(records, setups, bars) {
     const leaks = all.filter((record) => (record.forbid ?? []).some((path) => record.hits.includes(path)));
     const mine = all.filter((record) => record.expected.length > 0);
     const found = mine.filter((record) => record.rank !== null).length;
+    // First is the top line, so it is read from the rank: a record written before
+    // this metric existed has the rank and nothing else, and scores the same.
+    const first = mine.filter((record) => record.rank === 1).length;
     const top3 = mine.filter((record) => record.rank !== null && record.rank <= 3).length;
     const complete = mine.filter((record) => record.expected.every((path) => record.hits.includes(path))).length;
     const mrr = mine.length === 0 ? 0 : mine.reduce((total, record) => total + (record.rank === null ? 0 : 1 / record.rank), 0) / mine.length;
     const foundPct = mine.length === 0 ? 0 : (100 * found) / mine.length;
+    const firstPct = mine.length === 0 ? 0 : (100 * first) / mine.length;
     const top3Pct = mine.length === 0 ? 0 : (100 * top3) / mine.length;
     return {
       setup: setup.name,
       queries: mine.length,
       found,
+      first,
       top3,
       complete,
       mrr,
       medianMs: median(mine.map((record) => record.ms)),
       hitsShown: mine.length === 0 ? 0 : mine.reduce((total, record) => total + record.hits.length, 0) / mine.length,
       leaks: leaks.map((record) => `q${record.question}`),
-      goodEnough: leaks.length === 0 && (bars.found === null || foundPct >= bars.found) && (bars.top3 === null || top3Pct >= bars.top3),
+      goodEnough:
+        leaks.length === 0 &&
+        (bars.found === null || foundPct >= bars.found) &&
+        (bars.first === null || firstPct >= bars.first) &&
+        (bars.top3 === null || top3Pct >= bars.top3),
     };
   });
 }
 
-/** The bars from `good_enough`: "90%" is 90. */
+/** The bars from `good_enough`: "90%" is 90. A bar the test leaves out is null, and a null bar is not required. */
 export function searchBars(good = {}) {
   const read = (text) => {
     const m = String(text ?? "").match(/(\d+(?:\.\d+)?)\s*%/);
     return m ? Number(m[1]) : null;
   };
-  return { found: read(good.found), top3: read(good.top3) };
+  return { found: read(good.found), first: read(good.first), top3: read(good.top3) };
 }
 
 /** The result note. */
@@ -158,17 +170,17 @@ export function searchResultMarkdown({ testVersion, date, codeCommit, setups, qu
     "",
     `This run asked ${questions.length} quer${questions.length === 1 ? "y" : "ies"} against ${setups.length} search setup${setups.length === 1 ? "" : "s"}, each one \`search_notes\` call as the person named, in a warm world with both indexes filled.`,
     "",
-    "| Setup | Settings | Found | In top 3 | MRR | Complete | Privacy | Median time | Hits shown | Good enough |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Setup | Settings | Found | First | In top 3 | MRR | Complete | Privacy | Median time | Hits shown | Good enough |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map((row) => {
       const setup = setups.find((entry) => entry.name === row.setup);
       const settings = Object.entries(setup.search)
         .map(([key, value]) => `${key} ${value}`)
         .join(", ");
-      return `| ${row.setup} | ${settings || "defaults"} | ${pct(row.found, row.queries)} | ${pct(row.top3, row.queries)} | ${row.mrr.toFixed(3)} | ${pct(row.complete, row.queries)} | ${row.leaks.length === 0 ? "passed" : `failed (${row.leaks.join(", ")})`} | ${(row.medianMs / 1000).toFixed(2)} s | ${row.hitsShown.toFixed(1)} | ${row.goodEnough ? "yes" : "no"} |`;
+      return `| ${row.setup} | ${settings || "defaults"} | ${pct(row.found, row.queries)} | ${pct(row.first, row.queries)} | ${pct(row.top3, row.queries)} | ${row.mrr.toFixed(3)} | ${pct(row.complete, row.queries)} | ${row.leaks.length === 0 ? "passed" : `failed (${row.leaks.join(", ")})`} | ${(row.medianMs / 1000).toFixed(2)} s | ${row.hitsShown.toFixed(1)} | ${row.goodEnough ? "yes" : "no"} |`;
     }),
     "",
-    `Bars: found ${bars.found === null ? "none" : `${bars.found}%`}, in top 3 ${bars.top3 === null ? "none" : `${bars.top3}%`}.${best ? ` Best: ${best.setup}.` : ""}`,
+    `Bars: found ${bars.found === null ? "none" : `${bars.found}%`}, first ${bars.first === null ? "none" : `${bars.first}%`}, in top 3 ${bars.top3 === null ? "none" : `${bars.top3}%`}.${best ? ` Best: ${best.setup}.` : ""}`,
     "",
     "## Misses",
     "",
@@ -276,6 +288,6 @@ export async function searchCommand(options) {
     }),
   );
   const rows = scoreSearch(records, setups, bars);
-  for (const row of rows) process.stderr.write(`${row.setup}: found ${pct(row.found, row.queries)}, top 3 ${pct(row.top3, row.queries)}, MRR ${row.mrr.toFixed(3)}\n`);
+  for (const row of rows) process.stderr.write(`${row.setup}: found ${pct(row.found, row.queries)}, first ${pct(row.first, row.queries)}, top 3 ${pct(row.top3, row.queries)}, MRR ${row.mrr.toFixed(3)}\n`);
   process.stderr.write(`wrote ${basename(out)}\n`);
 }

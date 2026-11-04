@@ -83,7 +83,7 @@ function listed(listing, path) {
 }
 
 /**
- * Wraps a texted or group turn's dispatcher (`route.js`). `question` is the
+ * Wraps a texted or group turn's dispatcher (`texEntryPoint.js`). `question` is the
  * text being answered; `on` is false for a routine's run. One per turn.
  */
 export function withTheirNotesKept(callTool, { question = "", on = true } = {}) {

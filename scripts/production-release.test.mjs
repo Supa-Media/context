@@ -97,7 +97,12 @@ test('only staging can deploy automatically; production services share one manua
     for (const trigger of triggers.keys()) assert.ok(['workflow_call', 'workflow_dispatch'].includes(trigger), `${name} may not deploy on ${trigger}`);
     if (triggers.has('workflow_call')) {
       assert.deepEqual([...triggers.keys()], ['workflow_call']);
-      assert.ok(production.includes(`uses: ./.github/workflows/${name}`), `${name} must be in the production action`);
+      // The desktop app is the one manual release outside production's action
+      // (deploy-desktop.yml, workflow_dispatch only), and its Linux half is a
+      // workflow it calls; nothing else may call a deploy workflow.
+      const desktop = readFileSync(new URL('deploy-desktop.yml', dir), 'utf8');
+      const caller = name === 'deploy-desktop-linux.yml' ? desktop : production;
+      assert.ok(caller.includes(`uses: ./.github/workflows/${name}`), `${name} must be in the production action`);
     }
   }
   assert.match(production, /convex:\s+needs: validate/);

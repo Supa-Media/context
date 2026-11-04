@@ -13,9 +13,11 @@
 import { readJobDetail, readList, readOverview } from "./texPageRead";
 import { openLive, type Live, type PatchFrame } from "./texPageLive";
 import { readLedgerPage, readLedgerSees } from "./texPageLedger";
+import { readMachinesPage } from "./texMachineRead";
+import type { MachinesPage } from "./texMachineTypes";
 import type { JobDetail, LedgerPage, LedgerQuery, LedgerSees, ListKind, ListPage, Overview, PageAction } from "./texPageTypes";
 
-type Route = "" | "job" | "list" | "act" | "ledger";
+type Route = "" | "job" | "list" | "act" | "ledger" | "machines";
 
 export type Read<T> = { kind: "ok"; value: T } | { kind: "notYours" } | { kind: "failed" };
 
@@ -28,6 +30,12 @@ export interface TexPageSource {
   ledger(chat: string, query: LedgerQuery): Promise<Read<LedgerPage>>;
   /** The chat as the next texted turn is shown it. */
   sees(chat: string): Promise<Read<LedgerSees>>;
+  /**
+   * The person's machines, as this chat sees them (`/tex/page/machines`). A
+   * gateway that does not know machines answers 404, read as `notYours`, and
+   * the page then shows nothing about machines.
+   */
+  machines(chat: string): Promise<Read<MachinesPage>>;
   /** The live feed for one chat; null where there is none. */
   live(chat: string, onPatch: (patch: PatchFrame) => void, onLive: (live: boolean) => void): Live | null;
 }
@@ -111,6 +119,10 @@ export function gatewaySource(options: GatewaySourceOptions): TexPageSource {
       return a.status === 200 && body?.ok !== false
         ? { ok: true }
         : { ok: false, error: typeof body?.error === "string" ? body.error : `status_${a.status}` };
+    },
+    async machines(chat) {
+      const a = await post("machines", { chat });
+      return a === null ? { kind: "failed" } : readAnswer(a.status, a.body, readMachinesPage);
     },
     async ledger(chat, query) {
       const a = await post("ledger", { chat, view: "raw", ...query });

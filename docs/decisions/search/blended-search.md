@@ -39,6 +39,33 @@ any context's third. The numbers themselves never leave the ranking modules,
 which is also why they *could* not be normalized without exporting the one thing
 that lets a caller tell which derivative answered.
 
+**Corpus-independent evidence is added on top of the fused ranks (decided by the owner,
+2026-11-03).** The ranks are still fused for BM25, and nothing above changes. But two facts about a
+hit do not depend on any workspace's corpus, because they are read from the query and the hit alone:
+whether its title or file name holds the query's words (the share of the query's terms,
+`titleCoverage`), and whether the whole query appears as one phrase in its title, file name or a
+snippet (`hasPhrase`). Those are comparable across workspaces, so the gateway's `search_notes`
+(`apps/mcp`, `fuseEverywhere`, the pure rules in `search/evidence.js`) adds `TITLE_WEIGHT` times the
+coverage, plus `PHRASE_BONUS` for a phrase, to each counted word hit before the path prior
+multiplies the score. The bonus is sized against the rank ladder, not against BM25 scores:
+`TITLE_WEIGHT` is 1/305, a fifth of a rank-0 hit, and `PHRASE_BONUS` is 1/122, half of one. Starting
+at 1/61 for the title, as first proposed, does not hold: a hit ranked tenth on words and meaning,
+with its title holding every word, would then score above a note first on both. A loose any-word hit
+gets no bonus while any workspace has a strict one, so the existing rule on loose hits covers the
+new evidence too. Why: production, 2026-11-03, "workers comp renewal" put another workspace's rank-0
+hit, a note that only links to the renewal, above the page titled with every word, and "2027 plan
+objectives owners" put the plan's overview third, below an archived chat log and two other notes.
+Rank fusion cannot see that a title holding the whole query is more than a rank-0 body match in a
+workspace whose BM25 scores are on another scale. What this does not change: the control plane's
+blended palette (`searchContexts`) fuses its own answers and is not changed by this decision;
+bringing it to the same evidence is a separate decision. Reverting the bonus fails the two
+production-shaped cases in `apps/mcp/test/searchEverywhere.test.mjs`; dropping the query on the way
+from `searchEverywhere` to the fusion fails "the query reaches the fusion" in the same file, which
+drives `toolSearchNotes` across two workspaces (the fusion tests pass their own query, so only that
+one sees the wiring); "a title match alone does not beat a note strong on both word rank and
+meaning" fails if the title weight goes back to 1/61, and "a loose hit gets no title bonus while a
+strict hit exists" fails if a loose hit is credited.
+
 **Every context the caller is in is searched, and each one says which index
 answered it.** This reverses the rule that shipped with the blended page, and
 the reversal is the most useful thing in this section, so both sides are kept.

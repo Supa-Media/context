@@ -15,7 +15,7 @@ import { hashToken } from "../crypto";
 import { GATEWAY_SETTLE } from "../rowWatch/drain";
 import { objectFirst } from "../rowWatch/objectFirst";
 import { badRequest, json, randomOpaqueToken, stringField } from "../gatewayAuth";
-import { groupKeyOf, MAX_GROUP_PARTICIPANTS, TEXTS_GROUP_GRANT_TTL_MS, type GroupAnswer } from "../../textGroups";
+import { ENGAGEMENT_STYLES, groupKeyOf, MAX_GROUP_PARTICIPANTS, TEXTS_GROUP_GRANT_TTL_MS, type Engagement, type GroupAnswer } from "../../textGroups";
 
 /** Sendblue's group ids are uuids; anything much longer is not one. */
 const MAX_GROUP_ID = 200;
@@ -23,6 +23,7 @@ const MAX_GROUP_ID = 200;
 type Command =
   | { kind: "stop" }
   | { kind: "start" }
+  | { kind: "speaks_up"; level: Engagement }
   | { kind: "invite"; slug: string; role?: "editor" | "member" }
   | { kind: "share_mail"; address: string; query?: string }
   | { kind: "unshare_mail"; address?: string };
@@ -32,6 +33,10 @@ function readCommand(value: unknown): Command | null | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const kind = (value as { kind?: unknown }).kind;
   if (kind === "stop" || kind === "start") return { kind };
+  if (kind === "speaks_up") {
+    const level = (value as { level?: unknown }).level;
+    return (ENGAGEMENT_STYLES as readonly unknown[]).includes(level) ? { kind, level: level as Engagement } : null;
+  }
   if (kind === "share_mail" || kind === "unshare_mail") return readMailCommand(kind, value as Record<string, unknown>);
   const slug = (value as { slug?: unknown }).slug;
   if (typeof slug !== "string" || slug.length === 0 || slug.length > 65) return null;

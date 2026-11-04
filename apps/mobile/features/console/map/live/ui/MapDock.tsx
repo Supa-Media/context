@@ -10,8 +10,8 @@ import type { MapPageState } from "../hooks/useMapPage";
 import type { CameraStore } from "./CanvasOverlay";
 import { crumbsOf } from "./breadcrumb";
 import { LiveDot } from "./controls";
-import { replayLabel, replayMenuItems, scopeLabel, trailAfterScope, workspaceMenuItems, workspacePick, type ReplayChoice } from "./mapControls";
-import { RangePicker, type Anchor } from "./RangePicker";
+import { scopeLabel, trailAfterScope, workspaceMenuItems, workspacePick } from "./mapControls";
+import type { Anchor } from "./RangePicker";
 import { ReplayBar } from "./ReplayBar";
 
 type Measurable = { measureInWindow?: (cb: (x: number, y: number, w: number, h: number) => void) => void } | null;
@@ -117,26 +117,15 @@ export function WorkspaceMenu({
 }
 
 /**
- * The bottom of the desktop map: every control in one dock, the way a video
- * player keeps its controls. Live, Replay (the past 24 hours, the past week,
- * or dates of your own), Map or Columns, and zoom. While a replay plays, the
- * replay bar opens inside the same dock above that row, so the scrubber is
- * where the button that started it was. Columns does not zoom, so it has no
- * − and +.
+ * The bottom of the desktop map: Map or Columns, and zoom. Replay lives in the
+ * map's settings (Dev2, 2026-11-04: "move the map replay stuff into the
+ * settings"); while one plays, the replay bar opens inside this dock above the
+ * row, with Back to live beside the layout. Columns does not zoom, so it has
+ * no − and +.
  */
 export function MapDock({ page, onHeight }: { page: MapPageState; onHeight?: (height: number) => void }) {
   const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  const replayNode = useRef<View>(null);
-  const [menu, setMenu] = useState<Anchor | null>(null);
-  const [picker, setPicker] = useState<Anchor | null>(null);
   const live = page.mode === "live";
-
-  const choose = (choice: ReplayChoice) => {
-    setMenu(null);
-    if (choice === "custom") measure(replayNode.current, setPicker);
-    else page.setMode(choice);
-  };
 
   return (
     <View
@@ -146,28 +135,17 @@ export function MapDock({ page, onHeight }: { page: MapPageState; onHeight?: (he
     >
       {live ? null : <ReplayBar page={page} docked />}
       <View style={styles.row}>
-        <View style={styles.group} accessibilityRole="radiogroup" accessibilityLabel="When">
-          <DockButton
-            label="Live"
-            on={live}
-            role="radio"
-            onPress={() => page.setMode("live")}
-            leading={<LiveDot pulsing={live} reducedMotion={page.reducedMotion} />}
-            testID="map-when-live"
-          />
-          <View ref={replayNode} collapsable={false}>
+        {live ? null : (
+          <>
             <DockButton
-              label={replayLabel(page)}
-              on={!live}
-              onPress={() => measure(replayNode.current, setMenu)}
-              accessibilityLabel={live ? "Replay what happened" : `Replaying ${replayLabel(page)}. Choose another stretch`}
-              leading={<Icon name="clock" size={14} color={live ? colors.text2 : colors.pageSurface} />}
-              trailing={<Icon name="chevronDown" size={12} color={live ? colors.text2 : colors.pageSurface} />}
-              testID="map-replay"
+              label="Back to live"
+              onPress={() => page.setMode("live")}
+              leading={<LiveDot pulsing={false} reducedMotion={page.reducedMotion} />}
+              testID="map-when-live"
             />
-          </View>
-        </View>
-        <View style={styles.rule} />
+            <View style={styles.rule} />
+          </>
+        )}
         <View style={styles.group} accessibilityRole="radiogroup" accessibilityLabel="Layout">
           <DockButton label="Map" role="radio" on={page.view === "map"} onPress={() => page.setView("map")} testID="map-view-map" />
           <DockButton label="Columns" role="radio" on={page.view === "folders"} onPress={() => page.setView("folders")} testID="map-view-folders" />
@@ -182,17 +160,25 @@ export function MapDock({ page, onHeight }: { page: MapPageState; onHeight?: (he
           </>
         ) : null}
       </View>
-      {menu !== null ? (
-        <Menu<ReplayChoice>
-          items={replayMenuItems(page.mode)}
-          title="Replay"
-          anchor={{ x: menu.x, y: menu.y - 6 }}
-          onSelect={choose}
-          onDismiss={() => setMenu(null)}
-        />
-      ) : null}
-      {picker !== null ? <RangePicker page={page} compact={false} anchor={picker} above onClose={() => setPicker(null)} /> : null}
     </View>
+  );
+}
+
+/** The gear in the canvas's top right that opens the map's settings. */
+export function SettingsButton({ open, onPress }: { open: boolean; onPress: () => void }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Map settings"
+      accessibilityState={{ expanded: open }}
+      style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.gear, styles.float, open ? styles.buttonOn : hovered ? styles.hover : null]}
+      testID="map-settings-open"
+    >
+      <Icon name="gear" size={16} color={open ? colors.pageSurface : colors.text2} />
+    </Pressable>
   );
 }
 
@@ -282,6 +268,7 @@ const makeStyles = (colors: Colors) =>
     crumb: { height: 28, borderRadius: 8, paddingHorizontal: 6, justifyContent: "center", minWidth: 0 },
     crumbText: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "600", color: colors.text2 },
     crumbHere: { color: colors.text },
+    gear: { width: 34, height: 34, borderRadius: 12, alignItems: "center", justifyContent: "center" },
     dock: {
       position: "absolute",
       bottom: 16,

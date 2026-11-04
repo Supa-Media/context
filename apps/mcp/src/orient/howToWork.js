@@ -12,7 +12,7 @@ export const HOW_TO_WORK = [
   "- Pass context: \"@name\" on any call to work in another workspace. A path never names a workspace other than the one the call addresses.",
   "- Update the note that already covers a topic. Never start a near-duplicate of it.",
   "- Follow their conventions, not a template. The front page says how this workspace is organized and where things go; where it is silent, ask rather than inventing a filing system for somebody else's notes.",
-  "- Do not invent folders. File into the built-in folders listed above. Where you cannot write a folder, queue the note with write action propose.",
+  "- Do not invent folders. File into the built-in folders listed above. Where you cannot write a folder, tell the person rather than filing the note somewhere else.",
   "- Each folder's description is the first line of its `about.md`. Read a folder's `about.md` before you work in that folder, and write or update its `about.md` with write when you learn what the folder is for.",
   "- Ask the person before anything that lets more people see something (manage visibility, share_link, website publish), and before every send.",
   "- Anti-patterns: inventing folders; staging content where you cannot write it; guessing at notes you cannot see, or reading a note that is missing as proof nothing is there; asking again what the notes already say.",
@@ -31,11 +31,9 @@ const OLDER_NAMES = [
   ["write with action remember", "remember"],
   ["write with action save_session", "save_context"],
   ["use write with action save_session", "use save_context"],
-  ["queue the note with write action propose", "queue the note with propose_note"],
   ["`about.md` with write when", "`about.md` with write_note when"],
   ["(manage visibility, share_link, website publish), and before every send", "(set_visibility, create_link, publishing the website), and before calling anything outside Context"],
   ['fetch index.md for the rest, and orient about "access"', "read_note index.md for the rest, and scope_info"],
-  ["Use fetch with `proposals:` to read them, and manage with action review_proposal", "Use list_proposals and read_proposal to read them, and review_proposal"],
 ];
 
 /** `text` in the older names when the caller is offered the older tools. */

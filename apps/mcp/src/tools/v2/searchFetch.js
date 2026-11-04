@@ -119,7 +119,6 @@ const KEYWORDS = {
   "contacts:": { name: "list_contacts", action: "contacts", copy: ["limit"] },
   "activity:": { name: "read_activity", action: "activity", copy: ["limit"] },
   "changes:": { name: "list_changes", action: "changes", copy: ["limit", "reads"] },
-  "proposals:": { name: "list_proposals", action: "proposals", copy: [] },
   "links:": { name: "list_links", action: "links", copy: [] },
   "vault:": { name: "vault_list", action: "vault", copy: [] },
   "plugins:": { name: "list_plugins", action: "plugins", copy: [] },
@@ -131,9 +130,18 @@ const KEYWORDS = {
 /** `apps:<app>`: one connected app's tools, or with `tool`, one read through it. */
 const APP_PREFIX = "apps:";
 
+/**
+ * A chat's history file (`tex/history.ledger.json`, or `history.ledger.json` in a group chat's home): the chat's
+ * ledger as it is now, answered by the chat's Tex object (`texStore/historyView.js`). It is a row like any Tex note
+ * and `read_note` reads it with that note's access; only its name is not `.md`, so without this it fell through to a
+ * folder listing and answered "no visible notes" (Dev, 2026-11-03: agents should be able to read the history files).
+ */
+const HISTORY_FILE_ID = /(?:^|\/)history\.ledger\.json$/i;
+
 /** Ids that name something other than a note, which only the table below can route. */
 function routedId(id) {
-  return Object.hasOwn(KEYWORDS, id) || [APP_PREFIX, TEXTS_ID_PREFIX, EMAIL_ID_PREFIX, GOOGLE_CHAT_ID_PREFIX, "proposals:"].some((prefix) => id.startsWith(prefix));
+  if (HISTORY_FILE_ID.test(id)) return true;
+  return Object.hasOwn(KEYWORDS, id) || [APP_PREFIX, TEXTS_ID_PREFIX, EMAIL_ID_PREFIX, GOOGLE_CHAT_ID_PREFIX].some((prefix) => id.startsWith(prefix));
 }
 
 /** `fetch` in the v2 shape. */
@@ -176,9 +184,10 @@ export function translateFetch(call, app = {}) {
   if (id.startsWith(EMAIL_ID_PREFIX)) {
     return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment", "from", "summary"] });
   }
-  if (id.startsWith("proposals:")) {
-    const proposalId = id.slice("proposals:".length).trim();
-    return target(label, a, { name: "read_proposal", action: "proposal", fixed: { id: proposalId } });
+
+  // A chat's history file reads as the note it is, with that note's access.
+  if (HISTORY_FILE_ID.test(id)) {
+    return target(label, a, { name: "read_note", action: "note", fixed: { path: id } });
   }
 
   // A message anchor from search (`<note>.md#<anchor>`) is the note itself.

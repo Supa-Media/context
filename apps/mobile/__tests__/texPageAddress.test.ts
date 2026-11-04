@@ -39,6 +39,7 @@ jest.mock("expo-router", () => ({
 }));
 jest.mock("convex/react", () => ({
   useConvexAuth: () => ({ isLoading: false, isAuthenticated: mockAuth.signedIn }),
+  useAction: () => async () => null,
   useQuery: () => (mockAuth.signedIn ? [{ workspaceId: "ws_seyi", slug: "seyi", kind: "personal", role: "owner" }] : undefined),
 }));
 jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => async () => ({ accessToken: "t" }) }));

@@ -18,7 +18,7 @@
  */
 
 import { post, record, type Fetch } from "./clients";
-import { keptEvents, type Conversation, type TexEvent } from "./events";
+import { flushEventsInLine, keptEvents, type Conversation, type TexEvent } from "./events";
 import type { InboxStorage } from "./inbox";
 
 /** The longest a reader waits for the chat: decide waits on it, and decide is on a person's way to their answer. */
@@ -72,4 +72,22 @@ async function fromGateway(reader: ChatReader, chat: string, timeoutMs: number):
   } catch {
     return null;
   }
+}
+
+/**
+ * Send what the chat said since the last flush to its ledger now, with the token the chat's last turn opened, when
+ * there is one. Without this a group's chatter between Tex's turns (anything nobody asked Tex) waited in the outbox
+ * until somebody next addressed Tex, so the chat's history on the app stopped at Tex's last answer, and a day of it
+ * with no answer was dropped unposted (`SEND_WITHIN_MS`). True when a token was at hand; an expired one is refused by
+ * the gateway and the events wait for the next turn, as before. Never throws.
+ */
+export async function flushWithReader(storage: InboxStorage, chat: string, now: () => number): Promise<boolean> {
+  const reader = readers.get(storage)?.get(chat);
+  if (reader === undefined) return false;
+  try {
+    await flushEventsInLine(storage, { fetch: reader.fetch, gatewayOrigin: reader.gatewayOrigin, now }, reader.token, reader.conversation, chat);
+  } catch {
+    // The outbox keeps them for the next turn's flush.
+  }
+  return true;
 }

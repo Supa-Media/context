@@ -26,6 +26,7 @@ import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { SafeAreaProvider, type Metrics } from "react-native-safe-area-context";
 
+jest.mock("../features/tex/history/useSeesTurnTiming", () => ({ useSeesTurnTiming: () => false }));
 jest.mock("expo-router", () => ({ Redirect: () => null, Stack: () => null, router: { push: () => {} }, useLocalSearchParams: () => ({}) }));
 
 import { TexPageBody, type Place } from "../features/tex/page/TexPageBody";
@@ -117,21 +118,24 @@ describe("the chat's history file", () => {
     const source = fixtureSource();
     const asked: LedgerQuery[] = [];
     await render({ ...source, ledger: (chat, q) => (asked.push(q), source.ledger(chat, q)) }, { chat: "me", view: "history" });
-    expect(asked).toEqual([{ kinds: SHOWN_KINDS, day: "2026-11-02", jobs: false, before: LATEST }]);
-    // A job's work is off until asked for, then shown marked with its job, the advisor's answer and, with Thinking, its thinking.
-    expect(text()).not.toContain("Research maritime.sh");
-    await press("tex-history-show-jobs");
-    expect(asked.at(-1)).toEqual({ kinds: SHOWN_KINDS, day: "2026-11-02", before: LATEST });
-    expect(byTestId("tex-history-entry-calls:me-j2")?.textContent).toBe("Research maritime.sh · ▸ 2 tool calls · browse ×2 · 1 failed");
-    expect(byTestId("tex-history-entry-me-j4")?.textContent).toBe("Research maritime.sh · advisor · Pricing page is the one to read; skip the blog.");
+    expect(asked).toEqual([{ kinds: SHOWN_KINDS, day: "2026-11-02", before: LATEST }]);
+    // A job's work is always read, folded under its own line: Tex · Minion 1, its state and how much it did.
+    const job = byTestId("tex-history-entry-job:2026-11-02:maritime")?.textContent ?? "";
+    expect(job).toBe("9:10 AMTex · Minion 1▾ Research maritime.shrunning3 steps");
+    expect(byTestId("tex-history-entry-calls:me-j2")?.textContent).toBe("▸ 2 tool calls · browse ×2 · 1 failed");
+    expect(byTestId("tex-history-entry-me-j4")?.textContent).toBe("advisor · Pricing page is the one to read; skip the blog.");
+    await press("tex-history-entry-calls:me-j2");
+    expect(byTestId("tex-history-entry-me-j3")?.textContent).toBe("✕ browse · failed");
     expect(text()).not.toContain("The blog is old");
     await press("tex-history-show-thinking");
     expect(text()).toContain("advisor thinking · They want cost first. The blog is old.");
-    await press("tex-history-show-thinking");
-    await press("tex-history-show-jobs");
-    await press("tex-history-show-thinking");
+    expect(byTestId("tex-history-job-steps-maritime")?.textContent).toContain("Read their docs, then compare pricing.");
     expect(asked.at(-1)!.kinds).toEqual(["text", "tool", "thinking", "said", "note", "advisor", "mail_check", "job"]);
-    expect(asked.at(-1)!.jobs).toBe(false);
+    expect(asked.at(-1)!.jobs).toBeUndefined();
+    // Folded away on a tap.
+    await press("tex-history-entry-job:2026-11-02:maritime");
+    expect(byTestId("tex-history-job-steps-maritime")).toBeNull();
+    expect(byTestId("tex-history-show-jobs")).toBeNull();
     expect(text()).toContain("Look at today's calendar");
     await press("tex-history-show-thinking");
     await press("tex-history-show-tools");
@@ -140,12 +144,12 @@ describe("the chat's history file", () => {
     await press("tex-history-show-tools");
     await press("tex-history-day-choice");
     await press("tex-history-day-choice-option-yesterday");
-    expect(asked.at(-1)).toEqual({ kinds: SHOWN_KINDS, day: "2026-11-01", jobs: false, before: LATEST });
+    expect(asked.at(-1)).toEqual({ kinds: SHOWN_KINDS, day: "2026-11-01", before: LATEST });
     expect(text()).toContain("Your water bill is due Tuesday");
     expect(text()).not.toContain("Standup at 10");
     await press("tex-history-day-choice");
     await press("tex-history-day-choice-option-all");
-    expect(asked.at(-1)).toEqual({ kinds: SHOWN_KINDS, jobs: false, before: LATEST });
+    expect(asked.at(-1)).toEqual({ kinds: SHOWN_KINDS, before: LATEST });
     // Every day, the newest first, each in the order it happened.
     expect(byTestId("tex-history-day-2026-11-02")).not.toBeNull();
     expect(text().indexOf("Standup at 10")).toBeLessThan(text().indexOf("Your water bill"));
@@ -155,7 +159,7 @@ describe("the chat's history file", () => {
     await type("tex-history-day", "2026-11");
     expect(asked.length).toBe(before);
     await type("tex-history-day", "2026-10-30");
-    expect(asked.at(-1)).toEqual({ kinds: SHOWN_KINDS, day: "2026-10-30", jobs: false, before: LATEST });
+    expect(asked.at(-1)).toEqual({ kinds: SHOWN_KINDS, day: "2026-10-30", before: LATEST });
     expect(byTestId("tex-history-empty")).not.toBeNull();
   });
 
@@ -169,12 +173,14 @@ describe("the chat's history file", () => {
         const read = await source.ledger(chat, { ...q, before: LATEST });
         if (read.kind !== "ok") return read;
         const first = q.before === LATEST;
-        const page = first ? read.value.entries.slice(0, 2) : read.value.entries.slice(2);
+        // The chat's own lines only: this is about paging, not jobs.
+        const own = read.value.entries.filter((e) => e.jobId === undefined);
+        const page = first ? own.slice(0, 2) : own.slice(2);
         if (!first && hold) {
           hold = false;
           await new Promise<void>((r) => pending.push(r));
         }
-        return { kind: "ok", value: { ...read.value, entries: page, ...(first && read.value.entries.length > 2 ? { older: 4 } : {}) } };
+        return { kind: "ok", value: { ...read.value, entries: page, ...(first && own.length > 2 ? { older: 4 } : {}) } };
       },
     };
     await render(paged, { chat: "me", view: "history" });

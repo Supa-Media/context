@@ -13,6 +13,7 @@ import {
   toolExistenceMasked,
 } from "./registry.js";
 import { readsPrivateAnywhere, writesAnywhere } from "../session.js";
+import { machineRunRefuses } from "./machineRun.js";
 import { validateArguments } from "../toolArguments.js";
 
 export const toolDefinitions = registryToolDefinitions;
@@ -222,7 +223,7 @@ export async function toolsForSession(session, store, { shape = "v2" } = {}) {
   // Last, so that everything above still reasons about the whole surface: an
   // unlisted tool is one this server stopped *recommending*, not one it
   // stopped answering. See `UNLISTED_TOOLS`.
-  const listed = enabled.filter((tool) => !UNLISTED_TOOLS.has(tool.name));
+  const listed = enabled.filter((tool) => !UNLISTED_TOOLS.has(tool.name) && !machineRunRefuses(session, tool.name));
   return shape === "v1"
     ? listed.filter((tool) => !V2_ONLY_TOOLS.has(tool.name))
     : listed.filter((tool) => V2_TOOLS.has(tool.name));

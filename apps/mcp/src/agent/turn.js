@@ -9,29 +9,19 @@
  * `index.js` built for the request — so there is no second answer anywhere to
  * "may this caller do that", which is the property that matters most here.
  *
- * ## Writes are proposals, except from a text
+ * ## Writes are the client's own, except in a routine
  *
- * The one exception is a texting turn, which edits notes directly (the owner,
- * 2026-10-08, "Edit directly"): `textingWrites.js` adds the connection's own
- * MCP write tools and fields, all of them. Everywhere else, what follows
- * holds.
+ * A texting turn edits notes directly (the owner, 2026-10-08, "Edit
+ * directly"), and so does the app's own assistant since proposals were
+ * removed (the owner, 2026-11-03): `textingWrites.js` adds the connection's
+ * own MCP write tools and fields. A group chat has its narrower set
+ * (`groupTurn.js`), and a routine's own run has none.
  *
- * The agent is offered the read tools and `propose_note`, and never
- * `write_note`, `move_note`, `set_visibility` or anything else that changes the
- * bucket — and the list is enforced at the call as well as in the prompt, so a
- * model that names one anyway reaches nothing. It has to be both: what comes
- * back from the provider is a name the *model* wrote, and a note it read can
- * have told it what to write there.
- *
- * Not because a model cannot be trusted with a write — the scope clamp would
- * already refuse one this connection may not make — but because a note is the
- * customer's own record of their work, and an edit they did not read is a
- * different product. A proposal lands in the review queue the console already
- * has, and they say yes.
- *
- * That also makes the failure mode of a confused turn *noise* rather than
- * *damage*, which is the difference between a bad answer and a support ticket
- * about a rewritten note.
+ * Beyond those, the agent is offered only the read tools, and the list is
+ * enforced at the call as well as in the prompt, so a model that names
+ * another tool anyway reaches nothing. It has to be both: what comes back from
+ * the provider is a name the *model* wrote, and a note it read can have told
+ * it what to write there.
  *
  * ## The ambient place carries references, never content
  *
@@ -79,9 +69,6 @@ const MAX_ROUNDS = 8;
 function roundsFor(maxRounds, cap = MAX_ROUNDS) {
   return Number.isInteger(maxRounds) ? Math.min(cap, Math.max(1, maxRounds)) : cap;
 }
-
-/** The one write the agent may make, and it is not a write to the bucket. */
-const PROPOSAL_TOOL = "propose_note";
 
 /**
  * Tools a model is never offered, whatever their annotations say.
@@ -157,15 +144,14 @@ export class AgentRefusal extends Error {
  * The tools the agent is offered.
  *
  * Filtered from what `toolsForSession` already returned, never assembled
- * independently — so a connection with no write scope is not offered
- * `propose_note` either, and a tool the context's owner turned off stays off.
+ * independently — so a tool the context's owner turned off stays off.
  * One authority decision, taken upstream, narrowed here.
  */
 export function agentTools(offered) {
   return offered.filter(
     (tool) =>
       !WITHHELD_FROM_AGENT.has(tool.name) &&
-      (tool.annotations?.readOnlyHint === true || tool.name === PROPOSAL_TOOL),
+      tool.annotations?.readOnlyHint === true,
   );
 }
 
@@ -248,12 +234,12 @@ export async function openProvider(controlPlane, session, requested, env = {}, {
  *   the production setup's prompt from `@context-lc` (`production.js`), or
  *   null for the built-in words
  * @param {string} [options.builtinModelOverride] the built-in model to run
- *   instead of `builtinModel(env)`; `route.js` checks it can be called
+ *   instead of `builtinModel(env)`; `texEntryPoint.js` checks it can be called
  * @param {number} [options.maxRounds] the most model rounds this turn may take,
  *   clamped to 1..MAX_ROUNDS
  * @param {{decide: Function|null, think: string, routeAt?: number, thinkRounds?: number, jobsOnly?: boolean}} [options.router] the setup's
  *   model router (`router.js`): the decision engine that picks a tier for this
- *   text, and the model a `think` text runs on; `route.js` checks it can be called.
+ *   text, and the model a `think` text runs on; `texEntryPoint.js` checks it can be called.
  *   With `thinkRounds`, a `think` text plans on `think` and drives on `main` (`modelPlan.js`);
  *   `jobsOnly` (a planner, no router) plans a `planned` turn and leaves every other on `main`
  * @param {() => number} [options.clock] milliseconds, for `timing`
@@ -340,7 +326,7 @@ export async function runTurn(options) {
     ...local.map((entry) => entry.tool),
     ...(progress ? [progress.tool] : []),
   ];
-  // Tools answered here rather than by the MCP (`route.js`'s earlier texts).
+  // Tools answered here rather than by the MCP (`texEntryPoint.js`'s earlier texts).
   const localCalls = new Map(local.map((entry) => [entry.tool.name, entry.call]));
   /*
     THE SIX (`sixTools.js`): the model is shown orient, search, fetch, write,
@@ -391,7 +377,7 @@ export async function runTurn(options) {
     // not it cleared the setup's cutoff: a benchmark tunes the cutoff from the
     // near misses. Absent when it picked another tier or did not answer.
     const confidence = routed.pick === "think" && typeof routed.confidence === "number" ? { confidence: routed.confidence } : {};
-    trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked, ...confidence });
+    trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, at: asked - began, ms: clock() - asked, ...confidence });
     tell({ kind: "model", model, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
   const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, voice, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
@@ -425,7 +411,7 @@ export async function runTurn(options) {
     `agentTools` decides what the model is *told about*. What comes back is a
     name the model wrote, and handing that to `callTool` — which is the client's
     own dispatcher, holding this connection's whole authority — would make
-    "writes are proposals" a property of the prompt rather than of the gateway.
+    "only what was offered" a property of the prompt rather than of the gateway.
     A model names a tool it was never offered when it is confused, and when a
     sentence in a note it just read told it to; a personal context takes email
     into `0-inbox/`, so that sentence is one anybody who knows the address can
@@ -495,7 +481,7 @@ export async function runTurn(options) {
         fellBack = true;
         const ms = clock() - asked;
         timing.modelMs += ms;
-        trace.push({ kind: "fallback", from: model, model: next, status: error.status ?? null, ok: true, ms });
+        trace.push({ kind: "fallback", from: model, model: next, status: error.status ?? null, ok: true, at: asked - began, ms });
         tell({ kind: "model", model: next, reason: `after ${model} failed` });
         // The rest of the turn stays on the fallback: a plan would send it back to what failed.
         plan = null;
@@ -505,7 +491,7 @@ export async function runTurn(options) {
         continue;
       }
       // A failed turn is the one most worth seeing in the log, so the trace
-      // so far travels with the error to `route.js`.
+      // so far travels with the error to `texEntryPoint.js`.
       if (error instanceof ProviderError) {
         const ms = clock() - asked;
         error.model = model;
@@ -513,7 +499,7 @@ export async function runTurn(options) {
           rounds: timing.rounds + 1,
           modelMs: timing.modelMs + ms,
           toolMs: timing.toolMs,
-          trace: [...trace, { kind: "model", model, ok: false, ms, ...(error.status === null || error.status === undefined ? {} : { status: error.status }) }],
+          trace: [...trace, { kind: "model", model, ok: false, at: asked - began, ms, ...(error.status === null || error.status === undefined ? {} : { status: error.status }) }],
         };
       }
       throw error;
@@ -526,6 +512,8 @@ export async function runTurn(options) {
       // Which model ran this round: a planned or fallen-back turn has more than one.
       model,
       ok: true,
+      // When it started, from the turn's start, for the chat's timeline (`turnTiming.js`).
+      at: asked - began,
       ms: roundMs,
       // Retried once by the gateway (`aiGateway.js`): noted, with what it was retried after.
       ...(answer.retried ? { retried: true, ...(answer.retried.status === null ? {} : { status: answer.retried.status }) } : {}),
@@ -545,7 +533,8 @@ export async function runTurn(options) {
 
     for (const block of Array.isArray(answer.content) ? answer.content : []) {
       if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim()) {
-        tell({ kind: "thinking", text: block.thinking });
+        // With the round's time and output tokens, so the history shows what the thinking cost (`ledger.js`).
+        tell({ kind: "thinking", text: block.thinking, ms: roundMs, ...(answer.usage ? { output: answer.usage.output } : {}) });
       }
     }
 
@@ -574,6 +563,7 @@ export async function runTurn(options) {
       ...(Array.isArray(answer.content) ? { content: answer.content } : {}),
     });
 
+    const settling = []; // calls this round that settle the turn, read once the whole round has run: one round may start several jobs
     for (const made of answer.toolCalls) {
       // One of the six, as the granted tool that carries it; an older name as itself.
       const resolved = six.resolve(made.name, made.args);
@@ -651,9 +641,9 @@ export async function runTurn(options) {
       const toolMs = clock() - called;
       timing.toolMs += toolMs;
       // A call the egress gate held for the person's yes is not a failure: it
-      // runs when they give it (`route.js`), and a log that called it failed
+      // runs when they give it (`texEntryPoint.js`), and a log that called it failed
       // would read as a broken tool.
-      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
+      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
       // A failed step sends the next round to the planner; one held for the person's yes does not.
       if (failedCall(result)) escalate = true;
@@ -669,8 +659,12 @@ export async function runTurn(options) {
         // second, different copy of the email texted beside the one held (Dev, 2026-10-19).
         isError: failedCall(result),
       });
-      // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
-      const settled = typeof endsTurn === "function" && result?.isError !== true ? endsTurn(call.name, call.args) : null;
+      if (typeof endsTurn === "function" && result?.isError !== true) settling.push(call);
+    }
+    // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
+    // Read after the round, not at its first start: a call after it in the same round (a second part) still runs (2026-11-04).
+    for (const call of settling) {
+      const settled = endsTurn(call.name, call.args);
       if (typeof settled === "string" && settled !== "") {
         return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: { system: systemText(prompt.system), messages } };
       }

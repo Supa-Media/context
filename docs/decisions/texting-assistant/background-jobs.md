@@ -304,3 +304,73 @@ job turns against the cap again, or ending a refused job silently, reverses
 this. Tests: `apps/convex/__tests__/builtinModel.test.ts` ("a background
 job's turns"), `apps/mcp/test/agentBackgroundRoute.test.mjs`,
 `apps/agent/src/jobs.test.ts`, `apps/agent/src/jobReports.test.ts`.
+
+## A restart carries their words, says why a job stopped, and stays quiet when asked (2026-11-03)
+
+On 2026-11-03 a haircut job ("Book Seyi's haircut Thursday on theCut")
+stopped three times. The login had been saved for thecut.com, the magazine,
+while theCut the barber app is thecut.co, so `fill_login` refused on the real
+site every time. Three gaps made it worse. "book with santana, mens adult
+style cut" restarted the job, but a restart handed the job the placeholder
+"(Picked back up.)" instead of their text, so the barber and the cut never
+reached it. `job_status` showed which steps failed but dropped their reasons,
+so the chat's turn guessed ("theCut stopped the job"). And every start and
+restart texted "On it", right after "don't come back to me until you are
+done".
+
+So: a restart sends their own text with it (`resumeJobs`), and the resumed
+job's first part is shown it as a follow-up (`resumeJob`). The placeholder
+is used only when no words of theirs came with it, and is never shown to the
+job. A failed step's reason reaches `job_status`, which tells the turn to
+explain a stop from those reasons and not to blame a site no reason names.
+`start_background_job` and `restart_background_job` take `quiet`. When the
+person asked not to hear until it's done, the turn ends with nothing texted
+(`QUIET_ACK`, kept in the chat as `QUIET_ACK_LINE`). A `fill_login` refused
+for the wrong site names both sites. It never takes the page's host as the
+real site on the page's word, because an attacker's page would ask for a
+login of its own. Instead it asks for a web search before a new `vault_add`
+link. Handing a restart the placeholder again, dropping step reasons from
+`job_status`, or texting a quiet start reverses this. Tests:
+`apps/agent/src/jobResume.test.ts` ("a restart's own words reach the job it
+picks up", "the chat's restart hands the job their words"),
+`apps/mcp/test/agentJobRestart.test.mjs` ("asked to hear nothing until it's
+done"), `apps/mcp/test/agentBackground.test.mjs`,
+`apps/mcp/test/agentFillLogin.test.mjs`.
+
+## A big ask splits into parallel jobs, planned by the advisor (2026-11-04)
+
+Dev asked for big asks to be split into parts that run side by side, and
+then asked how it was built. At that point only `start_background_job`'s
+description asked for it ("start one job per part in this same turn"). And
+it could never happen: `turn.js` ended the turn at the first job that
+started, before the next call in the same round ran, so a split ask always
+got one job. Dev then asked for the advisor to plan big asks, write the
+notes, and say which workers run each part. Dev also asked for a benchmark
+proving that the Haiku and Opus advisor pair splits a big ask when slots are
+free and never splits a simple one.
+
+So:
+
+- A round's calls all run before the turn settles. `endsTurn` is read once
+  the round is done, so two starts in one round both start, and the person
+  gets one text naming every part (`ackLine` with several titles).
+- `plan_big_ask` (`src/agent/planBigAsk.js`, the `send` action `plan`) is
+  offered when the setup says `plan_big_asks: on` and names an advisor. The
+  everyday model calls it with the ask and a new project folder. The
+  advisor reads the conversation, the free slots and the person's computers,
+  and answers with JSON. The answer is either one piece of work ("now" or
+  "one job"), or up to free-slots parts, each with a name, a brief, what
+  done means and a computer. The gateway, not a model, does the rest. It
+  writes the overview and one task note per part through the turn's own
+  dispatcher. It never writes over a note already there, and starts nothing
+  if a note fails. Then it starts one job per part on the overview's mail
+  through the same `call` every start goes through, so the slot cap, the
+  duplicate check and the computer check all apply.
+- Production keeps it off until the splitting bench (`bench/ai/tests/
+  splitting.md`, `background: on`, `must start` checks) says it should.
+
+Settling at the first start again, letting the planner exceed the free
+slots, writing outside the named folder, or starting a part whose note
+failed reverses this. Tests: `apps/mcp/test/agentPlanBigAsk.test.mjs`,
+`apps/mcp/bench/test/checks.test.mjs`, `bench/test/world.test.mjs` ("a
+planned split writes its notes and starts its parts").

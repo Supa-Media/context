@@ -12,7 +12,7 @@
  * rest on that:
  *
  *  - the openable addresses a browser may fetch (`vouched`, `computer.js`) —
- *    `route.js` says in so many words that an address is vouched for by the
+ *    `texEntryPoint.js` says in so many words that an address is vouched for by the
  *    person and never by a previous answer;
  *  - the addresses a texted answer may send a picture from
  *    (`outgoingPictures.js`);

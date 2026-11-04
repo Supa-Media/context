@@ -13,7 +13,7 @@
  * next click, the next read, the summary). A round whose tool calls included
  * a failure sends the next round back to `think`, once: a driver that just hit
  * a wall is the moment the planner is worth paying for. A call the egress gate
- * held for the person's yes is not a failure (`route.js` runs it when they
+ * held for the person's yes is not a failure (`texEntryPoint.js` runs it when they
  * give it), so it never escalates.
  *
  * Without `think_rounds`, a routed turn stays on the model the router picked,
@@ -127,7 +127,7 @@ export function addModelUsage(byModel, model, usage) {
 
 /**
  * Meter a finished turn, one call per model in `meterParts` order:
- * `meter(part, failed, model, whole)` as `route.js` defines it.
+ * `meter(part, failed, model, whole)` as `texEntryPoint.js` defines it.
  */
 export async function meterEach(turn, meter) {
   for (const part of meterParts(turn)) await meter(part, false, part.model, part.whole);

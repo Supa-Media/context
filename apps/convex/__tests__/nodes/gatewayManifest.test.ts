@@ -131,6 +131,11 @@ describe("gatewayReadClearance", () => {
     const editor = [{ workspaceId: ws, role: "editor" }];
     expect(gatewayReadClearance({ scopes: ["context:read", "context:private"], workspaces: editor }, ws)).toEqual({ workspaceId: ws, scope: "team", names: [], audience: "member" });
   });
+  test("a member's names are passed on, as the session carries them", () => {
+    // 2026-11-03: dropped for every non-guest, so an AI connection's tree listing hid each chat home it was given.
+    const member = [{ workspaceId: ws, role: "member", grantedNames: ["leads", "#home1234abcd"] }];
+    expect(gatewayReadClearance({ scopes: ["context:read"], workspaces: member }, ws)).toEqual({ workspaceId: ws, scope: "team", names: ["leads", "#home1234abcd"], audience: "member" });
+  });
   test("no read scope, or a context outside the grant's set, reads nothing", () => {
     const owner = [{ workspaceId: ws, role: "owner" }];
     expect(gatewayReadClearance({ scopes: ["context:capture"], workspaces: owner }, ws)).toBeNull();

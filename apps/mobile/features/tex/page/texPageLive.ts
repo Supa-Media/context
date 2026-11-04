@@ -24,9 +24,17 @@ export interface PatchFrame {
   value?: unknown;
 }
 
-export function liveSocketUrl(gatewayOrigin: string): string {
+/**
+ * The socket's address. The gateway decides at the upgrade whose page and which chat this is (`http/texPage/live.js`
+ * reads `handle` and `chat` from the query), and opens the socket on that chat's own Tex object, so both ride here:
+ * without them every socket was refused as someone else's page and the history only moved on the fallback timer
+ * (Dev, 2026-11-03: "the history is not staying up to date"). Neither is a secret; the grant never rides here.
+ */
+export function liveSocketUrl(gatewayOrigin: string, handle?: string, chat?: string): string {
   const url = new URL(TEX_PAGE_SOCKET_PATH, gatewayOrigin);
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
+  if (handle !== undefined) url.searchParams.set("handle", handle);
+  if (chat !== undefined) url.searchParams.set("chat", chat);
   return url.toString();
 }
 
@@ -127,9 +135,10 @@ export function openLive(options: LiveOptions): Live {
     refresh = false;
     if (stopped) return;
     let opened = false;
-    const live = open(liveSocketUrl(options.gatewayOrigin), liveProtocols(token));
+    const live = open(liveSocketUrl(options.gatewayOrigin, options.handle, chat), liveProtocols(token));
     socket = live;
     live.onopen = () => {
+      if (socket !== live) return;
       opened = true;
       failures = 0;
       live.send(watchFrame());
@@ -137,12 +146,15 @@ export function openLive(options: LiveOptions): Live {
       keepAlive();
     };
     live.onmessage = (event) => {
+      if (socket !== live) return;
       const patch = readPatch(event.data);
       if (patch !== null) options.onPatch(patch);
     };
     live.onerror = () => {};
     live.onclose = (event) => {
-      if (socket === live) socket = null;
+      // A socket already put down (another chat, or closed) says nothing: the one after it is the page's.
+      if (socket !== live) return;
+      socket = null;
       clear();
       if (stopped) return;
       options.onLive(false);
@@ -160,8 +172,23 @@ export function openLive(options: LiveOptions): Live {
   void connect();
   return {
     watch(next) {
+      if (next === chat) {
+        if (socket?.readyState === OPEN) socket.send(watchFrame());
+        return;
+      }
+      // The socket is opened on one chat's object: another chat is another socket.
       chat = next;
-      if (socket?.readyState === OPEN) socket.send(watchFrame());
+      const was = socket;
+      socket = null;
+      clear();
+      try {
+        was?.close(1000, "another chat");
+      } catch {
+        // Already closing.
+      }
+      if (was !== null) options.onLive(false);
+      failures = 0;
+      void connect();
     },
     close() {
       stopped = true;

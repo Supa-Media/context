@@ -34,6 +34,9 @@ import { bindingAnswerOf } from "../controlPlane/session.js";
 import { BindingSealRefused, openBinding, sealBinding } from "../workspaceStore/bindingSeal.js";
 import { workspaceClient } from "../workspaceStore/api.js";
 import { audienceOf } from "./objectLookup.js";
+import { takeOpened } from "./openedHere.js";
+import { TEX_SETUP_CLIENTS } from "../session.js";
+import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 
 /**
  * How long a kept binding is used. Under the five minutes before a temporary bucket credential expires that the
@@ -62,7 +65,18 @@ function secretOf(env) {
 /** Whether this request may be served from the object at all; a reason when it may not. */
 function ineligible(session, env, controlPlane) {
   if (env?.BINDING_FROM_OBJECT === "off") return "switched_off";
-  if (session?.setupRead === true) return "setup_read";
+  // Tex's setup read (`session.js` `sessionForSetup`): its own question of the pin's object, judged there by the setup's
+  // narrowed rules and not by membership (`workspaceStore/setupRules.js`). `SETUP_FROM_OBJECT=off` asks the control plane.
+  if (session?.setupRead === true) {
+    if (env?.SETUP_FROM_OBJECT === "off") return "setup_read";
+    if (!TEX_SETUP_CLIENTS.has(session.actorClientId)) return "setup_read_client";
+    // Only ever the pinned workspace, as the control plane checks for its own answer (`isPinnedWorkspace`).
+    if (`@${session.workspaceSlug}` !== PINNED_CONTEXT_NAME) return "setup_read_not_pin";
+    if (typeof session.actorUserId !== "string" || session.actorUserId === "") return "no_reader";
+    if (session.scope !== "team" || session.role !== "member") return "setup_read_shape";
+    if (secretOf(env) === null) return "no_secret";
+    return null;
+  }
   if (typeof session?.actorUserId !== "string" || session.actorUserId === "") return "no_reader";
   if (session.scope !== "private" && session.scope !== "team") return "no_scope";
   if (audienceOf(session.grantedGroups) !== "member") return "not_member_audience";
@@ -116,21 +130,26 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   if (object === null) return fail("no_object");
   let held;
   let behind;
+  const setupRead = session.setupRead === true;
+  // Answered beside the session already, for this workspace and this person (`openedHere.js`): no second trip. Never a setup read's.
+  const opened = setupRead ? null : takeOpened(session);
   try {
     // One object call, which waits for an open mark and says `behind` while one is still out; the control plane's
     // own behind question beside it only where switched back on.
     [held, behind] = await Promise.all([
-      object.open(session.actorUserId),
+      opened ?? object.open(session.actorUserId, setupRead ? { setupRead: true } : {}),
       askBehind(env) ? controlPlane.objectBehind(session.workspaceId).catch(() => true) : false,
     ]);
   } catch {
     return fail("object_unavailable");
   }
   if (!held || typeof held !== "object") return fail("object_unavailable");
+  // How the object answered: woken for this call, and how long it waited for a mark's push (`serve.js`), for the log.
+  const wake = { cold: held.cold === true, waitedMs: Number.isFinite(held.waitedMs) ? held.waitedMs : null };
   if (held.home !== "object") return fail("notes_not_in_object");
   if (held.accessHome !== "object") return fail("access_not_in_object");
   if (!ENCRYPTION_KNOWN.has(held.encryption)) return fail("encryption_unknown");
-  if (held.member !== true) return fail("not_a_member");
+  if (setupRead ? held.setupRead !== true : held.member !== true) return fail(setupRead ? "setup_read_refused" : "not_a_member");
   if (!held.rules || typeof held.rules !== "object") return fail("no_rules");
   if (behind !== false || held.behind === true) return fail("behind");
   const secret = secretOf(env);
@@ -152,9 +171,9 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   if (age > FRESH_MS) {
     // Past fresh: served only on the bucket's own key, and the control plane is asked behind the response.
     if (typeof answer.binding.sessionToken === "string" && answer.binding.sessionToken !== "") return fail("stale", { keep });
-    return { opened: { ...answer, keyed: true }, source: "object", reason: "stale_served", refresh: keep };
+    return { opened: { ...answer, keyed: true }, source: "object", reason: "stale_served", refresh: keep, wake };
   }
-  return { opened: { ...answer, keyed: true }, source: "object", reason: null };
+  return { opened: { ...answer, keyed: true }, source: "object", reason: null, wake };
 }
 
 /**
@@ -171,6 +190,7 @@ function keeper(object, workspaceId, secret, epoch, encryption, now) {
           binding: opened.binding,
           searchIndex: opened.searchIndex,
           meaningIndex: opened.meaningIndex,
+          meaningOn: opened.meaningOn,
           encryptionKey: opened.encryptionKey,
           managedEncryption: opened.managedEncryption,
           noteCap: opened.noteCap,

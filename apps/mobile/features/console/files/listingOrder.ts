@@ -1,46 +1,29 @@
 import { useSyncExternalStore } from "react";
+import { listingSortOf, type ListingSort } from "@context/shared/src/listingSort.cjs";
 
 /**
- * Which way the file list is sorted, for every surface that draws one.
+ * The workspace's own Sort setting, for every surface that draws a file list.
  *
- * ## Why this stopped being `useState` in `Explorer`
- *
- * The sort control lives in the file tree's header, and the direction it set
- * lived in that component — so it reordered the tree and nothing else. Open a
- * folder and the *same listing*, drawn as a page in the middle of the console,
- * came back A to Z however the sidebar was sorted. The folder page and the
- * tree are one listing shown twice, which is the sentence `FolderView.tsx`
- * opens with; a sort that reaches one of them and not the other is that claim
- * being false in the one place a person would check it.
- *
- * It is also the shape of the complaint this module came out of: things you
- * can do to a folder in the sidebar that you cannot do to it in the middle.
- * The other two were drag and the row menu, and those were fixed by pointing
- * the listing at the modules the tree already used. This one has nothing to
- * point at — the state is genuinely shared and had no home — so it gets one.
+ * Each folder's Sort setting arrives on its listing (`listing.sort`: its own,
+ * or the nearest one above it that is passed down; owner, 2026-11-04,
+ * `docs/decisions/app-and-console/folder-sort.md`). The one setting a listing
+ * never carries is the workspace's, which the top level and every folder with
+ * none above it draws by: it lives on the workspace, not on a row, and is read
+ * from the control plane (`folderSort.workspaceSort`, `useWorkspaceSortSync`
+ * in `fileBrowser/useFolderSort.ts`) into this module.
  *
  * ## Why a bus rather than a prop or a route parameter
  *
- * `Explorer` and `BrowsePane` are siblings with `ConsoleShell` between them,
- * and neither is a parent of the other. `readMode.ts` met the same problem and
- * its header carries the argument in full, including what routing it cost when
- * it was tried that way: the reader and the writer may not import each other,
- * both import a module that knows about neither, and it is deliberately the
- * smallest thing that works — synchronous, one value, no replay.
- *
- * ## What that costs, stated rather than discovered
- *
- * It is **not persisted and not in the URL**. A reload comes back A to Z, and
- * a link somebody sends does not carry how they were looking at their files.
- * Both are true of `readMode` for the same reason and neither is load-bearing:
- * this is a way to look at a list you already have, not a place. It is also
- * process-wide rather than per context, which is right for a preference about
- * reading and would be wrong for anything the bucket stores — nothing here
- * reaches storage, and `tree.ts`'s `orderedEntries` reverses a *presentation*
- * of the server's one order rather than inventing a second one.
+ * The tree (`Explorer`) and the folder page (`BrowsePane`) are siblings with
+ * `ConsoleShell` between them, and neither is a parent of the other; the sort
+ * had to reach both, and the folder page drawing A to Z beside a tree drawn
+ * otherwise was the defect this module was first made for (`readMode.ts` met
+ * the same problem and its header carries the argument in full). It used to
+ * hold a Z to A flip that lived in the browser and reset on reload; since
+ * 2026-11-04 it holds the shared setting, saved for everybody.
  */
 
-let descending = false;
+let workspaceSort: ListingSort | null = null;
 const listeners = new Set<() => void>();
 
 function subscribe(listener: () => void): () => void {
@@ -50,10 +33,10 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-/** Sort Z to A, or back to A to Z. Silent when it is already that way. */
-export function setListingOrder(next: boolean): void {
-  if (descending === next) return;
-  descending = next;
+/** The workspace's setting as it is now (the control plane's answer, or a change drawn ahead of it). Silent when unchanged. */
+export function setWorkspaceSort(next: ListingSort | null): void {
+  if (workspaceSort === next) return;
+  workspaceSort = next;
   for (const listener of [...listeners]) {
     // A throwing subscriber must not stop the rest being told — `readMode.ts`
     // and `bucketWrites.ts` both refuse that, and for the same reason.
@@ -65,26 +48,29 @@ export function setListingOrder(next: boolean): void {
   }
 }
 
-/** Is the file list currently drawn Z to A? */
-export function useListingOrder(): boolean {
-  /*
-    The same function for both snapshots. There is no server here — this is a
-    client-only console — and passing `getSnapshot` twice is how React is told
-    that, rather than leaving the server argument off and having it warn about
-    a hydration mismatch it cannot have.
-  */
-  return useSyncExternalStore(subscribe, () => descending, () => descending);
+/** The workspace's own Sort setting, re-rendering when it changes. */
+export function useWorkspaceSort(): ListingSort | null {
+  return useSyncExternalStore(subscribe, () => workspaceSort, () => workspaceSort);
+}
+
+/** The same answer outside a render, for a command that runs on a press. */
+export function workspaceSortNow(): ListingSort | null {
+  return workspaceSort;
 }
 
 /**
- * The same answer outside a render, for a command that runs on a press: "Move
- * up" means up as the list is drawn, which Z to A is the server's down.
+ * The sort one listing draws by: its own or inherited setting, else the
+ * workspace's (custom only at the top level). Null for the order a folder with
+ * no setting has always drawn in.
  */
-export function listingIsDescending(): boolean {
-  return descending;
+export function sortOfListing(
+  listing: { path?: string; sort?: string | null } | null | undefined,
+  sort: ListingSort | null = workspaceSort,
+): ListingSort | null {
+  return listingSortOf(listing, sort);
 }
 
-/** Back to A to Z, for a test that must not leak an order into the next one. */
+/** Back to no setting, for a test that must not leak an order into the next one. */
 export function resetListingOrder(): void {
-  setListingOrder(false);
+  setWorkspaceSort(null);
 }

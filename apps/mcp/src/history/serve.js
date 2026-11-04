@@ -195,7 +195,9 @@ async function fromIndex(store, client, { from, to, now, budget, file, defer, ma
     }
   }
   if (state.activityFrom === null) throw new Error("history has no starting point");
-  if (!coveredSince(state, from, now)) state = await backfillHistory(store, client, { since: from, now, budget, state });
+  // The backfill leaves one page's read for the answer: one that spent it all answered with none of the rows already
+  // filled, so an answer went from showing them to showing only the file while the job was still running.
+  if (!coveredSince(state, from, now)) state = await backfillHistory(store, client, { since: from, now, budget: keeping(budget, 1), state });
   const covered = coveredSince(state, from, now);
   const settled = state;
 
@@ -240,6 +242,16 @@ async function fromIndex(store, client, { from, to, now, budget, file, defer, ma
   // The hourly re-check, with whatever budget the answer left (`backfill.js`).
   defer(verifyHistoryReads(store, client, { now, budget, state: settled }));
   return { entries, reads, complete: covered && !full && file !== null, truncated: full };
+}
+
+/** `budget`, with `reserve` takes it never gives away: what the caller still needs once the borrower is done. */
+function keeping(budget, reserve) {
+  return {
+    take: (count = 1) => budget.left - count >= reserve && budget.take(count),
+    get left() {
+      return Math.max(0, budget.left - reserve);
+    },
+  };
 }
 
 /** The answer from the bucket alone: the file, and at most eight days of reads. */

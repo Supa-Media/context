@@ -20,7 +20,7 @@
  * fails closed: a Tex event shown is trusted only when its `turn` has a record
  * saying `clean: true`. No turn, no record, an unreadable one or `clean: false`
  * makes the new turn untrusted (`tainted`), as a tainted kept answer does
- * (`historyIsTainted`, which `route.js` still asks of today's history). The
+ * (`historyIsTainted`, which `texEntryPoint.js` still asks of today's history). The
  * Worker's fixed texts are `system` events (`log.js`), never Tex's.
  */
 
@@ -107,7 +107,7 @@ export async function recordedTurn(store, run, { defer = () => false } = {}) {
   try {
     return await run(outcome);
   } finally {
-    // After the response on a chat's lean text (`texEntryPoint.js`): until it lands the turn has no record, which reads as not clean, so late fails closed.
+    // After the response on a chat's lean text (`texTiming.js`): until it lands the turn has no record, which reads as not clean, so late fails closed.
     const recorded = recordTurn(store, outcome.turn, outcome.clean === true).catch(() => {});
     if (defer() && typeof store.defer === "function") store.defer(recorded);
     else await recorded;
@@ -127,12 +127,31 @@ async function cleanTurn(store, turn) {
 }
 
 /** Whether any of Tex's events shown is not proven clean; logs how many had no readable record, by count only. */
-async function showsTainted(store, events, workspace, warm = null, records = (read) => read()) {
-  return records(() => readsTainted(store, events, workspace, warm));
+async function showsTainted(store, events, workspace, warm = null, records = (read) => read(), replies = new Map()) {
+  const turns = [...new Set(events.filter((event) => event.from?.kind === "tex").map((event) => event.turn))];
+  // Tainted already by a reply the ledger holds: no record can make it clean again, so none is read.
+  if (turns.some((turn) => replies.get(turn) === false)) return true;
+  return records(() => readsTainted(store, turns.filter((turn) => !replies.has(turn)), workspace, warm));
 }
 
-async function readsTainted(store, events, workspace, warm) {
-  const turns = [...new Set(events.filter((event) => event.from?.kind === "tex").map((event) => event.turn))];
+/**
+ * Whether each turn's answer was clean, by the gateway's own `reply` entries in the chat's ledger (`clean`, written
+ * when the turn answered, `texEntryPoint/sendTheReply.js`), the record a later turn already trusts for the chat before
+ * the day it holds (`ledgerHistory.js`). A turn with several replies (a retried id) is clean only if every one says so,
+ * as a turn record only ever moves toward not clean (`recordTurn`). A turn the ledger has no reply for is absent, and
+ * its turn record is read as before. On 2026-11-03 a cold text spent 419 ms reading the records one by one.
+ */
+export function cleanByReply(entries) {
+  const replies = new Map();
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (entry?.kind !== "reply" || typeof entry.turn !== "string" || typeof entry.clean !== "boolean") continue;
+    replies.set(entry.turn, replies.get(entry.turn) !== false && entry.clean);
+  }
+  return replies;
+}
+
+async function readsTainted(store, turns, workspace, warm) {
+  if (turns.length === 0) return false;
   const records = await Promise.all(turns.map((turn) => (warm === null ? cleanTurn(store, turn) : warm.clean(turn, () => cleanTurn(store, turn)))));
   const count = records.filter((clean) => clean === null).length;
   if (count > 0) console.log(JSON.stringify({ event: "tex_turn_unproven", workspace: String(workspace), count }));
@@ -149,10 +168,10 @@ export const LOG_PREFACE = "(The chat so far, oldest first, as it happened. \"Yo
   A group chat remembers in its own file, never the tagger's texts; its turns
   are other people's words, so untrusted (`groupTurn.js`).
 */
-export async function turnHistory(store, session, body, { runner, group, dispatch, job = false }) {
+export async function turnHistory(store, session, body, { runner, group, dispatch, job = false, time = undefined }) {
   const conversation = !runner && group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null;
   const read = () => readConversation(store, conversation, job ? { entries: JOB_HISTORY_ENTRIES } : {});
-  const history = group !== null ? await readGroupMemory(store, group, dispatch) : conversation === null ? [] : await read(); // the one record in the person's object (`history.js`), never a copy
+  const history = group !== null ? await readGroupMemory(store, group, dispatch, time ? { time } : {}) : conversation === null ? [] : await read(); // the one record in the person's object (`history.js`), never a copy
   return { conversation, history };
 }
 
@@ -187,22 +206,31 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
   const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [], tainted: false };
   const transcript = renderEvents(withSentByItself([...earlier.events, ...shown], own.shown), { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools });
-  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: own.tainted || (await showsTainted(store, shown, workspace, warm, records)) };
+  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: own.tainted || (await showsTainted(store, shown, workspace, warm, records, group === null ? cleanByReply(read?.entries) : new Map())) };
 }
 
 /**
  * What a background job's part reads of the chat: its newest entries only, for the earlier-texts tool, kept files and
- * the words that vouch for an address. Its prompt shows none of them (`route.js`): it works from its own record, the
+ * the words that vouch for an address. Its prompt shows none of them (`texEntryPoint.js`): it works from its own record, the
  * brief, finish line, their later texts, its last answer and the advisor's advice (`background.js` `jobPrompt`).
  * On 2026-10-31 every part re-read the last 150 messages, about 5s each, and three restarted jobs copied the chat's
  * "On it: ... restarted" lines as their answer.
  */
 export const JOB_HISTORY_ENTRIES = 30;
 
-/** Today's history and the chat's event log, side by side: what a turn reads before its model (`route.js`). */
-export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, records }) {
-  const today = turnHistory(store, session, body, { runner, group, dispatch, job });
-  return Promise.all([today, runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records, record: today.then((read) => read.history).catch(() => []), ledger: job ? null : chatLedger(store, session) })]);
+/**
+ * Today's history and the chat's event log, side by side: what a turn reads before its model (`texEntryPoint.js`).
+ * `time` times each part as its own step (`memory`, `ledger`, `log`, and in a group the memory's notes and its ledger;
+ * the entry point names them `history_*`), so the
+ * second a group's history takes is never guessed at (2026-11-04); by default nothing is timed.
+ */
+const UNTIMED = { memory: (run) => run(), ledger: (run) => run(), log: (run) => run(), groupReads: (run) => run(), groupLedger: (run) => run() };
+export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, records, time = UNTIMED }) {
+  const today = time.memory(() => turnHistory(store, session, body, { runner, group, dispatch, job, time: { reads: time.groupReads, ledger: time.groupLedger } }));
+  const started = job ? null : chatLedger(store, session);
+  // No ledger stays null: the log is then read from the bucket (`loggedTurn`).
+  const ledger = started === null ? null : time.ledger(() => started);
+  return Promise.all([today, runner ? null : time.log(() => loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records, record: today.then((read) => read.history).catch(() => []), ledger }))]);
 }
 
 /** The chat's ledger as a turn reads it (`ledgerHistory.js`), started now, or null when the session keeps none. */

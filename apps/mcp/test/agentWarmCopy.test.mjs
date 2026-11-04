@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createEgressWorld, keepDeskKeys, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { mergeEvents, openWarm, sealWarm, WARM_NOTES_MS, WARM_SETUP_MS, warmTurn } from "../src/agent/warmCopy.js";
+import { mergeEvents, openWarm, sealWarm, WARM_NOTES_MS, WARM_SETUP_MS, WARM_STALE_MS, warmTurn } from "../src/agent/warmCopy.js";
 
 const env = { GATEWAY_SECRET: "a-test-secret-of-some-length" };
 const session = { workspaceId: "ws_1", actorUserId: "user_1", actorClientId: "context_texts" };
@@ -85,16 +85,60 @@ test("events the log would refuse are left out, and the copy's are kept beside t
 test("the setup is trusted for an hour, while who they are and the skills are read again after ten minutes", async () => {
   const now = Date.now();
   const thirtyMinutes = 30 * 60 * 1000;
-  const sealed = await sealWarm(env, session, { v: 1, setup: { at: now, value: "setup text" }, identity: { at: now, value: "n" }, skills: { at: now, value: [] } });
+  const sealed = await sealWarm(env, session, { v: 1, setup: { at: now, value: "setup text" }, identity: { at: now, value: "n" }, skills: { at: now, value: ["kept"] } });
   const hot = warmTurn(env, session, { warm: sealed }, { eligible: true, now: now + thirtyMinutes });
   let reads = 0;
   assert.equal(await hot.setup(async () => (reads += 1, "read")), "setup text", "a 30-minute-old setup is used");
   assert.equal(await hot.identity(async () => (reads += 1, "read")), "read", "a 30-minute-old identity is read again");
-  assert.equal(await hot.skills(async () => (reads += 1, "read")), "read", "30-minute-old skills are read again");
+  assert.deepEqual(await hot.skills(async () => (reads += 1, ["read"])), ["kept"], "30-minute-old skills are used while read again");
+  await settle();
   assert.equal(reads, 2, "only the two parts past their window were read");
+  assert.deepEqual((await openWarm(env, session, await hot.seal({}), now + thirtyMinutes)).skills.value, ["read"], "and the copy handed back has what that read found");
 
   const past = await openWarm(env, session, sealed, now + WARM_SETUP_MS + 1);
-  assert.equal(past.setup, undefined, "the setup is read again after an hour");
+  assert.equal(past.setup, undefined, "the setup is not fresh after an hour");
+  assert.equal(past.stale.setup.value, "setup text", "but is served while read again");
+});
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test("past fresh and inside a day, the setup and skills answer at once and are read beside the turn; past a day, before it", async () => {
+  const now = Date.now();
+  const hours = (n) => n * 60 * 60 * 1000;
+  const sealed = await sealWarm(env, session, { v: 1, setup: { at: now, value: "old setup" }, skills: { at: now, value: ["old"] }, identity: { at: now, value: "n" } });
+  const hot = warmTurn(env, session, { warm: sealed }, { eligible: true, now: now + hours(4) });
+  let release;
+  const held = new Promise((resolve) => (release = resolve));
+  // The read again is not waited for: the turn has the old setup while it is still out.
+  assert.equal(await hot.setup(() => held.then(() => "new setup")), "old setup");
+  assert.deepEqual(await hot.skills(async () => ["new"]), ["old"]);
+  assert.equal(await hot.identity(async () => "fresh identity"), "fresh identity", "who they are is never served stale");
+  release();
+  await settle();
+  const next = await openWarm(env, session, await hot.seal({}), now + hours(4));
+  assert.equal(next.setup.value, "new setup", "the next text has what the read again found, as fresh");
+  assert.deepEqual(next.skills.value, ["new"]);
+
+  const day = warmTurn(env, session, { warm: sealed }, { eligible: true, now: now + WARM_STALE_MS + 1 });
+  assert.equal(await day.setup(async () => "read"), "read", "past a day it is read before the turn");
+  assert.deepEqual(await day.skills(async () => ["read"]), ["read"]);
+});
+
+test("a stale setup whose read again finds none is not carried on", async () => {
+  const now = Date.now();
+  const sealed = await sealWarm(env, session, { v: 1, setup: { at: now, value: "old setup" } });
+  const at = now + 2 * 60 * 60 * 1000;
+  const hot = warmTurn(env, session, { warm: sealed }, { eligible: true, now: at });
+  assert.equal(await hot.setup(async () => null), "old setup");
+  await settle();
+  const next = await openWarm(env, session, await hot.seal({}), at);
+  assert.equal(next.setup, undefined);
+  assert.equal(next.stale.setup, undefined, "a removed setup is gone by the next text");
+  // A read again that failed carries the stale copy as it was, bounded by its own time.
+  const failed = warmTurn(env, session, { warm: sealed }, { eligible: true, now: at });
+  assert.equal(await failed.setup(async () => { throw new Error("down"); }), "old setup");
+  await settle();
+  assert.equal((await openWarm(env, session, await failed.seal({}), at)).stale.setup.at, now);
 });
 
 test("while a background job runs, or just after, the skills are read fresh and the setup still comes from the copy", async () => {

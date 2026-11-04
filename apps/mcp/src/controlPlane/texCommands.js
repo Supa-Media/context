@@ -3,7 +3,7 @@
  * the control plane's `functions/texCommands.ts`).
  */
 
-const STATUSES = new Set(["done", "refused", "not_allowed", "bad_request", "mail_refused"]);
+const STATUSES = new Set(["done", "refused", "not_allowed", "bad_request", "mail_refused", "too_long", "nothing_to_undo"]);
 
 export function createTexCommandMethods({ post }) {
   return {

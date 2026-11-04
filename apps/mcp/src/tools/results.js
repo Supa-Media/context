@@ -10,7 +10,7 @@ export function toolError(text) {
 export function writePermissionError(operation = "destination") {
   return toolError(
     `permission denied: ${operation} is outside this connection's team-writable folder defaults. ` +
-      "Call scope_info for the authorized write surface or use propose_note for the correct destination. " +
+      "Call scope_info for the authorized write surface. " +
       "No private-path information is disclosed by this error."
   );
 }

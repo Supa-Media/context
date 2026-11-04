@@ -30,7 +30,7 @@ const LINK_LINE = /^[ \t]*(?:[-*•][ \t]+)?(?:link:[ \t]*)?<?(https:\/\/[^\s/<>
 const NOTE_PATH_LINE = /^((sources?|from|see):\s*)?[\w.][\w\-./ ]*\.md$/gim;
 const LIST_ITEM = /^(- |\d+[.)] )/;
 
-/** `maxTexts`: 1 when the chat asked for one bubble per answer (`texStyle.ts`); links still go on their own. */
+/** `maxTexts`: 1 for a group's check-in, which posts one bubble (`groupModelTurn.ts`); links still go on their own. */
 export function textsFromAnswer(answer: string, maxTexts = MAX_TEXTS): string[] {
   const links: string[] = [];
   let text = answer.replace(/\r\n?/g, "\n");

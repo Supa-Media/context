@@ -14,7 +14,7 @@ import { flagSpot } from "../features/console/map/live/engine/folders";
 import { overlaps, type Rect } from "../features/console/map/live/engine/labels";
 import { fakeContext } from "./liveMapFixture";
 import type { MapEvent } from "../features/console/map/live/types";
-import { WHO, ev, fakeCanvas, graph, para, palette, type Call } from "./liveMapFixture";
+import { WHO, ev, fakeCanvas, graph, isDotColour, para, palette, type Call } from "./liveMapFixture";
 
 /**
  * WHAT GOES ON TOP OF WHAT — `engine/draw/containers.ts`, `engine/draw/flights.ts`,
@@ -22,7 +22,7 @@ import { WHO, ev, fakeCanvas, graph, para, palette, type Call } from "./liveMapF
  *
  * Words on the map are the map's own voice, so nothing moving may sit on
  * them: a workspace's title and a folder's name are placed before anything
- * else and drawn over the stream of reading dots; a note on its way to
+ * else and drawn over the marks on notes being read; a note on its way to
  * another workspace puts its caption where no folder's name is; note names
  * go round the dots; and in the Folders view the mover's flag keeps off the
  * names on the cards.
@@ -32,7 +32,7 @@ import { WHO, ev, fakeCanvas, graph, para, palette, type Call } from "./liveMapF
  *
  * Sabotage record:
  *   container labels drawn before the reading dots → "a workspace's name is
- *     drawn over the reading dots" fails;
+ *     drawn over the reading marks" fails;
  *   `placeContainerLabels` not checking `hits` → "folder names never overlap"
  *     fails;
  *   `placeFlights` claiming its first spot without checking → "a moving
@@ -102,11 +102,17 @@ describe("names of workspaces and folders", () => {
     selfId: null,
   };
 
-  test("a workspace's name is drawn over the reading dots", () => {
+  test("a workspace's name is drawn over the reading marks", () => {
     const { canvas, engine } = engineFor(data);
     engine.renderAt(T);
     const calls = canvas.ctx.calls;
-    const dots = calls.map((c, i) => (c.op === "fill" && c.fillStyle === palette.ink && (c.alpha ?? 1) < 0.85 ? i : -1)).filter((i) => i >= 0);
+    // The pencil circles on read notes: ink strokes along a loop of many short lines.
+    const loopAt = (i: number) => {
+      let n = 0;
+      for (let j = i - 1; j >= 0 && calls[j]!.op !== "beginPath"; j -= 1) if (calls[j]!.op === "lineTo") n += 1;
+      return n >= 20;
+    };
+    const dots = calls.map((c, i) => (c.op === "stroke" && c.strokeStyle === palette.ink && loopAt(i) ? i : -1)).filter((i) => i >= 0);
     expect(dots.length).toBeGreaterThan(0);
     // The title itself (15px), not the overview's small copy of it.
     const title = calls.findIndex((c) => c.op === "fillText" && c.args[0] === "Supa" && (c.font ?? "").includes(" 15px "));
@@ -205,13 +211,13 @@ describe("note names", () => {
     engine.renderAt(T);
     const calls = canvas.ctx.calls;
     const dots: Array<{ x: number; y: number; r: number }> = [];
-    // Resting dots share one path and one fill, so every arc in a path that
-    // is filled in the dot colour is a dot.
+    // Resting dots share one path and one fill per pencil colour, so every arc
+    // in a path filled in a dot colour is a dot.
     let path: Array<{ x: number; y: number; r: number }> = [];
     for (const c of calls) {
       if (c.op === "beginPath") path = [];
       else if (c.op === "arc") path.push({ x: Number(c.args[0]), y: Number(c.args[1]), r: Number(c.args[2]) });
-      else if (c.op === "fill" && c.fillStyle === palette.dot) dots.push(...path);
+      else if (c.op === "fill" && isDotColour(c.fillStyle)) dots.push(...path);
     }
     const names = texts(calls).filter((t) => t.text.startsWith("note "));
     expect(dots.length).toBeGreaterThan(20);

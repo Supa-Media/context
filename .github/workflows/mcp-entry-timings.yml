@@ -13,7 +13,7 @@ on:
         options: [production, staging]
         default: production
       call:
-        description: "Which call, e.g. tools/call:write or tools/call:fetch."
+        description: "Which call, e.g. tools/call:fetch, tools/call:manage (every action) or tools/call:manage:archive (one action)."
         required: true
         default: "tools/call:write"
       hours:
@@ -24,6 +24,11 @@ on:
         description: "Instead of hours: how far back to read, in minutes (5 to 1440), e.g. since a deploy. Blank uses hours."
         required: false
         default: ""
+      split:
+        description: "Also split each step by the connection's app (client), or by the Cloudflare data center the call ran in (place, printed as place 1, 2, ... by volume, never the data center's code)."
+        type: choice
+        options: [none, client, place]
+        default: none
 
 permissions:
   contents: read
@@ -41,6 +46,7 @@ jobs:
           CALL: ${{ inputs.call }}
           HOURS: ${{ inputs.hours }}
           MINUTES: ${{ inputs.minutes }}
+          SPLIT: ${{ inputs.split }}
           DATASET: ${{ inputs.environment == 'staging' && 'mcp_entry_staging' || 'mcp_entry' }}
         run: |
           set -euo pipefail
@@ -55,20 +61,34 @@ jobs:
             window="$MINUTES' MINUTE"
             span="$MINUTES min"
           fi
-          query="SELECT blob3 AS step, blob4 AS state, SUM(_sample_interval) AS n,
+          by=""
+          limit=60
+          case "${SPLIT:-none}" in none) ;; client) by=", blob5 AS part"; limit=150 ;; place) by=", blob6 AS part"; limit=200 ;; *) echo "split must be none, client or place" >&2; exit 1 ;; esac
+          query="SELECT blob3 AS step, blob4 AS state$by, SUM(_sample_interval) AS n,
             quantileWeighted(0.5)(double1, _sample_interval) AS p50_ms,
             quantileWeighted(0.95)(double1, _sample_interval) AS p95_ms,
             SUM(double3 * _sample_interval) / SUM(_sample_interval) AS calls
             FROM $DATASET
-            WHERE blob1 = 'mcp' AND blob2 = '$CALL' AND timestamp > NOW() - INTERVAL '$window
-            GROUP BY step, state ORDER BY p50_ms DESC LIMIT 60 FORMAT JSON"
+            WHERE blob1 = 'mcp' AND (blob2 = '$CALL' OR blob2 LIKE '$CALL:%') AND timestamp > NOW() - INTERVAL '$window
+            GROUP BY step, state${by:+, part} ORDER BY ${by:+part, }p50_ms DESC LIMIT $limit FORMAT JSON"
           curl -sS --fail-with-body -X POST \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/analytics_engine/sql" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data "$query" > answer.json
           SPAN="$span" node -e '
             const { data } = JSON.parse(require("fs").readFileSync("answer.json", "utf8"));
-            const lines = ["| step | state | n | p50 ms | p95 ms | calls each |", "| --- | --- | ---: | ---: | ---: | ---: |"];
-            for (const row of data) lines.push(`| ${row.step} | ${row.state} | ${Math.round(row.n)} | ${Math.round(row.p50_ms)} | ${Math.round(row.p95_ms)} | ${Number(row.calls).toFixed(1)} |`);
+            const split = process.env.SPLIT === "client" || process.env.SPLIT === "place" ? process.env.SPLIT : null;
+            const lines = split
+              ? [`| step | state | ${split} | n | p50 ms | p95 ms | calls each |`, "| --- | --- | --- | ---: | ---: | ---: | ---: |"]
+              : ["| step | state | n | p50 ms | p95 ms | calls each |", "| --- | --- | ---: | ---: | ---: | ---: |"];
+            // An app name comes from the grant, so only letters, digits, spaces and dots are printed.
+            const app = (name) => String(name ?? "").replace(/[^A-Za-z0-9 .]/g, "").slice(0, 40) || "-";
+            // A data center is a rough location and these logs are public: each is numbered by its volume here instead.
+            const volume = new Map();
+            for (const row of data) volume.set(row.part, (volume.get(row.part) ?? 0) + Number(row.n));
+            const rank = new Map([...volume].filter(([part]) => part).sort((a, b) => b[1] - a[1]).map(([part], at) => [part, `place ${at + 1}`]));
+            const label = (part) => (split === "place" ? rank.get(part) ?? "unknown" : app(part));
+            if (split === "place") data.sort((a, b) => label(a.part).localeCompare(label(b.part), "en", { numeric: true }) || b.p50_ms - a.p50_ms);
+            for (const row of data) lines.push(`| ${row.step} | ${row.state} |${split ? ` ${label(row.part)} |` : ""} ${Math.round(row.n)} | ${Math.round(row.p50_ms)} | ${Math.round(row.p95_ms)} | ${Number(row.calls).toFixed(1)} |`);
             const out = [`### ${process.env.CALL}, last ${process.env.SPAN}`, "", ...lines].join("\n");
             console.log(out);
             require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, out + "\n");

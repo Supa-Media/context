@@ -20,6 +20,7 @@ import type { AudioRecorder } from "../core/capture/recorder.ts";
 import { DesktopCaptureRecorder } from "./capture.ts";
 import { electronPermissionBroker } from "./permissions.ts";
 import { createLocalAgent } from "./localAgent.ts";
+import { createAppMachineRunner } from "./machine.ts";
 import { transcribeChunk } from "./transcribe.ts";
 import { ImessageSyncService } from "./imessage.ts";
 import { MessagesBackupService, backupBridgeStatus, machineLabel } from "./messagesBackup.ts";
@@ -192,5 +193,13 @@ export async function createServices(
     },
   });
 
-  return { localAgent, imessage, messagesBackup, panel, notepad, capture, controller, updater, loop };
+  // Let Tex use this Mac: started now if the person turned it on before, and told to the console as it changes.
+  const machine = await createAppMachineRunner({
+    consoleToken: () => tokens.read(),
+    endpoint: () => ctx.settings.gatewayEndpoint,
+    onChange: (status) => ctx.consoleBridge?.emitMachine(status),
+  });
+  if (ctx.settings.machineEnabled) void machine.setEnabled(true);
+
+  return { localAgent, imessage, messagesBackup, machine, panel, notepad, capture, controller, updater, loop };
 }

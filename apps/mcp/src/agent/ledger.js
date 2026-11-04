@@ -17,10 +17,10 @@
  * Entry fields, schema `tex-ledger` v1 (every entry `{v, id, at, kind, seq}`,
  * `turn` when a turn wrote it):
  * - `text`: `{from: {kind: "person"|"tex"|"system", name?, who?}, text, covers?, delivered?, reason?, told?, replyTo?, event?}`
- * - `thinking`: `{text}`, the model's thinking in words, as it came back
+ * - `thinking`: `{text, ms?, output?}`, the model's thinking in words, as it came back, with its model round's milliseconds and output tokens
  * - `said`: `{text}`, what the model said between its tools
  * - `tool`: `{name, args, ok, ms, held?, reason?, result?, cut?, withheld?}`
- * - `reply`: `{text, ms, model?}`, the turn's answer as it left the gateway
+ * - `reply`: `{text, ms, model?, timing?}`, the turn's answer as it left the gateway; `timing` is where its time went (`turnTiming.js`)
  * - `advisor`: `{question, answer, ms, steps?}` / `mail_check`: `{to, subject, verdict, why, ref?}` / `job`: `{job, title?, state}`
  * - `note`: `{text}`, anything else worth keeping (a routine's text, a check-in)
  */
@@ -190,6 +190,14 @@ export function jobTagged(writer, job) {
   };
 }
 
+/** The model round a thinking entry came from: its milliseconds and output tokens, numbers only (`turn.js`). */
+function roundCost(event) {
+  const cost = {};
+  if (Number.isFinite(event.ms) && event.ms >= 0) cost.ms = Math.round(event.ms);
+  if (Number.isFinite(event.output) && event.output >= 0) cost.output = Math.round(event.output);
+  return cost;
+}
+
 /**
  * A turn's steps (`turn.js` `tell`) written to its chat's ledger, beside
  * whatever else watches them (`then`): thinking, the words between tools, and
@@ -200,7 +208,7 @@ export function ledgerObserver(writer, then = null, { turn = null, ownSlug = nul
   const at = { turn: typeof turn === "string" && turn !== "" ? turn : null };
   return (event) => {
     if (typeof then === "function") then(event);
-    if (event?.kind === "thinking" && typeof event.text === "string" && event.text.trim() !== "") writer.write(wordsEntry("thinking", event.text, at));
+    if (event?.kind === "thinking" && typeof event.text === "string" && event.text.trim() !== "") writer.write(wordsEntry("thinking", event.text, { ...at, ...roundCost(event) }));
     else if (event?.kind === "say" && typeof event.text === "string" && event.text.trim() !== "") writer.write(wordsEntry("said", event.text, at));
     else if (event?.kind === "tool") writer.write(toolEntry(event, { ownSlug, turn: at.turn }));
   };

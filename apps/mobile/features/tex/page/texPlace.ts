@@ -10,6 +10,7 @@
  *   …/<view>                       a sub-page (`/routines`, `/jobs`, `/computer`, …)
  *   …/job/<id>                     one job's steps
  *   ?full=1                        Tex's computer, full screen
+ *   …/machine?machine=<id>         one of the person's own machines
  *
  * The older query (`?chat=&view=&job=&full=`) is still read, so a link texted
  * before keeps working. Anything that is not a known view, a well-formed chat
@@ -18,7 +19,8 @@
  * is the gateway's call, never the address's.
  */
 
-import { groupWordsOf, texGroupHref, texHref } from "../texComputer";
+import { loginHref } from "../../auth/redirect";
+import { groupWordsOf, normalizeHandle, texGroupHref, texHref } from "../texComputer";
 import { SUB_VIEWS, type ChatRef, type SubView } from "./texPageTypes";
 import type { Place } from "./TexPageBody";
 
@@ -43,13 +45,23 @@ export function readPlace(params: Record<string, string | string[] | undefined>)
     else if (isView(view)) place.view = view;
   }
   if (place.view === "computer" && one(params.full) === "1") place.full = true;
+  // One machine's page needs which machine; without a well-formed id it is the list of them.
+  if (place.view === "machine") {
+    const machine = one(params.machine);
+    if (machine && KEY.test(machine)) place.machine = machine;
+    else place.view = "machines";
+  }
   return place;
 }
 
-/** A place under an address (`/tex/@seyi`, `/tex/group/<words>`): its sub-page or job, and `?full=1`. */
+/** A place under an address (`/tex/@seyi`, `/tex/group/<words>`): its sub-page or job, `?full=1` and `?machine=`. */
 export function addressOf(base: string, place: Omit<Place, "chat">, query: Record<string, string> = {}): string {
   const path = place.job ? `${base}/job/${encodeURIComponent(place.job)}` : place.view ? `${base}/${place.view}` : base;
-  const search = new URLSearchParams({ ...query, ...(place.view === "computer" && place.full ? { full: "1" } : {}) }).toString();
+  const search = new URLSearchParams({
+    ...query,
+    ...(place.view === "computer" && place.full ? { full: "1" } : {}),
+    ...(place.view === "machine" && place.machine ? { machine: place.machine } : {}),
+  }).toString();
   return search ? `${path}?${search}` : path;
 }
 
@@ -67,4 +79,21 @@ export function placeHref(handle: string, place: Place, chats: readonly ChatRef[
 /** The group chat whose home is `words`, among the chats the picker offers, or null. */
 export function chatOfWords(chats: readonly ChatRef[], words: string): string | null {
   return chats.find((chat) => chat.key !== "me" && groupWordsOf(chat.home?.folder) === words)?.key ?? null;
+}
+
+/**
+ * Sign in, then back to this place, under the address it came by: a handle's,
+ * or a group's words. A runner's pairing code rides along, or signing in
+ * would drop the approval the link came for.
+ */
+export function signInHref(
+  fallback: string,
+  at: { handle: string | null | undefined; words?: string | null },
+  place: Place,
+  code: string | null = null,
+): string {
+  const extra: Record<string, string> = code ? { code } : {};
+  if (at.words !== undefined) return at.words === null ? fallback : loginHref(addressOf(texGroupHref(at.words), place, extra));
+  const handle = normalizeHandle(at.handle);
+  return handle ? loginHref(addressOf(texHref(handle), place, { ...(place.chat === "me" ? {} : { chat: place.chat }), ...extra })) : fallback;
 }

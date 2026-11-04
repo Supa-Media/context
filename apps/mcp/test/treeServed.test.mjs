@@ -432,3 +432,26 @@ test("a tree answer may be larger than the 256 KB every other control-plane answ
   // Every other route keeps the small cap.
   await assert.rejects(controlPlane.resolveSession("tok"), /response too large/);
 });
+
+// `compareKeys` orders keys as S3 lists them, by UTF-8 bytes, without encoding them (src/tree/served.js).
+// Sabotage: return `x - y` in place of the ranks and the astral-against-U+E000 pairs fail.
+test("compareKeys agrees with UTF-8 byte order, astral characters and the private use area included", async () => {
+  const { compareKeys } = await import("../src/tree/served.js");
+  const bytes = new TextEncoder();
+  const byBytes = (a, b) => {
+    const x = bytes.encode(a);
+    const y = bytes.encode(b);
+    for (let i = 0; i < Math.min(x.length, y.length); i += 1) if (x[i] !== y[i]) return x[i] - y[i];
+    return x.length - y.length;
+  };
+  const alphabet = ["a", "z", "/", ".", "é", "中", "", "￮", "퟿", "\u{1F600}", "\u{10FFFF}", "\u{20000}"];
+  let seed = 7;
+  const next = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31);
+  const word = () => Array.from({ length: 1 + (next() % 5) }, () => alphabet[next() % alphabet.length]).join("");
+  for (let round = 0; round < 5000; round += 1) {
+    const a = word();
+    const b = word();
+    assert.equal(Math.sign(compareKeys(a, b)), Math.sign(byBytes(a, b)), `${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
+  }
+  assert.ok(compareKeys("\u{1F600}", "￮") > 0, "a character past U+FFFF sorts after U+FFEE, as its bytes do");
+});

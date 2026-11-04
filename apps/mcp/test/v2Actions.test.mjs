@@ -108,13 +108,6 @@ test("write remember passes its args through as remember's own", () => {
   });
 });
 
-test("write propose sends the note as propose_note, with its path, content and etag", () => {
-  assert.deepEqual(
-    translated("write", { action: "propose", path: "2-areas/x.md", content: "y", expected_etag: "e", args: { reason: "r" } }).arguments,
-    { reason: "r", path: "2-areas/x.md", content: "y", expected_etag: "e" },
-  );
-  assert.equal(translated("write", { action: "propose", path: "a.md", content: "y", args: { reason: "r" } }).name, "propose_note");
-});
 
 test("write answer sends the form answer as submit_form", () => {
   assert.deepEqual(translated("write", { action: "answer", path: "f.md", args: { form: "intake", values: {} } }), {
@@ -174,7 +167,6 @@ const MANAGE = [
   ["visibility", "set_visibility", { path: "a.md", visibility: "team", confirm_team_publish: true }],
   ["folder_visibility", "set_folder_visibility", { path: "2-areas", visibility: "inherit", dry_run: true }],
   ["encrypt", "set_encryption", { path: "a.md", encrypted: true }],
-  ["review_proposal", "review_proposal", { proposal: "p1", decision: "approve" }],
   ["suggest_destination", "suggest_destination", { content: "x" }],
   ["revoke_link", "revoke_link", { link: "l1" }],
   ["share_link", "create_link", { path: "a.md" }],
@@ -420,7 +412,7 @@ test("every row of ACTIONS names a tool, and every row is covered above", () => 
   const rows = Object.entries(ACTIONS).flatMap(([verb, actions]) => Object.keys(actions).map((action) => `${verb}.${action}`));
   const covered = new Set([
     // `write.save_many` is covered through the worker in `bulkNotes.test.mjs`.
-    ...["write.save", "write.save_many", "write.comment", "write.mail", "write.upload", "write.remember", "write.propose", "write.answer", "write.update_answer", "write.retract_answer", "write.vote", "write.save_session", "write.report_problem"],
+    ...["write.save", "write.save_many", "write.comment", "write.mail", "write.upload", "write.remember", "write.answer", "write.update_answer", "write.retract_answer", "write.vote", "write.save_session", "write.report_problem"],
     ...MANAGE.map(([action]) => `manage.${action}`),
     ...["manage.website", "send.api", "send.email", "send.email_draft", "send.calendar", "send.forward_rule", "send.notify", "send.slack", "send.google_chat", "send.app"],
   ]);

@@ -151,6 +151,7 @@ export function treeSockets(state, sql, store, deps = {}) {
       more,
       own: tree.own(folder),
       roots: tree.jobRows(),
+      sortAt: (path) => tree.sortAt(path),
     });
   };
 
@@ -199,7 +200,11 @@ export function treeSockets(state, sql, store, deps = {}) {
       const reader = readerFor(id);
       if (expired(ws, id, reader)) continue;
       const watched = all(sql.exec("SELECT folder FROM ws_tree_watch WHERE socket = ?", id)).map((row) => row.folder);
-      const touched = notice.all ? watched : watched.filter((folder) => notice.folders.has(folder));
+      // A folder's change reaches the folders beneath it too: they draw by its Sort setting when they have none.
+      const under = [...notice.changedFolders].map((folder) => `${folder}/`);
+      const touched = notice.all
+        ? watched
+        : watched.filter((folder) => notice.folders.has(folder) || under.some((prefix) => folder.startsWith(prefix)));
       await sendListings(ws, id, reader, touched);
     }
   };
@@ -259,7 +264,7 @@ export function treeSockets(state, sql, store, deps = {}) {
      */
     notice({ rows = [], all: everything = false } = {}) {
       if (pending === null) {
-        pending = { folders: new Set(), all: false };
+        pending = { folders: new Set(), changedFolders: new Set(), all: false };
         schedule(() => {
           flush().catch(() => {});
         }, NOTICE_GATHER_MS);
@@ -272,6 +277,7 @@ export function treeSockets(state, sql, store, deps = {}) {
         if (row.kind !== "file") {
           pending.folders.add(row.path);
           pending.folders.add("");
+          pending.changedFolders.add(row.path);
         }
       }
     },

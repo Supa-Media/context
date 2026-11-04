@@ -37,6 +37,7 @@
  * it is the single most important property in this file's neighbourhood.
  */
 
+import { carryOpened } from "./store/openedHere.js";
 import { StorageUnavailable } from "./store/factory.js";
 import { ControlPlaneError } from "./controlPlane.js";
 import { RESERVED_FIRST_SEGMENTS, SLUG_PATTERN } from "./workspacePath.js";
@@ -249,6 +250,8 @@ export async function resolveSession(token, slug, controlPlane, transport = null
     // When this client last fetched our tool list; `orient` names what
     // changed since (`tools/news.js`). A time, and nothing about the tools.
     toolsListedAt: session.toolsListedAt,
+    // A text's session from the person object carries who is texting (`sessionPayload.js`); absent everywhere else.
+    ...(session.texterIdentity !== undefined ? { texterIdentity: session.texterIdentity } : {}),
   };
 
   /**
@@ -268,6 +271,8 @@ export async function resolveSession(token, slug, controlPlane, transport = null
     enumerable: false,
     writable: false,
   });
+  // A store open answered beside this session (`store/openedHere.js`), used only for the workspace and person it names.
+  carryOpened(resolved, resolvedSession);
   return resolvedSession;
 }
 

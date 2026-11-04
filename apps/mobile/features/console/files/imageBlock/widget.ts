@@ -28,6 +28,39 @@ const ALIGN_STYLE: Record<ImageAlign, string> = {
 /*                                 the widget                                 */
 /* -------------------------------------------------------------------------- */
 
+/** What an image with no picture says, by why it has none (`drawMissing`). */
+const MISSING_TITLE = {
+  missing: "Image not found",
+  failed: "Couldn't load this image",
+  unhosted: "Image not shown here",
+} as const;
+
+/** A picture frame with a slash through it: an image that is not there. */
+function imageOffIcon(): SVGElement {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("class", "cm-lp-image-gone-icon");
+  svg.setAttribute("viewBox", "0 0 1 1");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "0.075");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  const shape = (tag: string, attributes: Record<string, string>): void => {
+    const element = document.createElementNS(ns, tag);
+    for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+    svg.append(element);
+  };
+  shape("rect", { x: "0.12", y: "0.2", width: "0.76", height: "0.6", rx: "0.11" });
+  shape("path", { d: "M0.24 0.68 L0.42 0.5 L0.55 0.61 L0.64 0.54 L0.76 0.66" });
+  shape("circle", { cx: "0.66", cy: "0.36", r: "0.05" });
+  // The slash, with a knockout in the card's ground so it reads over the frame.
+  shape("path", { d: "M0.1 0.1 L0.9 0.9", stroke: "var(--lp-raised)", "stroke-width": "0.2" });
+  shape("path", { d: "M0.1 0.1 L0.9 0.9" });
+  return svg;
+}
+
 /** An icon, drawn rather than named: three lines, aligned. */
 function alignIcon(align: ImageAlign): SVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -133,20 +166,24 @@ export class ImageRowWidget extends WidgetType {
 
     const host = this.host?.current ?? null;
     if (host === null) {
-      figure.append(this.drawMissing("This surface cannot load images."));
+      this.drawMissing(figure, "unhosted", target, view, index);
     } else {
-      void host
-        .load(target)
-        .then((src) => {
-          if (src === null) {
-            figure.append(this.drawMissing(`Not in this bucket: ${target}`));
-            return;
-          }
-          img.src = src;
-        })
-        .catch(() => {
-          figure.append(this.drawMissing(`Could not load ${target}`));
-        });
+      const load = (): Promise<void> =>
+        host
+          .load(target)
+          .then((src) => {
+            if (src === null) {
+              this.drawMissing(figure, "missing", target, view, index, load);
+              return;
+            }
+            figure.classList.remove("cm-lp-image-unloaded");
+            figure.querySelector(".cm-lp-image-gone")?.remove();
+            img.src = src;
+          })
+          .catch(() => {
+            this.drawMissing(figure, "failed", target, view, index, load);
+          });
+      void load();
     }
 
     /*
@@ -269,11 +306,69 @@ export class ImageRowWidget extends WidgetType {
     window.addEventListener("mouseup", end);
   }
 
-  private drawMissing(message: string): HTMLElement {
-    const note = document.createElement("span");
-    note.className = "cm-lp-image-missing";
-    note.textContent = message;
-    return note;
+  /**
+   * An image that has no picture to show, drawn as a small image-sized card in
+   * its place rather than the browser's broken-image glyph over a line of
+   * storage words (Dev, 2026-11-03). The note keeps its shape, the file's name
+   * says which image it was, and the card offers the one thing worth doing:
+   * Replace for a writer when there is nothing there, Try again for anyone
+   * when the read failed. Selecting, moving and removing still work on the
+   * figure around it.
+   */
+  private drawMissing(
+    figure: HTMLElement,
+    kind: "missing" | "failed" | "unhosted",
+    target: string,
+    view: EditorView,
+    index: number,
+    retry?: () => Promise<void>,
+  ): void {
+    figure.querySelector(".cm-lp-image-gone")?.remove();
+    figure.classList.add("cm-lp-image-unloaded");
+    const title = MISSING_TITLE[kind];
+    const name = target.slice(target.lastIndexOf("/") + 1);
+    const card = document.createElement("div");
+    card.className = "cm-lp-image-gone";
+    card.setAttribute("role", "img");
+    card.setAttribute("aria-label", `${title}: ${name}`);
+    card.append(imageOffIcon());
+    const heading = document.createElement("span");
+    heading.className = "cm-lp-image-gone-title";
+    heading.textContent = title;
+    const file = document.createElement("span");
+    file.className = "cm-lp-image-gone-name";
+    file.textContent = name;
+    file.title = target;
+    card.append(heading, file);
+    const action =
+      kind === "failed" && retry !== undefined
+        ? { label: "Try again", run: (button: HTMLButtonElement) => {
+            button.disabled = true;
+            button.textContent = "Loading";
+            void retry();
+          } }
+        : kind === "missing" && this.canEdit
+          ? { label: "Replace", run: () => this.askReplacement(view, index) }
+          : null;
+    if (action !== null) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "cm-lp-image-gone-action";
+      button.textContent = action.label;
+      // Its own press: the figure's pointerdown would otherwise take it as a select or a drag.
+      button.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        action.run(button);
+      });
+      button.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        action.run(button);
+      });
+      card.append(button);
+    }
+    figure.append(card);
   }
 
   /** The size, as the file will hold it: the badge in the artifact's corner. */

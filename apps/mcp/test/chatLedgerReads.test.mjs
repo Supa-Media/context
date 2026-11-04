@@ -148,3 +148,38 @@ test("dayFromLedger: the Worker's events only, checked as the log checks them, o
   assert.equal(dayFromLedger(entries, "c", [id(9_000, 8)]), null, "a covered text it does not hold");
   assert.equal(dayFromLedger(null, "c", [a.id]), null);
 });
+
+/*
+  The turn records behind the day's answers, from the ledger's own replies (`loggedTurn.js` `cleanByReply`): on
+  2026-11-03 a cold text spent 419 ms reading them one at a time. Sabotage: let a clean reply outvote a tainted one
+  for the same turn → "a retried turn with one tainted reply is tainted"; read every record anyway → "no turn record
+  is read for a turn the ledger answers".
+*/
+test("a turn the ledger holds a reply for is judged by it, and no turn record is read for it", async () => {
+  const ledger = texLedger(durableSql());
+  const asked = person(60_000, 1, "hi");
+  const answered = tex(50_000, 2, "hello", "turnD1234", [asked.id]);
+  const today = person(1_000, 3, "and now?");
+  ledger.append("texts", [eventEntry(asked), eventEntry(answered), wordsEntry("reply", "hello", { turn: "turnD1234", at: at(49_000), clean: true }), eventEntry(today)]);
+  const read = () => readLedger({ read: async (chat, options) => ledger.read(chat, options) }, "texts").then((entries) => ({ entries, chat: "texts" }));
+  const store = { get: async () => assert.fail("no turn record is read for a turn the ledger answers") };
+  const logged = await loggedTurn(store, { covers: [today.id], chat: "c" }, { timeZone: "UTC", workspace: "ws1", ledger: read(), record: Promise.resolve([]) });
+  assert.equal(logged.tainted, false, "a clean reply proves its answer clean");
+  ledger.append("texts", [wordsEntry("reply", "hello again", { turn: "turnD1234", at: at(48_000), clean: false })]);
+  const retried = await loggedTurn(store, { covers: [today.id], chat: "c" }, { timeZone: "UTC", workspace: "ws1", ledger: read(), record: Promise.resolve([]) });
+  assert.equal(retried.tainted, true, "a retried turn with one tainted reply is tainted");
+});
+
+test("a Tex answer the ledger holds no reply for still has its turn record read", async () => {
+  const ledger = texLedger(durableSql());
+  const asked = person(60_000, 1, "hi");
+  const answered = tex(50_000, 2, "hello", "turnE1234", [asked.id]);
+  const today = person(1_000, 3, "and now?");
+  ledger.append("texts", [eventEntry(asked), eventEntry(answered), eventEntry(today)]);
+  const read = () => readLedger({ read: async (chat, options) => ledger.read(chat, options) }, "texts").then((entries) => ({ entries, chat: "texts" }));
+  const keys = [];
+  const record = (clean) => ({ get: async (key) => (keys.push(key), { text: async () => JSON.stringify({ clean }) }) });
+  assert.equal((await loggedTurn(record(true), { covers: [today.id], chat: "c" }, { timeZone: "UTC", workspace: "ws1", ledger: read(), record: Promise.resolve([]) })).tainted, false);
+  assert.deepEqual(keys, [".context/agent/turns/turnE1234.json"]);
+  assert.equal((await loggedTurn(record(false), { covers: [today.id], chat: "c" }, { timeZone: "UTC", workspace: "ws1", ledger: read(), record: Promise.resolve([]) })).tainted, true);
+});

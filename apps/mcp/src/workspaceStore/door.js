@@ -14,14 +14,17 @@ import { carriesGatewaySecret } from "../moves/mover.js";
 import { workspaceStub } from "./api.js";
 import { mcpEntry } from "../mcp/mcpEntryPoint.js";
 import { BINDING_OPS } from "./bindingRows.js";
+import { ACCESS_OPS } from "./access.js";
+import { TEXTING_OPS } from "./personTexting.js";
 
 export const WORKSPACE_STORE_PATH = "/internal/workspace-store";
 const CALL = "x-tex-call";
 /**
  * The gateway's own calls, never the control plane's: `ws.open` answers a member's rules and the sealed binding,
- * and `ws.binding.put` keeps one (`bindingRows.js`). The control plane only ever clears it.
+ * and `ws.binding.put` keeps one (`bindingRows.js`). The control plane only ever clears it. `person.texting.open`
+ * opens a text's session: the control plane writes the texting record, never a session (`personTexting.js`).
  */
-const GATEWAY_ONLY = new Set([BINDING_OPS.OPEN, BINDING_OPS.PUT]);
+const GATEWAY_ONLY = new Set([BINDING_OPS.OPEN, BINDING_OPS.PUT, TEXTING_OPS.OPEN]);
 
 function opOf(call) {
   try {
@@ -71,6 +74,15 @@ async function serveDoor(request, env, { controlPlane = null } = {}, door) {
       return json({ error: "bad_request" }, 400);
     }
     body = new TextEncoder().encode(JSON.stringify({ ...fields, workspaceId: opened.workspaceId }));
+  } else if (op === ACCESS_OPS.SESSION) {
+    // A session's store open (`sessionOpen.js`) is `ws.open`'s answer, the gateway's own: never through the door.
+    let fields;
+    try {
+      fields = JSON.parse(new TextDecoder().decode(body) || "{}");
+    } catch {
+      return json({ error: "bad_request" }, 400);
+    }
+    if (fields?.open !== undefined) return json({ error: "forbidden" }, 403);
   }
   return await door.step("object", () => stub.fetch(new Request("https://workspace-store.internal/door", { method: "POST", headers: { [CALL]: call }, body })));
 }

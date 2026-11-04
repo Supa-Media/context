@@ -45,7 +45,9 @@ search is then the embedding and one call to the object, and the embedding is th
 - Every passage is embedded twice, once for Vectorize and once for the object, until Vectorize is retired.
 - A workspace's first build embeds every note: about 9 s of local work for 52,000 passages, started by a search's
   build calls (`MEANING_BUILD_CALLS`) and carried on by the alarm.
-- The object starts building when a search asks it to, and a search only asks where meaning search is on for that
+- The object starts building when a search asks it to, or when a save, move or removal of a note is written behind
+  its response (`meaningBuildBehind`, 2026-11-03: a save with no search after it had no fingerprint until one came).
+  Live-editor saves (`meaning: false`) do not start it. A search only asks where meaning search is on for that
   workspace. One whose owner turned it off keeps whatever it built until its next layout change.
 - A group chat's home notes live in that chat's own object and are not in this index, as with the word index.
 

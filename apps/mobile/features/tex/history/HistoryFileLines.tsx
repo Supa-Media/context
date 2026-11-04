@@ -7,6 +7,7 @@ import { HistoryDayLines } from "./HistoryDayLines";
 import { HistoryFilters } from "./HistoryFilters";
 import { HistoryState } from "./TexHistoryLines";
 import { useHistoryRead } from "./useHistoryRead";
+import { useSeesTurnTiming } from "./useSeesTurnTiming";
 
 /** How near the end still counts as at the newest line, in points. */
 const AT_END = 48;
@@ -41,7 +42,7 @@ export function HistoryFileLines({
   phone?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const history = useHistoryRead({ source, chat, group, live: true });
+  const history = useHistoryRead({ source, chat, group, live: true, timing: useSeesTurnTiming() });
   const scroller = useRef<ScrollView>(null);
   // At the newest line until the reader scrolls up: then new lines and a filter's answer leave them where they are.
   const atEnd = useRef(true);

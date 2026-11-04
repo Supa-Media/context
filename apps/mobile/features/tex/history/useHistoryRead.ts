@@ -33,7 +33,7 @@ export interface HistoryRead {
  * A chat's history read from the gateway, a page at a time, with its filters:
  * which day, and which kinds. Nothing here keeps a copy.
  */
-export function useHistoryRead({ source, chat, group, job, live = false }: { source: TexPageSource; chat: string; group: boolean; job?: string; /** Keep reading new lines as the chat goes on: the chat's live feed, or a re-read while it is down. */ live?: boolean }): HistoryRead {
+export function useHistoryRead({ source, chat, group, job, live = false, timing = false }: { source: TexPageSource; chat: string; group: boolean; job?: string; /** Keep reading new lines as the chat goes on: the chat's live feed, or a re-read while it is down. */ live?: boolean; /** Staff: read each turn's timing too (`turnTiming.ts`). */ timing?: boolean }): HistoryRead {
   const [day, setDay] = useState<DayChoice>("today");
   const [picked, setPicked] = useState("");
   const [shown, setShown] = useState<Record<Show, boolean>>(DEFAULT_SHOWN);
@@ -42,13 +42,12 @@ export function useHistoryRead({ source, chat, group, job, live = false }: { sou
   const [loadingMore, setLoadingMore] = useState(false);
   const now = new Date(useNow());
   const asked = dayAsked(day, picked, now);
-  const kinds = kindsFor(shown);
+  const kinds = kindsFor(shown, { timing });
   const kindsKey = kinds.join(",");
   const waiting = (day === "pick" && asked === undefined) || kinds.length === 0;
-  const jobsShown = shown.jobs;
   const query = useMemo(
-    () => ({ kinds: kindsKey.split(",").filter(Boolean) as typeof kinds, ...(asked ? { day: asked } : {}), ...(job !== undefined ? { job } : jobsShown ? {} : { jobs: false as const }) }),
-    [kindsKey, asked, job, jobsShown],
+    () => ({ kinds: kindsKey.split(",").filter(Boolean) as typeof kinds, ...(asked ? { day: asked } : {}), ...(job !== undefined ? { job } : {}) }),
+    [kindsKey, asked, job],
   );
 
   // A "Show older" still reading when a filter changes is dropped, never added to the new list.
@@ -128,7 +127,7 @@ export function useHistoryRead({ source, chat, group, job, live = false }: { sou
     toggle: (s) => setShown((was) => ({ ...was, [s]: !was[s] })),
     read,
     waiting,
-    days: historyDays(entries, now, { group, thinking: shown.thinking }),
+    days: historyDays(entries, now, { group, thinking: shown.thinking, fold: job === undefined, timing, tools: shown.tools }),
     hasOlder: older !== undefined && !waiting,
     loadingMore,
     more,

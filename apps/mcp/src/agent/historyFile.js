@@ -9,6 +9,7 @@
  */
 
 import { HISTORY_FILE, HISTORY_VIEW_MARKER } from "../texStore/historyView.js";
+import { isChatHistoryPath } from "../notes/paths.js";
 
 export { HISTORY_FILE };
 
@@ -20,13 +21,14 @@ export function homeHistoryPath(home) {
   return `${home.folder}/${HISTORY_FILE}`;
 }
 
-const HISTORY_NAME = new RegExp(`(?:^|/)tex/(?:groups/[^/]+/)?${HISTORY_FILE.replace(/\./g, "\\.")}$`, "i");
-
-/** The words a tool call naming the history file is refused with, or null for any other path. */
+/**
+ * The words a tool call naming the history file is refused with, or null for any other path.
+ *
+ * The predicate is shared with the egress ledger, which marks a read of this same file untrusted
+ * (`notes/paths.js` `isChatHistoryPath`): one path judged for opposite reasons, so it is judged once.
+ */
 export function historyWriteRefusal(path) {
-  if (typeof path !== "string") return null;
-  const bare = path.trim().replace(/^(?:\.\/|\/)+/, "").replace(/^@[^/]*\/+/, "").replace(/\/{2,}/g, "/");
-  if (!HISTORY_NAME.test(bare)) return null;
+  if (!isChatHistoryPath(path)) return null;
   return "That file is this chat's history, kept by Tex as it happens; it can be read but not written, moved or removed. Nothing was changed.";
 }
 

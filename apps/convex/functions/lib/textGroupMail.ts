@@ -32,6 +32,7 @@ import { contextsForGrant, resolveLiveGrant } from "./controlPlane/liveGrants";
 import { chatWorkspace } from "./textGroupReach";
 import { writingRole } from "./routines/access";
 import { personalWorkspaceOf } from "./faces/people";
+import { speaksUpOf } from "./texChatRules";
 
 /** The client every group grant is minted for; the audit names it beside the person. */
 const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -78,7 +79,7 @@ async function ownGmail(ctx: QueryCtx, userId: Id<"users">, address: string): Pr
 
 /** The chat's one workspace in reach (`chatWorkspace`: the bound one if still in reach, else the first), when `userId` may share mail into it. */
 async function sharingWorkspace(ctx: QueryCtx, group: Doc<"textGroups">, userId: Id<"users">): Promise<Doc<"workspaces"> | null> {
-  if (group.mutedAt !== undefined) return null;
+  if (speaksUpOf(group) === "off") return null;
   const workspace = await chatWorkspace(ctx, group);
   if (workspace === null || workspace.kind !== "shared") return null;
   return (await writingRole(ctx, workspace._id, userId)) === null ? null : workspace;
@@ -153,7 +154,7 @@ export async function unshareMail(ctx: MutationCtx, group: Doc<"textGroups">, us
  * Gmail they still have connected. Asked at every read, never cached.
  */
 export async function liveMailShares(ctx: QueryCtx, group: Doc<"textGroups">): Promise<LiveMailShare[]> {
-  if (group.mutedAt !== undefined) return [];
+  if (speaksUpOf(group) === "off") return [];
   const workspaceId = (await chatWorkspace(ctx, group))?._id;
   if (workspaceId === undefined) return [];
   const rows = await ctx.db
@@ -214,7 +215,7 @@ export async function chatsWatching(ctx: QueryCtx, userId: Id<"users">, address:
   for (const share of shares) {
     const group = (await ctx.db.query("textGroups").withIndex("by_key", (q) => q.eq("groupKey", share.groupKey)).first()) ?? null;
     // A guest chat reads it only when asked, never on its own, so it watches nothing for the person's check-in.
-    if (group === null || group.mutedAt !== undefined || group.guestGroupId !== undefined) continue;
+    if (group === null || speaksUpOf(group) === "off" || group.guestGroupId !== undefined) continue;
     if ((await chatWorkspace(ctx, group))?._id !== share.workspaceId) continue;
     const workspace = await ctx.db.get(share.workspaceId);
     if (workspace !== null) slugs.add(workspace.slug);

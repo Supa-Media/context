@@ -81,6 +81,16 @@ files:
 
 asar: true
 
+# "Let Tex use this Mac": the machine runner, outside the asar because it is
+# a process the app starts. `deploy-desktop.yml` builds it into
+# `resources/machine-runner/` when `apps/machine-runner` exists; with no binary
+# there the folder ships empty and the app shows the switch as unavailable.
+extraResources:
+  - from: resources/machine-runner
+    to: machine-runner
+    filter:
+      - context-machine
+
 mac:
   category: public.app-category.productivity
   # Stated, though `build/icon.icns` is also where electron-builder looks by
@@ -219,6 +229,43 @@ dmg:
   # distribution` above already resolved — no new secret, no separate
   # certificate.
   sign: true
+
+# Linux: an AppImage and a .deb, for x64 and arm64 (Dev, 2026-11-03). Built on
+# an Ubuntu runner by `deploy-desktop-linux.yml` and attached to the same
+# release as the Mac build. Nothing on Linux is signed: an AppImage runs once it
+# is marked executable, and the .deb installs with `apt install ./…` (and brings
+# the AppArmor profile Ubuntu 24.04 needs for Chromium's sandbox).
+#
+# The meeting collectors and system-audio capture are macOS-only today
+# (`src/platform/macos/`); on Linux they report "unknown" and the app is the
+# signed-in shell, the tray, and the local agent. `platform/linux/` is the
+# porting plan, and nothing above it changes.
+#
+# No version in the names, so `releases/latest/download/Context-linux-x86_64.AppImage`
+# and `…/Context-linux-amd64.deb` are stable addresses — what
+# `context.lc/download/linux` and `/download/linux/deb` redirect to
+# (`infra/router/src/download.ts`). Each format says the CPU its own way:
+# `x86_64` for an AppImage, `amd64` for a .deb, `arm64` for both. The updater
+# is not armed on an unsigned build, so `latest-linux.yml` is not published.
+linux:
+  icon: build/icon.icns
+  category: Office
+  executableName: context
+  maintainer: Context <support@context.lc>
+  synopsis: Your notes, for you and every AI you use
+  target:
+    - target: AppImage
+      arch:
+        - x64
+        - arm64
+    - target: deb
+      arch:
+        - x64
+        - arm64
+appImage:
+  artifactName: ${productName}-linux-${arch}.${ext}
+deb:
+  artifactName: ${productName}-linux-${arch}.${ext}
 
 # GitHub Releases, published only when `deploy-desktop.yml` passes
 # `--publish always` — see the header for why `release` and not `draft`, and why

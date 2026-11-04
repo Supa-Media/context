@@ -124,6 +124,24 @@ export function resolveTexPage(inputs: {
   return { kind: "ready", handle, workspaceId: own.workspaceId };
 }
 
+/**
+ * Where bare `/tex?…` goes: the signed-in person's own `/tex/<handle>?…`. A
+ * link made before anyone is known (a runner's pairing link, say) cannot name
+ * the handle, so the app fills it in. Signed out, it signs in and comes back
+ * here; with no personal workspace of their own, nowhere (`null`).
+ */
+export function ownTexHref(
+  inputs: { auth: { isLoading: boolean; isAuthenticated: boolean }; workspaces: readonly WorkspaceRow[] | undefined },
+  query: string,
+): { kind: "wait" } | { kind: "go"; href: string | null } {
+  const suffix = query ? `?${query}` : "";
+  if (inputs.auth.isLoading) return { kind: "wait" };
+  if (!inputs.auth.isAuthenticated) return { kind: "go", href: loginHref(`${TEX_ROUTE}${suffix}`) };
+  if (inputs.workspaces === undefined) return { kind: "wait" };
+  const own = ownWorkspace(inputs.workspaces);
+  return { kind: "go", href: own ? `${texHref(own.handle)}${suffix}` : null };
+}
+
 /** The gateway route for one of the three things this page does. */
 export function texComputerEndpoint(mcpEndpoint: string, route: "frame" | "input" | "stop"): string | null {
   let parsed: URL;

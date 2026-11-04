@@ -12,9 +12,10 @@ in regex in the texting Worker, and the model had no say and no tools.
 ## The rule
 
 - **Changing how Tex acts in a chat is a tool.** The interaction agent holds
-  `tex_settings_get`, `tex_style_set`, `chat_engagement_set`, `chat_mute`,
+  `tex_settings_get`, `tex_instructions_set`, `tex_updates_set` (since
+  2026-11-01, replacing `tex_style_set`; `custom-instructions.md`), `chat_engagement_set`, `chat_mute`,
   `chat_status`, `chat_share_mail`, `chat_unshare_mail` in a group, and
-  `tex_settings_get`, `tex_style_set`, `review_sharing_set` in a person's own
+  `tex_settings_get`, `tex_instructions_set`, `tex_updates_set`, `review_sharing_set` in a person's own
   chat (`apps/mcp/src/agent/commandTools.js`), shown as `send` actions
   (`sixTools.js`). Any wording works. Each answer says what happened, and a
   refusal is never worded as done.
@@ -52,7 +53,7 @@ in regex in the texting Worker, and the model had no say and no tools.
   chat's grant does not resolve. Choosing a workspace is gone: a chat reaches
   every shared workspace all its people share (#2531).
 - **The prompt says it.** Every texted turn is told settings change only
-  through the `tex_style` action, a note is never the settings, and it says
+  through the `tex_instructions` action, a note is never the settings, and it says
   only what a tool's answer says happened (`chatVoice.js` `SETTINGS_LINE`).
   The voice note says it is not the settings.
 - **A message for another assistant is not Tex's.** Named to another assistant

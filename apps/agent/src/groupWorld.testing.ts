@@ -48,9 +48,10 @@ export function setup(
   const asks: Record<string, unknown>[] = [];
   const control: Record<string, unknown>[] = [];
   const engagement: Record<string, unknown>[] = [];
-  /** Each `/agent-texts/group/style` set, and the group's style as the control plane keeps it (`texStyle.ts`). */
+  /** Each `/agent-texts/group/style` change, and the group's instructions as the control plane keeps them (`texStyle.ts`): a pick's line is `<id> line.` here. */
   const styles: Record<string, unknown>[] = [];
-  let groupStyle: Record<string, unknown> = {};
+  let instructions = "";
+  let before: string | undefined;
   /** Each `/agent-texts/review-sharing` asked (`reviewSharing.ts`). */
   const sharing: Record<string, unknown>[] = [];
   const events: { conversation: unknown; events: TexEvent[] }[] = [];
@@ -110,8 +111,11 @@ export function setup(
     }
     if (path === "/agent-texts/group/style") {
       styles.push(body);
-      groupStyle = { ...groupStyle, ...body.style };
-      return Response.json({ ok: true, style: groupStyle });
+      if (body.undo === true && before === undefined) return Response.json({ ok: false, refused: "nothing_to_undo" });
+      const next = body.undo === true ? before! : body.clear === true ? "" : body.pick ? [instructions, `${body.pick} line.`].filter(Boolean).join("\n") : instructions;
+      before = body.undo === true ? undefined : instructions;
+      instructions = next;
+      return Response.json({ ok: true, ...(instructions ? { instructions } : {}) });
     }
     if (path === "/agent-texts/review-sharing") {
       sharing.push(body);
@@ -139,7 +143,7 @@ export function setup(
         ...(opts.control ?? {}),
         // Chosen once a member chose, as the control plane's row says.
         ...(engagement.length > 0 ? { engagementChosen: true } : {}),
-        ...(Object.keys(groupStyle).length > 0 ? { texStyle: groupStyle } : {}),
+        ...(instructions ? { instructions } : {}),
       });
     }
     if (path === "/agent/events") {

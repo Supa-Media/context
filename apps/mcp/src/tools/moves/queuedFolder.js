@@ -64,7 +64,7 @@ const COLLABORATION_ETAG = "c2.";
  *
  * @returns {Promise<{etag?: string, conflict?: true}>}
  */
-async function rowVersionOf(store, path, expected) {
+export async function rowVersionOf(store, path, expected) {
   if (typeof expected !== "string" || !expected.startsWith(COLLABORATION_ETAG)) return { etag: expected };
   let current;
   try {
@@ -82,14 +82,17 @@ async function rowVersionOf(store, path, expected) {
  * control plane moves the row and says so; nothing is copied here. `null`
  * means the workspace is not keyed yet, and the note moves the old way. A
  * keyed refusal is an answer, never `null`, because the old way would move
- * the frozen copies the bucket still holds.
+ * the frozen copies the bucket still holds. `objectAsked` says the caller
+ * already asked the object (`archive.js`), so it is not asked twice.
  */
-export async function startKeyedNoteMove(store, scope, source, destination, expectedEtag, privacy) {
+export async function startKeyedNoteMove(store, scope, source, destination, expectedEtag, privacy, { objectAsked = false } = {}) {
   if (store?.keyedLayout !== true || typeof store.startQueuedMove !== "function") return null;
   const version = await rowVersionOf(store, source, expectedEtag);
   if (version.conflict) return toolError("conflict: the note changed since you read it; re-read and retry");
   // A workspace whose notes live in its object moves the row there, in one transaction (`objectMove.js`).
-  const inObject = await startObjectMove(store, scope, source, destination, version.etag, { kind: "note", action: "move_note", privacy });
+  const inObject = objectAsked
+    ? null
+    : await startObjectMove(store, scope, source, destination, version.etag, { kind: "note", action: "move_note", privacy });
   if (inObject !== null) return inObject;
   let answer;
   try {
@@ -223,14 +226,24 @@ export async function startKeyedBatchMove(store, scope, rules, overrides, moves)
   );
 }
 
-export async function startQueuedFolderMove(store, scope, source, destination, privacy) {
+export async function startQueuedFolderMove(store, scope, source, destination, privacy, { beforeControlPlane = null } = {}) {
   const inObject = await startObjectMove(store, scope, source, destination, undefined, { kind: "folder", action: "move_folder", privacy });
   if (inObject !== null) return inObject;
+  // A check the caller left until the object had passed the move on (`keyedFolder.js`, the full twin check).
+  if (typeof beforeControlPlane === "function") {
+    const refusal = await beforeControlPlane();
+    if (refusal) return toolError(refusal);
+  }
   if (typeof store?.startQueuedMove !== "function") return null;
   let answer;
   try {
     answer = await store.startQueuedMove(source, destination);
-  } catch {
+  } catch (error) {
+    // A folder move the gateway gave up waiting on may still be moving every note (93 notes took 9.2 s,
+    // 2026-11-03): saying "nothing was changed", or moving it the old way on top, would both be wrong.
+    if (error?.reason === "timed out") {
+      return toolError(`the folder move is taking longer than expected and may still finish; list ${destination}/ before sending it again`);
+    }
     // The control plane is out of reach: the caller decides what the old way does.
     return null;
   }

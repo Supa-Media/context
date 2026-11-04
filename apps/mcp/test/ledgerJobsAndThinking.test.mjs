@@ -34,6 +34,7 @@ import { jobChecked, mailEntry, mailVerdict } from "../src/agent/workEntries.js"
 import { mailCheckerFor } from "../src/agent/mailChecker.js";
 import { texLedger } from "../src/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
+import { texEntryPointSource } from "./texEntryPointSource.mjs";
 
 function fakeLedger() {
   const entries = [];
@@ -113,6 +114,6 @@ test("the Mail checker's whole answer is kept with its verdict", async () => {
 });
 
 test("the route marks a job's turn's ledger, the one its steps, answer and checks are written through", async () => {
-  const route = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../src/agent/route.js", import.meta.url), "utf8"));
+  const route = texEntryPointSource();
   assert.match(route, /if \(job !== null && store\.ledger\) store\.ledger = session\.ledger = jobTagged\(store\.ledger, job\);/);
 });

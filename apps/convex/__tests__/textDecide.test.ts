@@ -273,10 +273,10 @@ describe("a group's style", () => {
     const set = await agentPost(t, "/agent-texts/group/engagement", { line: LINE, groupId: GROUP, style: "helpful", setBy: ADA });
     expect(JSON.parse(set.text)).toEqual({ ok: true });
     const [row] = await t.run((ctx) => ctx.db.query("textGroups").collect());
-    expect(row!.engagement).toBe("helpful");
-    expect(row!.engagementSetBy).toMatch(/^[0-9a-f]{64}$/);
+    expect(row!.speaksUp).toBe("helpful");
+    expect(row!.speaksUpSetBy).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(row)).not.toContain(ADA);
-    expect(typeof row!.engagementSetAt).toBe("number");
+    expect(typeof row!.speaksUpSetAt).toBe("number");
 
     const again = JSON.parse((await agentPost(t, "/agent-texts/group", { line: LINE, groupId: GROUP, sender: BO, participants: [ADA, BO, LINE], mint: true })).text);
     expect(again).toMatchObject({ status: "ready", engagement: "helpful", engagementChosen: true });
@@ -290,7 +290,7 @@ describe("a group's style", () => {
       expect(refused.status).toBe(400);
     }
     const [row] = await t.run((ctx) => ctx.db.query("textGroups").collect());
-    expect(row!.engagement).toBeUndefined();
+    expect(row!.speaksUp).toBeUndefined();
   });
 });
 
@@ -348,6 +348,21 @@ test("decide is told when the newest message looks addressed to Tex, and only th
   expect(act({ ...body, addressed: true })).toContain(ADDRESSED_RULE);
   expect(act(body)).not.toContain(ADDRESSED_RULE);
   expect(act({ ...body, addressed: "yes" })).not.toContain(ADDRESSED_RULE);
+});
+
+// Dev2, 2026-11-03: decide vetoed "Tex, what's 2+2?" in a quiet chat and a repeated ask with progress updates off.
+// For an addressed message the group's level is not shown as a reason to stay silent; the rule says to answer anyway.
+test("an addressed message is answered whatever the group's level, progress updates or a repeat", () => {
+  const transcript = "<1761619440000-000001> @ada: Tex, compare the pricing pages of Notion and Coda\n<1761619441000-000002> Context: Progress updates are off.\n<1761619442000-000003> @ada: Tex, compare the pricing pages of Notion and Coda";
+  for (const style of ["quiet", "attentive", "followAlong", "helpful"] as const) {
+    const { questions } = decideRequest({ chat: GROUP, line: LINE, style, transcript, running: true, waitingAsks: [], candidates: ["1761619442000-000003"], newest: "1761619442000-000003", addressed: true });
+    const act = (questions as Record<string, { instructions: string }>).act!.instructions;
+    expect(act, style).toContain(ADDRESSED_RULE);
+    expect(act, style).not.toContain("This group chose");
+    expect(act, style).not.toContain("Anything else is silent");
+    expect(act.length, style).toBeLessThanOrEqual(1_000);
+  }
+  for (const words of ["quiet", "progress-updates", "repeats an earlier ask", "\"thanks\""]) expect(ADDRESSED_RULE).toContain(words);
 });
 
 // 2026-11-01: in a chat that reaches no shared workspace (home-only, like Tex Devs), every decide was refused as no_group,

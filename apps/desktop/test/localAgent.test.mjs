@@ -127,7 +127,7 @@ export async function runLocalAgentChecks(check) {
       check(`${name} is not offered`, allowed.includes(name) === false);
     }
     check("reading the context is", allowed.includes(`mcp__${MCP_SERVER_NAME}__read_note`));
-    check("proposing a change is", allowed.includes(`mcp__${MCP_SERVER_NAME}__propose_note`));
+    check("no write is, proposals included", !allowed.includes("propose_note") && !allowed.includes("write_note"));
     check(
       "every allowed name is one of this server's",
       ALLOWED_TOOLS.every((name) => name.startsWith(`mcp__${MCP_SERVER_NAME}__`)),

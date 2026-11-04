@@ -42,7 +42,9 @@ const ERROR_CODES = [
 ];
 
 /** The first line of the answer that names what it changed: `<verb>: <path>[ → <path>]`. */
-const CHANGED = /^(written|saved|visibility changed|unchanged|moved|archived|encrypted|decrypted|commented|proposed|remembered in)[: ] ?(\S+)(?: → (\S+))?/m;
+// `moved note: a → b` and `moved folder: a/ → b/` (the row moves, `tools/moves/queuedFolder.js`, `objectMove.js`) name
+// what moved before the colon; the path is after it (2026-11-03: archive answered `"path":"note:"`).
+const CHANGED = /^(written|saved|visibility changed|unchanged|moved|archived|encrypted|decrypted|commented|proposed|remembered in)(?: (?:note|folder))?[: ] ?(\S+)(?: → (\S+))?/m;
 const ETAG = /\(etag ([^\s)]+)\)|^(?:new_)?etag: (\S+)$/m;
 const VISIBILITY = /^(?:visibility|to): (private|team)\b/m;
 

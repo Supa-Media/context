@@ -5,12 +5,13 @@ import type { TexPageSource } from "../page/texPageSource";
 import { HistoryDayLines } from "./HistoryDayLines";
 import { HistoryFilters } from "./HistoryFilters";
 import { useHistoryRead, type HistoryRead } from "./useHistoryRead";
+import { useSeesTurnTiming } from "./useSeesTurnTiming";
 
 /**
  * A chat's history, one line a message: time, who, words, left-aligned and
  * grouped by day and turn (decided by the owner, 2026-11-02, from the
  * artboard he approved: "go back to the ltr, 1 line slack style"). One row of
- * filters: which day, and Texts, Tool calls, Thinking, Background and Jobs, thinking and jobs off
+ * filters: which day, and Texts, Tool calls, Thinking and Background, thinking off
  * until asked for. A line opens to its entry exactly as kept. Read from the
  * gateway each time, a page at a time; nothing here keeps a copy.
  *
@@ -19,10 +20,10 @@ import { useHistoryRead, type HistoryRead } from "./useHistoryRead";
  * same way, newest at the bottom (`HistoryFileLines`).
  */
 export function TexHistoryLines({ source, chat, group, job }: { source: TexPageSource; chat: string; group: boolean; /** One job's work only: its page. */ job?: string }) {
-  const history = useHistoryRead({ source, chat, group, job });
+  const history = useHistoryRead({ source, chat, group, job, timing: useSeesTurnTiming() });
   return (
     <View style={{ gap: 12 }} testID="tex-history-lines">
-      <HistoryFilters history={history} job={job} />
+      <HistoryFilters history={history} />
       <HistoryState history={history}>{history.days.map((d) => <HistoryDayLines key={d.key} day={d} job={job} />)}</HistoryState>
       {history.hasOlder ? (
         <More onPress={() => void history.more()} testID="tex-history-more">

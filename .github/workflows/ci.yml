@@ -119,7 +119,7 @@ jobs:
           # reach (`node scripts/convex-gateway-reads.mjs --filter` prints this
           # list; check-ci-path-gates.mjs fails when it stops covering them).
           # A texting-assistant change under apps/mcp/src/agent reaches none but
-          # the history move's files named here, so it no longer waits four
+          # the history move's files and the texting phone hash named here, so it no longer waits four
           # minutes on this suite; the tests that read the whole gateway run in
           # Gateway Contracts instead.
           - 'apps/mcp/src/activity/**'
@@ -136,6 +136,7 @@ jobs:
           - 'apps/mcp/src/agent/log.js'
           - 'apps/mcp/src/agent/logRender.js'
           - 'apps/mcp/src/agent/sources.js'
+          - 'apps/mcp/src/agent/textingPhone.js'
           - 'apps/mcp/src/chaos/**'
           - 'apps/mcp/src/communications/**'
           - 'apps/mcp/src/context/**'
@@ -181,6 +182,7 @@ jobs:
           - 'apps/mcp/src/tools/moves/note.js'
           - 'apps/mcp/src/tools/moves/notes.js'
           - 'apps/mcp/src/tools/moves/objectMove.js'
+          - 'apps/mcp/src/tools/v2/actions.js'
           - 'apps/mcp/src/tools/moves/queuedFolder.js'
           - 'apps/mcp/src/tools/moves/references.js'
           - 'apps/mcp/src/tools/notes/write.js'
@@ -401,7 +403,7 @@ jobs:
           # js-tiktoken: the usage tokenizer, in its one file (docs/decisions/observability/token-usage.md).
           node scripts/check-gateway-imports.mjs --allow-import=js-tiktoken/lite:src/mcp/tokens.js --allow-import=js-tiktoken/ranks/o200k_base:src/mcp/tokens.js apps/mcp/src
 
-      # Every step on Tex's reply path is a named, timed call (`apps/mcp/src/agent/texEntryPoint.js`).
+      # Every step on Tex's reply path is a named, timed call (`apps/mcp/src/agent/texTiming.js`).
       - name: Nothing joins Tex's reply path untimed
         run: |
           node scripts/tex-entry-check.mjs --self-test
@@ -419,6 +421,7 @@ jobs:
           node --test scripts/deploy-plan.test.mjs
           node --test scripts/worker-secrets.test.mjs
           node --test scripts/ci-performance-report.test.mjs
+          node --test scripts/mcp-speed-budgets.test.mjs
           node --test scripts/release-communication-evidence.test.mjs
           node --test scripts/tex-alert.test.mjs
           node --test scripts/agent-logs-filter.test.mjs
@@ -757,6 +760,7 @@ jobs:
             apps/mcp/src/agent/log.js
             apps/mcp/src/agent/logRender.js
             apps/mcp/src/agent/sources.js
+            apps/mcp/src/agent/textingPhone.js
             apps/mcp/src/chaos/**
             apps/mcp/src/communications/**
             apps/mcp/src/context/**
@@ -802,6 +806,7 @@ jobs:
             apps/mcp/src/tools/moves/note.js
             apps/mcp/src/tools/moves/notes.js
             apps/mcp/src/tools/moves/objectMove.js
+            apps/mcp/src/tools/v2/actions.js
             apps/mcp/src/tools/moves/queuedFolder.js
             apps/mcp/src/tools/moves/references.js
             apps/mcp/src/tools/notes/write.js

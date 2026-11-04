@@ -12,7 +12,7 @@
  *  - a check-in raises a mailbox that needs reconnecting, is full, or has not
  *    synced for hours, at most once a day per mailbox state, even when nothing
  *    else changed (`heartbeat.js`);
- *  - a routine is told the same, and never texts for it alone (`route.js`);
+ *  - a routine is told the same, and never texts for it alone (`texEntryPoint.js`);
  *  - `orient` names a mailbox only when the person has to act (`orient/tool.js`).
  *
  * A mailbox that is rate-limited or briefly failing (`recovering`) is said

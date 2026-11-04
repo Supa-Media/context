@@ -94,14 +94,17 @@ function visibleKeys(objects, folder, scope, rules, overrides) {
  * the root: a folder that exists is entered, and the first segment that does
  * not is compared with its siblings. `ignore` is the path being renamed.
  */
-export async function nameTwinRefusal(store, scope, rules, overrides, path, { kind = "file", ignore } = {}) {
+export async function nameTwinRefusal(store, scope, rules, overrides, path, { kind = "file", ignore, topOnly = false } = {}) {
   if (isPlumbing(path)) return null;
+  // `topOnly`: only the top-level folder is judged. A move the workspace object makes refuses a twin by case anywhere
+  // on its path itself (`DEFER`, `workspaceStore/moveWrites.js`), so only a top-level folder twinning another's role
+  // is left to ask here; listing the destination's own folder took 333 ms in production (2026-11-03).
   const levels = levelsOf(store);
   const segments = path.split("/");
   // Every folder on the way down, asked of the object in one call; the root only if the walk reaches it.
-  const below = segments.slice(0, -1).map((_, index) => segments.slice(0, index + 1).join("/"));
+  const below = (topOnly ? segments.slice(0, 1) : segments.slice(0, -1)).map((_, index) => segments.slice(0, index + 1).join("/"));
   try {
-    for (let index = 0; index < segments.length; index += 1) {
+    for (let index = 0; index < (topOnly ? 1 : segments.length); index += 1) {
       const last = index === segments.length - 1;
       const here = segments.slice(0, index + 1).join("/");
       if (!last && here !== ignore && (await levels.seen(here, scope, rules, overrides, below))) continue;

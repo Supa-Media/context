@@ -52,6 +52,7 @@ export async function runProducerCensusChecks(check) {
       emitPendingApproval: [null],
       emitTrayCommand: ["record"],
       emitImessage: [{ enabled: true, permission: "granted", lastSyncedAt: 1, lastError: null }],
+      emitMachine: [{ available: true, enabled: true, state: "online", slots: 2, busy: 0, awake: true, message: null }],
     };
     // `dispose` unregisters rather than produces, and is checked below.
     const producers = Object.keys(bridge).filter((name) => name !== "dispose");

@@ -19,7 +19,7 @@ import {
 import { docFromSnapshot } from "./ydoc.js";
 import { adoptPathHead, headAddress } from "./address.js";
 
-export function stateObject({ documentId, generation, path, text, rawMarkdownEtag, revision = "r0", pending = null, legacyRawEtag, legacyRevision = "r0", deferredUpdates = [], structural = null }) {
+export function stateObject({ documentId, generation, path, text, rawMarkdownEtag, revision = "r0", pending = null, legacyRawEtag, legacyRevision = "r0", deferredUpdates = [], structural = null, current = null }) {
   return {
     schemaVersion: SCHEMA_VERSION,
     kind: "document",
@@ -34,7 +34,37 @@ export function stateObject({ documentId, generation, path, text, rawMarkdownEta
     legacyRevision,
     deferredUpdates,
     structural,
+    ...(current === null ? {} : { current }),
   };
+}
+
+/**
+ * The state's own copy of its current revision (`current: {revision, snapshot, rawMarkdownEtag}`), as `readRevision`
+ * answers it, or `null`. A save keeps it beside the document so a load reads one record, not two. It is trusted only
+ * for the revision the state names now: a writer that predates it carries an older copy along when it moves the
+ * revision on, and that copy is then ignored and the revision is read from its own file. The text is the state's,
+ * which every writer moves together with its revision.
+ */
+export function inlineRevision(state) {
+  const current = state?.current;
+  if (!isObject(current) || current.revision !== state.revision || typeof current.snapshot !== "string" || typeof current.rawMarkdownEtag !== "string" || typeof state.text !== "string") return null;
+  return {
+    value: {
+      schemaVersion: SCHEMA_VERSION,
+      kind: "revision",
+      documentId: state.documentId,
+      generation: state.generation,
+      revision: state.revision,
+      snapshot: current.snapshot,
+      text: state.text,
+      rawMarkdownEtag: current.rawMarkdownEtag,
+    },
+  };
+}
+
+/** The state's current revision: its own copy where it holds one, else its file. */
+export async function currentRevision(store, state) {
+  return inlineRevision(state) ?? (await readRevision(store, state.documentId, state.revision));
 }
 
 export function validateState(state, head, path) {

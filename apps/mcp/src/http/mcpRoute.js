@@ -29,6 +29,7 @@ export async function serveMcp(request, workerEnv, ctx, { slug, pathToken, origi
   if (request.method !== "POST") return new Response(null, { status: 405 });
   // MCP ENTRY POINT: begin
   const mcp = mcpEntry(workerEnv);
+  mcp.colo = request.cf?.colo;
   // Every workspace object call this request makes, timed as `obj:<op>` beside the control plane's `cp:` routes.
   const env = mcp.watchObjects(workerEnv);
   const controlPlane = createControlPlane(env, { fetchImpl: mcp.fetchFor("cp") });
@@ -41,7 +42,7 @@ export async function serveMcp(request, workerEnv, ctx, { slug, pathToken, origi
   mcp.call = callOf(body);
   const refusal = scopeRefusal(session, origin);
   if (refusal) return mcp.done(refusal);
-  const openOnce = onceEach((target) => mcp.step("open_other_context", () => storeForSession(target, env, controlPlane)).then((opened) => laySavePhase(mcp.watch(opened), mcp)));
+  const openOnce = onceEach((target) => openOtherContext(mcp, target, env, controlPlane));
   prefetchNamedContexts(session, namedContextsIn(body), openOnce);
   const store = await mcp.step("open_store", () => storeOrRefusal(session, env, controlPlane));
   if (store instanceof Response) return mcp.done(store);
@@ -49,6 +50,21 @@ export async function serveMcp(request, workerEnv, ctx, { slug, pathToken, origi
   const response = await mcp.step("answer", () => handleMcp(request, store, session));
   return mcp.done(response);
   // MCP ENTRY POINT: end
+}
+
+/**
+ * Another workspace's store, opened for a call that names it: timed as `open_other_context`, and again by where its
+ * binding came from (`open_other_context:object`, or `open_other_context:control_plane:<why>`), so the open's median
+ * can be read apart from the opens that had to ask the control plane.
+ */
+function openOtherContext(mcp, target, env, controlPlane) {
+  const started = Date.now();
+  return mcp.step("open_other_context", () => storeForSession(target, env, controlPlane)).then((opened) => {
+    const from = opened?.bindingFrom;
+    if (from?.source === "object") mcp.point("open_other_context:object", Date.now() - started);
+    else if (from?.source === "control_plane") mcp.point(`open_other_context:control_plane:${from.reason ?? "unknown"}`, Date.now() - started);
+    return laySavePhase(mcp.watch(opened), mcp);
+  });
 }
 
 /** The session this request's token resolves to, or the refusal `route.js` gives every transport path. */

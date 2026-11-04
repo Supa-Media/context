@@ -25,6 +25,12 @@
  * name. Later lines of a message are indented four spaces, deeper than a
  * closing fence may be, so no message can end the block.
  *
+ * A message may carry a kind tag right after the recipient: `[ask]` (it wants
+ * an answer) or `[interrupt]` (it should be read now). No tag is a `note`, and
+ * a note is never written with one, so every line from before the tag existed
+ * reads the same. Any other bracketed word is not a tag: the line is skipped,
+ * as it always was.
+ *
  * ## Why append-only, and why here
  *
  * Every write is an insertion at the end of the block, which the collaborative
@@ -45,12 +51,19 @@ const EVERYONE = "everyone";
 const NAME = "[a-z0-9][a-z0-9-]{0,23}";
 const NAME_RE = new RegExp(`^${NAME}$`);
 const PERSON = "@[a-z0-9][a-z0-9-]{0,63}";
+const MAIL_KINDS = ["note", "ask", "interrupt"];
+/** The kinds written with a tag; a note is written without one. */
+const TAGGED_KINDS = ["ask", "interrupt"];
 const LINE_RE = new RegExp(
-  `^- (\\S+) (${NAME}|${PERSON})(?: \\(([^()\\n]{1,40})\\))? (?:(joined)|to (${NAME}): ?(.*))$`
+  `^- (\\S+) (${NAME}|${PERSON})(?: \\(([^()\\n]{1,40})\\))? (?:(joined)|to (${NAME})(?: \\[(ask|interrupt)\\])?: ?(.*))$`
 );
 const CONTINUATION = "    ";
 /** Longest message kept, in characters. */
 const MAX_TEXT = 4000;
+/** The deepest chain of asks; a judge on the sender side reads it, nothing here refuses. */
+const MAX_ASK_DEPTH = 3;
+/** Messages one sender may send one recipient in an hour; a limit for the caller to apply. */
+const MAX_PER_PAIR_PER_HOUR = 20;
 
 /** The note's mail block: the last closed ```mail fence, or null. */
 function findMailBlock(text) {
@@ -60,8 +73,9 @@ function findMailBlock(text) {
 
 /**
  * Every entry, oldest first: `{ at, from, app, kind: "joined" | "mail", to,
- * text, start, end }`. Lines the parser does not recognise are skipped: people
- * may edit the file by hand.
+ * mailKind, text, start, end }`, where `mailKind` is `"note" | "ask" |
+ * "interrupt"` on a mail and null on a join. Lines the parser does not
+ * recognise are skipped: people may edit the file by hand.
  */
 function parseMail(text) {
   const source = typeof text === "string" ? text : "";
@@ -79,7 +93,8 @@ function parseMail(text) {
         app: match[3] ?? null,
         kind: match[4] ? "joined" : "mail",
         to: match[4] ? null : match[5],
-        text: match[4] ? "" : match[6],
+        mailKind: match[4] ? null : match[6] ?? "note",
+        text: match[4] ? "" : match[7],
         start: block.bodyStart + row.start,
         end: block.bodyStart + row.next,
       };
@@ -139,13 +154,16 @@ function formatText(text) {
 /**
  * Append one entry. Returns `{ changes }` against `text` (apply them with
  * `applyChanges`), or `{ error }`. `entry` is `{ at, from, app, kind, to,
- * text }`; `from` is a joined name or an `@handle`.
+ * text, mailKind }`; `from` is a joined name or an `@handle`; `mailKind` is
+ * `"note"` (the default), `"ask"` or `"interrupt"`.
  */
 function appendMail(text, entry) {
   const source = typeof text === "string" ? text : "";
   const at = typeof entry?.at === "string" && Number.isFinite(Date.parse(entry.at)) ? entry.at : new Date().toISOString();
   const from = String(entry?.from ?? "");
   if (!new RegExp(`^(${NAME}|${PERSON})$`).test(from)) return { error: "mail needs a sender name" };
+  const mailKind = entry?.mailKind === undefined ? "note" : entry.mailKind;
+  if (!MAIL_KINDS.includes(mailKind)) return { error: 'mail.kind must be "note", "ask" or "interrupt"' };
   const app = entry?.app ? appName(entry.app) : null;
   const who = app ? `${from} (${app})` : from;
   let line;
@@ -157,7 +175,8 @@ function appendMail(text, entry) {
     const body = formatText(entry?.text);
     if (!body) return { error: "mail.text is empty" };
     if (body.length > MAX_TEXT) return { error: `mail.text is too long; keep a message under ${MAX_TEXT} characters` };
-    line = `- ${at} ${who} to ${to}: ${body}`;
+    const tag = TAGGED_KINDS.includes(mailKind) ? ` [${mailKind}]` : "";
+    line = `- ${at} ${who} to ${to}${tag}: ${body}`;
   }
   const block = findMailBlock(source);
   if (block) {
@@ -201,12 +220,47 @@ function describeEntry(event) {
   const who = event.app ? `${event.from} (${event.app})` : event.from;
   if (event.kind === "joined") return `- ${event.at} ${who} joined`;
   const body = event.text.split("\n").join(`\n${CONTINUATION}`);
-  return `- ${event.at} ${who} to ${event.to}: ${body}`;
+  const tag = TAGGED_KINDS.includes(event.mailKind) ? ` [${event.mailKind}]` : "";
+  return `- ${event.at} ${who} to ${event.to}${tag}: ${body}`;
+}
+
+/** Mail from `from` to `to` (a name or everyone) in the `windowMs` (an hour) before `nowMs`. */
+function pairCount(events, from, to, nowMs, windowMs = 60 * 60 * 1000) {
+  return events.filter(
+    (event) => event.kind === "mail" && event.from === from && event.to === to && Date.parse(event.at) > nowMs - windowMs
+  ).length;
+}
+
+/**
+ * The depth a new ask from `from` would have now. An ask is open for X when it
+ * went to X, or to everyone from someone other than X, and X has sent no mail
+ * of any kind to its sender (or to everyone) since. An ask sent by S has depth
+ * 1 + the deepest ask open for S when it was sent, or 1 when none was. Walks
+ * the events oldest first and returns 1 + the deepest ask open for `from`, or 1.
+ */
+function askDepth(events, from) {
+  const asks = [];
+  const openFor = (ask, who) => ask.from !== who && (ask.to === who || ask.to === EVERYONE) && !ask.answeredBy.has(who);
+  const deepestOpenFor = (who) => asks.reduce((max, ask) => (openFor(ask, who) ? Math.max(max, ask.depth) : max), 0);
+  for (const event of events) {
+    if (event.kind !== "mail") continue;
+    const sender = event.from;
+    // The depth comes from what was open when the ask was sent, so it is read before this message closes anything.
+    const depth = 1 + deepestOpenFor(sender);
+    for (const ask of asks) {
+      if (openFor(ask, sender) && (event.to === ask.from || event.to === EVERYONE)) ask.answeredBy.add(sender);
+    }
+    if ((event.mailKind ?? "note") === "ask") asks.push({ from: sender, to: event.to, depth, answeredBy: new Set() });
+  }
+  return 1 + deepestOpenFor(from);
 }
 
 module.exports = {
   MAIL_INFO,
   EVERYONE,
+  MAIL_KINDS,
+  MAX_ASK_DEPTH,
+  MAX_PER_PAIR_PER_HOUR,
   findMailBlock,
   parseMail,
   mailName,
@@ -215,4 +269,6 @@ module.exports = {
   stripMail,
   newFor,
   describeEntry,
+  pairCount,
+  askDepth,
 };

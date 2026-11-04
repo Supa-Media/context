@@ -14,7 +14,6 @@ import { persistExactVisibility } from "../privacy/state.js";
 import { readSaveProcedure } from "../orient/frontPage.js";
 import { recordChange } from "../activity/record.js";
 import { toolError, toolText, writePermissionError } from "./results.js";
-import { toolProposeNote } from "./proposalActions.js";
 
 export async function toolSaveContext(store, scope, rules, overrides, args) {
   const platform = typeof args.platform === "string" ? args.platform.trim().toLowerCase() : "";
@@ -73,19 +72,13 @@ export async function toolSaveContext(store, scope, rules, overrides, args) {
     at,
   });
 
+  // A team connection cannot write a private note, so it cannot file a private
+  // archive either. It used to queue one for an owner to approve; proposals
+  // were removed on 2026-11-03 (`docs/decisions/gateway-protocol.md`).
   if (scope === "team" && visibility === "private") {
-    const proposal = await toolProposeNote(
-      store,
-      scope,
-      path,
-      content,
-      `User explicitly requested private storage for this ${platform} conversation archive`,
-      platform
-    );
-    if (proposal.isError) return proposal;
-    return toolText(
-      `private chat archive queued for approval\n${proposal.content[0].text}\n` +
-        "The transcript is hidden from team note listings, but is not filed at its final private path until a personal connection approves it."
+    return toolError(
+      "permission denied: a team connection cannot save a private chat archive. " +
+        "Save it with visibility team, or save it from a personal connection."
     );
   }
 
@@ -99,10 +92,6 @@ export async function toolSaveContext(store, scope, rules, overrides, args) {
   // onto them. It discloses nothing — the content is the caller's own — but it
   // silently overrides an owner's folder rule and contradicts what `scope_info`
   // advertises as the write surface.
-  //
-  // Deliberately below the proposal branch above: a team caller who *asks* for
-  // a private archive still gets to queue one for owner review. That is the
-  // sanctioned way into a private destination, and it ends in a human deciding.
   if (scope === "team" && visibilityOf(path, rules) !== "team") {
     return writePermissionError("archive destination");
   }

@@ -168,7 +168,7 @@ export async function serveTexStore(stored, request, timers = null, live = null)
 }
 
 /** A stored object as R2 hands one back: `uploaded` a Date, a quoted `httpEtag`, and the body readers when it has one. */
-function r2Shaped(meta, bytes) {
+export function r2Shaped(meta, bytes) {
   if (meta === null) return null;
   const object = { ...meta, uploaded: new Date(meta.uploaded), httpEtag: `"${meta.etag}"`, version: meta.etag };
   if (bytes === undefined) return object;

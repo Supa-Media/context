@@ -5,8 +5,9 @@
  * with a job). Read-only, and only ever handed to `listing.js`, which decides
  * what a reader sees.
  *
- * `role`, `ord`, `archive_of` and `uploaded` are the row's own folder job,
- * place among its siblings, archive twin and last write.
+ * `role`, `ord`, `archive_of`, `uploaded`, `sort` and `created` are the row's
+ * own folder job, place among its siblings, archive twin, last write, a
+ * folder's Sort setting and when the row was made.
  */
 
 import { LISTING_ROWS } from "./listing.js";
@@ -23,6 +24,8 @@ function treeRow(row) {
     role: typeof row.role === "string" ? row.role : null,
     order: num(row.ord),
     archiveOf: typeof row.archive_of === "string" ? row.archive_of : null,
+    sort: typeof row.sort === "string" ? row.sort : null,
+    created: num(row.created),
   };
 }
 
@@ -53,6 +56,10 @@ export function treeRows(sql) {
       if (folder === "") return null;
       const row = all(sql.exec("SELECT * FROM ws_rows WHERE gone = 0 AND path = ? ORDER BY at DESC LIMIT 1", folder))[0];
       return row ? treeRow(row) : null;
+    },
+    /** A folder's own Sort setting, or null (`listingSort.cjs`); the listing walks up with it. */
+    sortAt(folder) {
+      return this.own(folder)?.sort ?? null;
     },
     /** Top-level folders, and every row with a job: what `folderJobs` reads. */
     jobRows() {

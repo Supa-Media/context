@@ -264,7 +264,8 @@ function meCopy(): Copy {
       about: { items: ABOUT, total: 24 },
       settings: {
         items: [],
-        values: { tone: "friendly", warmth: "default", enthusiasm: "default", emoji: "less", length: "short", bubbles: "one", humor: 30 },
+        instructions: "Be friendly.\nUse emoji sparingly.\nKeep answers short: the answer and nothing more.",
+        picks: [{ id: "friendly", label: "Friendly" }, { id: "emoji_none", label: "No emoji" }, { id: "short", label: "Short answers" }],
         number: "+1 (555) 010-0199",
       },
     },
@@ -305,7 +306,7 @@ function groupCopy(key: string, name: string): Copy {
       routines: { items: [ROUTINES[1]!] },
       checkins: { items: [] },
       about: { items: GROUP_ABOUT, total: 12 },
-      settings: { items: [], values: { answers: "named", tone: "friendly" }, approver: "You", people: ["You", "Ada", "Cy", "Bo", "Mia"] },
+      settings: { items: [], values: { answers: "named" }, instructions: "", picks: [{ id: "friendly", label: "Friendly" }, { id: "emoji_none", label: "No emoji" }, { id: "short", label: "Short answers" }], approver: "You", people: ["You", "Ada", "Cy", "Bo", "Mia"] },
     },
     jobs: ["gdinner", "gplaces", "gbill"],
   };
@@ -333,7 +334,7 @@ function ledgerOf(chat: string): LedgerEntry[] {
           { v: 1, seq: 9, id: `${chat}-e7`, at: at(9, 4), kind: "text", event: "reaction", from: { kind: "person", name: "Cy" }, text: "👍" },
           { v: 1, seq: 10, id: `${chat}-e8`, at: at(9, 5), kind: "text", eid: `${chat}-w8`, replyTo: `${chat}-w1`, from: { kind: "person", name: "Bo" }, text: "I'll bring snacks to standup" },
         ];
-  // A job's turn writes into the chat's history like any turn, each entry marked with the job; the Jobs filter shows it.
+  // A job's turn writes into the chat's history like any turn, each entry marked with the job; the history folds it under the job's line.
   const jobTag = { turn: `${chat}-tj`, jobId: "maritime", jobTitle: "Research maritime.sh" };
   const jobWork =
     chat === "me"
@@ -342,6 +343,7 @@ function ledgerOf(chat: string): LedgerEntry[] {
           { v: 1, seq: 12, id: "me-j2", at: at(9, 10), kind: "tool", ...jobTag, name: "browse", ok: true, ms: 900 },
           { v: 1, seq: 13, id: "me-j3", at: at(9, 11), kind: "tool", ...jobTag, name: "browse", ok: false, ms: 900 },
           { v: 1, seq: 14, id: "me-j4", at: at(9, 12), kind: "tool", ...jobTag, name: "ask_advisor", ok: true, ms: 4000, result: "Pricing page is the one to read; skip the blog.", thinking: "They want cost first. The blog is old." },
+          { v: 1, seq: 15, id: "me-j5", at: at(9, 12), kind: "job", ...jobTag, job: "maritime", title: "Research maritime.sh", state: "keep_going" },
         ]
       : [];
   return [
@@ -398,6 +400,10 @@ export function fixtureSource(): TexPageSource {
       const before = query.before ?? Number.MAX_SAFE_INTEGER;
       return ok({ manifest: { schema: "tex-ledger", version: 1, count: 6, created: at(9, 2), updated: at(9, 3) }, entries: entries.filter((e) => (e.seq ?? 0) < before).reverse() });
     },
+    async machines() {
+      // The mock's gateway predates machines, so it answers as such a gateway does.
+      return { kind: "notYours" };
+    },
     async sees(chat) {
       if (!copies.has(chat)) return { kind: "notYours" };
       const group = chat !== "me";
@@ -446,7 +452,10 @@ export function fixtureSource(): TexPageSource {
         case "settings":
         case "group.settings": {
           const s = c.lists.settings!;
-          s.values = { ...s.values, ...action.values };
+          const { instructions, pick, ...rest } = action.values;
+          if (typeof instructions === "string") s.instructions = instructions;
+          if (typeof pick === "string") s.instructions = [s.instructions, s.picks?.find((p) => p.id === pick)?.label].filter(Boolean).join("\n");
+          if (Object.keys(rest).length) s.values = { ...s.values, ...rest };
           push(chat, { section: "settings" });
           break;
         }

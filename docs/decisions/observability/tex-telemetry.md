@@ -183,3 +183,24 @@ opens, if a viewer can act, or if a status line doubles;
 `apps/mobile/__tests__/texDashboardInsights.test.ts` fails if a fix is judged
 on chats outside its task, if a thin window calls a direction, or if uncoded
 rows count.
+
+## One turn's timing, kept with its reply (2026-11-03)
+
+The owner, 2026-11-03: "I need to be able to look at an interaction with Tex
+and tell exactly why things might be slow." Every step was already timed
+(`tex_entry`, `tex_timing`, `tex_model_calls`, `tex_text_timing`), but only
+in aggregate: no point named its turn, and the chat's ledger kept only each
+tool's milliseconds and the reply's total.
+
+- **The reply entry carries `timing`** (`apps/mcp/src/agent/turnTiming.js`):
+  the wait before the gateway, each named entry-point step, the router, each
+  model round with its tokens, and each tool, each with `at` (from the moment
+  the gateway read the text) and `ms`. Names and numbers only, capped. A slim
+  read (the desk, a turn's own reads) drops it.
+- **A thinking entry carries its round's `ms` and `output` tokens.**
+- **Every Analytics Engine point carries the turn's id** (the ledger's `turn`):
+  `tex_entry` blob5, `tex_timing`'s last blob, `tex_model_calls` blob4,
+  `tex_text_timing` blob2. Entry-point points wait for the id and are written
+  without one if the turn ends before it is read.
+
+Reversing it: `test/turnTiming.test.mjs` fails.

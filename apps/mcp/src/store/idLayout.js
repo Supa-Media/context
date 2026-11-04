@@ -155,6 +155,18 @@ export class NoteCreateRaced extends Error {
 }
 
 /**
+ * A checked create (`options.checked`, `tools/notes/write.js`) the workspace object would not make alone: nothing
+ * was left written, and the caller saves the note the long way, with its own find and name checks. Says nothing about
+ * the path, so it can never stand for an answer.
+ */
+export class CheckedCreateDeclined extends Error {
+  constructor() {
+    super("this new note is saved with its checks");
+    this.name = "CheckedCreateDeclined";
+  }
+}
+
+/**
  * Thrown when the control plane answers for a workspace, or a row, that is not
  * keyed. Every workspace is keyed (2026-10-22), so this is a fault to report,
  * never a layout to serve: the bucket's path objects are not notes.
@@ -241,6 +253,8 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
   }
 
   const wrapped = Object.create(Object.getPrototypeOf(store), Object.getOwnPropertyDescriptors(store));
+  // The object's one-call create is this layer's to make (`keyedCreate`): nothing above names a note's key.
+  delete wrapped.createInObject;
 
   /** Bytes this layer wrote and no row will ever name: removed, and left for the cleanup if that fails. */
   const discard = async (key) => {
@@ -295,6 +309,15 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     }
   };
 
+  // The note's Markdown as its lookup carried it (`workspaceStore/lookupBody.js`, `workspaceRouting.js` `storedFromLookup`),
+  // or `null`: only for a plain `get` (no range or condition), and only once, so a second read asks the store.
+  const carriedBody = (entry, rest) => {
+    const { body } = entry;
+    if (body === undefined || typeof store.storedFromLookup !== "function" || rest.some((option) => option !== undefined && (option === null || typeof option !== "object" || Object.keys(option).length > 0))) return null;
+    entry.body = undefined;
+    return store.storedFromLookup(entry.key, body);
+  };
+
   /** A read routed by the tree: `method` is `get`, `head`, `exists` or `existsMetadata`. */
   // A read's lookup: the same answer, from where a read may take "no note here" without the control plane.
   const readLookup = typeof lookupRead === "function" ? lookupRead : lookup;
@@ -302,7 +325,7 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     if (!mirroredPath(path)) return await store[method](path, ...rest);
     const resolved = await resolveWith(ask, path);
     const { entry } = resolved;
-    if (keyedEntry(entry)) return await store[method](entry.key, ...rest);
+    if (keyedEntry(entry)) return (method === "get" ? carriedBody(entry, rest) : null) ?? (await store[method](entry.key, ...rest));
     // No note here, or a folder: nothing to read.
     return method === "exists" || method === "existsMetadata" ? false : null;
   };
@@ -367,6 +390,16 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
       return { key: entry.key, etag: entry.etag, noteId: typeof entry.noteId === "string" ? entry.noteId : null };
     });
     define("prime", (paths) => ask.prime((Array.isArray(paths) ? paths : []).filter(mirroredPath)));
+    // The keyed note at `path`, its Markdown and its editing history's text in one call to the workspace object
+    // (`workspaceRouting.js` `readInObject`), from this read's one lookup; `null` where that is not how it is read.
+    if (typeof store.readInObject === "function") {
+      define("readInObject", async (path) => {
+        if (!mirroredPath(path)) return null;
+        const { entry } = await resolveWith(ask, path);
+        if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
+        return await store.readInObject({ path, key: entry.key, noteId: entry.noteId });
+      });
+    }
     // A read that hands its view on (`read_notes` to `read_note`) keeps the one it has.
     define("oneRead", () => view);
     return view;
@@ -423,6 +456,25 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
   };
 
   /**
+   * `{result, adopted}` from the workspace object's one-call create (`createInObject`), or `null` where it did not
+   * serve it (no door, a body that is not text, a failure) and nothing was written there.
+   */
+  const createdInObject = async (path, noteId, key, body, options, tier) => {
+    if (typeof store.createInObject !== "function" || typeof body !== "string") return null;
+    let answer;
+    try {
+      const contentType = options?.httpMetadata?.contentType;
+      answer = await store.createInObject({ path, noteId, key, text: body, tier, at: now(), ...(typeof contentType === "string" ? { contentType } : {}) });
+    } catch {
+      return null;
+    }
+    if (answer === null || answer === undefined || typeof answer.etag !== "string" || answer.etag === "") return null;
+    // `took`: the object's own time on it, beside the call's whole trip (`obj:ws.create`), for the save's timings.
+    const result = { key, etag: answer.etag, ...(Number.isFinite(answer.size) ? { size: answer.size } : {}), ...(Number.isFinite(answer.took) ? { took: answer.took } : {}), ...(Number.isFinite(answer.commit) ? { commit: answer.commit } : {}) };
+    return { result, adopted: answer.adopted === true };
+  };
+
+  /**
    * A new note in a keyed workspace: a new id, its bytes at the new key, then
    * the row. A name taken meanwhile removes the bytes just written; an
    * unconditional write then lands on whoever holds the name, as a write to
@@ -433,15 +485,18 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     const noteId = newNoteId(now());
     // In the Tex folder the note is kept in Tex's Durable Object, and its key says so.
     const key = texHome === null ? idKeyFor(noteId, path) : texKeyFor(texHome, idKeyFor(noteId, path));
-    const result = await store.put(key, body, { ...unconditional(options), onlyIf: { absent: true } });
+    // The tier the writer asked for (`tools/notes/write.js`), so the workspace object adopts it only where it is no wider there.
+    const tier = options?.tier === "private" || options?.tier === "team" ? { tier: options.tier } : {};
+    // The bytes and the row in one call to the workspace object where it serves it (`workspaceRouting.js`).
+    const inObject = texHome === null && tier.tier !== undefined ? await createdInObject(path, noteId, key, body, options, tier.tier) : null;
+    if (inObject !== null && inObject.adopted === true) return inObject.result;
+    const result = inObject !== null ? inObject.result : await store.put(key, body, { ...unconditional(options), onlyIf: { absent: true } });
     // The key is a fresh id, so a refusal here means somebody else's object is already at it.
     if (result === null) throw new NoteCreateRaced(await etagAtKey(key));
     if (!written(result)) return result;
     const size = sizeOf(body);
     let answer;
     try {
-      // The tier the writer asked for (`tools/notes/write.js`), so the workspace object adopts it only where it is no wider there.
-      const tier = options?.tier === "private" || options?.tier === "team" ? { tier: options.tier } : {};
       answer = await adopt({ path, noteId, key, etag: result.etag, ...(size === undefined ? {} : { size }), at: now(), ...tier });
     } catch (error) {
       await discard(key);
@@ -456,10 +511,41 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     throw new NoteNameTaken();
   };
 
+  /**
+   * A new note made by the workspace object alone, its row and name checks made there (`workspaceStore/createNote.js`
+   * `checks`), with no lookup first: the row it is adopted under is the answer. Anything else, a decline or a row the
+   * object leaves to the control plane, leaves nothing written and throws `CheckedCreateDeclined`.
+   */
+  const checkedCreate = async (path, body, options) => {
+    const tier = options?.tier;
+    if (typeof store.createInObject !== "function" || typeof body !== "string" || (tier !== "private" && tier !== "team")) throw new CheckedCreateDeclined();
+    if (options?.onlyIf?.etagMatches !== undefined) throw new CheckedCreateDeclined();
+    const noteId = newNoteId(now());
+    const key = idKeyFor(noteId, path);
+    let answer;
+    try {
+      answer = await store.createInObject({ path, noteId, key, text: body, tier, at: now(), checks: true });
+    } catch {
+      throw new CheckedCreateDeclined();
+    }
+    if (answer?.served === true && answer.adopted === true && typeof answer.etag === "string" && answer.etag !== "") {
+      return { key, etag: answer.etag, ...(Number.isFinite(answer.size) ? { size: answer.size } : {}), ...(Number.isFinite(answer.took) ? { took: answer.took } : {}), ...(Number.isFinite(answer.commit) ? { commit: answer.commit } : {}) };
+    }
+    // Bytes written whose row the control plane would adopt: removed, so the long way starts from nothing.
+    if (answer?.served === true) await discard(key);
+    throw new CheckedCreateDeclined();
+  };
+  // Whether a save may skip its own find and name checks for a new note here (`tools/notes/write.js`).
+  Object.defineProperty(wrapped, "createsChecked", { value: typeof store.createInObject === "function", enumerable: false });
+
   if (typeof store.put === "function") {
     wrapped.put = async (path, body, ...rest) => {
-      if (!mirroredPath(path)) return await store.put(path, body, ...rest);
+      if (!mirroredPath(path)) {
+        if (rest[0]?.checked === true) throw new CheckedCreateDeclined();
+        return await store.put(path, body, ...rest);
+      }
       const [options, ask] = remembered(rest[0]);
+      if (options?.checked === true) return await checkedCreate(path, body, options);
       const resolved = await resolveWith(ask, path);
       const { entry } = resolved;
       if (keyedEntry(entry)) return await keyedPut(path, entry, body, options);
@@ -490,7 +576,8 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
         // The version report would go to the object anyway (`objectLookup.js` `wrote`): it is recorded in this call.
         ...(wrote.inObject === true ? { record: { at: now() } } : {}),
       });
-      if (answer === null) return null;
+      // Not served: said as the object said it, and the save runs the engine through the store.
+      if (answer === null || answer.served !== true) return answer;
       const markdown = answer.markdown;
       if (typeof markdown?.etag === "string" && answer.recorded !== true) {
         await report({ path, key: entry.key, etag: markdown.etag, ...(Number.isFinite(markdown.size) ? { size: markdown.size } : {}), at: now(), keyed: true });
@@ -546,7 +633,8 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
    * check and the object's row check (`replaceInObject`, `wrote`) judge the write against what is there now.
    */
   wrapped.oneWrite = (outer = wrapped) => {
-    const ask = rememberingLookup(lookup);
+    // A one-path question asks for the note's Markdown too, so an edit's load is served from the same trip.
+    const ask = rememberingLookup((paths) => lookup(paths, { withBody: paths.length === 1 }));
     const view = Object.create(outer);
     const define = (name, value) =>
       Object.defineProperty(view, name, { value, enumerable: false, writable: false, configurable: true });
@@ -557,6 +645,11 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
       define(method, (path, ...rest) => (routed(path) ? read(path, ...rest) : outer[method](path, ...rest)));
     }
     define("noteIdAt", noteIdAtWith(ask));
+    // Ask for the path's row now, without waiting: a save can start it beside its other checks, and the find, the
+    // load and the put then take the answer already on its way. A failure is the put's to meet, as if asked then.
+    define("warm", (path) => {
+      if (routed(path)) ask([path]).catch(() => {});
+    });
     // The writes go through `outer`, so every layer above still judges them, with this view's lookup beside them.
     const carrying = (options) => ({ ...(options ?? {}), [REMEMBERED]: ask });
     if (typeof outer.put === "function") {

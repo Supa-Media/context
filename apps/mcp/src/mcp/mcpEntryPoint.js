@@ -2,7 +2,7 @@
  * THE MCP ENTRY POINT: every step an MCP request takes, timed by name (Dev2,
  * 2026-11-02: "make an mcp entrypoint similar to our tex entrypoint ... only
  * high level functions all timed, and I want to see where the bottleneck
- * is"). The Tex entry point (`agent/texEntryPoint.js`) is the model.
+ * is"). The Tex entry point (`agent/texTiming.js`) is the model.
  *
  * `serveMcp` (`http/mcpRoute.js`) runs between the `MCP ENTRY POINT: begin`
  * and `end` markers, and every `await` in there is `mcp.step(name, run)`.
@@ -35,10 +35,16 @@
  * binding nothing is written.
  */
 
+import { ACTIONS } from "../tools/v2/actions.js";
+
 /** Analytics Engine takes 250 points a request. */
 const MAX_POINTS = 240;
+/** The least uncovered time worth its own point. */
+const UNCOVERED_FLOOR_MS = 5;
 /** A store's own calls, timed by `watch`. */
 const STORE_OPS = ["get", "head", "put", "delete", "list"];
+/** A Cloudflare data center's code. */
+const COLO = /^[A-Z]{3}$/;
 
 /**
  * @param {{ MCP_ENTRY?: { writeDataPoint(point: object): void } }} env
@@ -51,10 +57,11 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
   let call = "unknown";
   let workspace = "";
   let client = "";
+  let colo = "";
   let written = false;
 
   const record = (name, at, state) => {
-    const entry = { name, ms: Math.max(0, now() - at), at: at - start, state };
+    const entry = { name, ms: Math.max(0, now() - at), at: at - start, state, span: true };
     points.push(entry);
     return entry;
   };
@@ -91,6 +98,13 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
     /** The connection's app (Claude, ChatGPT, ...), as the grant names it. */
     set client(value) {
       client = typeof value === "string" ? value.slice(0, 64) : "";
+    },
+    /**
+     * The Cloudflare data center this request ran in (`request.cf.colo`, three capital letters), so a workspace
+     * object's round trip can be told apart by how far the gateway ran from it. Anything else is left blank.
+     */
+    set colo(value) {
+      colo = typeof value === "string" && COLO.test(value) ? value : "";
     },
     /** Run a step and wait for it. */
     step(name, run) {
@@ -140,10 +154,15 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
     },
     /** The answer is handed back now: write every point, once, and return `response`. */
     done(response) {
+      // What no step covered (2026-11-03: archive's steps summed to 180 ms of a 227 ms request): its own point, so the
+      // gap is measured in the same request as the whole, not guessed from medians of different samples.
+      const uncovered = Math.max(0, now() - start) - coveredMs(points);
+      // Under 5 ms is a clock's grain and the work between two awaits, not a gap worth a point.
+      if (uncovered >= UNCOVERED_FLOOR_MS) points.push({ name: "uncovered", ms: uncovered, at: 0, state: "ok" });
       record("to_response", start, response instanceof Response && response.status >= 500 ? "failed" : "ok");
       if (!written) {
         written = true;
-        write(env, points, { surface, call, workspace, client });
+        write(env, points, { surface, call, workspace, client, colo });
       }
       return response;
     },
@@ -153,13 +172,21 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
   return mcp;
 }
 
-/** Which call a JSON-RPC body is: `tools/call:<tool>` for a tool, the method otherwise, `batch` for an array. */
+/**
+ * Which call a JSON-RPC body is: `tools/call:<tool>` for a tool, the method otherwise, `batch` for an array. A
+ * `write`, `manage` or `send` call names its action too (`tools/call:manage:archive`), so one action's time is not
+ * averaged with the others' (2026-11-03: archive could not be told from a save). Only a name `ACTIONS` lists is
+ * kept, never what a caller wrote.
+ */
 export function callOf(body) {
   if (Array.isArray(body)) return body.length === 1 ? callOf(body[0]) : "batch";
   if (!body || typeof body !== "object" || typeof body.method !== "string") return "unparsed";
   const method = body.method.replace(/[^A-Za-z0-9_/.-]/g, "").slice(0, 48);
   if (method !== "tools/call") return method || "unparsed";
   const tool = typeof body.params?.name === "string" ? body.params.name.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 40) : "";
+  const action = body.params?.arguments?.action;
+  const actions = Object.hasOwn(ACTIONS, tool) ? ACTIONS[tool] : null;
+  if (actions !== null && typeof action === "string" && Object.hasOwn(actions, action)) return `tools/call:${tool}:${action}`;
   return `tools/call:${tool || "unnamed"}`;
 }
 
@@ -194,6 +221,22 @@ function opOf(input) {
 }
 
 /**
+ * How much of the request the timed steps cover: the union of their spans, so a step inside another (an `obj:` call
+ * inside `answer`) or two at once count once. A point recorded with a time from elsewhere (`point`) is not a span here.
+ */
+function coveredMs(points) {
+  const spans = points.filter((entry) => entry.span === true).map((entry) => [entry.at, entry.at + entry.ms]).sort((a, b) => a[0] - b[0]);
+  let covered = 0;
+  let reach = -Infinity;
+  for (const [from, to] of spans) {
+    if (to <= reach) continue;
+    covered += to - Math.max(from, reach);
+    reach = to;
+  }
+  return covered;
+}
+
+/**
  * One point per step and state: the request's total milliseconds in it, when it first started, and how many times it
  * ran. A save makes hundreds of `store:get` calls, and a request writing hundreds of points is sampled down by Analytics
  * Engine until most steps of it are gone (2026-11-03: a save's phases read as one point in eleven). In order of first
@@ -217,13 +260,13 @@ export function totals(points) {
   return all;
 }
 
-function write(env, points, { surface, call, workspace, client }) {
+function write(env, points, { surface, call, workspace, client, colo = "" }) {
   const dataset = env?.MCP_ENTRY;
   if (!dataset || typeof dataset.writeDataPoint !== "function") return;
   const summed = totals(points);
   for (const entry of summed.slice(0, MAX_POINTS - 1).concat(summed.length >= MAX_POINTS ? [summed[summed.length - 1]] : [])) {
     try {
-      dataset.writeDataPoint({ blobs: [surface, call, entry.name, entry.state, client], doubles: [entry.ms, entry.at, entry.count], indexes: [workspace] });
+      dataset.writeDataPoint({ blobs: [surface, call, entry.name, entry.state, client, colo], doubles: [entry.ms, entry.at, entry.count], indexes: [workspace] });
     } catch {
       // Diagnostics never fail a request.
     }

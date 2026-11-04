@@ -5,6 +5,7 @@
  */
 
 import { ACCESS_OPS } from "./access.js";
+import { TEXTING_OPS } from "./personTexting.js";
 
 const TABLES = { reach: "reach", sharedToMe: "shared", connections: "connections" };
 
@@ -22,10 +23,21 @@ export function personAccessClient(ask, personalWorkspaceId) {
   access.connections.rotate = async ({ refreshHash, clientId, next, at }) => (await call(ACCESS_OPS.CONNECTIONS_ROTATE, { refreshHash, clientId, next, at })).connection ?? null;
   access.connections.revokeToken = async ({ tokenHash, clientId, at }) => await call(ACCESS_OPS.CONNECTIONS_REVOKE_TOKEN, { tokenHash, clientId, at });
   access.session = async (tokenHash) => (await call(ACCESS_OPS.SESSION, { tokenHash })).session ?? null;
+  // The session and, where it is this object's own workspace, its store's open beside it (`sessionOpen.js`).
+  access.sessionWithOpen = async (tokenHash) => {
+    const answer = await call(ACCESS_OPS.SESSION, { tokenHash, open: true });
+    return { session: answer.session ?? null, open: answer.open ?? null };
+  };
   access.touch = async (tokenHash, at = Date.now()) => await call(ACCESS_OPS.TOUCH, { tokenHash, at });
   access.pin = async (userId) => await call(ACCESS_OPS.PERSON_PIN, { userId });
   access.setHome = async (home) => (await call(ACCESS_OPS.PERSON_HOME, { home })).home;
   access.state = async () => await call(ACCESS_OPS.PERSON_STATE);
+  // Texting with Tex (`personTexting.js`): the record, and the session one text runs under.
+  access.texting = {
+    put: async (record) => await call(TEXTING_OPS.PUT, { record }),
+    get: async () => (await call(TEXTING_OPS.GET)).record ?? null,
+    open: async ({ phoneHash, tokenHash, refreshHash, expiresAt, at }) => await call(TEXTING_OPS.OPEN, { phoneHash, tokenHash, refreshHash, expiresAt, at }),
+  };
   return access;
 }
 

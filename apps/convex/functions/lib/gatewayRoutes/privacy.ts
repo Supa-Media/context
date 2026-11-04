@@ -1,7 +1,7 @@
 /**
  * `POST /gateway/privacy`: the gateway's half of the access rows. The gateway's store writes one row's access
  * through `apps/mcp/src/store/privacyAuthority.js`, and each of that store's calls to the control plane arrives
- * here (`setAccess`, `addGrantees`). There is no `privacy.md` to write.
+ * here (`setAccess`, `addGrantees`, and `resolveHandles` for the gateway's handle cache). There is no `privacy.md` to write.
  *
  * Both proofs, as `/gateway/binding`: the gateway secret (the factory) and the
  * person's access token. The workspace is the grant's, compared with the one
@@ -49,6 +49,15 @@ export async function gatewayPrivacyHandler(ctx: ActionCtx, body: Record<string,
     // A tier or list set on one row. Only meaningful once the rows are the truth; `nodesAccess.setAccess` says so.
     if (actor === undefined) return refused();
     return await setAccessOp(ctx, body, workspaceId, actor);
+  }
+  if (op === "resolveHandles") {
+    // Names to accounts or this workspace's groups, for the gateway's handle cache; read only, owner only, as the
+    // list writes they are for (`gatewayHandles.ts`).
+    if (actor === undefined || actor.role !== "owner") return refused();
+    const handles = Array.isArray(body.handles) ? body.handles.filter((handle): handle is string => typeof handle === "string" && handle.length <= 320) : [];
+    if (handles.length === 0 || handles.length > 100) return refused();
+    const resolved = await ctx.runQuery(internal.functions.gatewayHandles.resolve, { workspaceId, handles });
+    return json({ ok: true, resolved });
   }
   if (op === "addGrantees") {
     // People named on one row by an AI client, after the person's yes. The rows decide; owner only.

@@ -1,10 +1,11 @@
 /**
- * "Tex, settings" in a group (`texStyle.ts`, Dev2, 2026-10-28): the menu, a
- * member's reply to it, or plain words ("Tex, humor 60%"). Any member may
- * change the group's style, as they may its engagement (`groupChoose.ts`), and
- * Tex says who did. Choice 1 is the engagement question itself
- * (`groupStyle.ts`). A yes or no to sharing chats with the devs is answered
- * here too, as the sender's own (`reviewSharing.ts`).
+ * "Tex, settings" in a group (`texStyle.ts`, Dev2, 2026-11-01): the menu, a
+ * member's reply to it, or plain words ("Tex, no emoji"). Any member may
+ * change the group's instructions or progress updates, as they may when Tex
+ * speaks up (`groupChoose.ts`), and Tex says who did so anyone can undo it.
+ * Choice 1 is the speak-up question itself (`groupStyle.ts`). A yes or no to
+ * sharing chats with the devs is answered here too, as the sender's own
+ * (`reviewSharing.ts`).
  */
 
 import { ServiceError } from "./clients";
@@ -16,7 +17,7 @@ import { ENGAGEMENT_QUESTION, groupStyle, openQuestion, STYLE_NAMES } from "./gr
 import type { Command } from "./groupWords";
 import type { InboxStorage } from "./inbox";
 import type { GroupMessage } from "./sendblueGroups";
-import { closeMenu, menuReply, menuState, openMenu, saveGroupStyle, settingChoices, settingsMenu, styleSet, type SettingReply } from "./texStyle";
+import { closeMenu, menuReply, menuState, NOTHING_TO_UNDO, openMenu, saveGroupStyle, settingChoices, settingSaid, settingsMenu, type SettingReply } from "./texStyle";
 
 /** A reply to the group's open menu, as of `now`, or null when the menu is closed or the words aren't one. */
 export async function groupSettingReply(storage: InboxStorage, text: string, now: number): Promise<SettingReply | null> {
@@ -40,10 +41,10 @@ export async function groupSettings(
     const answer = await saveReviewSharing(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, command.sharing, others);
     return void (await fixed(sharingReply(command.sharing, answer, { inGroup: true })));
   }
-  const style = asked.texStyle ?? {};
+  const settings = { ...(asked.instructions ? { instructions: asked.instructions } : {}), ...(asked.updates ? { updates: asked.updates } : {}) };
   if (command?.kind === "settings") {
     await openMenu(storage, deps.now());
-    return void (await fixed(settingsMenu(style, STYLE_NAMES[(await groupStyle(storage)).style])));
+    return void (await fixed(settingsMenu(settings, STYLE_NAMES[(await groupStyle(storage)).style])));
   }
   if (setting?.kind === "menu") {
     if (setting.step === "engagement") {
@@ -52,13 +53,13 @@ export async function groupSettings(
       return void (await fixed(ENGAGEMENT_QUESTION));
     }
     await openMenu(storage, deps.now(), setting.step);
-    return void (await fixed(settingChoices(setting.step, style)));
+    return void (await fixed(settingChoices(setting.step, settings)));
   }
-  const patch = command?.kind === "style" ? command.patch : setting?.kind === "set" ? setting.patch : null;
-  if (patch === null) return;
+  const ask = command?.kind === "style" ? command.ask : setting?.kind === "set" ? setting.ask : null;
+  if (ask === null) return;
   await closeMenu(storage);
   const setBy = asked.handle ?? asked.guests?.find((entry) => entry.phone === message.from)?.label ?? "someone here";
-  const saved = await saveGroupStyle(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.line, message.groupId, patch, setBy);
+  const saved = await saveGroupStyle(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.line, message.groupId, ask, setBy);
   if (saved === null) throw new ServiceError("control_plane", null);
-  await fixed(styleSet(patch, setBy));
+  await fixed(saved === "nothing_to_undo" ? NOTHING_TO_UNDO : settingSaid(ask, saved, setBy));
 }

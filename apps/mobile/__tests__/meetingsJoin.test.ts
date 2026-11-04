@@ -26,8 +26,10 @@ import { setCallAudioStorage, noteCallAudioShare } from "../features/meetings/ca
  *     that needs its share prompt does not spend the press on the call` fails.
  *  2. `joinStartInput` keeping the person themself among the guests. → `the
  *     meeting is named after the event, with its guests` fails.
- *  3. `NextUpRow` ignoring the running meeting. → `a meeting already recording
- *     takes the row away` fails.
+ *  3. `NextUpPill` ignoring the running meeting. → `a meeting already recording
+ *     takes the pill away` fails.
+ *  4. `NextUpPill` ignoring its Not now set. → `Not now hides that meeting
+ *     and no other` fails.
  */
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -46,7 +48,8 @@ const { fakeRecorder } = require("../features/meetings/capture/fake") as typeof 
 const { memoryStore } = require("../features/offline/memory") as typeof import("../features/offline/memory");
 const { joinStartInput, startsWhen, openCallLabel } = require("../features/meetings/join") as typeof import("../features/meetings/join");
 const { setScheduledMeetings, clearScheduledMeetings } = require("../features/meetings/scheduled") as typeof import("../features/meetings/scheduled");
-const { NextUpRow } = require("../features/meetings/components/NextUpRow") as typeof import("../features/meetings/components/NextUpRow");
+const { NextUpPill, resetNextUpDismissals } = require("../features/meetings/components/NextUpPill") as typeof import("../features/meetings/components/NextUpPill");
+const { CreateButton } = require("../features/console/CreateButton") as typeof import("../features/console/CreateButton");
 const { OpenCallButton } = require("../features/meetings/components/OpenCallButton") as typeof import("../features/meetings/components/OpenCallButton");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -218,16 +221,41 @@ describe("the live card's call button", () => {
   });
 });
 
-describe("the sidebar's next-up row", () => {
+describe("the next-up pill beside the +", () => {
+  afterEach(() => resetNextUpDismissals());
+
   test("names a meeting four minutes away, with the join press", async () => {
     await configure();
     setScheduledMeetings({ status: "ready", meetings: [meeting()], reconnect: [] });
     const joined: string[] = [];
-    const unmount = mount(createElement(NextUpRow, { onJoin: (m: CalendarEvent) => joined.push(m.id) }));
+    const unmount = mount(createElement(NextUpPill, { onJoin: (m: CalendarEvent) => joined.push(m.id) }));
     expect(document.body.textContent).toContain("Leadership Weekly");
-    expect(document.body.textContent).toContain("Next · in 4 min");
+    expect(document.body.textContent).toContain("in 4 min · Google Meet");
+    expect(document.body.textContent).toContain("Join and take notes");
     press("next-up-join");
     expect(joined).toEqual(["seyi@example.test:lw"]);
+    unmount();
+  });
+
+  test("sits on the line of the +, where a new meeting starts", async () => {
+    await configure();
+    setScheduledMeetings({ status: "ready", meetings: [meeting()], reconnect: [] });
+    const noop = () => {};
+    const unmount = mount(
+      createElement(CreateButton, {
+        compact: false,
+        onNewMeeting: noop,
+        onNewNote: noop,
+        onNewDrawing: noop,
+        onNewFolder: noop,
+        beside: createElement(NextUpPill, { onJoin: noop }),
+      }),
+    );
+    const pill = document.body.querySelector('[data-testid="next-up"]');
+    const plus = document.body.querySelector('[data-testid="console-create"]');
+    expect(pill).not.toBeNull();
+    expect(plus).not.toBeNull();
+    expect(pill?.parentElement).toBe(plus?.parentElement);
     unmount();
   });
 
@@ -239,18 +267,36 @@ describe("the sidebar's next-up row", () => {
       meetings: [meeting({ startsAt: new Date(later).toISOString(), endsAt: new Date(later + 3_600_000).toISOString() })],
       reconnect: [],
     });
-    const unmount = mount(createElement(NextUpRow, { onJoin: () => {} }));
+    const unmount = mount(createElement(NextUpPill, { onJoin: () => {} }));
     expect(document.body.querySelector('[data-testid="next-up"]')).toBeNull();
     unmount();
   });
 
-  test("a meeting already recording takes the row away", async () => {
+  test("Not now hides that meeting and no other", async () => {
+    await configure();
+    setScheduledMeetings({ status: "ready", meetings: [meeting()], reconnect: [] });
+    const unmount = mount(createElement(NextUpPill, { onJoin: () => {} }));
+    press("next-up-dismiss");
+    expect(document.body.querySelector('[data-testid="next-up"]')).toBeNull();
+    const soon = Date.now() + 6 * 60_000;
+    act(() => {
+      setScheduledMeetings({
+        status: "ready",
+        meetings: [meeting({ id: "seyi@example.test:other", title: "Design review", startsAt: new Date(soon).toISOString(), endsAt: new Date(soon + 1_800_000).toISOString() })],
+        reconnect: [],
+      });
+    });
+    expect(document.body.textContent).toContain("Design review");
+    unmount();
+  });
+
+  test("a meeting already recording takes the pill away", async () => {
     await configure();
     await act(async () => {
       await meetings.start({ title: "Something else" });
     });
     setScheduledMeetings({ status: "ready", meetings: [meeting()], reconnect: [] });
-    const unmount = mount(createElement(NextUpRow, { onJoin: () => {} }));
+    const unmount = mount(createElement(NextUpPill, { onJoin: () => {} }));
     expect(document.body.querySelector('[data-testid="next-up"]')).toBeNull();
     unmount();
   });

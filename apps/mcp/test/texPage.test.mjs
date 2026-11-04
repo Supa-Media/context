@@ -32,15 +32,15 @@ test("the page is asked with the console's token, and only its two answers pass"
 });
 
 test("a settings change names the chat and its values, and only known answers pass", async () => {
-  const { cp, posted } = plane({ status: "done", style: { tone: "candid" }, engagement: "attentive" });
-  assert.deepEqual(await cp.texPageSettings("cat_console", "ab".repeat(32), { tone: "candid", answers: "named" }), {
+  const { cp, posted } = plane({ status: "done", instructions: "Be candid.", engagement: "attentive" });
+  assert.deepEqual(await cp.texPageSettings("cat_console", "ab".repeat(32), { pick: "candid", answers: "named" }), {
     status: "done",
-    style: { tone: "candid" },
+    instructions: "Be candid.",
     engagement: "attentive",
   });
   assert.match(posted[0].url, /\/gateway\/tex\/page\/settings$/);
-  assert.deepEqual(posted[0].body, { accessToken: "cat_console", chat: "ab".repeat(32), values: { tone: "candid", answers: "named" } });
+  assert.deepEqual(posted[0].body, { accessToken: "cat_console", chat: "ab".repeat(32), values: { pick: "candid", answers: "named" } });
 
   const unknown = plane({ status: "ok" });
-  assert.equal(await unknown.cp.texPageSettings("cat_console", "me", { tone: "candid" }), null);
+  assert.equal(await unknown.cp.texPageSettings("cat_console", "me", { pick: "candid" }), null);
 });

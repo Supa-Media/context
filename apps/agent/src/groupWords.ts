@@ -5,11 +5,14 @@
  */
 
 import { sharingWords, type Sharing } from "./reviewSharing";
-import { styleWords, type TexStyle } from "./texStyle";
+import { styleWords, type Ask } from "./texStyle";
+import type { GroupStyle } from "./decide";
 
 export type Command =
+  /** "Tex, stop": when Tex speaks up is off. "Tex, be quiet" is a level (`speaks_up`), Dev2, 2026-11-01. */
   | { kind: "stop" }
   | { kind: "start" }
+  | { kind: "speaks_up"; level: GroupStyle }
   | { kind: "invite"; slug: string; role?: "editor" | "member" }
   | { kind: "share_mail"; address: string; query?: string }
   | { kind: "unshare_mail"; address?: string }
@@ -17,8 +20,8 @@ export type Command =
   | { kind: "settings" }
   /** "Tex, share my chats with the devs", or stop, or ask: the sender's own switch (`reviewSharing.ts`). */
   | { kind: "review_sharing"; sharing: Sharing }
-  /** Plain words for one of Tex's settings ("Tex, less emoji", "Tex, humor 60%"; `texStyle.ts`). */
-  | { kind: "style"; patch: TexStyle };
+  /** Plain words for a quick pick, an undo or a clear ("Tex, no emoji", "Tex, undo the change"; `texStyle.ts`). */
+  | { kind: "style"; ask: Ask };
 
 const NAME = "(?:tex|context)";
 /** The name, not "Tex-Mex" or "Texas". */
@@ -65,9 +68,24 @@ export function addressesTex(text: string, repliesToTex: boolean): boolean {
   return repliesToTex && !NOTHING_TO_SAY.test(words) && !EMOJI_ONLY.test(words);
 }
 
-/** The words without the quotes a person may type around them ("“Tex use @supa”"). */
+/**
+ * The words without the quotes a person may type around them ("“Tex use @supa”"), and without the bidi isolates
+ * iMessage wraps a mention in ("@\u2068Tex\u2069"), so a mention reads as the name.
+ */
 export function unquoted(text: string): string {
-  return text.trim().replace(/^["“”'‘’`]+/, "").replace(/["“”'‘’`]+$/, "").trim();
+  return text.replace(/[\u2066-\u2069]/g, "").trim().replace(/^["“”'‘’`]+/, "").replace(/["“”'‘’`]+$/, "").trim();
+}
+
+/** Tex's name as a word anywhere ("can Tex tell us what 7 times 8 is?"), never "Texas" or "Tex-Mex". */
+const NAMED = new RegExp(`(?<![\\w-])${WORD}`, "i");
+
+/**
+ * Whether a message names Tex anywhere (Dev2, 2026-11-02): iMessage sends a native mention as the bare name, with no
+ * "@" and no mention data, so "can Tex tell us what 7 times 8 is?" was kept as chat. Such a message reaches decide
+ * whatever the speak-up level but off, and is still not addressed: decide judges it and may stay silent.
+ */
+export function namesTex(text: string): boolean {
+  return NAMED.test(unquoted(text));
 }
 
 /** "Tex, share my mail from me@work.example here", optionally "matching <a Gmail search>" (`chat-mail.md`). */
@@ -89,14 +107,15 @@ export function groupCommand(text: string): Command | null {
     .trim()
     .replace(/[.!]+$/, "")
     .toLowerCase();
-  if (/^(?:stop|be quiet|mute|shush|shh+)$/.test(rest)) return { kind: "stop" };
+  if (/^(?:stop|mute|shush|shh+)$/.test(rest)) return { kind: "stop" };
+  if (/^be quiet$/.test(rest)) return { kind: "speaks_up", level: "quiet" };
   if (/^(?:start|unmute|come back)$/.test(rest)) return { kind: "start" };
   if (/^what (?:can you see|do you see|can you read)(?: here)?\??$/.test(rest)) return { kind: "status" };
   const invite = /^(?:add|invite) (?:everyone|everybody|all of us|us all|the group|this chat|this group)(?: (?:here|in here|in this chat|in this group))? (?:to|into) @?([a-z0-9][a-z0-9-]{0,63})(?: as (?:an? )?(editors?|members?))?$/.exec(rest);
   if (invite) return { kind: "invite", slug: invite[1], ...(invite[2] ? { role: invite[2].startsWith("member") ? "member" : "editor" } : {}) };
   if (/^settings\??$/.test(rest)) return { kind: "settings" };
-  const patch = styleWords(rest);
-  if (patch) return { kind: "style", patch };
+  const ask = styleWords(rest);
+  if (ask) return { kind: "style", ask };
   const sharing = sharingWords(rest);
   if (sharing) return { kind: "review_sharing", sharing };
   const shared = SHARE_MAIL.exec(rest);

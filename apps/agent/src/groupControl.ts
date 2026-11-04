@@ -3,7 +3,7 @@
  * on every message Tex acts on (moved out of `groupInbox.ts` whole).
  */
 
-import { readTexStyle, type TexStyle } from "./texStyle";
+import { readSettings, type Updates } from "./texStyle";
 import { post, record, ServiceError } from "./clients";
 import { GROUP_STYLES, type GroupStyle } from "./decide";
 import type { GroupDeps, Command } from "./groupInbox";
@@ -11,6 +11,7 @@ import type { GroupMessage } from "./sendblueGroups";
 
 export type ControlAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
+  | { status: "speaks_up"; level: GroupStyle; by: string }
   | { status: "not_allowed"; slug: string }
   | { status: "invited"; slug: string; count: number; role: string }
   | { status: "mail_shared"; address: string; narrowed: boolean }
@@ -30,17 +31,19 @@ export type ControlAnswer =
       guests?: { phone: string; label: string }[];
       /** Mailboxes shared with this chat (`chat-mail.md`): the turn is told whose and which. */
       mail?: { handle: string; address: string }[];
-      /** When Tex speaks up here (`groupStyle.ts`); absent from a control plane that has none. */
+      /** When Tex speaks up here (`groupStyle.ts`, the row's `speaksUp`, never off here); absent from a control plane that has none. */
       engagement?: GroupStyle;
       engagementChosen?: boolean;
-      /** How Tex talks in this chat (`texStyle.ts`): the group's own, never a member's personal one. */
-      texStyle?: TexStyle;
+      /** How Tex talks in this chat (`texStyle.ts`): the group's own instructions, never a member's personal ones, and its progress updates. */
+      instructions?: string;
+      updates?: Updates;
     };
 
 const LABEL = /^guest-[0-9a-f]{4}$/;
 const MAIL_ADDRESS = /^[^\s@/]{1,64}@[^\s@/]{1,190}$/;
 
-export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
+/** `mint: false` asks without minting a grant: the turn already holds a kept token (`groupKept.ts`). */
+export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null, { mint = true }: { mint?: boolean } = {}): Promise<ControlAnswer> {
   const wire = command === null || command.kind === "status" || command.kind === "settings" || command.kind === "style" || command.kind === "review_sharing" ? undefined : command;
   const { status, json } = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/group`, deps.workerSecret, {
     line: message.line,
@@ -48,7 +51,7 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
     sender: message.from,
     participants: people.includes(message.from) ? people : [...people, message.from],
     ...(wire !== undefined ? { command: wire } : {}),
-    ...(command === null ? { mint: true } : {}),
+    ...(command === null && mint ? { mint: true } : {}),
     // A routine's or check-in's own turn is nobody talking: the chat's last word stays when it was (`textGroupLooks.ts`).
     ...(message.routine !== undefined ? { routine: true } : {}),
   });
@@ -64,6 +67,9 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
       return { status: body.status };
     case "unknown_sender":
       return { status: "unknown_sender", tell: body.tell === true };
+    case "speaks_up":
+      if (!GROUP_STYLES.includes(body.level as GroupStyle) || typeof body.by !== "string") throw new ServiceError("control_plane", status);
+      return { status: "speaks_up", level: body.level as GroupStyle, by: body.by.slice(0, 64) };
     case "not_allowed":
       if (!slug(body.slug)) throw new ServiceError("control_plane", status);
       return { status: "not_allowed", slug: body.slug as string };
@@ -98,7 +104,7 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         ),
         ...(GROUP_STYLES.includes(body.engagement as GroupStyle) ? { engagement: body.engagement as GroupStyle } : {}),
         ...(typeof body.engagementChosen === "boolean" ? { engagementChosen: body.engagementChosen } : {}),
-        ...(readTexStyle(body.texStyle) ? { texStyle: readTexStyle(body.texStyle) } : {}),
+        ...readSettings(body),
       };
     default:
       throw new ServiceError("control_plane", status);

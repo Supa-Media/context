@@ -75,6 +75,30 @@ for (const { name, groupId } of LINES) {
       });
     }
 
+    // Dev2, 2026-11-02: iMessage sends a mention as the bare name, so Tex's name anywhere reaches decide, but never off.
+    // Sabotage: `named` false in `acceptGroup` makes this fail.
+    it("Tex's name mid-sentence reaches decide even when quiet; Texas and Tex-Mex never do; off keeps nothing", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { decide: untaggedSilent, control: { engagement: "quiet", engagementChosen: true } });
+      await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
+      await drainGroup(storage, w.deps);
+      await acceptGroup(storage, w.message("can Tex tell us what 7 times 8 is?", { from: BO }), 10);
+      await acceptGroup(storage, w.message("we drove through Texas", { from: BO }), 11);
+      await acceptGroup(storage, w.message("Tex-Mex tonight?", { from: BO }), 12);
+      await drainGroup(storage, w.deps);
+      expect(await decidedWords(storage, w, groupId)).toEqual(["can Tex tell us what 7 times 8 is?"]);
+      // Named, not addressed: decide said silent, so nothing was answered.
+      expect(w.asks).toHaveLength(1);
+
+      const muted = new MemoryStorage();
+      const off = setup(groupId, { decide: untaggedSilent, control: { status: "muted" } });
+      await acceptGroup(muted, off.message("Tex what's on tonight"), 0);
+      await drainGroup(muted, off.deps);
+      expect(await acceptGroup(muted, off.message("can Tex tell us what 7 times 8 is?", { from: BO }), 10)).toBe("ignored");
+      await drainGroup(muted, off.deps);
+      expect(off.decided).toEqual([]);
+    });
+
     it("followAlong is the default when the group has no style, and stops after 20 untagged texts", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { decide: untaggedSilent });
@@ -316,8 +340,8 @@ for (const { name, groupId } of LINES) {
       const w = setup(groupId);
       await acceptGroup(storage, w.message("Tex, settings"), 0);
       await drainGroup(storage, w.deps);
-      // Dev2, 2026-10-28: "Tex, settings" is the two-level menu; its first choice is this question (`texStyle.ts`).
-      expect(w.texts[0]).toMatch(/^My settings here:\n\n1 When I speak up \(Follow-along\)\n2 Tone \(Default\)/);
+      // Dev2, 2026-10-28: "Tex, settings" is the two-level menu; its first choice is this question (`texStyle.ts`; its rows since 2026-11-01).
+      expect(w.texts[0]).toMatch(/^My settings in this chat:\n\n1 When I speak up \(Follow-along\)\n2 Progress updates \(Normal\)/);
       await acceptGroup(storage, w.message("1", { from: BO }), 5);
       await drainGroup(storage, w.deps);
       expect(w.texts[1]).toBe(ENGAGEMENT_QUESTION);

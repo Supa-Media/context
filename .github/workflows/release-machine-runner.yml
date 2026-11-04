@@ -1,0 +1,317 @@
+# Publishes a GitHub Release for the context-machine binary (apps/machine-runner).
+#
+# Trigger: a manual dispatch naming the tag (`machine-runner-v<version>`), like the
+# desktop app's release; scripts/check-workflow-triggers.mjs keeps tag pushes out
+# of this repository's workflows. Four binaries, one per target:
+#
+#   - x86_64-unknown-linux-musl and aarch64-unknown-linux-musl, built on Linux with
+#     cargo-zigbuild, so they are static and run on any distribution.
+#   - x86_64-apple-darwin and aarch64-apple-darwin, built natively on macOS.
+#
+# Each becomes `context-machine-<target>.tar.gz` with a sibling `.sha256` file, and
+# the release also carries a combined `SHA256SUMS` and `install.sh`. install.sh
+# picks the newest release whose tag starts with `machine-runner-v`, because
+# GitHub's "latest" pointer belongs to whichever release was made last in this
+# repository, which need not be this binary.
+#
+# ## Signing
+#
+# The macOS binaries are signed and notarised when the same Apple secrets the
+# desktop app uses (see deploy-desktop.yml) are present in the `production`
+# environment, and built unsigned when they are not, so a fork still produces
+# a binary. Only the names are referenced here:
+#
+#   CSC_LINK, CSC_KEY_PASSWORD   Developer ID Application .p12 (base64) and its
+#                                export password
+#   ASC_API_KEY_P8, ASC_KEY_ID,  App Store Connect API key for notarytool
+#   ASC_ISSUER_ID
+#
+# A bare Mach-O cannot be stapled, so the notarised zip is only submitted and the
+# ticket is fetched online by Gatekeeper. Signing and notarising are guarded by
+# `env.SIGNING_ENABLED` and `env.NOTARY_ENABLED`, set once from the secrets in the
+# first macOS step.
+#
+# The macOS jobs name the `production` environment because that is where the
+# secrets live. Its protection rules, if any, gate these jobs too.
+
+name: Release machine runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing or new tag to release, e.g. machine-runner-v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-linux:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --locked
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/machine-runner
+          key: ${{ matrix.target }}
+
+      - name: Build
+        working-directory: apps/machine-runner
+        run: cargo zigbuild --release --target ${{ matrix.target }}
+
+      - name: Package
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          name="context-machine-${TARGET}"
+          stage="$(mktemp -d)"
+          cp "apps/machine-runner/target/${TARGET}/release/context-machine" "$stage/context-machine"
+          chmod 0755 "$stage/context-machine"
+          mkdir -p dist
+          tar -C "$stage" -czf "dist/${name}.tar.gz" context-machine
+          if command -v sha256sum >/dev/null 2>&1; then
+            hex="$(sha256sum "dist/${name}.tar.gz" | cut -d' ' -f1)"
+          else
+            hex="$(shasum -a 256 "dist/${name}.tar.gz" | cut -d' ' -f1)"
+          fi
+          printf '%s  %s\n' "$hex" "${name}.tar.gz" > "dist/${name}.tar.gz.sha256"
+          cat "dist/${name}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: context-machine-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  build-macos:
+    name: Build ${{ matrix.target }}
+    runs-on: macos-latest
+    timeout-minutes: 45
+    environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Decide whether this build is signed and notarised
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -eu
+          if [ -n "${CSC_LINK:-}" ] && [ -n "${CSC_KEY_PASSWORD:-}" ]; then
+            echo "SIGNING_ENABLED=true" >> "$GITHUB_ENV"
+            echo "Signing with the Developer ID certificate."
+          else
+            echo "SIGNING_ENABLED=false" >> "$GITHUB_ENV"
+            echo "::warning::No signing certificate in this environment; the binary will be unsigned."
+          fi
+          if [ -n "${ASC_API_KEY_P8:-}" ] && [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ]; then
+            echo "NOTARY_ENABLED=true" >> "$GITHUB_ENV"
+          else
+            echo "NOTARY_ENABLED=false" >> "$GITHUB_ENV"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/machine-runner
+          key: ${{ matrix.target }}
+
+      - name: Build
+        working-directory: apps/machine-runner
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Import the signing certificate into a temporary keychain
+        if: env.SIGNING_ENABLED == 'true'
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          set -eu
+          dir="$RUNNER_TEMP/signing"
+          mkdir -p "$dir"
+          p12="$dir/certificate.p12"
+          printf '%s' "$CSC_LINK" | base64 -d > "$p12"
+          keychain="$dir/signing.keychain-db"
+          keychain_password="$(openssl rand -base64 24)"
+          echo "::add-mask::$keychain_password"
+          keychains_before="$(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
+          echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $keychains_before
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/Developer ID Application/ {print $2; exit}')"
+          if [ -z "$identity" ]; then
+            echo "::error::The certificate in CSC_LINK is not a Developer ID Application identity."
+            exit 1
+          fi
+          echo "CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Sign the binary
+        if: env.SIGNING_ENABLED == 'true'
+        working-directory: apps/machine-runner
+        run: |
+          set -eu
+          bin="target/${{ matrix.target }}/release/context-machine"
+          codesign --force --options runtime --timestamp \
+            --keychain "$SIGNING_KEYCHAIN" --sign "$CODESIGN_IDENTITY" "$bin"
+          codesign --verify --strict --verbose=2 "$bin"
+
+      - name: Notarise the binary
+        if: env.SIGNING_ENABLED == 'true' && env.NOTARY_ENABLED == 'true'
+        working-directory: apps/machine-runner
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -eu
+          bin="target/${{ matrix.target }}/release/context-machine"
+          key_dir="$RUNNER_TEMP/asc"
+          mkdir -p "$key_dir"
+          key="$key_dir/AuthKey.p8"
+          printf '%s\n' "$ASC_API_KEY_P8" > "$key"
+          chmod 600 "$key"
+          echo "ASC_KEY_PATH=$key" >> "$GITHUB_ENV"
+          zip_dir="$(mktemp -d)"
+          ditto -c -k "$bin" "$zip_dir/context-machine.zip"
+          result="$(xcrun notarytool submit "$zip_dir/context-machine.zip" \
+            --key "$key" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" \
+            --wait --output-format json)"
+          echo "$result"
+          if ! printf '%s' "$result" | grep -Eq '"status" *: *"Accepted"'; then
+            echo "::error::Apple did not accept the notarisation submission."
+            exit 1
+          fi
+
+      - name: Package
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          name="context-machine-${TARGET}"
+          stage="$(mktemp -d)"
+          cp "apps/machine-runner/target/${TARGET}/release/context-machine" "$stage/context-machine"
+          chmod 0755 "$stage/context-machine"
+          mkdir -p dist
+          tar -C "$stage" -czf "dist/${name}.tar.gz" context-machine
+          if command -v sha256sum >/dev/null 2>&1; then
+            hex="$(sha256sum "dist/${name}.tar.gz" | cut -d' ' -f1)"
+          else
+            hex="$(shasum -a 256 "dist/${name}.tar.gz" | cut -d' ' -f1)"
+          fi
+          printf '%s  %s\n' "$hex" "${name}.tar.gz" > "dist/${name}.tar.gz.sha256"
+          cat "dist/${name}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: context-machine-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Delete the signing keychain
+        if: always() && env.SIGNING_KEYCHAIN != ''
+        run: |
+          security delete-keychain "$SIGNING_KEYCHAIN" || true
+
+      - name: Remove the notarisation key
+        if: always() && env.ASC_KEY_PATH != ''
+        run: rm -f "$ASC_KEY_PATH"
+
+  release:
+    name: Publish the GitHub Release
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Work out the tag
+        id: tag
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -eu
+          if [ "$EVENT" = "workflow_dispatch" ]; then tag="$INPUT_TAG"; else tag="$REF_NAME"; fi
+          case "$tag" in
+            machine-runner-v*) ;;
+            *) echo "::error::Tag '$tag' does not start with machine-runner-v."; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: context-machine-*
+          merge-multiple: true
+          path: dist
+
+      - name: Write SHA256SUMS
+        run: |
+          set -eu
+          cd dist
+          ls context-machine-*.tar.gz.sha256 | sort | xargs cat > SHA256SUMS
+          count="$(wc -l < SHA256SUMS | tr -d ' ')"
+          if [ "$count" -ne 4 ]; then
+            echo "::error::Expected 4 checksums, found $count."
+            exit 1
+          fi
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/context-machine-*.tar.gz
+            dist/context-machine-*.tar.gz.sha256
+            dist/SHA256SUMS
+            apps/machine-runner/install.sh

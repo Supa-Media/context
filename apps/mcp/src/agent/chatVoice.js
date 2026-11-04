@@ -3,8 +3,8 @@
  * `docs/decisions/texting-assistant/tex-voice.md`).
  *
  * Tex sounded the same in every chat: one texting style, or the production
- * setup's prompt in its place, plus the settings someone set by hand
- * (`texStyle.js`). Nothing told it to sound like the people it texts with, or
+ * setup's prompt in its place, plus the settings someone set by hand (since
+ * 2026-11-01 their own instructions, `customInstructions.js`). Nothing told it to sound like the people it texts with, or
  * to answer in their language. Two lines fix that and are said on every
  * texted turn, 1:1 and group, after the production prompt as `OPINION_LINE`
  * is (`prompt.js`): they are rules about this product, not a matter of one
@@ -24,17 +24,17 @@ import { isFenceLine } from "./promptFence.js";
 
 // Short: the texted system prompt has a size budget (`agentInstructions.test.mjs`).
 export const MIRROR_LINE =
-  "Write like the people in this chat (formality, emoji, slang, capitalization), within this chat's settings; never copy an insult.";
+  "Write like the people in this chat (formality, emoji, slang, capitalization), unless their instructions say otherwise; never copy an insult.";
 
 export const LANGUAGE_LINE = "Answer in the language of the person you're answering.";
 
 /**
  * Dev2, 2026-10-31 (`commandTools.js`): Tex said it "saved the style settings" after writing a note. Settings change
  * only through the tool, and a message for another assistant (Instinct is in Tex Devs) isn't Tex's. Its answer is SKIP,
- * which a group sends as nothing (Dev2, 2026-11-01: an empty answer there became "my answer got lost"; `route.js`).
+ * which a group sends as nothing (Dev2, 2026-11-01: an empty answer there became "my answer got lost"; `texEntryPoint.js`).
  */
 export const SETTINGS_LINE =
-  "Settings change only through the tex_style action; a note is never the settings. Say only what a tool's answer says happened. A message to another assistant by name, not you, isn't yours: answer only SKIP.";
+  "How you talk changes only through the tex_instructions action; a note is never the settings. Say only what a tool's answer says happened. A message to another assistant by name, not you, isn't yours: answer only SKIP.";
 
 /**
  * A text, not an essay (Dev2, 2026-10-29: "TEX NEEDS TO STOP BEING SO WORDY").

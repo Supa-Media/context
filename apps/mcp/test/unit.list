@@ -39,6 +39,7 @@ test/chatHomeWrite.test.mjs
 test/chatSkills.test.mjs
 test/homeRoutines.test.mjs
 test/historyFile.test.mjs
+test/historyRead.test.mjs
 test/jobLogAppend.test.mjs
 test/agentLocalNow.test.mjs
 test/agentPromptCache.test.mjs
@@ -48,6 +49,8 @@ test/agentSetupDoor.test.mjs
 test/agentBugReportAsked.test.mjs
 test/groupSetupReach.test.mjs
 test/agentProgress.test.mjs
+test/agentProgressLevels.test.mjs
+test/agentPageOpen.test.mjs
 test/agentRouterWebJobs.test.mjs
 test/agentSkills.test.mjs
 test/agentThinking.test.mjs
@@ -83,6 +86,9 @@ test/logicalDelete.test.mjs
 test/managedEncryption.test.mjs
 test/meaningCatchup.test.mjs
 test/meaningSearch.test.mjs
+test/meaningFromObjectGate.test.mjs
+test/searchWordsRevamp.test.mjs
+test/appSearch.test.mjs
 test/meaningServe.test.mjs
 test/meaningById.test.mjs
 test/meaningWrite.test.mjs
@@ -111,6 +117,7 @@ test/routines.test.mjs
 test/routinesTexRoot.test.mjs
 test/scopeInfoWorkspaces.test.mjs
 test/searchFollow.test.mjs
+test/searchLinkMatch.test.mjs
 test/siteFlags.test.mjs
 test/smallDataHooks.test.mjs
 test/staleClientArguments.test.mjs
@@ -118,6 +125,8 @@ test/storeHead.test.mjs
 test/texComputer.test.mjs
 test/toolNews.test.mjs
 test/noteMail.test.mjs
+test/noteMailKinds.test.mjs
+test/noteMailDelivery.test.mjs
 test/toolTitles.test.mjs
 test/treeFacts.test.mjs
 test/treeLinks.test.mjs
@@ -173,6 +182,7 @@ test/agentTheirNotes.test.mjs
 test/readFile.test.mjs
 test/readNoteCost.test.mjs
 test/agentLearnedSkills.test.mjs
+test/agentLearnedSkillsIndex.test.mjs
 test/agentSteer.test.mjs
 test/agentMemoryNudge.test.mjs
 test/deployedOrigins.test.mjs
@@ -204,7 +214,10 @@ test/managedDecryption.test.mjs
 test/meaningSnippetsFromDatabase.test.mjs
 test/moveWithoutConditionalDelete.test.mjs
 test/searchEverywhere.test.mjs
+test/searchEvidence.test.mjs
+test/searchPriors.test.mjs
 test/searchSettings.test.mjs
+test/searchCodeLike.test.mjs
 test/tokens.test.mjs
 test/presence/movedNotice.test.mjs
 test/searchKeyed/census.test.mjs
@@ -225,7 +238,6 @@ test/agentHandback.test.mjs
 test/calendarWords.test.mjs
 test/emailGateTiming.test.mjs
 test/checkInSources.test.mjs
-test/googleOffer.test.mjs
 test/sessionInstructionsTree.test.mjs
 test/agentTravelTime.test.mjs
 test/routineVoice.test.mjs
@@ -290,7 +302,7 @@ test/agentSilentSubmit.test.mjs
 test/staleEtagWrite.test.mjs
 test/oneVersion.test.mjs
 test/outcome.test.mjs
-test/agentTexStyle.test.mjs
+test/agentCustomInstructions.test.mjs
 test/agentChatVoice.test.mjs
 test/groupDirectNotes.test.mjs
 test/agentCommandTools.test.mjs
@@ -333,6 +345,7 @@ test/serveWrites.test.mjs
 test/treeOpsMove.test.mjs
 test/treeOpsTrash.test.mjs
 test/treeWrites.test.mjs
+test/writesTellTree.test.mjs
 test/moveWrites.test.mjs
 test/objectMove.test.mjs
 test/fileOpsRoute.test.mjs
@@ -343,7 +356,7 @@ test/workspaceRouting.test.mjs
 test/backupBehind.test.mjs
 test/writeKeepsTier.test.mjs
 test/mcpEntryPoint.test.mjs
-test/texEntryPoint.test.mjs
+test/texTiming.test.mjs
 test/workspaceTree.test.mjs
 test/workspaceRowsOwnership.test.mjs
 test/objectLookup.test.mjs
@@ -354,6 +367,8 @@ test/agentHomeMove.test.mjs
 test/accessSockets.test.mjs
 test/accessContract.test.mjs
 test/personObject.test.mjs
+test/textingObjects.test.mjs
+test/textsSession.test.mjs
 test/texFolderNames.test.mjs
 test/workspaceMembers.test.mjs
 test/workspaceMembersAccess.test.mjs
@@ -367,6 +382,8 @@ test/chatLedger.test.mjs
 test/objectManifest.test.mjs
 test/objectChildren.test.mjs
 test/objectBinding.test.mjs
+test/objectBindingSetupRead.test.mjs
+test/sessionOpen.test.mjs
 test/bindingRefreshBehind.test.mjs
 test/chatLedgerWrites.test.mjs
 test/chatLedgerReads.test.mjs
@@ -387,13 +404,36 @@ test/accessWrite.test.mjs
 test/accessPending.test.mjs
 test/accessDrop.test.mjs
 test/accessMove.test.mjs
+test/accessHandles.test.mjs
+test/objectAddGrantees.test.mjs
 test/workspaceSearchIndex.test.mjs
 test/workspaceMeaningIndex.test.mjs
 test/workspaceIndexBuild.test.mjs
 test/orientIndexOnce.test.mjs
+test/orientMostRecent.test.mjs
+test/orientSurveyInObject.test.mjs
+test/orientSiblingParallel.test.mjs
 
 test/savePhases.test.mjs
 test/bookkeepingBehind.test.mjs
 test/collabReplaceInObject.test.mjs
+test/readNoteInObject.test.mjs
+test/editLookupBody.test.mjs
+test/workspaceObjectCold.test.mjs
+test/gatewayPlacement.test.mjs
+test/createInObject.test.mjs
+test/checkedCreate.test.mjs
 test/bulkNotes.test.mjs
 test/pageDrawings.test.mjs
+test/agentLinkCheck.test.mjs
+test/turnTiming.test.mjs
+test/agentUntriedWeb.test.mjs
+test/readerNames.test.mjs
+test/workspaceTreeSort.test.mjs
+test/machineProtocol.test.mjs
+test/machineSockets.test.mjs
+test/machineRoutes.test.mjs
+test/machineJobs.test.mjs
+test/machineApp.test.mjs
+test/machineForJobs.test.mjs
+test/agentPlanBigAsk.test.mjs

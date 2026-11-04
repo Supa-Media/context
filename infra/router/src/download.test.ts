@@ -15,15 +15,23 @@ describe("download: one address for the newest Mac app", () => {
     expect(downloadFor("/download/mac/intel")).toBe(`${DOWNLOAD_RELEASES}/Context-mac-x64.dmg`);
   });
 
+  it("sends /download/linux to the AppImages and /download/linux/deb to the .debs", () => {
+    expect(downloadFor("/download/linux")).toBe(`${DOWNLOAD_RELEASES}/Context-linux-x86_64.AppImage`);
+    expect(downloadFor("/download/linux/")).toBe(`${DOWNLOAD_RELEASES}/Context-linux-x86_64.AppImage`);
+    expect(downloadFor("/download/linux/arm64")).toBe(`${DOWNLOAD_RELEASES}/Context-linux-arm64.AppImage`);
+    expect(downloadFor("/download/linux/deb")).toBe(`${DOWNLOAD_RELEASES}/Context-linux-amd64.deb`);
+    expect(downloadFor("/download/linux/deb/arm64")).toBe(`${DOWNLOAD_RELEASES}/Context-linux-arm64.deb`);
+  });
+
   it("names no version, so a new release needs no change here", () => {
-    for (const path of ["/download/mac", "/download/mac/intel"]) {
+    for (const path of ["/download/mac", "/download/mac/intel", "/download/linux", "/download/linux/arm64", "/download/linux/deb", "/download/linux/deb/arm64"]) {
       const target = downloadFor(path) ?? "";
       expect(target.startsWith("https://github.com/Supa-Media/context/releases/latest/download/")).toBe(true);
       expect(target).not.toMatch(/\d+\.\d+\.\d+/);
     }
   });
 
-  it.each(["/download", "/download/windows", "/download/mac/x", "/Download/mac", "/download/macx", "/download/constructor", "/download/__proto__"])(
+  it.each(["/download", "/download/windows", "/download/mac/x", "/download/linux/x", "/download/linux/deb/x", "/Download/mac", "/download/macx", "/download/constructor", "/download/__proto__"])(
     "%s is not a download",
     (path) => {
       expect(downloadFor(path)).toBeNull();

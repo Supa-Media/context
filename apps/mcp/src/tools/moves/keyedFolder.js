@@ -21,6 +21,8 @@ import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
 import { nameTwinRefusal, protectedFolderRefusal } from "../../tree/twins.js";
 import { destinationRefusal } from "./destination.js";
 import { startQueuedFolderMove } from "./queuedFolder.js";
+import { phase } from "../../mcp/phase.js";
+import { objectServesMoves } from "./objectMove.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 /** What the control plane says when the folder holds something this caller cannot see (`rowMoveStart.ts`). */
@@ -30,12 +32,21 @@ export async function toolMoveKeyedFolder(store, scope, rules, overrides, source
   // No control plane to move the rows, no move: and no preflight, which would list the frozen copies.
   if (typeof store?.startQueuedMove !== "function") return toolError(KEYED_PATH_REFUSAL);
   // The same two checks a move the old way makes first, asked of the tree (`tree/twins.js`).
-  const locked = await protectedFolderRefusal(store, scope, rules, overrides, source);
+  const locked = await phase(store, "move_locked", () => protectedFolderRefusal(store, scope, rules, overrides, source));
   if (locked) return toolError(locked);
-  const twin = await nameTwinRefusal(store, scope, rules, overrides, destination, { kind: "folder", ignore: source });
+  // Where the object makes the move, it judges twins by case itself, so only the top-level folder is asked here; the
+  // whole path is asked before a move the object leaves to the control plane.
+  const twinsOf = (topOnly) => nameTwinRefusal(store, scope, rules, overrides, destination, { kind: "folder", ignore: source, topOnly });
+  const inObject = !dryRun && objectServesMoves(store, scope);
+  // A move that stays under the source's own top-level folder makes no new one, so nothing is left to ask first: the
+  // top-level look listed every note under `archive/` (469 ms in production, 2026-11-03).
+  const sameTop = source.split("/")[0] === destination.split("/")[0] && destination.includes("/");
+  const twin = inObject && sameTop ? null : await phase(store, "move_twins", () => twinsOf(inObject));
   if (twin) return toolError(twin);
   if (dryRun) return await keyedFolderPreflight(store, scope, rules, overrides, source, destination);
-  const moved = await startQueuedFolderMove(store, scope, source, destination, { rules, overrides });
+  const moved = await startQueuedFolderMove(store, scope, source, destination, { rules, overrides }, {
+    ...(inObject ? { beforeControlPlane: () => phase(store, "move_twins_full", () => twinsOf(false)) } : {}),
+  });
   if (moved !== null) return moved;
   return toolError("could not move that folder right now. Nothing was changed; try again in a moment.");
 }

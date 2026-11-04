@@ -52,6 +52,7 @@ type FileBrowserValueDeps =
     | "renamed"
     | "notice"
     | "unreadable"
+    | "notFound"
     | "opening"
     | "say"
     | "selectedPath"
@@ -133,7 +134,7 @@ type FileBrowserValueDeps =
   & Pick<ShareScopeValues, "setScope" | "setSharePreviewTitle" | "shareWithGroup">
   & Pick<PendingOpsValues, "answerOp" | "pending">
   & Pick<FolderIconsValues, "iconOf" | "setIcon" | "suggestIcon">
-  & Pick<FolderJobsValues, "moveFolder" | "placeFolder">
+  & Pick<FolderJobsValues, "moveFolder" | "placeFolder" | "setFolderSort">
   & Pick<BuiltInFoldersValues, "addBuiltInFolder" | "folderJobs" | "setFolderJob">
   & Pick<OpenNoteValues, "prefetch">
   & Pick<TrashedNoteValues, "trashed" | "restoreTrashed" | "restoringTrashed" | "keptOpen">;
@@ -146,7 +147,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     discard, discardLocalCopies, dismissContextMove, dismissNotice, dismissToast, download,
     duplicate, editor, encryptedElsewhere, ensureListing, expanded, flushAutosave, keepMine,
     linkPaths, listings, loadImage, loading, mayShare, mirrorStatus, move, moveDestinations,
-    moveMany, moveToContext, navigations, notice, unreadable, offline, onExternalWrite, onSaved, openBeside, openLinkPaths,
+    moveMany, moveToContext, navigations, notice, unreadable, notFound, offline, onExternalWrite, onSaved, openBeside, openLinkPaths,
     opening, paste, pending, readFormResponses, readRaw, rename, renamed, resolveWith,
     restoreMany, resumeContextMove, retractFormResponse, revokeShare, save, say, search, select,
     selectedPath, setClipboard, setCollaborationDraft, setCollaborationOwned,
@@ -155,7 +156,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     setShareSlug, setVisibility, share, shareWithGroup, shares, storeImage, submitForm, toasts,
     toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm, iconOf, setIcon, suggestIcon,
     addBuiltInFolder, folderJobs, setFolderJob, prefetch, trashed, restoreTrashed, restoringTrashed, keptOpen, moveFolder,
-    placeFolder,
+    placeFolder, setFolderSort,
   } = deps;
 
   return useMemo(
@@ -169,6 +170,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       setFolderJob,
       moveFolder,
       placeFolder,
+      setFolderSort,
       submitForm,
       loadImage,
       storeImage,
@@ -236,6 +238,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       answerOp,
       notice,
       unreadable,
+      notFound,
       dismissNotice,
       toasts,
       say,
@@ -352,6 +355,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       dismissContextMove,
       notice,
       unreadable,
+      notFound,
       mirrorStatus,
       offline.counts,
       offline.durable,
@@ -414,6 +418,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       setFolderJob,
       moveFolder,
       placeFolder,
+      setFolderSort,
     ],
   );
 }

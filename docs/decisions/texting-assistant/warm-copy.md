@@ -112,3 +112,28 @@ and the reply took 46 s with 3 s in the model.
 
 Tests: `apps/mcp/test/agentWarmCopy.test.mjs`, `apps/mcp/test/agentHeldLog.test.mjs`,
 `apps/agent/src/warm.test.ts`, `apps/agent/src/heldLog.test.ts`.
+
+## Served stale while read again (2026-11-04)
+
+Dev asked why a cold text spent about a second on its setup and skills
+("why setup notes and skills are 1s"). On 2026-11-03 at 11:09 PM ET the setup
+took 400 ms and the learned skills 750 ms, both before the model, because the
+copy's setup had passed its hour and its skills their ten minutes.
+
+**Decision.** Past fresh and inside a day (`WARM_STALE_MS`), the setup and the
+learned skills' index are used for this turn and read again beside it, not
+before it (`warmTurn` `part`). What that read finds is sealed into the copy
+this turn hands back, so the next text has it fresh. A setup whose read again
+finds nothing is not carried on, so a removed or hidden setup is gone by the
+following text. Who they are by their account is never served stale. A
+background job running, or a turn that wrote, still reads the skills before
+the model, as before.
+
+**What it costs.** An edit to the setup note, or a skill added in the app,
+reaches a chat that was quiet for over an hour one text late. Nothing else:
+the history, About me and the jobs list are never in the copy.
+
+**Tests.** `apps/mcp/test/agentWarmCopy.test.mjs`: "past fresh and inside a
+day, the setup and skills answer at once and are read beside the turn; past
+a day, before it" and "a stale setup whose read again finds none is not
+carried on".

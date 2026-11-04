@@ -20,6 +20,9 @@
  * 4. **`context` allowed inside args and passed through** — the addressing row fails.
  * 5. **ChatGPT's no-args shortcut taken before the routed ids** — the
  *    `email:` and keyword rows for ChatGPT, and the end-to-end `email:` row, fail.
+ * 6. **The history-file row removed** (2026-11-03) — the history rows fail:
+ *    `tex/history.ledger.json` is listed as a folder and answers "no visible
+ *    notes", which is what every agent got before this row existed.
  */
 
 import { strict as assert } from "node:assert";
@@ -103,7 +106,6 @@ describe("translateFetch: keyword ids", () => {
     ["activity:", { limit: 9 }, "read_activity", { limit: 9 }],
     ["changes:", {}, "list_changes", {}],
     ["changes:", { limit: 4, reads: true }, "list_changes", { limit: 4, reads: true }],
-    ["proposals:", {}, "list_proposals", {}],
     ["links:", {}, "list_links", {}],
     ["vault:", {}, "vault_list", {}],
     ["plugins:", {}, "list_plugins", {}],
@@ -152,23 +154,6 @@ describe("translateFetch: keyword ids", () => {
     const out = translateFetch({ id: "vault:" }, CLAUDE);
     assert.equal(out.name, "vault_list");
     assert.equal("fetch" in out.arguments, false);
-  });
-});
-
-describe("translateFetch: proposals:<id>", () => {
-  it("reads one proposal by its id", () => {
-    assert.deepEqual(translateFetch({ id: "proposals:p_123" }, CLAUDE), {
-      name: "read_proposal",
-      arguments: { id: "p_123" },
-      action: "proposal",
-    });
-  });
-
-  it("refuses args on one proposal", () => {
-    assert.equal(
-      translateFetch({ id: "proposals:p_1", args: { limit: 1 } }, CLAUDE).error,
-      'fetch "proposals:p_1" takes no args. orient lists what each id takes.',
-    );
   });
 });
 
@@ -283,6 +268,31 @@ describe("translateFetch: note paths", () => {
   });
 });
 
+describe("translateFetch: a chat's history file", () => {
+  it("reads a person's history file as the note it is, not as a folder", () => {
+    assert.deepEqual(translateFetch({ id: "tex/history.ledger.json" }, CLAUDE), {
+      name: "read_note",
+      arguments: { path: "tex/history.ledger.json" },
+      action: "note",
+    });
+  });
+
+  it("reads a group chat's history file in its home, and through @name", () => {
+    assert.equal(translateFetch({ id: "tex/groups/kite-willow-rocket/history.ledger.json" }, CLAUDE).name, "read_note");
+    assert.deepEqual(translateFetch({ id: "@supa/tex/groups/kite-willow-rocket/history.ledger.json" }, CLAUDE).arguments, {
+      path: "@supa/tex/groups/kite-willow-rocket/history.ledger.json",
+    });
+  });
+
+  it("reads it for ChatGPT with no args too, rather than refusing a non-.md id", () => {
+    assert.equal(translateFetch({ id: "tex/history.ledger.json" }, GPT).name, "read_note");
+  });
+
+  it("leaves any other .json name to the folder listing, as before", () => {
+    assert.equal(translateFetch({ id: "tex/history.json" }, CLAUDE).name, "list_notes");
+  });
+});
+
 describe("translateFetch: folders", () => {
   it("lists a folder named with a trailing slash, without the slash", () => {
     assert.deepEqual(translateFetch({ id: "1-projects/" }, CLAUDE), {
@@ -342,7 +352,6 @@ describe("translateFetch: ChatGPT", () => {
       assert.equal(translateFetch({ id: "texts:" }, app).name, "list_texts");
       assert.equal(translateFetch({ id: "texts:chat_1" }, app).name, "read_texts");
       assert.equal(translateFetch({ id: "apps:linear" }, app).name, "app_read");
-      assert.equal(translateFetch({ id: "proposals:p1" }, app).name, "read_proposal");
     }
   });
 
@@ -412,6 +421,7 @@ const MANIFEST =
 const PLAN = "1-projects/plan.md";
 const SECRET = "2-areas/secret.md";
 const PLAN_TEXT = "# Plan\n\nShip the search and fetch translation.\n";
+const HISTORY = "tex/history.ledger.json";
 
 function createBucket() {
   const objects = new Map();
@@ -527,6 +537,7 @@ describe("end to end through callToolForSession", { concurrency: false }, () => 
     bucket.seed("index.md", "# Context\n");
     bucket.seed(PLAN, PLAN_TEXT);
     bucket.seed(SECRET, "# Secret\n\nPrivate to the owner.\n");
+    bucket.seed(HISTORY, '{"manifest":{"chat":"texts"},"view":{"shown":1,"older":false},"entries":[{"id":"a1","kind":"text","text":"hi"}]}\n');
   });
 
   after(() => restore?.());
@@ -536,6 +547,18 @@ describe("end to end through callToolForSession", { concurrency: false }, () => 
     assert.equal(out.isError, false);
     assert.match(out.text, /Ship the search and fetch translation\./);
     assert.match(out.text, /etag/i);
+  });
+
+  it("fetch of the history file reads it, and a team-tier caller is told what a missing note is told", async () => {
+    const owner = await call(env, OWNER_TOKEN, "fetch", { id: HISTORY });
+    assert.equal(owner.isError, false);
+    assert.match(owner.text, /"entries"/);
+    assert.doesNotMatch(owner.text, /no visible notes/);
+    const hidden = await call(env, TEAM_TOKEN, "fetch", { id: HISTORY });
+    const absent = await call(env, TEAM_TOKEN, "fetch", { id: "tex/never.ledger.md" });
+    assert.equal(hidden.isError, true);
+    assert.equal(hidden.text, absent.text);
+    assert.doesNotMatch(hidden.text, /entries/);
   });
 
   it("fetch of a folder with a trailing slash lists its notes", async () => {

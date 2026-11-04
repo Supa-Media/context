@@ -17,6 +17,8 @@ import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
 import { UnreadableNote } from "./UnreadableNote";
+import { NotFoundPage } from "./NotFoundPage";
+import { notFoundOnScreen } from "../../files/notFound";
 import { DocumentPage } from "./DocumentPage";
 import { NoteLoading } from "./NoteLoading";
 import { preloadFronts } from "../../files/folderPage/pageCache";
@@ -89,6 +91,7 @@ export function BrowseDocument({
   notices,
   pathBar,
   layingOut,
+  onNavigate,
   holding = false,
 }: {
   data: ConsoleData;
@@ -125,6 +128,8 @@ export function BrowseDocument({
   pathBar: ReactNode;
   /** The folders after "Start fresh": being written, or just written. */
   layingOut: BrowseNoticeState["layingOut"];
+  /** Where the not-found page's Search goes: the search page, for the name's words. */
+  onNavigate?: BrowsePaneProps["onNavigate"];
   /**
    * The page drawn is the one already on screen, kept while the selection is
    * read (`useShownEntry`). With nothing selected that is a phone's Home, which
@@ -356,6 +361,8 @@ export function BrowseDocument({
 
   // In storage but can't be opened: drawn with no editor, so nothing saves over it.
   const unreadable = files.unreadable ?? null;
+  // Asked for and not there (or not shared): drawn as one page, never a notice over a skeleton.
+  const notFound = notFoundOnScreen(files.notFound, files.selectedPath, pendingNote) ? (files.notFound ?? null) : null;
   // Tell the people and tools on the map which note this person has open.
   useAnnounceOpenNote(
     current?.id,
@@ -407,6 +414,10 @@ export function BrowseDocument({
         pathBar={pathBar}
         notices={compact ? notices : null}
       />
+    ) : notFound !== null ? (
+      // With no entry for it, the surface draws the band and path itself (`DocumentSurface`); passing them too doubled them.
+      <NotFoundPage path={notFound} files={files} slug={current?.slug} contextLabel={contextLabel} compact={compact} nav={nav}
+        onNavigate={onNavigate} pathBar={compact && selected === null ? undefined : pathBar} notices={compact && selected !== null ? notices : null} />
     ) : selected === null ? (
       /*
         Nothing, rather than "Choose a note", while something is on its way.
@@ -452,8 +463,9 @@ export function BrowseDocument({
           phoneHome
         )
       ) : isMarkdown(files.opening ?? pendingNote ?? "") ? (
-        // A note on its way with nothing yet to draw it from: say so.
-        <NoteLoading pathBar={pathBar} notices={compact ? notices : null} />
+        // A note on its way with nothing yet to draw it from: say so. The surface
+        // draws the band itself with nothing selected, so it is not passed in twice.
+        <NoteLoading pathBar={pathBar} />
       ) : null
     ) : commsRoute?.kind === "channel-day" ? (
       /*

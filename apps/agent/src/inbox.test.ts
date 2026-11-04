@@ -41,6 +41,8 @@ function deps(opts: {
   sessionStatus?: () => number;
   setup?: unknown;
   agentMs?: number;
+  /** Holds the read receipt and the bubble until it resolves: a slow Sendblue. */
+  presenceGate?: Promise<unknown>;
 }): InboxDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
@@ -49,10 +51,12 @@ function deps(opts: {
       // Slower than the answer, as Linq can be, so a bubble that is not
       // awaited would land after the reply and hang in the chat.
       await new Promise((resolve) => setTimeout(resolve, 5));
+      await opts.presenceGate;
       opts.events?.push("typing");
       return new Response(null, { status: opts.typingStatus ?? 204 });
     }
     if (path.endsWith("/read")) {
+      await opts.presenceGate;
       opts.events?.push("read");
       return new Response("{}", { status: opts.readStatus ?? 200 });
     }
@@ -72,6 +76,7 @@ function deps(opts: {
       return Response.json({ status: "issued", url: "https://app.example/texts/abc123" });
     }
     if (path === "/agent") {
+      if (opts.presenceGate) opts.events?.push("ask"); // only where a test watches the order against a slow Sendblue
       opts.asks?.push(body.question);
       opts.bodies?.push(body);
       if (opts.agentMs) await new Promise((resolve) => setTimeout(resolve, opts.agentMs));
@@ -269,6 +274,22 @@ describe("inbox", () => {
     const events: string[] = [];
     await drain(storage, deps({ events }));
     expect(events).toEqual(["read", "typing", "send"]);
+  });
+
+  it("never holds the turn for the read receipt or the bubble, and still texts only after both (Dev, 2026-11-04)", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1"), 1_000);
+    const events: string[] = [];
+    let release!: () => void;
+    const presenceGate = new Promise<void>((resolve) => (release = resolve));
+    const drained = drain(storage, deps({ events, presenceGate }));
+    // Sendblue has not answered either call, and the gateway is already asked.
+    await vi.waitFor(() => expect(events).toContain("ask"));
+    expect(events).toEqual(["ask"]);
+    release();
+    await drained;
+    // The answer still goes after the receipt and the bubble, never before them.
+    expect(events).toEqual(["ask", "read", "typing", "send"]);
   });
 
   it("asks for the bubble again just after the read receipt, while a slower answer is worked out", async () => {
@@ -573,13 +594,17 @@ describe("the work after a reply", () => {
     await afterRepliesSettled(storage);
     expect(sent).toHaveLength(1);
     expect(points).toHaveLength(1);
-    expect(points[0].blobs).toEqual(["one"]);
+    expect(points[0].blobs![0]).toBe("one");
+    expect(points[0].blobs![1]).toMatch(/^\S{8,64}$/); // the turn's id, as the gateway's timing has it
     const row = Object.fromEntries(TEXT_COLUMNS.map((name, i) => [name, points[0].doubles![i]]));
     expect(row.parts).toBe(1);
     expect(row.queueMs).toBeGreaterThan(4_000);
     // The wait the person felt ends at the first bubble, before the last and before the work after it.
     expect(row.toFirstTextMs).toBeGreaterThan(row.queueMs + row.gatewayMs - 1);
     expect(row.toLastTextMs).toBeGreaterThanOrEqual(row.toFirstTextMs);
+    // Inside the gateway's answer: the session lookup, then the Worker's work before asking (Dev, 2026-11-04).
+    expect(row.sessionMs).toBeGreaterThan(0);
+    expect(row.sessionMs + row.beforeAskMs).toBeLessThan(row.gatewayMs);
     for (const value of points[0].doubles!) expect(value).toBeGreaterThanOrEqual(0);
     expect(JSON.stringify(points)).not.toMatch(/secret words|5555550100|chat_1/);
   });
@@ -590,6 +615,7 @@ describe("the work after a reply", () => {
     expect(row.gatewayMs).toBe(2_400);
     expect(row.toFirstTextMs).toBe(-1);
     expect(row.sendMs).toBe(-1);
-    expect(point.blobs).toEqual(["group"]);
+    expect(point.blobs).toEqual(["group", ""]);
+    expect(textTimingPoint("one", {}, "turn-1").blobs).toEqual(["one", "turn-1"]);
   });
 });

@@ -1,12 +1,13 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
 import { texStyleValidator } from "../texStyle";
+import { speaksUpValidator, texUpdatesValidator } from "../texInstructions";
 
 /**
  * The iMessage group chats Tex has been tagged in (`functions/textGroups.ts`).
  *
- * Metadata only, never a message: which workspaces the chat reaches, who
- * muted it, and whether its intro went. A chat is named by a hash of its line
+ * Metadata only, never a message: which workspaces the chat reaches, when
+ * Tex speaks up and how it talks there, and whether its intro went. A chat is named by a hash of its line
  * and Sendblue's `group_id`, so this table never holds the id itself, and the
  * participants are never stored here: they arrive with every message and are
  * resolved again each time (decided by the owner, 2026-10-20;
@@ -38,7 +39,7 @@ export const textGroupTables = {
      * (`lib/textGroupUsage.ts`), and written on the next turn that mints.
      */
     sponsorId: v.optional(v.id("users")),
-    /** "Tex, stop": nothing but "Tex, start" is answered until it is lifted. */
+    /** "Tex, stop" before 2026-11-01, now `speaksUp: "off"`. Unread once migrated (`texChatRules.ts` `speaksUpOf`). TODO: drop. */
     mutedAt: v.optional(v.number()),
     mutedBy: v.optional(v.id("users")),
     /** When the one intro line went, so it goes once. */
@@ -63,14 +64,26 @@ export const textGroupTables = {
      */
     guestFolderUsers: v.optional(v.array(v.id("users"))),
     /**
-     * How much Tex joins in (Dev2, 2026-10-26; `docs/design/tex-event-log/CONTRACT.md` section 4). Absent: never
-     * chosen, so the Worker asks before its first answer and uses `followAlong` meanwhile.
+     * When Tex speaks up (Dev2, 2026-11-01, mute folded in as `off`; `docs/decisions/texting-assistant/custom-instructions.md`).
+     * Absent: never chosen, so the Worker asks before its first answer and uses `followAlong` meanwhile. `off`: nothing
+     * but "Tex, start" or a level named is answered; `speaksUpBefore` is the level it replaced, put back by "Tex, start".
+     * Who set it: a display handle or label as the Worker named them, or a `groupKey`-salted hash of a number.
      */
+    speaksUp: v.optional(speaksUpValidator),
+    speaksUpBefore: v.optional(speaksUpValidator),
+    speaksUpSetBy: v.optional(v.string()),
+    speaksUpSetAt: v.optional(v.number()),
+    /** The chat's own instructions (`lib/texInstructions.ts`), the text before their last change, and who changed them when, as `speaksUpSetBy`. */
+    instructions: v.optional(v.string()),
+    instructionsBefore: v.optional(v.string()),
+    instructionsSetBy: v.optional(v.string()),
+    instructionsSetAt: v.optional(v.number()),
+    /** Progress updates (`lib/texInstructions.ts`): absent is normal. */
+    updates: v.optional(texUpdatesValidator),
+    /** Unread since 2026-11-01: when Tex spoke up, now `speaksUp`, and the old style dials, now `instructions`. TODO: drop after the migration. */
     engagement: v.optional(v.union(v.literal("quiet"), v.literal("attentive"), v.literal("followAlong"), v.literal("helpful"))),
-    /** Who chose it: their display handle or label as the Worker named them, or a `groupKey`-salted hash of a number. */
     engagementSetBy: v.optional(v.string()),
     engagementSetAt: v.optional(v.number()),
-    /** How Tex talks in this chat (`lib/texStyle.ts`, Dev2, 2026-10-28): only changed settings; who changed them last, as `engagementSetBy`. */
     texStyle: v.optional(texStyleValidator),
     texStyleSetBy: v.optional(v.string()),
     texStyleSetAt: v.optional(v.number()),

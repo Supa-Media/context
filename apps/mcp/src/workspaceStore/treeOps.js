@@ -92,6 +92,8 @@ function rowOut(row) {
     role: row.role ?? null,
     order: row.ord === null || row.ord === undefined ? null : Number(row.ord),
     archiveOf: row.archive_of ?? null,
+    sort: row.sort ?? null,
+    created: row.created === null || row.created === undefined ? null : Number(row.created),
     at: Number(row.at),
   };
 }
@@ -105,11 +107,12 @@ export function treeOps(sql, { mintId = objectRowId } = {}) {
   const goneFolderAt = (path) =>
     all(sql.exec("SELECT * FROM ws_rows WHERE path = ? AND gone = 1 AND kind = 'folder' ORDER BY at DESC LIMIT 1", path))[0] ?? null;
   const liveBelow = (path) =>
-    all(sql.exec("SELECT * FROM ws_rows WHERE gone = 0 AND substr(path, 1, length(?) + 1) = ? || '/' ORDER BY path", path, path));
+    // Everything under `path/` as a range on the path index ('0' is the byte after '/'): a `substr` test read every row.
+    all(sql.exec("SELECT * FROM ws_rows WHERE gone = 0 AND path >= ? || '/' AND path < ? || '0' ORDER BY path", path, path));
   const anyLiveChild = (folder) =>
     all(
       sql.exec(
-        "SELECT id FROM ws_rows WHERE gone = 0 AND substr(path, 1, length(?) + 1) = ? || '/' AND instr(substr(path, length(?) + 2), '/') = 0 LIMIT 1",
+        "SELECT id FROM ws_rows WHERE gone = 0 AND path >= ? || '/' AND path < ? || '0' AND instr(substr(path, length(?) + 2), '/') = 0 LIMIT 1",
         folder, folder, folder,
       ),
     ).length > 0;

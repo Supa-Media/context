@@ -52,7 +52,7 @@ test("a pasted picture on a homepage page is drawn from the site, and the page s
 
   const picture = page.locator(".cm-lp-image-img").first();
   await expect(picture).toHaveAttribute("src", PICTURE, { timeout: 15_000 });
-  await expect(page.getByText("Not in this bucket", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("Image not found", { exact: false })).toHaveCount(0);
 
   const devlog = page.locator(".cm-content").getByText("devlog", { exact: true });
   await devlog.scrollIntoViewIfNeeded();

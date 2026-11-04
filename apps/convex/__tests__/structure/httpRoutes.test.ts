@@ -178,6 +178,7 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/mail/join": "gatewayMailJoin",
     "/gateway/mail/get": "gatewayMailGet",
     "/gateway/mail/read": "gatewayMailRead",
+    "/gateway/mail/jobs": "gatewayMailJobs",
     "/gateway/ingest/resolve": "gatewayIngestResolve",
     "/gateway/ingest/binding": "gatewayIngestBinding",
     "/gateway/ingest/record": "gatewayIngestRecord",

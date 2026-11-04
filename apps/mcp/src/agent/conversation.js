@@ -266,7 +266,7 @@ export async function appendConversation(store, name, question, answer, { tainte
  * The person's own words this turn, for the sharing judge (`privacy/judge.js`):
  * what they sent, after the last thing they were told, so a bare "yeah do it"
  * reads as the answer to the question it answers. A routine's words are its
- * own note instead, never the last run's answer (`route.js`).
+ * own note instead, never the last run's answer (`texEntryPoint.js`).
  */
 export function wordsOfTurn(history, question) {
   const lastAnswer = [...history].reverse().find((turn) => turn.role === "assistant")?.text ?? "";
@@ -338,7 +338,7 @@ export async function rememberRoutineText(store, routine, text, tainted) {
   if (Array.isArray(routine.settings.to) && routine.settings.to.length > 0) return;
   const line = `(Not a text from them. Your routine ${routine.path} ran on its schedule and you texted them what follows.)`;
   try {
-    await appendConversation(store, "texts", line, text, { tainted, ledger: false }); // the routine turn wrote its own note (`route.js`)
+    await appendConversation(store, "texts", line, text, { tainted, ledger: false }); // the routine turn wrote its own note (`texEntryPoint.js`)
   } catch {
     // See above.
   }

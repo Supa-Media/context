@@ -1,109 +1,102 @@
 /**
  * How Tex talks, and the "Tex, settings" menu that changes it (Dev2,
- * 2026-10-28; `docs/decisions/texting-assistant/tex-settings.md`).
+ * 2026-11-01; `docs/decisions/texting-assistant/custom-instructions.md`).
  *
- * Settings, absent meaning default: a tone, warmth, enthusiasm and emoji
- * (more, default, less), a length, one bubble or several, and a humor
- * percentage in tens, an homage to TARS in Interstellar. A person's own style
- * holds in their 1:1 chat; a group has its own, set by any member, and never
- * uses anyone's personal one. The control plane keeps both
- * (`apps/convex/functions/texStyle.ts`); the gateway says them to the model
- * (`apps/mcp/src/agent/texStyle.js`).
+ * The people's own instructions are the one source of truth: a person's own
+ * hold in their 1:1 chat, a group's in the group, and nobody's personal ones
+ * ever reach a group. Quick picks (the menu's, or words like "Tex, no emoji")
+ * edit that text: this Worker names a pick by its id, and the control plane,
+ * which keeps the one catalog (`apps/convex/functions/lib/texInstructions.ts`),
+ * writes its line. Beside them, progress updates (off, plan only, normal).
+ * The gateway says the instructions to the model (`apps/mcp/src/agent/customInstructions.js`).
  *
- * The menu has two levels: "Tex, settings" lists the settings by number, a
- * number opens that setting's choices, and a number or a name sets it. Plain
- * words do the common ones in one text ("Tex, less emoji", "Tex, humor 60%").
- * What it keeps, never text: `texmenu`, when the menu opened and which
- * setting is open; `texstyle`, the 1:1 style as the control plane last said.
+ * The menu has two levels: "Tex, settings" lists the switches and the full
+ * instructions, a number opens a list or acts, and a number or a name picks.
+ * What it keeps, never text: `texmenu`, when the menu opened and which list is open.
  */
 
 import { post, record, type Fetch } from "./clients";
 import type { InboxStorage } from "./inbox";
 import { sharingWords } from "./reviewSharing";
 
-export type Level = "more" | "default" | "less";
-export type TexStyle = {
-  tone?: "default" | "professional" | "friendly" | "candid" | "quirky" | "efficient" | "nerdy" | "cynical";
-  warmth?: Level;
-  enthusiasm?: Level;
-  emoji?: Level;
-  length?: "short" | "default" | "detailed";
-  bubbles?: "multiple" | "one";
-  humor?: number;
-};
-type Key = Exclude<keyof TexStyle, "humor">;
-export type SettingStep = Key | "humor" | "engagement";
+export type Updates = "off" | "planOnly" | "normal";
+/** What a chat's settings are, as the control plane says them. */
+export type Settings = { instructions?: string; updates?: Updates };
+/** One change: a quick pick by id, the text cleared or put back as it was, and or a progress updates level. */
+export type Ask = { pick?: string; clear?: true; undo?: true; updates?: Updates };
+export type SettingStep = "engagement" | "updates" | "picks" | "clear";
 
-const TONES = ["default", "professional", "friendly", "candid", "quirky", "efficient", "nerdy", "cynical"] as const;
-const LEVELS = ["more", "default", "less"] as const;
-const CHOICES: Record<Key, readonly string[]> = {
-  tone: TONES,
-  warmth: LEVELS,
-  enthusiasm: LEVELS,
-  emoji: LEVELS,
-  length: ["short", "default", "detailed"],
-  bubbles: ["multiple", "one"],
-};
-export const DEFAULT_HUMOR = 75;
-const isHumor = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100 && value % 10 === 0;
-
-/** A style from the control plane, kept to known settings and their sets; undefined when absent or off. */
-export function readTexStyle(value: unknown): TexStyle | undefined {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const out: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (key === "humor" ? !isHumor(entry) : !(key in CHOICES) || !CHOICES[key as Key].includes(entry as string)) return undefined;
-    out[key] = entry;
-  }
-  return Object.keys(out).length > 0 ? (out as TexStyle) : undefined;
-}
-
-/** The menu, numbered once for every chat; "When I speak up" only shows in a group. */
-const MENU: { n: number; step: SettingStep; label: string }[] = [
-  { n: 1, step: "engagement", label: "When I speak up" },
-  { n: 2, step: "tone", label: "Tone" },
-  { n: 3, step: "warmth", label: "Warmth" },
-  { n: 4, step: "enthusiasm", label: "Enthusiasm" },
-  { n: 5, step: "emoji", label: "Emoji" },
-  { n: 6, step: "length", label: "Length" },
-  { n: 7, step: "bubbles", label: "Bubbles" },
-  { n: 8, step: "humor", label: "Humor" },
+const UPDATES: { value: Updates; label: string }[] = [
+  { value: "off", label: "Off" },
+  { value: "planOnly", label: "Plan only" },
+  { value: "normal", label: "Normal" },
 ];
-const LABEL = Object.fromEntries(MENU.map(({ step, label }) => [step, label])) as Record<SettingStep, string>;
-const word = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
-const BUBBLE_WORDS: Record<string, string> = { multiple: "Several per answer", one: "One per answer" };
-const shown = (step: Key, value: string) => (step === "bubbles" ? BUBBLE_WORDS[value]! : word(value));
+/** The control plane's catalog, by id and label only (`texInstructions.ts` `QUICK_PICKS`), in its order. */
+export const PICKS: readonly { id: string; label: string }[] = [
+  ["professional", "Professional"], ["friendly", "Friendly"], ["candid", "Candid"], ["quirky", "Quirky"], ["efficient", "Efficient"], ["nerdy", "Nerdy"], ["cynical", "Cynical"],
+  ["warmth_more", "More warmth"], ["warmth_less", "Less warmth"], ["enthusiasm_more", "More enthusiasm"], ["enthusiasm_less", "Less enthusiasm"],
+  ["emoji_more", "More emoji"], ["emoji_less", "Less emoji"], ["emoji_none", "No emoji"], ["short", "Short answers"], ["detailed", "Detailed answers"],
+  ["one_bubble", "One bubble"], ["humor_more", "More humor"], ["humor_less", "Less humor"], ["humor_none", "No humor"],
+].map(([id, label]) => ({ id: id!, label: label! }));
+const MAX_INSTRUCTIONS = 1_500;
 
-function current(style: TexStyle, step: SettingStep): string {
-  if (step === "humor") return `${style.humor ?? DEFAULT_HUMOR}%`;
-  if (step === "engagement") return "";
-  return shown(step, style[step] ?? (step === "bubbles" ? "multiple" : "default"));
+/** Settings from the control plane, kept to what they may be; `{}` for none. */
+export function readSettings(value: unknown): Settings {
+  const body = record(value);
+  const instructions = typeof body.instructions === "string" && body.instructions.length <= MAX_INSTRUCTIONS && body.instructions.trim() !== "" ? body.instructions : undefined;
+  const updates = UPDATES.some((entry) => entry.value === body.updates) ? (body.updates as Updates) : undefined;
+  return { ...(instructions ? { instructions } : {}), ...(updates ? { updates } : {}) };
 }
 
-/** "Tex, settings": every setting with what it is now. `engagement`: the group's style name, in a group. */
-export function settingsMenu(style: TexStyle, engagement?: string): string {
-  const rows = MENU.filter(({ step }) => step !== "engagement" || engagement !== undefined).map(({ n, step, label }) => `${n} ${label} (${step === "engagement" ? engagement : current(style, step)})`);
-  return `My settings here:\n\n${rows.join("\n")}\n\nReply with a number.`;
+/** The menu, numbered once per kind of chat: a group has when Tex speaks up. */
+const menuOf = (group: boolean): { step: SettingStep; label: string }[] =>
+  group
+    ? [
+        { step: "engagement", label: "When I speak up" },
+        { step: "updates", label: "Progress updates" },
+        { step: "picks", label: "Quick picks" },
+        { step: "clear", label: "Clear instructions" },
+      ]
+    : [
+        { step: "updates", label: "Progress updates" },
+        { step: "picks", label: "Quick picks" },
+        { step: "clear", label: "Clear instructions" },
+      ];
+const updatesLabel = (settings: Settings) => UPDATES.find((entry) => entry.value === (settings.updates ?? "normal"))!.label;
+
+/** "Tex, settings": the switches and the full instructions. `speaksUp`: the group's level by name, in a group. */
+export function settingsMenu(settings: Settings, speaksUp?: string): string {
+  const group = speaksUp !== undefined;
+  const rows = menuOf(group).map(({ step, label }, index) => `${index + 1} ${label}${step === "engagement" ? ` (${speaksUp})` : step === "updates" ? ` (${updatesLabel(settings)})` : ""}`);
+  const text = settings.instructions ?? "Nothing yet.";
+  return group
+    ? `My settings in this chat:\n\n${rows.join("\n")}\n\nHow I talk here (anyone here can change it):\n${text}\n\nPersonal instructions don't apply in groups.\n\nReply with a number.`
+    : `My settings here:\n\n${rows.join("\n")}\n\nHow I talk to you:\n${text}\n\nReply with a number, or tell me "from now on ..." to change how I talk.`;
 }
 
-/** One setting's choices, numbered, with what it is now. */
-export function settingChoices(step: Exclude<SettingStep, "engagement">, style: TexStyle): string {
-  if (step === "humor") return `Humor is at ${current(style, "humor")}. Reply with a percent from 0 to 100, in tens.`;
-  const rows = CHOICES[step].map((value, index) => `${index + 1} ${shown(step, value)}`);
-  return `${LABEL[step]} (now ${current(style, step)}):\n\n${rows.join("\n")}\n\nReply with a number.`;
+/** One list's choices, numbered. */
+export function settingChoices(step: "updates" | "picks", settings: Settings): string {
+  if (step === "updates") return `Progress updates (now ${updatesLabel(settings)}):\n\n${UPDATES.map((entry, index) => `${index + 1} ${entry.label}`).join("\n")}\n\nReply with a number.`;
+  return `Quick picks, each adds a line to how I talk:\n\n${PICKS.map((pick, index) => `${index + 1} ${pick.label}`).join("\n")}\n\nReply with a number.`;
 }
 
-/** What a set says back: "Humor set to 60% (set by dev2)." */
-export function styleSet(patch: TexStyle, by?: string): string {
-  const parts = Object.entries(patch).map(([key, value]) => (key === "humor" ? `Humor set to ${value}%` : `${LABEL[key as Key]} set to ${shown(key as Key, value as string)}`));
-  return `${parts.join(", ")}${by ? ` (set by ${by})` : ""}.`;
+/** What a saved change says back. `by`: who changed a group's, so the chat knows and anyone can undo. */
+export function settingSaid(ask: Ask, saved: Settings, by?: string): string {
+  const undo = by !== undefined ? 'Anyone here can text "Tex, undo the change" to put it back.' : 'Text "Tex, undo the change" to put it back.';
+  if (ask.pick !== undefined) return `${by !== undefined ? `${by} set` : "Saved"}: "${saved.instructions?.split("\n").at(-1) ?? ""}". ${undo}`;
+  if (ask.clear) return `${by !== undefined ? `${by} cleared` : "Cleared"} how I talk here. ${undo}`;
+  if (ask.undo) return `${by !== undefined ? `${by} put it back` : "Put back"}. How I talk here now:\n${saved.instructions ?? "Nothing yet."}`;
+  return `Progress updates set to ${updatesLabel(saved)}${by !== undefined ? ` (set by ${by})` : ""}.`;
 }
+
+/** Said when an undo had nothing to undo, or a change was refused. */
+export const NOTHING_TO_UNDO = "There's nothing to undo.";
 
 export type MenuState = { at: number; step?: SettingStep };
 const MENU_KEY = "texmenu";
 export const MENU_OPEN_MS = 30 * 60_000;
 
-/** The menu open (or a setting in it), as of `now`, or undefined when it closed or timed out. */
+/** The menu open (or a list in it), as of `now`, or undefined when it closed or timed out. */
 export async function menuState(storage: InboxStorage, now: number): Promise<MenuState | undefined> {
   const open = await storage.get<MenuState>(MENU_KEY);
   return open !== undefined && now - open.at < MENU_OPEN_MS ? open : undefined;
@@ -117,7 +110,8 @@ export async function closeMenu(storage: InboxStorage): Promise<void> {
   await storage.delete(MENU_KEY);
 }
 
-export type SettingReply = { kind: "menu"; step: SettingStep } | { kind: "set"; patch: TexStyle };
+/** A reply the open menu reads: a list to open, or a change to save. */
+export type SettingReply = { kind: "menu"; step: "engagement" | "updates" | "picks" } | { kind: "set"; ask: Ask };
 
 const bare = (text: string) =>
   text
@@ -128,49 +122,58 @@ const bare = (text: string) =>
     .trim()
     .toLowerCase();
 
-/** A reply to the open menu: a number picks a setting, then a number or a name (or a percent, for humor) sets it. */
+/** A reply to the open menu: a number (or a name) opens a list or acts, then a number or a name picks. */
 export function menuReply(text: string, state: MenuState, group: boolean): SettingReply | null {
   const words = bare(text);
+  const nth = <T>(list: readonly T[]) => list[Number(words) - 1];
   if (state.step === undefined) {
-    const picked = MENU.find(({ n, label }) => String(n) === words || label.toLowerCase() === words);
-    if (picked === undefined || (picked.step === "engagement" && !group)) return null;
+    const menu = menuOf(group);
+    const picked = nth(menu) ?? menu.find(({ label }) => label.toLowerCase() === words);
+    if (picked === undefined) return null;
+    if (picked.step === "clear") return { kind: "set", ask: { clear: true } };
     return { kind: "menu", step: picked.step };
   }
-  if (state.step === "engagement") return null;
-  if (state.step === "humor") {
-    const humor = /^(\d{1,3})\s*%?$/.exec(words);
-    return humor && isHumor(Number(humor[1])) ? { kind: "set", patch: { humor: Number(humor[1]) } } : null;
+  if (state.step === "updates") {
+    const level = nth(UPDATES) ?? UPDATES.find((entry) => entry.label.toLowerCase() === words);
+    return level === undefined ? null : { kind: "set", ask: { updates: level.value } };
   }
-  const choices = CHOICES[state.step];
-  const value = choices[Number(words) - 1] ?? choices.find((choice) => choice === words || shown(state.step as Key, choice).toLowerCase() === words);
-  return value === undefined ? null : { kind: "set", patch: { [state.step]: value } as TexStyle };
+  if (state.step === "picks") {
+    const pick = nth(PICKS) ?? PICKS.find((entry) => entry.label.toLowerCase() === words);
+    return pick === undefined ? null : { kind: "set", ask: { pick: pick.id } };
+  }
+  return null;
 }
 
-const DIAL_WORDS = /^(more|less|fewer|no)\s+(warmth|warm|enthusiasm|enthusiastic|emoji|emojis)$/;
+const TONE = /^(?:tone|be)\s+(professional|friendly|candid|quirky|efficient|nerdy|cynical)$/;
+const DIAL = /^(more|less|fewer|no)\s+(warmth|warm|enthusiasm|enthusiastic|emoji|emojis|humou?r|jokes)$/;
 
-/** Plain words for the common settings, the whole text: "less emoji", "humor 60%", "tone efficient", "one bubble", "short answers". */
-export function styleWords(text: string): TexStyle | null {
+/**
+ * Plain words for a quick pick, an undo or a clear, the whole text: "no emoji", "less emoji", "tone efficient",
+ * "one bubble", "short answers", "more humor", "undo the change", "clear instructions".
+ */
+export function styleWords(text: string): Ask | null {
   const words = bare(text);
-  const humor = /^(?:set\s+)?humou?r(?:\s+(?:to|at))?\s+(\d{1,3})\s*%?$/.exec(words);
-  if (humor) return isHumor(Number(humor[1])) ? { humor: Number(humor[1]) } : null;
-  const tone = /^(?:tone|be)\s+(\w+)$/.exec(words);
-  if (tone && (TONES as readonly string[]).includes(tone[1]!)) return { tone: tone[1] as TexStyle["tone"] };
-  const dial = DIAL_WORDS.exec(words);
+  // Never a bare "undo": that is often about an email or an event, and goes to the model.
+  if (/^undo (?:the|that|my|your|this) (?:last )?(?:settings? )?change$/.test(words)) return { undo: true };
+  if (/^clear (?:the |my |your )?instructions$/.test(words)) return { clear: true };
+  const tone = TONE.exec(words);
+  if (tone) return { pick: tone[1] };
+  const dial = DIAL.exec(words);
   if (dial) {
-    const key = dial[2]!.startsWith("warm") ? "warmth" : dial[2]!.startsWith("enthus") ? "enthusiasm" : "emoji";
-    return { [key]: dial[1] === "more" ? "more" : "less" } as TexStyle;
+    const family = dial[2]!.startsWith("warm") ? "warmth" : dial[2]!.startsWith("enthus") ? "enthusiasm" : dial[2]!.startsWith("emoji") ? "emoji" : "humor";
+    const how = dial[1] === "more" ? "more" : dial[1] === "no" ? "none" : "less";
+    return how === "none" && (family === "warmth" || family === "enthusiasm") ? null : { pick: `${family}_${how}` };
   }
-  if (/^(?:one|1|single)\s+(?:bubble|text)(?:\s+(?:per|an?)\s+answer)?$/.test(words)) return { bubbles: "one" };
-  if (/^(?:several|multiple|many)\s+(?:bubbles|texts)$/.test(words)) return { bubbles: "multiple" };
-  if (/^(?:short|shorter)(?:\s+answers)?$/.test(words)) return { length: "short" };
-  if (/^(?:detailed|longer|more detailed)(?:\s+answers)?$/.test(words)) return { length: "detailed" };
+  if (/^(?:one|1|single)\s+(?:bubble|text)(?:\s+(?:per|an?)\s+answer)?$/.test(words)) return { pick: "one_bubble" };
+  if (/^(?:short|shorter)(?:\s+answers)?$/.test(words)) return { pick: "short" };
+  if (/^(?:detailed|longer|more detailed)(?:\s+answers)?$/.test(words)) return { pick: "detailed" };
   return null;
 }
 
 /**
  * A 1:1 text that is about the settings: the menu asked for, plain words for
- * one, a reply the open menu reads, or a yes or no to sharing chats with the
- * devs (`reviewSharing.ts`).
+ * a pick, a reply the open menu reads, or a yes or no to sharing chats with
+ * the devs (`reviewSharing.ts`).
  */
 export async function isSettingsText(storage: InboxStorage, text: string, now: number): Promise<boolean> {
   if (asksForSettings(text) || styleWords(text) !== null || sharingWords(text) !== null) return true;
@@ -181,25 +184,22 @@ export async function isSettingsText(storage: InboxStorage, text: string, now: n
 /** "Tex, settings" on its own, with or without the name. */
 export const asksForSettings = (text: string): boolean => bare(text) === "settings" || bare(text) === "settings?";
 
-type Saved = TexStyle | null;
-async function saveStyle(fetcher: Fetch, origin: string, secret: string, path: string, body: Record<string, unknown>): Promise<Saved> {
+/** What a save answers: the settings now, `nothing_to_undo`, or null when it didn't go (unlinked, no row, refused). */
+export type Saved = Settings | "nothing_to_undo" | null;
+async function saveSettings(fetcher: Fetch, origin: string, secret: string, path: string, body: Record<string, unknown>): Promise<Saved> {
   const { status, json } = await post(fetcher, "control_plane", `${origin}${path}`, secret, body);
   const answer = record(json);
-  return status === 200 && answer.ok === true ? (readTexStyle(answer.style) ?? {}) : null;
+  if (status === 200 && answer.ok === false && answer.refused === "nothing_to_undo") return "nothing_to_undo";
+  return status === 200 && answer.ok === true ? readSettings(answer) : null;
 }
 
-/** `POST /agent-texts/style`: a 1:1 setting, laid over the linked person's style. The style now, or null unlinked. */
-export const saveTextsStyle = (fetcher: Fetch, origin: string, secret: string, phone: string, patch: TexStyle) =>
-  saveStyle(fetcher, origin, secret, "/agent-texts/style", { phone, style: patch });
+/** `POST /agent-texts/style`: a 1:1 change to the linked person's own settings. */
+export const saveTextsStyle = (fetcher: Fetch, origin: string, secret: string, phone: string, ask: Ask) =>
+  saveSettings(fetcher, origin, secret, "/agent-texts/style", { phone, ...ask });
 
-/** `POST /agent-texts/group/style`: a group setting, with who set it. The group's style now, or null for a chat Tex has no row for. */
-export const saveGroupStyle = (fetcher: Fetch, origin: string, secret: string, line: string, groupId: string, patch: TexStyle, setBy: string) =>
-  saveStyle(fetcher, origin, secret, "/agent-texts/group/style", { line, groupId, style: patch, setBy });
-
-const STYLE_KEY = "texstyle";
-/** The 1:1 style as the control plane last said, so the quick tapback can be left off without asking it again. */
-export const keepTexStyle = (storage: InboxStorage, style: TexStyle | undefined) => storage.put<TexStyle>(STYLE_KEY, style ?? {});
-export const keptTexStyle = async (storage: InboxStorage): Promise<TexStyle> => (await storage.get<TexStyle>(STYLE_KEY)) ?? {};
+/** `POST /agent-texts/group/style`: a group change, with who made it. */
+export const saveGroupStyle = (fetcher: Fetch, origin: string, secret: string, line: string, groupId: string, ask: Ask, setBy: string) =>
+  saveSettings(fetcher, origin, secret, "/agent-texts/group/style", { line, groupId, setBy, ...ask });
 
 /**
  * A 1:1 text that is about the settings: the menu, a reply to it, or plain
@@ -207,16 +207,18 @@ export const keptTexStyle = async (storage: InboxStorage): Promise<TexStyle> => 
  */
 export async function textSettings(
   text: string,
-  style: TexStyle,
+  settings: Settings,
   menu: { state: () => Promise<MenuState | undefined>; open: (step?: SettingStep) => Promise<void>; close: () => Promise<void> },
-  save: (patch: TexStyle) => Promise<Saved>,
+  save: (ask: Ask) => Promise<Saved>,
 ): Promise<string | null> {
-  if (asksForSettings(text)) return await menu.open(), settingsMenu(style);
+  if (asksForSettings(text)) return await menu.open(), settingsMenu(settings);
   const state = await menu.state();
   const reply = state ? menuReply(text, state, false) : null;
-  if (reply?.kind === "menu" && reply.step !== "engagement") return await menu.open(reply.step), settingChoices(reply.step, style);
-  const patch = reply?.kind === "set" ? reply.patch : styleWords(text);
-  if (patch === null) return null;
+  if (reply?.kind === "menu" && reply.step !== "engagement") return await menu.open(reply.step), settingChoices(reply.step, settings);
+  const ask = reply?.kind === "set" ? reply.ask : styleWords(text);
+  if (ask === null) return null;
   await menu.close();
-  return (await save(patch)) === null ? null : styleSet(patch);
+  const saved = await save(ask);
+  if (saved === "nothing_to_undo") return NOTHING_TO_UNDO;
+  return saved === null ? null : settingSaid(ask, saved);
 }

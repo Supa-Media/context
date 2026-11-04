@@ -93,6 +93,19 @@ to prevent:
   and the object's member check are live on every request) and every change to
   the binding's own rows clears it, so what can lag is a plan's note cap, a
   feature switch or a search index's descriptor, by one request.
+- **Asked beside the session, where it is the same object** (2026-11-03, for
+  Dev's "every read and write under 0.1 s": the session and the open were two
+  trips of 15 to 30 ms each to one object). A personal workspace's object is
+  also its person's, so `person.session` asked with `open` answers `ws.open`'s
+  exact answer beside the session (`workspaceStore/sessionOpen.js`), after the
+  same wait for an open mark, and only for a session whose own workspace is
+  that object's, for the person it names. The gateway holds it for that one
+  session object in a WeakMap, never on the session (`store/openedHere.js`),
+  and `objectBinding.js` takes it once, only when the session's workspace and
+  person match. A session addressed at another context has none and asks that
+  object's `ws.open`. The control plane's door refuses `person.session`
+  carrying `open`, as it refuses `ws.open`. `test/sessionOpen.test.mjs` fails
+  if any of these goes.
 - **A kill switch.** `BINDING_FROM_OBJECT=off` on the gateway sends every
   request to the control plane again.
 

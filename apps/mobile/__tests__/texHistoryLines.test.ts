@@ -32,7 +32,7 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { dayAsked, dayTitle, DEFAULT_SHOWN, historyDays, kindsFor, timeOf } from "../features/tex/history/historyLines";
+import { dayAsked, dayTitle, DEFAULT_SHOWN, historyDays, jobCount, kindsFor, timeOf } from "../features/tex/history/historyLines";
 import { groupChatAt, historyFileChat } from "../features/tex/history/historyFile";
 import { displayName } from "../features/console/files/paths";
 import { PARTS } from "../features/console/files/contextIcons/drawings";
@@ -123,13 +123,44 @@ describe("the history's lines", () => {
       "routine · tex/routines/morning · Sent the brief.",
       "advisor · asked: Is this right?",
       "mail checker · email to jo@example.com · stopped · they said Thursday",
-      "job · Code transactions · keep going",
+      // A job is its own line, Tex · Minion 1, its state beside it.
+      "Code transactions",
     ]);
+    expect(lines[3]!.run).toMatchObject({ minion: 1, state: "running", steps: [] });
+  });
+
+  test("each job's work folds under one line a job, Tex · Minion 1, 2 in the order they began, its texts left in the chat", () => {
+    const job = (id: string, title: string) => ({ jobId: id, jobTitle: title });
+    // Newest first, as the gateway answers.
+    const entries: LedgerEntry[] = [
+      { id: "m4", at: at(2, 9, 30), kind: "job", turn: "c2", ...job("cut", "Book a haircut"), job: "cut", title: "Book a haircut", state: "stuck" },
+      { id: "m3", at: at(2, 9, 29), kind: "text", turn: "c2", ...job("cut", "Book a haircut"), from: { kind: "tex" }, text: "I couldn't book it." },
+      { id: "m2", at: at(2, 9, 28), kind: "tool", turn: "c2", ...job("cut", "Book a haircut"), name: "vault_fill", ok: false },
+      { id: "b1", at: at(2, 9, 20), kind: "tool", turn: "b", ...job("brief", "Morning brief"), name: "calendar_events", ok: true },
+      { id: "m1", at: at(2, 9, 10), kind: "tool", turn: "c1", ...job("cut", "Book a haircut"), name: "browse", ok: true },
+      { id: "s1", at: at(2, 9, 5), kind: "job", turn: "t", job: "cut", title: "Book a haircut", state: "started" },
+      { id: "t1", at: at(2, 9, 5), kind: "text", turn: "t", from: { kind: "tex" }, text: "On it." },
+    ];
+    const lines = historyDays(entries, NOW)[0]!.turns.flatMap((t) => t.lines);
+    expect(lines.map((l) => [l.who, l.text])).toEqual([
+      ["Tex", "On it."],
+      ["Tex · Minion 1", "Book a haircut"],
+      ["Tex · Minion 2", "Morning brief"],
+      ["Tex · Minion 1", "I couldn't book it."],
+    ]);
+    const cut = lines[1]!.run!;
+    expect(cut.steps.map((s) => s.id)).toEqual(["m1", "m2"]);
+    expect(cut.state).toBe("stuck");
+    expect(jobCount(cut)).toBe("2 tries · 2 steps");
+    expect(lines[2]!.run!.state).toBeNull();
+    expect(jobCount(lines[2]!.run!)).toBe("1 step");
+    // One job's own page shows its work as lines, unfolded.
+    expect(historyDays(entries, NOW, { fold: false })[0]!.turns.flatMap((t) => t.lines).some((l) => l.run)).toBe(false);
   });
 
   test("days and kinds as the gateway is asked for them", () => {
     expect(kindsFor(DEFAULT_SHOWN)).toEqual(["text", "tool", "note", "advisor", "mail_check", "job"]);
-    expect(kindsFor({ texts: false, tools: false, thinking: true, background: false, jobs: false })).toEqual(["thinking", "said"]);
+    expect(kindsFor({ texts: false, tools: false, thinking: true, background: false })).toEqual(["thinking", "said"]);
     expect(dayAsked("today", "", NOW)).toBe("2026-11-02");
     expect(dayAsked("yesterday", "", new Date(2026, 10, 1, 9))).toBe("2026-10-31");
     expect(dayAsked("all", "", NOW)).toBeUndefined();
@@ -172,6 +203,7 @@ describe("the history file opened in the app", () => {
 let mockSource = fixtureSource();
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => async () => ({ accessToken: "t" }) }));
+jest.mock("../features/tex/history/useSeesTurnTiming", () => ({ useSeesTurnTiming: () => false }));
 // A new source each call, as the real one is: a view that builds it again reads again.
 jest.mock("../features/tex/page/texPageSource", () => ({ gatewaySource: () => ({ ...mockSource }) }));
 

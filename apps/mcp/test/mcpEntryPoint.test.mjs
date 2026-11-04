@@ -44,9 +44,9 @@ test("steps are held until the response, then written once, indexed by the works
   assert.equal(mcp.done(response), response);
   mcp.done(response);
   assert.deepEqual(MCP_ENTRY.points, [
-    { blobs: ["mcp", "tools/call:fetch", "session", "ok", "Claude"], doubles: [70, 3, 1], indexes: ["ws_1"] },
-    { blobs: ["mcp", "tools/call:fetch", "open_store", "failed", "Claude"], doubles: [20, 73, 1], indexes: ["ws_1"] },
-    { blobs: ["mcp", "tools/call:fetch", "to_response", "ok", "Claude"], doubles: [93, 0, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "session", "ok", "Claude", ""], doubles: [70, 3, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "open_store", "failed", "Claude", ""], doubles: [20, 73, 1], indexes: ["ws_1"] },
+    { blobs: ["mcp", "tools/call:fetch", "to_response", "ok", "Claude", ""], doubles: [93, 0, 1], indexes: ["ws_1"] },
   ]);
   assert.doesNotMatch(JSON.stringify(MCP_ENTRY.points), /secret|token/);
 });
@@ -140,6 +140,12 @@ test("a workspace object call is timed by its op, on a copy of env, and still an
 test("callOf names the call, the tool for a tool call, and nothing a caller wrote", () => {
   assert.equal(callOf({ method: "initialize" }), "initialize");
   assert.equal(callOf({ method: "tools/call", params: { name: "orient", arguments: { q: "secret" } } }), "tools/call:orient");
+  assert.equal(callOf({ method: "tools/call", params: { name: "manage", arguments: { action: "archive", args: { path: "a.md" } } } }), "tools/call:manage:archive");
+  assert.equal(callOf({ method: "tools/call", params: { name: "write", arguments: { action: "save" } } }), "tools/call:write:save");
+  // An action no tool lists is never carried, so a caller cannot write into the timings.
+  assert.equal(callOf({ method: "tools/call", params: { name: "manage", arguments: { action: "secret_words" } } }), "tools/call:manage");
+  assert.equal(callOf({ method: "tools/call", params: { name: "manage", arguments: { action: "toString" } } }), "tools/call:manage");
+  assert.equal(callOf({ method: "tools/call", params: { name: "constructor", arguments: { action: "save" } } }), "tools/call:constructor");
   assert.equal(callOf([{ method: "tools/list" }]), "tools/list");
   assert.equal(callOf([{ method: "a" }, { method: "b" }]), "batch");
   assert.equal(callOf(undefined), "unparsed");
@@ -183,6 +189,16 @@ async function post(payload, token = TOKEN) {
   return { status: response.status, text, points: MCP_ENTRY.points };
 }
 
+test("the data center a request ran in rides on every point, and only a data center's code is kept", () => {
+  for (const [given, kept] of [["IAD", "IAD"], ["iad", ""], ["IADX", ""], ["<b>", ""], [undefined, ""], [42, ""]]) {
+    const MCP_ENTRY = dataset();
+    const mcp = mcpEntry({ MCP_ENTRY });
+    mcp.colo = given;
+    mcp.done(new Response("{}"));
+    assert.deepEqual(MCP_ENTRY.points.map((p) => p.blobs[5]), [kept], String(given));
+  }
+});
+
 const steps = (points) => points.map((p) => p.blobs[2]);
 
 test("a tool call through the Worker: session, body, store, answer, and the calls beneath them, one workspace index", async () => {
@@ -206,6 +222,8 @@ test("a call naming another workspace times that open too", async () => {
   const { status, points } = await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "fetch", arguments: { id: "1-projects/a.md", context: "@entry-other" } } });
   assert.equal(status, 200);
   assert.ok(steps(points).includes("open_other_context"), steps(points).join(", "));
+  // And again by where its binding came from, and why: here no workspace object, so the control plane.
+  assert.ok(steps(points).includes("open_other_context:control_plane:no_object"), steps(points).join(", "));
   assert.doesNotMatch(JSON.stringify(points), /entry-other|ws_other/);
 });
 
@@ -247,4 +265,32 @@ test("each call through the workspace object's door is timed under \"door\" by i
     ["door", "ws.rows.snapshot", "to_response", "ok", "w1"],
   ]);
   assert.doesNotMatch(JSON.stringify(MCP_ENTRY.points), /secret|plan\.md/);
+});
+
+test("the time no step covered is its own point, so a request's steps add up to its whole", async () => {
+  const time = clock();
+  const MCP_ENTRY = dataset();
+  const mcp = mcpEntry({ MCP_ENTRY }, { now: time.now });
+  await mcp.step("session", async () => time.tick(30));
+  time.tick(40); // between steps: nothing timed
+  await mcp.step("answer", async () => {
+    // A step inside another covers nothing new.
+    await mcp.step("obj:ws.write.move", async () => time.tick(20));
+    time.tick(10);
+  });
+  time.tick(5);
+  mcp.done(new Response("{}"));
+  const byName = Object.fromEntries(MCP_ENTRY.points.map((p) => [p.blobs[2], p.doubles[0]]));
+  assert.equal(byName.to_response, 105);
+  assert.equal(byName.uncovered, 45);
+});
+
+test("a request whose steps cover it all writes no uncovered point", async () => {
+  const time = clock();
+  const MCP_ENTRY = dataset();
+  const mcp = mcpEntry({ MCP_ENTRY }, { now: time.now });
+  // Two steps at once, overlapping: their union is the whole request.
+  await Promise.all([mcp.step("a", async () => time.tick(10)), mcp.step("b", async () => {})]);
+  mcp.done(new Response("{}"));
+  assert.equal(MCP_ENTRY.points.some((p) => p.blobs[2] === "uncovered"), false);
 });

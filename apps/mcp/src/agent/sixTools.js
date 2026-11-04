@@ -50,6 +50,7 @@ export const ASSISTANT_SEND_ACTIONS = {
   progress: { tool: "text_progress", summary: "Text the person a short line while you work.", take: own },
   delegate: { tool: "delegate", summary: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.", take: own },
   advisor: { tool: "ask_advisor", summary: "Ask your advisor, a stronger model, when an ask needs judgment, before you call a task done, or when you are stuck; it sees this whole turn, so send no args, and it answers you, never them.", take: own }, // `advisor.js`
+  plan: { tool: "plan_big_ask", summary: "A big ask whose parts can run at the same time: your advisor plans it, its notes are written and one background job per part starts.", take: own }, // `planBigAsk.js`
   background: { tool: "start_background_job", summary: "Hand a long task to a background job, so several things run at once.", take: own }, // `background.js`
   steer_job: { tool: "steer_background_job", summary: "Steer a background job that is still running: their text, your own note, or stop it.", take: own },
   restart_job: { tool: "restart_background_job", summary: "Pick background jobs that stopped before finishing back up where they stopped, all in one call; never a new copy.", take: own },

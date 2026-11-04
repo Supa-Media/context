@@ -230,7 +230,7 @@ export function QuickAddComposer({
           <View style={styles.row}>
             {props.owners.length > 1
               ? props.owners.map((owner) => (
-                  <WordChip key={`o:${owner}`} word={label(owner)} onRemove={() => set("owners", toggleWord(props.owners, owner))} />
+                  <WordChip key={`o:${owner}`} word={label(owner)} look="underline" onRemove={() => set("owners", toggleWord(props.owners, owner))} />
                 ))
               : null}
             {props.tags.map((tag) => (

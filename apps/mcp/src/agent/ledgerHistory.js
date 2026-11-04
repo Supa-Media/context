@@ -13,12 +13,12 @@
  * Trust fails closed, as `loggedTurn.js` does for the day the Worker holds.
  * The ledger's `text` entries came from the Worker, so they never prove an
  * answer clean; the gateway's own `reply` entry does (`clean`, written when
- * the turn answered, `route.js`). One of Tex's earlier answers whose turn has
+ * the turn answered, `texEntryPoint.js`). One of Tex's earlier answers whose turn has
  * no clean reply is shown as held back, never its words, so an answer that read
  * from outside the workspace never reaches a later turn's prompt and never
  * taints every turn after it. A check-in Tex sent by itself (`note`) is shown
  * by the same rule from its own `tainted` mark. A group's turn is untrusted
- * whatever it reads (`route.js`), so a group is shown every answer.
+ * whatever it reads (`texEntryPoint.js`), so a group is shown every answer.
  */
 
 import { checkEvent, EVENT_ID, EVENT_KINDS, READ_CHARS, READ_LIMIT } from "./log.js";
@@ -105,7 +105,7 @@ export function dayFromLedger(entries, chat, covers) {
  * characters, as `log.js` events, with Tex's check-ins among them and Tex's
  * answers not proven clean held back; `tools` maps a turn to the tools it used.
  * `untrusted` is a turn that is untrusted whatever it reads (a group's,
- * `route.js`): it holds nothing back, since nothing shown can taint it more.
+ * `texEntryPoint.js`): it holds nothing back, since nothing shown can taint it more.
  */
 export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTEGER, chars = READ_CHARS, known = new Set(), untrusted = false } = {}) {
   const tools = new Map();

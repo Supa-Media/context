@@ -65,6 +65,11 @@
       "path": "apps/convex/functions/lib/reservedNames.generated.ts",
       "reason": "Vendored username blocklists with a digest.",
       "command": "node scripts/build-reserved-names.mjs"
+    },
+    {
+      "path": "apps/machine-runner/Cargo.lock",
+      "reason": "Cargo lockfile; machine-generated.",
+      "command": "cd apps/machine-runner && cargo generate-lockfile"
     }
   ],
   "reviewed": {
@@ -96,7 +101,10 @@
     "apps/mobile/__tests__/meetingsScreens/savedClaims.test.ts": "One describe: the note screen says `saved` only when there is a path to print; its cases share one rendered screen.",
     "apps/mobile/__tests__/safeArea.test.ts": "One invariant (every route clears the device safe area) checked across the route table, which has to list every route, so it grows by one entry per route; splitting it would scatter the table the check exists to keep complete.",
     "apps/mobile/features/app/reachability.ts": "The route registry: every route and the surfaces that reach it, one list that routeReachability.test.ts checks against the filesystem, so it reads as a whole.",
+    "packages/desktop-bridge/src/contract.ts": "One interface, DesktopBridge, with its channel table and version constants: the contract both halves of the desktop bridge are checked against, each member documented where it is declared with the version that added it, so a reader sees the whole surface in one place.",
+    "apps/desktop/src/core/shell/bridge.ts": "One function, desktopBridge: the preload's frozen object that implements DesktopBridge member by member, each rebuilt through its own reader; splitting it would scatter one object across files the bridge census reads as a whole.",
     "apps/mobile/features/console/files/browser/contract.ts": "One interface, FileBrowser: the console's file-browser contract, each member documented where it is declared.",
+    "apps/mobile/features/console/files/menu.ts": "The file menu's one model: every target's item list (background, crumb, page, row, selection) in one file so the gating rules (absent, never greyed, for a reader) are read and tested in one place; each group's items already live in menuMake, menuSort, menuVisibility and menuBuiltIn.",
     "apps/mobile/features/console/files/editorSetup.ts": "The one place every editor surface's CodeMirror extension list is assembled; each block is a one-line install of a feature that lives in its own module.",
     "apps/mobile/features/console/files/LiveEditor.tsx": "The native note editor component: one WebView host whose props, handler refs and bridge sink are one list each, and each new editor event (a link, a tag, a form) is a line in all three; the bridge itself already lives in webview/host.",
     "apps/mobile/features/console/files/webview/host/bridge.ts": "The host end of the WebView bridge: one createHostBridge closure owns the desired state that ready resends and the reply to every guest request; comments and lists are already split out to host/extras.ts.",
@@ -108,7 +116,8 @@
     "apps/convex/__tests__/shareAnyone.test.ts": "One unlisted-link scenario over a shared fixture (minting, reading anonymously, revocation, encryption); it grew only by the tree copy and facts fill the mint's courtesy check now reads, and the check that a mint never opens the note.",
     "apps/convex/__tests__/shortLink.test.ts": "One short-link scenario over a shared fixture whose every case mints a link first; it grew only by the tree copy the mint's courtesy check now reads, in the fixture and for the second context.",
     "docs/decisions/README.md": "The index of every durable decision title, one line each, grouped by area; code and tests cite these titles, so one list to search beats splitting it across files.",
-    "apps/mobile/__tests__/noteAccessory.test.ts": "One stubbed editor: every case drives the same real EditorControls stub over NoteEditor's frontmatter path, and jest.mock factories cannot be shared across files, so splitting it would copy that stub per file."
+    "apps/mobile/__tests__/noteAccessory.test.ts": "One stubbed editor: every case drives the same real EditorControls stub over NoteEditor's frontmatter path, and jest.mock factories cannot be shared across files, so splitting it would copy that stub per file.",
+    ".github/workflows/deploy-desktop.yml": "The desktop release: the Mac half is one job of ordered gates (certificate preflight, notarisation check, Gatekeeper and icon checks, launch, publish) that test/packaging/deployWorkflow.test.mjs reads step by step and in order, so it cannot be split across files without losing those checks; the Linux half already lives in deploy-desktop-linux.yml, and the attach logic in build/attach-linux-release.sh."
   },
   "baseline": {}
 }

@@ -68,10 +68,13 @@ carry `kind=job`.
 Without a `JOB_RUN` binding (a self-hosted Worker, most tests) the object's
 alarm drives the passes as before (`armJobNext`).
 
-For one release, a job armed by its object's alarm before this change is
-handed to its instance when that alarm fires (`handOverJob`), so no armed job
-is lost. That handover is removed in a follow-up once no such alarm can
-remain.
+For one release, a job armed by its object's alarm before this change was
+handed to its instance when that alarm fired (`handOverJob`), so no armed job
+was lost. That handover was removed (Dev2, 2026-11-02) once no such alarm could
+remain: the longest wait the alarm ever armed between passes was 40 seconds,
+and the release went out on 2026-10-28. With a `JOB_RUN` binding the object's
+only alarm is the one a job's end sets to drop its kept run two hours later
+(`jobAlarm`); a run resumed meanwhile is left to its own instance.
 
 ## A busy group is answered fast, and only with a reply that still fits (2026-10-30)
 

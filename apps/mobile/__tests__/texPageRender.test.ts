@@ -28,6 +28,7 @@ import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { SafeAreaProvider, type Metrics } from "react-native-safe-area-context";
 
+jest.mock("../features/tex/history/useSeesTurnTiming", () => ({ useSeesTurnTiming: () => false }));
 jest.mock("expo-router", () => ({ Redirect: () => null, Stack: () => null, router: { push: () => {} }, useLocalSearchParams: () => ({}) }));
 
 import { TexPageBody, type Place } from "../features/tex/page/TexPageBody";

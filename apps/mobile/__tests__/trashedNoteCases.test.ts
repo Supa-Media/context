@@ -275,7 +275,8 @@ describe("opening a note by an address that outlived it", () => {
 
     expect(browser.editor.path).toBeNull();
     expect(browser.trashed).toBeNull();
-    expect(browser.notice).toBe("That file does not exist.");
+    // Not a notice: the not-found page, drawn where the note would be (`NotFoundNote`, Dev 2026-11-03).
+    expect(browser.notFound).toBe(NOTE);
   });
 });
 

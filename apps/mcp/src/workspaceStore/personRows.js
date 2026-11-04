@@ -21,6 +21,7 @@ import {
   checkSharedRow,
   isAccessHome,
 } from "./access.js";
+import { personTexting, TEXTS_CLIENT_ID } from "./personTexting.js";
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS access_rows (tbl TEXT NOT NULL, key TEXT NOT NULL, row TEXT, at INTEGER NOT NULL, gone INTEGER NOT NULL DEFAULT 0, token_hash TEXT, refresh_hash TEXT, PRIMARY KEY (tbl, key))`,
@@ -34,8 +35,9 @@ const SCHEMA = [
 
 /**
  * Clients whose sessions carry checks only the control plane runs today (a texting number's pause, a group chat's
- * members), and the grants Tex's own scheduled turns run under, minted by the control plane for one run each: their
- * connections are never held here, so their tokens are always answered by the control plane. Convex's
+ * members), and the grants Tex's own scheduled turns run under, minted by the control plane for one run each: no copy
+ * of their connections is taken here. The one exception is a 1:1 text's session, which this object opens itself
+ * (`personTexting.js`) and the control plane never writes. Convex's
  * `CONVEX_ONLY_CLIENTS` is the same set; a test holds them equal.
  */
 export const CONTROL_PLANE_CLIENTS = new Set([
@@ -144,7 +146,8 @@ export function personRows(sql) {
     const incoming = all(sql.exec(`SELECT key, row FROM access_stage WHERE tbl = ? AND epoch = ?`, tbl, epoch)).map((entry) => JSON.parse(entry.row));
     if (mode === "replace") {
       const wanted = new Set(incoming.map((row) => ROW_KEYS[tbl](row)));
-      const stale = all(sql.exec(`SELECT key, at FROM access_rows WHERE tbl = ? AND gone = 0`, tbl)).filter((entry) => !wanted.has(entry.key));
+      // A texting connection is this object's own (`personTexting.js`): the control plane's copy never carries one, and never takes one away.
+      const stale = all(sql.exec(`SELECT key, at, row FROM access_rows WHERE tbl = ? AND gone = 0`, tbl)).filter((entry) => !wanted.has(entry.key) && !(tbl === "connections" && JSON.parse(entry.row).clientId === TEXTS_CLIENT_ID));
       for (const entry of stale) remove(tbl, [entry.key], Math.max(Number(entry.at), Date.now()));
     }
     for (const row of incoming) keep(tbl, row);
@@ -213,7 +216,7 @@ export function personRows(sql) {
     return { revoked: true, grantId: row.grantId };
   }
 
-  return {
+  const self = {
     put,
     remove,
     list,
@@ -241,7 +244,31 @@ export function personRows(sql) {
       setMeta("person.home", home);
       return home;
     },
+    /** A texting connection `personTexting.open` made: the only way one is kept here. */
+    keepTexting(row) {
+      const checked = checkConnectionRow(row);
+      if (checked.clientId !== TEXTS_CLIENT_ID) throw new AccessRowRefused("only a texting connection is kept this way");
+      keep("connections", checked);
+      return checked;
+    },
+    /** Texting connections that expired or were revoked, gone outright (no tombstone: nothing copies them here). */
+    dropTexting(grantIds) {
+      for (const grantId of grantIds) {
+        const held = all(sql.exec(`SELECT row FROM access_rows WHERE tbl = 'connections' AND key = ?`, grantId))[0];
+        if (held?.row && JSON.parse(held.row).clientId === TEXTS_CLIENT_ID) sql.exec(`DELETE FROM access_rows WHERE tbl = 'connections' AND key = ?`, grantId);
+      }
+    },
   };
+  self.texting = personTexting(sql, self);
+  return self;
+}
+
+/**
+ * Whether a connection holds the person's names: the app's own client and every AI connection, never one of Context's
+ * own background clients (`context_*`). The control plane's `holdsGrantedNames` (`liveGrants.ts`) is the same rule.
+ */
+export function holdsGrantedNames(clientId) {
+  return clientId === CONSOLE_CLIENT_ID || !String(clientId).startsWith("context_");
 }
 
 /** A connection as a listing shows it: never a hash, so a list can be handed to a screen. */
@@ -263,12 +290,12 @@ export function sessionFor(store, tokenHash, now = Date.now()) {
   const reach = store.live("reach").filter((row) => row.workspaceId !== undefined);
   const own = reach.find((row) => row.workspaceId === connection.workspaceId && !row.pinned);
   if (own === undefined) return null;
-  const withNames = connection.clientId === CONSOLE_CLIENT_ID;
+  const withNames = holdsGrantedNames(connection.clientId);
   // The person's own handle is a name they answer to everywhere: their personal workspace's slug.
   const handle = reach.find((row) => row.kind === "personal" && row.role === "owner" && !row.pinned)?.slug ?? null;
-  // The app's own client also holds the names its grants on rows give it (`rowNames`), as the control plane's session
-  // gives it (`grantedNamesFor`): without them a note shared to the person by name, and a Tex chat's sealed home, open
-  // to no one (2026-11-02).
+  // The app's own client, and every AI connection, also holds the names its grants on rows give it (`rowNames`), as the
+  // control plane's session gives them (`grantedNamesFor`): without them a note shared to the person by name, and a Tex
+  // chat's sealed home, open to no one (2026-11-02; AI connections since 2026-11-03).
   const namesOf = (row) =>
     row.pinned ? row.groups : withNames ? [...row.groups, ...(row.rowNames ?? []), ...(handle === null ? [] : [handle])] : [];
   const entry = (row) => ({
@@ -290,5 +317,8 @@ export function sessionFor(store, tokenHash, now = Date.now()) {
     defaultWorkspaceId: own.workspaceId,
     expiresAt: connection.expiresAt,
     toolsListedAt: null,
+    // A text's session carries who is texting, from the record this object keeps (`personTexting.js`), so Tex is told
+    // without asking Convex.
+    ...(connection.clientId === TEXTS_CLIENT_ID ? { texterIdentity: store.texting?.get()?.identity ?? null } : {}),
   };
 }

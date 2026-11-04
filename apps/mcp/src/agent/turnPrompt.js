@@ -57,7 +57,7 @@ export function turnPrompt(place, answering, o) {
       context:
         o.threadNote +
         webPrompt(o.webNames) +
-        (o.progress ? PROGRESS_PROMPT : "") +
+        (o.progress ? (o.progress.prompt ?? PROGRESS_PROMPT) : "") + // at the chat's progress level (`progress.js`)
         (o.aboutMe === null ? "" : aboutMePrompt(o.aboutMe, { edits, identity: o.identity })) +
         (o.jobs === null ? "" : jobsPrompt(o.jobs, { edits })) +
         (o.voice == null ? "" : personVoicePrompt(o.voice, { edits })) + // how they talk, `tex/voice.md` (`personVoice.js`)

@@ -11,7 +11,8 @@ import { Icon } from "../../../../design/components/Icon";
 import { MapCanvas, type OpenMapNote } from "./MapCanvas";
 import { createCameraStore, type CameraStore } from "./CanvasOverlay";
 import { Chip } from "./controls";
-import { DOCK_GAP, MapDock, WHERE_INSET, WorkspaceMenu } from "./MapDock";
+import { DOCK_GAP, MapDock, SettingsButton, WHERE_INSET, WorkspaceMenu } from "./MapDock";
+import { MapSettings } from "./MapSettings";
 import { MapPanel } from "./MapPanel";
 import { NotePeek } from "./NotePeek";
 import { PhoneMap } from "./PhoneMap";
@@ -58,6 +59,7 @@ function DesktopMap({
   const inset = useMemo(() => ({ top: WHERE_INSET, right: 16, bottom: dock + DOCK_GAP, left: 16 }), [dock]);
   const open = peek.peek;
   const following = page.follow;
+  const [settings, setSettings] = useState(false);
   return (
     <View style={styles.page} testID="map-page">
       <View style={styles.body}>
@@ -68,6 +70,11 @@ function DesktopMap({
           >
             <MapCanvas page={page} camera={camera} peek={peek} inset={inset} />
             <WorkspaceMenu page={page} camera={camera} onSelectWorkspace={onSelectWorkspace} />
+            {settings ? null : (
+              <View style={styles.gear}>
+                <SettingsButton open={false} onPress={() => setSettings(true)} />
+              </View>
+            )}
             {following !== null ? (
               <View style={styles.following}>
                 <Chip
@@ -91,6 +98,17 @@ function DesktopMap({
                 onClose={peek.close}
                 onExpand={() => onOpenNote(open.workspaceId, open.path)}
                 onPeek={peek.onTapNote}
+              />
+            ) : null}
+            {settings ? (
+              <MapSettings
+                page={page}
+                compact={false}
+                onClose={() => setSettings(false)}
+                onFind={(note) => {
+                  page.engineRef.current?.focusPath(note.workspaceId, note.path);
+                  peek.onTapNote({ ...note, at: null });
+                }}
               />
             ) : null}
           </View>
@@ -120,7 +138,8 @@ const makeStyles = (colors: Colors) =>
     body: { flex: 1, minHeight: 0, flexDirection: "row" },
     column: { flex: 1, minWidth: 0, minHeight: 0 },
     canvasBox: { flex: 1, minHeight: 0, position: "relative", overflow: "hidden", backgroundColor: colors.surface2 },
-    following: { position: "absolute", right: 16, top: 16 },
+    following: { position: "absolute", right: 16 + 34 + 10, top: 16 },
+    gear: { position: "absolute", right: 16, top: 16, zIndex: 3 },
     notice: {
       position: "absolute",
       alignSelf: "center",

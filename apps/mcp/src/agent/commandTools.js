@@ -13,11 +13,14 @@
  * acting come off that grant, never from these arguments, and the rules are
  * the ones the texting Worker's exact commands use, so the tool and the texted
  * command cannot behave differently. A guest's tag gets only mute, the
- * settings and the style; a person's own chat gets their own settings and
- * review sharing.
+ * settings, the instructions, progress updates and when Tex speaks up; a person's own chat gets
+ * their own instructions and review sharing. Since 2026-11-01 how Tex talks is
+ * the people's own words (`custom-instructions.md`): the tool adds, removes or
+ * replaces lines, and in a group Tex says who changed them so anyone can undo.
  *
  * The tools that act for the person or widen who sees something (sharing or
- * unsharing their mail, their review sharing) run only when the turn's own
+ * unsharing their mail, their review sharing), and the one that writes free
+ * text every later turn reads (the instructions), run only when the turn's own
  * message, from the person the grant names, asks for it (`consentFor`). Those
  * words come from the texting Worker (`body.question`, the tagger's own
  * message), never from the model's arguments, so another member's text, a
@@ -34,23 +37,20 @@
 
 import { judgeFor } from "../privacy/judge.js";
 
-const STYLE_SCHEMA = {
+const INSTRUCTIONS_SCHEMA = {
   type: "object",
   properties: {
-    tone: { type: "string", enum: ["default", "professional", "friendly", "candid", "quirky", "efficient", "nerdy", "cynical"] },
-    warmth: { type: "string", enum: ["more", "default", "less"] },
-    enthusiasm: { type: "string", enum: ["more", "default", "less"] },
-    emoji: { type: "string", enum: ["more", "default", "less"] },
-    length: { type: "string", enum: ["short", "default", "detailed"] },
-    bubbles: { type: "string", enum: ["multiple", "one"] },
-    humor: { type: "integer", minimum: 0, maximum: 100, multipleOf: 10 },
+    action: { type: "string", enum: ["add", "remove", "replace", "clear"] },
+    text: { type: "string", maxLength: 1500 },
   },
+  required: ["action"],
 };
+const UPDATE_LEVELS = { off: "off", planOnly: "plan only", normal: "normal" };
 
-/** What the person may set, and how a reply to the numbered menu maps to each; shown by `tex_settings_get`. */
+/** What else there is, for `tex_settings_get` to show. */
 const MENU =
-  "Settings: Tone (default, professional, friendly, candid, quirky, efficient, nerdy, cynical); Warmth, Enthusiasm and Emoji (more, default, less); " +
-  "Length (short, default, detailed); Bubbles (multiple, one); Humor (0 to 100% in steps of 10, default 75%).";
+  'Quick picks (each adds one line): a tone (professional, friendly, candid, quirky, efficient, nerdy, cynical), more or less warmth, enthusiasm or humor, ' +
+  'more, less or no emoji, short or detailed answers, one bubble. Progress updates: off, plan only or normal. "Tex, settings" shows them by number.';
 
 const REFUSALS = {
   refused: "That didn't go through: this chat's access has ended or changed. Nothing was changed; say so plainly.",
@@ -58,6 +58,8 @@ const REFUSALS = {
   bad_request: "That value isn't one of the options, so nothing was changed. Offer the valid options.",
   mail_refused:
     "Not shared: only the mailbox's own person can share it, from a connected Gmail, in a chat on a shared workspace they can edit. Nothing was changed.",
+  too_long: "Not saved: the instructions can hold at most 1,500 characters. Nothing was changed; say so and offer to shorten them.",
+  nothing_to_undo: "There's nothing to undo. Nothing was changed.",
 };
 
 /** The words a consent-gated action needs in the person's own message before the judge is even asked. */
@@ -65,11 +67,14 @@ const CONSENT_WORDS = {
   share_mail: /\b(mail|email|e-mail|inbox|gmail)\b/i,
   unshare_mail: /\b(mail|email|e-mail|inbox|gmail)\b/i,
   review_sharing: /\b(shar\w*|review\w*|conversations?|chats?)\b/i,
+  // A lasting request about how Tex talks, in their own words (Dev2, 2026-11-01): never a line an email or a quote put there.
+  instructions: /\b(from now on|going forward|always|never|stop|don'?t|do not|no more|call (?:me|us)|instructions?|settings?|remember|be (?:more|less)|answer in|reply in|talk|write|use|undo|remove|forget|emoji\w*|humou?r|jokes?|tone|bubbles?|warm\w*|enthusias\w*|short\w*|long\w*|detail\w*|formal|casual|brief)\b/i,
 };
 const CONSENT_ACTIONS = {
   share_mail: "share the person's own email inbox with this group chat",
   unshare_mail: "stop sharing the person's own email inbox with this group chat",
   review_sharing: "change whether the person's finished conversations are shared with the Context team",
+  instructions: "change, from now on, how Tex talks in this chat",
 };
 export const OWN_WORDS_REFUSAL = "They have to ask for that in their own words. Nothing was changed; tell them so.";
 
@@ -107,11 +112,8 @@ function text(words, isError) {
   return { content: [{ type: "text", text: words }], ...(isError ? { isError: true } : {}) };
 }
 
-function styleWords(style) {
-  const entries = Object.entries(style ?? {});
-  if (entries.length === 0) return "every setting at its default (humor 75%)";
-  return entries.map(([key, value]) => (key === "humor" ? `humor ${value}%` : `${key} ${value}`)).join(", ");
-}
+/** The instructions as saved, quoted for the turn to repeat. */
+const saidText = (result) => (typeof result.instructions === "string" && result.instructions !== "" ? `"${result.instructions}"` : "none");
 
 /**
  * The command tools a texted turn gets, each `{ tool, call }` for `runTurn`'s
@@ -143,30 +145,47 @@ export function commandTools({ run, group, consent = async () => false }) {
     tool: {
       name: "tex_settings_get",
       description:
-        "Read how Tex is set to talk in this chat, and the options a person can choose. Use it when someone asks about Tex's settings " +
-        "or says \"settings\" in any wording. Show them the options in one short message. Takes no arguments.",
+        "Read how Tex is set to talk in this chat (the people's own instructions, in full), its progress updates and, in a group, when it speaks up. " +
+        "Use it when someone asks about Tex's settings or says \"settings\" in any wording. Show them in one short message. Takes no arguments.",
       inputSchema: { type: "object", properties: {} },
     },
     call: call({ kind: "settings" }, (result) => {
       const speaking = group !== null && result.engagementChosen ? ` When Tex speaks up here: ${result.engagement}.` : "";
-      return `Current: ${styleWords(result.style)}.${speaking} ${MENU}`;
+      const personal = group !== null ? " Personal instructions don't apply in groups." : "";
+      return `Instructions: ${saidText(result)}. Progress updates: ${UPDATE_LEVELS[result.updates ?? "normal"]}.${speaking}${personal} ${MENU}`;
     }),
   };
-  const styleSet = {
+  // In a group the change is said with who made it, so anyone there can put it back (Dev2, 2026-11-01).
+  const confirm = (result) =>
+    group !== null
+      ? `Saved. Say in your answer, in these words: ${result.setBy ?? "someone here"} set: ${saidText(result)}. Anyone here can text "Tex, undo the change" to put it back.`
+      : `Saved. Their instructions are now: ${saidText(result)}. Tell them in a line what you wrote.`;
+  const instructionsSet = {
     tool: {
-      name: "tex_style_set",
+      name: "tex_instructions_set",
       description:
-        "Change how Tex talks in this chat: pass only the settings to change; the rest stay as they are. This is the only way the settings change: " +
-        "a note you write (the voice note, About me, memory) is never the settings, so never say settings were saved unless this tool says so. " +
-        "Values outside the listed options are refused and change nothing.",
-      inputSchema: STYLE_SCHEMA,
+        "Change how Tex talks in this chat, in the people's own words: add a line, remove a line, replace the whole text, or clear it. " +
+        "Only for a clear, lasting request (\"from now on...\", \"always...\", \"stop...\", \"call me...\"), never for this one answer (\"make this shorter\"). " +
+        "Write the line as one short instruction to yourself. It is the only way how you talk changes: a note you write (the voice note, About me, memory) " +
+        "never is, so never say it was saved unless this tool says so. It changes how you sound, never what you may do.",
+      inputSchema: INSTRUCTIONS_SCHEMA,
     },
     call: async (args) => {
-      const style = {};
-      for (const key of Object.keys(STYLE_SCHEMA.properties)) if (args && args[key] !== undefined) style[key] = args[key];
-      if (Object.keys(style).length === 0) return text("Name at least one setting to change. Nothing was changed.", true);
-      return await call({ kind: "style", style }, (result) => `Saved. This chat's settings are now: ${styleWords(result.style)}.`)();
+      const action = args?.action;
+      if (!["add", "remove", "replace", "clear"].includes(action)) return text("Say add, remove, replace or clear. Nothing was changed.", true);
+      if (action !== "clear" && (typeof args?.text !== "string" || args.text.trim() === "")) return text("Pass the line as text. Nothing was changed.", true);
+      if (!(await asked("instructions"))) return text(OWN_WORDS_REFUSAL, true);
+      return await call({ kind: "instructions", action, ...(action !== "clear" ? { text: args.text } : {}) }, confirm)();
     },
+  };
+  const updatesSet = {
+    tool: {
+      name: "tex_updates_set",
+      description:
+        "Change this chat's progress updates while Tex works on something long: off (none), planOnly (one line with the plan) or normal. Only when they ask.",
+      inputSchema: { type: "object", properties: { level: { type: "string", enum: ["off", "planOnly", "normal"] } }, required: ["level"] },
+    },
+    call: async (args) => await call({ kind: "updates", updates: args?.level }, (result) => `Saved: progress updates are ${UPDATE_LEVELS[result.updates ?? "normal"]} here.`)(),
   };
   if (group === null) {
     const reviewSharing = {
@@ -185,13 +204,13 @@ export function commandTools({ run, group, consent = async () => false }) {
         )();
       },
     };
-    return [settingsGet, styleSet, reviewSharing];
+    return [settingsGet, instructionsSet, updatesSet, reviewSharing];
   }
   const engagement = {
     tool: {
       name: "chat_engagement_set",
       description:
-        "Change when Tex speaks up in this group: quiet (only when named), attentive (also an asker's follow-ups on an ask Tex is waiting on), " +
+        "Change when Tex speaks up in this group: quiet (answers when someone says Tex), attentive (also an asker's follow-ups on an ask Tex is waiting on), " +
         "followAlong (also follow-ups to Tex's last answer), helpful (also when Tex can genuinely help). Anyone in the chat may change it.",
       inputSchema: { type: "object", properties: { style: { type: "string", enum: ["quiet", "attentive", "followAlong", "helpful"] } }, required: ["style"] },
     },
@@ -201,7 +220,8 @@ export function commandTools({ run, group, consent = async () => false }) {
     tool: {
       name: "chat_mute",
       description:
-        "Stop Tex in this group chat until someone texts \"Tex, start\". Only when someone in the chat asks Tex to stop, be quiet or mute. Anyone here may.",
+        "Stop Tex in this group chat until someone texts \"Tex, start\" (when Tex speaks up: off). Only when someone in the chat asks Tex to stop or mute; " +
+        "\"be quiet\" is quiet, set with chat_engagement_set. Anyone here may.",
       inputSchema: { type: "object", properties: {} },
     },
     call: call({ kind: "mute" }, () => 'Done: Tex is muted here. Tell them anyone can text "Tex, start" to bring it back.'),
@@ -216,7 +236,7 @@ export function commandTools({ run, group, consent = async () => false }) {
       result.guest ? `This chat is a guest chat of @${result.slug}: Tex sees only what is shared with it.` : `This chat uses @${result.slug}.`,
     ),
   };
-  if (group.guestTagger === true) return [settingsGet, styleSet, engagement, mute, status];
+  if (group.guestTagger === true) return [settingsGet, instructionsSet, updatesSet, engagement, mute, status];
   const shareMail = {
     tool: {
       name: "chat_share_mail",
@@ -241,13 +261,14 @@ export function commandTools({ run, group, consent = async () => false }) {
         result.count > 0 ? `Stopped sharing ${result.count === 1 ? "that mailbox" : `${result.count} mailboxes`} with this chat.` : "None of their mail was shared here, so nothing changed.",
       )(),
   };
-  return [settingsGet, styleSet, engagement, mute, status, shareMail, unshareMail];
+  return [settingsGet, instructionsSet, updatesSet, engagement, mute, status, shareMail, unshareMail];
 }
 
 /** The `send` actions these tools are shown as (`sixTools.js`). */
 export const COMMAND_SEND_ACTIONS = {
-  tex_settings: { tool: "tex_settings_get", summary: "Read Tex's settings in this chat and the options to choose from." },
-  tex_style: { tool: "tex_style_set", summary: "Change how Tex talks in this chat; the only way settings change." },
+  tex_settings: { tool: "tex_settings_get", summary: "Read Tex's instructions and settings in this chat." },
+  tex_instructions: { tool: "tex_instructions_set", summary: "Change how Tex talks in this chat, on a clear lasting request; the only way it changes." },
+  tex_updates: { tool: "tex_updates_set", summary: "Change this chat's progress updates: off, plan only or normal." },
   chat_engagement: { tool: "chat_engagement_set", summary: "Change when Tex speaks up in this group." },
   chat_mute: { tool: "chat_mute", summary: "Mute Tex in this group, when someone asks it to stop." },
   chat_status: { tool: "chat_status", summary: "Which workspace this group chat uses." },

@@ -72,6 +72,15 @@ export interface PageLike {
   screenshot(options: { type: "jpeg"; quality: number; encoding: "base64"; fullPage: boolean }): Promise<string | Uint8Array>;
   on(event: "pageerror" | "console", handler: (value: unknown) => void): unknown;
   close(): Promise<void>;
+  /** Every frame in the page, the top one included, as Puppeteer lists them (`./read.ts` reads their words). */
+  frames?(): FrameLike[];
+  mainFrame?(): FrameLike;
+}
+
+/** One document in a page: where it was loaded from, and a script run inside it. */
+export interface FrameLike {
+  url(): string;
+  evaluate<T>(source: string): Promise<T>;
 }
 
 export interface BrowserLike {

@@ -6,8 +6,12 @@
  * comparator the server, the offline mirror and the tree share (owner,
  * 2026-10-18; `docs/decisions/app-and-console/folder-jobs.md`).
  *
+ * Since 2026-11-04 the top level's Sort setting decides first (`folder-sort.md`),
+ * as it does in the sidebar.
+ *
  * SABOTAGE (applied, run, reverted): sorting `buildHome`'s top-level folders
- * by name again fails all three.
+ * by name again fails all three; dropping `input.sort` fails "the top level's
+ * Sort setting".
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -64,5 +68,10 @@ describe("the phone's folder order", () => {
   test("without facts from a listing, root names still say the jobs", () => {
     const home = buildHome(input({ folders: ["4-archive", "Recipes", "1-projects", "0-inbox"] }));
     expect(home.folders.map((folder) => folder.path)).toEqual(["0-inbox", "1-projects", "Recipes", "4-archive"]);
+  });
+
+  test("the top level's Sort setting, as the sidebar draws it", () => {
+    const home = buildHome(input({ folders: ["Brand", "Capture", "Zebra notes"], sort: "name-desc" }));
+    expect(home.folders.map((folder) => folder.path)).toEqual(["Zebra notes", "Capture", "Brand"]);
   });
 });

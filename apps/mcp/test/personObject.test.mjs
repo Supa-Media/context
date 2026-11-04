@@ -108,8 +108,8 @@ test("a token that names its person object resolves there, with no control-plane
   assert.equal(session.actorUserId, "uAlice");
   assert.equal(session.grantId, "gAlice");
   assert.deepEqual(session.workspaces.map((entry) => entry.slug), ["ualice", "team-wsshared", "context-lc"]);
-  // Names only for the app's own client; the pin reader's names for everyone.
-  assert.equal(session.workspaces[1].grantedNames.length, 0);
+  // An AI connection holds the person's names, as the app does (2026-11-03); the pin reader's names for everyone.
+  assert.deepEqual([...session.workspaces[1].grantedNames].sort(), ["leads", "ualice"]);
   assert.deepEqual([...(await resolveSession(alice.token, "context-lc", controlPlane)).grantedGroups], ["@#pin-reader"]);
   assert.equal(session.scope, "team");
   const shared = await resolveSession(alice.token, "team-wsshared", controlPlane);
@@ -232,16 +232,23 @@ test("an old refresh token finds its person object through the index the person 
   assert.ok(env.WORKSPACE_STORE.names().includes(`token:${legacy}`));
 });
 
-test("the app's own client carries the names the person answers to; other clients only the pin's", { skip }, async () => {
+test("the app's own client and every AI connection carry the names the person answers to; Context's own background clients only the pin's", { skip }, async () => {
   const env = { WORKSPACE_STORE: namespace() };
   const { client, token } = await person(env, { pwid: "pH", userId: "uH", grantId: "gH", secret: SECRET("h"), clientId: "context_console", shared: ["wsH"] });
   const session = await client.session(await sha256Hex(token));
   const shared = session.workspaces.find((entry) => entry.workspaceId === "wsH");
   assert.deepEqual(shared.grantedNames, ["leads", "uh"]);
   assert.deepEqual(session.workspaces.find((entry) => entry.slug === "context-lc").grantedNames, ["#pin-reader"]);
+  const claude = await person(env, { pwid: "pHc", userId: "uHc", grantId: "gHc", secret: SECRET("c"), shared: ["wsHc"] });
+  const claudeSession = await claude.client.session(await sha256Hex(claude.token));
+  assert.deepEqual(claudeSession.workspaces.find((entry) => entry.workspaceId === "wsHc").grantedNames, ["leads", "uhc"]);
+  const cards = await person(env, { pwid: "pHk", userId: "uHk", grantId: "gHk", secret: SECRET("k"), clientId: "context_cards", shared: ["wsHk"] });
+  const cardsSession = await cards.client.session(await sha256Hex(cards.token));
+  assert.deepEqual(cardsSession.workspaces.find((entry) => entry.workspaceId === "wsHk").grantedNames ?? [], []);
+  assert.deepEqual(cardsSession.workspaces.find((entry) => entry.slug === "context-lc").grantedNames, ["#pin-reader"]);
 });
 
-test("the app's own client holds the names its grants on rows give it; other clients do not", { skip }, async () => {
+test("the app's own client and every AI connection hold the names its grants on rows give it; Context's own background clients do not", { skip }, async () => {
   // 2026-11-02: the person object's session gave the app only its groups, so a Tex chat's sealed home, named to the
   // person by a grant on its row, opened to nobody once access moved into the objects.
   const env = { WORKSPACE_STORE: namespace() };
@@ -259,11 +266,18 @@ test("the app's own client holds the names its grants on rows give it; other cli
   }));
   for (const name of rowNames) assert.ok(resolved.grantedGroups.has(`@${name}`), name);
 
-  const other = await person(env, { pwid: "pS", userId: "uS", grantId: "gS", secret: SECRET("s"), shared: ["wsS"] });
-  const otherRows = ((await other.client.reach.list({})).rows ?? []).map((row) => (row.workspaceId === "wsS" ? { ...row, rowNames, at: 2 } : row));
+  // Dev, 2026-11-03: a member's Claude saw each sealed Tex chat home as empty, and every note shared to them by name.
+  const claude = await person(env, { pwid: "pS", userId: "uS", grantId: "gS", secret: SECRET("s"), shared: ["wsS"] });
+  const claudeRows = ((await claude.client.reach.list({})).rows ?? []).map((row) => (row.workspaceId === "wsS" ? { ...row, rowNames, at: 2 } : row));
+  await claude.client.reach.put(claudeRows);
+  const claudeSession = await claude.client.session(await sha256Hex(claude.token));
+  assert.deepEqual(claudeSession.workspaces.find((entry) => entry.workspaceId === "wsS").grantedNames, ["leads", ...rowNames, "us"]);
+
+  const other = await person(env, { pwid: "pT", userId: "uT", grantId: "gT", secret: SECRET("t"), clientId: "context_cards", shared: ["wsT"] });
+  const otherRows = ((await other.client.reach.list({})).rows ?? []).map((row) => (row.workspaceId === "wsT" ? { ...row, rowNames, at: 2 } : row));
   await other.client.reach.put(otherRows);
   const otherSession = await other.client.session(await sha256Hex(other.token));
-  assert.deepEqual(otherSession.workspaces.find((entry) => entry.workspaceId === "wsS").grantedNames ?? [], []);
+  assert.deepEqual(otherSession.workspaces.find((entry) => entry.workspaceId === "wsT").grantedNames ?? [], []);
 });
 
 test("a reach row's row names are row names, and no more than the cap", { skip }, async () => {

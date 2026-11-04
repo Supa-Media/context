@@ -1,0 +1,57 @@
+# Is any MCP call slower than its bar? Every hour over the last day, and 20
+# minutes after each production deploy, read production's own server-side timings and go red when
+# a call's median crosses its budget (`scripts/mcp-speed-budgets.mjs`, which
+# holds the bars and why). Names and times only, never a path, a word or a
+# workspace. A red run is a report: it changes nothing.
+name: MCP Speed Budgets
+
+on:
+  schedule:
+    - cron: "41 * * * *"
+  workflow_run:
+    workflows: ["Deploy to Production"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to read."
+        type: choice
+        options: [production, staging]
+        default: production
+      minutes:
+        description: "How far back to read, in minutes (5 to 1440). A day by default: an hour holds too few calls to judge."
+        required: true
+        default: "1440"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-speed-budgets
+  cancel-in-progress: false
+
+jobs:
+  budgets:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    name: Check MCP calls against their speed budgets
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      # After a deploy, let the new version take traffic first and judge only
+      # its requests, so the old version's times are not averaged in.
+      - name: Wait for the new version's traffic
+        if: ${{ github.event_name == 'workflow_run' }}
+        run: sleep 1200
+      - name: Judge the last window
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DATASET: ${{ inputs.environment == 'staging' && 'mcp_entry_staging' || 'mcp_entry' }}
+          MINUTES: ${{ github.event_name == 'workflow_run' && '20' || inputs.minutes || '1440' }}
+        run: node scripts/mcp-speed-budgets.mjs

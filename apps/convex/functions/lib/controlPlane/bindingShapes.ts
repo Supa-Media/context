@@ -144,6 +144,8 @@ export interface OpenedGatewayBinding {
   searchIndex?: GatewaySearchIndex;
   /** Absent until search by meaning's index exists and takes writes. */
   meaningIndex?: GatewayMeaningIndex;
+  /** The owner's switch for search by meaning is on, whatever the index's health (`meaningSearch.meaningOnForWorkspace`). */
+  meaningOn?: true;
   /**
    * The key that opens this context's encrypted notes, where one exists.
    *

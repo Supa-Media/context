@@ -51,6 +51,7 @@ type OpenNoteDeps =
     | "setOpening"
     | "setSelectedPath"
     | "setUnreadable"
+    | "setNotFound"
     | "settleOpening"
     | "unsentCreates"
   >
@@ -63,7 +64,7 @@ type NoteRead = Awaited<ReturnType<FileActionsValues["readNote"]>>;
 export function useOpenNote(deps: OpenNoteDeps) {
   const {
     autosave, collaborationPaths, dispatch, editorRef, ensureListing, listings, listingsRef, offlineRef, openRun, readNote, refresh,
-    reportRefreshFailure, setNavigations, setNotice, setOpening, setSelectedPath, setUnreadable,
+    reportRefreshFailure, setNavigations, setNotice, setOpening, setSelectedPath, setUnreadable, setNotFound,
     settleOpening, workspaceId, workspaceGenerationRef, pendingMoveTo, pendingCreateTo, renamingRef, unsentCreates,
   } = deps;
 
@@ -108,10 +109,14 @@ export function useOpenNote(deps: OpenNoteDeps) {
     A note that is in storage and can't be opened (`../unreadable.ts`) closes
     the editor like any refusal, so nothing can be typed or saved over it, and
     is drawn as its own state with a Try again rather than as a notice line.
+    A note that is not there (or not shared: the server answers both alike)
+    is drawn as `NotFoundNote` the same way, never as "That file does not
+    exist." in the band over a skeleton that looked like it was still loading.
   */
   const refuse = (error: unknown, path: string) => {
     dispatch({ type: "closed" });
     if (isUnreadable(error)) setUnreadable(path);
+    else if (toFileError(error).code === "FILE_NOT_FOUND") setNotFound(path);
     else setNotice(toFileError(error).message);
   };
   /** Not found, and shown in the trash instead (`openMissing`): nothing left to refuse. */
@@ -182,6 +187,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
       const mine = openRun.current;
       setOpening(path);
       setUnreadable(null);
+      setNotFound(null);
       try {
         /*
           A note created on this device and not yet sent has no copy anywhere
@@ -465,6 +471,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
         setOpening(path);
         setNotice(null);
         setUnreadable(null);
+        setNotFound(null);
         void pending.done.then((committed) => {
           if (workspaceGenerationRef.current.epoch !== epoch || openRun.current !== mine) return;
           const resolved = committed || !("from" in pending) ? path : rekeyPath(path, pending.to, pending.from)!;
@@ -491,6 +498,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
       setNavigations((count) => count + 1);
       setNotice(null);
       setUnreadable(null);
+      setNotFound(null);
 
       /**
        * A folder has no body. Reading one comes back `FILE_NOT_FOUND`, and the
@@ -624,6 +632,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
     setOpening(null);
     setNotice(null);
     setUnreadable(null);
+    setNotFound(null);
     dispatch({ type: "closed" });
     return true;
   }, [autosave]);

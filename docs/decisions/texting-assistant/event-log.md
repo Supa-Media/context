@@ -84,3 +84,23 @@ Superseded in part by Dev2, 2026-11-01
 with any act, and replaces the ack tapback when chosen; a wait lasts the
 seconds decide chooses (1 to 8), at most twice per burst and never past 8
 seconds after its first message, and a new message decides again at once.
+
+## "(not answered)" marks only what is newer than Tex's answers (Dev, 2026-11-03)
+
+The tag marked every message no delivered answer `covers`, however long
+ago. On 2026-11-03 a 9:14 ask was still tagged at 10:47, and "text me a
+link, not a note card", sent right after a background job's church results
+(which cover nothing), was read as that old ask and answered with the wrong
+note. Now a message is tagged only if nothing covers it and it is no older
+than the newest message a delivered answer covers: anything older than what
+Tex has since answered is history, not a to-do. A text that lands while Tex
+answers an earlier one is newer than everything that answer covers, so it
+stays tagged; "after Tex's last text" was weighed and refused for exactly
+that case. What this gives up, an old ask that truly fell through no longer
+flagged on every turn, is the self-review of each finished chat's job. Both
+transcripts follow it: the turn's (`apps/mcp/src/agent/logRender.js`) and
+decide's (`apps/agent/src/events.ts` `renderTranscript`). Tests:
+`agentEventLog.test.mjs` "an ask older than what Tex has since answered is
+history, not answered" and "a text that lands while Tex answers an earlier
+one stays not answered", and `events.test.ts` "tags an ask older than what
+Tex has since answered as history".

@@ -181,3 +181,15 @@ test("an orient since a mark names only what changed, and ends with a new mark",
   assert.equal(bad.isError, true);
   assert.match(bad.text, /^invalid: since/);
 });
+
+test("a row move names the path it went to, not the word before the colon", () => {
+  const ok = (text) => ({ content: [{ type: "text", text }] });
+  // `manage archive` answered `"path":"note:"` for `moved note: a → b` (2026-11-03).
+  assert.deepEqual(outcomeOf("manage", ok("moved note: 1-projects/a.md → 4-archive/1-projects/a.md\nreferences: updated in the background")), {
+    applied: true,
+    path: "4-archive/1-projects/a.md",
+  });
+  assert.deepEqual(outcomeOf("manage", ok("moved folder: 1-projects/x/ → 2-areas/x/ (3 objects)")), { applied: true, path: "2-areas/x/" });
+  assert.deepEqual(outcomeOf("manage", ok("moved: a.md → b.md")), { applied: true, path: "b.md" });
+  assert.deepEqual(outcomeOf("manage", ok("archived: a.md → 4-archive/a.md\nvisibility: team")), { applied: true, path: "4-archive/a.md", visibility: "team" });
+});

@@ -7,6 +7,7 @@
 
 import { objectFirstChildren, objectFirstManifest } from "../store/objectManifest.js";
 import { attachHomeRoutineReports } from "../agent/chatHomeSeal.js";
+import { deliverMail } from "../mail/deliver.js";
 
 /**
  * The three link calls, attached to the store for each request.
@@ -54,12 +55,16 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   });
   // Note mail mailboxes (`tools/notes/mail.js`): joined against this context,
   // read back only by the grant that joined.
+  // A mailbox joined from a background job's turn carries the job's id, and a
+  // line sent on the note is handed to those jobs at once (`mail/deliver.js`).
+  const jobMailboxes = (path) => controlPlane.jobMailboxes(session.accessToken, session.workspaceId, path);
   Object.defineProperty(store, "mail", {
     value: {
       workspaceId: session.workspaceId,
-      join: (path, name) => controlPlane.joinMailbox(session.accessToken, session.workspaceId, path, name),
+      join: (path, name, jobId) => controlPlane.joinMailbox(session.accessToken, session.workspaceId, path, name, jobId),
       get: (mailboxId) => controlPlane.getMailbox(session.accessToken, mailboxId),
       read: (mailboxId, readThrough) => controlPlane.markMailRead(session.accessToken, mailboxId, readThrough),
+      deliver: (line) => deliverMail(env, { jobMailboxes }, line),
     },
     enumerable: false,
     writable: false,

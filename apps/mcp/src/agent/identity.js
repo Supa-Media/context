@@ -40,6 +40,8 @@ export function readIdentity(raw) {
 /** Who this session's person is, or null. Never throws. */
 export async function texterIdentity(controlPlane, session) {
   try {
+    // A text whose session the person object opened carries the identity it keeps (`personTexting.js`): no Convex call.
+    if (session?.texterIdentity !== undefined) return readIdentity(session.texterIdentity);
     if (typeof controlPlane?.texterIdentity !== "function") return null;
     return readIdentity(await controlPlane.texterIdentity(session.accessToken, session.workspaceId));
   } catch {

@@ -7,7 +7,7 @@
 
 import { pokeTexPage } from "../texStore/pageLive.js";
 
-const CHANGES_SETTINGS = new Set(["style", "engagement", "mute"]);
+const CHANGES_SETTINGS = new Set(["instructions", "updates", "engagement", "mute"]);
 
 export async function settingsChanged(env, answer, command, owner) {
   const result = await answer;

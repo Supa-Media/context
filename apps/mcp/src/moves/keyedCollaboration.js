@@ -48,7 +48,7 @@ export async function announceMoves(store, moved, privacy) {
   for (let start = 0; start < notes.length; start += ANNOUNCE_LANES) {
     await Promise.all(notes.slice(start, start + ANNOUNCE_LANES).map(async (pair) => {
       // Shown to the room only where every team member may see the new name; otherwise members are told it moved, not where.
-      const shownTo = privacy && canSee(pair.to, "team", privacy.rules, privacy.overrides) ? pair.to : null;
+      const shownTo = privacy && canSee(pair.to, "team", privacy.rules, privacy.overrides, null) ? pair.to : null;
       await announceMovedToPresence(store, pair.from, shownTo).catch(() => {});
       answer.announced += 1;
     }));

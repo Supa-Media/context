@@ -12,8 +12,8 @@
  *  - read the acting person or chat from the request body instead of the
  *    grant: "the chat and person come off the grant" fails;
  *  - let a guest's grant share mail (drop the GUEST_COMMANDS check):
- *    "a guest may mute and set the style, nothing that acts as a person" fails;
- *  - set a group's style without `setChatStyle` (the Worker's rule): "the
+ *    "a guest may mute and change the instructions, nothing that acts as a person" fails;
+ *  - set a group's instructions without `setChatSettings` (the Worker's rule): "the
  *    tool and the texted command write the same row" fails.
  */
 
@@ -69,33 +69,37 @@ async function chat(t: T) {
 const groupRow = async (t: T) => await t.run(async (ctx) => (await ctx.db.query("textGroups").collect())[0]!);
 
 describe("a group's commands as tools", () => {
-  test("anyone in the chat changes its style; the tool and the texted command write the same row", async () => {
+  test("anyone in the chat changes its instructions; the tool and the texted command write the same row", async () => {
     const t = setupTest();
     const { token } = await chat(t);
-    expect(await command(t, token, { kind: "style", style: { humor: 60 } })).toEqual({ status: "done", style: { humor: 60 } });
+    expect(await command(t, token, { kind: "instructions", action: "add", text: "Call the group the crew." })).toEqual({ status: "done", instructions: "Call the group the crew.", setBy: "ada" });
     let row = await groupRow(t);
-    expect(row.texStyle).toEqual({ humor: 60 });
-    expect(row.texStyleSetBy).toBe("ada");
-    // The Worker's texted command lays its patch over the same row.
-    expect(await agentPost(t, "/agent-texts/group/style", { line: LINE, groupId: GROUP, style: { emoji: "less" }, setBy: BO })).toMatchObject({ ok: true });
+    expect(row.instructions).toBe("Call the group the crew.");
+    expect(row.instructionsSetBy).toBe("ada");
+    // The Worker's texted quick pick adds its line to the same row.
+    expect(await agentPost(t, "/agent-texts/group/style", { line: LINE, groupId: GROUP, pick: "emoji_none", setBy: BO })).toMatchObject({ ok: true });
     row = await groupRow(t);
-    expect(row.texStyle).toEqual({ humor: 60, emoji: "less" });
-    expect(await command(t, token, { kind: "settings" })).toMatchObject({ status: "done", style: { humor: 60, emoji: "less" }, engagementChosen: false });
+    expect(row.instructions).toBe("Call the group the crew.\nUse no emoji.");
+    expect(await command(t, token, { kind: "updates", updates: "planOnly" })).toMatchObject({ status: "done", updates: "planOnly" });
+    expect(await command(t, token, { kind: "settings" })).toMatchObject({ status: "done", instructions: "Call the group the crew.\nUse no emoji.", updates: "planOnly", engagementChosen: false });
+    expect(await command(t, token, { kind: "instructions", action: "remove", text: "Use no emoji." })).toMatchObject({ status: "done", instructions: "Call the group the crew." });
   });
 
-  test("a style off its closed sets is refused whole, and changes nothing", async () => {
+  test("a change off its rules is refused whole, and changes nothing", async () => {
     const t = setupTest();
     const { token } = await chat(t);
-    expect(await command(t, token, { kind: "style", style: { humor: 65 } })).toEqual({ status: "bad_request" });
-    expect(await command(t, token, { kind: "style", style: { tone: "snarky" } })).toEqual({ status: "bad_request" });
-    expect((await groupRow(t)).texStyle).toBeUndefined();
+    expect(await command(t, token, { kind: "instructions", action: "shout", text: "x" })).toEqual({ status: "bad_request" });
+    expect(await command(t, token, { kind: "instructions", action: "add", text: "  " })).toEqual({ status: "bad_request" });
+    expect(await command(t, token, { kind: "instructions", action: "replace", text: "x".repeat(1_501) })).toEqual({ status: "bad_request" });
+    expect(await command(t, token, { kind: "updates", updates: "loud" })).toEqual({ status: "bad_request" });
+    expect((await groupRow(t)).instructions).toBeUndefined();
   });
 
   test("when Tex speaks up, and its status", async () => {
     const t = setupTest();
     const { token } = await chat(t);
     expect(await command(t, token, { kind: "engagement", engagement: "quiet" })).toEqual({ status: "done", engagement: "quiet" });
-    expect((await groupRow(t)).engagement).toBe("quiet");
+    expect((await groupRow(t)).speaksUp).toBe("quiet");
     expect(await command(t, token, { kind: "engagement", engagement: "loud" })).toEqual({ status: "bad_request" });
     expect(await command(t, token, { kind: "status" })).toEqual({ status: "done", slug: "studio", guest: false });
   });
@@ -104,7 +108,7 @@ describe("a group's commands as tools", () => {
     const t = setupTest();
     const { token } = await chat(t);
     expect(await command(t, token, { kind: "mute" })).toEqual({ status: "done", muted: true });
-    expect((await groupRow(t)).mutedAt).toBeTypeOf("number");
+    expect((await groupRow(t)).speaksUp).toBe("off");
     expect(await command(t, token, { kind: "status" })).toEqual({ status: "refused" });
   });
 
@@ -126,13 +130,13 @@ describe("a group's commands as tools", () => {
     const { token } = await chat(t);
     const answer = await gatewayPost(t, "/gateway/tex/command", {
       accessToken: token,
-      command: { kind: "style", style: { humor: 10 } },
+      command: { kind: "instructions", action: "add", text: "Be brief." },
       groupId: "someone-elses-chat",
       sender: BO,
       userId: "users:forged",
     });
-    expect(await answer.json()).toEqual({ status: "done", style: { humor: 10 } });
-    expect((await groupRow(t)).texStyleSetBy).toBe("ada");
+    expect(await answer.json()).toEqual({ status: "done", instructions: "Be brief.", setBy: "ada" });
+    expect((await groupRow(t)).instructionsSetBy).toBe("ada");
   });
 
   test("a token that resolves to nothing, or no token, is refused", async () => {
@@ -143,7 +147,7 @@ describe("a group's commands as tools", () => {
     expect(await command(t, "cat_x", { kind: "rm -rf" })).toEqual({ status: "bad_request" });
   });
 
-  test("a guest may mute and set the style, nothing that acts as a person", async () => {
+  test("a guest may mute and change the instructions, nothing that acts as a person", async () => {
     const t = setupTest();
     const { ada, token } = await chat(t);
     await seedGoogleConnection(t, { workspaceId: ada.workspaceId, boundBy: ada.userId, address: WORK });
@@ -155,8 +159,8 @@ describe("a group's commands as tools", () => {
     expect(await command(t, token, { kind: "share_mail", address: WORK })).toEqual({ status: "not_allowed" });
     expect(await command(t, token, { kind: "unshare_mail" })).toEqual({ status: "not_allowed" });
     expect(await command(t, token, { kind: "review_sharing", share: true })).toEqual({ status: "not_allowed" });
-    expect(await command(t, token, { kind: "style", style: { warmth: "more" } })).toEqual({ status: "done", style: { warmth: "more" } });
-    expect((await groupRow(t)).texStyleSetBy).toBe("a guest");
+    expect(await command(t, token, { kind: "instructions", action: "add", text: "Be warmer." })).toEqual({ status: "done", instructions: "Be warmer.", setBy: "a guest" });
+    expect((await groupRow(t)).instructionsSetBy).toBe("a guest");
   });
 
   test("an invited person's tag, minted on the binder, is treated as a guest's", async () => {
@@ -178,7 +182,7 @@ describe("a home-only chat", () => {
   const homeTurn = async (t: T, sender: string) =>
     await agentPost(t, "/agent-texts/group", { line: LINE, groupId: GROUP, sender, participants: [ADA, BO, GUEST, LINE], mint: true });
 
-  test("a guest's tag may set the style, never act for the sponsor", async () => {
+  test("a guest's tag may change the instructions, never act for the sponsor", async () => {
     const w = await pinnedWorld();
     await migrate(w);
     const ada = await texter(w.t, "ada", ADA);
@@ -189,7 +193,7 @@ describe("a home-only chat", () => {
     expect(guest.status).toBe("ready");
     const token = guest.accessToken as string;
     expect(await command(w.t, token, { kind: "share_mail", address: WORK })).toEqual({ status: "not_allowed" });
-    expect(await command(w.t, token, { kind: "style", style: { humor: 40 } })).toEqual({ status: "done", style: { humor: 40 } });
+    expect(await command(w.t, token, { kind: "instructions", action: "add", text: "Joke rarely." })).toMatchObject({ status: "done", instructions: "Joke rarely." });
     expect(await command(w.t, token, { kind: "status" })).toEqual({ status: "done", slug: "", guest: true });
   });
 });
@@ -200,9 +204,10 @@ describe("a person's own chat", () => {
     await texter(t, "ada", ADA);
     const opened = await agentPost(t, "/agent-texts/session", { phone: ADA });
     const token = opened.accessToken as string;
-    expect(await command(t, token, { kind: "settings" })).toEqual({ status: "done", style: {} });
-    expect(await command(t, token, { kind: "style", style: { length: "short" } })).toEqual({ status: "done", style: { length: "short" } });
-    expect(await command(t, token, { kind: "settings" })).toEqual({ status: "done", style: { length: "short" } });
+    expect(await command(t, token, { kind: "settings" })).toEqual({ status: "done" });
+    expect(await command(t, token, { kind: "instructions", action: "add", text: "Keep answers short." })).toEqual({ status: "done", instructions: "Keep answers short." });
+    expect(await command(t, token, { kind: "updates", updates: "off" })).toEqual({ status: "done", instructions: "Keep answers short.", updates: "off" });
+    expect(await command(t, token, { kind: "settings" })).toEqual({ status: "done", instructions: "Keep answers short.", updates: "off" });
     expect(await command(t, token, { kind: "review_sharing", share: true })).toMatchObject({ status: "done", sharing: true });
     expect(await command(t, token, { kind: "mute" })).toEqual({ status: "not_allowed" });
     expect(await command(t, token, { kind: "share_mail", address: WORK })).toEqual({ status: "not_allowed" });

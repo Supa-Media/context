@@ -275,10 +275,10 @@ test("about: tools lists the six tools, every action of write, manage and send, 
     assert.ok(text.includes(`- ${tool} — `), `${tool} is listed`);
   }
   assert.ok(text.includes("### write") && text.includes("### manage") && text.includes("### send"));
-  for (const action of ["save", "comment", "remember", "propose", "save_session", "move", "move_many", "share_link", "api"]) {
+  for (const action of ["save", "comment", "remember", "save_session", "move", "move_many", "share_link", "api"]) {
     assert.ok(text.includes(`  - ${action} — `), `${action} is listed`);
   }
-  assert.ok(text.includes("## Fetch ids") && text.includes("`meetings:`") && text.includes("`proposals:<id>`"));
+  assert.ok(text.includes("## Fetch ids") && text.includes("`meetings:`") && !text.includes("proposals:"));
   assert.ok(text.includes("`write` takes a note's `path`, `content` and `expected_etag` at the top level"));
 });
 
@@ -316,7 +316,7 @@ test("about: access names only calls a v2 app can make", async () => {
     assert.doesNotMatch(text, /\b(write_note|propose_note|scope_info)\b/, text);
   }
   const { text } = await orient(MEMBER_TOKEN, { about: "access" });
-  assert.ok(text.includes("use write with action propose"), text);
+  assert.ok(!/\bpropose\b/.test(text), "proposals were removed (2026-11-03)");
 });
 
 test("a v2 write the gate refuses is told what to call in the six tools' names", async () => {

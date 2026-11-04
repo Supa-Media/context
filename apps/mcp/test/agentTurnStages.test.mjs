@@ -14,7 +14,7 @@
  *    taken apart.
  *  - `usage`/`said`/`calls` dropped from the round's trace entry in `turn.js`:
  *    "each model call writes its own point" fails (the tokens read 0);
- *  - `timing?.trace` dropped from `stages?.ran` in `route.js`: the same test
+ *  - `timing?.trace` dropped from `stages?.ran` in `texEntryPoint.js`: the same test
  *    fails, since the turn log's wired trace carries no tokens.
  */
 
@@ -85,7 +85,9 @@ test("a texted turn writes one point, with a kind and numbers only, never their 
     assert.doesNotMatch(JSON.stringify(point), /hi Tex|What do you need/);
     // The bucket calls by stage: shapes and counts only, no id, workspace or name (`callsLine`).
     assert.match(point.blobs[2], /^([bta]:(get|head|put|delete|list):[^ =]+=\d+ ?)+$/);
-    assert.match(point.blobs[2], /\bb:list:\.context\/approvals\/pending=\d/, "the calls before the model are counted by shape");
+    assert.match(point.blobs[2], /\bb:get:privacy\.md=\d/, "the calls before the model are counted by shape");
+    // A text that is no yes or no lists no waiting ask before the model (owner, 2026-11-03: it cost ~5 s a text).
+    assert.doesNotMatch(point.blobs[2], /\bb:list:\.context\/approvals\/pending/, "the waiting asks are not read before the model");
     assert.doesNotMatch(point.blobs[2], /ws_|grant_|[0-9a-f]{8}-[0-9a-f]{4}/);
   } finally {
     world.restore();
@@ -135,9 +137,10 @@ test("call points skip tools and the router, cap their count, and read a missing
   const trace = [{ kind: "router", ms: 5 }, { kind: "model", model: "anthropic/claude-haiku-5-5", ms: 3_000, usage: { input: 10, output: -1 } }, { kind: "tool", tool: "search", ms: 40 }, { kind: "model", ok: false, ms: 9 }];
   const points = callPoints("one", trace);
   assert.equal(points.length, 2);
-  assert.deepEqual(points[0].blobs, ["one", "claude-haiku-5-5", "ok"]);
+  assert.deepEqual(points[0].blobs, ["one", "claude-haiku-5-5", "ok", ""]);
   assert.deepEqual(points[0].doubles, [1, 3_000, 10, 0, 0, 0, 0, 0]);
-  assert.deepEqual(points[1].blobs, ["one", "unknown", "failed"]);
+  assert.deepEqual(points[1].blobs, ["one", "unknown", "failed", ""]);
+  assert.equal(callPoints("one", trace, "turn-9")[0].blobs[3], "turn-9", "the turn's id, when known");
   assert.equal(callPoints("job", Array.from({ length: 40 }, () => ({ kind: "model", ms: 1 }))).length, MAX_CALL_POINTS);
 });
 

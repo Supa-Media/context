@@ -63,7 +63,7 @@ export async function factSection(store, audience, visible, rules, overrides) {
     const facts = await factChaos(store);
     if (facts === null) return null;
     const extras = facts.extras;
-    const folders = scoreKeys(keys, extras, (path) => canSee(path, "team", rules, overrides), (path) => canSee(path, "private", rules, overrides));
+    const folders = scoreKeys(keys, extras, (path) => canSee(path, "team", rules, overrides, null), (path) => canSee(path, "private", rules, overrides, null));
     if (audience === "all") {
       const keep = () => factChaos(store, liveTotals(folders)).catch(() => null);
       if (typeof store.defer === "function") store.defer(keep);

@@ -15,15 +15,15 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { ANSWER_RETRIES, ANSWER_TIMEOUT } from "./groupTurnWorkflow";
 import type { JobNext } from "./jobRun";
-import { jobTag, MAX_JOB_ATTEMPTS, MAX_JOB_TRIES, RUN_KEY, type JobRun } from "./jobs";
+import { jobTag, MAX_JOB_ATTEMPTS, MAX_JOB_TRIES, MAX_MACHINE_JOB_ATTEMPTS } from "./jobs";
 import { logged } from "./agentError";
-import type { InboxStorage } from "./inbox";
 import type { Env } from "./index";
 import { inboxByName } from "./objectPlace";
 
 export type JobRunParams = { job: string };
 /** More passes than a job can take: every part's tries, plus its last word offered again (10 parts since 2026-10-31). */
-export const MAX_JOB_PASSES = MAX_JOB_ATTEMPTS * (MAX_JOB_TRIES + 1) + 2;
+// A job on their own computer takes many more parts (`machineTurn.ts`): every pass either job may need.
+export const MAX_JOB_PASSES = Math.max(MAX_JOB_ATTEMPTS, MAX_MACHINE_JOB_ATTEMPTS) * (MAX_JOB_TRIES + 1) + 2;
 
 /** Asks the job's object at an internal path. */
 export type JobCall = (path: "/job-pass" | "/job-failed") => Promise<Response>;
@@ -88,15 +88,4 @@ export async function startJobFlow(workflow: Pick<Workflow<JobRunParams>, "creat
       throw error;
     });
   }
-}
-
-/**
- * A job armed by its object's alarm before workflows ran jobs (one release, then removed): the alarm hands it
- * to its instance and arms nothing. False when the object holds no job.
- */
-export async function handOverJob(storage: InboxStorage, workflow: Pick<Workflow<JobRunParams>, "create" | "get">): Promise<boolean> {
-  const job = await storage.get<JobRun>(RUN_KEY);
-  if (job === undefined) return false;
-  await startJobFlow(workflow, job.id, job.resumes ?? 0);
-  return true;
 }

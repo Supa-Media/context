@@ -15,6 +15,7 @@ import {
   PRIVACY_RULES_BEGIN,
   PRIVACY_RULES_END,
   PrivacyOverrides,
+  READER_NAMES,
   spliceRulesBlock,
   visibilityOf,
 } from "../privacy/engine.js";
@@ -47,11 +48,16 @@ function visibilityAfter(base, existing) {
   return null;
 }
 
-/** The held rules in the shape `loadPrivacyState` takes from `PRE_PARSED_RULES`. */
-function parsedRules(rules) {
+/**
+ * The held rules in the shape `loadPrivacyState` takes from `PRE_PARSED_RULES`, carrying the reader's names
+ * (`READER_NAMES`) when the store was opened for a session that holds some.
+ */
+function parsedRules(rules, names) {
   const overrides = new PrivacyOverrides();
   for (const note of rules.notes) overrides.set(note.path, note.visibility);
-  return { rules: rules.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility })), overrides };
+  const folders = rules.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility }));
+  if (names instanceof Set) Object.defineProperty(folders, READER_NAMES, { value: names, enumerable: false });
+  return { rules: folders, overrides };
 }
 
 /**
@@ -86,12 +92,25 @@ export function readOnlyManifest() {
 }
 
 /**
+ * Whether `path` holds no rule of its own in the rules held and its folders already give it `tier`: a new note's tier
+ * write there would be `inherit` on a path with nothing to clear, which changes nothing anywhere, so a save need not
+ * make the trip. Only for a path with no note yet: a row's `inherit` also clears the people named on it.
+ */
+function inheritsTier(held, path, tier) {
+  if (typeof path !== "string" || (tier !== "private" && tier !== "team")) return false;
+  if (held.notes.some((rule) => rule.path === path)) return false;
+  return visibilityOf(path, held.folders.map((rule) => ({ prefix: rule.prefix, vis: rule.visibility }))) === tier;
+}
+
+/**
  * The store with the access rules served from `authority`.
  *
  * @param {import("./index.js").ContextStore} store
  * @param {PrivacyAuthority|null|undefined} authority
+ * @param {{names?: ReadonlySet<string>}} [reader] the names of the session the store is opened for, which a path judged
+ *   with these rules alone is judged by (`engine.js` `READER_NAMES`)
  */
-export function withPrivacyAuthority(store, authority) {
+export function withPrivacyAuthority(store, authority, { names } = {}) {
   if (!authority) return store;
   /** @type {HeldRules} */
   let held = authority.rules;
@@ -133,7 +152,7 @@ export function withPrivacyAuthority(store, authority) {
     return answer;
   };
 
-  const preParsed = () => parsedRules(held);
+  const preParsed = () => parsedRules(held, names);
   const text = () => {
     const overrides = preParsed().overrides;
     return spliceRulesBlock(SKELETON, held.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility })), overrides);
@@ -152,7 +171,7 @@ export function withPrivacyAuthority(store, authority) {
   // Rows mode only: a row's tier goes through `setAccess`.
   Object.defineProperty(wrapped, "rowAccess", {
     enumerable: false,
-    value: { setTier: setRowTier, addPeople: addRowPeople },
+    value: { setTier: setRowTier, addPeople: addRowPeople, inherits: (path, tier) => inheritsTier(held, path, tier) },
   });
   // A row held only to view (a guest chat's, `readOnlyRows.js`) is read and never changed, whichever tool asks.
   Object.defineProperty(wrapped, "readOnlyAt", { enumerable: false, value: (path) => readOnlyAt(held, path) });

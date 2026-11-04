@@ -46,7 +46,11 @@ export function audienceOf(names) {
  */
 function entryOf(row) {
   if (row.kind === "folder") return { state: "folder" };
-  return narrowNote({ state: "keyed", key: row.key, etag: row.etag, ...(typeof row.noteId === "string" ? { noteId: row.noteId } : {}) });
+  const entry = narrowNote({ state: "keyed", key: row.key, etag: row.etag, ...(typeof row.noteId === "string" ? { noteId: row.noteId } : {}) });
+  // The note's Markdown, where an edit's lookup asked for it (`workspaceStore/lookupBody.js`): only ever for this key.
+  const body = row.body;
+  if (entry === null || !body || typeof body.text !== "string" || body.meta?.key !== entry.key || typeof body.meta.etag !== "string") return entry;
+  return { ...entry, body: { meta: body.meta, text: body.text } };
 }
 
 /**
@@ -117,6 +121,45 @@ export function objectFirstFacts(options) {
   };
 }
 
+/** A survey's timestamps come back as strings; the map takes Dates (`orient/render.js` `mostRecent`). */
+function revivedSurvey(survey) {
+  const dated = (note) => (note && typeof note.uploaded === "string" ? { ...note, uploaded: new Date(note.uploaded) } : note);
+  return {
+    ...survey,
+    rootNotes: (survey.rootNotes ?? []).map(dated),
+    recent: (survey.recent ?? []).map(dated),
+    captured: (survey.captured ?? []).map((group) => ({ ...group, newest: group.newest ? dated(group.newest) : null })),
+  };
+}
+
+/**
+ * `orient`'s map of the workspace drawn in its object (`ws.orient.survey`) for this session's reader, or `null` where
+ * this session does not read the object, and the gateway draws it. The function answers the survey, or `null` for one
+ * the object did not serve (a failure, the object behind, a listing past one page), and the gateway draws it then.
+ *
+ * @param {Parameters<typeof objectReader>[0]} options
+ * @returns {(() => Promise<object|null>) | null}
+ */
+export function objectFirstSurvey(options) {
+  const reader = objectReader(options);
+  if (reader === null || typeof reader.client.orientSurvey !== "function") return null;
+  const { client, workspaceId, log, judged, settledBehind } = reader;
+  return async () => {
+    const started = Date.now();
+    let answer;
+    try {
+      answer = await client.orientSurvey({ ...judged });
+    } catch (error) {
+      log("workspace_object_survey_failed", { workspaceId, error: String(error?.message ?? error) });
+      return null;
+    }
+    if (settledBehind(answer)) return null;
+    const served = answer?.served === true && answer.survey && typeof answer.survey === "object";
+    log("workspace_object_survey", { workspaceId, served, ms: Date.now() - started });
+    return served ? revivedSurvey(answer.survey) : null;
+  };
+}
+
 /**
  * A writer's "is that name taken?" (`ask: "names"`, `tree/names.js`) asked of the object before the control plane
  * (`workspaceStore/namesTaken.js`). The answer is unfiltered, so only a session that may write here asks: `canWrite`
@@ -158,10 +201,11 @@ export function objectFirstHooks(hooks, options) {
   if (reader === null) return hooks;
   const { client, workspaceId, log, judged, settledBehind } = reader;
 
-  const lookup = async (paths) => {
+  // `withBody`: an edit's one lookup (`idLayout.js` `oneWrite`) asks for the note's Markdown beside its row.
+  const lookup = async (paths, { withBody = false } = {}) => {
     let answer;
     try {
-      answer = await client.rows.lookup({ paths, ...judged });
+      answer = await client.rows.lookup({ paths, ...judged, ...(withBody === true && paths.length === 1 ? { withBody: true } : {}) });
     } catch (error) {
       log("workspace_object_lookup_failed", { workspaceId, error: String(error?.message ?? error) });
       return await hooks.lookup(paths);

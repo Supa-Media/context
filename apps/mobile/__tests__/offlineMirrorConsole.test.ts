@@ -306,7 +306,9 @@ describe("online, the mirror answers first when the bucket is slow", () => {
     read.refuse("FILE_NOT_FOUND");
     await settle(30);
     expect(browser.editor.path).toBeNull();
-    expect(browser.notice).toBe("You can no longer see this.");
+    // Not a notice: the not-found page, drawn where the note would be (`NotFoundNote`, Dev 2026-11-03).
+    expect(browser.notFound).toBe(OTHER);
+    expect(browser.notice).toBeNull();
   });
 
   test("typing into the copy is never replaced by the bucket's version", async () => {

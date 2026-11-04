@@ -96,10 +96,10 @@ export function moodOf(job: JobSummary | null): Mood {
   return "calm";
 }
 
-/** The line under a running job: `1 min · 3 steps didn't work`, `Needs your sign-in code`, `For Ada · 3 min`. */
+/** The line under a running job: `1 min · 3 steps didn't work`, `Needs your sign-in code`, `For Ada · Claude Code · 3 min`. */
 export function slotLine(job: JobSummary, now: number = Date.now()): { text: string; failed?: string; warn?: boolean } {
   if (job.state === "waiting" && job.needs) return { text: job.needs, warn: true };
-  const parts = [job.for ? `For ${job.for}` : null, span(now - job.startedAt)].filter((x): x is string => x !== null);
+  const parts = [job.for ? `For ${job.for}` : null, job.tool ?? null, span(now - job.startedAt)].filter((x): x is string => x !== null);
   return {
     text: parts.join(" · "),
     ...(job.failedSteps > 0 ? { failed: `${plural(job.failedSteps, "step")} didn't work` } : {}),

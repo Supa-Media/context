@@ -70,9 +70,10 @@ export interface GatewayReader {
  * owner whose grant carries `context:private` reads privately, and everybody
  * else reads as the team. A grant without `context:read` reads nothing.
  *
- * `names` are a pin reader's guest names (`lib/pinnedReaders.ts`), as `contextsForGrant` carries them, and none
- * for anybody else, as before. Every route that judges by this clearance passes
- * them on, or a pin reader would be judged as a member of the team; `audience` says which rules they are judged by.
+ * `names` are the names `contextsForGrant` carries for this workspace: a pin reader's guest names
+ * (`lib/pinnedReaders.ts`), or a member's groups, handle and row tokens. Every route that judges by this clearance
+ * passes them on, or a pin reader would be judged as a member of the team and a member's chat homes and by-name
+ * shares would be missing; `audience` says which rules they are judged by.
  */
 export function gatewayReadClearance(
   reader: GatewayReader,
@@ -83,8 +84,11 @@ export function gatewayReadClearance(
   if (covered === undefined) return null;
   const scope = covered.role === "owner" && reader.scopes.includes("context:private") ? "private" : "team";
   const audience = audienceOfNames(covered.grantedNames);
-  // Only a guest's names: these routes judged every other reader with none, and still do.
-  return { workspaceId: covered.workspaceId, scope, names: audience === "guest" ? (covered.grantedNames ?? []) : [], audience };
+  // Every name the session carries: a guest's, and since 2026-11-03 a member's too (their groups, handle and row
+  // tokens), which `contextsForGrant` hands the app and every AI connection alone
+  // (`docs/decisions/privacy-and-sharing/ai-connection-names.md`). Dropping them listed every sealed chat home, and
+  // every note shared by name, as missing to the connection the session had just given them to.
+  return { workspaceId: covered.workspaceId, scope, names: covered.grantedNames ?? [], audience };
 }
 
 export const readClearanceArgs = { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() };

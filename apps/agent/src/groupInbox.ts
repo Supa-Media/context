@@ -49,6 +49,7 @@
 import { reportRoutineResult, ServiceError, type Fetch, type RoutineOutcome } from "./clients";
 import { chatRoutineMessage, type ChatRoutineRun } from "./groupRoutines";
 import { askControlPlane, type ControlAnswer } from "./groupControl";
+import { dropKept, keepAnswer, keptAnswer, refreshKept } from "./groupKept";
 import { failedLine, GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { Command, ControlAnswer };
@@ -68,7 +69,7 @@ import type { NoteCardDrawer } from "./noteCards";
 import { isBound, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchFailed } from "./reviewWatch";
-import { addressesTex, groupCommand, unquoted, type Command } from "./groupWords";
+import { addressesTex, groupCommand, namesTex, unquoted, type Command } from "./groupWords";
 import type { JobRun, JobSteer } from "./jobs";
 import { armBy, flushChat, pruneEvents, type Conversation } from "./events";
 import { rememberChatReader } from "./chatRead";
@@ -80,7 +81,7 @@ import { chooseStyle } from "./groupChoose";
 import { handedTurnWaits, handOff, TURN_KEY, type HandedTurn } from "./groupTurnRun";
 import { answerBesideTurn } from "./groupBeside";
 import { groupTurn } from "./groupModelTurn";
-import { ENGAGEMENT_QUESTION, engagementChoice, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide } from "./groupStyle";
+import { ENGAGEMENT_QUESTION, engagementChoice, engagementSet, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide } from "./groupStyle";
 import type { TimingDataset } from "./textTiming";
 
 export type GroupDeps = {
@@ -182,8 +183,10 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     if (!kept && !follows) return log("untagged_ignored", "unbound"), "ignored";
     await storage.put(seen, now);
     const ev = logged ?? (await logGroupInbound(storage, message, now));
-    // A reply to Tex that says more than thanks always reaches decide, whatever the style.
-    const reaches = follows || addressesTex(message.text, repliesToTex) || (await reachesDecide(storage, (await groupStyle(storage)).style, await isAsker(storage, message, now)));
+    // A reply to Tex that says more than thanks always reaches decide, whatever the style; so does Tex's name anywhere (`namesTex`).
+    // Off never gets here: a muted chat is unbound, so nothing is kept to decide on (`setChatBound`).
+    const named = message.reaction === undefined && namesTex(message.text);
+    const reaches = follows || named || addressesTex(message.text, repliesToTex) || (await reachesDecide(storage, (await groupStyle(storage)).style, await isAsker(storage, message, now)));
     if (reaches) await enqueue(storage, message, { ev, soft: true, ...(follows ? { joins: true as const } : {}) }, repliesToTex, seen, now);
     log(reaches ? "untagged_to_decide" : "untagged_kept", reaches ? undefined : "style");
     return kept ? "kept" : "queued";
@@ -507,8 +510,14 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.
   if (routine && (members === null || !members.includes(message.from))) return void (await routineDone(deps, message, "no_chat"));
   const people = peopleOf(message.line, message.participants, members);
-  const asked = await askControlPlane(deps, message, people, command);
-  clock?.mark("control");
+  // A plain tag from the same person, with the same people, reuses the last token and asks the control plane behind the turn (`groupKept.ts`).
+  const plain = command === null && !item.engagement && !item.setting && !routine && members !== null;
+  const kept = plain ? await keptAnswer(storage, message.line, message.from, people, deps.now()) : null;
+  if (!plain) await dropKept(storage);
+  const asked = kept ?? (await askControlPlane(deps, message, people, command));
+  if (kept === null && plain) await keepAnswer(storage, message.line, message.from, people, asked, deps.now());
+  const behind = kept === null ? null : () => askControlPlane(deps, message, people, null, { mint: false }).then((answer) => refreshKept(storage, answer), () => refreshKept(storage, null));
+  clock?.mark("control"); // near zero when kept
   const status = asked.status;
   const fixed = (text: string) => say(storage, deps, message, text, { system: true });
   // A chat that can't run it now is told nothing: nobody in it asked just now.
@@ -517,7 +526,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
   // Read from the words alone, the same for every tagger linked or not, so it says nothing about who they are (`ackEmoji.ts`).
-  if (command === null && message.reaction === undefined && !item.engagement && !item.setting && !routine && !item.reacted && !("texStyle" in asked && asked.texStyle?.emoji === "less")) await app.react(chat, message.messageId, ackEmoji(message.text));
+  if (command === null && message.reaction === undefined && !item.engagement && !item.setting && !routine && !item.reacted) await app.react(chat, message.messageId, ackEmoji(message.text));
   if (status === "unknown_sender") return asked.tell === true ? void (await fixed(GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await fixed(GROUP_LINES.noShared));
   if (status === "not_allowed") {
@@ -532,6 +541,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (status === "mail_refused") return void (await fixed(GROUP_LINES.mailRefused));
   if (status === "stopped") return void (await fixed(GROUP_LINES.stopped));
   if (status === "started") return void (await fixed(GROUP_LINES.started));
+  if (status === "speaks_up") return await keepStyle(storage, asked.level, true), void (await fixed(engagementSet(asked.level, asked.by)));
   if (status !== "ready") throw new ServiceError("control_plane", null);
   // A routine's run carries no webhook people list (`chatRoutineMessage`): binding to it would bind the chat to nobody,
   // and every untagged text after it would be dropped as said in front of other people.
@@ -561,8 +571,13 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const contextUntil = Math.max(acceptedAt, item.contextUntil ?? acceptedAt);
   const upTo = Math.max(acceptedAt, ...entries.map(([, entry]) => entry.at ?? 0));
   // Addressed: decide is asked now, beside the turn, and its verdict is waited on only before anything is sent.
-  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, upTo, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken, silenced: decideBeside(storage, deps, entries) });
+  // A turn that fails on a kept token (the gateway refused it, say) drops it, so its retry asks the control plane first.
+  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, upTo, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken, silenced: decideBeside(storage, deps, entries) }).catch(async (error: unknown) => {
+    if (kept !== null) await dropKept(storage);
+    throw error;
+  });
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
+  await behind?.();
   return outcome;
 }
 

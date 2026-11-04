@@ -24,12 +24,10 @@ const WRITES = new Set([
   "remember_fact",
   "save_context",
   "meeting_note",
-  "propose_note",
   "rewrite_references",
   "inbox_capture",
   "inbox_update",
   "calendar_sync",
-  "approve_proposal",
 ]);
 
 /**

@@ -16,12 +16,14 @@
  *     → "restart with no titles picks up every job that stopped, in one call, and the turn ends at once" fails.
  *  4. `resume` past the running limit.
  *     → "no more than three run at once, counting the ones picked up" fails.
+ *  5. `endsTurn` ignoring `quiet`.
+ *     → "asked to hear nothing until it's done: a start or restart texts nothing" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MAX_RUNNING_JOBS, RESTART_JOB_TOOL, START_JOB_TOOL, backgroundSession, resumedLine, startedJobs, withBackground } from "../src/agent/background.js";
+import { MAX_RUNNING_JOBS, QUIET_ACK, RESTART_JOB_TOOL, START_JOB_TOOL, backgroundSession, resumedLine, startedJobs, withBackground } from "../src/agent/background.js";
 
 const NOW = Date.UTC(2026, 9, 31, 17, 0, 0);
 const job = (title, state, extra = {}) => ({ id: `job-${title.replace(/\W/g, "").toLowerCase()}-0001`, title, state, startedAt: NOW - 20 * 60_000, ...(state === "running" ? {} : { finishedAt: NOW - 60_000 }), steps: [], verdict: null, advice: "", result: "", status: "", ...extra });
@@ -78,4 +80,23 @@ test("no more than three run at once, counting the ones picked up", async () => 
 test("nothing to restart: no tool offered, and a job's own turn never gets it", () => {
   assert.ok(!backgroundSession({ running: [job("Logo", "running"), DONE], job: null, now: NOW }).tools.some((tool) => tool.name === RESTART_JOB_TOOL));
   assert.deepEqual(backgroundSession({ running: [A16Z], job: { id: "job-x-0001", title: "x" }, now: NOW }).tools, []);
+});
+
+test("asked to hear nothing until it's done: a start or restart texts nothing", async () => {
+  // Dev, 2026-11-03: "don't come back to me until you are done" was answered with "On it" three times.
+  const restarted = backgroundSession({ running: [YC], job: null, now: NOW });
+  assert.ok(restarted.tools.find((tool) => tool.name === RESTART_JOB_TOOL).inputSchema.properties.quiet);
+  await withBackground(restarted, async () => ({ content: [] }))(RESTART_JOB_TOOL, { titles: ["Y Combinator application"], quiet: true });
+  assert.equal(restarted.endsTurn(RESTART_JOB_TOOL), QUIET_ACK);
+  assert.deepEqual(startedJobs(restarted, false), { steers: [{ id: YC.id, resume: true }] }, "it still picks the job up");
+
+  const started = backgroundSession({ running: [], job: null, now: NOW });
+  assert.ok(started.tools.find((tool) => tool.name === START_JOB_TOOL).inputSchema.properties.quiet);
+  await withBackground(started, async () => ({ content: [] }))(START_JOB_TOOL, { title: "Haircut", brief: "Book it.", quiet: true });
+  assert.equal(started.endsTurn(START_JOB_TOOL), QUIET_ACK);
+  assert.equal(started.endsTurn(START_JOB_TOOL), null, "said once");
+
+  const loud = backgroundSession({ running: [], job: null, now: NOW });
+  await withBackground(loud, async () => ({ content: [] }))(START_JOB_TOOL, { title: "Haircut", brief: "Book it." });
+  assert.match(loud.endsTurn(START_JOB_TOOL), /^On it: Haircut\./);
 });

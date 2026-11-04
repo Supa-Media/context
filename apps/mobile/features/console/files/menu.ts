@@ -39,8 +39,11 @@
 import type { Clipboard } from "./clipboard";
 import type { MenuItem } from "./menuItem";
 import type { RowRole } from "@context/shared/src/folderRoles.cjs";
+import type { ListingSort } from "@context/shared/src/listingSort.cjs";
 import { builtInLocks, fixedItems, isTexPartRow, keptItems, rowJob } from "./menuBuiltIn";
 import { downloadGroup, iconGroup, makeItem, orderGroup, pinGroup, tagsGroup } from "./menuMake";
+import { sortGroup } from "./menuSort";
+import type { SortActionId } from "./sortChoices";
 import { visibilityGroup } from "./menuVisibility";
 import { restoreTargetFor } from "./paths";
 import type { TreeRow } from "./tree";
@@ -115,11 +118,13 @@ export type MenuActionId =
   /** Give the folder a built-in job (`FolderJobDialog`). Owner only, folders only. */
   | "folderJob"
   /**
-   * One place up or down among the folder's sibling folders, as the list is
-   * drawn (`FileBrowser.moveFolder`). Editor only, folders only.
+   * One place up or down, as the list is drawn (`FileBrowser.moveFolder`): a
+   * folder among its sibling folders, or any row in custom order. Editor only.
    */
   | "moveUp"
   | "moveDown"
+  /** The Sort submenu and its rows (`sortChoices.ts`, `menuSort.ts`). Editor only, folders only. */
+  | SortActionId
   /** Pick several rows of the folder page (board 16). */
   | "selectNotes"
   | "archive"
@@ -185,6 +190,12 @@ export interface MenuContext {
    * loaded). Absent where order cannot be changed from here.
    */
   folderPlace?: (path: string) => { first: boolean; last: boolean } | null;
+  /**
+   * The Sort setting a folder draws by now, for its Sort submenu (`menuSort.ts`),
+   * or `null` before its listing has loaded. Absent where nothing can be sorted
+   * from here (a console that cannot write), and the submenu is then not offered.
+   */
+  sortOf?: (path: string) => { drawn: ListingSort | null } | null;
   /** Whether "Use this folder as…" is offered: an owner, with a server to ask (`folderMenuFacts`). */
   canSetJob?: boolean;
   /**
@@ -419,6 +430,7 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
       makeItem(context, "newFolder", "New folder inside"),
       ...pasteGroup(context, row.path),
     ],
+    sortGroup(context, row),
     [
       ...(texPart
         ? fixedItems(context)
@@ -581,6 +593,8 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
       : [],
 
     pinGroup(context, single),
+
+    sortGroup(context, single),
 
     // Rename and duplicate take one target and have no sensible plural: three
     // renames is three dialogs, and "Duplicate 3 items" is a batch job with a

@@ -57,9 +57,8 @@
  * ## The tool list is a flag, not a sentence
  *
  * #713 landed the gateway's version of this lesson: its tool list was advice
- * in a prompt, and `export_encryption_keys` was on the menu — export, then
- * `propose_note`, and the key that opens every encrypted note in the context is
- * sitting in plaintext in the bucket beside the notes it opens. Here the gate
+ * in a prompt, and `export_encryption_keys` was on the menu — a model could
+ * read the key that opens every encrypted note in the context into a chat. Here the gate
  * is `--allowedTools`, which is the CLI's own enforcement rather than ours, and
  * `-p` denies anything not on it because a print-mode run has nobody to ask.
  *
@@ -155,10 +154,8 @@ const CONTEXT_TOOLS = [
   "list_contacts",
   "read_contact",
   "scope_info",
-  // The one write, and it is a proposal: it lands in the review queue the
-  // console already has and the person says yes. `turn.js` argues this at
-  // length — an edit somebody did not read is a different product.
-  "propose_note",
+  // No write: the proposal this list once allowed was removed from Context on
+  // 2026-11-03, and this local assistant reads and answers only.
 ] as const;
 
 /**
@@ -183,7 +180,7 @@ export const WITHHELD_LOCALLY = Object.freeze([
   "set_encryption",
 ]);
 
-/** The `--allowedTools` value: the context's read tools and `propose_note`. */
+/** The `--allowedTools` value: the context's read tools. */
 export const ALLOWED_TOOLS: readonly string[] = Object.freeze(
   CONTEXT_TOOLS.map((name) => `mcp__${MCP_SERVER_NAME}__${name}`),
 );

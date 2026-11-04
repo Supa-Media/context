@@ -41,9 +41,38 @@ import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { rewriteReferencesAfterMove } from "./references.js";
 import { destinationRefusal } from "./destination.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
-import { startKeyedNoteMove } from "./queuedFolder.js";
+import { rowVersionOf, startKeyedNoteMove } from "./queuedFolder.js";
+import { phase } from "../../mcp/phase.js";
+import { objectServesMoves, startObjectMove } from "./objectMove.js";
 
 const ARCHIVE_TAKEN = "conflict: archive destination already exists";
+const NO_ARCHIVE =
+  "this context has no archive folder — its layout is its owner's, and archiving must " +
+  "not invent one. Use move_note to the folder this context keeps inactive material in " +
+  "(orient and the front page state its conventions), or ask the owner to add an " +
+  "archive rule to privacy.md (`archive` or `4-archive`, for example).";
+
+/**
+ * An archive made in the workspace's object in one trip (`objectMove.js`, `archive` in place of a destination): the
+ * object judges the note, finds the Archive, names the first free destination and moves it. Nothing here reads the
+ * note's text or editing history. `null` where the object leaves it to the way below.
+ */
+async function archiveInObject(store, scope, rules, overrides, path, expectedEtag, refuse) {
+  const version = await phase(store, "archive_version", () => rowVersionOf(store, path, expectedEtag));
+  if (version.conflict) return refuse(toolError("conflict: the note changed since you read it; re-read and retry"));
+  return startObjectMove(store, scope, path, null, version.etag, {
+    kind: "note",
+    action: "archive_note",
+    privacy: { rules, overrides },
+    archive: { root: archiveRoot(rules) ?? null, roots: archiveRoots(rules) },
+    onCode: (code) =>
+      code === "NO_ARCHIVE" ? toolError(NO_ARCHIVE)
+      : code === "ARCHIVED" ? toolText("already archived")
+      : code === "HIDDEN_DESTINATION" ? writePermissionError("archive destination")
+      : code === "TAKEN" ? toolError(ARCHIVE_TAKEN)
+      : undefined,
+  });
+}
 
 export async function toolArchiveNote(store, scope, rules, overrides, pathArg, expectedEtag) {
   const path = normalizePath(pathArg);
@@ -55,8 +84,31 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   // either way, and a note that is simply absent is told it is absent rather
   // than told about the layout.
   const seen = canSee(path, scope, rules, overrides);
-  const present = await probeWithLegacyFallback(store, path);
-  if (!seen || !present) return toolError("not found");
+  if (!seen) {
+    await probeWithLegacyFallback(store, path);
+    return toolError("not found");
+  }
+  // A workspace whose notes live in its object archives there, and the object's move says itself whether the note is
+  // there (`NOT_FOUND`), so the probe is not a trip of its own on the way: it is asked only before a refusal below,
+  // which must still say "not found" for a note that is absent. Elsewhere it is asked beside the archive folder's job.
+  const objectAsked = objectServesMoves(store, scope);
+  let probed = objectAsked ? null : probeWithLegacyFallback(store, path);
+  const present = () => (probed ??= probeWithLegacyFallback(store, path));
+  /** A refusal decided before the move, said only of a note that is there. */
+  const refuse = async (result) => ((await present()) ? result : toolError("not found"));
+  // The object archives in one trip: it finds the folder doing the Archive's job itself and names the destination, so
+  // no `jobs` ask goes first (`moveWrites.js` `archiveTo`; about 25 ms in production, 2026-11-04). A team archive with
+  // no expected etag is refused below, as before.
+  if (objectAsked && (scope === "private" || expectedEtag)) {
+    const archived = await archiveInObject(store, scope, rules, overrides, path, expectedEtag, refuse);
+    if (archived !== null) return archived;
+    // The object left this archive to the control plane (`DEFER`, or it could not be asked): the way below.
+  }
+  const jobsAsked = factJobs(store);
+  if (!objectAsked && !(await present())) {
+    await jobsAsked;
+    return toolError("not found");
+  }
   // The destination is this context's own archive, and that folder is the
   // owner's to have or not have. On a context whose manifest declares one —
   // every PARA scaffold, and every layout naming it `<n>-archive` — this works
@@ -73,21 +125,24 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   // default for a shared context, so the most common shared workspace we
   // create was told it had no archive while looking at its own.
   // The folder doing the Archive's job wins, whatever it is called now (`tree/facts.js` `factJobs`).
-  const archiveJob = (await factJobs(store))?.jobs.archive ?? null;
+  const archiveJob = (await jobsAsked)?.jobs.archive ?? null;
   const roots = [...new Set([...(archiveJob ? [archiveJob] : []), ...archiveRoots(rules)])];
   const root = archiveJob ?? archiveRoot(rules);
   if (!root) {
-    return toolError(
-      "this context has no archive folder — its layout is its owner's, and archiving must " +
-        "not invent one. Use move_note to the folder this context keeps inactive material in " +
-        "(orient and the front page state its conventions), or ask the owner to add an " +
-        "archive rule to privacy.md (`archive` or `4-archive`, for example)."
-    );
+    return refuse(toolError(NO_ARCHIVE));
   }
   // Every archive it has, not the one we would write to: a note already sitting
   // in `5-archive/` must not be moved into `4-archive/` because the resolver
   // preferred the latter.
-  if (insideArchive(path, roots)) return toolText("already archived");
+  if (insideArchive(path, roots)) return refuse(toolText("already archived"));
+  if (scope !== "private" && !expectedEtag) {
+    return refuse(toolError("expected_etag is required when a team connection archives a note; read the note and retry"));
+  }
+  if (scope !== "private" && visibilityOf(archiveDestination(root, path), rules) !== "team") {
+    return refuse(writePermissionError("archive destination"));
+  }
+
+
   const obj = await getWithLegacyFallback(store, path);
   if (!obj) return toolError("not found");
   const sourceText = await obj.text();
@@ -107,9 +162,6 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
       }
     }
   }
-  if (scope !== "private" && !expectedEtag) {
-    return toolError("expected_etag is required when a team connection archives a note; read the note and retry");
-  }
   const currentEtag = collaborationBase?.etag ?? obj.etag;
   if (expectedEtag && !versionMatches(expectedEtag, { document: collaborationBase, rawEtag: obj.etag })) {
     return toolError(
@@ -117,9 +169,6 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
     );
   }
   const destinationVisibility = scope === "private" ? "private" : "team";
-  if (scope !== "private" && visibilityOf(archiveDestination(root, path), rules) !== "team") {
-    return writePermissionError("archive destination");
-  }
   // The first free name, asked of the Convex tree (`tree/names.js`); the write is conditional.
   let unanswered = null;
   const dest = await firstFreePath(archiveDestination(root, path), async (candidate) => {
@@ -133,7 +182,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   if (dest === null) return toolError(ARCHIVE_TAKEN);
 
   // A keyed workspace archives the note as a row change, never as a copy (`queuedFolder.js`).
-  const keyedArchive = await startKeyedNoteMove(store, scope, path, dest, expectedEtag, { rules, overrides });
+  const keyedArchive = await startKeyedNoteMove(store, scope, path, dest, expectedEtag, { rules, overrides }, { objectAsked });
   if (keyedArchive !== null) return keyedArchive;
 
   if (collaborationBase) {

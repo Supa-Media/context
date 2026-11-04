@@ -215,11 +215,76 @@ export const imageStyles = `
   background: var(--lp-link);
   pointer-events: none;
 }
-.cm-lp-image-missing {
-  display: block;
-  font-family: var(--lp-mono);
-  font-size: 0.85em;
+/*
+  An image with no picture (\`drawMissing\`): an image-sized card where it would
+  be, so the note keeps its shape. The <img> that never got bytes is not drawn,
+  so no broken-image glyph or alt text shows through.
+*/
+.cm-lp-image-unloaded > .cm-lp-image-img {
+  display: none;
+}
+.cm-lp-image-gone {
+  box-sizing: border-box;
+  width: 240px;
+  max-width: 100%;
+  min-height: 148px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 16px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--lp-line);
+  background: var(--lp-raised);
   color: var(--lp-muted);
-  padding: 6px 0;
+  text-align: center;
+}
+.cm-lp-image-gone-icon {
+  width: 20px;
+  height: 20px;
+  margin-bottom: 4px;
+  color: var(--lp-muted);
+}
+.cm-lp-image-gone-title {
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: var(--lp-content);
+}
+.cm-lp-image-gone-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--lp-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--lp-muted);
+}
+.cm-lp-image-gone-action {
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--lp-line-strong);
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: var(--lp-content);
+  cursor: pointer;
+}
+.cm-lp-image-gone-action:hover {
+  background: var(--lp-line);
+}
+.cm-lp-image-gone-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.cm-lp-image-gone-action:focus-visible {
+  outline: 2px solid var(--lp-link);
+  outline-offset: 2px;
 }
 `;

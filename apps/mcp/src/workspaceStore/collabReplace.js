@@ -35,13 +35,26 @@ const COLLABORATION_ROOT = ".context/collaboration/";
 const NOTE_KEY = /^notes\/[A-Za-z0-9-]{1,128}\.md$/;
 const NOTE_ID = /^[A-Za-z0-9-]{1,128}$/;
 
-/** Thrown inside the engine when the object cannot answer a read the bucket could. Never leaves this file. */
-class NotHeldHere extends Error {}
+/**
+ * Thrown inside the engine when the object cannot answer a read the bucket could. Never leaves this file. `what` is
+ * which read it was (`version`, `key` or `listing`), said in the answer's reason so a save's timings show it.
+ */
+class NotHeldHere extends Error {
+  constructor(message, what) {
+    super(message);
+    this.what = what;
+  }
+}
 
-/** Whether `error`, or anything it was caused by (the engine wraps storage errors), is `NotHeldHere`. */
-function notHeldHere(error) {
-  for (let seen = error, depth = 0; seen && depth < 8; seen = seen.cause, depth += 1) if (seen instanceof NotHeldHere) return true;
-  return false;
+/** The `NotHeldHere` that `error` is, or was caused by (the engine wraps storage errors), or `null`. */
+function heldBack(error) {
+  for (let seen = error, depth = 0; seen && depth < 8; seen = seen.cause, depth += 1) if (seen instanceof NotHeldHere) return seen;
+  return null;
+}
+
+/** Whether `error`, or anything it was caused by, is `NotHeldHere`. */
+export function notHeldHere(error) {
+  return heldBack(error) !== null;
 }
 
 /** The live row at `path` with its note id, from the object's own rows. */
@@ -61,7 +74,7 @@ export function engineStore(objects, { path, key, noteId, legacyEtag = null, row
   const keyOf = (asked) => {
     if (asked === path) return key;
     if (typeof asked === "string" && asked.startsWith(COLLABORATION_ROOT)) return asked;
-    throw new NotHeldHere("a key outside this note's history");
+    throw new NotHeldHere("a key outside this note's history", "key");
   };
   const decoder = new TextDecoder();
   const store = {
@@ -72,7 +85,7 @@ export function engineStore(objects, { path, key, noteId, legacyEtag = null, row
       const stored = objects.get(keyOf(asked));
       if (stored === null) {
         // Older saved versions live in the bucket alone once pruned here (`workspaceRouting.js`): the gateway asks it.
-        if (isRevisionKey(asked)) throw new NotHeldHere("a saved version this object no longer keeps");
+        if (isRevisionKey(asked)) throw new NotHeldHere("a saved version this object no longer keeps", "version");
         return null;
       }
       const body = stored.body ?? new Uint8Array(0);
@@ -80,7 +93,7 @@ export function engineStore(objects, { path, key, noteId, legacyEtag = null, row
     },
     async head(asked) {
       const meta = objects.head(keyOf(asked));
-      if (meta === null && isRevisionKey(asked)) throw new NotHeldHere("a saved version this object no longer keeps");
+      if (meta === null && isRevisionKey(asked)) throw new NotHeldHere("a saved version this object no longer keeps", "version");
       return meta;
     },
     async put(asked, value, options = {}) {
@@ -106,7 +119,7 @@ export function engineStore(objects, { path, key, noteId, legacyEtag = null, row
       deletes.push(...list);
     },
     async list() {
-      throw new NotHeldHere("a listing, which the bucket answers");
+      throw new NotHeldHere("a listing, which the bucket answers", "listing");
     },
   };
   return { store, writes, deletes };
@@ -162,7 +175,8 @@ export async function serveCollabReplace(store, fields) {
     const recorded = markdown !== null && wantsRecord(fields) && recordVersion(store, fields, markdown);
     return timed({ served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, recorded, ...handedBack() });
   } catch (error) {
-    if (notHeldHere(error)) return timed({ served: false, reason: "not_held", ...handedBack() });
+    const held = heldBack(error);
+    if (held !== null) return timed({ served: false, reason: `not_held_${held.what}`, ...handedBack() });
     if (error instanceof CollaborationError) return timed({ served: true, error: { code: error.code, message: error.message }, ...handedBack() });
     throw error;
   }

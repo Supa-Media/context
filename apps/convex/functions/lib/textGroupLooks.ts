@@ -37,6 +37,7 @@ import { accountTimeZone, routineRecipients } from "./routines/access";
 import { ROUTINE_LEASE_MS, effectiveTimeZone } from "./routines/model";
 import { routineChat } from "./routines/chats";
 import { liveMailShares } from "./textGroupMail";
+import { speaksUpOf } from "./texChatRules";
 
 /** How long after a notification the look starts, so the mail that came with it has landed. */
 export const LOOK_DELAY_MS = 60_000;
@@ -79,7 +80,7 @@ async function zoneOf(ctx: QueryCtx, userId: Id<"users"> | null): Promise<string
 
 /** A chat bound to a workspace with no look coming gets its next daily one. Never moves one already due. */
 export async function armChatLook(ctx: MutationCtx, group: Doc<"textGroups">, now: number): Promise<boolean> {
-  if (group.nextLookAt !== undefined || group.mutedAt !== undefined || group.guestGroupId !== undefined) return false;
+  if (group.nextLookAt !== undefined || speaksUpOf(group) === "off" || group.guestGroupId !== undefined) return false;
   // A chat with a workspace in reach (`lib/textGroupReach.ts` `chatWorkspace`): the bound one if still in reach, else the first.
   if ((await chatWorkspace(ctx, group)) === null) return false;
   const next = nextBeatAfter(await zoneOf(ctx, await lookerOf(ctx, group)), now);
@@ -139,7 +140,7 @@ export async function claimChatLooks(ctx: MutationCtx, runIds: string[], now: nu
     const looker = await lookerOf(ctx, group);
     const phones = workspaceId === undefined || looker === null ? [] : await routineRecipients(ctx, { workspaceId, writerUserId: looker, send: "text" });
     const mail = chat === null ? [] : await liveMailShares(ctx, chat);
-    const listening = mail.length > 0 || (group.engagement !== "quiet" && group.lastSeenAt + DORMANT_MS > now);
+    const listening = mail.length > 0 || (speaksUpOf(group) !== "quiet" && group.lastSeenAt + DORMANT_MS > now);
     if (chat === null || chat._id !== group._id || workspaceId === undefined || looker === null || phones.length === 0 || !listening) {
       await ctx.db.patch(group._id, { nextLookAt: undefined });
       continue;

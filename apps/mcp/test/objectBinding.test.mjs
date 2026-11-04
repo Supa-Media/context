@@ -217,7 +217,9 @@ test("ATTACK: a guest, a Tex chat, Tex's setup read and a session naming nobody 
   const cases = [
     [{ ...w.session, grantedGroups: [READS_AS_GUEST] }, "not_member_audience"],
     [{ ...w.session, grantedGroups: [READS_AS_CHAT, "@crew"] }, "not_member_audience"],
-    [{ ...w.session, setupRead: true }, "setup_read"],
+    // Tex's setup read is its own question of the pin's object (`objectBindingSetupRead.test.mjs`): never a session that is not Tex's, or not the pin.
+    [{ ...w.session, setupRead: true }, "setup_read_client"],
+    [{ ...w.session, setupRead: true, actorClientId: "context_texts", role: "member", workspaceSlug: "someone" }, "setup_read_not_pin"],
     [{ ...w.session, texChatId: "a".repeat(64) }, "tex_chat"],
     [{ ...w.session, actorUserId: undefined }, "no_reader"],
     [{ ...w.session, scope: "public" }, "no_scope"],
@@ -430,4 +432,13 @@ test("ATTACK: the control plane's door refuses ws.open and ws.binding.put, and l
   const cleared = await door("ws.binding.clear");
   assert.equal(cleared.status, 200);
   assert.equal(w.object.store.binding.get().sealed, null);
+});
+
+test("an open served from the object says how it answered: how long it waited for a mark's push", { skip }, async () => {
+  const w = await world();
+  await open(w);
+  const served = await openedFromObject(w.session, w.env, w.controlPlane);
+  assert.equal(served.source, "object");
+  assert.equal(served.wake.cold, false, "the test object is not a woken instance");
+  assert.equal(typeof served.wake.waitedMs, "number");
 });

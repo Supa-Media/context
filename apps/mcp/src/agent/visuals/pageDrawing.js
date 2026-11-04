@@ -24,7 +24,7 @@
  */
 
 import { DRAWING_HEIGHT, DRAWING_WIDTH, drawingHtml, readScene } from "../../../../../packages/shared/src/ink/drawing.cjs";
-import { drawingOf, hasPicture, pageKind } from "../../../../../packages/shared/src/pages/cover.cjs";
+import { drawingOf, hasPicture, numberCover } from "../../../../../packages/shared/src/pages/cover.cjs";
 import { parsePage } from "../../../../../packages/shared/src/pages/parse.cjs";
 
 /** The names the two pictures are attached under; `write_note` stores each as an upload and rewrites the field to it. */
@@ -93,8 +93,8 @@ export const MAX_DRAWING_TRIES = 2;
  */
 export async function ensurePageDrawing({ path, text, scene, shots, callTool, tries }) {
   const page = parsePage(text);
-  // A status page's cover is its number; a page with a picture needs none.
-  if (hasPicture(page) || pageKind(page.fields) === "status") return { text };
+  // A status page with a number has that as its cover; a page with a picture needs none.
+  if (hasPicture(page) || numberCover(page.fields)) return { text };
   const given = typeof scene === "string" && scene.trim() !== "";
   if (!given && drawingOf(page) !== null) return { text };
   const tried = tries.get(path) ?? 0;

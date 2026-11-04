@@ -2,6 +2,7 @@
 
 import { canSee, effectiveVisibility } from "../../privacy/engine.js";
 import {
+  CollaborationError,
   eligible as collaborationEligible,
   supported as collaborationSupported,
   readDocumentIfStarted,
@@ -15,7 +16,9 @@ import { getWithLegacyFallback } from "../../storageLayout.js";
 import { normalizePath } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { splitMessageAnchor } from "../../search/commsIndex.js";
+import { phaseTook } from "../../mcp/phase.js";
 import { toolError, toolText } from "../results.js";
+import { ownHistoryRead, toolReadOwnHistory } from "./historyRead.js";
 import comments from "../../../../../packages/shared/src/comments.cjs";
 import mail from "../../../../../packages/shared/src/mail.cjs";
 
@@ -41,6 +44,8 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
   // message is the one key `read_note` answers "not found" for.
   const requested = splitMessageAnchor(named).path;
   if (!requested) return toolError("invalid path");
+  // The person's own chat with Tex, from its ledger, whether or not its history row was made (`historyRead.js`).
+  if (ownHistoryRead(store, requested)) return await toolReadOwnHistory(store);
   /*
     **THE REFUSAL MUST COST WHAT THE OTHER REFUSAL COSTS.**
 
@@ -90,11 +95,13 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
   const seen = canSee(requested, scope, rules, overrides);
   let path = requested;
   let present = await notePresent(view, requested);
+  // Only for a note this caller may read: its Markdown and editing history in one call to its workspace object.
+  const inObject = seen && present ? await readInObject(view, requested) : null;
   // Asked beside the body, only for a note this caller may read: whether a collaboration document holds it.
-  let started = seen && present ? startedDocument(view, requested) : null;
+  let started = inObject?.started ?? (seen && present ? startedDocument(view, requested) : null);
   // Metadata may describe a deletion marker. Resolve only authorized bytes
   // before deciding whether the old path needs forwarding.
-  let obj = seen && present ? await getWithLegacyFallback(view, requested) : null;
+  let obj = inObject?.obj ?? (seen && present ? await getWithLegacyFallback(view, requested) : null);
   if (seen && present && !obj) present = false;
   if (!present || !seen) {
     started = null;
@@ -241,6 +248,27 @@ export async function toolReadNotes(store, scope, rules, overrides, pathsArg) {
 async function notePresent(view, path) {
   if (typeof view.noteAt === "function") return (await view.noteAt(path)) !== null;
   return Boolean(await probeWithLegacyFallback(view, path));
+}
+
+/**
+ * The note at `path` read inside its workspace object in one call (`store/idLayout.js` `readInObject`,
+ * `workspaceStore/collabRead.js`): its Markdown as a stored object, and its collaboration document as
+ * `startedDocument` would have answered it. `null` where the store has no such door or the object did not serve it,
+ * and the read asks for the two itself. A refusal from the engine is held, as `startedDocument` holds one, until the
+ * read asks for the document.
+ */
+async function readInObject(view, path) {
+  if (typeof view.readInObject !== "function") return null;
+  const answer = await view.readInObject(path).catch(() => null);
+  if (answer === null || answer === undefined) return null;
+  phaseTook(view, "collab_read", answer.took);
+  const { etag, size, text } = answer.markdown;
+  const obj = { key: path, etag, size, text: async () => text };
+  const started = answer.error
+    ? Promise.reject(new CollaborationError(String(answer.error.code ?? "STORAGE_READ_FAILED"), String(answer.error.message ?? "collaboration read failed")))
+    : Promise.resolve(answer.collaboration ?? null);
+  started.catch(() => {});
+  return { obj, started };
 }
 
 /**

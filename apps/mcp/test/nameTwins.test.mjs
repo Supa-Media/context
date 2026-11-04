@@ -83,3 +83,14 @@ test("Tex's own folders stay put; a folder of a person's own in Tex's folder mov
   // A Tex folder this connection cannot see is never confirmed.
   assert.equal(await protectedFolderRefusal(store, "team", [{ prefix: "work", vis: "team" }], NONE, "tex/transcripts"), null);
 });
+
+// A move the workspace object makes judges case twins below the root itself (`moveWrites.js` `twinsByCase`), so the
+// gateway asks only the top level then: listing the destination's own folder took 333 ms in production (2026-11-03).
+test("topOnly judges only the top-level folder: a twin below it is left to the object, a root role twin is not", async () => {
+  const store = storeOf(["Projects/Plans/a.md", "Projects/about.md"]);
+  // A case twin two levels down: the full walk refuses it, the top-only one leaves it to the object.
+  assert.match(await nameTwinRefusal(store, "private", ALL, NONE, "Projects/plans/b", { kind: "folder" }), /Plans is already here/);
+  assert.equal(await nameTwinRefusal(store, "private", ALL, NONE, "Projects/plans/b", { kind: "folder", topOnly: true }), null);
+  // A new root folder taking another's role is still refused, top-only or not.
+  assert.match(await nameTwinRefusal(store, "private", ALL, NONE, "1-projects/b", { kind: "folder", topOnly: true }), /Projects folder/);
+});

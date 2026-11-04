@@ -28,7 +28,11 @@ import type { InboxStorage } from "./inbox";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 
 /** What a turn asked to start, as the gateway wrote it. */
-export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; tainted?: true };
+/** `mail`: one part of a split ask; the project note every part's job joins the mail of, and this part's name there. */
+/** One of the person's own computers a job runs on (`machineTurn.ts`), as the gateway picked it (`apps/mcp/src/machines/forJobs.js`). */
+export type JobMachine = { workspaceId: string; machineId: string; name: string; tool: "claude" | "codex"; folder: string; repo?: string };
+export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; tainted?: true; mail?: JobProject; machine?: JobMachine };
+export type JobProject = { path: string; name: string; context?: string };
 /** A step a job's turn took, as the gateway told it (`withJobSteps`): tool and target, never a note's text; a failed one, with the tool's short reason. */
 export type JobStep = { at: number; text: string; failed?: true; why?: string };
 /** Whether a streamed step failed, and why (`clients.ts`). */
@@ -39,10 +43,13 @@ export type RunningJob = { id: string; title: string; state: JobState; startedAt
 export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
 /** `draft`: the last part's answer, never texted because a later text changed the job, or (`unfinished`) because it stopped short of the ask; the next part builds on it. */
-export type JobAsk = { id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; draft?: string; unfinished?: true; advice?: string };
+/** `mail`: note mail that came for it since its last part, oldest first (`jobMail.ts`), never among `followUps`. */
+export type JobAsk = { project?: JobProject; id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; mail?: Array<JobMail & { text: string }>; draft?: string; unfinished?: true; advice?: string };
 /** A later text handed to a running job (`jobRun.ts`): the person's own words and the event they came in; `stop` ends it. */
 /** `resume`: pick an ended job back up where it stopped (`jobRun.ts` `resumeJob`), never a new copy of it. */
-export type JobSteer = { id: string; text: string; stop?: true; resume?: true };
+export type JobSteer = { id: string; text: string; stop?: true; resume?: true; mail?: JobMail };
+/** Note mail delivered to a job (`jobMail.ts`): who sent it, its kind and the note it is on. Another agent's words, never the person's. */
+export type JobMail = { from: string; app?: string; kind: "note" | "ask" | "interrupt"; path: string };
 /** What a turn asked of a running job: the job, whether to stop it, and the coordinating turn's own instruction for it (`note`). */
 export type JobSteerAsk = { id: string; stop?: true; note?: string; resume?: true };
 /** What a job would have said, handed to its chat's own turn, which decides what is said (`jobTexts.ts`). */
@@ -56,10 +63,12 @@ export type JobOrigin =
   | { kind: "group"; message: GroupMessage; at: number };
 
 /** Everything a job's object needs to run it. */
-export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true; advice?: string; resumes?: number; idle?: true };
+export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true; advice?: string; resumes?: number; idle?: true; machineRun?: MachineRunRef; machineSession?: string };
+/** The part running on the machine now, kept so a pass that restarts reads the same run instead of assigning another. */
+export type MachineRunRef = { runId: string; part: number; deadline: number };
 
 /** The chat's record of a job: no ask, only where its answer goes. */
-export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; stopped?: true; finalPass?: string };
+export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; stopped?: true; finalPass?: string; machine?: true };
 
 /** What a job's object tells the chat's inbox. `first`: the job's count of texts before these, so a retry repeats none. */
 /** `vaultWatch`: the phone a job's turn texted a link to save a login to, so its inbox watches for the save (`vaultWatch.ts`). */
@@ -102,6 +111,11 @@ export const JOB_KEPT_MS = 7 * 24 * 60 * 60 * 1000;
 export const JOB_SHOWN_MS = 2 * 60 * 60 * 1000;
 /** A job still "running" this long after it started died with its object: it is marked stopped. */
 export const JOB_STALE_MS = JOB_LIMIT_MS + 15 * 60 * 1000 + 5 * 60 * 1000; // its last part may start just inside the limit and run fifteen minutes
+/** A job on the person's own computer runs four hours by default (owner, 2026-11-03), in fifteen-minute parts. */
+export const MACHINE_JOB_LIMIT_MS = 4 * 60 * 60 * 1000;
+/** Parts a machine job may take: twenty-four hours of them, the most a machine's owner may allow. */
+export const MAX_MACHINE_JOB_ATTEMPTS = 96;
+export const MACHINE_JOB_STALE_MS = MACHINE_JOB_LIMIT_MS + 20 * 60 * 1000 + 5 * 60 * 1000;
 export const JOB_PREFIX = "job:";
 export const RUN_KEY = "jobrun";
 const MAX_SHOWN = 6;
@@ -131,15 +145,45 @@ export const JOB_LINES = {
 
 const line = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
 
+/** A split ask's shared note, read strictly (the gateway checked it too: `jobMailOf`). */
+export function readJobProject(value: unknown): JobProject | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { path, name, context } = value as Record<string, unknown>;
+  if (typeof path !== "string" || path === "" || path.length > 1024 || /[\u0000-\u001f]/.test(path) || !path.endsWith(".md")) return null;
+  if (typeof name !== "string" || !/^[a-z0-9][a-z0-9-]{0,23}$/.test(name) || name === "everyone") return null;
+  return { path, name, ...(typeof context === "string" && /^@[a-z0-9][a-z0-9-]{0,63}$/.test(context) ? { context } : {}) };
+}
+
+/** The computer a job runs on, read strictly; the gateway and the machine's owner rules check it again at every part. */
+export function readJobMachine(value: unknown): JobMachine | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { workspaceId, machineId, name, tool, folder, repo } = value as Record<string, unknown>;
+  const id = /^[A-Za-z0-9_-]{1,64}$/;
+  if (typeof workspaceId !== "string" || !id.test(workspaceId) || typeof machineId !== "string" || !id.test(machineId)) return null;
+  if (tool !== "claude" && tool !== "codex") return null;
+  if (typeof folder !== "string" || folder === "" || folder.length > 1024 || /[\u0000-\u001f]/.test(folder)) return null;
+  return {
+    workspaceId,
+    machineId,
+    name: line(name, 100) || "your computer",
+    tool,
+    folder,
+    // A name under the folder, never a path that climbs out of it (`apps/mcp/src/machines/forJobs.js`).
+    ...(typeof repo === "string" && /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99})?$/.test(repo) ? { repo } : {}),
+  };
+}
+
 /** `jobs` from the gateway's answer, read strictly. */
 export function readStartedJobs(value: unknown): StartedJob[] {
   if (!Array.isArray(value)) return [];
   return value.slice(0, MAX_RUNNING_JOBS).flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
-    const { id, title, brief, doneWhen, tainted } = entry as Record<string, unknown>;
+    const { id, title, brief, doneWhen, tainted, mail, machine } = entry as Record<string, unknown>;
     const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 2_000) : "", doneWhen: line(doneWhen, MAX_STATUS) };
     if (job.title === "" || job.brief === "") return [];
-    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(tainted === true ? { tainted: true as const } : {}) }];
+    const project = readJobProject(mail);
+    const computer = readJobMachine(machine);
+    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(tainted === true ? { tainted: true as const } : {}), ...(project ? { mail: project } : {}), ...(computer ? { machine: computer } : {}) }];
   });
 }
 
@@ -208,7 +252,7 @@ export async function chatJobs(storage: InboxStorage, now: number, { results = f
       await storage.delete(key);
       continue;
     }
-    if (entry.state === "running" && now - entry.startedAt > JOB_STALE_MS) {
+    if (entry.state === "running" && now - entry.startedAt > (entry.machine ? MACHINE_JOB_STALE_MS : JOB_STALE_MS)) {
       const stopped = { ...entry, state: "failed" as const, finishedAt: now };
       await storage.put(key, stopped);
       kept.push(stopped);
@@ -246,12 +290,14 @@ export type JobPlace = Pick<JobEntry, "chatId" | "messageId" | "line" | "groupId
  * instead of the task). Each job's own object still holds its run for two hours
  * after it ended (`jobRun.ts` `resumeJob`): the same ask, brief, finish line and
  * what it had got to. Only this chat's jobs that ended without finishing, and
- * never past the running limit. Says which could not be picked up.
+ * never past the running limit. Says which could not be picked up. Their text
+ * goes with it (2026-11-03: "book with santana, mens adult style cut" restarted
+ * a job that was handed "(Picked back up.)" and never saw the barber or cut).
  */
 export async function resumeJobs(
   storage: InboxStorage,
   asks: JobSteerAsk[],
-  steer: Pick<JobSteer, "id">,
+  steer: Pick<JobSteer, "id" | "text">,
   send: (id: string, steer: JobSteer) => Promise<boolean>,
   now: number,
 ): Promise<string[]> {
@@ -261,7 +307,7 @@ export async function resumeJobs(
     if (entry === undefined || entry.state === "running") continue;
     const running = (await chatJobs(storage, now)).filter((job) => job.state === "running").length;
     // A finished job has nothing to pick up: its object kept no run (`resumeJob`).
-    const ok = entry.state !== "done" && running < MAX_RUNNING_JOBS && (await send(id, { id: steer.id, text: "(Picked back up.)", resume: true }).catch(() => false));
+    const ok = entry.state !== "done" && running < MAX_RUNNING_JOBS && (await send(id, { id: steer.id, text: steer.text.trim() || PICKED_UP, resume: true }).catch(() => false));
     if (ok) {
       const { finishedAt: _f, finalPass: _p, verdict: _v, advice: _a, result: _r, stopped: _s, ...kept } = entry;
       await storage.put<JobEntry>(entryKey(id), { ...kept, state: "running", startedAt: now, status: "Picking up where it stopped" });
@@ -270,6 +316,9 @@ export async function resumeJobs(
   }
   return missed;
 }
+
+/** A restart's text when no words of theirs came with it (a turn by code): shown to the job as nothing. */
+export const PICKED_UP = "(Picked back up.)";
 
 /** What they're told about jobs that could not be picked back up: too long ago, or three already running. */
 export function notResumedText(titles: readonly string[]): string | undefined {
@@ -302,7 +351,7 @@ export async function startJobs(
     // The gateway's id is used when it is well formed and no entry holds it yet; otherwise a fresh one.
     const gatewayId = job.id !== undefined && ID.test(job.id) && (await storage.get(entryKey(job.id))) === undefined ? job.id : undefined;
     const id = gatewayId ?? crypto.randomUUID();
-    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place };
+    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place, ...(job.machine ? { machine: true as const } : {}) };
     await storage.put(entryKey(id), entry);
     try {
       await context.spawn(id, { ...job, id, inbox: context.inbox, origin: context.origin, attempt: 1, tries: 0, startedAt: context.now });

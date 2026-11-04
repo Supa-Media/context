@@ -31,18 +31,21 @@ import {
   askAgent,
   askLine,
   linkPhone,
+  openGatewaySession,
   openSession,
   requestLinkInvite,
   ServiceError,
   unlinkPhone,
   type Fetch,
+  type SessionAnswer,
+  type TextsBinding,
 } from "./clients";
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
 import type { Steer } from "./steer";
 import { textsWithExact } from "./format";
-import { saveTextsStyle, textSettings, type MenuState, type SettingStep, type TexStyle } from "./texStyle";
+import { saveTextsStyle, textSettings, type MenuState, type SettingStep } from "./texStyle";
 import { saveReviewSharing, sharingReply, sharingWords } from "./reviewSharing";
 import type { OutgoingPicture } from "./outgoing";
 import type { Choice } from "./pickCard";
@@ -110,6 +113,8 @@ export type ReplyDeps = {
   covers?: string[];
   /** When the first text this turn answers came in, sent to `/agent` so the turn log shows how long it waited. */
   arrivedAt?: number;
+  /** Told when the session lookup answered, and when the gateway is about to be asked, so a turn's timing shows each (`textTiming.ts`). */
+  onStage?: (stage: "session" | "asking") => void;
   /** Handed the approval records the turn armed and the ask line shown for them, so each is logged as an ask (`events.ts`). */
   onAsks?: (askIds: string[], askText: string) => void;
   /**
@@ -121,16 +126,38 @@ export type ReplyDeps = {
   onJobs?: (jobs: StartedJob[]) => Promise<string | undefined | void>;
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
   onSteers?: (asks: JobSteerAsk[]) => Promise<string | undefined | void>;
-  /**
-   * "Tex, settings" (`texStyle.ts`): where the open menu is kept, and handed
-   * the person's style each session so the quick tapback can follow it.
-   * Absent, settings texts go to the model like any other.
-   */
+  /** "Tex, settings" (`texStyle.ts`): where the open menu is kept. Absent, settings texts go to the model like any other. */
   settings?: { state: () => Promise<MenuState | undefined>; open: (step?: SettingStep) => Promise<void>; close: () => Promise<void> };
-  onTexStyle?: (style: TexStyle | undefined) => Promise<void>;
   /** A texted yes to sharing with the devs: file what this chat keeps, once (`reviewWatch.ts` `watchShared`). */
   onShared?: () => Promise<void>;
+  /**
+   * A text's session from the person object, without Convex (`openGatewaySession`): the gateway's binding, the
+   * personal workspace id this inbox remembers, and where a new one is kept. Absent, every session is Convex's.
+   */
+  texts?: TextsSessionDeps;
 };
+
+export type TextsSessionDeps = { binding: TextsBinding; workspaceId: () => Promise<string | undefined>; remember: (personalWorkspaceId: string | null) => Promise<void> };
+
+/**
+ * The person object first, when this inbox knows whose phone it is; Convex otherwise, or on any miss. Convex's answer
+ * names the personal workspace, which the inbox keeps for the next text; a refusal clears what it kept, so a stale id
+ * costs one slow text and never a wrong one (the object answers only for a phone it holds).
+ */
+async function textSession(phone: string, deps: ReplyDeps): Promise<SessionAnswer> {
+  const texts = deps.texts;
+  const kept = texts ? await texts.workspaceId() : undefined;
+  if (texts && kept) {
+    const fast = await openGatewaySession(texts.binding, phone, kept);
+    if (fast !== null) return fast;
+  }
+  const slow = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, phone);
+  if (texts) {
+    const own = slow.status === "linked" ? slow.personalWorkspaceId ?? null : null;
+    if (own !== (kept ?? null)) await texts.remember(own).catch(() => undefined);
+  }
+  return slow;
+}
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
 export class TryLater extends Error {
@@ -211,14 +238,12 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       return result === "unlinked" ? COPY.unlinkDone : COPY.unlinkNothing;
     }
 
-    const session = await openSession(
-      deps.fetch,
-      deps.controlPlaneOrigin,
-      deps.workerSecret,
-      message.from,
-    ).catch((error) => {
+    const lookup = Date.now();
+    const session = await textSession(message.from, deps).catch((error) => {
       throw deps.retry && error instanceof ServiceError ? new TryLater() : error;
     });
+    deps.onStage?.("session");
+    const sessioned = Date.now();
     // Nobody texted a save's turn (`vaultWatch.ts`): a phone unlinked since is told nothing.
     if (message.event !== undefined && session.status === "unlinked") return [];
     if (session.status === "unlinked") {
@@ -243,10 +268,9 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     }
 
     if (message.sms) return COPY.sms;
-    await deps.onTexStyle?.(session.texStyle);
-    // "Tex, settings", a reply to its menu, or "less emoji": set by the person, never the model (`texStyle.ts`).
+    // "Tex, settings", a reply to its menu, or "no emoji": set by the person, never the model (`texStyle.ts`).
     const settings = deps.settings && !message.event
-      ? await textSettings(message.text, session.texStyle ?? {}, deps.settings, (patch) => saveTextsStyle(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, patch))
+      ? await textSettings(message.text, session.settings ?? {}, deps.settings, (ask) => saveTextsStyle(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, ask))
       : null;
     if (settings !== null) return settings;
     // "Tex, share my chats with the devs", or stop: the person's own words, never the model's (`reviewSharing.ts`).
@@ -265,6 +289,10 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       : [];
     // The session is the chat's: its buffered events are written before the turn reads the log (`events.ts`).
     await deps.steer?.onSession(session.accessToken);
+    const warm = { warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId) };
+    deps.onStage?.("asking");
+    // The Worker's own wait, said to the gateway so the turn's timing in the ledger shows it (`apps/mcp/src/agent/turnTiming.js`).
+    const worker = { sessionMs: sessioned - lookup, beforeAskMs: Date.now() - sessioned };
     const answer = await askAgent(
       deps.fetch,
       deps.gatewayOrigin,
@@ -276,7 +304,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId) },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm },
     );
     if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
@@ -299,7 +327,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only
       // what they read (`apps/mcp/src/tools/emailGate.js`).
-      return [...textsWithExact(answer.text, answer.verbatim, session.texStyle?.bubbles === "one"), ...after];
+      return [...textsWithExact(answer.text, answer.verbatim), ...after];
     }
     if (answer.kind === "not_started" && deps.retry) throw new TryLater();
     // A job's report the chat's turn was refused for is never lost in silence: the result waits in the job list for their next text.

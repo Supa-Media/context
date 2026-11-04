@@ -5,7 +5,8 @@ today: 2026-10-08
 runs: 1
 good_enough:
   found: 90%
-  top3: 85%
+  first: 70%
+  top3: 90%
 ---
 
 # Search test
@@ -17,6 +18,14 @@ with no `context` unless an `in:` line gives one; the notes under `expect:`
 are the ones that answer it, as `@workspace/path`. A question passes when an
 expected note is in the answer at all, and counts for the top-three bar when
 one is in the first three. Nothing here is judged by a model.
+
+Written 2026-11-03, questions 51 to 59 aim at the notes that put production
+search out: archives of saved chat sessions and message-month dumps that repeat
+the common words ("trip", "deposit", "plan", "team", "band", "book club"), a
+saved session that mentions a trip in passing, a note that is only a link whose
+URL has the query's words, and a title-only probe. Those notes are distractors:
+no question expects one, and the guard test in `bench/test/search.test.mjs`
+fails if one is listed.
 
 The queries are the texting assistant's own questions and the words a person
 would type, not the words the note uses, so the two halves of search are both
@@ -258,3 +267,46 @@ Priya is a member of the brand, and `people/john.md` is held back from members (
 
 - as: Priya
 - forbid: @fashion-brand/people/john.md
+
+## 51. venue deposit
+
+- as: Priya
+- expect: @wedding-planning/venue/deposit.md
+
+## 52. Lisbon trip plan
+
+- expect: @maya/trips/lisbon.md
+
+## 53. who is on the team
+
+- as: Priya
+- expect: @day-job/people/team.md
+
+## 54. book club snack rules
+
+- as: Priya
+- expect: @book-club/rules.md
+
+## 55. band gear fund balance
+
+- as: Priya
+- expect: @band/money/gear-fund.md
+
+## 56. coast cottage with a wood stove
+
+- as: John
+- expect: @john/trips/coast-november.md
+
+## 57. 10 km training plan
+
+- expect: @maya/health/running-plan.md
+
+## 58. what is left for tools this year
+
+- as: John
+- expect: @john/money/tools-budget.md
+
+## 59. band show in October
+
+- as: Priya
+- expect: @band/gigs/velvet-anchor-oct.md

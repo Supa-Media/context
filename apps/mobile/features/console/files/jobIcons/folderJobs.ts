@@ -17,7 +17,6 @@ import {
   DEFAULT_FOLDER,
   JOB_LABEL,
   ROLE_DESCRIPTION,
-  compareListingEntries,
   folderJobs,
   isRowRole,
   jobAt,
@@ -179,57 +178,3 @@ export function builtInLine(job: RowRole, name: string): string | null {
 /** The line under the title of Tex's folder: where its notes are kept, and that export still takes them. */
 export const TEX_HOME_LINE = "Kept with Tex, not in your bucket. Still exported with everything else.";
 
-/* -------------------------------------------------------------------------- */
-/*                                 sibling order                               */
-/* -------------------------------------------------------------------------- */
-
-/** The folders beside `path` (itself included), in the order its listing draws them, or `null` before it has loaded. */
-export function siblingFolders(listings: JobListings, path: string): string[] | null {
-  const listing = listings[parentOf(path)];
-  if (listing === undefined) return null;
-  const folders = listing.entries.filter((entry) => entry.kind === "folder").map((entry) => entry.path);
-  return folders.includes(path) ? folders : null;
-}
-
-/** Where a folder sits among its siblings, for the menu: `null` when it cannot be moved among them. */
-export function folderPlace(listings: JobListings, path: string): { first: boolean; last: boolean } | null {
-  const siblings = siblingFolders(listings, path);
-  if (siblings === null || siblings.length < 2) return null;
-  const index = siblings.indexOf(path);
-  return { first: index === 0, last: index === siblings.length - 1 };
-}
-
-/** `siblings` with `path` one place up or down, or `null` when it is already at that end. */
-export function reorderedSiblings(siblings: readonly string[], path: string, direction: "up" | "down"): string[] | null {
-  const index = siblings.indexOf(path);
-  if (index < 0) return null;
-  const to = direction === "up" ? index - 1 : index + 1;
-  if (to < 0 || to >= siblings.length) return null;
-  const next = [...siblings];
-  next[index] = siblings[to]!;
-  next[to] = path;
-  return next;
-}
-
-/** The step `folderOrder.set` writes between neighbours (`ORDER_STEP` there). */
-export const ORDER_STEP = 10;
-
-/**
- * `listing` (whose path is `parent`) as it reads once `folders` are in that
- * order: each named folder takes `order` index × 10, as the server writes, and
- * the entries are sorted by the server's own comparator, so the row moves now
- * and does not move again when the confirming listing arrives.
- */
-export function withFolderOrder<Entry extends JobEntry, L extends JobListing<Entry>>(
-  parent: string,
-  listing: L,
-  folders: readonly string[],
-): L {
-  const place = new Map(folders.map((path, index) => [path, index * ORDER_STEP]));
-  const entries = listing.entries.map((entry) => {
-    const order = entry.kind === "folder" ? place.get(entry.path) : undefined;
-    return order === undefined ? entry : { ...entry, order };
-  });
-  entries.sort((a, b) => compareListingEntries(parent, a, b));
-  return { ...listing, entries };
-}

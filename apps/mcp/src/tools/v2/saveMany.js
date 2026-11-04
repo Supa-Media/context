@@ -24,6 +24,13 @@ export const SAVE_MANY_MAX = 100;
 /** Saves in flight at once. */
 export const SAVE_MANY_CONCURRENCY = 8;
 
+/**
+ * How long one call keeps starting saves. A note not started by then is answered "not saved, send it again" rather
+ * than left to a connection that closes first: on 2026-11-03 a 100-note call in production answered 503 after 90
+ * notes had saved, so the caller could not tell which had.
+ */
+export const SAVE_MANY_BUDGET_MS = 15_000;
+
 /** The carrying tool's name: never dispatched itself (`callToolForSession` fans it out). */
 export const SAVE_MANY_TOOL = "write_notes";
 
@@ -70,7 +77,7 @@ function lineOf(path, result) {
  * @param {{notes?: unknown, context?: string, person_said?: string, mailbox?: string}} args
  * @param {(writeArguments: object) => Promise<object>} saveOne
  */
-export async function saveMany(args, saveOne) {
+export async function saveMany(args, saveOne, { budgetMs = SAVE_MANY_BUDGET_MS, now = Date.now } = {}) {
   const notes = args?.notes;
   const refused = listRefusal(notes);
   if (refused) return toolError(refused);
@@ -78,9 +85,12 @@ export async function saveMany(args, saveOne) {
   for (const key of ["context", "person_said", "mailbox"]) if (args[key] !== undefined) addressing[key] = args[key];
 
   const results = new Array(notes.length);
+  const started = now();
   let next = 0;
   const worker = async () => {
     while (next < notes.length) {
+      // Out of time: the rest are left unstarted and said so, never half-done.
+      if (now() - started >= budgetMs) return;
       const index = next;
       next += 1;
       const { path, content, expected_etag: etag } = notes[index];
@@ -94,8 +104,12 @@ export async function saveMany(args, saveOne) {
   };
   await Promise.all(Array.from({ length: Math.min(SAVE_MANY_CONCURRENCY, notes.length) }, worker));
 
-  const saved = results.filter((result) => !result?.isError).length;
-  const lines = notes.map((note, index) => lineOf(note.path, results[index]));
+  const saved = results.filter((result) => result !== undefined && !result.isError).length;
+  const lines = notes.map((note, index) =>
+    results[index] === undefined
+      ? `outcome: ${JSON.stringify({ applied: false, error: "NOT_STARTED", path: note.path, message: "not saved: this call ran out of time before it; send it again" })}`
+      : lineOf(note.path, results[index])
+  );
   const text = `${saved} of ${notes.length} notes saved\n${lines.join("\n")}`;
   // The whole call's own outcome line (`mcp/outcome.js` takes it as given): the per-note lines above say which.
   const outcome = { applied: saved > 0, saved, failed: notes.length - saved };

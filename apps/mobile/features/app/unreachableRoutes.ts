@@ -222,4 +222,14 @@ export const DELIBERATELY_UNREACHABLE: readonly RouteReachability[] = [
       "which only the people in the chat can open.",
     marker: "`/tex/group/<words>/<view>` and",
   },
+  {
+    route: "/tex",
+    file: "app/tex/index.tsx",
+    reachable: false,
+    reason:
+      "Sends the signed-in person on to their own Tex page with the query kept. " +
+      "A runner's pairing link points here because it is made before the " +
+      "gateway knows whose computer is asking, so it cannot name the handle.",
+    marker: "A runner's pairing link",
+  },
 ];

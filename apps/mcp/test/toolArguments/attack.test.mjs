@@ -156,7 +156,7 @@ export async function runToolArgumentAttackChecks(check, harness) {
 
   /* --------------- the tools that take nothing at all -------------------- */
 
-  for (const name of ["orient", "list_proposals", "list_plugins", "rotate_encryption_keys"]) {
+  for (const name of ["orient", "list_plugins", "rotate_encryption_keys"]) {
     const refusal = await callTool(env, TOKEN_OWNER, name, { workspaceId: WORKSPACE_OTHER });
     check(
       `${name} takes no arguments, and now that is true of the door as well`,

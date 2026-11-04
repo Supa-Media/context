@@ -3,17 +3,15 @@
  */
 
 /**
- * Settings › Tex (docs/decisions/texting-assistant/tex-settings.md): how Tex
- * talks to this person in their own chat. A pick shows at once and saves the
- * whole style on the account, keeping only changed settings; humor goes in
- * tens.
+ * Settings › Tex (docs/decisions/texting-assistant/custom-instructions.md):
+ * how Tex talks to this person in their own chat, in their own words. A quick
+ * pick is sent by its id and the control plane writes its line; the text box
+ * saves what they wrote, and leaving it unchanged saves nothing.
  *
  * ## Sabotage record
  *
- *  1. `withSetting` keeping a setting put back to its default. → `a setting
- *     put back to its default is not kept` fails.
- *  2. The humor pick saved as the label's text ("60%"). → `humor saves a
- *     number in tens` fails.
+ *  1. The quick pick sent as its label. → `a quick pick is sent by id` fails.
+ *  2. A blur saving the unchanged text. → `the box saves what they wrote, once` fails.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -34,7 +32,7 @@ jest.mock("convex/react", () => ({
 
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { TexSettings, withSetting } from "../features/console/settings/panels/TexSettings";
+import { TexSettings } from "../features/console/settings/panels/TexSettings";
 
 let root: Root | null = null;
 let host: HTMLElement | null = null;
@@ -75,32 +73,45 @@ afterEach(() => {
   mockSaved = {};
 });
 
+const PICKS = [
+  { id: "emoji_none", label: "No emoji" },
+  { id: "short", label: "Short answers" },
+];
+
 describe("Settings › Tex", () => {
-  test("every setting shows what it is now, defaults included", async () => {
-    mockSaved = { tone: "candid", humor: 40 };
+  test("their instructions and progress updates show as saved", async () => {
+    mockSaved = { instructions: "Answer in French.", updates: "planOnly", picks: PICKS };
     const view = await render();
-    for (const word of ["Tone", "Candid", "Warmth", "Enthusiasm", "Emoji", "Length", "Bubbles", "Several per answer", "Humor", "40%"]) {
-      expect(view.textContent).toContain(word);
-    }
+    expect((byTestId("tex-instructions") as HTMLTextAreaElement).value).toBe("Answer in French.");
+    expect(view.textContent).toContain("Plan only");
   });
 
-  test("a pick saves the whole style", async () => {
-    mockSaved = { humor: 40 };
+  test("a quick pick is sent by id", async () => {
+    mockSaved = { picks: PICKS };
     await render();
-    await pick("tex-tone", "Efficient");
-    expect(mockSaves).toEqual([{ texStyle: { humor: 40, tone: "efficient" } }]);
-    expect(host!.textContent).toContain("Efficient");
+    await pick("tex-picks", "No emoji");
+    expect(mockSaves).toEqual([{ change: { pick: "emoji_none" } }]);
   });
 
-  test("humor saves a number in tens", async () => {
+  test("the box saves what they wrote, once; progress updates save their level", async () => {
+    mockSaved = { instructions: "Be brief.", picks: PICKS };
     await render();
-    await pick("tex-humor", "60%");
-    expect(mockSaves).toEqual([{ texStyle: { humor: 60 } }]);
-  });
-
-  test("a setting put back to its default is not kept", () => {
-    expect(withSetting({ emoji: "less", humor: 40 }, "emoji", "default")).toEqual({ humor: 40 });
-    expect(withSetting({ humor: 40 }, "humor", 75)).toEqual({});
-    expect(withSetting({ bubbles: "one" }, "bubbles", "multiple")).toEqual({});
+    const box = byTestId("tex-instructions") as HTMLTextAreaElement;
+    await act(async () => {
+      box.focus();
+      box.blur();
+    });
+    expect(mockSaves).toEqual([]);
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), "value")!.set!;
+      setter.call(box, "Be brief. Call me Captain.");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      byTestId("tex-save").click();
+    });
+    expect(mockSaves).toEqual([{ change: { replace: "Be brief. Call me Captain." } }]);
+    await pick("tex-updates", "Off");
+    expect(mockSaves.at(-1)).toEqual({ updates: "off" });
   });
 });

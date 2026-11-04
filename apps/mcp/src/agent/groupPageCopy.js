@@ -81,13 +81,15 @@ export async function pageEntries(turns, { held = new Set(), before = Date.now()
 /**
  * Copy the page's turns into the group's ledger once, then mark it. Only after the chat's old event log is in (its
  * `GROUP_BACKFILLED` mark first), so the page goes before all of it. `{state}`: `done` (already), `copied`, `waiting`
- * (the log is not in yet), `none` (no ledger). Throws when the ledger can't be written: the page is then still read.
+ * (the log is not in yet, unless `withoutLog`), `none` (no ledger). Throws when the ledger can't be written: the page is then still read.
  */
-export async function copyGroupPageIn(ledger, chat, turns, { dryRun = false } = {}) {
+export async function copyGroupPageIn(ledger, chat, turns, { dryRun = false, withoutLog = false } = {}) {
   if (typeof ledger?.prepend !== "function" || typeof ledger?.oldest !== "function") return { state: "none", entries: 0 };
   if (await groupPageCopied(ledger, chat)) return { state: "done", entries: 0 };
   const oldest = await ledger.oldest(chat);
-  if (oldest !== null && oldest !== undefined && oldest.id !== GROUP_BACKFILLED) return { state: "waiting", entries: 0 };
+  // `withoutLog`: the chat's old log was looked for everywhere and is in none of them, so the page goes in without it
+  // (Dev, 2026-11-03, on a decision card: "Copy the page in now", for Crystal Care Agency's).
+  if (!withoutLog && oldest !== null && oldest !== undefined && oldest.id !== GROUP_BACKFILLED) return { state: "waiting", entries: 0 };
   const read = await ledger.read(chat, { kinds: ["text"], limit: OVERLAP_READ });
   const held = new Set((read?.entries ?? []).filter((entry) => entry?.from?.kind === "tex").map((entry) => opening(entry.text)));
   const entries = await pageEntries(Array.isArray(turns) ? turns : [], { held, before: oldest?.at ?? Date.now() });

@@ -7,6 +7,8 @@
  * the gateway has and nothing else.
  */
 
+import type { MachineAction, MachineAsk, SlotPlace } from "./texMachineTypes";
+
 export type ChatKey = string; // "me" or a group's key
 
 export interface ChatRef {
@@ -54,6 +56,10 @@ export interface JobSummary {
   /** The step it is on now. */
   now?: string;
   slot?: number;
+  /** Where it ran when that was one of the person's machines: "On Seyi's MacBook Pro". */
+  ranOn?: string;
+  /** The coding tool it ran with, as the page names it: "Claude Code". */
+  tool?: string;
 }
 
 export interface JobStep {
@@ -71,6 +77,8 @@ export interface JobDetail extends JobSummary {
 export interface Slot {
   slot: number;
   job: JobSummary | null;
+  /** The key of the `places` entry it runs in, when the gateway names places. */
+  place?: string;
 }
 
 export interface Tiles {
@@ -98,6 +106,10 @@ export interface Overview {
   earlierWeek: number;
   tiles: Tiles;
   behind: Behind;
+  /** Where the slots run: Tex's cloud, then each of the person's machines. Absent from a gateway without machines. */
+  places?: SlotPlace[];
+  /** Someone else's machine job waiting for the person's yes. */
+  asks?: MachineAsk[];
 }
 
 export interface AdvisorAsk {
@@ -171,7 +183,9 @@ export interface ListPage<K extends ListKind> {
   quietHours?: string;
   /** about */
   total?: number;
-  /** settings: the person's TexSettings values, or the group's. */
+  /** settings: the person's or the group's own instructions, the quick picks that add a line (Dev2, 2026-11-01), and a group's `answers`. */
+  instructions?: string;
+  picks?: { id: string; label: string }[];
   values?: Record<string, string | number>;
   number?: string;
   approver?: string;
@@ -190,7 +204,8 @@ export type PageAction =
   | { type: "about.fix"; line: string; text: string }
   | { type: "about.remove"; line: string }
   | { type: "settings"; values: Record<string, string | number> }
-  | { type: "group.settings"; values: Record<string, string | number> };
+  | { type: "group.settings"; values: Record<string, string | number> }
+  | MachineAction;
 
 /** The page's own views, addressed in the URL so a reload or a back press keeps the place. */
 export type SubView =
@@ -204,7 +219,11 @@ export type SubView =
   | "advisor"
   | "mailcheck"
   | "history"
-  | "sees";
+  | "sees"
+  /** Tex › Your machines; one machine is `machine` with the place's `machine` id; `connect` adds one. */
+  | "machines"
+  | "machine"
+  | "connect";
 
 export const SUB_VIEWS: readonly SubView[] = [
   "routines",
@@ -218,6 +237,9 @@ export const SUB_VIEWS: readonly SubView[] = [
   "mailcheck",
   "history",
   "sees",
+  "machines",
+  "machine",
+  "connect",
 ];
 
 /**

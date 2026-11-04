@@ -14,6 +14,7 @@
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { chatReaches } from "../textGroupReach";
+import { speaksUpOf } from "../texChatRules";
 
 /** Most chats one key prefix is read for. */
 const CHATS_READ = 200;
@@ -35,6 +36,6 @@ export async function routineChat(
   // Two chats sharing sixteen hex is a collision nobody chose: neither is it.
   if (named.length !== 1) return null;
   const row = named[0]!;
-  if (row.mutedAt !== undefined || row.guestGroupId !== undefined) return null;
+  if (speaksUpOf(row) === "off" || row.guestGroupId !== undefined) return null;
   return (await chatReaches(ctx, row, workspaceId)) ? row : null;
 }

@@ -42,7 +42,6 @@ import { toolListMeetings, toolReadMeeting } from "./meetings.js";
 import { toolReadCalendar } from "./calendarRead.js";
 import { toolListNotes, toolReadNote, toolReadNotes } from "./notes/read.js";
 import { toolListPlugins } from "../plugins/listPluginsTool.js";
-import { toolListProposals, toolReadProposal } from "./proposals.js";
 import { toolMigrateStorageLayout } from "../notes/storage.js";
 import { toolMoveFolder } from "./moves/folder.js";
 import { toolMoveNote } from "./moves/note.js";
@@ -50,7 +49,6 @@ import { toolMoveNotes } from "./moves/notes.js";
 import { toolOpenAiFetch, toolOpenAiSearch, toolSearchNotes } from "./search.js";
 import { toolRelatedNotes } from "./related.js";
 import { toolOrient, toolScopeInfo } from "../orient/tool.js";
-import { toolProposeNote, toolReviewProposal } from "./proposalActions.js";
 import { toolReadActivity } from "../activity/readActivity.js";
 import { toolReadImage } from "./readImage.js";
 import { toolReadFile } from "./readFile.js";
@@ -192,21 +190,6 @@ async function runTool(name, args, store, scope) {
       return toolRotateEncryptionKeys(store, scope);
     case "set_folder_visibility":
       return toolSetFolderVisibility(store, scope, args);
-    case "propose_note":
-      return toolProposeNote(store, scope, args.path, args.content, args.reason, args.agent);
-    case "list_proposals":
-      return toolListProposals(store, scope);
-    case "read_proposal":
-      return toolReadProposal(store, scope, args.id);
-    case "review_proposal":
-      return toolReviewProposal(
-        store,
-        scope,
-        args.id,
-        args.action,
-        args.destination,
-        args.review_note
-      );
     case "search":
       return toolOpenAiSearch(store, scope, rules, overrides, args.query);
     case "fetch":

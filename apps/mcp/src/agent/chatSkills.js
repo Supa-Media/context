@@ -6,7 +6,7 @@
  *
  * The same notes, by the same rules (`learnedSkills.js`: name, front matter, size, at most 40, never vouched for),
  * in `<home>/skills/`. A group turn is always marked as having taken in other people's words, which is what keeps its
- * sends held (`route.js`); the people in the chat are not outside it, so what stops a skill being written here is a
+ * sends held (`texEntryPoint.js`); the people in the chat are not outside it, so what stops a skill being written here is a
  * turn that read something from outside the chat this turn (a page, an email, a file: `ledger.outside`).
  *
  * Read through the home's own dispatcher only; written by the model with `context: "@context-lc"` at the home's path.

@@ -34,6 +34,7 @@ import { measuredCall, reportToolUsage } from "../mcp/usage.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { canonicalToolName, coercedArguments, toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
+import { MACHINE_RUN_REFUSAL, machineRunRefuses } from "./machineRun.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
 import { recordRead } from "../privacy/egress.js";
@@ -316,6 +317,8 @@ function addressByPath(tool, args) {
 export async function callToolForSession(params, store, session) {
   const { error, params: call, v2 } = translateV2Params(params, store); // v2 → the existing call, before any gate
   if (error) return toolError(error);
+  // A job part on the person's computer never reaches outside, by either the v2 name or the tool it translated to.
+  if (machineRunRefuses(session, canonicalToolName(params?.name)) || machineRunRefuses(session, canonicalToolName(call?.name))) return toolError(MACHINE_RUN_REFUSAL);
   // `save_many` is one ordinary `write` per note, each back through this function and every gate in it (`saveMany.js`).
   if (v2 && call?.name === SAVE_MANY_TOOL) {
     return inWordsOf(v2, await saveMany(call.arguments, (one) => callToolForSession({ name: "write", arguments: one }, store, session)));

@@ -86,7 +86,8 @@ export function workspaceStub(env, workspaceId) {
  *
  * - `bodies`: a ContextStore (`store/r2.js`) over the object's keys.
  * - `userId` (optional on every read): who is reading, judged by the object's own members where it decides access
- * - `rows.lookup({paths, scope, groups, audience})`, `rows.resolve({noteIds, ...})` → `{rows: [{found, path, noteId, key, etag, kind, collaborates}], accessVersion}`
+ * - `rows.lookup({paths, scope, groups, audience, withBody?})`, `rows.resolve({noteIds, ...})` → `{rows: [{found, path, noteId, key, etag, kind, collaborates, body?}], accessVersion}`;
+ *   `withBody` on a one-path lookup carries the found note's Markdown as `body: {meta, text}` (`lookupBody.js`)
  * - `read({ids, scope, groups, audience})` → `{notes: Array<{id, found: true, path, etag, contentType, text}|{id, found: false}>, accessVersion}`
  * - `visible({ids, scope, groups})` → booleans, the same check (for the parity checker)
  * - `rows.manifest({folder, cursor, scope, groups, audience})` → `{served: true, entries: [{path, etag, size, updatedAt, noteId}], cursor}`
@@ -100,6 +101,8 @@ export function workspaceStub(env, workspaceId) {
  * - `facts({ask, ..., scope, groups, audience})`: a note facts ask (`props`, `links`, `neighbors`) answered from the
  *   text held here (`workspaceStore/facts.js`), in the control plane's `/gateway/tree/facts` shape; `{served: false}`
  *   before the notes live here
+ * - `orientSurvey({scope, groups, audience})` → `{served: true, survey}` or `{served: false}`: `orient`'s map of the
+ *   workspace for that reader, drawn in the object (`workspaceStore/orientSurvey.js`)
  * - `factRows({ask: "props"|"links"|"chaos"|"candidates"|"linking", paths?})`: the same facts unfiltered, for the control plane's own readers
  *   through the door, which judge every path themselves
  * - `rows.files({after, limit, root, audience})` → `{served, rows, cursor, rules, behind?}`: live file rows in path order and
@@ -111,8 +114,12 @@ export function workspaceStub(env, workspaceId) {
  * - `members.*`, `invites.*`: who belongs to the workspace (`workspaceStore/members.js`): see `membershipClient`.
  * - `collab.replace({path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text})` → `{served: true, result|error, markdown, writes, deletes}`
  *   or `{served: false, writes?, deletes?}`: a whole-note save's editing history run in the object (`collabReplace.js`)
+ * - `collab.read({path, key, noteId})` → `{served: true, markdown, collaboration|error, writes, deletes}` or
+ *   `{served: false}`: a note's Markdown and its editing history's text, for a read (`collabRead.js`)
  * - `open(userId)` → `{home, backfilledAt, encryption, accessHome, member, rules, binding: {sealed, at}|null, epoch}`:
- *   what a request's store is built from, in one call; `binding.put({sealed, at, epoch})` → `{kept, epoch}`,
+ *   what a request's store is built from, in one call; `open(userId, {setupRead: true})`, Tex's setup read: the member
+ *   rules narrowed to the setup's folders (`setupRules.js`) and the binding, `setupRead: true` when it could answer;
+ *   `binding.put({sealed, at, epoch})` → `{kept, epoch}`,
  *   `binding.clear()` → `{epoch}` (`workspaceStore/bindingRows.js`)
  */
 export function workspaceClient(env, workspaceId) {
@@ -127,7 +134,7 @@ export function workspaceClient(env, workspaceId) {
       put: async (rows) => await ask("ws.rows.put", { rows }),
       remove: async (ids, at) => await ask("ws.rows.remove", { ids, at }),
       get: async (ids) => await ask("ws.rows.get", { ids }),
-      lookup: async ({ paths, scope, groups = [], audience = "member", userId = null, chatNames = null }) => await ask("ws.rows.lookup", { paths, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
+      lookup: async ({ paths, scope, groups = [], audience = "member", userId = null, chatNames = null, withBody = false }) => await ask("ws.rows.lookup", { paths, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}), ...(withBody === true ? { withBody: true } : {}) }),
       resolve: async ({ noteIds, scope, groups = [], audience = "member", userId = null, chatNames = null }) => await ask("ws.rows.resolve", { noteIds, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
       list: async ({ after = null, limit = 1000 } = {}) => await ask("ws.rows.list", { after, limit }),
       listing: async (/** @type {{path: string, scope: string, groups?: string[], audience?: string}} */ options) =>
@@ -143,6 +150,7 @@ export function workspaceClient(env, workspaceId) {
       names: async ({ paths, canWrite }) => await ask("ws.rows.names", { paths, canWrite: canWrite === true }),
     },
     facts: async (request) => await ask("ws.facts", request),
+    orientSurvey: async (request) => await ask("ws.orient.survey", request),
     factRows: async (request) => await ask("ws.facts.rows", request),
     rules: {
       put: async (rules, audience = "member") => await ask("ws.rules.put", { rules, audience }),
@@ -164,13 +172,16 @@ export function workspaceClient(env, workspaceId) {
     // A whole-note save's editing history, run in the object (`workspaceStore/collabReplace.js`).
     collab: {
       replace: async (fields) => await ask("ws.collab.replace", fields),
+      // A note's Markdown and its editing history's text, for a read (`workspaceStore/collabRead.js`).
+      read: async (fields) => await ask("ws.collab.read", fields),
+      create: async (fields) => await ask("ws.create", fields),
     },
     ...membershipClient(ask),
     state: async () => await ask("ws.state"),
     setHome: async (home) => await ask("ws.home", { home }),
     setEncryption: async (state) => await ask("ws.encryption", { state }),
     markBackfilled: async (at) => await ask("ws.backfilled", { at }),
-    open: async (userId) => await ask("ws.open", { userId }),
+    open: async (userId, { setupRead = false } = {}) => await ask("ws.open", setupRead === true ? { userId, setupRead: true } : { userId }),
     // The object's own word index (`searchIndex.js`): a search's queries, and a catch-up pass behind a response.
     search: async (asks) => await ask("ws.search", { asks }),
     searchBuild: async () => await ask("ws.search.build"),

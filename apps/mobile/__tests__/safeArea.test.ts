@@ -285,6 +285,8 @@ const ROUTES: Record<string, Coverage> = {
   "tex/[handle]/[...rest].tsx": { kind: "screen", mount: () => createElement(requireRoute("tex/[handle]/[...rest].tsx")) },
   "tex/group/[words]/index.tsx": { kind: "screen", mount: () => createElement(requireRoute("tex/group/[words]/index.tsx")) },
   "tex/group/[words]/[...rest].tsx": { kind: "screen", mount: () => createElement(requireRoute("tex/group/[words]/[...rest].tsx")) },
+  // Bare `/tex?…` only sends the person on to their own `/tex/<handle>?…`.
+  "tex/index.tsx": { kind: "gate", mount: () => createElement(requireRoute("tex/index.tsx")) },
   "[handle]/index.tsx": { kind: "screen", mount: () => websitePage() },
   "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
   "connect/google.tsx": { kind: "screen", mount: () => createElement(GoogleCallbackScreen) },

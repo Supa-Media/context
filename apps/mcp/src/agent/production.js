@@ -44,6 +44,10 @@
  *                  action `advisor` (`advisor.js`, the Tex Devs meeting,
  *                  2026-10-30); never `models.main`
  *   models.advisor_effort optional, with `advisor`: the same for the advisor
+ *   plan_big_asks  optional `on`, with `models.advisor`: a big ask with parts
+ *                  that run side by side goes to `plan_big_ask`, where the
+ *                  advisor plans it and the gateway writes its notes and
+ *                  starts its jobs (`planBigAsk.js`, Dev, 2026-11-04)
  *   models.fallback optional: the model a turn goes on with when the one it
  *                  was on failed after its retry (decided by the owner,
  *                  2026-10-09; another model than `main`, or it is no fallback)
@@ -73,11 +77,12 @@
  * uses the built-in words, exactly as if the file were missing. The front matter's grammar is the small subset below, so
  * no YAML dependency is needed; anything outside it is refused, not guessed at.
  *
- * Whether this deployment can call the setup's model is `route.js`'s to
+ * Whether this deployment can call the setup's model is `texEntryPoint.js`'s to
  * decide; this file only reads the note.
  */
 
 import { loadPrivacyState } from "../privacy/state.js";
+import { readPlanSetting } from "./planBigAsk.js";
 import { PINNED_CONTEXT_NAME, readPinnedNote } from "../orient/globalNote.js";
 import { isBuiltinModelName } from "./builtin.js";
 import { DEFAULT_ROUTE_AT, ROUTER_MODEL } from "./router.js";
@@ -173,6 +178,8 @@ async function parse(raw) {
     if (typeof models[key] !== "string" || !EFFORTS.has(models[key]) || typeof name !== "string") return null;
     efforts[name] = models[key];
   }
+  const planBigAsks = readPlanSetting(front.plan_big_asks);
+  if (planBigAsks === null || (planBigAsks && advisor === null)) return null;
   let fallback = null;
   if (models.fallback !== undefined) {
     if (typeof models.fallback !== "string" || !isBuiltinModelName(models.fallback) || models.fallback === models.main) return null;
@@ -221,6 +228,7 @@ async function parse(raw) {
     router,
     planner,
     advisor,
+    planBigAsks,
     efforts,
     fallback,
     search,

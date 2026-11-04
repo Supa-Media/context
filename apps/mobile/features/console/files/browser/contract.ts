@@ -393,6 +393,12 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    * the pane draws that state in its place. Optional: the demo has no bucket.
    */
   unreadable?: string | null;
+  /**
+   * The note the URL or a link asked for, when its read came back
+   * `FILE_NOT_FOUND`: the pane draws `NotFoundNote` where it would be, and no
+   * notice is raised for it. Optional: the demo has no bucket.
+   */
+  notFound?: string | null;
   dismissNotice: () => void;
 
   /**
@@ -669,21 +675,32 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
   /** Give a job to the folder at a path, or take it away (`null`). Owner; rejects with the server's sentence. */
   setFolderJob?: (job: string, path: string | null) => Promise<void>;
   /**
-   * Move a folder one place up or down among its sibling folders, as the list
-   * is drawn (`folderOrder.set`). Drawn at once; a refusal puts the order back
-   * and is said on the toast line. Editor only. Absent where nothing can be
-   * written (the demo, tests), and the menu then does not offer it.
+   * Move a row one place up or down, as the list is drawn (`folderOrder.set`):
+   * a folder among its sibling folders, or any row among all of them in a
+   * folder in custom order. A level not in custom order is put in it, with
+   * everything where it was drawn (`levelOrder.ts`). Drawn at once; a refusal
+   * puts the order back and is said on the toast line. Editor only. Absent
+   * where nothing can be written (the demo, tests), and the menu then does not
+   * offer it.
    */
   moveFolder?: (path: string, direction: "up" | "down") => void;
   /**
-   * Put a dragged folder at a place (`treeDrop.ts`): `folders` is the level
-   * `parent` in the order wanted, server order, the folder named at the path
+   * Put a dragged row at a place (`treeDrop.ts`): `folders` is every row of
+   * the level `parent` in the order wanted, the dragged row named at the path
    * it will have. In its own level that is a reorder, drawn at once like
    * `moveFolder`; from another level it is `move` first, then the order. A
    * refusal of either is said on the notice line and the server's order is put
    * back. Editor only; absent where nothing can be written.
    */
   placeFolder?: (path: string, parent: string, folders: readonly string[]) => void;
+  /**
+   * Set a folder's Sort setting (`""`: the workspace's, from the sort button
+   * at the top of the tree), or take it away with null, or (`undefined`) make
+   * the one it draws by now its own; `inside` also takes away the setting of
+   * every folder beneath, so they draw by this one (`functions/folderSort.ts`).
+   * Drawn at once. Editor only; absent where nothing can be written.
+   */
+  setFolderSort?: (folder: string, sort: import("@context/shared/src/listingSort.cjs").ListingSort | null | undefined, inside?: boolean) => void;
   /**
    * Re-home Context's reserved bucket objects under `.context/`.
    *

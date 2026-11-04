@@ -209,7 +209,7 @@ the card boxes were in Stripe's frame.
   the Worker alone waits 30 s for Browserbase's solver before the reload and
   the fresh browser (`captchaLadder.js`), so the ladder never finished and the
   model was told "don't retry it". Browse now gets 160 s
-  (`apps/mcp/src/agent/route.js`). The probe knows "confirm you're human",
+  (`apps/mcp/src/agent/texEntryPoint.js`). The probe knows "confirm you're human",
   "select all images" and AWS WAF's frame, and an answer handing over a
   "picture check" is read as handing over a captcha.
 - **A stumble is retried.** A browse call that ran long is told the browser

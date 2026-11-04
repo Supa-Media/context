@@ -11,7 +11,7 @@
  *     address the turn never saw is never sent to the geocoder" fails.
  *   `MAX_KM` check removed → "a place found in another city gets no
  *     distance" fails.
- *   route.js without `outgoing.knows` → "their about-me address is a start
+ *   texEntryPoint without `outgoing.knows` → "their about-me address is a start
  *     the card may measure from" fails.
  */
 
@@ -23,6 +23,7 @@ import { outgoingPictures } from "../src/agent/outgoingPictures.js";
 import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
 import { VISUAL_TOOL } from "../src/agent/visuals/index.js";
 import { distanceWords, fillDistances, geocode, geocoderFor, kmBetween } from "../src/agent/visuals/distance.js";
+import { texEntryPointSource } from "./texEntryPointSource.mjs";
 
 const CARD_PNG = "iVBORw0KGgo=";
 const HOME = "350 W 24th St, New York, NY 10011";
@@ -103,7 +104,7 @@ test("an address the turn never saw is never sent to the geocoder", async () => 
 });
 
 test("their about-me address is a start the card may measure from", () => {
-  const route = readFileSync(new URL("../src/agent/route.js", import.meta.url), "utf8");
+  const route = texEntryPointSource();
   // The read starts early (`ahead`) and is handed to `knows` when the turn is built; both halves must hold.
   assert.match(route, /knowsRead = texting \? tex\.ahead\("tex_notes", \(\) => deskTexts\(store\)\.then\(\(desk\) => readTexNotes\(/, "the texted turn's about-me reaches `locates`, read from the person's desk (`texDesk.js`)");
   assert.match(route, /knows = knowsRead === null \? null : await tex\.wait\("tex_notes", knowsRead\)/, "waited for before the model");

@@ -98,6 +98,7 @@
  * tools/advertised.js; IMAGE_MIME_TYPES and MAX_INLINE_IMAGE_BYTES are scraped
  * from tools/readImage.js by the email worker's and control plane's tests.
  */
+import { openTextsSession } from "./agent/textsSession.js";
 import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import { TexStore as TexStoreDurableObject } from "./texStore.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
@@ -166,6 +167,22 @@ export const PresenceRoom = AuthorizedPresenceRoom;
 export const TexStore = TexStoreDurableObject;
 /** Each workspace's notes, tree rows and access rules, one Durable Object per workspace (`workspaceStore.js`). */
 export const WorkspaceStore = WorkspaceStoreDurableObject;
+
+/**
+ * The session one text runs under, for the texting Worker alone (`agent/textsSession.js`). A named entrypoint has no
+ * public URL: only a Worker in this account bound to it can call it. A plain object with a fetch handler, so tests can
+ * import this file without the Workers runtime.
+ */
+export const TexTexts = {
+  async fetch(request, env, ctx) {
+    try {
+      return await openTextsSession(request, env, ctx);
+    } catch {
+      // The Worker reads anything but a linked answer as "ask Convex".
+      return json({ error: "server_error" }, 500);
+    }
+  },
+};
 
 export default {
   async fetch(request, env, ctx) {

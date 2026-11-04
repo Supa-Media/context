@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { useConvexAuth, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useConsoleGrant } from "../../agent/useConsoleGrant";
@@ -9,15 +9,18 @@ import { MCP_ENDPOINT } from "../../console/placeholderData";
 import { useColors } from "../../design/theme";
 import { Screen } from "../../app/Screen";
 import { firstParam } from "../../invite/invite";
-import { loginHref } from "../../auth/redirect";
-import { normalizeGroupWords, normalizeHandle, resolveTexGroupPage, resolveTexPage, texGroupHref, texHref } from "../texComputer";
+import { normalizeGroupWords, resolveTexGroupPage, resolveTexPage, texHref } from "../texComputer";
 import { useTexComputer } from "../useTexComputer";
 import { TexComputerBody } from "../TexComputerScreen";
 import { TexPageBody, type Place } from "./TexPageBody";
 import { gatewaySource, type TexPageSource } from "./texPageSource";
-import { addressOf, chatOfWords, placeHref, readPlace } from "./texPlace";
+import { withGatewayMachines } from "./texMachineSource";
+import { chatOfWords, placeHref, readPlace, signInHref } from "./texPlace";
 import { useTexPage } from "./useTexPage";
 import { T } from "./TexPageParts";
+
+/** A pairing code as the runner prints it: letters and digits, maybe one dash. */
+const PAIRING_CODE = /^[A-Za-z0-9]{3,8}-?[A-Za-z0-9]{0,8}$/;
 
 /**
  * `/tex/@<handle>` and `/tex/group/<words>`: what Tex is doing for this
@@ -53,12 +56,34 @@ export function TexPageScreen() {
   const workspaceId = ready?.workspaceId ?? null;
   const handle = ready?.handle ?? null;
 
+  // A pairing code from the runner's link (`?view=machines&code=KQ7-4MP`), kept while the screen is open:
+  // moving to the connect screen drops it from the address, not from the page.
+  const codeParam = firstParam(params.code);
+  const pairingCode = useRef<string | null>(null);
+  if (codeParam && PAIRING_CODE.test(codeParam)) pairingCode.current = codeParam;
+  const findPairing = useAction(api.functions.texMachines.pendingTexMachinePairing);
+  const approvePairing = useAction(api.functions.texMachines.approveTexMachinePairing);
+  const declinePairing = useAction(api.functions.texMachines.declineTexMachinePairing);
+  const pairingCalls = useRef({ findPairing, approvePairing, declinePairing });
+  pairingCalls.current = { findPairing, approvePairing, declinePairing };
+
   const source = useMemo(() => {
     if (workspaceId === null || handle === null) return null;
-    return gatewaySource({
+    const token = async (refresh: boolean | { rejected: string }) => (await minting.current({ workspaceId: workspaceId as Id<"workspaces"> }, refresh)).accessToken;
+    return withGatewayMachines(gatewaySource({ endpoint: MCP_ENDPOINT, handle, token }), {
       endpoint: MCP_ENDPOINT,
-      handle,
-      token: async (refresh) => (await minting.current({ workspaceId: workspaceId as Id<"workspaces"> }, refresh)).accessToken,
+      workspaceId,
+      token,
+      selfHandle: handle,
+      pairingCode: () => pairingCode.current,
+      pairing: {
+        find: (code) => pairingCalls.current.findPairing({ code }),
+        answer: async (code, approve) => {
+          if (approve) await pairingCalls.current.approvePairing({ code, workspaceId: workspaceId as Id<"workspaces"> });
+          else await pairingCalls.current.declinePairing({ code });
+          return true;
+        },
+      },
     });
   }, [handle, workspaceId]);
   const group = useGroupKey(source, words);
@@ -84,7 +109,7 @@ export function TexPageScreen() {
   );
 
   // Back to the same place after signing in: a handoff's `?view=computer` included.
-  if (view.kind === "signIn") return <Redirect href={signInHref(view.href, firstParam(params.handle), words, routePlace)} />;
+  if (view.kind === "signIn") return <Redirect href={signInHref(view.href, { handle: firstParam(params.handle), ...(words !== undefined ? { words } : {}) }, routePlace, pairingCode.current)} />;
   if (view.kind === "notFound" || view.kind === "notYours") {
     return <NotYours own={view.kind === "notYours" ? view.own : null} />;
   }
@@ -139,12 +164,6 @@ function useGroupKey(source: TexPageSource | null, words: string | null | undefi
   if (words === undefined) return { state: "ok", key: "me" };
   if (words === null) return { state: "none" };
   return found !== null && found.words === words ? found.key : { state: "wait" };
-}
-
-function signInHref(fallback: string, raw: string | null | undefined, words: string | null | undefined, place: Place): string {
-  if (words !== undefined) return words === null ? fallback : loginHref(addressOf(texGroupHref(words), place));
-  const handle = normalizeHandle(raw);
-  return handle ? loginHref(addressOf(texHref(handle), place, place.chat === "me" ? {} : { chat: place.chat })) : fallback;
 }
 
 function Ground() {

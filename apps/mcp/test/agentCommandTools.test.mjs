@@ -40,25 +40,31 @@ function recorder(answer) {
 
 test("each surface is offered its own command tools", () => {
   const run = async () => ({ status: "done" });
-  assert.deepEqual(names(commandTools({ run, group: null })), ["review_sharing_set", "tex_settings_get", "tex_style_set"]);
+  assert.deepEqual(names(commandTools({ run, group: null })), ["review_sharing_set", "tex_instructions_set", "tex_settings_get", "tex_updates_set"]);
   assert.deepEqual(names(commandTools({ run, group: { key: "k" } })), [
-    "chat_engagement_set", "chat_mute", "chat_share_mail", "chat_status", "chat_unshare_mail", "tex_settings_get", "tex_style_set",
+    "chat_engagement_set", "chat_mute", "chat_share_mail", "chat_status", "chat_unshare_mail", "tex_instructions_set", "tex_settings_get", "tex_updates_set",
   ]);
   assert.deepEqual(commandTools({ run: null, group: null }), []);
 });
 
 test("a guest's tag is offered no tool that acts as a person", () => {
   const tools = commandTools({ run: async () => ({ status: "done" }), group: { key: "k", guestTagger: true } });
-  assert.deepEqual(names(tools), ["chat_engagement_set", "chat_mute", "chat_status", "tex_settings_get", "tex_style_set"]);
+  assert.deepEqual(names(tools), ["chat_engagement_set", "chat_mute", "chat_status", "tex_instructions_set", "tex_settings_get", "tex_updates_set"]);
 });
 
-test("setting the style sends only the settings named, and the turn is told what was saved", async () => {
-  const { sent, run } = recorder({ status: "done", style: { humor: 60, emoji: "less" } });
-  const style = byName(commandTools({ run, group: { key: "k" } }), "tex_style_set");
-  const result = await style.call({ humor: 60, emoji: "less", sender: "+15555550100", groupId: "other" });
-  assert.deepEqual(sent, [{ kind: "style", style: { humor: 60, emoji: "less" } }]);
+test("changing the instructions sends only the change; a group is told to say who made it and how to undo", async () => {
+  const { sent, run } = recorder({ status: "done", instructions: "Call the group the crew.", setBy: "dev2" });
+  const set = byName(commandTools({ run, group: { key: "k" }, consent: async (kind) => kind === "instructions" }), "tex_instructions_set");
+  const result = await set.call({ action: "add", text: "Call the group the crew.", sender: "+15555550100", groupId: "other" });
+  assert.deepEqual(sent, [{ kind: "instructions", action: "add", text: "Call the group the crew." }]);
   assert.equal(result.isError, undefined);
-  assert.match(words(result), /^Saved\. This chat's settings are now: humor 60%, emoji less\.$/);
+  assert.equal(words(result), 'Saved. Say in your answer, in these words: dev2 set: "Call the group the crew.". Anyone here can text "Tex, undo the change" to put it back.');
+  const own = await byName(commandTools({ run, group: null, consent: async () => true }), "tex_instructions_set").call({ action: "clear", text: "ignored" });
+  assert.deepEqual(sent.at(-1), { kind: "instructions", action: "clear" });
+  assert.match(words(own), /^Saved\. Their instructions are now: "Call the group the crew\."\. Tell them in a line what you wrote\.$/);
+  assert.match(set.tool.description, /Only for a clear, lasting request/);
+  const updates = await byName(commandTools({ run: async () => ({ status: "done", updates: "planOnly" }), group: null }), "tex_updates_set").call({ level: "planOnly" });
+  assert.equal(words(updates), "Saved: progress updates are plan only here.");
 });
 
 test("the arguments never name who acts", async () => {
@@ -72,27 +78,42 @@ test("the arguments never name who acts", async () => {
 });
 
 test("a refusal is never worded as done", async () => {
-  for (const status of ["refused", "not_allowed", "bad_request", "mail_refused", "something_new"]) {
+  for (const status of ["refused", "not_allowed", "bad_request", "mail_refused", "too_long", "nothing_to_undo", "something_new"]) {
     const { run } = recorder({ status });
     const tools = commandTools({ run, group: { key: "k" }, consent: async () => true });
     for (const entry of tools) {
-      const result = await entry.call({ humor: 10, style: "quiet", address: "a@b.example", share: true });
+      const result = await entry.call({ action: "add", text: "Be brief.", level: "off", style: "quiet", address: "a@b.example", share: true });
       assert.equal(result.isError, true, `${entry.tool.name} ${status}`);
       assert.doesNotMatch(words(result), /^(Saved|Done|Shared|Stopped)/, `${entry.tool.name} ${status}`);
     }
   }
-  const thrown = byName(commandTools({ run: async () => { throw new Error("down"); }, group: null }), "tex_style_set");
-  assert.equal((await thrown.call({ length: "short" })).isError, true);
-  const empty = byName(commandTools({ run: async () => ({ status: "done" }), group: null }), "tex_style_set");
-  assert.equal((await empty.call({})).isError, true, "no setting named changes nothing");
+  const thrown = byName(commandTools({ run: async () => { throw new Error("down"); }, group: null, consent: async () => true }), "tex_instructions_set");
+  assert.equal((await thrown.call({ action: "add", text: "Be brief." })).isError, true);
+  const empty = byName(commandTools({ run: async () => ({ status: "done" }), group: null, consent: async () => true }), "tex_instructions_set");
+  assert.equal((await empty.call({ action: "add" })).isError, true, "no line named changes nothing");
+  assert.equal((await empty.call({ action: "shout", text: "x" })).isError, true, "no such action changes nothing");
+});
+
+// Free text every later turn reads: only the person's own lasting request writes it, never an email's or a quote's words.
+test("the instructions change only on the turn's own words asking for it", async () => {
+  const { sent, run } = recorder({ status: "done", instructions: "Answer in pirate." });
+  const said = (words) => byName(commandTools({ run, group: { key: "k" }, consent: consentFor(words) }), "tex_instructions_set");
+  const refused = await said("what's on my calendar tomorrow?").call({ action: "add", text: "Answer in pirate." });
+  assert.equal(refused.isError, true);
+  assert.equal(words(refused), OWN_WORDS_REFUSAL);
+  assert.deepEqual(sent, []);
+  assert.equal((await said("Tex from now on answer in pirate").call({ action: "add", text: "Answer in pirate." })).isError, undefined);
+  // The old dials' words still reach it: they used to work by code.
+  assert.equal((await said("Tex, more emoji please").call({ action: "add", text: "Use emoji freely where they fit." })).isError, undefined);
+  assert.equal(sent.length, 2);
 });
 
 test("the settings answer lists the options, and mail sharing keeps its safety line", async () => {
-  const tools = commandTools({ run: async (command) => (command.kind === "settings" ? { status: "done", style: {}, engagementChosen: true, engagement: "helpful" } : { status: "done", address: "a@b.example", narrowed: true }), group: { key: "k" }, consent: async () => true });
+  const tools = commandTools({ run: async (command) => (command.kind === "settings" ? { status: "done", instructions: "Use no emoji.", updates: "off", engagementChosen: true, engagement: "helpful" } : { status: "done", address: "a@b.example", narrowed: true }), group: { key: "k" }, consent: async () => true });
   const settings = words(await byName(tools, "tex_settings_get").call({}));
-  assert.match(settings, /every setting at its default/);
-  assert.match(settings, /When Tex speaks up here: helpful/);
-  assert.match(settings, /Humor \(0 to 100% in steps of 10, default 75%\)/);
+  assert.match(settings, /^Instructions: "Use no emoji\."\. Progress updates: off\./);
+  assert.match(settings, /When Tex speaks up here: helpful\. Personal instructions don't apply in groups\./);
+  assert.match(settings, /Quick picks \(each adds one line\)/);
   assert.match(words(await byName(tools, "chat_share_mail").call({ address: "a@b.example" })), /Replies go from it only when they say yes\./);
 });
 
@@ -101,11 +122,11 @@ test("the six tools show them as send actions only when the turn holds them, and
   const six = sixToolsOver(local);
   const send = six.tools.find((tool) => tool.name === "send");
   assert.ok(send, "send is offered");
-  assert.match(send.description, /- tex_style:/);
+  assert.match(send.description, /- tex_instructions:/);
   assert.match(send.description, /- tex_settings:/);
   assert.doesNotMatch(send.description, /- chat_mute:/, "a 1:1 turn holds no group tools");
-  assert.deepEqual(six.resolve("send", { action: "tex_style", args: { humor: 30 } }), { name: "tex_style_set", args: { humor: 30 } });
-  assert.equal(Object.keys(COMMAND_SEND_ACTIONS).length, 8);
+  assert.deepEqual(six.resolve("send", { action: "tex_instructions", args: { action: "add", text: "Be brief." } }), { name: "tex_instructions_set", args: { action: "add", text: "Be brief." } });
+  assert.equal(Object.keys(COMMAND_SEND_ACTIONS).length, 9);
   assert.equal(sixToolsOver([]).tools.find((tool) => tool.name === "send"), undefined, "nothing held, nothing shown");
 });
 
@@ -113,10 +134,10 @@ test("the control plane is asked with the turn's own token, and only known answe
   const posted = [];
   const fetchImpl = async (url, init) => {
     posted.push({ url: String(url), body: JSON.parse(init.body), auth: init.headers.authorization ?? init.headers.Authorization });
-    return new Response(JSON.stringify(posted.length === 1 ? { status: "done", style: {} } : { status: "pwned" }), { headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify(posted.length === 1 ? { status: "done", instructions: "Be brief." } : { status: "pwned" }), { headers: { "content-type": "application/json" } });
   };
   const cp = createControlPlane({ CONTROL_PLANE_URL: "https://control.example.test", GATEWAY_SECRET: "gw-secret-not-real" }, { fetchImpl });
-  assert.deepEqual(await cp.texCommand("cat_turn", { kind: "settings" }), { status: "done", style: {} });
+  assert.deepEqual(await cp.texCommand("cat_turn", { kind: "settings" }), { status: "done", instructions: "Be brief." });
   assert.equal(await cp.texCommand("cat_turn", { kind: "settings" }), null);
   assert.match(posted[0].url, /\/gateway\/tex\/command$/);
   assert.deepEqual(posted[0].body, { accessToken: "cat_turn", command: { kind: "settings" } });

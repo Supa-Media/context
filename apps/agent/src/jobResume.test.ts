@@ -10,12 +10,14 @@
  *  3. `runJob` without the repeat guard → "two parts in a row with no tool call end the job stuck".
  *  4. `resumeJobs` past the running limit → "the chat picks up only this chat's ended jobs, within the limit".
  *  5. `readSteers` dropping `resume` → "the chat picks up only this chat's ended jobs, within the limit".
+ *  6. `resumeJob` not keeping the restart's text → "a restart's own words reach the job it picks up".
+ *  7. `resumeJobs` sending the placeholder over their words → "the chat's restart hands the job their words".
  */
 
 import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
 import { acceptJob, ENDED_KEY, resumeJob, runJob, type JobDeps } from "./jobRun";
-import { chatJobs, JOB_SHOWN_MS, notResumedText, readSteers, resumeJobs, RUN_KEY, startJobs, type JobRun, type JobUpdate } from "./jobs";
+import { chatJobs, JOB_SHOWN_MS, notResumedText, PICKED_UP, readSteers, resumeJobs, RUN_KEY, startJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 import { MemoryStorage } from "./memoryStorage.testing";
 
 const NOW = 1_000_000;
@@ -102,6 +104,26 @@ describe("picking an ended job back up", () => {
     expect(await resumeJob(done, NOW + 1)).toBe(false);
   });
 
+  it("a restart's own words reach the job it picks up", async () => {
+    // 2026-11-03: "book with santana, mens adult style cut" restarted a haircut job that never saw the barber or the cut.
+    const storage = new MemoryStorage();
+    await acceptJob(storage, run({ attempt: 10, title: "Book the haircut" }), NOW);
+    await runJob(storage, jobDeps([{ body: { answer: "Couldn't sign in.", unfinished: true } }]).deps);
+    expect(await resumeJob(storage, NOW + 60_000, undefined, { id: "e1", text: "book with santana, mens adult style cut", resume: true })).toBe(true);
+    const next = jobDeps([{ body: { answer: "Booked with Santana.", verdict: "done" } }], NOW + 60_000);
+    await runJob(storage, next.deps);
+    expect(next.asked[0]).toMatchObject({ job: { followUps: ["book with santana, mens adult style cut"] } });
+
+    // A restart with no words of theirs (a turn by code) shows the job nothing new.
+    const quiet = new MemoryStorage();
+    await acceptJob(quiet, run({ attempt: 10 }), NOW);
+    await runJob(quiet, jobDeps([{ body: { answer: "Short.", unfinished: true } }]).deps);
+    expect(await resumeJob(quiet, NOW + 60_000, undefined, { id: "e2", text: PICKED_UP, resume: true })).toBe(true);
+    const after = jobDeps([{ body: { answer: "Done.", verdict: "done" } }], NOW + 60_000);
+    await runJob(quiet, after.deps);
+    expect((after.asked[0]?.job as Record<string, unknown>)?.followUps).toBeUndefined();
+  });
+
   it("two parts in a row with no tool call end the job stuck", async () => {
     const storage = new MemoryStorage();
     await acceptJob(storage, run(), NOW);
@@ -134,7 +156,7 @@ describe("the chat's restart", () => {
     for (const id of [one, two]) await storage.put(`job:${id}`, { ...(await storage.get<object>(`job:${id}`)), state: "stuck", finishedAt: NOW + 1, finalPass: "p1", verdict: "stuck", advice: "a" });
     const sent: string[] = [];
     const send = async (id: string) => (sent.push(id), true);
-    const missed = await resumeJobs(storage, [{ id: one, resume: true }, { id: two, resume: true }, { id: three, resume: true }, { id: "someone-elses", resume: true }], { id: "e1" }, send, NOW + 2);
+    const missed = await resumeJobs(storage, [{ id: one, resume: true }, { id: two, resume: true }, { id: three, resume: true }, { id: "someone-elses", resume: true }], { id: "e1", text: "" }, send, NOW + 2);
     expect(sent).toEqual([one, two]);
     expect(missed).toEqual([]);
     const listed = await chatJobs(storage, NOW + 2, { results: true });
@@ -146,12 +168,27 @@ describe("the chat's restart", () => {
 
     await storage.put(`job:${three}`, { ...(await storage.get<object>(`job:${three}`)), state: "failed", finishedAt: NOW + 3 });
     await storage.put(`job:${one}`, { ...(await storage.get<object>(`job:${one}`)), state: "stuck", finishedAt: NOW + 3 });
-    const full = await resumeJobs(storage, [{ id: one, resume: true }, { id: three, resume: true }], { id: "e2" }, send, NOW + 4);
+    const full = await resumeJobs(storage, [{ id: one, resume: true }, { id: three, resume: true }], { id: "e2", text: "" }, send, NOW + 4);
     expect(full).toEqual([]);
     await storage.put(`job:${one}`, { ...(await storage.get<object>(`job:${one}`)), state: "stuck", finishedAt: NOW + 5 });
     await startJobs(storage, [{ title: "Four", brief: "b" }], { now: NOW + 5, inbox: PHONE, origin: { kind: "phone", phone: PHONE, question: "q" }, place: { chatId: "chat_1" }, spawn: async () => {} });
-    const over = await resumeJobs(storage, [{ id: one, resume: true }], { id: "e3" }, send, NOW + 6);
+    const over = await resumeJobs(storage, [{ id: one, resume: true }], { id: "e3", text: "" }, send, NOW + 6);
     expect(over).toEqual(["One"]);
     expect(notResumedText(over)).toMatch(/couldn't pick "One" back up/);
+  });
+
+  it("the chat's restart hands the job their words", async () => {
+    const storage = new MemoryStorage();
+    const ids: string[] = [];
+    await startJobs(storage, [{ title: "Haircut", brief: "b" }], { now: NOW, inbox: PHONE, origin: { kind: "phone", phone: PHONE, question: "q" }, place: { chatId: "chat_1" }, spawn: async (id) => void ids.push(id) });
+    const [id] = ids;
+    await storage.put(`job:${id}`, { ...(await storage.get<object>(`job:${id}`)), state: "failed", finishedAt: NOW + 1 });
+    const sent: JobSteer[] = [];
+    const send = async (_id: string, steer: JobSteer) => (sent.push(steer), true);
+    await resumeJobs(storage, [{ id: id!, resume: true }], { id: "e1", text: "book with santana" }, send, NOW + 2);
+    expect(sent).toEqual([{ id: "e1", text: "book with santana", resume: true }]);
+    await storage.put(`job:${id}`, { ...(await storage.get<object>(`job:${id}`)), state: "failed", finishedAt: NOW + 3 });
+    await resumeJobs(storage, [{ id: id!, resume: true }], { id: "e2", text: "" }, send, NOW + 4);
+    expect(sent.at(-1)).toEqual({ id: "e2", text: PICKED_UP, resume: true });
   });
 });

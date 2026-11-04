@@ -18,7 +18,7 @@
  * - `POST /agent/cancel` `{ turn }` → `{ cancelled }`: marks a named turn
  *   cancelled. The turn stops after its current round, or at its end if the
  *   mark landed after its last round, and withdraws the asks it raised
- *   (`turn.js`, `route.js`). `cancelled: false`, with nothing marked, when no
+ *   (`turn.js`, `texEntryPoint.js`). `cancelled: false`, with nothing marked, when no
  *   turn of this person's runs under that id, or the running one already made
  *   a call that changed something or went out (`steer.js` `cancelTurn`): the
  *   Worker then queues the text instead.

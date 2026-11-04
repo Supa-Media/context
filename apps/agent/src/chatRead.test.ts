@@ -7,12 +7,15 @@
  * Sabotage record (applied, run, observed failing, reverted, 2026-11-02):
  *  1. `flushEvents` keeping what the gateway wrote → "what the gateway took is forgotten here".
  *  2. `chatEvents` ignoring the gateway's answer → "the chat is the ledger's day with the outbox on top".
+ *
+ * Sabotage record (2026-11-03): `flushWithReader` returning before it posts → "a group's chatter between Tex's turns
+ * reaches the ledger as it is said".
  */
 
 import { describe, expect, it } from "vitest";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { addEvent, flushEvents, keptEvents, unwritten, type TexEvent } from "./events";
-import { chatEvents, rememberChatReader } from "./chatRead";
+import { chatEvents, flushWithReader, rememberChatReader } from "./chatRead";
 import type { Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
@@ -108,5 +111,39 @@ describe("a turn", () => {
     expect(bodies.length).toBe(2);
     for (const body of bodies) expect(body.holdsLog).toBeUndefined();
     expect(((bodies[1].recent as TexEvent[] | undefined) ?? []).map((event) => event.text)).not.toContain("hi Tex");
+  });
+});
+
+describe("chatter between turns", () => {
+  it("a group's chatter between Tex's turns reaches the ledger as it is said, with the chat's own token", async () => {
+    const storage = new MemoryStorage();
+    const posted: { url: string; auth: string | null; body: { conversation: unknown; events: TexEvent[] } }[] = [];
+    const fetcher = (async (url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      posted.push({ url, auth: new Headers(init.headers).get("authorization"), body });
+      return Response.json({ written: body.events.map((event: TexEvent) => event.id) });
+    }) as unknown as Fetch;
+    // No turn since this object woke: nothing to post with, so it waits for the next turn.
+    const early = await addEvent(storage, { at: now - 2_000, chat: "g1", from: { kind: "person", who: "a" }, kind: "text", text: "before any turn" });
+    expect(await flushWithReader(storage, "g1", () => now)).toBe(false);
+    expect(posted).toEqual([]);
+    // A turn opened the chat: the next thing anyone says goes now, with what waited before it, and only this chat's.
+    rememberChatReader(storage, "g1", { token: "gtok", conversation: { group: "g1" }, fetch: fetcher, gatewayOrigin: "https://gw.example" });
+    const other = await addEvent(storage, { at: now - 1_500, chat: "g2", from: { kind: "person", who: "b" }, kind: "text", text: "another chat" });
+    const said = await addEvent(storage, { at: now - 1_000, chat: "g1", from: { kind: "person", who: "b" }, kind: "text", text: "not for Tex" });
+    expect(await flushWithReader(storage, "g1", () => now)).toBe(true);
+    expect(posted.map((p) => [p.url, p.auth, p.body.conversation])).toEqual([["https://gw.example/agent/events", "Bearer gtok", { group: "g1" }]]);
+    expect(posted[0]!.body.events.map((event) => event.id)).toEqual([early, said]);
+    expect((await unwritten(storage)).map((event) => event.id)).toEqual([other]);
+  });
+
+  it("a token the gateway refuses leaves the chatter for the next turn, and never throws", async () => {
+    const storage = new MemoryStorage();
+    const said = await addEvent(storage, { at: now, chat: "g1", from: { kind: "person" }, kind: "text", text: "kept" });
+    rememberChatReader(storage, "g1", { token: "old", conversation: { group: "g1" }, fetch: (async () => new Response("{}", { status: 401 })) as unknown as Fetch, gatewayOrigin: "https://gw.example" });
+    expect(await flushWithReader(storage, "g1", () => now)).toBe(true);
+    rememberChatReader(storage, "g1", { token: "old", conversation: { group: "g1" }, fetch: (async () => { throw new Error("down"); }) as unknown as Fetch, gatewayOrigin: "https://gw.example" });
+    expect(await flushWithReader(storage, "g1", () => now)).toBe(true);
+    expect((await unwritten(storage)).map((event) => event.id)).toEqual([said]);
   });
 });

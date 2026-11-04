@@ -21,7 +21,10 @@
  * in tables of their own, answered to a call that names the person.
  */
 
+import { workspaceMachines } from "./workspaceStore/machines.js";
+import { machineSockets } from "./workspaceStore/machineSockets.js";
 import { workspaceMarks } from "./workspaceStore/marks.js";
+import { workspaceHandles } from "./workspaceStore/handleCache.js";
 import { workspaceAccess } from "./workspaceStore/accessRows.js";
 import { texObjects } from "./texStore/objects.js";
 import { TexObjectRefused } from "./texStore/objects.js";
@@ -114,6 +117,7 @@ export class WorkspaceStore {
       marks: workspaceMarks(sql),
       // Who each note and folder is open to, and the rules rendered from it (`workspaceStore/accessRows.js`).
       access: workspaceAccess(sql),
+      handles: workspaceHandles(sql),
       // The storage binding, sealed so this object cannot read it (`workspaceStore/bindingRows.js`).
       binding: bindingRows(sql),
       // A personal workspace's object is also its person's: reach, shares to them and their connections.
@@ -144,6 +148,8 @@ export class WorkspaceStore {
         const at = Date.now() + REACH_RETRY_MS;
         if (set === null || set > at) await this.state.storage.setAlarm(at);
       },
+      // Every write so far made durable (`createNote.js` times it, for the save's timings).
+      settle: () => this.state.storage.sync(),
       // One storage transaction for `ws.apply`: all of a change lands, or none of it.
       transact: (work) => this.state.storage.transactionSync(work),
       // The changes taken for Convex's mirror, written in the transaction that takes them (`workspaceStore/mirrorOutbox.js`).
@@ -170,6 +176,10 @@ export class WorkspaceStore {
     this.store.onTreeChange = (change) => tree.changed(change);
     this.tree = tree;
     this.access = accessSockets(this.state, sql);
+    // The computers this workspace owns: their rows, runs and the runner's socket (`workspaceStore/machines.js`).
+    this.store.machines = workspaceMachines(sql);
+    this.machines = machineSockets(this.state, sql, this.store.machines, { notify: (event) => machineEvent(this.env, event) });
+    this.store.machineSockets = this.machines;
     // Convex written behind each take-away access write, before the object reports it done (`controlPlane/accessMirror.js`).
     const mirror = async (workspaceId, change) => await createControlPlane(this.env).accessMirror(workspaceId, change);
     watchMembers(this.store, this.access, this.env, { mirror });
@@ -182,15 +192,27 @@ export class WorkspaceStore {
     if (isTexCall(request)) return await this.tex().fetch(request);
     const store = this.ready();
     if ((request.headers.get("Upgrade") || "").toLowerCase() === "websocket") {
-      return new URL(request.url).pathname === "/access" ? this.access.accept(request) : this.tree.accept(request);
+      const path = new URL(request.url).pathname;
+      if (path === "/machine") return this.machines.accept(request);
+      return path === "/access" ? this.access.accept(request) : this.tree.accept(request);
     }
-    const response = await serveWorkspaceStore(store, request);
+    // Whether this is the first call this instance answers: a woken object, for the gateway's log line.
+    const cold = this.answered !== true;
+    this.answered = true;
+    const served = await serveWorkspaceStore(store, request);
+    const response = opOf(request) === "ws.open" && served.ok ? Response.json({ ...(await served.json()), cold }) : served;
     // Where the tree is read from changed: watchers of a workspace switched back are told to read Convex.
     if (opOf(request) === "ws.home" && response.ok) this.tree.notice({ all: true });
     // A build behind a search that left changes waiting: the alarm builds on (`workspaceStore/indexBuild.js`).
     if (INDEX_BUILDS.has(opOf(request)) && response.ok) {
       try {
-        store.indexBuild.noted(await response.clone().json());
+        const answer = await response.clone().json();
+        // Whether a build behind a search did anything: counts and a code, never a path (2026-11-04: @seyi's meaning
+        // index never finished its first build, and nothing said why).
+        if (opOf(request) === "ws.meaning.build") {
+          console.log(JSON.stringify({ event: "meaning_build", reason: answer?.failed === true ? (typeof answer.reason === "string" ? answer.reason : "failed") : answer?.served === true ? (answer.busy === true ? "busy" : "built") : "not_served", ...(Number.isFinite(answer?.waiting) ? { meaningWaiting: answer.waiting } : {}), ...(typeof answer?.providerWords === "string" && /^[a-z ]{1,260}$/.test(answer.providerWords) ? { providerWords: answer.providerWords } : {}) }));
+        }
+        store.indexBuild.noted(answer);
         if (store.indexBuild.wake() !== null) this.tex().arm();
       } catch {
         // The next search's build call notes it again.
@@ -216,6 +238,7 @@ export class WorkspaceStore {
     this.ready();
     if (this.tex().owns(ws)) return this.tex().message(ws, raw);
     if (this.access.owns(ws)) return await this.access.message(ws, raw);
+    if (this.machines.owns(ws)) return await this.machines.message(ws, raw);
     await this.tree.message(ws, raw);
   }
 
@@ -223,6 +246,7 @@ export class WorkspaceStore {
     this.ready();
     if (this.tex().owns(ws)) return closeQuietly(ws);
     if (this.access.owns(ws)) return this.access.closed(ws);
+    if (this.machines.owns(ws)) return await this.machines.closed(ws);
     this.tree.closed(ws);
   }
 
@@ -230,6 +254,17 @@ export class WorkspaceStore {
     this.ready();
     if (this.tex().owns(ws)) return closeQuietly(ws);
     if (this.access.owns(ws)) return this.access.closed(ws);
+    if (this.machines.owns(ws)) return await this.machines.closed(ws);
     this.tree.closed(ws);
   }
+}
+
+/**
+ * A machine run's event, handed to the texting Worker, which passes it to the
+ * job's own object. Absent the binding (a self-hosted gateway without Tex, most
+ * tests) it is only kept on the run's row, where the job reads it.
+ */
+async function machineEvent(env, event) {
+  if (typeof env?.TEXTING?.machineEvent !== "function") return;
+  await env.TEXTING.machineEvent(event);
 }

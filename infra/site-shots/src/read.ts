@@ -11,7 +11,7 @@
  * module exports only its handler, and tests drive this with a fake browser.
  */
 
-import { publicHttpsUrl, type BrowserLike } from "./shoot";
+import { publicHttpsUrl, type BrowserLike, type FrameLike, type PageLike } from "./shoot";
 
 /** How long a page may take to load. */
 export const READ_TIMEOUT_MS = 20_000;
@@ -49,6 +49,96 @@ export interface PageRead {
    * reads any file (`apps/mcp/src/tools/readFile.js`); `text` is then empty.
    */
   file?: { type: "application/pdf"; data: string };
+}
+
+/**
+ * A page that draws its words inside an embedded frame from another site: a
+ * shared claude.ai artifact is an empty shell whose content is a frame from
+ * claudeusercontent.com (the Tex Devs group, 2026-11-03: Tex "still can't
+ * open that artifact" while another assistant read it). Reading only the top
+ * document gave Tex the shell's title and nothing else, so each frame's words
+ * are read too, after the page's, under its site's name, as `./reading.ts`
+ * already does for a browsing step.
+ */
+export const MAX_READ_FRAMES = 6;
+/** Below this many characters, the top page is a shell and its frames may still be drawing. */
+export const THIN_TOP_CHARS = 200;
+/** How long a shell's frames get to draw their words after the page settled. */
+export const FRAME_WAIT_MS = 6_000;
+/** The most of one frame's words kept beside a page that has words of its own. */
+export const MAX_FRAME_CHARS_BESIDE = 4_000;
+const FRAME_POLL_MS = 500;
+
+/** A frame's words: its main content when it marks one, else its body. */
+export const FRAME_TEXT_SOURCE = `(() => {
+  const root = document.querySelector("main, article, [role=main]") || document.body;
+  return (root ? root.innerText : "") || "";
+})()`;
+
+/** The page's frames other than the top one; Puppeteer lists the top one first. Never throws. */
+function childFrames(page: PageLike): FrameLike[] {
+  if (typeof page.frames !== "function") return [];
+  try {
+    const all = page.frames();
+    const main = typeof page.mainFrame === "function" ? page.mainFrame() : all[0];
+    return all.filter((frame) => frame !== main);
+  } catch {
+    return [];
+  }
+}
+
+/** Each public https frame's site and words, in page order, empty frames left out. Never throws. */
+export async function frameTexts(page: PageLike): Promise<Array<{ host: string; text: string }>> {
+  const frames = childFrames(page);
+  if (frames.length === 0) return [];
+  const read: Array<{ host: string; text: string }> = [];
+  for (const frame of frames) {
+    if (read.length >= MAX_READ_FRAMES) break;
+    let address: string | null;
+    try {
+      address = publicHttpsUrl(frame.url());
+    } catch {
+      address = null;
+    }
+    if (address === null) continue;
+    const words = await frame.evaluate<unknown>(FRAME_TEXT_SOURCE).catch(() => "");
+    const text = typeof words === "string" ? words.replace(/\n{3,}/g, "\n\n").trim() : "";
+    if (text !== "") read.push({ host: new URL(address).hostname, text });
+  }
+  return read;
+}
+
+/**
+ * The frames' words once a thin page's frames have drawn some, waiting at
+ * most `FRAME_WAIT_MS`; a page with words of its own is read at once.
+ */
+async function settledFrameTexts(page: PageLike, topChars: number, wait = FRAME_WAIT_MS): Promise<Array<{ host: string; text: string }>> {
+  let found = await frameTexts(page);
+  // A page with words of its own, or with no frame at all, is read as it is: a short page is not held six seconds.
+  if (topChars >= THIN_TOP_CHARS || childFrames(page).length === 0) return found;
+  const until = Date.now() + wait;
+  while (found.reduce((sum, frame) => sum + frame.text.length, 0) < THIN_TOP_CHARS && Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, FRAME_POLL_MS));
+    found = await frameTexts(page);
+  }
+  return found;
+}
+
+/**
+ * The page's words and its frames' together, within `MAX_TEXT_CHARS`. The
+ * frames' are kept whole and the page's are cut first, so a shell's frame is
+ * never lost below a long page.
+ */
+export function withFrames(top: string, frames: Array<{ host: string; text: string }>): { text: string; truncated: boolean } {
+  if (frames.length === 0) return { text: top.slice(0, MAX_TEXT_CHARS), truncated: top.length > MAX_TEXT_CHARS };
+  // Beside a page with words of its own, a frame (a widget, an embed) is a part of it and never crowds the page out.
+  const each = top.length < THIN_TOP_CHARS ? MAX_TEXT_CHARS : MAX_FRAME_CHARS_BESIDE;
+  const cut = frames.some((frame) => frame.text.length > each);
+  const whole = frames.map((frame) => `In a frame from ${frame.host.slice(0, 100)}:\n${frame.text.slice(0, each)}`).join("\n\n");
+  const tail = (top === "" ? whole : `\n\n${whole}`).slice(0, MAX_TEXT_CHARS);
+  const room = MAX_TEXT_CHARS - tail.length;
+  const text = (top.slice(0, room) + tail).trim();
+  return { text, truncated: cut || top.length > room || whole.length + (top === "" ? 0 : 2) > tail.length };
 }
 
 /** Names that are a site's furniture, not its subject. */
@@ -157,14 +247,15 @@ export const READ_SOURCE = `(() => {
  * hands in one fresh, cookie-less context of a warm browser and closes only
  * that context.
  */
-export async function read(browser: BrowserLike, url: string): Promise<PageRead> {
+export async function read(browser: BrowserLike, url: string, { frameWaitMs = FRAME_WAIT_MS } = {}): Promise<PageRead> {
   try {
     const page = await browser.newPage();
     try {
       await page.goto(url, { waitUntil: "networkidle2", timeout: READ_TIMEOUT_MS });
       const raw = await page.evaluate<{ title?: unknown; text?: unknown; links?: unknown; images?: unknown; logos?: unknown }>(READ_SOURCE);
       const finalUrl = publicHttpsUrl(await page.evaluate<string>("location.href")) ?? url;
-      const text = typeof raw?.text === "string" ? raw.text.replace(/\n{3,}/g, "\n\n").trim() : "";
+      const top = typeof raw?.text === "string" ? raw.text.replace(/\n{3,}/g, "\n\n").trim() : "";
+      const { text, truncated } = withFrames(top, await settledFrameTexts(page, top.length, frameWaitMs));
       const seen = new Set<string>();
       const links: PageRead["links"] = [];
       for (const link of Array.isArray(raw?.links) ? raw.links : []) {
@@ -178,8 +269,8 @@ export async function read(browser: BrowserLike, url: string): Promise<PageRead>
       return {
         url: finalUrl,
         title: typeof raw?.title === "string" ? raw.title.slice(0, 300) : "",
-        text: text.slice(0, MAX_TEXT_CHARS),
-        truncated: text.length > MAX_TEXT_CHARS,
+        text,
+        truncated,
         links,
         images: keepImages(Array.isArray(raw?.images) ? raw.images : [], finalUrl),
         ...(pickLogo(raw?.logos, finalUrl) ? { logo: pickLogo(raw?.logos, finalUrl) } : {}),

@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import { CreateButton } from "../CreateButton";
+import { NextUpPill } from "../../meetings/components/NextUpPill";
 import type { Dialog } from "../files/Explorer";
 import { targetFolder } from "../files/tree";
 import type { ConsoleData } from "../types";
@@ -17,12 +18,15 @@ export function consoleCreateButton({
   startMeetingFlow,
   resumeRow,
   setBarDialog,
+  joinMeeting = null,
 }: {
   data: ConsoleData;
   phone: boolean;
   startMeetingFlow: ConsoleAside["startMeetingFlow"];
   resumeRow: ConsoleAside["resumeRow"];
   setBarDialog: Dispatch<SetStateAction<Dialog>>;
+  /** Join and take notes: the next meeting, in a pill beside the `+`. `null` where there is no calendar. */
+  joinMeeting?: ConsoleAside["joinMeeting"];
 }) {
   /*
     THE +, AND WHY IT IS MOUNTED HERE.
@@ -47,6 +51,7 @@ export function consoleCreateButton({
     <CreateButton
       compact={phone}
       onNewMeeting={startMeetingFlow}
+      beside={joinMeeting === null ? null : <NextUpPill onJoin={joinMeeting} />}
       resume={resumeRow}
       /*
         The same `targetFolder` rule the tree's own `+` and the phone's

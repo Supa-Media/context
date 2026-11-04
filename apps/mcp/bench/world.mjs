@@ -27,7 +27,6 @@ import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
 import { createWeb } from "./sites.mjs";
 import { createBenchSite } from "./siteStub.mjs";
-import { PROPOSAL_PENDING_PREFIX } from "../src/tools/proposals.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
 import { rmSync } from "node:fs";
 
@@ -402,7 +401,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
   return {
     /** One texted message, answered with the conversation so far. */
-    async text(message, attachments = []) {
+    async text(message, attachments = [], { running = null } = {}) {
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
@@ -416,7 +415,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         new Request("https://mcp.bench.invalid/agent", {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
-          body: JSON.stringify({ question: message, conversation: "texts", ...(attachments.length > 0 ? { attachments } : {}) }),
+          // What the chat has running, as the texting Worker sends it (`apps/agent/src/jobs.ts`): only a
+          // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
+          body: JSON.stringify({ question: message, conversation: "texts", ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}) }),
         }),
         env,
         ctx,
@@ -432,6 +433,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // Lines the turn texted while it worked: each is a text the person got,
         // sent before the answer, as the texting Worker sends them (`apps/agent/src/inbox.ts`).
         progress,
+        // The background jobs the turn started, for the start checks (`checks.mjs`): nothing runs them here.
+        jobs: (Array.isArray(body?.jobs) ? body.jobs : []).map((job) => ({ title: String(job?.title ?? ""), mail: job?.mail?.path ?? null, name: job?.mail?.name ?? null, on: job?.machine?.name ?? null })),
         // Held calls the answer asks a YES for (`route.js`); the played person answers.
         asked: typeof body?.asked === "number" ? body.asked : 0,
         // The gateway hides a provider's reason from the caller; the turn log
@@ -577,22 +580,6 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         const now = snapshot(s3.bucketFor(`bench-${name}`));
         for (const [path, text] of now) {
           if (was.get(path) === text) continue;
-          if (path.startsWith(PROPOSAL_PENDING_PREFIX)) {
-            // A proposal is what the person would be asked to accept.
-            let proposal = null;
-            try {
-              proposal = JSON.parse(text);
-            } catch {
-              proposal = null;
-            }
-            out.push({
-              workspace: name,
-              path: String(proposal?.intended_path ?? "unreadable proposal"),
-              kind: "proposed",
-              detail: `${String(proposal?.reason ?? "").slice(0, 200)} | ${String(proposal?.content ?? "").replace(/\s+/g, " ").trim().slice(0, 400)}`,
-            });
-            continue;
-          }
           // Plumbing a turn writes for itself (history, reads, audit, and the
           // privacy manifest and activity log the gateway rewrites on every
           // save) is not something it did. Round two failed six change questions

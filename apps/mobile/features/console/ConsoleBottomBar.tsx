@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, View } from "react-native";
+import { standingAt } from "./files/notFound";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { fonts, layout, radii, space, touchType } from "../design/tokens";
@@ -32,7 +33,7 @@ export function quickNoteInbox(data: ConsoleData): string {
  * then asks where (`NewNoteWhere`). See `inboxTakesNotes`.
  */
 export function quickNoteFolder(data: ConsoleData): string | null {
-  const folder = targetFolder(data.files.listings, data.files.selectedPath);
+  const folder = targetFolder(data.files.listings, standingAt(data.files.selectedPath, data.files.notFound, data.files.listings));
   if (folder !== "") return folder;
   return inboxTakesNotes(data) ? quickNoteInbox(data) : null;
 }
@@ -125,7 +126,7 @@ export function ConsoleBottomBar({
   const picking = useSelectBar();
   const folder = quickNoteFolder(data);
   // On a folder's page the field reads "Search in Clients" (board 07b); on Inbox and Folders, "Search everything".
-  const inside = targetFolder(data.files.listings, data.files.selectedPath);
+  const inside = targetFolder(data.files.listings, standingAt(data.files.selectedPath, data.files.notFound, data.files.listings));
   const scope = inside === "" ? null : inside;
   const search = () => {
     trackButton("search_open");

@@ -78,7 +78,7 @@ export function placeSentence(place: LocalAgentAsk["place"]): string {
   const lines = [
     "You are answering inside Context, the person's own notes.",
     "Answer from their notes: search and read before you answer, and cite the note path.",
-    "You cannot edit their notes. To suggest a change use propose_note; they review and decide.",
+    "You cannot edit their notes here. If they ask for a change, say what you would change and where, so they can make it.",
   ];
   if (place.context !== null) lines.push(`They are in the @${place.context} context.`);
   if (place.note !== null) {

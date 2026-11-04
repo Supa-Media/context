@@ -257,7 +257,7 @@ export function ConsoleFrame({
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
   const sharedHere = onShared(route);
-  const { search, paletteItems, recent, recentYours, places } = usePaletteSearch({
+  const { search, paletteItems, recent, places } = usePaletteSearch({
     data, insideContext, current, paletteOpen, history, scope: searchScope, phone,
   });
   /*
@@ -541,7 +541,7 @@ export function ConsoleFrame({
           data, meetingsAt, router, approvals, joinMeeting,
         })}
         {...(sharedHere ? sharedFrameSlots(sharedEntry, router, <SwitcherMenu {...switcherProps} />) : {
-          explorer: consoleExplorer({ browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay, switcherProps, router, setBarDialog, joinMeeting }),
+          explorer: consoleExplorer({ browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay, switcherProps, router, setBarDialog }),
           status: <Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />,
         })}
         bottomBar={consoleBottomBar({
@@ -647,7 +647,7 @@ export function ConsoleFrame({
 
 
         {consoleCreateButton({
-          data, phone, startMeetingFlow, resumeRow, setBarDialog,
+          data, phone, startMeetingFlow, resumeRow, setBarDialog, joinMeeting,
         })}
 
         {/*
@@ -658,7 +658,7 @@ export function ConsoleFrame({
         <OpenAsideOn at={openAsideAt} />
 
         {consolePalette({
-          paletteOpen, paletteItems, recent, recentYours, search, setPaletteOpen, router, data,
+          paletteOpen, paletteItems, recent, search, setPaletteOpen, router, data,
           scope: searchScope, setScope: setSearchScope,
           places: phone ? { ...places, rootLabel: current?.displayName ?? "Your workspace" } : undefined,
         })}

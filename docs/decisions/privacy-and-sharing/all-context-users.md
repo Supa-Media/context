@@ -53,7 +53,8 @@ says which rendering to judge by (`audienceOfNames`), and `canSee` shuts `team`
 to whoever holds it even where a reader was handed a member's rules, so a read
 path that missed the change fails closed rather than open. A real member keeps
 `team`, holds the `accounts` names too, and so reads every note but a private
-one; their MCP connection reads `team` with no names at all.
+one; their MCP connection reads `team` with the same names since 2026-11-03
+([ai-connection-names](./ai-connection-names.md)); before that it held none.
 
 **The bug reports are members only.** `bugNotes.shareWithTeam` writes a report at
 base `team`, and still refuses to write into a folder a pin reader could read,

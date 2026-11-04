@@ -156,6 +156,13 @@ export function noteWriteToolDefinitions() {
               join: { type: "string", description: "join: a short name for your role here, letters, digits and dashes, e.g. lead, builder, reviewer." },
               text: { type: "string", description: "send: the message, up to 4000 characters." },
               to: { type: "string", description: "send: \"everyone\" (the default) or the name of one agent that joined." },
+              kind: {
+                type: "string",
+                enum: ["note", "ask", "interrupt"],
+                description:
+                  "send: \"note\" (the default); \"ask\" when you need an answer; \"interrupt\" stops the agent's current step, and only Tex can send one.",
+              },
+              wait: { type: "number", description: "send, with kind \"ask\": seconds to wait in this call for the answer, at most 120." },
             },
             additionalProperties: false,
           },

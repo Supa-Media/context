@@ -82,8 +82,8 @@ export function coreToolDefinitions() {
             type: "string",
             description:
               "A note path or search result id; a file path (a PDF, Word, Excel or picture file, such as an email attachment a note links) returns the words in it; " +
-              "a folder path (ending in /) lists it; orient lists the other ids " +
-              "(meetings:, messages:, contacts:, activity:, changes:, proposals:, links:, vault:, apps:, and email:<address>/<id> from an email search); " +
+              "a folder path (ending in /) lists it; tex/history.ledger.json is the person's whole chat with Tex, as Tex sees it, and history.ledger.json in a group chat's home is that chat's; orient lists the other ids " +
+              "(meetings:, messages:, contacts:, activity:, changes:, links:, vault:, apps:, and email:<address>/<id> from an email search); " +
               "notes: with args { paths: [up to 100 note paths] } reads several notes in one call.",
           },
           args: {

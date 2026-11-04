@@ -33,9 +33,14 @@
  * and compare check finds and repairs it.
  */
 
+import { r2Shaped } from "../texStore/wire.js";
 import { HOMES, REVISIONS, documentStateId, isHome, isRevisionKey, isWorkspaceObjectKey } from "../workspaceStore/api.js";
 
 const routedPrefix = (prefix) => typeof prefix === "string" && (prefix.startsWith("notes/") || prefix.startsWith(".context/collaboration/"));
+
+/** A workspace note's key in its object, the one form `ws.collab.read` serves (`workspaceStore/collabRead.js`). */
+const OBJECT_NOTE_KEY = /^notes\/[A-Za-z0-9-]{1,128}\.md$/;
+
 /** A listing that could name an older saved version, which only the bucket holds whole. */
 const coversRevisions = (prefix) => typeof prefix === "string" && (REVISIONS.startsWith(prefix) || prefix.startsWith(REVISIONS));
 /**
@@ -43,6 +48,20 @@ const coversRevisions = (prefix) => typeof prefix === "string" && (REVISIONS.sta
  * document that names it (`commitSnapshot`), so a younger one may be that save's, still in flight.
  */
 export const REVISION_GRACE_MS = 10 * 60 * 1000;
+
+/**
+ * One backup write per key: the last the object made. A save writes its document's state twice (accepted, then
+ * rendered); the backup is a copy nobody reads mid-save, so only where each key ended is copied.
+ */
+export function lastWriteEach(writes) {
+  const last = new Map();
+  for (const write of writes) {
+    if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
+    last.delete(write.key);
+    last.set(write.key, write);
+  }
+  return [...last.values()];
+}
 
 /**
  * @param {object} store the bucket's store
@@ -244,6 +263,21 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
    * `null` when the object did not serve it (not held there, the row moved, a version only the bucket keeps): the
    * caller then runs the engine through this store, as before.
    */
+  /**
+   * Every write the object's engine made (`collabReplace.js`, `collabRead.js`), copied to the bucket behind the
+   * response exactly as `put` copies one, and a document state it wrote prunes the object's older versions the same way.
+   */
+  const copyHandedBack = async (answer) => {
+    for (const write of lastWriteEach(Array.isArray(answer?.writes) ? answer.writes : [])) {
+      await mirror("put", write.key, () => store.put(write.key, write.body));
+      const documentId = documentStateId(write.key);
+      if (documentId !== null) await mirror("prune", write.key, () => pruneRevisions(documentId, write.body));
+    }
+    for (const removed of Array.isArray(answer?.deletes) ? answer.deletes : []) {
+      if (typeof removed === "string") await mirror("delete", removed, () => store.delete(removed));
+    }
+  };
+
   if (typeof client.collab?.replace === "function") {
     wrapped.replaceInObject = async ({ path, key, noteId, legacyEtag = null, rowEtag = null, expectedEtag, text, record = null }) => {
       if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
@@ -253,18 +287,62 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
         expectedEtag, text,
         ...(Number.isFinite(record?.at) ? { record: { at: record.at } } : {}),
       });
-      for (const write of Array.isArray(answer?.writes) ? answer.writes : []) {
-        if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
-        await mirror("put", write.key, () => store.put(write.key, write.body));
-        const documentId = documentStateId(write.key);
-        if (documentId !== null) await mirror("prune", write.key, () => pruneRevisions(documentId, write.body));
-      }
-      for (const removed of Array.isArray(answer?.deletes) ? answer.deletes : []) {
-        if (typeof removed === "string") await mirror("delete", removed, () => store.delete(removed));
-      }
+      await copyHandedBack(answer);
       if (answer?.served === true) return answer;
       // Why the save ran the engine from here instead: a short code from the object, never the path.
-      log("workspace_object_collab_not_served", { workspaceId, reason: typeof answer?.reason === "string" ? answer.reason : null });
+      const reason = typeof answer?.reason === "string" && /^[a-z_]{1,32}$/.test(answer.reason) ? answer.reason : null;
+      log("workspace_object_collab_not_served", { workspaceId, reason });
+      // Said to the save too, with the object's time on it, so its timings show why (`tools/notes/replaceInObject.js`).
+      return { served: false, reason, ...(Number.isFinite(answer?.took) ? { took: answer.took } : {}) };
+    };
+  }
+
+  /**
+   * A note's Markdown and its editing history's text in one call (`workspaceStore/collabRead.js`), for `read_note` in
+   * an object-home workspace the object holds whole: `{markdown, collaboration|error, took}`. `null` when the object
+   * did not serve it, and the caller reads the Markdown and the history through this store, as before.
+   */
+  if (typeof client.collab?.read === "function") {
+    wrapped.readInObject = async ({ path, key, noteId }) => {
+      if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
+      // Only a workspace note's own key: a Tex note's (`tex/…`) lives in Tex's store, so asking would be a wasted trip.
+      if (typeof key !== "string" || !OBJECT_NOTE_KEY.test(key)) return null;
+      const answer = await client.collab.read({ path, key, noteId });
+      await copyHandedBack(answer);
+      const markdown = answer?.markdown;
+      if (answer?.served === true && typeof markdown?.etag === "string" && typeof markdown.text === "string") return answer;
+      // Why the read went the long way instead: a short code from the object, never the path.
+      log("workspace_object_read_not_served", { workspaceId, reason: typeof answer?.reason === "string" ? answer.reason : null });
+      return null;
+    };
+  }
+
+  /**
+   * A note's Markdown as its row's lookup carried it (`workspaceStore/lookupBody.js`), shaped as `get` answers it from
+   * the object, for the id layer's edit (`idLayout.js` `oneWrite`). Only where `get` would read that key from the
+   * object (home `object`); else `null`, and the id layer reads it with `get`.
+   */
+  wrapped.storedFromLookup = (key, body) => {
+    if (held.home !== HOMES.OBJECT || typeof key !== "string" || !OBJECT_NOTE_KEY.test(key)) return null;
+    if (body?.meta?.key !== key || typeof body.meta.etag !== "string" || typeof body.text !== "string") return null;
+    return r2Shaped(body.meta, new TextEncoder().encode(body.text));
+  };
+
+  /**
+   * A new note's bytes and row in one call to the workspace object (`workspaceStore/createNote.js`), for the id layer's
+   * create (`idLayout.js` `keyedCreate`). `null` where the object does not serve it, and the caller puts as before.
+   */
+  if (typeof client.collab?.create === "function") {
+    wrapped.createInObject = async ({ path, noteId, key, text, tier, at, contentType = null, checks = false }) => {
+      if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
+      const answer = await client.collab.create({ path, noteId, key, text, tier, at, ...(typeof contentType === "string" ? { contentType } : {}), ...(checks === true ? { checks: true } : {}) });
+      for (const write of Array.isArray(answer?.writes) ? answer.writes : []) {
+        if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
+        await mirror("put", write.key, () => store.put(write.key, write.body, typeof contentType === "string" ? { httpMetadata: { contentType } } : {}));
+      }
+      if (answer?.served === true && typeof answer.etag === "string") return answer;
+      // Why the note was put from here instead: a short code from the object, never the path.
+      log("workspace_object_create_not_served", { workspaceId, reason: typeof answer?.reason === "string" ? answer.reason : null });
       return null;
     };
   }

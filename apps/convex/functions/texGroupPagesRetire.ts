@@ -105,7 +105,7 @@ type Counts = {
 };
 
 export const run = internalAction({
-  args: { dryRun: v.boolean(), cursor: v.optional(v.string()) },
+  args: { dryRun: v.boolean(), cursor: v.optional(v.string()), withoutLog: v.optional(v.boolean()) },
   returns: v.object({
     chats: v.number(),
     noPage: v.number(),
@@ -159,7 +159,7 @@ export const run = internalAction({
             counts.notAPage += 1;
             continue;
           }
-          state = (await copyGroupPageIn(ledger, chat.groupKey, turns, { dryRun: args.dryRun })).state;
+          state = (await copyGroupPageIn(ledger, chat.groupKey, turns, { dryRun: args.dryRun, withoutLog: args.withoutLog === true })).state;
         }
         if (state === "waiting") {
           counts.waiting += 1;

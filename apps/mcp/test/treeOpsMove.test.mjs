@@ -404,3 +404,26 @@ test("chatHomesMoveRefused: a note may leave and enter a home by trash, a home i
   assert.equal(chatHomesMoveRefused("tex", "x/tex", false), true);
   assert.equal(chatHomesMoveRefused("notes/a.md", "tex/groups/g1/a.md", false), true);
 });
+
+// A folder's contents are read as a range on the path index (`path >= "a/" AND path < "a0"`, '0' being the byte after
+// '/'), not a `substr` test over every row (2026-11-03). Its neighbours by name must stay where they are.
+test("a folder move takes only what is under it, never a sibling that shares its name's start", { skip }, () => {
+  const { rows, ops } = world([
+    folder("d1", "a"),
+    file("f1", "a/x.md"),
+    folder("d2", "a/sub"),
+    file("f2", "a/sub/w.md"),
+    file("f3", "a.md"),
+    folder("d3", "a-b"),
+    file("f4", "a-b/y.md"),
+    folder("d4", "ab"),
+    file("f5", "ab/z.md"),
+    folder("d5", "a0"),
+    file("f6", "a0/q.md"),
+  ]);
+  const answer = ops.move({ from: "a", to: "c", now: 1000 });
+  assert.equal(answer.ok, true, JSON.stringify(answer));
+  assert.deepEqual(answer.files.map((pair) => pair.to).sort(), ["c/sub/w.md", "c/x.md"]);
+  for (const kept of ["a.md", "a-b/y.md", "ab/z.md", "a0/q.md"]) assert.notEqual(rowAt(rows, kept), null, kept);
+  assert.equal(rowAt(rows, "a/x.md"), null);
+});

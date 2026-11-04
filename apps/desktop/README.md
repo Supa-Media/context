@@ -293,6 +293,20 @@ To ship an update every installed shell will find on its own:
    until the meeting ends and the note is written, then offers **Restart to
    update** from the tray.
 
+**Linux rides along.** The same dispatch builds an AppImage and a `.deb` for
+x64 and arm64 on an Ubuntu runner (`deploy-desktop-linux.yml`), installs the
+x64 `.deb` there and launches it with `--smoke`, and, once the Mac job has
+created the release, attaches the four files to it at the same version. A
+person downloads them from `context.lc/download/linux` (AppImage, x64),
+`/download/linux/arm64`, `/download/linux/deb` and `/download/linux/deb/arm64`.
+On Linux the meeting collectors and system audio are not there yet (they are
+macOS-only, `src/platform/macos/`), and the updater is not armed because the
+build is unsigned: a Linux install updates by downloading again. On Ubuntu
+24.04 and later, prefer the `.deb`, which installs the AppArmor profile
+Chromium's sandbox needs; an AppImage there may need `--no-sandbox`.
+
+To build one locally on Linux: `pnpm run package:linux`.
+
 There is no channel, no beta track and no rollback command: the latest
 published release is the one every shell checks against, and pulling a bad
 release out of GitHub is the same "delete the release" any electron-builder

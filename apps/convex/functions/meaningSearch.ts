@@ -66,6 +66,24 @@ export const writeTargetForWorkspace = internalQuery({
   },
 });
 
+/**
+ * Whether the owner's switch for search by meaning is on here, whatever the
+ * Vectorize index's health: the gateway answers meaning from a workspace
+ * object's own index wherever this is true (`apps/mcp/src/search/meaning/serve.js`
+ * `meaningSearchable`). On means a row turned on and not opted out or being
+ * released; a failed or provisioning row is still on. No row is off: the
+ * rollout has not reached it. Carries no name and no credential.
+ */
+export const meaningOnForWorkspace = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await meaningRowFor(ctx, args.workspaceId);
+    if (row === null || !row.enabled || row.optedOut === true) return false;
+    return row.status !== "releasing" && row.status !== "off";
+  },
+});
+
 export const enable = internalMutation({
   args: { workspaceId: v.id("workspaces"), by: v.optional(v.id("users")) },
   returns: v.object({ scheduled: v.boolean() }),

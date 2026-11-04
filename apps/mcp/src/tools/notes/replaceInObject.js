@@ -18,7 +18,10 @@ export async function replaceNoteText(store, path, input) {
     } catch {
       answer = null;
     }
-    if (answer !== null && answer !== undefined) {
+    if (answer?.served === false) {
+      // Declined by the object: why, and what it spent first, beside the engine's run from here (`inside:collab_declined_*`).
+      if (typeof answer.reason === "string") phaseTook(store, `collab_declined_${answer.reason}`, Number.isFinite(answer.took) ? answer.took : 0);
+    } else if (answer !== null && answer !== undefined) {
       // How long the object spent on it by its own clock, beside the call's whole trip (`obj:ws.collab.replace`).
       phaseTook(store, "collab_replace", answer.took);
       if (answer.error) throw new CollaborationError(String(answer.error.code ?? "STORAGE_WRITE_FAILED"), String(answer.error.message ?? "collaboration save failed"));

@@ -15,9 +15,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Fetch } from "./clients";
 import { ANSWER_RETRIES } from "./groupTurnWorkflow";
-import { acceptJob, armJobNext, failJob, runJob, type JobDeps, type JobNext } from "./jobRun";
-import { JOB_LINES, jobTag, MAX_JOB_ATTEMPTS, RUN_KEY, type JobRun, type JobUpdate } from "./jobs";
-import { handOverJob, jobInstanceId, runJobFlow, startJobFlow, type JobCall } from "./jobWorkflow";
+import { acceptJob, armJobNext, ENDED_KEY, failJob, jobAlarm, runJob, type JobDeps, type JobNext } from "./jobRun";
+import { JOB_KEPT_MS, JOB_LINES, jobTag, MAX_JOB_ATTEMPTS, RUN_KEY, type JobRun, type JobUpdate } from "./jobs";
+import { jobInstanceId, runJobFlow, startJobFlow, type JobCall } from "./jobWorkflow";
 import { MemoryStorage } from "./memoryStorage.testing";
 
 const NOW = 1_000_000;
@@ -161,16 +161,30 @@ describe("a background job's workflow", () => {
     expect(storage.alarms).toEqual([NOW, NOW + 20_000]);
   });
 
-  it("a job armed before workflows ran it is handed to its instance by its old alarm", async () => {
+  it("the object's alarm runs the job's pass without a workflow, and with one only drops a kept run (2026-11-02)", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
-    const storage = new MemoryStorage();
-    await acceptJob(storage, RUN, NOW);
-    const alarmsBefore = storage.alarms.length;
-    const created: string[] = [];
-    const workflow = { create: async ({ id }: { id: string }) => (created.push(id), {} as never), get: async () => ({}) as never };
-    expect(await handOverJob(storage, workflow as never)).toBe(true);
-    expect(created).toEqual(["job-job-1234-abcd"]);
-    expect(storage.alarms).toHaveLength(alarmsBefore);
-    expect(await handOverJob(new MemoryStorage(), workflow as never)).toBe(false);
+    const busy = { status: 503, body: { error: "model_unavailable" } };
+    const alone = new MemoryStorage();
+    await acceptJob(alone, RUN, NOW);
+    const { d, reports } = deps([busy, { body: { answer: "Wrote the note." } }]);
+    await jobAlarm(alone, d, false);
+    expect(alone.alarms).toEqual([NOW, NOW + 20_000]);
+    await jobAlarm(alone, d, false);
+    expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Wrote the note."] });
+    expect(alone.data.has(RUN_KEY)).toBe(false);
+
+    const kept = new MemoryStorage();
+    await kept.put(ENDED_KEY, { run: RUN, endedAt: NOW - JOB_KEPT_MS - 1 });
+    await jobAlarm(kept, deps([]).d, true);
+    expect(kept.data.has(ENDED_KEY)).toBe(false);
+
+    // Resumed before that alarm fired: its instance runs it, never the alarm.
+    const resumed = new MemoryStorage();
+    await resumed.put(RUN_KEY, { ...RUN, resumes: 1 });
+    const idle = deps([]);
+    await jobAlarm(resumed, idle.d, true);
+    expect(idle.reports).toEqual([]);
+    expect(resumed.alarms).toEqual([]);
+    expect(resumed.data.get(RUN_KEY)).toEqual({ ...RUN, resumes: 1 });
   });
 });

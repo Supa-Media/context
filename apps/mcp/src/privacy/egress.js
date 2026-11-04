@@ -20,7 +20,7 @@
  */
 
 import { classifyCaptureKind } from "../communications/paths.js";
-import { normalizePath } from "../notes/paths.js";
+import { isChatHistoryPath, normalizePath } from "../notes/paths.js";
 
 /**
  * Tools whose results are, by construction, words people other than the person
@@ -33,10 +33,7 @@ import { normalizePath } from "../notes/paths.js";
  * (`tools/connectors.js`), and an app connected by its MCP server answers with
  * its own users' issues, pages and comments (`tools/apps.js`). `connect_app`
  * is not one: it answers with a link the gateway made, and nothing from the
- * provider. A pending proposal is somebody else's too: `propose_note` is what
- * a connection that may not write uses, so `read_proposal` hands the model a
- * reason and a whole note it did not author — `list_proposals` is in
- * `UNTRUSTED_LISTINGS` for the reason alone.
+ * provider.
  *
  * Some of these are not read-only (`slack_api` can post, `app_change` makes a
  * change) and still hand the model an answer, so they mark the turn even when
@@ -61,7 +58,6 @@ export const UNTRUSTED_READS = new Set([
   "read_google_chat",
   "app_read",
   "app_change",
-  "read_proposal",
 ]);
 
 /**
@@ -75,7 +71,6 @@ export const LISTING_TOOLS = new Set([
   "list_channel_days",
   "list_contacts",
   "list_links",
-  "list_proposals",
   "list_plugins",
   "suggest_destination",
 ]);
@@ -84,11 +79,11 @@ export const LISTING_TOOLS = new Set([
  * Listings that still carry words a stranger chose, so they are not "names,
  * not content": a meeting's title and attendees come off a calendar invite
  * anyone can send, a contact's name and organisation off the sender's own
- * message, a proposal's reason off whichever agent filed it, and a plugin's
+ * message, and a plugin's
  * name and author off its manifest. A listing
  * that returns one marks the turn untrusted, though it marks nothing read.
  */
-export const UNTRUSTED_LISTINGS = new Set(["list_meetings", "list_contacts", "list_proposals", "list_plugins"]);
+export const UNTRUSTED_LISTINGS = new Set(["list_meetings", "list_contacts", "list_plugins"]);
 
 /** The `share` values on `write_note` that mint a link (`notes/write.js`). */
 const SHARE_VALUES = new Set(["members", "anyone", "collect"]);
@@ -138,6 +133,9 @@ function readsCapturedContent(name, args) {
   // `read_notes` reads many: any one of them that is captured content marks the turn.
   if (name === "read_notes") return (Array.isArray(args?.paths) ? args.paths : []).some((path) => readsCapturedContent("read_note", { path }));
   const raw = name === "fetch" ? args?.id : args?.path;
+  // A chat's history file is judged on the raw id: it may name another context (`@name/tex/...`), which
+  // `normalizePath` leaves on, and `fetch` routes the file to `read_note` so the name tells nothing.
+  if (isChatHistoryPath(raw)) return true;
   const path = typeof raw === "string" ? normalizePath(raw) : null;
   return path !== null && path !== undefined && classifyCaptureKind(path) !== null;
 }
@@ -173,7 +171,6 @@ const WRITE_TOOLS_THAT_CAN_REACH_ELSEWHERE = new Set([
   "move_notes",
   "move_folder",
   "remember",
-  "propose_note",
   "submit_form",
   "update_submission",
 ]);

@@ -119,7 +119,7 @@ describe("the stylesheet is still one sheet, in its original order", () => {
       ["text-decoration-thickness: 1px;\n}\n/*", "AN EDITABLE table"],
       [".cm-lp-rule { color: var(--lp-muted); }\n/*", "A FORM, DRAWN"],
       [".cm-lp-form-hint { font-size: 0.85em; margin-top: 6px; }\n/*", "IMAGES IN A NOTE"],
-      ["  padding: 6px 0;\n}\n/*", "A FOLDER LIST"],
+      ["  outline: 2px solid var(--lp-link);\n  outline-offset: 2px;\n}\n/*", "A FOLDER LIST"],
       ["  .cm-lp-list-value:not(:last-child) { display: none; }\n}\n/*", "PROJECTS AND GROUPS"],
     ] as const) {
       const at = css.indexOf(before);

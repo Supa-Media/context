@@ -6,7 +6,7 @@ import { phoneSignInPaused } from "./lib/emailProof";
 import { recordAudit } from "./lib/audit";
 import { SCOPE_READ, SCOPE_WRITE, clampScopes, hasOperationScope } from "./lib/consentScopes";
 import { hashToken } from "./lib/crypto";
-import { hasTexStyle, texStyleValidator, type TexStyle } from "./lib/texStyle";
+import { texUpdatesValidator, type TexUpdates } from "./lib/texInstructions";
 import { accountTimeZone } from "./lib/routines/access";
 import { effectiveTimeZone } from "./lib/routines/model";
 import { isPhoneNumber, personalWorkspaceOf } from "./textLinks";
@@ -15,7 +15,7 @@ import { homeOnlyTurn } from "./lib/textGroupHomeOnly";
 import { inviteEveryone, invitedChat, type InvitedChat } from "./lib/textGroupInvited";
 import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
 import { armChatLook } from "./lib/textGroupLooks";
-import { muteChat, setChatEngagement, unmuteChat } from "./lib/texChatRules";
+import { muteChat, setSpeaksUp, speaksUpOf, unmuteChat } from "./lib/texChatRules";
 import { ensureGroupClient } from "./lib/textGroupClient";
 import { ensureChatHome } from "./lib/textGroupHome";
 import { sponsorOf } from "./lib/textGroupUsage";
@@ -66,15 +66,28 @@ export const ENGAGEMENT_STYLES = ["quiet", "attentive", "followAlong", "helpful"
 export type Engagement = (typeof ENGAGEMENT_STYLES)[number];
 const engagementValidator = v.union(v.literal("quiet"), v.literal("attentive"), v.literal("followAlong"), v.literal("helpful"));
 
-/** What the Worker is told about a chat's style: the choice, whether anyone made one, and how Tex talks there (`lib/texStyle.ts`). */
-function engagementOf(chat: Doc<"textGroups">): { engagement?: Engagement; engagementChosen: boolean; texStyle?: TexStyle } {
-  const talk = hasTexStyle(chat.texStyle) ? { texStyle: chat.texStyle } : {};
-  return chat.engagement === undefined ? { engagementChosen: false, ...talk } : { engagement: chat.engagement, engagementChosen: true, ...talk };
+type ChatSettings = { engagement?: Engagement; engagementChosen: boolean; instructions?: string; updates?: TexUpdates };
+
+/**
+ * What the Worker is told about how Tex acts in a chat (`lib/texChatRules.ts`, custom-instructions.md): when it speaks
+ * up (`engagement`, never `off`, which answers `muted`) and whether anyone chose it, and the chat's own instructions and
+ * progress updates.
+ */
+function engagementOf(chat: Doc<"textGroups">): ChatSettings {
+  const level = speaksUpOf(chat);
+  return {
+    ...(level === undefined || level === "off" ? { engagementChosen: level === "off" } : { engagement: level, engagementChosen: true }),
+    
+    ...(chat.instructions ? { instructions: chat.instructions } : {}),
+    ...(chat.updates ? { updates: chat.updates } : {}),
+  };
 }
 
 const commandValidator = v.union(
   v.object({ kind: v.literal("stop") }),
   v.object({ kind: v.literal("start") }),
+  /** "Tex, be quiet" (Dev2, 2026-11-01): a level, not off. */
+  v.object({ kind: v.literal("speaks_up"), level: engagementValidator }),
   v.object({ kind: v.literal("invite"), slug: v.string(), role: v.optional(v.union(v.literal("editor"), v.literal("member"))) }),
   v.object({ kind: v.literal("share_mail"), address: v.string(), query: v.optional(v.string()) }),
   v.object({ kind: v.literal("unshare_mail"), address: v.optional(v.string()) }),
@@ -85,6 +98,8 @@ export const groupAnswerValidator = v.union(
   v.object({ status: v.literal("muted") }),
   v.object({ status: v.literal("stopped") }),
   v.object({ status: v.literal("started") }),
+  /** A level set by its words ("Tex, be quiet"); `by` names who. */
+  v.object({ status: v.literal("speaks_up"), level: engagementValidator, by: v.string() }),
   v.object({ status: v.literal("unknown_sender"), tell: v.boolean() }),
   v.object({ status: v.literal("no_shared") }),
   /** "Tex, add everyone here to @slug" from someone who isn't an owner there, or a name no workspace has: one answer. */
@@ -117,10 +132,11 @@ export const groupAnswerValidator = v.union(
      */
     guests: v.optional(v.array(v.object({ phone: v.string(), label: v.string() }))),
     guestTagger: v.optional(v.string()),
-    /** The chat's style, absent until someone in it chose one (`engagementChosen` false). */
+    /** When Tex speaks up here, absent until someone in it chose (`engagementChosen` false); the chat's own instructions and updates. */
     engagement: v.optional(engagementValidator),
     engagementChosen: v.boolean(),
-    texStyle: v.optional(texStyleValidator),
+    instructions: v.optional(v.string()),
+    updates: v.optional(texUpdatesValidator),
     /** Mailboxes shared with this chat, by whose and which address, for the turn to be told (`lib/textGroupMail.ts`). */
     mail: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
   }),
@@ -128,13 +144,14 @@ export const groupAnswerValidator = v.union(
 
 export type GroupAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
+  | { status: "speaks_up"; level: Engagement; by: string }
   | { status: "not_allowed"; slug: string }
   | { status: "invited"; slug: string; count: number; role: string }
   | { status: "mail_shared"; address: string; narrowed: boolean }
   | { status: "mail_unshared"; count: number }
   | { status: "mail_refused" }
   | { status: "unknown_sender"; tell: boolean }
-  | {
+  | ({
       status: "ready";
       slug: string;
       intro: boolean;
@@ -146,10 +163,7 @@ export type GroupAnswer =
       names: { phone: string; handle: string }[];
       guests?: { phone: string; label: string }[];
       guestTagger?: string;
-      engagement?: Engagement;
-      engagementChosen: boolean;
-      texStyle?: TexStyle;
-    };
+    } & ChatSettings);
 
 /** The key a chat is filed under: its line and Sendblue id, hashed, never stored as given. */
 export async function groupKeyOf(line: string, groupId: string): Promise<string> {
@@ -189,16 +203,16 @@ export const applyGroupTurn = internalMutation({
     const group = await groupRow(ctx, args.groupKey, now, args.routine !== true);
     const senderUser = await linkedUser(ctx, args.sender);
 
-    // Anyone in the chat may stop Tex or start it again: it cannot leave a group.
-    if (args.command?.kind === "stop") {
-      await muteChat(ctx, group, senderUser, now);
-      return { status: "stopped" };
+    // Anyone in the chat may stop Tex, start it again, or name a level: it cannot leave a group. Who, as `setGroupEngagement` keeps it.
+    const command = args.command;
+    if (command?.kind === "stop" || command?.kind === "start" || command?.kind === "speaks_up") {
+      const by = (senderUser !== null ? await handleOf(ctx, senderUser) : "") || "someone here";
+      const setBy = senderUser !== null && by !== "someone here" ? by : await hashToken(`${args.groupKey}:${args.sender}`);
+      if (command.kind === "stop") return await muteChat(ctx, group, setBy), { status: "stopped" };
+      if (command.kind === "start") return await unmuteChat(ctx, group, setBy), { status: "started" };
+      return await setSpeaksUp(ctx, group, command.level, setBy), { status: "speaks_up", level: command.level, by };
     }
-    if (args.command?.kind === "start") {
-      await unmuteChat(ctx, group);
-      return { status: "started" };
-    }
-    if (group.mutedAt !== undefined) return { status: "muted" };
+    if (speaksUpOf(group) === "off") return { status: "muted" };
     // A bound chat checks in on its own, as a person's Tex does; any word here arms it (`lib/textGroupLooks.ts`).
     await armChatLook(ctx, group, now);
 
@@ -505,8 +519,9 @@ async function mintGroupGrant(
 }
 
 /**
- * A group's style, chosen by someone in it (contract section 4). Only for a chat Tex already has a row for: a choice
- * never creates one. A number given as `setBy` is kept only as a `groupKey`-salted hash, like `toldUnknown`.
+ * When Tex speaks up in a group, chosen by someone in it (contract section 4, now `speaksUp`). Only for a chat Tex
+ * already has a row for: a choice never creates one. A number given as `setBy` is kept only as a `groupKey`-salted
+ * hash, like `toldUnknown`.
  */
 export const setGroupEngagement = internalMutation({
   args: { groupKey: v.string(), style: engagementValidator, setBy: v.string() },
@@ -518,7 +533,7 @@ export const setGroupEngagement = internalMutation({
       .unique();
     if (chat === null) return "unknown";
     const setBy = isPhoneNumber(args.setBy) ? await hashToken(`${args.groupKey}:${args.setBy}`) : args.setBy;
-    await setChatEngagement(ctx, chat, args.style, setBy);
+    await setSpeaksUp(ctx, chat, args.style, setBy);
     return "set";
   },
 });

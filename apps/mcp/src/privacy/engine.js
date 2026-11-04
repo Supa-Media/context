@@ -462,21 +462,35 @@ export function sealedCovers(key, rules) {
 }
 
 /**
+ * Set on the rules a session's store serves (`store/privacyAuthority.js`): the names that session holds (groups,
+ * handle, row tokens; `session.js` `grantedGroupsOf`), so every tool that judges a path with the rules alone judges it
+ * as the person reading. Without them an AI connection held its names and no tool used them: a note shared to the
+ * person by name, and a Tex chat's sealed home, listed and read as missing (2026-11-03).
+ */
+export const READER_NAMES = Symbol("readerNames");
+
+/** The names the rules were served for (`READER_NAMES`), or `undefined` for rules nobody tagged. */
+export function readerNamesOf(rules) {
+  const names = rules?.[READER_NAMES];
+  return names instanceof Set ? names : undefined;
+}
+
+/**
  * May this caller see this key at all?
  *
- * ## A group is reached by the grant, never by the role
+ * ## A group is reached through the session's names, never by the role
  *
- * `grantedGroups` is the set of group names the caller's grant was **issued
- * with**, and it defaults to none. A connection somebody added at team tier
- * therefore cannot see, search or list a note scoped to a group *even when the
- * person holding it is in that group*: to that connection the note is private,
- * which is the answer somebody expects from a client they deliberately gave
- * the narrower tier. Widening one client is a deliberate act that lands in the
- * grant and in the audit trail — the rule `visibilityTierForGrant` already
- * follows, applied to the third kind of audience — rather than an inference
- * from a role, which is the read-time check nothing records.
+ * `grantedGroups` is the set of names the session carries (groups, handle, row
+ * tokens), and it defaults to none. The control plane hands them to the app's
+ * own client and every AI connection, and to none of Context's background
+ * clients (`holdsGrantedNames`; the owner, 2026-11-03,
+ * `docs/decisions/privacy-and-sharing/ai-connection-names.md`). A role alone
+ * never opens a group's note: what opens it is a name the session holds.
  */
 export function canSee(key, scope, rules, overrides, grantedGroups) {
+  // Left out (not passed, which is not the same as passing `undefined`): the names of the reader the rules were served
+  // for (`READER_NAMES`). A caller judging somebody else, or the workspace's members at large, passes its own, or null.
+  if (arguments.length < 5) grantedGroups = readerNamesOf(rules);
   if (foldPath(key) === PRIVACY_KEY) return scope === "private";
   if (isPlumbing(key)) return false; // plumbing is not part of the note surface for any tool
   const sealed = sealedCovers(key, rules);
@@ -488,7 +502,7 @@ export function canSee(key, scope, rules, overrides, grantedGroups) {
   }
   if (visibility === "team") return !readsAsGuest(grantedGroups);
   if (visibility === "private") return false;
-  return grantedGroups !== undefined && grantedGroups.has(visibility);
+  return grantedGroups !== undefined && grantedGroups !== null && grantedGroups.has(visibility);
 }
 
 /**

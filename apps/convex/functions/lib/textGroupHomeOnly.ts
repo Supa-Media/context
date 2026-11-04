@@ -29,6 +29,7 @@ import { accountTimeZone } from "./routines/access";
 import { effectiveTimeZone } from "./routines/model";
 import { personalWorkspaceOf } from "../textLinks";
 import { liveReach, reachOf } from "./textGroupReach";
+import { speaksUpOf } from "./texChatRules";
 
 /** The client every group grant is minted for, and its name (`functions/textGroups.ts` holds the same two). */
 const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -256,7 +257,7 @@ export async function homeOnlyRows(ctx: QueryCtx, grant: Doc<"oauthGrants">, wor
  * names nobody. Null when it may not.
  */
 export async function homeBinder(ctx: QueryCtx, chat: Doc<"textGroups">): Promise<Id<"users"> | null> {
-  if (chat.mutedAt !== undefined) return null;
+  if (speaksUpOf(chat) === "off") return null;
   const sponsor = chat.sponsorId ?? chat.boundBy;
   if (sponsor === undefined || (await chatHomeOf(ctx, chat._id)) === null) return null;
   return (await phoneSignInPaused(ctx, sponsor)) ? null : sponsor;

@@ -5,6 +5,9 @@
  * is one statement, so a pure move cannot make this file shorter.
  */
 
+import { MACHINE_PATHS, handleMachines } from "../machines/routes.js";
+import { MACHINE_JOB_PATHS, handleMachineJob } from "../machines/jobRoutes.js";
+import { MACHINE_APP_PATHS, handleMachineApp } from "../machines/appRoutes.js";
 import { openaiAppsChallengeResponse } from "./openaiAppsChallenge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { attachLinkCalls, matchWellKnown } from "./routing.js";
@@ -52,6 +55,7 @@ import { handleMessagesBackupFile } from "../communications/messagesBackupFiles.
 import { MESSAGES_BACKUP_ROUTE, parseFileRoute } from "../../../../packages/communications/src/backup.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
 import { handleTexPage, TEX_PAGE_PATHS } from "./texPage/serve.js";
+import { APP_SEARCH_PATH, handleAppSearch } from "./appSearch.js";
 import { handleTexPageLive, TEX_PAGE_SOCKET_PATH } from "./texPage/live.js";
 import { ACCESS_SOCKET_PATH, handleAccess, handleAgentActivity, handlePresence, handleTree, TREE_SOCKET_PATH } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
@@ -142,7 +146,7 @@ export async function route(request, env, ctx) {
     // `isTransportPath`'s reasoning about `/inbox` — and the list itself lives
     // in `origin.js`, so this asks the question here rather than editing
     // another module's idea of what speaks the MCP transport.
-    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH || isMessagesBackupPath(path)) {
+    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH || isMessagesBackupPath(path) || MACHINE_PATHS.has(path)) {
       const refusal = enforceOrigin(request, env);
       if (refusal) return refusal;
     }
@@ -214,6 +218,9 @@ export async function route(request, env, ctx) {
     // The Tex page's socket, held by the chat's Tex object (`texPage/live.js`): a GET answering 101, as `/presence`.
     if (path === TEX_PAGE_SOCKET_PATH) return await handleTexPageLive(request, env, { slug, pathToken, origin });
 
+    // A person's own computers: pairing and the runner's socket (`machines/routes.js`). Their own grant, not a session.
+    if (MACHINE_PATHS.has(path)) return await handleMachines(request, env, { path, origin });
+
     // The MCP transport: every step timed by the MCP entry point (`mcpRoute.js`).
     if (path === "/mcp") return await serveMcp(request, env, ctx, { slug, pathToken, origin });
 
@@ -242,7 +249,10 @@ export async function route(request, env, ctx) {
       path === "/inbox" ||
       path === "/agent" ||
       path === "/agent/try" ||
+      path === APP_SEARCH_PATH ||
       TEXTING_ROUTES.has(path) ||
+      MACHINE_JOB_PATHS.has(path) ||
+      MACHINE_APP_PATHS.has(path) ||
       path === "/agent/review" ||
       path === "/collaboration" ||
       fileOpRoute ||
@@ -428,10 +438,16 @@ export async function route(request, env, ctx) {
       // setup an @context-lc editor picked, then a judge turn on its rules.
       // The texting Worker's steer, events, cancel and stale asks (`agent/textingRoutes.js`).
       if (TEXTING_ROUTES.has(path)) return await TEXTING_ROUTES.get(path)(request, store, session);
+      // A job's part on the person's own computer (`machines/jobRoutes.js`).
+      if (MACHINE_JOB_PATHS.has(path)) return await handleMachineJob(request, env, session, { path, controlPlane, origin, store });
+      // The app's screens for their computers: list, settings, disconnect (`machines/appRoutes.js`).
+      if (MACHINE_APP_PATHS.has(path)) return await handleMachineApp(request, env, session, { path, controlPlane });
       // The texting Worker saw a chat go quiet: score how it went (`agent/selfReview.js`).
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
       if (appRoute) return await appRoute(request, store, session, path);
+      // The app's search bar, on the same search an AI client runs (`appSearch.js`).
+      if (path === APP_SEARCH_PATH) return await withSearchPassesHeld(store, () => handleAppSearch(request, store, session));
       if (texPageRoute) return await handleTexPage(request, env, store, session, { path, controlPlane });
       if (messagesBackupRoute) {
         const file = parseFileRoute(path);

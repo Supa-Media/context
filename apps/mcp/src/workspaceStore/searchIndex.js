@@ -54,7 +54,8 @@ export const QUERY_BYTES = 32 * 1024;
 export const BUILD_ROWS = 400;
 export const BUILD_BYTES = 64 * 1024;
 /** The index's own layout; an index from an earlier one is emptied and built again. */
-const LAYOUT = "3";
+// 4: file names in the headings column and word forms asked at query time (2026-11-04).
+const LAYOUT = "4";
 /** Queries one search sends (a strict and a relaxed expression, over at most both tables). */
 const MAX_ASKS = 4;
 /** Rows one query may ask for (the gateway's `CHUNK_FETCH_CAP` is well under it). */

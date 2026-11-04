@@ -24,6 +24,7 @@
  * grant, exactly as it does for any other connected client.
  */
 
+import { jobRoute } from "./jobRoutes";
 import { logged } from "./agentError";
 import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
@@ -42,14 +43,16 @@ import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told }
 import { parseSendblueInbound, repliedToText, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
 import { groupNameOf, parseSendblueGroup, sendGroupName, type GroupMessage } from "./sendblueGroups";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
+import { flushWithReader } from "./chatRead";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { sha256Hex } from "./groupChat";
 import type { DueRoutine } from "./clients";
+import { textsSessionDeps, type TextsBinding } from "./gatewaySession";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
-import { mintThreadsLink, readJobSteer, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
-import { acceptJob, armJobNext, failJob, resumeJob, runJob, steerJob } from "./jobRun";
-import { handOverJob, startJobFlow, type JobRunParams } from "./jobWorkflow";
+import { mintThreadsLink, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { jobAlarm, steerJob } from "./jobRun";
+import { type JobRunParams } from "./jobWorkflow";
 import { jobUpdate } from "./jobTexts";
 import { pageJobsOf, pageSteerResponse } from "./texPage";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
@@ -92,6 +95,7 @@ export interface Env {
   CONTROL_PLANE_ORIGIN: string;
   /** The gateway origin, e.g. https://mcp.context.lc */
   GATEWAY_ORIGIN: string;
+  GATEWAY_TEXTS?: TextsBinding; // the gateway's `TexTexts`: a text's session from the person object (`gatewaySession.ts`)
   /** "on" serves the texts simulator (simulator.ts). Only staging sets it. */
   SIMULATOR?: string;
   /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
@@ -519,6 +523,8 @@ export class SenderInbox implements DurableObject {
       const { routine: _routine, ...message } = (await request.json()) as GroupMessage;
       await this.keepWhere(message);
       const outcome = await acceptGroup(this.state.storage, message, Date.now());
+      // What the chat just said goes to its ledger now, not at Tex's next turn, so its history keeps up (`chatRead.ts`).
+      if (outcome === "kept" || outcome === "queued") this.handOff(flushWithReader(this.state.storage, message.groupId, () => Date.now()));
       // The group-typing experiment: ask Whapi for this group's presences once a day (`whapi.ts`); never blocks a message.
       const whapi = whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE);
       if (whapi !== null && !message.sms) await watchGroupPresenceDaily(this.state.storage, (input, init) => fetch(input, init), whapi, message.groupId, Date.now());
@@ -544,23 +550,9 @@ export class SenderInbox implements DurableObject {
       await this.state.storage.put(CHAT_WHERE_KEY, where);
       return Response.json({ ok: true });
     }
-    // A background job's own object is started here, and reports to its chat's inbox here (`jobs.ts`).
-    if (path === "/job-start") {
-      const run = (await request.json()) as JobRun;
-      const flow = this.env.JOB_RUN;
-      await acceptJob(this.state.storage, run, Date.now(), flow ? () => startJobFlow(flow, run.id) : undefined);
-      return Response.json({ ok: true });
-    }
-    // The job's workflow runs each pass here, and ends it here when every try failed (`jobWorkflow.ts`).
-    if (path === "/job-pass") return Response.json({ next: await runJob(this.state.storage, this.jobDeps()) });
-    if (path === "/job-failed") return Response.json({ next: await failJob(this.state.storage, this.jobDeps()) });
-    if (path === "/job-steer") {
-      const steer = readJobSteer(await request.json());
-      if (steer === null) return new Response(null, { status: 400 });
-      // "Restart it": the job ended here picks up where it stopped, under a new workflow (`resumeJob`).
-      if (steer.resume) return Response.json({ taken: await resumeJob(this.state.storage, Date.now(), this.env.JOB_RUN ? (id, resumes) => startJobFlow(this.env.JOB_RUN!, id, resumes) : undefined) });
-      return Response.json({ taken: await steerJob(this.state.storage, steer) });
-    }
+    // A background job's own object is started, run, steered and mailed here (`jobRoutes.ts`); it reports to its chat's inbox below.
+    const job = await jobRoute(path, request, this.state.storage, this.env.JOB_RUN, () => this.jobDeps());
+    if (job !== undefined) return job;
     if (path === "/job-update") {
       const update = readJobUpdate(await request.json());
       if (update === null) return new Response(null, { status: 400 });
@@ -601,14 +593,8 @@ export class SenderInbox implements DurableObject {
     await logged("alarm_carry_on", () => carryOnAfterSave(this.state.storage, this.deps()));
     // A chat quiet long enough has its conversation scored (`reviewWatch.ts`).
     await logged("alarm_review", () => checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) }));
-    // A job's object has only `jobrun`; every other object finds nothing to run. With Workflows, an alarm
-    // set before they ran jobs (one release) hands its job to its workflow and sets no alarm of its own.
-    await logged("alarm_job", async () => {
-      const flow = this.env.JOB_RUN;
-      if (!(flow && (await handOverJob(this.state.storage, flow)))) {
-        await armJobNext(this.state.storage, await runJob(this.state.storage, this.jobDeps()), Date.now());
-      }
-    });
+    // A job's object has only `jobrun`; every other object finds nothing to run.
+    await logged("alarm_job", () => jobAlarm(this.state.storage, this.jobDeps(), this.env.JOB_RUN !== undefined));
   }
 
   private jobDeps() {
@@ -661,6 +647,7 @@ export class SenderInbox implements DurableObject {
       appCard: appCardConfig(this.env),
       waitUntil: (promise) => this.handOff(promise),
       textTiming: this.env.TEX_TEXTS,
+      ...(this.env.GATEWAY_TEXTS ? { texts: textsSessionDeps(this.env.GATEWAY_TEXTS, this.state.storage) } : {}),
       noteCardPicture: noteCardDrawer((input, init) => fetch(input, init), this.env.CONTROL_PLANE_ORIGIN, this.env.AGENT_WORKER_SECRET),
       hostPicture: async (picture: Picture) =>
         hostPicture(

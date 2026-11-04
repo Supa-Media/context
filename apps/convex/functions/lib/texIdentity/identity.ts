@@ -48,6 +48,11 @@ export async function texterIdentityHandler(
   const home = await personalWorkspaceOf(ctx, userId);
   if (home === null || home !== args.expectedWorkspaceId) return null;
   if (!session.workspaces.some((entry) => entry.workspaceId === home)) return null;
+  return await identityOfPerson(ctx, userId, home);
+}
+
+/** Who `userId` is, by their account and their personal workspace `home`; also the copy their person object keeps (`textingObjects.ts`). */
+export async function identityOfPerson(ctx: QueryCtx, userId: Id<"users">, home: Id<"workspaces">): Promise<TexterIdentity | null> {
   const user = await ctx.db.get(userId);
   const workspace = await ctx.db.get(home);
   if (user === null || workspace === null) return null;

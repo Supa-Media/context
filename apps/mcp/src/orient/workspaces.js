@@ -10,10 +10,8 @@
  */
 
 import { accessSentence } from "./access.js";
-import { firstParagraphOf, readFrontPage } from "./frontPage.js";
-import { surveyContext } from "./survey.js";
-import { describeFolders } from "./folderAbout.js";
-import { factJobs } from "../tree/facts.js";
+import { firstParagraphOf, readFrontPage, readIndexText } from "./frontPage.js";
+import { surveyLocally } from "./surveyOf.js";
 import { ORIENT_SIBLING_INDEX_CHAR_CAP, ORIENT_SIBLING_LIMIT, renderStructure } from "./render.js";
 import { hasWebsiteFolder } from "./websiteGuide.js";
 import { systemFoldersSection } from "./systemFolders.js";
@@ -54,18 +52,17 @@ export function openOnce(store) {
 }
 
 /**
- * One workspace's survey, with its folder descriptions. `listing` answers the
- * tree's keys, `facts` its note facts; a survey the tree cannot answer comes
- * back `unreadable`, which the block says rather than drawing a map of nothing.
+ * One workspace's survey, with its folder descriptions. Drawn inside the workspace's own object where it can be
+ * (`store.objectSurvey`, `workspaceStore/orientSurvey.js`): the object judges its own rows and sends the map, never
+ * every path, and the workspaces of one `orient` draw theirs side by side rather than one after another in the
+ * gateway. Otherwise drawn here (`surveyLocally`), as before.
  */
 export async function surveyOf(listing, facts, scope, rules, overrides) {
-  // Which folder does each built-in job, whatever it is called now; absent where the tree cannot say. Asked beside the
-  // survey and the folder descriptions, which never need it.
-  const asking = factJobs(facts).catch(() => null);
-  const survey = await surveyContext(listing, scope, rules, overrides);
-  const [jobs] = await Promise.all([asking, describeFolders(facts, survey)]);
-  if (jobs !== null) survey.jobs = jobs.jobs;
-  return survey;
+  if (typeof facts?.objectSurvey === "function") {
+    const drawn = await facts.objectSurvey().catch(() => null);
+    if (drawn !== null) return drawn;
+  }
+  return await surveyLocally(listing, facts, scope, rules, overrides);
 }
 
 /** The survey of a workspace whose file list could not be read: no map, and why. */
@@ -123,17 +120,25 @@ async function siblingOf(entry, openContext) {
   const head = `### ${entry.name} — ${accessSentence(entry)}`;
   try {
     const opened = await openContext(entry.name);
+    // Every step below is a round trip to that workspace's object. Its front page is read beside its rules and its
+    // map beside its front page, rather than one after another: each used to wait for the last, and four of these
+    // in a row were most of `orient`'s time. The text is held only in this frame, and shown only where
+    // `readFrontPage` finds `index.md` visible under the rules.
+    const indexText = readIndexText(opened.store);
+    indexText.catch(() => {}); // Answered below, or not at all when the rules cannot be read.
     const privacy = await loadPrivacyState(opened.store);
     if (privacy.error) {
       return { section: `${head}\nIts privacy manifest could not be read, so nothing there is readable until its owner repairs it.` };
     }
     const scope = opened.session.scope;
-    const text = await readFrontPage(opened.store, scope, privacy.rules, privacy.overrides, ORIENT_SIBLING_INDEX_CHAR_CAP);
+    const [text, survey] = await Promise.all([
+      readFrontPage(opened.store, scope, privacy.rules, privacy.overrides, ORIENT_SIBLING_INDEX_CHAR_CAP, indexText),
+      // A tree that fails costs this workspace its map, never its front page.
+      surveyOf(servedListingStore(opened.store), opened.store, scope, privacy.rules, privacy.overrides).catch(() =>
+        unreadableSurvey()
+      ),
+    ]);
     const page = firstParagraphOf(text);
-    // A tree that fails costs this workspace its map, never its front page.
-    const survey = await surveyOf(servedListingStore(opened.store), opened.store, scope, privacy.rules, privacy.overrides).catch(
-      () => unreadableSurvey()
-    );
     return { section: `${head}\n${bodyOf({ page: page || null, survey })}` };
   } catch {
     // Named, and honest about why it is thin. Dropping the row would make

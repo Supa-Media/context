@@ -58,8 +58,8 @@ export function themeVars(
     // `==highlighted==` words; see `markWash`.
     "--lp-mark": colors.markWash,
     // `#tags` written in the text: the accent, as tag chips are everywhere else.
-    "--lp-tag": colors.accentText,
-    "--lp-tag-wash": colors.accentDim,
+    "--lp-tag": colors.text,
+    "--lp-tag-wash": colors.tapeWash,
     // Hairlines. See the web half's note: a rule that wants an edge used to
     // borrow the code fence's fill, which is not one.
     "--lp-line": colors.line,

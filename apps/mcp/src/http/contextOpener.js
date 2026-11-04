@@ -160,9 +160,14 @@ export function attachContextOpener(store, session, { env, controlPlane, origin,
     // index passes (`search/heldPasses.js`) after it may already have opened one.
     followParent(targetStore, store, "searchSettings");
     followParent(targetStore, store, "holdSearchPass");
+    // Who is sending mail (`tools/notes/mail.js`): a job's turn joins another context's note mail as the job too.
+    followParent(targetStore, store, "mailTurn");
     attachLinkCalls(targetStore, target, controlPlane, env);
     attachImageUploads(targetStore, target, controlPlane, origin, env);
     targetStore.defer = store.defer;
+    // Its bucket backup copies behind the response too, as the caller's own are (`requestStore.js`): left unset, every
+    // write the object made for a save in another context was copied to the bucket before the answer (3.5 s, 2026-11-03).
+    if (targetStore.backupBehind) targetStore.backupBehind.defer = store.defer;
     // The same binding, keyed later by the *target's* workspace id: a write
     // routed into another context is announced in that context's note room
     // and recorded in its activity, never in the caller's.

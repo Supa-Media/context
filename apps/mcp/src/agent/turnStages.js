@@ -9,17 +9,17 @@
  * (`TEX_TIMING`, read with the account's SQL API): the turn's kind and
  * outcome, and how its milliseconds split between the wait before the
  * gateway, each step before the first model round (`STAGES`, marked in
- * `route.js`), the model, the tools, the rest of the turn, and the work after
+ * `texEntryPoint.js`), the model, the tools, the rest of the turn, and the work after
  * the answer until the response. Numbers, a kind and an outcome only: never a
  * workspace, a person, a model's words or theirs. Without the binding
  * (self-hosting, tests) nothing is written.
  */
 
-/** The marks `route.js` sets before the model, in order; each one's double is the time since the one before. */
+/** The marks `texEntryPoint.js` sets before the model, in order; each one's double is the time since the one before. */
 export const STAGES = ["provider", "tools", "history", "web", "setup", "skills", "pictures", "ready"];
 
 /**
- * blobs: kind, outcome, the bucket calls by stage (`callsLine`). doubles, in order: waitMs, then one per `STAGES`
+ * blobs: kind, outcome, the bucket calls by stage (`callsLine`), the turn's id. doubles, in order: waitMs, then one per `STAGES`
  * entry, then modelMs, toolMs, otherTurnMs (the turn's own time outside the
  * model and tools), afterMs, totalMs, rounds, retriedRounds, slowestRoundMs.
  */
@@ -35,8 +35,13 @@ export function turnStages(env, now = Date.now) {
   let report = null;
   let flushed = false;
   let rounds = null;
+  let turn = "";
   const calls = {};
   return {
+    /** The turn's id (the chat ledger's `turn`): the last blob of every point, so one turn can be found. */
+    set turn(value) {
+      if (typeof value === "string") turn = value.slice(0, 64);
+    },
     /**
      * Count the bucket calls this turn makes, by where in the turn (b before the
      * model, t in it, a after the answer) and by the key's first folders, ids
@@ -72,10 +77,10 @@ export function turnStages(env, now = Date.now) {
       if (flushed) return null;
       flushed = true;
       const point = stagesOf({ start, marks, end: now(), report });
-      point.blobs.push(callsLine(calls));
+      point.blobs.push(callsLine(calls), turn);
       // The same numbers in the Worker's log, for a live tail (`wrangler tail`).
       if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "turn_stages", kind: point.blobs[0], outcome: point.blobs[1], ...Object.fromEntries(COLUMNS.map((name, i) => [name, Math.round(point.doubles[i])])) }));
-      const perCall = callPoints(point.blobs[0], rounds ?? report?.trace ?? []);
+      const perCall = callPoints(point.blobs[0], rounds ?? report?.trace ?? [], turn);
       for (const call of perCall) if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "model_call", kind: call.blobs[0], model: call.blobs[1], ...Object.fromEntries(CALL_COLUMNS.map((name, i) => [name, call.doubles[i]])) }));
       write(env?.TEX_CALLS, perCall);
       return write(env?.TEX_TIMING, [point]) ? point : null;
@@ -100,7 +105,7 @@ function write(dataset, points) {
  * ONE POINT PER MODEL CALL (`TEX_CALLS`, dataset `tex_model_calls`), so a slow
  * call can be told apart from a slow turn (Dev2, 2026-10-31: Haiku calls took
  * 7 to 11 s against about 2.5 s expected). blobs: the turn's kind, the model,
- * "ok" or "failed". doubles, in order (`CALL_COLUMNS`): the round's number in
+ * "ok" or "failed", the turn's id. doubles, in order (`CALL_COLUMNS`): the round's number in
  * the turn, its milliseconds, the uncached input tokens, the cache reads, the
  * cache writes, the output tokens, the characters of words it wrote, and how
  * many tools it called. Output tokens past what the words and calls explain
@@ -109,7 +114,7 @@ function write(dataset, points) {
 export const CALL_COLUMNS = ["round", "ms", "input", "cacheRead", "cacheWrite", "output", "said", "calls"];
 export const MAX_CALL_POINTS = 24;
 
-export function callPoints(kind, trace) {
+export function callPoints(kind, trace, turn = "") {
   const points = [];
   let round = 0;
   for (const entry of trace) {
@@ -120,7 +125,7 @@ export function callPoints(kind, trace) {
     const n = (value) => (Number.isFinite(value) && value > 0 ? value : 0);
     const model = typeof entry.model === "string" ? entry.model.replace(/^[^/]*\//, "").slice(0, 64) : "unknown";
     points.push({
-      blobs: [String(kind), model, entry.ok === false ? "failed" : "ok"],
+      blobs: [String(kind), model, entry.ok === false ? "failed" : "ok", String(turn)],
       doubles: [round, n(entry.ms), n(usage.input), n(usage.cacheRead), n(usage.cacheWrite), n(usage.output), n(entry.said), n(entry.calls)],
       indexes: [String(kind)],
     });

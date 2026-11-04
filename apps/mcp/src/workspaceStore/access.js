@@ -242,7 +242,7 @@ const rowNames = (value) => Array.isArray(value) && value.length <= MAX_ROW_NAME
  * `rowNames` are the names the person holds there by a grant on a row (`#<noteId>`, and `#<noteId>!edit` for edit),
  * as the control plane's `grantedNamesFor` gives them: what opens a note or folder shared with them by name, and a
  * Tex group chat's sealed home (2026-11-02: without them the app's connection opened none of a person's chat homes).
- * Only the app's own client is given them, as its groups (`personRows.js` `sessionFor`). Left out when there are none.
+ * The app's own client and every AI connection are given them, as its groups (`personRows.js` `sessionFor`). Left out when there are none.
  */
 export function checkReachRow(row) {
   if (!row || typeof row !== "object") refuse("not a reach row");
@@ -302,7 +302,8 @@ export const sharedKey = (row) => `${row.fromWorkspaceId}:${row.noteId !== undef
  * previousRefreshHash?, expiresAt, status, lastUsedAt, createdAt?, machine?, at}`. `tokenHash` is null for a grant with no access token yet
  * (it resolves nothing until a refresh); `expiresAt` is 0 when none was recorded. `previousRefreshHash` is the refresh token the last
  * rotation spent: presented again, it revokes the grant. Texting clients (`context_texts`, `context_texts_group`) are
- * never held here; their checks stay with the control plane. `workspaceId` is the workspace the person connected it at, the session's default. Hashes
+ * never copied here: a 1:1 texting connection is kept only by the object's own `person.texting.open`
+ * (`personTexting.js`), which checks the phone itself. `workspaceId` is the workspace the person connected it at, the session's default. Hashes
  * only, never a token. `clientName` is display text the client asserted and decides nothing. `createdAt` (when the
  * grant was made) and `machine` (the Context desktop app on the person's computer, as the control plane's
  * `isDesktopShellClient` decided when it copied the row) are display only, for the app's connected-apps screens, and

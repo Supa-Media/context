@@ -1,0 +1,593 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://context.lc/schemas/machine-protocol/v1.json",
+  "title": "MachineProtocol",
+  "description": "Messages between a person's machine runner and the workspace object that owns the machine. One WebSocket, opened by the runner, JSON text frames, one message per frame. Pairing is over HTTPS and its bodies are here too. The gateway's TypeScript types (machineProtocol.generated.ts) and the runner's Rust types are both generated from this file, and a test fails when either drifts. See docs/decisions/texting-assistant/machines.md.",
+  "x-protocol-version": 1,
+  "oneOf": [{"$ref": "#/$defs/ServerMessage"}, {"$ref": "#/$defs/RunnerMessage"}],
+  "$defs": {
+            "ProtocolVersion": {"description": "The protocol version both sides speak.", "const": 1},
+            "Id": {
+                    "description": "An opaque identifier minted by the gateway: a machine, job, run or message id.",
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                  },
+            "Timestamp": {"description": "Milliseconds since the Unix epoch.", "type": "integer", "minimum": 0},
+            "Tool": {"description": "The coding tool a run starts. A slot is compute, not a tool: any slot runs either.", "enum": ["claude", "codex"]},
+            "PermissionMode": {
+                                "description": "How much the coding tool may do without asking. edits: edit files in the run's folder and run allowlisted shell commands. read: read only. full: whatever the tool allows inside its sandbox (owner's own asks only).",
+                                "enum": ["read", "edits", "full"]
+                              },
+            "MessageKind": {
+                            "description": "A delivered note-mail line. note: FYI. ask: needs an answer. Interrupts travel as their own message, never as a kind here.",
+                            "enum": ["note", "ask"]
+                          },
+            "RefusalCode": {
+                            "description": "Why the runner would not start or continue an assignment. Each names the local rule that held.",
+                            "enum": [
+                                      "busy",
+                                      "folder",
+                                      "tool",
+                                      "not_ready",
+                                      "memory",
+                                      "limit_day",
+                                      "limit_week",
+                                      "limit_others",
+                                      "plan_limit",
+                                      "rule",
+                                      "unknown_run",
+                                      "bad_message"
+                                    ]
+                          },
+            "Outcome": {
+                        "description": "How a run ended. finished: the tool returned its answer. failed: it exited with an error. cancelled: the server cancelled it. limit: a time or usage limit killed it. lost: the runner restarted and could not find the process.",
+                        "enum": ["finished", "failed", "cancelled", "limit", "lost"]
+                      },
+            "ToolFact": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["name", "installed", "signedIn"],
+                          "properties": {
+                                          "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$"},
+                                          "installed": {"type": "boolean"},
+                                          "signedIn": {"type": "boolean"},
+                                          "version": {"type": "string", "maxLength": 64}
+                                        }
+                        },
+            "MachineFacts": {
+                              "description": "What the runner reports about its machine, never the contents of anything: the basis of the slot counts and the good-at note.",
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": ["os", "arch", "memoryMb", "cores", "tools"],
+                              "properties": {
+                                              "os": {"enum": ["macos", "linux", "windows"]},
+                                              "osVersion": {"type": "string", "maxLength": 64},
+                                              "arch": {"type": "string", "maxLength": 32},
+                                              "chip": {"type": "string", "maxLength": 128},
+                                              "memoryMb": {"type": "integer", "minimum": 0},
+                                              "cores": {"type": "integer", "minimum": 1, "maximum": 1024},
+                                              "gpu": {"type": "string", "maxLength": 128},
+                                              "hasScreen": {"type": "boolean"},
+                                              "tools": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/ToolFact"}},
+                                              "repos": {
+                                                        "description": "Repository names (owner/name or folder name) found in the allowlisted folders. Never paths outside them.",
+                                                        "type": "array",
+                                                        "maxItems": 100,
+                                                        "items": {"type": "string", "maxLength": 200}
+                                                      }
+                                            }
+                            },
+            "SlotCounts": {
+                            "description": "Slot counts the runner works out from memory and cores. recommended: for a machine the person also uses. most: for a machine that only runs Tex. Never over 8.",
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["recommended", "most"],
+                            "properties": {
+                                            "recommended": {"type": "integer", "minimum": 1, "maximum": 8},
+                                            "most": {"type": "integer", "minimum": 1, "maximum": 8}
+                                          }
+                          },
+            "Limits": {
+                        "description": "The machine's limits, enforced on the machine as well as in the gateway.",
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["slots", "dayMs", "weekMs", "othersDayMs", "othersRunsPerDay", "longestRunMs", "pauseNearPlanLimit"],
+                        "properties": {
+                                        "slots": {"type": "integer", "minimum": 1, "maximum": 8},
+                                        "dayMs": {
+                                                  "description": "Agent time per day, summed over runs, in the owner's time zone.",
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                        "weekMs": {"type": "integer", "minimum": 0},
+                                        "othersDayMs": {
+                                                        "description": "Agent time other people's asks may use per day, inside dayMs.",
+                                                        "type": "integer",
+                                                        "minimum": 0
+                                                      },
+                                        "othersRunsPerDay": {"type": "integer", "minimum": 0},
+                                        "longestRunMs": {
+                                                          "description": "Longest a machine job may run, end to end: 4 hours by default, at most 24.",
+                                                          "type": "integer",
+                                                          "minimum": 60000,
+                                                          "maximum": 86400000
+                                                        },
+                                        "weekTokens": {
+                                                        "description": "Optional weekly token ceiling; absent means off.",
+                                                        "type": "integer",
+                                                        "minimum": 0
+                                                      },
+                                        "pauseNearPlanLimit": {"type": "boolean"},
+                                        "keepOneForOwner": {"type": "boolean"},
+                                        "timeZone": {"type": "string", "maxLength": 64}
+                                      }
+                      },
+            "Rules": {
+                      "description": "The runner's local copy of what the owner allowed. The runner refuses an assignment these do not allow, even one the gateway sent.",
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["folders", "tools", "limits", "computerUse"],
+                      "properties": {
+                                      "folders": {
+                                                  "description": "Absolute folder paths on the machine a run may start under. Runs never start in a home folder itself.",
+                                                  "type": "array",
+                                                  "maxItems": 32,
+                                                  "items": {"type": "string", "minLength": 1, "maxLength": 1024}
+                                                },
+                                      "tools": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/Tool"}},
+                                      "limits": {"$ref": "#/$defs/Limits"},
+                                      "computerUse": {
+                                                      "description": "Whether the owner's own runs may use the screen. Never for others.",
+                                                      "type": "boolean"
+                                                    },
+                                      "trustedRepos": {
+                                                        "description": "Repos whose own .claude settings, hooks and MCP servers may load, for the owner's own asks.",
+                                                        "type": "array",
+                                                        "maxItems": 100,
+                                                        "items": {"type": "string", "maxLength": 200}
+                                                      }
+                                    }
+                    },
+            "RunGrant": {
+                          "description": "A grant minted for one job part, scoped to the job's own grant (the group's for a group's job), never carrying send actions. The runner writes it into a 0600 MCP config file, never argv or the environment, and deletes it when the part ends.",
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["token", "expiresAt", "mcpUrl"],
+                          "properties": {
+                                          "token": {"type": "string", "minLength": 16, "maxLength": 4096},
+                                          "expiresAt": {"$ref": "#/$defs/Timestamp"},
+                                          "mcpUrl": {"type": "string", "pattern": "^https://", "maxLength": 512}
+                                        }
+                        },
+            "Assign": {
+                        "description": "Start, or carry on, one part of a job in a slot.",
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                                      "type",
+                                      "runId",
+                                      "jobId",
+                                      "part",
+                                      "tool",
+                                      "folder",
+                                      "permission",
+                                      "brief",
+                                      "doneWhen",
+                                      "grant",
+                                      "deadline",
+                                      "fromOwner",
+                                      "network",
+                                      "helpers",
+                                      "computerUse"
+                                    ],
+                        "properties": {
+                                        "type": {"const": "assign"},
+                                        "runId": {"$ref": "#/$defs/Id"},
+                                        "jobId": {"$ref": "#/$defs/Id"},
+                                        "part": {
+                                                  "description": "Which fifteen-minute part of the job this is, from 1.",
+                                                  "type": "integer",
+                                                  "minimum": 1,
+                                                  "maximum": 200
+                                                },
+                                        "title": {"type": "string", "maxLength": 200},
+                                        "tool": {"$ref": "#/$defs/Tool"},
+                                        "folder": {
+                                                    "description": "One of the rules' folders; the run makes a fresh worktree or scratch folder under it.",
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 1024
+                                                  },
+                                        "repo": {
+                                                  "description": "A repo under the folder to make the worktree from; absent means a scratch folder.",
+                                                  "type": "string",
+                                                  "maxLength": 200
+                                                },
+                                        "permission": {"$ref": "#/$defs/PermissionMode"},
+                                        "brief": {
+                                                  "description": "Words handed to the agent, never a shell line.",
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 32000
+                                                },
+                                        "doneWhen": {"type": "string", "maxLength": 4000},
+                                        "advice": {
+                                                    "description": "The advisor's words for a part after the first, sent as the next message of the same session.",
+                                                    "type": "string",
+                                                    "maxLength": 8000
+                                                  },
+                                        "resumeSession": {
+                                                          "description": "The CLI session id to resume, kept from an earlier part or before a disconnect.",
+                                                          "type": "string",
+                                                          "maxLength": 200
+                                                        },
+                                        "grant": {"$ref": "#/$defs/RunGrant"},
+                                        "deadline": {
+                                                      "description": "When this part must end; the runner kills the run at this time.",
+                                                      "$ref": "#/$defs/Timestamp"
+                                                    },
+                                        "fromOwner": {
+                                                      "description": "Whether the machine's owner asked for this job. Other people's runs never get computer use, trusted repo settings or the kept slot.",
+                                                      "type": "boolean"
+                                                    },
+                                        "asker": {
+                                                  "description": "Who asked, as shown to the owner (a handle or name).",
+                                                  "type": "string",
+                                                  "maxLength": 100
+                                                },
+                                        "chat": {
+                                                  "description": "The chat the job belongs to, as shown to the owner.",
+                                                  "type": "string",
+                                                  "maxLength": 100
+                                                },
+                                        "network": {
+                                                    "description": "Whether the run may reach the network. Off for others' runs unless the owner turned it on for that chat.",
+                                                    "type": "boolean"
+                                                  },
+                                        "helpers": {
+                                                    "description": "Whether the tool may start its own subagents inside the session.",
+                                                    "type": "boolean"
+                                                  },
+                                        "computerUse": {"type": "boolean"}
+                                      }
+                      },
+            "Deliver": {
+                        "description": "A note-mail line for a running run, written into its session as the next user message at its next step boundary.",
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["type", "runId", "messageId", "kind", "from", "text"],
+                        "properties": {
+                                        "type": {"const": "message"},
+                                        "runId": {"$ref": "#/$defs/Id"},
+                                        "messageId": {"$ref": "#/$defs/Id"},
+                                        "kind": {"$ref": "#/$defs/MessageKind"},
+                                        "from": {"type": "string", "minLength": 1, "maxLength": 100},
+                                        "text": {"type": "string", "minLength": 1, "maxLength": 4000},
+                                        "app": {
+                                                "description": "The app the sender wrote from, for an agent; absent for Tex or a person.",
+                                                "type": "string",
+                                                "maxLength": 40
+                                              },
+                                        "path": {"description": "The note whose mail block holds this line.", "type": "string", "maxLength": 1024},
+                                        "at": {"$ref": "#/$defs/Timestamp"}
+                                      }
+                      },
+            "Interrupt": {
+                          "description": "Stop the current step now and read this first. Only from Tex or the person, which the gateway checks before sending.",
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["type", "runId", "messageId", "from", "text"],
+                          "properties": {
+                                          "type": {"const": "interrupt"},
+                                          "runId": {"$ref": "#/$defs/Id"},
+                                          "messageId": {"$ref": "#/$defs/Id"},
+                                          "from": {"type": "string", "minLength": 1, "maxLength": 100},
+                                          "text": {"type": "string", "minLength": 1, "maxLength": 4000},
+                                          "path": {
+                                                    "description": "The note whose mail block holds this line, when it came from mail.",
+                                                    "type": "string",
+                                                    "maxLength": 1024
+                                                  }
+                                        }
+                        },
+            "Cancel": {
+                        "description": "End a run now. The runner kills the tool, deletes the run grant file, and answers with a result.",
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["type", "runId", "reason"],
+                        "properties": {
+                                        "type": {"const": "cancel"},
+                                        "runId": {"$ref": "#/$defs/Id"},
+                                        "reason": {"enum": ["stopped", "limit", "removed", "disconnected", "superseded"]}
+                                      }
+                      },
+            "Challenge": {
+                          "description": "The first frame on every connection. The runner signs it to prove it holds the machine's private key.",
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["type", "protocol", "nonce"],
+                          "properties": {
+                                          "type": {"const": "challenge"},
+                                          "protocol": {"$ref": "#/$defs/ProtocolVersion"},
+                                          "nonce": {"type": "string", "pattern": "^[A-Za-z0-9_-]{32,128}$"}
+                                        }
+                        },
+            "Welcome": {
+                        "description": "The hello was accepted. Carries the rules the runner enforces locally and the runs the workspace object still holds for it.",
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["type", "machineId", "rules", "keepRuns"],
+                        "properties": {
+                                        "type": {"const": "welcome"},
+                                        "machineId": {"$ref": "#/$defs/Id"},
+                                        "name": {"type": "string", "maxLength": 100},
+                                        "rules": {"$ref": "#/$defs/Rules"},
+                                        "keepRuns": {
+                                                      "description": "Runs the runner reported in its hello that the workspace object still wants. Any other run the runner holds it cancels.",
+                                                      "type": "array",
+                                                      "maxItems": 8,
+                                                      "items": {"$ref": "#/$defs/Id"}
+                                                    }
+                                      }
+                      },
+            "RulesChanged": {
+                              "description": "The owner changed the machine's settings. Takes effect for new assignments at once; a running run keeps the rules it started with unless a cancel follows.",
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": ["type", "rules"],
+                              "properties": {"type": {"const": "rules"}, "rules": {"$ref": "#/$defs/Rules"}}
+                            },
+            "Goodbye": {
+                        "description": "The workspace object is closing the connection and the runner should not reconnect: the machine was disconnected or its grant revoked.",
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["type", "reason"],
+                        "properties": {"type": {"const": "goodbye"}, "reason": {"enum": ["revoked", "replaced", "bad_signature", "protocol"]}}
+                      },
+            "ServerMessage": {
+                              "description": "Every frame the workspace object sends a runner. Nothing here runs a command: assign hands words to an agent the runner starts under its own rules.",
+                              "oneOf": [
+                                        {"$ref": "#/$defs/Challenge"},
+                                        {"$ref": "#/$defs/Welcome"},
+                                        {"$ref": "#/$defs/RulesChanged"},
+                                        {"$ref": "#/$defs/Assign"},
+                                        {"$ref": "#/$defs/Deliver"},
+                                        {"$ref": "#/$defs/Interrupt"},
+                                        {"$ref": "#/$defs/Cancel"},
+                                        {"$ref": "#/$defs/Goodbye"}
+                                      ]
+                            },
+            "HeldRun": {
+                        "description": "A run the runner still has after a reconnect, so the job resumes instead of starting over.",
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["runId", "alive"],
+                        "properties": {
+                                        "runId": {"$ref": "#/$defs/Id"},
+                                        "alive": {"description": "Whether the tool process is still running.", "type": "boolean"},
+                                        "session": {"type": "string", "maxLength": 200},
+                                        "lastStep": {"type": "integer", "minimum": 0}
+                                      }
+                      },
+            "Hello": {
+                      "description": "The runner's answer to the challenge: the machine id, an Ed25519 signature over helloSigningText(machineId, nonce), and what it can do now.",
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["type", "protocol", "machineId", "signature", "runner", "facts", "slots", "runs"],
+                      "properties": {
+                                      "type": {"const": "hello"},
+                                      "protocol": {"$ref": "#/$defs/ProtocolVersion"},
+                                      "machineId": {"$ref": "#/$defs/Id"},
+                                      "signature": {"description": "Base64url, no padding.", "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$"},
+                                      "runner": {"description": "The runner's version.", "type": "string", "maxLength": 32},
+                                      "facts": {"$ref": "#/$defs/MachineFacts"},
+                                      "slots": {"$ref": "#/$defs/SlotCounts"},
+                                      "runs": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/HeldRun"}}
+                                    }
+                    },
+            "Accept": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["type", "runId"],
+                        "properties": {"type": {"const": "accept"}, "runId": {"$ref": "#/$defs/Id"}}
+                      },
+            "Refuse": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["type", "runId", "code"],
+                        "properties": {
+                                        "type": {"const": "refuse"},
+                                        "runId": {"$ref": "#/$defs/Id"},
+                                        "code": {"$ref": "#/$defs/RefusalCode"},
+                                        "until": {
+                                                  "description": "When the refusal stops holding, where the runner knows (a limit's reset).",
+                                                  "$ref": "#/$defs/Timestamp"
+                                                }
+                                      }
+                      },
+            "Session": {
+                        "description": "The coding tool's own session id, sent as soon as the tool names it, so a disconnect can resume the same session.",
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["type", "runId", "session"],
+                        "properties": {
+                                        "type": {"const": "session"},
+                                        "runId": {"$ref": "#/$defs/Id"},
+                                        "session": {"type": "string", "minLength": 1, "maxLength": 200}
+                                      }
+                      },
+            "Step": {
+                      "description": "One step the agent took: the tool and its target, never a file's contents.",
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["type", "runId", "seq", "tool", "at"],
+                      "properties": {
+                                      "type": {"const": "step"},
+                                      "runId": {"$ref": "#/$defs/Id"},
+                                      "seq": {
+                                              "description": "Counts from 1 within the run, so a resend after a reconnect is recognised.",
+                                              "type": "integer",
+                                              "minimum": 1
+                                            },
+                                      "tool": {"type": "string", "minLength": 1, "maxLength": 64},
+                                      "action": {"type": "string", "maxLength": 64},
+                                      "target": {"type": "string", "maxLength": 300},
+                                      "at": {"$ref": "#/$defs/Timestamp"}
+                                    }
+                    },
+            "TokenUsage": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                            "input": {"type": "integer", "minimum": 0},
+                                            "output": {"type": "integer", "minimum": 0},
+                                            "cacheRead": {"type": "integer", "minimum": 0},
+                                            "cacheWrite": {"type": "integer", "minimum": 0}
+                                          }
+                          },
+            "Usage": {
+                      "description": "What a run has spent so far, and the tool's own plan-limit signal when it gave one.",
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["type", "runId", "wallMs"],
+                      "properties": {
+                                      "type": {"const": "usage"},
+                                      "runId": {"$ref": "#/$defs/Id"},
+                                      "wallMs": {"type": "integer", "minimum": 0},
+                                      "tokens": {"$ref": "#/$defs/TokenUsage"},
+                                      "planLimited": {"description": "The tool reported its plan is used up.", "type": "boolean"},
+                                      "planResetsAt": {"$ref": "#/$defs/Timestamp"},
+                                      "planUtilization": {
+                                                          "description": "How much of the plan's current window is used, 0 to 1, when the tool says.",
+                                                          "type": "number",
+                                                          "minimum": 0,
+                                                          "maximum": 1
+                                                        },
+                                      "planWindow": {
+                                                      "description": "Which plan window the tool reported, such as five_hour or seven_day.",
+                                                      "type": "string",
+                                                      "maxLength": 32
+                                                    }
+                                    }
+                    },
+            "Result": {
+                        "description": "A run ended. The answer is the tool's last message: untrusted words for the advisor and the coordinator.",
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["type", "runId", "outcome", "wallMs"],
+                        "properties": {
+                                        "type": {"const": "result"},
+                                        "runId": {"$ref": "#/$defs/Id"},
+                                        "outcome": {"$ref": "#/$defs/Outcome"},
+                                        "answer": {"type": "string", "maxLength": 32000},
+                                        "session": {"type": "string", "maxLength": 200},
+                                        "lastStep": {"type": "integer", "minimum": 0},
+                                        "wallMs": {"type": "integer", "minimum": 0},
+                                        "error": {
+                                                  "description": "A short reason, never a file's contents or a credential.",
+                                                  "type": "string",
+                                                  "maxLength": 500
+                                                },
+                                        "branch": {
+                                                    "description": "The branch the run committed to, when it made a worktree.",
+                                                    "type": "string",
+                                                    "maxLength": 200
+                                                  }
+                                      }
+                      },
+            "Status": {
+                        "description": "The runner's state, sent after the hello and whenever it changes.",
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["type", "ready", "busy", "freeMemoryMb"],
+                        "properties": {
+                                        "type": {"const": "status"},
+                                        "ready": {"description": "False when neither tool is installed and signed in.", "type": "boolean"},
+                                        "notReady": {"enum": ["no_tool", "signed_out", "memory", "paused"]},
+                                        "busy": {"type": "integer", "minimum": 0, "maximum": 8},
+                                        "freeMemoryMb": {"type": "integer", "minimum": 0},
+                                        "pausedUntil": {"$ref": "#/$defs/Timestamp"},
+                                        "tools": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/ToolFact"}}
+                                      }
+                      },
+            "RunnerMessage": {
+                              "description": "Every frame a runner sends. Anything else closes the connection.",
+                              "oneOf": [
+                                        {"$ref": "#/$defs/Hello"},
+                                        {"$ref": "#/$defs/Accept"},
+                                        {"$ref": "#/$defs/Refuse"},
+                                        {"$ref": "#/$defs/Session"},
+                                        {"$ref": "#/$defs/Step"},
+                                        {"$ref": "#/$defs/Usage"},
+                                        {"$ref": "#/$defs/Result"},
+                                        {"$ref": "#/$defs/Status"}
+                                      ]
+                            },
+            "PairStart": {
+                          "description": "POST /machines/pair: a runner asks to be paired. The private key never leaves the machine.",
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["publicKey", "name", "facts"],
+                          "properties": {
+                                          "publicKey": {
+                                                        "description": "The machine's Ed25519 public key, raw 32 bytes, base64url without padding.",
+                                                        "type": "string",
+                                                        "pattern": "^[A-Za-z0-9_-]{43}$"
+                                                      },
+                                          "name": {"type": "string", "minLength": 1, "maxLength": 100},
+                                          "facts": {"$ref": "#/$defs/MachineFacts"}
+                                        }
+                        },
+            "PairStarted": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["pairingId", "code", "approveUrl", "expiresAt", "pollMs"],
+                            "properties": {
+                                            "pairingId": {"$ref": "#/$defs/Id"},
+                                            "code": {
+                                                      "description": "Shown on both screens to compare, like KQ7-4MP.",
+                                                      "type": "string",
+                                                      "pattern": "^[A-Z0-9]{3}-[A-Z0-9]{3}$"
+                                                    },
+                                            "approveUrl": {"type": "string", "pattern": "^https://", "maxLength": 512},
+                                            "expiresAt": {"$ref": "#/$defs/Timestamp"},
+                                            "pollMs": {"type": "integer", "minimum": 1000}
+                                          }
+                          },
+            "PairPoll": {
+                          "description": "POST /machines/pair/poll: signed with the machine's key, so only the machine that asked can collect the grant.",
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["pairingId", "signature"],
+                          "properties": {
+                                          "pairingId": {"$ref": "#/$defs/Id"},
+                                          "signature": {
+                                                        "description": "Ed25519 over pairSigningText(pairingId), base64url.",
+                                                        "type": "string",
+                                                        "pattern": "^[A-Za-z0-9_-]{86}$"
+                                                      }
+                                        }
+                        },
+            "PairStatus": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["status"],
+                            "properties": {
+                                            "status": {"enum": ["waiting", "approved", "declined", "expired"]},
+                                            "machineId": {"$ref": "#/$defs/Id"},
+                                            "workspace": {
+                                                          "description": "The owning workspace's handle, for display.",
+                                                          "type": "string",
+                                                          "maxLength": 100
+                                                        },
+                                            "grant": {
+                                                      "description": "The machine grant, bound to its public key. Returned once.",
+                                                      "type": "string",
+                                                      "minLength": 16,
+                                                      "maxLength": 4096
+                                                    },
+                                            "socketUrl": {"type": "string", "pattern": "^wss://", "maxLength": 512}
+                                          }
+                          }
+          }
+}

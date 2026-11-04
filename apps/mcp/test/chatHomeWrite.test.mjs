@@ -41,12 +41,15 @@ test("a new note in a chat's home is written, and no row's access is asked to ch
   assert.equal(await (await store.get(`${HOME}/history.md`)).text(), "# History\n");
 });
 
-test("a note outside the home on the same kind of store still has its row set", async () => {
+test("a note outside the home on the same kind of store is written as before, its folder giving it team", async () => {
   const { store, asked } = homeStore();
   markChatHome(store, "tex/groups/another-chat");
   const result = await toolWriteNote(store, "team", FOLDERS, new PrivacyOverrides(), { path: "notes/plain.md", content: "# Plain\n" });
   assert.notEqual(result?.isError, true, JSON.stringify(result));
-  assert.equal(asked.length, 1);
+  assert.equal(await (await store.get("notes/plain.md")).text(), "# Plain\n");
+  // `notes/` already gives it `team`: since 2026-11-03 that is no row write at all (`rowAccess.inherits`), where it
+  // was an `inherit` the control plane answered and changed nothing with.
+  assert.deepEqual(asked, []);
 });
 
 test("a note in a chat's home can't be asked to be private, and nothing is written", async () => {

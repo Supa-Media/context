@@ -46,7 +46,7 @@
  *     email reaches the model as waiting for a yes` fails.
  * 16. `answerWithAsk` not calling `withoutHeldEcho`. → `a held email is texted
  *     once` fails.
- * 17. `setAsideLine` dropped from the model's question in `route.js`. → `the
+ * 17. `setAsideLine` dropped from the model's question in `texEntryPoint.js`. → `the
  *     turn that set a held email aside is told so` fails.
  */
 
@@ -145,9 +145,10 @@ export async function runEmailGateChecks(check) {
     const stood = JSON.stringify(model.requests.at(-1)?.messages ?? []);
     before = sends().length;
     await ask(env, TOKEN_TEXTS, "yes");
+    // The model is no longer told it waits: a text that is no yes or no reads no ask (owner, 2026-11-03, `front-door.md`).
     check(
-      "a side text leaves the ask standing, the model is told so, and the yes after it sends (Dev2, 2026-10-22)",
-      stood.includes("it still waits") && stood.includes("Re: one sec") && sends().length === before + 1 && sends().at(-1).email.subject === "Re: one sec",
+      "a side text leaves the ask standing, and the yes after it sends (Dev2, 2026-10-22)",
+      !stood.includes("it still waits") && sends().length === before + 1 && sends().at(-1).email.subject === "Re: one sec",
     );
 
     model.install([
@@ -159,9 +160,11 @@ export async function runEmailGateChecks(check) {
     model.install([{ text: "Sure, what time?" }]);
     await ask(env, TOKEN_TEXTS, "hmm wait, what time did they suggest?");
     const movedOn = JSON.stringify(model.requests.at(-1)?.messages ?? []);
+    // Since 2026-11-03 (owner: "get rid of the waiting asks step entirely"; it cost ~5 s a text) a text that is
+    // no yes or no lists no waiting ask, so the model is told nothing about one (`front-door.md`).
     check(
-      "the turn after an ask is told it still waits, naming it, so it neither asks again nor says it was dropped",
-      movedOn.includes("This text is not that yes") && movedOn.includes("Re: Friday") && movedOn.includes("don't show it again or ask for the yes again"),
+      "a text that is no yes or no tells the model nothing about a waiting ask",
+      !movedOn.includes("This text is not that yes") && !movedOn.includes("it still waits"),
     );
     model.install([{ text: "Yes what?" }]);
     before = sends().length;

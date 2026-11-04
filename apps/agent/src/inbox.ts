@@ -69,7 +69,7 @@ import { MAX_CANDIDATES, staleAsks } from "./decide";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
-import { closeMenu, isSettingsText, keepTexStyle, keptTexStyle, menuState, openMenu } from "./texStyle";
+import { closeMenu, isSettingsText, menuState, openMenu } from "./texStyle";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
@@ -311,10 +311,8 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     const line = first.channel === "simulator" ? undefined : lineFor(lineDeps(deps), first.chatId);
     // Only "ok", "thanks", tapbacks: read, and no bubble until decide picks an answer (`answerTexts` starts it then).
     const acksOnly = pending.every(([, item]) => item.message.chatId !== first.chatId || (!item.force && pureAck(item.message)));
-    if (acksOnly) await line?.markRead(first.chatId, first.messageId);
+    const read = acksOnly ? line?.markRead(first.chatId, first.messageId) : undefined; // never blocks decide (Dev, 2026-11-04)
     const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first, { aimLater: true });
-    // Emoji: less (`texStyle.ts`): no quick tapback, the answer is the only sign.
-    if ((await keptTexStyle(storage)).emoji === "less") presence?.dropTapback();
     try {
       const choice = await chooseTurn(storage, deps, pending);
       for (const [key] of choice.drop) await storage.delete(key);
@@ -328,6 +326,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       if (choice.answer.length > 0 && !(await answerTurn(storage, deps, choice.answer, presence))) return;
     } finally {
       await presence?.stop();
+      await read;
     }
   }
   await pruneSeen(storage, deps.now());
@@ -362,6 +361,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   let turn: Answered;
   try {
     turn = await answering(message, work, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, arrivedAt: timing.arrived }, storage, covers, presence, timing);
+    if (typeof turn.turn === "string") timing.turn = turn.turn; // its timing row lines up with the gateway's (`textTiming.ts`)
   } catch (error) {
     if (!(error instanceof TryLater)) throw error;
     // Nothing ran, so these texts and the ones behind them wait; later ones keep their order.
@@ -557,9 +557,9 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       onPictures: (sent, offered) => void ((pictures = sent), (choices = offered)),
       onOffers: (offered, named) => void ((offers = offered), (hub = named)),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
-      // "Tex, settings" and the style it keeps (`texStyle.ts`).
+      // "Tex, settings" (`texStyle.ts`).
       settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
-      onTexStyle: (style) => keepTexStyle(storage, style), warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
+      warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
       onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
     },
@@ -607,8 +607,8 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
     // The model only names the job: what the job is handed is always their own text.
     onSteers: async (asks) => {
       if (!deps.steerJob) return;
-      await steerJobs(storage, asks, { id: message.eventId, text: message.event ? "" : message.text.trim() }, deps.steerJob, deps.now()); // a turn by code passes only its own notes
-      return notResumedText(await resumeJobs(storage, asks, { id: message.eventId }, deps.steerJob, deps.now())); // "restart it" picks an ended job back up
+      const said = { id: message.eventId, text: message.event ? "" : message.text.trim() }; await steerJobs(storage, asks, said, deps.steerJob, deps.now()); // a turn by code passes only its own notes
+      return notResumedText(await resumeJobs(storage, asks, said, deps.steerJob, deps.now())); // "restart it" picks an ended job back up, with their words
     },
   };
 }
@@ -649,7 +649,10 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
       return reply;
     });
   const simulator = message.channel === "simulator";
-  let chain: Promise<void> = Promise.resolve();
+  const shown = simulator ? undefined : presence ?? (await startPresence(lineFor(lineDeps(deps), message.chatId), message));
+  // Tex's own texts wait for the read receipt and the bubble (`presence.ts` `ready`); the turn never does.
+  let chain: Promise<void> = shown?.ready ?? Promise.resolve();
+  const bubbles: Promise<void>[] = [];
   const say = (text: string): Promise<void> => {
     if (isControlWord(text)) return chain; // a word meant for us, never a text (`controlWords.ts`)
     chain = chain.then(async () => {
@@ -662,8 +665,8 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
         else await line.sendText(message.chatId, text, `progress:${work}:${hash.slice(0, 16)}`, threadFor(message));
         await storage.put(sentKey, deps.now());
         await addEvent(storage, { at: deps.now(), chat: message.chatId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: true, ...(deps.steer ? { turn: deps.steer.turn } : {}) });
-        // Sending a text clears the bubble; the task is still going.
-        await line?.startTyping(message.chatId);
+        // Sending a text clears the bubble; the task is still going. Asked for again beside the next line, never before it.
+        if (line) bubbles.push(line.startTyping(message.chatId));
       } catch {
         // A progress line that failed costs the person a line, never the answer.
       }
@@ -679,19 +682,16 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
   // has something to say (Dev, 2026-10-19: "most useless message ... I don't
   // want to see it ever again").
 
-  if (simulator) {
-    try {
-      return await replied(replyTo(message, { ...deps, onProgress }));
-    } finally {
-      await chain;
-    }
-  }
-  const shown = presence ?? (await startPresence(lineFor(lineDeps(deps), message.chatId), message));
   try {
-    return await replied(replyTo(message, { ...deps, onProgress }));
+    const onStage = (stage: "session" | "asking") => {
+      if (stage === "session") timing.sessioned = deps.now();
+      else timing.asking = deps.now();
+    };
+    return await replied(replyTo(message, { ...deps, onProgress, onStage }));
   } finally {
-    await shown.stop();
+    await shown?.stop();
     await chain;
+    await Promise.all(bubbles);
   }
 }
 

@@ -81,7 +81,7 @@ async function main(): Promise<void> {
 
   const prepared = await prepareLaunch(ctx);
   const { store, tokens, connection } = prepared;
-  const { localAgent, imessage, messagesBackup, panel, notepad, capture, controller, updater, loop } = await createServices(
+  const { localAgent, imessage, messagesBackup, machine, panel, notepad, capture, controller, updater, loop } = await createServices(
     ctx,
     prepared,
   );
@@ -154,6 +154,7 @@ async function main(): Promise<void> {
     tokens,
     connection,
     localAgent,
+    machine,
     imessage,
     messagesBackup,
     panel,
@@ -209,6 +210,8 @@ async function main(): Promise<void> {
     markQuitting();
     imessage.stop();
     messagesBackup.stop();
+    // The runner says goodbye and the awake hold is released; jobs show offline and Tex offers the cloud.
+    void machine.shutdown();
     if (!controller.recording) return;
     event.preventDefault();
     void endMeeting().then(() => app.quit());
