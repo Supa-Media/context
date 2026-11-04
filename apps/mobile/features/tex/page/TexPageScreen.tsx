@@ -67,6 +67,7 @@ export function TexPageScreen() {
       endpoint: MCP_ENDPOINT,
       workspaceId,
       token,
+      selfHandle: handle,
       pairingCode: () => pairingCode.current,
       pairing: {
         find: (code) => pairingCalls.current.findPairing({ code }),

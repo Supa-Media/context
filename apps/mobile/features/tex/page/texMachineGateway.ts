@@ -12,8 +12,8 @@
  *   screens are for computers the person runs.
  * - The person's own texts are the rule `texts-<ownerId>`; a group chat is
  *   `group-<first 58 hex of its key>`, the page's group key.
- * - What the gateway does not keep (a one-day raise, the name of who asked)
- *   is never invented: the raise is refused, and an ask names its chat.
+ * - People are named by handle (`@bo`): a rule keeps user ids, read against the
+ *   chat's people; an id the page cannot name is left off rather than guessed.
  */
 
 import { readMachinesPage } from "./texMachineRead";
@@ -29,7 +29,13 @@ const TOOLS: readonly ToolName[] = ["claude", "codex"];
 const OS_LABEL: Record<string, string> = { macos: "macOS", linux: "Linux", windows: "Windows" };
 const GROUP_KEY = /^[0-9a-f]{64}$/;
 
-export type MachineRoute = "list" | "set" | "disconnect" | "lend" | "unlend" | "answer";
+export type MachineRoute = "list" | "set" | "disconnect" | "lend" | "unlend" | "answer" | "raise" | "chat-people";
+
+/** A group chat's people with their ids (`/machines/app/chat-people`): a rule names people by id, the page by handle. */
+export type ChatPeople = ReadonlyMap<string, readonly { userId: string; handle: string }[]>;
+
+/** How the page names a person: their handle. */
+export const handleLabel = (handle: string): string => `@${handle}`;
 
 export function machineAppUrl(mcpEndpoint: string, route: MachineRoute): string | null {
   try {
@@ -62,13 +68,24 @@ function toolState(name: ToolName, enabled: boolean, facts: unknown[]): ToolStat
   return enabled ? "signedIn" : "off";
 }
 
-function whoOf(v: unknown): MachineWho {
+function whoOf(v: unknown, people: readonly { userId: string; handle: string }[]): MachineWho {
   if (v === "everyone") return "everyone";
-  return "me";
+  if (!Array.isArray(v)) return "me";
+  const named = v.map((id) => people.find((p) => p.userId === id)).filter((p): p is { userId: string; handle: string } => p !== undefined);
+  return named.length ? named.map((p) => handleLabel(p.handle)) : "me";
+}
+
+/** The day a time falls on in a zone, as the gateway keys a raise (`dayOf` in `workspaceStore/machines.js`). */
+function dayOf(at: number, timeZone: unknown): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: typeof timeZone === "string" && timeZone ? timeZone : "UTC", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
+  } catch {
+    return new Date(at).toISOString().slice(0, 10);
+  }
 }
 
 /** One computer from the list, in the page's shape (still read by `readMachine` after), or null for a glimpse. */
-function machineOf(raw: unknown, now: number, chats: { keys: string[]; names: Map<string, string> }): Rec | null {
+function machineOf(raw: unknown, now: number, chats: { keys: string[]; names: Map<string, string>; people: ChatPeople }): Rec | null {
   const m = rec(raw);
   if (!m || m.runs !== true || !str(m.id)) return null;
   const ownerId = str(m.ownerId) ?? "";
@@ -81,9 +98,12 @@ function machineOf(raw: unknown, now: number, chats: { keys: string[]; names: Ma
   const toolFacts = Array.isArray(status?.tools) ? (status?.tools as unknown[]) : Array.isArray(facts?.tools) ? (facts?.tools as unknown[]) : [];
   const usedMin = Math.floor((num(used.todayMs) ?? 0) / MIN);
   const limitMin = Math.floor((num(limits.dayMs) ?? 0) / MIN);
+  // Today's raise ("2 more hours today") counts only on the day it was given, in the owner's zone.
+  const raise = rec(m.raise);
+  const raisedMin = raise && raise.day === dayOf(now, limits.timeZone) ? Math.floor((num(raise.extraMs) ?? 0) / MIN) : 0;
   const pausedUntil = num(m.pausedUntil);
   const online = m.online === true;
-  const state = !online ? "offline" : status?.ready === false ? "notReady" : (pausedUntil ?? 0) > now || (limitMin > 0 && usedMin >= limitMin) ? "paused" : "online";
+  const state = !online ? "offline" : status?.ready === false ? "notReady" : (pausedUntil ?? 0) > now || (limitMin > 0 && usedMin >= limitMin + raisedMin) ? "paused" : "online";
   const slots = num(limits.slots) ?? 1;
   const ruleChats: Rec[] = [];
   for (const [key, value] of Object.entries(rec(m.chats) ?? {})) {
@@ -93,7 +113,7 @@ function machineOf(raw: unknown, now: number, chats: { keys: string[]; names: Ma
     ruleChats.push({
       key: chat,
       name: chat === "me" ? "Just you" : chats.names.get(chat) ?? str(rule.name) ?? "A group chat",
-      who: chat === "me" ? "me" : whoOf(rule.who),
+      who: chat === "me" ? "me" : whoOf(rule.who, chats.people.get(chat) ?? []),
       askFirst: rule.askFirst !== false,
       slots: chat === "me" ? slots : num(rule.slots) ?? 1,
     });
@@ -116,6 +136,7 @@ function machineOf(raw: unknown, now: number, chats: { keys: string[]; names: Ma
     running: (Array.isArray(m.running) ? (m.running as unknown[]) : []).map(rec).filter((r): r is Rec => r !== null).map((r) => ({ job: r.jobId, title: str(r.title) ?? "", startedAt: num(r.startedAt) ?? 0 })),
     usedMin,
     limitMin,
+    ...(raisedMin > 0 ? { raisedMin } : {}),
     othersPerDay: num(limits.othersRunsPerDay) ?? 0,
     pauseNearPlan: limits.pauseNearPlanLimit !== false,
     tools: Object.fromEntries(TOOLS.map((t) => [t, toolState(t, enabled.includes(t), toolFacts)])),
@@ -139,7 +160,7 @@ export function asksOf(list: unknown): MachineAsk[] {
       out.push({
         // The answer needs the computer and the ask; both ride in the job id the card sends back.
         job: `${m.id as string}/${id}`,
-        who: chatName ? `Someone in ${chatName}` : "Someone",
+        who: str(ask.askerHandle) ? handleLabel(str(ask.askerHandle) as string) : chatName ? `Someone in ${chatName}` : "Someone",
         title: str(ask.title) ?? "A job",
         machine: m.id as string,
         machineName: str(m.name) ?? "computer",
@@ -153,11 +174,11 @@ export function asksOf(list: unknown): MachineAsk[] {
 }
 
 /** The list answer as the page's machines, with the pairing a code in the address names. */
-export function machinesPageOf(body: unknown, options: { now: number; groupChats?: { key: string; name: string }[]; pairing?: Pairing | null }): MachinesPage | null {
+export function machinesPageOf(body: unknown, options: { now: number; groupChats?: { key: string; name: string }[]; pairing?: Pairing | null; people?: ChatPeople }): MachinesPage | null {
   const r = rec(body);
   if (!r || r.ok !== true || !Array.isArray(r.machines)) return null;
   const groups = (options.groupChats ?? []).filter((c) => GROUP_KEY.test(c.key));
-  const chats = { keys: groups.map((c) => c.key), names: new Map(groups.map((c) => [c.key, c.name])) };
+  const chats = { keys: groups.map((c) => c.key), names: new Map(groups.map((c) => [c.key, c.name])), people: options.people ?? new Map() };
   const machines = (r.machines as unknown[]).map((m) => machineOf(m, options.now, chats)).filter((m): m is Rec => m !== null);
   return readMachinesPage({ machines, cloud: { slots: 0, busy: 0 }, pairing: options.pairing ?? null });
 }
@@ -166,15 +187,15 @@ export function machinesPageOf(body: unknown, options: { now: number; groupChats
 export type MachineCall = { route: MachineRoute; body: Rec } | { refused: string } | { pair: { code: string; approve: boolean } };
 
 /** A page action as the gateway call that does it. `machine` is the computer as the gateway listed it. */
-export function machineCallOf(action: MachineAction, machine: (id: string) => Rec | null): MachineCall {
+export function machineCallOf(action: MachineAction, machine: (id: string) => Rec | null, people: ChatPeople = new Map()): MachineCall {
   switch (action.type) {
     case "machine.pair":
       return { pair: { code: action.code, approve: action.approve } };
     case "machine.disconnect":
       return { route: "disconnect", body: { machineId: action.id } };
     case "machine.raise":
-      // Nothing keeps a one-day raise yet; changing the daily limit itself would outlast the day.
-      return { refused: "not_supported" };
+      // Today only: the gateway adds it to today's limit and drops it tomorrow.
+      return { route: "raise", body: { machineId: action.id, minutes: Math.max(1, Math.min(24 * 60, Math.round(action.minutes))) } };
     case "job.allow": {
       const [machineId, askId] = action.job.split("/");
       if (!machineId || !askId) return { refused: "unknown_ask" };
@@ -217,9 +238,13 @@ export function machineCallOf(action: MachineAction, machine: (id: string) => Re
       const chats = rec(m.chats) ?? {};
       const next: Rec = { ...(rec(chats[rule]) ?? {}) };
       const v = action.values;
-      // Named people need their ids, which the page does not hold yet: refused rather than saved as somebody else.
-      if (Array.isArray(v.who)) return { refused: "named_people" };
-      if (v.who !== undefined) next.who = v.who === "everyone" ? "everyone" : "owner";
+      if (Array.isArray(v.who)) {
+        // Each handle read back to its id in this chat; one the chat's people don't have is refused, never dropped.
+        const known = people.get(action.chat) ?? [];
+        const ids = v.who.map((h) => known.find((p) => handleLabel(p.handle) === h || p.handle === h)?.userId);
+        if (ids.length === 0 || ids.some((id) => id === undefined)) return { refused: "unknown_person" };
+        next.who = ids;
+      } else if (v.who !== undefined) next.who = v.who === "everyone" ? "everyone" : "owner";
       if (v.askFirst !== undefined) next.askFirst = v.askFirst;
       if (v.slots !== undefined) next.slots = v.slots;
       return { route: "set", body: { machineId: action.id, patch: { chats: { ...chats, [rule]: next } } } };

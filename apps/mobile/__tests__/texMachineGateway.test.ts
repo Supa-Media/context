@@ -6,8 +6,10 @@
  * ## Sabotage record (2026-11-04, temporary local edits, reverted)
  *
  *   keeping a glimpse (`runs` not checked) in the list           1 failing
- *   a named-people pick saved as "owner" instead of refused       1 failing
+ *   a named-people pick saved as "owner" instead of by id          1 failing
  *   looking the pairing code up on every read                     1 failing
+ *   a handle the chat does not have dropped instead of refused    1 failing
+ *   a raise from another day counted today                         1 failing
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -69,8 +71,27 @@ describe("the list answer, in the page's shapes", () => {
     expect(states).toEqual([["offline", null], ["notReady", null], ["paused", "limit"], ["paused", "plan"]]);
   });
 
+  test("today's raise counts, another day's does not, and a rule's people read as handles", () => {
+    const today = new Date(NOW).toISOString().slice(0, 10);
+    const [raised, stale] = page([
+      mac({ id: "a", used: { todayMs: 4 * 3_600_000 }, raise: { day: today, extraMs: 2 * 3_600_000 } }),
+      mac({ id: "b", used: { todayMs: 4 * 3_600_000 }, raise: { day: "2001-01-01", extraMs: 2 * 3_600_000 } }),
+    ])?.machines ?? [];
+    expect([raised?.state, raised?.raisedMin]).toEqual(["online", 120]);
+    expect([stale?.state, stale?.raisedMin]).toEqual(["paused", undefined]);
+    const named = machinesPageOf(
+      { ok: true, machines: [mac({ chats: { [`group-${GROUP.slice(0, 58)}`]: { who: ["user_bo", "user_gone"], askFirst: true, slots: 1 } } })] },
+      { now: NOW, groupChats: [{ key: GROUP, name: "Team Night" }], people: new Map([[GROUP, [{ userId: "user_bo", handle: "bo" }]]]) },
+    );
+    expect(named?.machines[0].chats[1].who).toEqual(["@bo"]);
+  });
+
   test("an answer that is not ok reads as nothing", () => {
     expect(machinesPageOf({ ok: false }, { now: NOW })).toBeNull();
+  });
+
+  test("an ask names who asked by handle when the gateway knows it", () => {
+    expect(asksOf([mac({ asks: [{ id: "ask_2", askerHandle: "bo", chatName: "Team Night", askedAt: NOW }] })])[0].who).toBe("@bo");
   });
 
   test("asks carry the computer and the ask in the job id, named by their chat", () => {
@@ -90,10 +111,15 @@ describe("page actions, as route calls", () => {
     });
   });
 
-  test("a chat rule is set under its own key; named people are refused, never saved as somebody else", () => {
+  test("a chat rule is set under its own key; named people go by id, and a handle the chat lacks is refused", () => {
     const call = machineCallOf({ type: "machine.chat", id: "m1", chat: GROUP, values: { askFirst: false } }, listed);
     expect(call).toMatchObject({ route: "set", body: { patch: { chats: { [`group-${GROUP.slice(0, 58)}`]: { askFirst: false, who: "everyone" } } } } });
-    expect(machineCallOf({ type: "machine.chat", id: "m1", chat: GROUP, values: { who: ["Bo"] } }, listed)).toEqual({ refused: "named_people" });
+    const people = new Map([[GROUP, [{ userId: "user_bo", handle: "bo" }]]]);
+    expect(machineCallOf({ type: "machine.chat", id: "m1", chat: GROUP, values: { who: ["@bo"] } }, listed, people)).toMatchObject({
+      body: { patch: { chats: { [`group-${GROUP.slice(0, 58)}`]: { who: ["user_bo"] } } } },
+    });
+    expect(machineCallOf({ type: "machine.chat", id: "m1", chat: GROUP, values: { who: ["@bo", "@eve"] } }, listed, people)).toEqual({ refused: "unknown_person" });
+    expect(machineCallOf({ type: "machine.chat", id: "m1", chat: GROUP, values: { who: ["@bo"] } }, listed)).toEqual({ refused: "unknown_person" });
     expect(ruleKeyOf("me", OWNER)).toBe(`texts-${OWNER}`);
   });
 
@@ -101,7 +127,7 @@ describe("page actions, as route calls", () => {
     expect(machineCallOf({ type: "machine.chat.add", id: "m1", chat: GROUP }, listed)).toMatchObject({ route: "lend", body: { chat: GROUP, who: "owner", askFirst: true } });
     expect(machineCallOf({ type: "job.allow", job: "m1/ask_1", mode: "always" }, listed)).toEqual({ route: "answer", body: { machineId: "m1", askId: "ask_1", yes: true, always: true } });
     expect(machineCallOf({ type: "job.allow", job: "m1/ask_1", mode: "decline" }, listed)).toMatchObject({ body: { yes: false, always: false } });
-    expect(machineCallOf({ type: "machine.raise", id: "m1", minutes: 120 }, listed)).toEqual({ refused: "not_supported" });
+    expect(machineCallOf({ type: "machine.raise", id: "m1", minutes: 120 }, listed)).toEqual({ route: "raise", body: { machineId: "m1", minutes: 120 } });
   });
 });
 
@@ -120,8 +146,10 @@ describe("the wrapped source", () => {
         find: async () => ((looks += 1), { name: "build-box", os: "linux", createdAt: NOW }),
         answer: async (c, approve) => (answers.push([c, approve]), true),
       },
+      selfHandle: "ada",
       fetch: (async (url: string, init: { body: string }) => {
         calls.push({ url, body: JSON.parse(init.body) });
+        if (url.endsWith("/chat-people")) return { status: 200, json: async () => ({ ok: true, people: [{ userId: "user_ada", handle: "ada" }, { userId: "user_bo", handle: "bo" }] }) };
         return { status: 200, json: async () => ({ ok: true, machines: [mac({ asks: [{ id: "ask_1", chat: "x", title: "T", askedAt: NOW }] })] }) };
       }) as unknown as typeof fetch,
     });
@@ -133,6 +161,14 @@ describe("the wrapped source", () => {
     const read = await h.source.machines("me");
     expect(read.kind).toBe("ok");
     expect(h.calls[0]).toEqual({ url: "https://gateway.example/machines/app/list", body: { workspaceId: "ws_1" } });
+  });
+
+  test("a group's page lists its other people by handle, read once", async () => {
+    const h = harness(null);
+    const first = await h.source.machines(GROUP);
+    await h.source.machines(GROUP);
+    expect(first.kind === "ok" ? first.value.chatPeople : null).toEqual(["@bo"]);
+    expect(h.calls.filter((c) => c.url.endsWith("/chat-people"))).toEqual([{ url: "https://gateway.example/machines/app/chat-people", body: { workspaceId: "ws_1", chat: GROUP } }]);
   });
 
   test("the own overview carries the waiting asks", async () => {

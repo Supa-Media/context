@@ -10,7 +10,7 @@
  * and the page then shows nothing about them.
  */
 
-import { asksOf, machineAppUrl, machineCallOf, machinesPageOf, type MachineRoute } from "./texMachineGateway";
+import { asksOf, handleLabel, machineAppUrl, machineCallOf, machinesPageOf, type MachineRoute } from "./texMachineGateway";
 import type { MachinesPage, Pairing } from "./texMachineTypes";
 import type { Read, TexPageSource } from "./texPageSource";
 import type { Overview } from "./texPageTypes";
@@ -30,6 +30,8 @@ export interface MachineSourceOptions {
   /** The code the address carried (`?code=`), if any. */
   pairingCode: () => string | null;
   pairing: PairingCalls;
+  /** The person's own handle, left out of a chat's people: "Only you" already names them. */
+  selfHandle?: string;
   fetch?: typeof fetch;
   now?: () => number;
 }
@@ -44,6 +46,9 @@ export function withGatewayMachines(base: TexPageSource, options: MachineSourceO
   // One look per code: the control plane counts every look as an attempt.
   const looked = new Map<string, Pairing | null>();
   const answered = new Set<string>();
+  // A group chat's people with their ids, read once per chat while the page is open.
+  const people = new Map<string, { userId: string; handle: string }[]>();
+  const GROUP_KEY = /^[0-9a-f]{64}$/;
 
   const post = async (route: MachineRoute, body: Rec): Promise<{ status: number; body: unknown } | null> => {
     const url = machineAppUrl(options.endpoint, route);
@@ -76,6 +81,33 @@ export function withGatewayMachines(base: TexPageSource, options: MachineSourceO
     return { kind: "ok", value: listed };
   };
 
+  const peopleOf = async (chat: string): Promise<void> => {
+    if (!GROUP_KEY.test(chat) || people.has(chat)) return;
+    const a = await post("chat-people", { chat });
+    const body = a?.body as { ok?: unknown; people?: unknown } | null | undefined;
+    if (a?.status !== 200 || body?.ok !== true || !Array.isArray(body.people)) return;
+    people.set(
+      chat,
+      body.people
+        .filter((p): p is { userId: string; handle: string } => typeof (p as Rec)?.userId === "string" && typeof (p as Rec)?.handle === "string" && (p as Rec).handle !== "")
+        .map((p) => ({ userId: p.userId, handle: p.handle })),
+    );
+  };
+
+  /** The groups whose people the page needs: this chat, and any whose rule names people. */
+  const groupsNeeded = (chat: string): string[] => {
+    const named = new Set<string>();
+    for (const m of listed) {
+      for (const [rule, value] of Object.entries((m.chats as Rec | undefined) ?? {})) {
+        if (!rule.startsWith("group-") || !Array.isArray((value as Rec | null)?.who)) continue;
+        const key = groupChats.find((c) => c.key.slice(0, 58) === rule.slice("group-".length))?.key;
+        if (key) named.add(key);
+      }
+    }
+    if (GROUP_KEY.test(chat)) named.add(chat);
+    return [...named].slice(0, 10);
+  };
+
   const pairingNow = async (): Promise<Pairing | null> => {
     const code = options.pairingCode();
     if (code === null || answered.has(code)) return null;
@@ -99,15 +131,19 @@ export function withGatewayMachines(base: TexPageSource, options: MachineSourceO
       const o: Overview = { ...read.value, asks, status: { ...read.value.status, needsYou: read.value.status.needsYou + asks.length } };
       return { kind: "ok", value: o };
     },
-    async machines() {
+    async machines(chat) {
       const [machines, pairing] = await Promise.all([list(), pairingNow()]);
       if (machines.kind !== "ok") return machines;
-      const page = machinesPageOf({ ok: true, machines: machines.value }, { now: now(), groupChats, pairing });
+      await Promise.all(groupsNeeded(chat).map(peopleOf));
+      const here = (people.get(chat) ?? []).filter((p) => p.handle !== options.selfHandle).map((p) => handleLabel(p.handle));
+      const page = machinesPageOf({ ok: true, machines: machines.value }, { now: now(), groupChats, pairing, people });
+      if (page && here.length) page.chatPeople = here;
       return page ? ({ kind: "ok", value: page } as Read<MachinesPage>) : { kind: "failed" };
     },
     async act(chat, action) {
       if (!action.type.startsWith("machine.") && action.type !== "job.allow") return base.act(chat, action);
-      const call = machineCallOf(action as Parameters<typeof machineCallOf>[0], (id) => listed.find((m) => m.id === id) ?? null);
+      if (action.type === "machine.chat" && Array.isArray(action.values.who)) await peopleOf(action.chat);
+      const call = machineCallOf(action as Parameters<typeof machineCallOf>[0], (id) => listed.find((m) => m.id === id) ?? null, people);
       if ("refused" in call) return { ok: false, error: call.refused };
       if ("pair" in call) {
         const ok = await options.pairing.answer(call.pair.code, call.pair.approve).catch(() => false);

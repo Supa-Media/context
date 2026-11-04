@@ -26,7 +26,8 @@ export function GroupMachines(props: ViewProps) {
   const { read } = useTexList(source, chat, "settings", page.changes);
   const mine = machines?.kind === "ok" ? machines.value.machines.filter((m) => m.state !== "pending") : [];
   if (mine.length === 0) return null;
-  const people = ((read?.kind === "ok" ? read.value.people : undefined) ?? []).filter((p) => p !== "You");
+  // The chat's people by handle when the gateway names them; a rule keeps ids, and only a handle reads back to one.
+  const people = machines?.kind === "ok" && machines.value.chatPeople ? machines.value.chatPeople : ((read?.kind === "ok" ? read.value.people : undefined) ?? []).filter((p) => p !== "You");
 
   return (
     <View style={{ gap: 8 }} testID="tex-group-machines">

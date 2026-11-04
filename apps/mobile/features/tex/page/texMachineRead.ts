@@ -126,10 +126,12 @@ export function readMachinesPage(v: unknown): MachinesPage | null {
   const r = rec(v);
   if (!r) return null;
   const cloud = rec(r.cloud) ?? {};
+  const chatPeople = strings(r.chatPeople);
   return {
     machines: list(r.machines, readMachine),
     cloud: { slots: count(cloud.slots), busy: count(cloud.busy) },
     pairing: readPairing(r.pairing),
+    ...(chatPeople.length ? { chatPeople } : {}),
   };
 }
 

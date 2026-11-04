@@ -100,6 +100,8 @@ export interface MachinesPage {
   cloud: { slots: number; busy: number };
   /** The newest code waiting for a yes, or null. */
   pairing: Pairing | null;
+  /** In a group chat: its other people by handle (`@bo`), whom a machine's rule there may name. */
+  chatPeople?: string[];
 }
 
 /** Someone else's job waiting for the owner's yes (screen 5), on the owner's page. */
