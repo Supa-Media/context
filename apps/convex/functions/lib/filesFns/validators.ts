@@ -51,10 +51,14 @@ const entryValidator = v.object({
   updatedAt: v.optional(v.number()),
   /** A folder's built-in job, under its original name (`lib/nodes/folderJobs.ts`). */
   role: v.optional(v.string()),
-  /** A folder's place among its siblings, once set (`functions/folderOrder.ts`). */
+  /** A row's place among its siblings, once set (`functions/folderOrder.ts`). */
   order: v.optional(v.number()),
   /** On a folder in Archive: the built-in folder it is the archive copy of (`lib/nodes/archiveTwins.ts`). */
   archiveOf: v.optional(v.string()),
+  /** When the row was made (`listingSort.cjs`). */
+  createdAt: v.optional(v.number()),
+  /** A folder's own Sort setting (`functions/folderSort.ts`). */
+  sort: v.optional(v.string()),
 });
 
 export const listingValidator = v.object({
@@ -66,6 +70,8 @@ export const listingValidator = v.object({
   manifestUsable: v.boolean(),
   /** The listed folder's own built-in job: a nested Website page knows it before its parent lists. */
   role: v.optional(v.string()),
+  /** The Sort setting the listed folder draws by, its own or inherited (`listingSort.cjs`). */
+  sort: v.optional(v.string()),
 });
 
 export const imageWrittenValidator = v.object({

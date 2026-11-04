@@ -64,8 +64,10 @@ identifying it as a special system thing, using the original names".
   insertion line, and the middle into it, with the wash. Between siblings is
   a reorder of that level; between rows of another level is a move there,
   then the order with the folder where it was dropped, sent only once the
-  move has landed. Website is dragged like the rest (2026-10-21). Notes and
-  several rows at once only nest, since notes still list by name.
+  move has landed. Website is dragged like the rest (2026-10-21). Several
+  rows at once only nest. Since 2026-11-04 notes are dragged too, and a drop
+  between rows puts the folder in custom order
+  ([folder-sort](./folder-sort.md)).
 - **Built-in folders draw a hand-drawn icon in Tex blue (in the text colour
   when nested inside another folder, owner 2026-10-26), and nobody can change
   it** for now: the app draws the job's icon over any emoji a row holds and

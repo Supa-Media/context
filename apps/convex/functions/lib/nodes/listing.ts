@@ -30,7 +30,8 @@ import {
   jobAt,
   type RowRole,
 } from "@context/shared/src/folderRoles.cjs";
-import { nodeAt } from "./paths";
+import { nodeAt, nodePaths } from "./paths";
+import { effectiveSort, isListingSort, type ListingSort } from "@context/shared/src/listingSort.cjs";
 
 export { readMirror };
 
@@ -165,8 +166,15 @@ export async function listFolderFromNodes(
   });
   // Read whether or not the caller may see the folder, so a withheld folder costs what an absent one does.
   const job = await ownJob(ctx, workspaceId, folder);
-  const own = folderVisibleAtScope(folder, clearance, judged.rules, judged.overrides) ? job : null;
-  return { ...(await withFolderJobs(ctx, workspaceId, folder, rows, listing)), ...(own === null ? {} : { role: own }) };
+  const visible = folderVisibleAtScope(folder, clearance, judged.rules, judged.overrides);
+  const own = visible ? job : null;
+  // A withheld folder says nothing of its setting either: it answers as an absent one does.
+  const sort = visible ? await folderSortOf(ctx, workspaceId, folder) : null;
+  return {
+    ...(await withFolderJobs(ctx, workspaceId, folder, rows, listing)),
+    ...(own === null ? {} : { role: own }),
+    ...(sort === null ? {} : { sort }),
+  };
 }
 
 /**
@@ -184,10 +192,11 @@ async function ownJob(ctx: QueryCtx, workspaceId: Id<"workspaces">, folder: stri
 }
 
 /**
- * Each folder entry with its job and its order from its row (`folderJobs.ts`),
- * drawn in that order (`compareListingEntries`). At the root a folder whose
- * row has no job yet takes the one its name gives it, so a renamed and an
- * unrenamed Inbox list alike.
+ * Each entry with what its row says about where it is drawn: a folder's job, a row's `order` (folders and, once a
+ * folder is in custom order, notes: `functions/folderOrder.ts`), when the row was made, and a folder's own Sort
+ * setting (`listingSort.cjs`). Drawn in the order a folder with no setting draws (`compareListingEntries`); the app
+ * re-sorts by the listing's `sort`. At the root a folder whose row has no job yet takes the one its name gives it,
+ * so a renamed and an unrenamed Inbox list alike.
  */
 async function withFolderJobs(
   ctx: QueryCtx,
@@ -196,20 +205,48 @@ async function withFolderJobs(
   rows: readonly Doc<"nodes">[],
   listing: FolderListing,
 ): Promise<FolderListing> {
-  if (!listing.entries.some((entry) => entry.kind === "folder")) return listing;
-  const byPath = new Map(rows.filter((row) => row.kind === "folder").map((row) => [row.path, row]));
-  const jobs = folder === "" ? await folderJobsOf(ctx.db, workspaceId) : null;
+  if (listing.entries.length === 0) return listing;
+  const byPath = new Map(rows.map((row) => [`${row.kind}:${row.path}`, row]));
+  const jobs = folder === "" && listing.entries.some((entry) => entry.kind === "folder") ? await folderJobsOf(ctx.db, workspaceId) : null;
   const entries = listing.entries.map((entry) => {
-    if (entry.kind !== "folder") return entry;
-    const row = byPath.get(entry.path);
-    const role = isRowRole(row?.role) ? row.role : jobs === null ? null : jobAt(jobs, entry.path);
-    return {
+    const row = byPath.get(`${entry.kind}:${entry.path}`);
+    if (row === undefined) return entry;
+    const placed = {
       ...entry,
+      ...(typeof row.order === "number" ? { order: row.order } : {}),
+      createdAt: row._creationTime,
+    };
+    if (entry.kind !== "folder") return placed;
+    const role = isRowRole(row.role) ? row.role : jobs === null ? null : jobAt(jobs, entry.path);
+    return {
+      ...placed,
       ...(role === null ? {} : { role }),
-      ...(typeof row?.order === "number" ? { order: row.order } : {}),
-      ...(isRowRole(row?.archiveOf) ? { archiveOf: row.archiveOf } : {}),
+      ...(isRowRole(row.archiveOf) ? { archiveOf: row.archiveOf } : {}),
+      ...(isListingSort(row.sort) ? { sort: row.sort } : {}),
     };
   });
   entries.sort((a, b) => compareListingEntries(folder, a, b));
   return { ...listing, entries };
+}
+
+/**
+ * The Sort setting `folder` draws by from its rows: its own, else the nearest folder above it with one that is
+ * passed down (`effectiveSort`: custom never is). Null for none, the root included: the workspace's own setting is read by the app
+ * (`functions/folderSort.ts` `workspaceSort`), so a listing never depends on a row outside the tree.
+ */
+async function folderSortOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, folder: string): Promise<ListingSort | null> {
+  if (folder === "") return null;
+  const held = new Map<string, string | null>();
+  const paths = await nodePaths(ctx.db, workspaceId);
+  let path = folder;
+  while (path !== "") {
+    const row = await paths.rowAt(path);
+    const own = row !== null && row.goneAt === undefined && row.kind === "folder" ? (row.sort ?? null) : null;
+    held.set(path, own);
+    // The folder's own setting, or a setting above it that is passed down, ends the walk (custom never is).
+    if (isListingSort(own) && (path === folder || own !== "custom")) break;
+    const cut = path.lastIndexOf("/");
+    path = cut < 0 ? "" : path.slice(0, cut);
+  }
+  return effectiveSort(folder, (at) => held.get(at) ?? null, null);
 }
