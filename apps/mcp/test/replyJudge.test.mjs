@@ -19,6 +19,7 @@ import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { parseSetup } from "../src/agent/production.js";
 import { actionsOf, judgeState, readReplyJudge, replyJudge, VERDICT_NOTICES, VERDICTS } from "../src/agent/replyJudge.js";
 import { runTurn } from "../src/agent/turn.js";
+import { wireTraceEntry } from "../src/agent/turnLog.js";
 
 const MAIN = "@cf/acme/main-model";
 const BROWSE = {
@@ -97,6 +98,10 @@ test("the judge sees every action the turn took and sends a dropped ask back onc
   assert.deepEqual(ai.judged[0].questions.verdict.criteria, VERDICTS);
   assert.equal(judge.verdicts[0].verdict, "only_acknowledged");
   assert.equal(judge.verdicts[0].acted, true);
+  const judged = result.timing.trace.filter((entry) => entry.kind === "judge");
+  assert.equal(judged.length, 1, "the verdict is in the turn's trace, for the turn log and the benchmark");
+  assert.equal(judged[0].verdict, "only_acknowledged");
+  assert.deepEqual(wireTraceEntry(judged[0]), { kind: "judge", ok: true, ms: judged[0].ms, verdict: "only_acknowledged", acted: true, confidence: 0.9 });
   const logged = JSON.parse(logs[0]);
   assert.equal(logged.event, "tex_reply_judge");
   assert.ok(!logs[0].includes("Thanks"), "the log carries no words of the reply");
@@ -163,7 +168,7 @@ test("actions list each call with its arguments and each result, failures marked
 
 test("a setup names its judge", async () => {
   assert.equal(readReplyJudge(undefined, undefined), null);
-  assert.deepEqual(readReplyJudge("clef", undefined), { model: "clef", at: 0.5 });
+  assert.deepEqual(readReplyJudge("clef", undefined), { model: "clef", at: 0 });
   assert.deepEqual(readReplyJudge("clef-flash", "0.7"), { model: "clef-flash", at: 0.7 });
   assert.equal(readReplyJudge("haiku", undefined), undefined, "only a decision model");
   assert.equal(readReplyJudge("clef", "2"), undefined);

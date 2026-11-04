@@ -33,8 +33,12 @@ export const JUDGE_MODELS = {
   "clef-flash": { model: "@cf/cloudflare/clef-flash", selector: "clef-flash" },
 };
 
-/** Below this confidence a verdict other than `accepted` is not acted on, unless the setup says otherwise. */
-export const DEFAULT_JUDGE_AT = 0.5;
+/**
+ * Below this confidence a verdict other than `accepted` is not acted on, unless the setup says otherwise.
+ * Zero: Clef Flash spreads its confidence over the nine verdicts (0.03 to 0.09 on every judging in
+ * benchmark round gh-168, 2026-11-04), so any cutoff near a half never acts. Its pick is the signal.
+ */
+export const DEFAULT_JUDGE_AT = 0;
 
 /** The judge never holds a reply longer than this; past it, the reply goes. */
 export const JUDGE_TIMEOUT_MS = 3_000;
@@ -156,6 +160,7 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
       const confidence = typeof answers?.verdict?.confidence === "number" ? answers.verdict.confidence : null;
       const acted = verdict !== null && verdict !== "accepted" && (confidence === null || confidence >= at);
       verdicts.push({ verdict, confidence, ms, acted, tokens: decisionTokens(state, QUESTIONS) });
+      turn.mark?.({ verdict, confidence, ms, acted, ok: verdict !== null });
       // Ids and numbers only: never the reply or the question (`docs/decisions/observability`).
       log(JSON.stringify({ event: "tex_reply_judge", model: pick.model, verdict, confidence, ms, acted }));
       return acted ? VERDICT_NOTICES[verdict] : null;
