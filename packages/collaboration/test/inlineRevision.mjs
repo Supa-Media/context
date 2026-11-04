@@ -39,6 +39,11 @@ class MemoryStore {
 }
 
 const PATH = "1-projects/note.md";
+/** The revision file a writer from before this kept for every save, for the state's current revision. */
+async function legacyRevisionFile(store, state) {
+  const value = { schemaVersion: 1, kind: "revision", documentId: state.documentId, generation: state.generation, revision: state.revision, snapshot: state.current.snapshot, text: state.text, rawMarkdownEtag: state.current.rawMarkdownEtag };
+  await store.put(`.context/collaboration/v1/revisions/${state.documentId}/${state.revision}.json`, JSON.stringify(value));
+}
 const stateKeyOf = (store) => [...store.objects.keys()].find((key) => key.includes("/documents/") && !key.includes("/operations/"));
 
 async function saved() {
@@ -77,6 +82,7 @@ test("a stale copy carried by an older writer is ignored, and the revision's fil
   // An older writer moved the revision on to a third save and carried the second save's copy along unchanged.
   const third = await replaceText(store, PATH, { expectedEtag: `c2.${state.documentId}.${state.revision}`, onlyCurrent: true, text: "# Note\n\nThird words.\n" });
   const now = JSON.parse(await (await store.get(key)).text());
+  await legacyRevisionFile(store, now);
   await store.put(key, JSON.stringify({ ...now, current: state.current }));
   const read = await readDocument(store, PATH);
   assert.equal(read.etag, third.etag);
@@ -88,7 +94,9 @@ test("a stale copy carried by an older writer is ignored, and the revision's fil
 test("a document saved before states kept a copy still loads and saves", async () => {
   const { store, second } = await saved();
   const key = stateKeyOf(store);
-  const { current: _current, ...legacy } = JSON.parse(await (await store.get(key)).text());
+  const stored = JSON.parse(await (await store.get(key)).text());
+  await legacyRevisionFile(store, stored);
+  const { current: _current, bases: _bases, editedAt: _editedAt, ...legacy } = stored;
   await store.put(key, JSON.stringify(legacy));
   const read = await readDocument(store, PATH);
   assert.equal(read.etag, second.etag);

@@ -395,10 +395,13 @@ the current snapshot, which never forgets an item because documents keep `gc: fa
 
 It ships in two steps, because a writer from before it cannot read a document whose revision has no file. First the
 state keeps its copy and readers prefer it while every save still writes its revision file. Once that is live
-everywhere the engine runs (the gateway and the control plane), saves stop writing per-save revision files.
+everywhere the engine runs (the gateway and the control plane), saves stop writing per-save revision files. A
+document saved before then keeps its revision files, which still serve as its merge bases.
 
 **What a simplification would cost.** Trusting the state's copy for a revision it does not name serves an older note
 as the current one: a writer from before this carries the old copy along when it moves the revision on.
 `packages/collaboration/test/inlineRevision.mjs` fails if that check goes, and if a load reads the revision file
-again. Copying every intermediate write doubles the document state in the backup:
+again. Writing a revision file per save again, using a rebuilt base whose text does not match its marker, or
+letting a version that cannot be kept fail the save each fail `packages/collaboration/test/versions.mjs`. Copying
+every intermediate write doubles the document state in the backup:
 `apps/mcp/test/collabReplaceInObject.test.mjs` "a save's backup copies each key once" fails.

@@ -179,18 +179,22 @@ test("a save whose version file the object pruned is still served, from the copy
  * The object pruned the version a save is based on, and the document was last saved before its state kept a copy of
  * its current version (`current`), so only the bucket has it.
  */
-async function prunedLegacyVersion(store) {
+async function prunedLegacyVersion(store, bucket) {
   for (const row of store.sql.exec("SELECT key FROM objects WHERE key LIKE ?", `${COLLAB}v1/revisions/%`).toArray()) store.objects.delete(row.key);
   for (const row of store.sql.exec("SELECT key FROM objects WHERE key LIKE ? AND key NOT LIKE ?", `${COLLAB}v1/documents/%`, "%/operations/%").toArray()) {
-    const { current: _current, ...legacy } = JSON.parse(new TextDecoder().decode(store.objects.get(row.key).body));
+    const { current, bases: _bases, editedAt: _editedAt, ...legacy } = JSON.parse(new TextDecoder().decode(store.objects.get(row.key).body));
+    if (legacy.kind !== "document") continue;
+    // A writer from before kept a file for every version, and the bucket has it.
+    const version = { schemaVersion: 1, kind: "revision", documentId: legacy.documentId, generation: legacy.generation, revision: legacy.revision, snapshot: current.snapshot, text: legacy.text, rawMarkdownEtag: current.rawMarkdownEtag };
+    await bucket.put(`${COLLAB}v1/revisions/${legacy.documentId}/${legacy.revision}.json`, JSON.stringify(version));
     await store.objects.put(row.key, JSON.stringify(legacy));
   }
 }
 
 test("a saved version only the bucket keeps sends the save back to the gateway", async () => {
-  const { routed, store, saved } = await started();
+  const { routed, store, saved, bucket } = await started();
   // The object pruned the version the save is based on; the bucket still has it.
-  await prunedLegacyVersion(store);
+  await prunedLegacyVersion(store, bucket);
   const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
   // Which read the object lacked, said to the save for its timings (`inside:collab_declined_not_held_version`).
   assert.equal(answer.served, false);
@@ -324,8 +328,8 @@ test("the object says how long it spent on the save, and write_note's store reco
 });
 
 test("a save the object declines says why in its timings, and the gateway's engine still saves it", async () => {
-  const { routed, client, store, saved } = await started();
-  await prunedLegacyVersion(store);
+  const { routed, client, store, saved, bucket } = await started();
+  await prunedLegacyVersion(store, bucket);
   const { store: layeredStore } = layered(routed, client);
   const took = [];
   Object.defineProperty(layeredStore, "phase", { value: Object.assign((name, run) => run(), { took: (name, ms) => took.push([name, ms]) }) });
