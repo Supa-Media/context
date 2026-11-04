@@ -54,7 +54,7 @@ export function shownAndNotTaken(detail, history, question) {
 }
 
 /**
- * Wrap a texted turn's dispatcher (`texTurn.js`): a held call that repeats the
+ * Wrap a texted turn's dispatcher (`texEntryPoint.js`): a held call that repeats the
  * ask they pushed back on is withdrawn and refused. Off (`on` false) for
  * routines and anything else not answering a person's text.
  */

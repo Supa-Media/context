@@ -2,7 +2,7 @@
  * THE MCP ENTRY POINT: every step an MCP request takes, timed by name (Dev2,
  * 2026-11-02: "make an mcp entrypoint similar to our tex entrypoint ... only
  * high level functions all timed, and I want to see where the bottleneck
- * is"). The Tex entry point (`agent/texEntryPoint.js`) is the model.
+ * is"). The Tex entry point (`agent/texTiming.js`) is the model.
  *
  * `serveMcp` (`http/mcpRoute.js`) runs between the `MCP ENTRY POINT: begin`
  * and `end` markers, and every `await` in there is `mcp.step(name, run)`.

@@ -1,4 +1,4 @@
-/** Every step of Tex's turn, in the order `../texTurn.js` runs them. Each file is one step. */
+/** Every step of Tex's turn, in the order `../texEntryPoint.js` runs them. Each file is one step. */
 
 export { readTheText } from "./readTheText.js";
 export { runARoutine } from "./runARoutine.js";

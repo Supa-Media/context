@@ -22,7 +22,7 @@
  *    member in the chat, on that person's own yes (`as`, `tools/offerFor.js`).
  *    A person with no account who tags Tex has no account to send from, so
  *    nothing is ever held for an account's yes from their turn, and their yes
- *    settles nothing (`texTurn.js` skips settling for their turn).
+ *    settles nothing (`texEntryPoint.js` skips settling for their turn).
  */
 
 import { loadPrivacyState } from "../privacy/state.js";

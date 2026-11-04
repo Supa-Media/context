@@ -3,7 +3,7 @@
  * to be able to look at an interaction with Tex and tell exactly why things
  * might be slow").
  *
- * Analytics Engine has every step of every turn (`texEntryPoint.js`,
+ * Analytics Engine has every step of every turn (`texTiming.js`,
  * `turnStages.js`), but only an account token can read it, and the chat's
  * history held only each tool's milliseconds and the reply's total. So the
  * reply entry in the chat's ledger carries this block: the wait before the

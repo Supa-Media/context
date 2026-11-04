@@ -1,4 +1,4 @@
-/** Runs the model with every tool, then closes the browser, records usage, and stops on a refusal or a cancel. One step of Tex's turn (`../texTurn.js`). */
+/** Runs the model with every tool, then closes the browser, records usage, and stops on a refusal or a cancel. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { contextsFor } from "../../context/identity.js";
 import { markUntrusted } from "../../privacy/egress.js";
@@ -25,7 +25,7 @@ import { askedWith, reactedLine } from "../quoted.js";
 import { withSameAsk } from "../sameAsk.js";
 import { withSkills } from "../skills.js";
 import { withMailAgent } from "../supervise.js";
-import { allowedFirst } from "../texEntryPoint.js";
+import { allowedFirst } from "../texTiming.js";
 import { paidLine } from "../textedPay.js";
 import { setAsideLine } from "../textedSettle.js";
 import { cancelledTurn } from "../textingRoutes.js";
@@ -36,7 +36,7 @@ import { sleepLineNote } from "../timeLog.js";
 import { agentTools, runTurn } from "../turn.js";
 import { withVaultWatch } from "../vaultSaved.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function runTheModel(t) {
   const { allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, controlPlane, delegation, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, maker, meter, noteLinking, offerRead, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, timeZone, tries } = t;
   if (!tex.lean) await tex.wait("steer_begin", begun);

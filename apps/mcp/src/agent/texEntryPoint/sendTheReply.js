@@ -1,4 +1,4 @@
-/** Builds the reply that gets texted, writes it to the chat's ledger, and saves the exchange. One step of Tex's turn (`../texTurn.js`). */
+/** Builds the reply that gets texted, writes it to the chat's ledger, and saves the exchange. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { json } from "../../http/responses.js";
 import { offerLine } from "../../tools/offerFor.js";
@@ -26,7 +26,7 @@ import { groupTimingLine, waitBefore } from "../turnLog.js";
 import { turnTiming } from "../turnTiming.js";
 import { jobChecked, startedJobEntries } from "../workEntries.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function sendTheReply(t) {
   const { askChat, attachments, background, begun, body, builtinUsed, chatLog, claims, controlPlane, conversation, dispatch, env, front, group, history, hot, inThread, job, keepPictures, learned, ledger, ledgerTurn, meter, offered, opened, outgoing, production, question, quoted, reacted, received, report, router, runner, session, setAside, steer, store, tex, textingWriting, timeZone, turn } = t;
   // The ask goes out in the gateway's own words, after whatever the model

@@ -1,4 +1,4 @@
-/** Starts the side reads (Google offer, Tex's notes) and sets up the answer checks and pictures. One step of Tex's turn (`../texTurn.js`). */
+/** Starts the side reads (Google offer, Tex's notes) and sets up the answer checks and pictures. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { standingForwardTools } from "../../tools/forwardRule.js";
 import { aiGatewayConfig } from "../aiGateway.js";
@@ -15,7 +15,7 @@ import { deskTexts } from "../texDesk.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 import { untriedWebCheck } from "../untriedWeb.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function prepareTheAnswer(t) {
   const { attachments, body, controlPlane, conversation, dispatch, env, front, group, history, hot, job, meter, noteLinking, offered, question, routine, runner, session, setAside, shown, stages, steer, store, tex, texting, web } = t;
   const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text or a group's (`pictureMaker.js`).

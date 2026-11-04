@@ -1,4 +1,4 @@
-/** Picks the write tools for this chat and opens the browser, vouched for by the person's own words. One step of Tex's turn (`../texTurn.js`). */
+/** Picks the write tools for this chat and opens the browser, vouched for by the person's own words. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { markUntrusted } from "../../privacy/egress.js";
 import { readUpdates } from "../customInstructions.js";
@@ -9,7 +9,7 @@ import { textingWriteTools } from "../textingWrites.js";
 import { CONSOLE_CLIENT_ID, TEXTS_CLIENT_ID } from "./clients.js";
 import { openTurnWeb, theirEarlierWords } from "../turnWeb.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function openTheWeb(t) {
   const { body, dispatch, env, group, history, ledger, offered, progress, question, report, routine, runner, session, stages, store, supervision, tex } = t;
   /*

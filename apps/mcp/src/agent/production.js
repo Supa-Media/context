@@ -73,7 +73,7 @@
  * uses the built-in words, exactly as if the file were missing. The front matter's grammar is the small subset below, so
  * no YAML dependency is needed; anything outside it is refused, not guessed at.
  *
- * Whether this deployment can call the setup's model is `texTurn.js`'s to
+ * Whether this deployment can call the setup's model is `texEntryPoint.js`'s to
  * decide; this file only reads the note.
  */
 

@@ -63,7 +63,7 @@ export function isAgentHomeKey(key) {
  * Whether a call goes to a Tex Durable Object rather than the bucket, by the
  * same rules as `withTexRouting`: a person's bookkeeping key, a Tex or chat
  * state key, or (for a listing, `prefix: true`) a prefix under either. For
- * timing only (`agent/texEntryPoint.js`); the routing itself decides access.
+ * timing only (`agent/texTiming.js`); the routing itself decides access.
  */
 export function goesToObject(key, { prefix = false } = {}) {
   if (typeof key !== "string" || key.includes("..")) return false;
@@ -147,7 +147,7 @@ export function withTexRouting(store, { workspaceId, chats = [], homeChat = null
       return typeof target.desk === "function" ? await target.desk() : null;
     },
     enumerable: false,
-    // Writable so the turn's timer can wrap it (`texEntryPoint.js` `watch`), as it wraps `get` and `put`.
+    // Writable so the turn's timer can wrap it (`texTiming.js` `watch`), as it wraps `get` and `put`.
     writable: true,
     configurable: false,
   });

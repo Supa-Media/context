@@ -8,9 +8,9 @@
  * before any model runs, and `front_door: off` brings the old turn back.
  *
  * Sabotage (temporary local edits, reverted):
- *  - `!front ||` dropped from `claims` in `texTurn.js`: "an answer that claims a
+ *  - `!front ||` dropped from `claims` in `texEntryPoint.js`: "an answer that claims a
  *    change goes out as it is" fails (the claim check sends it back);
- *  - `waiting_asks` put back in `texTurn.js` (listing the asks for any other
+ *  - `waiting_asks` put back in `texEntryPoint.js` (listing the asks for any other
  *    text): "on any other text the model is told nothing of a waiting ask"
  *    fails;
  *  - `front_door` read as always on: "off brings the old turn back" fails;
@@ -158,7 +158,7 @@ test("a reply that asks something always lists the waiting asks, whatever the tu
 
 test("an ask armed since the last turn is still found and disarmed", async () => {
   // A job, a routine or the heartbeat arms an ask beside the chat. None of them writes the person's warm copy
-  // (`texTurn.js` keeps one only for an ordinary text), and arming never clears it, so a copy sealed "none waited"
+  // (`texEntryPoint.js` keeps one only for an ordinary text), and arming never clears it, so a copy sealed "none waited"
   // outlives the fact. The listing and the disarm are what stand between that ask and a bare yes meant for Tex's
   // own question (`askOvertaken` only drops an ask after a text Tex sent by itself), so neither may be skipped on
   // a reading older than the ask.

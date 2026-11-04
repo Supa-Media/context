@@ -14,7 +14,7 @@
  *    taken apart.
  *  - `usage`/`said`/`calls` dropped from the round's trace entry in `turn.js`:
  *    "each model call writes its own point" fails (the tokens read 0);
- *  - `timing?.trace` dropped from `stages?.ran` in `texTurn.js`: the same test
+ *  - `timing?.trace` dropped from `stages?.ran` in `texEntryPoint.js`: the same test
  *    fails, since the turn log's wired trace carries no tokens.
  */
 

@@ -1,7 +1,7 @@
 /**
  * A texted yes or no settles what the texting thread's latest ask put to the
  * person (`privacy/egress.js`), before any model runs; moved out of
- * `texTurn.js`, which calls it, to keep that file to one job.
+ * `texEntryPoint.js`, which calls it, to keep that file to one job.
  */
 
 import { callToolForSession } from "../tools/session.js";

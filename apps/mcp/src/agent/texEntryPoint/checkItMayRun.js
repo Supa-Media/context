@@ -1,4 +1,4 @@
-/** Starts reading the tools and the history, and checks the model may run here (beside the model on a lean chat). One step of Tex's turn (`../texTurn.js`). */
+/** Starts reading the tools and the history, and checks the model may run here (beside the model on a lean chat). One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { json } from "../../http/responses.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "../localNow.js";
@@ -8,7 +8,7 @@ import { grantedToolsFor } from "../sixTools.js";
 import { NO_MODEL_HERE } from "./clients.js";
 import { AgentRefusal, openProvider } from "../turn.js";
 
-// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texEntryPoint.js`, checked by `scripts/tex-entry-check.mjs`)
+// TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function checkItMayRun(t) {
   const { body, controlPlane, dispatch, env, group, hot, job, outcome, report, routine, runner, runs, session, stages, store, tex } = t;
   const offeredRead = tex.ahead("tools_list", () => grantedToolsFor(session, store)), historyRead = tex.ahead("history", () => turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, job: job !== null, records: (read) => tex.step(group !== null ? "group_turn_records" : "turn_records", read, true) })); // beside the provider check (`ahead`), a group's memory too now that the egress ledger is set above (2026-10-31)

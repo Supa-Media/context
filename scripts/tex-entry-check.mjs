@@ -5,13 +5,13 @@
  * that we are never guessing").
  *
  * Code between `// TEX ENTRY POINT: begin` and `// TEX ENTRY POINT: end`
- * (the gateway's `texTurn`, `apps/mcp/src/agent/texTurn.js`, and each of its
- * steps under `apps/mcp/src/agent/texTurn/`; any region in
+ * (the gateway's `texEntryPoint`, `apps/mcp/src/agent/texEntryPoint.js`, and each of its
+ * steps under `apps/mcp/src/agent/texEntryPoint/`; any region in
  * the texting Worker, `apps/agent/src`, is checked the same way) is the path
  * a text takes to its answer. Every `await` in there must await a timed call of the entry point
  * (`await tex.step("name", ...)`, `tex.wait`, `tex.ahead`, `tex.after`,
  * `tex.behind`), and every step is named with a string literal, so each one
- * shows by name in `tex_entry` (`texEntryPoint.js`).
+ * shows by name in `tex_entry` (`texTiming.js`).
  *
  * Usage:
  *   node scripts/tex-entry-check.mjs            check the repository's files
@@ -38,14 +38,14 @@ export const ENTRY_POINTS = [
     scanned: ["apps/mcp/src/agent", "apps/agent/src"],
     // The texting Worker's side (`apps/agent/src`) is timed per text by `textTiming.ts` (`tex_text_timing`);
     // a region there is checked the same way once one is added, and joins this list then.
-    required: ["apps/mcp/src/agent/texTurn.js"],
-    // Every step file of the turn holds a region too (`texTurn/steps.js` lists them; it and `clients.js` hold no code that waits).
-    requiredUnder: { dir: "apps/mcp/src/agent/texTurn", except: ["steps.js", "clients.js"] },
+    required: ["apps/mcp/src/agent/texEntryPoint.js"],
+    // Every step file of the turn holds a region too (`texEntryPoint/steps.js` lists them; it and `clients.js` hold no code that waits).
+    requiredUnder: { dir: "apps/mcp/src/agent/texEntryPoint", except: ["steps.js", "clients.js"] },
     timed: /^await\s+tex\.(step|wait|ahead|after|behind)\(/,
-    // `texTurn` itself awaits its steps, each a file whose own region is checked here: only there, and only as `steps.<name>(t)`.
-    stepCalls: { file: "apps/mcp/src/agent/texTurn.js", timed: /^await\s+steps\.[a-zA-Z]+\(t(, error)?\)/ },
+    // `texEntryPoint` itself awaits its steps, each a file whose own region is checked here: only there, and only as `steps.<name>(t)`.
+    stepCalls: { file: "apps/mcp/src/agent/texEntryPoint.js", timed: /^await\s+steps\.[a-zA-Z]+\(t(, error)?\)/ },
     step: /\btex\.(step|wait|ahead|after)\(/g,
-    fix: 'wrap it as `await tex.step("what_it_does", () => ...)` (texEntryPoint)',
+    fix: 'wrap it as `await tex.step("what_it_does", () => ...)` (texTiming)',
   },
   {
     label: "MCP",
@@ -169,12 +169,12 @@ function selfTest() {
   const nested = checkSource(`${BEGIN}\nconst a = await tex.step("outer", async () => keep(await hear()));\n${END}\n`);
   if (nested.problems.length !== 1) throw new Error("self-test: an untimed await inside a step passed");
   const stepsOk = checkSource(`${BEGIN}\nconst a = (await steps.readTheText(t)) ?? (await steps.sendTheReply(t));\nreturn await steps.recoverFromFailure(t, error);\n${END}\n`, TEX, TEX.stepCalls.file);
-  if (stepsOk.problems.length !== 0) throw new Error(`self-test: texTurn's own steps were refused: ${stepsOk.problems.join("; ")}`);
-  const stepsElsewhere = checkSource(`${BEGIN}\nconst a = await steps.readTheText(t);\n${END}\n`, TEX, "apps/mcp/src/agent/texTurn/readTheText.js");
-  if (stepsElsewhere.problems.length !== 1) throw new Error("self-test: a step call outside texTurn.js passed");
+  if (stepsOk.problems.length !== 0) throw new Error(`self-test: texEntryPoint's own steps were refused: ${stepsOk.problems.join("; ")}`);
+  const stepsElsewhere = checkSource(`${BEGIN}\nconst a = await steps.readTheText(t);\n${END}\n`, TEX, "apps/mcp/src/agent/texEntryPoint/readTheText.js");
+  if (stepsElsewhere.problems.length !== 1) throw new Error("self-test: a step call outside texEntryPoint.js passed");
   const stepsOther = checkSource(`${BEGIN}\nconst a = await steps.readTheText(t, more);\nconst b = await other.readTheText(t);\n${END}\n`, TEX, TEX.stepCalls.file);
-  if (stepsOther.problems.length !== 2) throw new Error("self-test: an await that is not a step of the turn passed in texTurn.js");
-  if (!mustHold(TEX, "apps/mcp/src/agent/texTurn/sendTheReply.js") || mustHold(TEX, "apps/mcp/src/agent/texTurn/steps.js") || mustHold(TEX, "apps/mcp/src/agent/turn.js")) throw new Error("self-test: which step files must hold a region is wrong");
+  if (stepsOther.problems.length !== 2) throw new Error("self-test: an await that is not a step of the turn passed in texEntryPoint.js");
+  if (!mustHold(TEX, "apps/mcp/src/agent/texEntryPoint/sendTheReply.js") || mustHold(TEX, "apps/mcp/src/agent/texEntryPoint/steps.js") || mustHold(TEX, "apps/mcp/src/agent/turn.js")) throw new Error("self-test: which step files must hold a region is wrong");
   const MCP = ENTRY_POINTS[1];
   const mcpOk = checkSource(`${MCP.begin}\nconst s = await mcp.step("session", () => r());\n${MCP.end}\n`, MCP);
   if (mcpOk.problems.length !== 0 || mcpOk.regions !== 1) throw new Error(`self-test: a timed MCP region was refused: ${mcpOk.problems.join("; ")}`);

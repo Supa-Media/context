@@ -349,7 +349,7 @@ test/workspaceRouting.test.mjs
 test/backupBehind.test.mjs
 test/writeKeepsTier.test.mjs
 test/mcpEntryPoint.test.mjs
-test/texEntryPoint.test.mjs
+test/texTiming.test.mjs
 test/workspaceTree.test.mjs
 test/workspaceRowsOwnership.test.mjs
 test/objectLookup.test.mjs
