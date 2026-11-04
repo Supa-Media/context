@@ -84,7 +84,8 @@ test("a store call is named by the kind of its key, never the key", () => {
 
 test("a control-plane fetch is timed by its route, never its query or an id in it", async () => {
   const MCP_ENTRY = dataset();
-  const mcp = mcpEntry({ MCP_ENTRY });
+  // A still clock: a slow runner's real milliseconds between steps would add an "uncovered" point this test is not about.
+  const mcp = mcpEntry({ MCP_ENTRY }, { now: () => 1_000 });
   const seen = [];
   const fetchImpl = mcp.fetchFor("cp", async (input) => (seen.push(input), new Response("ok")));
   await fetchImpl("https://cp.example.test/gateway/binding?token=abc");
