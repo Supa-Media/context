@@ -1,5 +1,7 @@
 import { useMemo, useRef } from "react";
+import { Platform } from "react-native";
 import { useQuery } from "convex/react";
+import { getDesktopBridge } from "@context/desktop-bridge";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useConsoleGrant } from "../../agent/useConsoleGrant";
@@ -8,7 +10,9 @@ import { gatewayFolderStore, type MachineFolderStore } from "./thisMacFolders";
 
 /** This Mac's folder store on the page's own console grant, or `null` until the person's workspaces are known. */
 export function useMachineFolderStore(): MachineFolderStore | null {
-  const workspaces = useQuery(api.functions.workspaces.listMyWorkspaces, {});
+  // Only inside a Mac app that has the picker: anywhere else there is no folder row to fill.
+  const inMac = Platform.OS === "web" && getDesktopBridge()?.machine?.pickFolders !== undefined;
+  const workspaces = useQuery(api.functions.workspaces.listMyWorkspaces, inMac ? {} : "skip");
   const mint = useConsoleGrant();
   // Through a ref: the minter changes identity on every sign-in refresh, and the store should not.
   const minting = useRef(mint);

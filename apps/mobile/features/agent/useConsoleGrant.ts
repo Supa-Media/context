@@ -25,7 +25,8 @@ export function useConsoleGrant() {
     const instanceId = globalThis.crypto?.randomUUID?.() ??
       `console-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     entry = { session, cache: new ConsoleGrantCache(instanceId) };
-    sessions.set(client, entry);
+    // A clientless console (no Convex client yet) keeps nothing, and its minter refuses below.
+    if (client) sessions.set(client, entry);
   }
   const cache = entry.cache;
   return useCallback(({ workspaceId }: { workspaceId: Id<"workspaces"> }, refresh: GrantRefresh = false) => {
