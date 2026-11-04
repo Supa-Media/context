@@ -9,21 +9,12 @@
  * `apps/convex/__tests__/texSetupReadParity.test.ts` holds the two to the same answers.
  */
 
+import { visibilityOf } from "../privacy/engine.js";
+
 /** The only folders the setup read opens, with no trailing slash (the control plane's `SETUP_FOLDERS`). */
 export const SETUP_FOLDERS = Object.freeze(["ai/production", "ai/agents"]);
 
 const under = (path, folder) => path === folder || path.startsWith(`${folder}/`);
-
-/** The nearest folder rule's visibility, `private` with none (the control plane's `visibilityOf`). */
-function visibilityOf(key, folders) {
-  let best = null;
-  for (const rule of folders) {
-    if (key === rule.prefix || key.startsWith(`${rule.prefix}/`)) {
-      if (best === null || rule.prefix.length > best.prefix.length) best = rule;
-    }
-  }
-  return best === null ? "private" : best.visibility;
-}
 
 /**
  * A member's held rules (`{folders, notes, accessVersion, etag?}`, as the object keeps them) narrowed to the setup
@@ -33,7 +24,7 @@ export function setupHeldRules(member) {
   if (!member || typeof member !== "object" || !Array.isArray(member.folders) || !Array.isArray(member.notes)) return null;
   const folders = [];
   for (const folder of SETUP_FOLDERS) {
-    folders.push({ prefix: folder, visibility: visibilityOf(folder, member.folders) });
+    folders.push({ prefix: folder, visibility: visibilityOf(folder, member.folders.map((rule) => ({ prefix: rule.prefix, vis: rule.visibility }))) });
     for (const rule of member.folders) if (rule.prefix !== folder && under(rule.prefix, folder)) folders.push({ prefix: rule.prefix, visibility: rule.visibility });
   }
   const notes = [];
