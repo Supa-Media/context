@@ -28,7 +28,6 @@ What a turn started is checked from the run's record, never by the judge (`bench
 
 ## 1. Plan the Lisbon week: restaurants, a day trip, and what to pack (three parts that run side by side)
 
-- drafted: Claude (2026-11-04)
 - kind: task
 - person starts: "can you sort out the lisbon week properly? i want a dinner spot picked for each night, one day trip out of the city, and a packing list for the weather that week"
 - if asked about food: "anything, we like seafood, nothing too fancy"
@@ -42,7 +41,6 @@ What a turn started is checked from the run's record, never by the judge (`bench
 
 ## 2. Shoes, a physio and a November plan (three unrelated parts at once)
 
-- drafted: Claude (2026-11-04)
 - kind: task
 - person starts: "ok three things for running. compare 3 good beginner shoes for me, find a physio near me who does knees, and write me a training plan for november that gets me to the 10k"
 - if asked where she lives: "whatever's in my notes"
@@ -56,7 +54,6 @@ What a turn started is checked from the run's record, never by the judge (`bench
 
 Two jobs are already running, so one slot is free. The ask still gets done, as one job, and is not refused.
 
-- drafted: Claude (2026-11-04)
 - running: 2
 - kind: task
 - person starts: "can you also plan the lisbon week? dinner spot each night, one day trip, and a packing list for the weather"
@@ -67,7 +64,6 @@ Two jobs are already running, so one slot is free. The ask still gets done, as o
 
 ## 4. A big ask with every slot taken (nothing starts, and she hears why)
 
-- drafted: Claude (2026-11-04)
 - running: 3
 - kind: task
 - person starts: "can you plan the lisbon week too? dinner spot each night, a day trip and a packing list"
@@ -77,7 +73,6 @@ Two jobs are already running, so one slot is free. The ask still gets done, as o
 
 ## 5. When do we fly back from Lisbon? (a one-fact lookup)
 
-- drafted: Claude (2026-11-04)
 - kind: task
 - person starts: "when do we fly back from lisbon?"
 - must not start: a job
@@ -87,7 +82,6 @@ Two jobs are already running, so one slot is free. The ask still gets done, as o
 
 ## 6. Add sunscreen to the packing list (one write)
 
-- drafted: Claude (2026-11-04)
 - kind: task
 - person starts: "add sunscreen to the lisbon packing list"
 - must not start: a job
@@ -99,7 +93,6 @@ Two jobs are already running, so one slot is free. The ask still gets done, as o
 
 One research task with one answer: it may be done now or as one job, never split into parts.
 
-- drafted: Claude (2026-11-04)
 - kind: task
 - person starts: "can you find me decent travel insurance for the lisbon trip and tell me which one to get?"
 - if asked who's covered: "just me, ana sorts her own"
@@ -109,7 +102,6 @@ One research task with one answer: it may be done now or as one job, never split
 
 ## 8. What's left before Lisbon? (two quick lookups in one text, never jobs)
 
-- drafted: Claude (2026-11-04)
 - kind: task
 - person starts: "what's left to do before lisbon and how far am i on the running plan?"
 - must not start: a job
@@ -122,7 +114,6 @@ One research task with one answer: it may be done now or as one job, never split
 
 Reading a repo to answer is code work: it runs on her computer with Claude Code or Codex, never in the cloud, and it is one job.
 
-- drafted: Claude (2026-11-04)
 - kind: task
 - person starts: "how does vercel's next.js decide whether a fetch in the app router gets cached? i want the actual logic from their repo, not a blog post"
 - must start: 1 job on a computer
@@ -132,7 +123,6 @@ Reading a repo to answer is code work: it runs on her computer with Claude Code 
 
 ## 10. Change the "On it" text in Context (a small code change: one job on the computer)
 
-- drafted: Claude (2026-11-04)
 - kind: task
 - person starts: "in the context repo, change the text tex sends when a job starts from On it to On it, I'll text you back. small change, open a PR"
 - must start: 1 job on a computer
@@ -144,7 +134,6 @@ Reading a repo to answer is code work: it runs on her computer with Claude Code 
 
 Several pieces of one feature that can be built at once: each is a part on her computer, sharing one project note's mail.
 
-- drafted: Claude (2026-11-04)
 - kind: task
 - person starts: "big one for the context repo: build a weekly digest for tex. a sunday routine that gathers what every background job finished that week, a new card to draw it, and the tests and docs for both. open PRs"
 - if asked about the day: "sunday at 6 pm"
