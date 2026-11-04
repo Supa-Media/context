@@ -142,6 +142,11 @@ export type Deliver = {
   kind: MessageKind;
   from: string;
   text: string;
+  /** The app the sender wrote from, for an agent; absent for Tex or a person. */
+  app?: string;
+  /** The note whose mail block holds this line. */
+  path?: string;
+  at?: Timestamp;
 };
 
 /** Stop the current step now and read this first. Only from Tex or the person, which the gateway checks before sending. */
@@ -151,6 +156,8 @@ export type Interrupt = {
   messageId: Id;
   from: string;
   text: string;
+  /** The note whose mail block holds this line, when it came from mail. */
+  path?: string;
 };
 
 /** End a run now. The runner kills the tool, deletes the run grant file, and answers with a result. */
@@ -263,6 +270,10 @@ export type Usage = {
   /** The tool reported its plan is used up. */
   planLimited?: boolean;
   planResetsAt?: Timestamp;
+  /** How much of the plan's current window is used, 0 to 1, when the tool says. */
+  planUtilization?: number;
+  /** Which plan window the tool reported, such as five_hour or seven_day. */
+  planWindow?: string;
 };
 
 /** A run ended. The answer is the tool's last message: untrusted words for the advisor and the coordinator. */
