@@ -91,6 +91,11 @@ export function busyLine(slots: Overview["minions"], places?: Overview["places"]
 }
 
 /** The figure a job is drawn with. */
+/** A minion card's figure: the calm # Tex while it works, dimmed while free (owner, 2026-11-04: no chaos ball on the cards; the words say how it is going). */
+export function minionMood(job: JobSummary | null): Mood {
+  return job === null ? "rest" : "calm";
+}
+
 export function moodOf(job: JobSummary | null): Mood {
   if (job === null) return "rest";
   if (job.state === "waiting") return "stuck";

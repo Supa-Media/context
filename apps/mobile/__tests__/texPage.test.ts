@@ -23,6 +23,7 @@ import {
   advisorLine,
   ago,
   busyLine,
+  minionMood,
   clock,
   endedLine,
   heading,
@@ -85,6 +86,11 @@ describe("reading the gateway", () => {
     expect(o.minions[3]!.job).toMatchObject({ ranOn: "On Cloud VM", tool: "Claude Code", machine: "mch_1" });
     // Nobody with a computer: no places, the three slots as always.
     expect(readOverview({ minions: [{ slot: 2, job: { id: "a" } }] })!.places).toBeUndefined();
+  });
+
+  test("a minion card is the calm # Tex whatever its job's state, dimmed when free", () => {
+    for (const state of ["running", "waiting", "failed", "done"] as const) expect(minionMood(job({ state }))).toBe("calm");
+    expect(minionMood(null)).toBe("rest");
   });
 
   test("an offline computer's free slots are not counted as room", () => {
