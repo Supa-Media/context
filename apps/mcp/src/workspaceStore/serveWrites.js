@@ -63,6 +63,9 @@ function timesOf(timing, started) {
     before: Math.max(0, started - arrived),
     ...(timing.cold === true ? { cold: true } : {}),
     ...(timing.alarm === true ? { alarm: true } : {}),
+    // An alarm that began after the call arrived, before its answer left: it shares the object's one thread with the
+    // call's last steps, and the object's clock does not move while either computes, so its time shows only as legs.
+    ...(typeof timing.alarmsNow === "function" && timing.alarmsNow() > (timing.alarmsBefore ?? 0) ? { alarmDuring: true } : {}),
   };
 }
 
@@ -101,8 +104,8 @@ function treeChanged(store, result) {
 /**
  * `store` is the object's `ready()` store: `{rows, sql, transact, mirror, flushMirror, mirrorSoon}`.
  * `now` is the object's clock for the change. `timing` is what the object's `fetch` saw of this call before it got
- * here: `arrived` (its clock when the call began), `cold` (the first call this instance answered) and `alarm` (its
- * alarm was running then), so a timed answer can say where a trip's time went outside the op (`objectMove.js`).
+ * here: `arrived` (its clock when the call began), `cold` (the first call this instance answered), `alarm` (its
+ * alarm was running then) and `alarmsBefore`/`alarmsNow()` (alarms begun by then, and now), so a timed answer can say where a trip's time went outside the op (`objectMove.js`).
  */
 export async function serveWrites(store, op, fields, now = Date.now(), mintId = objectRowId, timing = {}) {
   const started = Date.now();

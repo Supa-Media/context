@@ -66,7 +66,8 @@ function objectFor(store, scope) {
  * - `move_out` and `move_back`: each way alone, across the two machines' clocks, so a skew shifts time between them
  *   (their sum is `move_legs`); a negative one is a skew, not a time, and is not recorded;
  * - `move_legs_cold` and `move_legs_alarm`: `move_legs` again when the object was woken by this call or its alarm was
- *   running, so their counts say how often and their times what it cost.
+ *   running, so their counts say how often and their times what it cost; `move_legs_alarm_during` when an alarm began
+ *   while the call was in the object (the alarm the move's own write arms runs at once).
  */
 function tripTimes(store, answer, sentAt, receivedAt) {
   const { arrived, answered } = answer;
@@ -78,6 +79,7 @@ function tripTimes(store, answer, sentAt, receivedAt) {
   phaseTook(store, "move_back", receivedAt - answered);
   if (answer.cold === true) phaseTook(store, "move_legs_cold", legs);
   if (answer.alarm === true) phaseTook(store, "move_legs_alarm", legs);
+  if (answer.alarmDuring === true) phaseTook(store, "move_legs_alarm_during", legs);
 }
 
 /** Work kept going behind the answer where the host allows it, and awaited where it does not. */
