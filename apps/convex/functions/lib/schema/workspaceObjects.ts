@@ -60,6 +60,14 @@ export const workspaceObjectTables = {
     personAccessSince: v.optional(v.number()),
     personBackfilledAt: v.optional(v.number()),
     personParity: v.optional(v.object({ at: v.number(), tables: v.array(v.object({ table: v.string(), convex: v.number(), object: v.number(), match: v.boolean() })) })),
+    /**
+     * A personal workspace only: whether a text's session is opened by its person object (decided by the owner,
+     * 2026-11-04; `functions/textingObjects.ts`). Absent is `convex`. `object` only once the texting record landed,
+     * and only while `personAccess` is `object`. When the record was last pushed.
+     */
+    texting: v.optional(v.union(v.literal("convex"), v.literal("object"))),
+    textingSince: v.optional(v.number()),
+    textingPushedAt: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_home", ["home"])

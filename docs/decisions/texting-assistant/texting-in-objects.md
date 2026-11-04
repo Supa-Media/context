@@ -60,10 +60,17 @@ facts below, the rule that only the control plane holds account facts.
    its own Worker (Sendblue's side: dedupe, the per-phone queue, steering,
    presence, sends, jobs; the owner asked why not one Worker, and the hop,
    not the split, was the cost).
-4. **Nothing Convex holds is waited on.** The identity block is read from the
-   texting record. The grant row, the audit row and the dream, check-in and
-   housekeeping re-arming are written to Convex behind the reply, from an
-   outbox that retries, never on the path.
+4. **One Convex write is still waited on, and nothing Convex reads.** The
+   identity block, zone and style come from the texting record. Before the
+   token goes out, Convex keeps its copy of the grant with the token's hash,
+   in one mutation that also writes the audit row and re-arms the dream,
+   check-in and housekeeping (`/gateway/texts/opened`,
+   `apps/convex/functions/textingObjects.ts`). It is waited on because every
+   control-plane route that takes the token (the model cap, the vault, mail,
+   pages) resolves it from that copy; written behind, the first of them could
+   run before it lands and refuse a live token. One write replaces the old
+   four calls. It can go behind once the cap check, the only token call before
+   the model runs, is answered by the object too.
 
 ## Group chats too
 
@@ -81,29 +88,33 @@ list.
 
 ## Who is the authority
 
-The person object owns the phone link, as it owns connections: one source,
-copied one way. Linking, unlinking, pausing and unpausing write the object
-first and Convex second (`writeBoth`), so an
-unlinked or paused phone is refused on its very next text even while the copy
-is on its way, and a failed object write fails the change. A change to a fact
-in the identity block (a name, an email, a Google account) is written to the
-object behind the change in Convex: a stale name is wrong, never unsafe.
+The person object keeps the phone link, as it keeps connections, and Convex
+keeps the record it is copied from: link, unlink, pause, unpause and a change
+of Tex style push the record again (`lib/textingRefresh.ts`), and an unlink or
+a pause revokes every texting token the object opened. Convex also re-checks
+the link and the pause in the one write each text makes, so a push still on
+its way never lets a removed or paused phone in. A record older than ten
+minutes is pushed again behind a text, so a changed zone or name reaches the
+object; a stale name is wrong, never unsafe.
 
 ## Rollout
 
-Per person, like access: `texting: "convex" | "object"`. A person is switched
-once their object holds the record and the index object names them; until
-then the gateway's route answers by asking Convex exactly as the Worker used
-to, so nobody is cut off mid-move.
+Per person, like access: `texting: "convex" | "object"` on the personal
+workspace's homes row, `object` only once the record landed and only while
+`personAccess` is `object`. Only then does `/agent-texts/session` name the
+personal workspace, which the Worker keeps; until then every text goes the
+old way, so nobody is cut off mid-move. `textingObjects.backfill` switches
+everyone who can be, and `switchOff` puts one person back.
 
 ## What a simplification costs
 
 - Trusting the inbox's workspace id would let a wrong or stale id open a
   person object that never linked the number; the person object checks its
   own phone hashes, and a refusal clears the inbox's id.
-- Writing Convex first on unlink would leave a removed phone answered until
-  the copy lands.
-- Waiting for the Convex write-behind before answering puts the 2.4 s back.
+- Dropping Convex's re-check from the one write would leave a removed or
+  paused phone answered until the push lands.
+- Writing the grant copy behind would let a tool call or the cap check run
+  before it lands and refuse a live token.
 
 Tests: the isolation tests in `apps/mcp/test/textingObjects.test.mjs` (a phone
 held by one person never opens another's object; a paused or unlinked phone is

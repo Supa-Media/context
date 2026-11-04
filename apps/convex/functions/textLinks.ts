@@ -22,6 +22,7 @@ import { armDream } from "./lib/dreams/model";
 import { armHeartbeat } from "./lib/heartbeats/model";
 import { armHousekeeping } from "./lib/housekeeping/model";
 import { acceptPhoneInvitations } from "./lib/invitations/join";
+import { refreshTexting } from "./lib/textingRefresh";
 
 /**
  * Linking a phone to an account, so the person can text the Context assistant.
@@ -65,7 +66,7 @@ export const LEGACY_TEXTS_CLIENT_NAME = "Texts (iMessage)";
  * answers, so a grant only has to outlast one answer.
  */
 export const TEXTS_GRANT_TTL_MS = 15 * 60 * 1000;
-const TEXTS_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
+export const TEXTS_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
 
 /** How long a texted sign-in link stays open. */
 export const INVITE_TTL_MS = 30 * 60 * 1000;
@@ -276,6 +277,7 @@ async function removeLinksOf(ctx: MutationCtx, userId: Id<"users">, action: stri
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
   for (const link of links) await ctx.db.delete(link._id);
+  await refreshTexting(ctx, userId); // the person object revokes its texting tokens too (`lib/textingRefresh.ts`)
 
   const grants = await ctx.db
     .query("oauthGrants")
@@ -446,6 +448,7 @@ export const consumeLinkCode = internalMutation({
     // And an account has one number: a new one replaces the old.
     await removeLinksOf(ctx, match.userId, "texts.phone.replaced");
     await ctx.db.insert("phoneLinks", { userId: match.userId, phone: args.phone, linkedAt: now });
+    await refreshTexting(ctx, match.userId);
     // A workspace that invited this number from a Tex group chat is joined now: the code proved it.
     await acceptPhoneInvitations(ctx, match.userId, args.phone);
 
@@ -487,7 +490,20 @@ export const applyTextsGrant = internalMutation({
     expiresAt: v.number(),
   },
   returns: v.union(v.literal("linked"), v.literal("unlinked")),
-  handler: async (ctx, args) => {
+  handler: async (ctx, args) => await keepTextsGrant(ctx, args),
+});
+
+/**
+ * The texting grant for whoever linked `phone`, with this token's hash: re-checked (linked, not paused, a member who
+ * may operate) on every text, then the dream, check-in and housekeeping re-armed and the audit row written. Also how a
+ * session the person object opened is copied here (`textingObjects.ts` `keepOpened`), with `personalWorkspaceId`
+ * naming whose object it was: any other person's phone is "unlinked".
+ */
+export async function keepTextsGrant(
+  ctx: MutationCtx,
+  args: { phone: string; hashedAccessToken: string; hashedRefreshToken: string; expiresAt: number; personalWorkspaceId?: Id<"workspaces"> },
+): Promise<"linked" | "unlinked"> {
+  {
     if (!isPhoneNumber(args.phone)) return "unlinked";
     const link = await ctx.db
       .query("phoneLinks")
@@ -498,6 +514,7 @@ export const applyTextsGrant = internalMutation({
     if (await phoneSignInPaused(ctx, link.userId)) return "unlinked";
     const workspaceId = await personalWorkspaceOf(ctx, link.userId);
     if (workspaceId === null) return "unlinked";
+    if (args.personalWorkspaceId !== undefined && args.personalWorkspaceId !== workspaceId) return "unlinked";
 
     const membership = await getMembership(ctx, workspaceId, link.userId);
     if (membership === null) return "unlinked";
@@ -550,8 +567,8 @@ export const applyTextsGrant = internalMutation({
       details: { scopes: scopes.join(" ") },
     });
     return "linked";
-  },
-});
+  }
+}
 
 async function ensureTextsClient(ctx: MutationCtx): Promise<void> {
   const existing = await ctx.db
