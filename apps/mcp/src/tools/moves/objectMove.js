@@ -80,8 +80,6 @@ function tripTimes(store, answer, sentAt, receivedAt) {
   if (answer.cold === true) phaseTook(store, "move_legs_cold", legs);
   if (answer.alarm === true) phaseTook(store, "move_legs_alarm", legs);
   if (answer.alarmDuring === true) phaseTook(store, "move_legs_alarm_during", legs);
-  // Whether this move set the object's alarm (none was due): its trip against one that found an alarm already due.
-  phaseTook(store, answer.armed === true ? "move_legs_armed" : "move_legs_unarmed", legs);
 }
 
 /** Work kept going behind the answer where the host allows it, and awaited where it does not. */
