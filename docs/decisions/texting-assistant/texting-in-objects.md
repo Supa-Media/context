@@ -86,6 +86,19 @@ group token, in the same one call. A change of participants or a command
 the one kept, so who may reach the chat's home is never decided from a stale
 list.
 
+The first step needs no object. The chat's inbox in the texting Worker keeps
+the last "ready" answer, with its token, keyed to the tagger and a hash of the
+chat's people (`apps/agent/src/groupKept.ts`). A plain tag from the same
+person with the same people, within eight minutes of the mint (a group token
+lives fifteen), runs on that token at once, and the control plane is asked
+behind the turn without minting: its bookkeeping (the check-in, the reach) is
+kept, its answer refreshes the kept one, and anything but "ready" drops it so
+the next tag asks first. Reuse widens nothing: the gateway re-checks the grant
+on every call (live, not paused, the chat not muted, each workspace still
+shared, `liveGrants.ts` `groupStillShares`). Another sender, another set of
+people, a command, a style choice, a setting or a routine always asks first.
+What it can get wrong for one message is a name, a guest label or the style.
+
 ## Who is the authority
 
 The person object keeps the phone link, as it keeps connections, and Convex
@@ -122,4 +135,6 @@ refused at once) and `apps/mcp/test/textsSession.test.mjs` (a workspace id
 naming somebody else's object is the same miss; the phone is only ever a keyed
 hash, pinned to a vector Convex's copy must match; Convex is told the token's
 hash and never the token; who is texting is read off the session), and the
-Convex side in `apps/convex/__tests__/textingObjects.test.ts`.
+Convex side in `apps/convex/__tests__/textingObjects.test.ts`; for a group,
+`apps/agent/src/groupKept.test.ts` (another sender, a newcomer, an old token,
+a command or a chat that stopped answering never runs on a kept token).
