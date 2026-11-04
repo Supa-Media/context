@@ -86,3 +86,19 @@ Tainted words are still held back. Only the speaker is kept.
 **The test that fails if this is reversed:** `apps/mcp/test/morningChat.test.mjs`
 covers each failure above as a golden case. `apps/mobile/__tests__/texHistoryLines.test.ts`
 covers the History view drawing a heard voice message once.
+
+## Who is who in a group chat (2026-11-04)
+
+In a customer's group chat, Tex told the person asking that they "would
+know" where a file was. The turn knew the tagger only by handle, while the
+notes named them by full name. The control plane now sends each account's
+name beside its handle (`textGroupAccounts.ts` `chatPerson`), the gateway
+keeps only people in the chat and cleans each name to the characters names
+use (`groupNames.js`), and the turn is told who is who.
+
+Pattern checks on the answer's wording were tried for the rest of that chat
+(a bare thanks, "X would know") and rejected by the owner the same day: a
+pattern only catches phrasings already seen. The rest is a design question
+about unfinished asks, open with the owner.
+
+**The test that fails if this is reversed:** `apps/mcp/test/groupNames.test.mjs`.

@@ -65,6 +65,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     ...(asked.handle ? { from: asked.handle } : {}),
     // Who is here, by handle, so an email can be offered to one of them to send (`apps/mcp/src/tools/offerFor.js`).
     people: [...new Set(handles.values())].filter(Boolean),
+    // Each account's name beside its handle, so "@jo" is known as the "Jo Rivers" the notes name (2026-11-04).
+    ...(named(asked.names).length > 0 ? { names: named(asked.names) } : {}),
     // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
   };
@@ -222,6 +224,11 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const theirWords = { id: message.eventId, text: message.jobReport ? "" : message.text }; // a report's turn passes only its own notes
   if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, theirWords, deps.steerJob, deps.now());
   if (answer.steers && deps.steerJob) await resumeJobs(storage, answer.steers, theirWords, deps.steerJob, deps.now()); // "restart it": an ended job picks up where it stopped, with their words
+}
+
+/** The chat's people with a name on their account, by handle. */
+function named(names: { handle: string; name?: string }[] | undefined): { handle: string; name: string }[] {
+  return (names ?? []).filter((entry) => entry.handle !== "" && typeof entry.name === "string" && entry.name !== "").map(({ handle, name }) => ({ handle, name: name as string }));
 }
 
 /** Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them. */

@@ -19,7 +19,7 @@ import { muteChat, setSpeaksUp, speaksUpOf, unmuteChat } from "./lib/texChatRule
 import { ensureGroupClient } from "./lib/textGroupClient";
 import { ensureChatHome } from "./lib/textGroupHome";
 import { sponsorOf } from "./lib/textGroupUsage";
-import { handleOf, linkedUser } from "./lib/textGroupAccounts";
+import { chatPerson, handleOf, linkedUser } from "./lib/textGroupAccounts";
 import { chatWorkspace, reachOf } from "./lib/textGroupReach";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 
@@ -123,8 +123,8 @@ export const groupAnswerValidator = v.union(
     handle: v.string(),
     /** False when only a command was asked: no token was minted. */
     minted: v.boolean(),
-    /** Each person in the chat's handle, so what they said before the tag is filed by name, never by number. */
-    names: v.array(v.object({ phone: v.string(), handle: v.string() })),
+    /** Each person in the chat's handle, so what they said before the tag is filed by name, never by number; and their account's name, when it has one. */
+    names: v.array(v.object({ phone: v.string(), handle: v.string(), name: v.optional(v.string()) })),
     /**
      * A label for each person with no account (or who isn't a member of the workspace the answer names), and the
      * tagger's label when they are one of them. A guest never appears in `names`, so an email is never offered to go
@@ -160,7 +160,7 @@ export type GroupAnswer =
       timeZone: string;
       handle: string;
       minted: boolean;
-      names: { phone: string; handle: string }[];
+      names: { phone: string; handle: string; name?: string }[];
       guests?: { phone: string; label: string }[];
       guestTagger?: string;
     } & ChatSettings);
@@ -353,8 +353,8 @@ async function singleWorkspaceTurn(
   }
   const introduced = intro && minted;
   if (introduced) await ctx.db.patch(group._id, { introducedAt: Date.now() });
-  const names: { phone: string; handle: string }[] = [];
-  for (const [userId, phone] of phones) names.push({ phone, handle: await handleOf(ctx, userId) });
+  const names: { phone: string; handle: string; name?: string }[] = [];
+  for (const [userId, phone] of phones) names.push(await chatPerson(ctx, phone, userId));
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, senderUser));
   const handle = await handleOf(ctx, senderUser);
   return { status: "ready", slug: workspace.slug, intro: introduced, bound: false, reach: [workspace.slug], timeZone, handle, minted, names, ...engagementOf(group), ...(await mailSharesNamed(ctx, group._id)) };
@@ -408,8 +408,8 @@ async function invitedTurn(
   }
   const introduced = chat.introducedAt === undefined && minted;
   if (introduced) await ctx.db.patch(chat._id, { introducedAt: Date.now() });
-  const names: { phone: string; handle: string }[] = [];
-  for (const [phone, userId] of invited.members) names.push({ phone, handle: await handleOf(ctx, userId) });
+  const names: { phone: string; handle: string; name?: string }[] = [];
+  for (const [phone, userId] of invited.members) names.push(await chatPerson(ctx, phone, userId));
   // An invited person is named by a label, never by number, as a guest is.
   const guests: { phone: string; label: string }[] = [];
   for (const phone of invited.invited.keys()) guests.push({ phone, label: await guestLabel(args.groupKey, phone) });
