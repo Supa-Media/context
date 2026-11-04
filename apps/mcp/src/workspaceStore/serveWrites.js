@@ -26,6 +26,7 @@ export function runWriteOp(store, handler, fields, now = Date.now(), mintId = ob
         sql: store.sql,
         members: store.members ?? null,
         access: store.access ?? null,
+        handles: store.handles ?? null,
         mirrorPending: () => store.mirror.pending(1).length > 0,
         now,
         lookupLive: (path) => liveRowByPath(store.sql, path),

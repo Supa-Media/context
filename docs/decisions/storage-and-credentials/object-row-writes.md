@@ -309,3 +309,20 @@ not a note, a source or destination with its own rule, a source seen through a g
 home. The caller is judged by the session, source first, so a source they cannot see is `not_found` whatever the
 destination holds. Duplicate tries the control plane's "… copy", "… copy 2" names in order against every live name,
 seen or not, and leaves the choice to the control plane after 20. The tests are `apps/mcp/test/fileCopy.test.mjs`.
+
+## People added by name in the object (2026-11-04)
+
+Adding people to one row's list (`addRowPeople`, `set_visibility`'s `people`) is written in the workspace object
+first when it serves the workspace (`objectFirstAddGrantees`, `apps/mcp/src/store/objectAccess.js`): `ws.write.access`
+with `mode: "add"`, an email as an `email` grantee and a `@name` from the object's own cache of resolved handles
+(`ws_handles`, `apps/mcp/src/workspaceStore/handleCache.js`). A name the object has not been told answers `RESOLVE`
+with nothing written; the gateway asks the control plane once (`/gateway/privacy` `resolveHandles`, read only, owner
+only, `apps/convex/functions/gatewayHandles.ts`) and sends the answer back with the same write, which keeps it. A name
+nobody holds is `GRANTEE_NOT_FOUND`, as before. Owner only, as the control plane's list is; anything the object cannot
+decide alone goes to the control plane's `addGrantees` (decided by the owner, 2026-11-04: names cached in the gateway
+so a repeat add skips Convex).
+
+Why a cache is safe: a username or group name is released only when its account or group is deleted, so a stale
+entry points at someone who no longer exists and grants nobody. Entries are kept an hour (`HANDLE_TTL_MS`), so a name
+re-claimed by someone new is resolved afresh within it, and a group resolves only within its own workspace. The
+tests are `accessHandles.test.mjs`, `objectAddGrantees.test.mjs` and `apps/convex/__tests__/gatewayHandles.test.ts`.
