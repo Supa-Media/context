@@ -90,6 +90,7 @@ import { readSearchSettings } from "../search/settings.js";
 import { readSkillList, skillBody } from "./skills.js";
 import { readOpenWeb, readTrustedSites } from "./trustedSites.js";
 import { readFrontDoor } from "./frontDoor.js";
+import { readReplyJudge } from "./replyJudge.js";
 import { readHistoryTurns } from "./conversation.js";
 import { EFFORTS } from "./aiGateway.js";
 
@@ -211,6 +212,10 @@ async function parse(raw) {
   const frontDoor = readFrontDoor(front.front_door);
   if (frontDoor === null) return null;
 
+  // A decision model reads each texted reply before it goes (`replyJudge.js`): `reply_judge: clef | clef-flash`, `judge_at` its confidence.
+  const replyJudge = readReplyJudge(front.reply_judge, front.judge_at);
+  if (replyJudge === undefined) return null;
+
   let maxSteps = null;
   if (front.max_steps !== undefined) {
     if (typeof front.max_steps !== "string" || !/^[1-9]\d?$/.test(front.max_steps)) return null;
@@ -238,6 +243,7 @@ async function parse(raw) {
     tools,
     history: history ?? null,
     frontDoor,
+    replyJudge,
     maxSteps,
     prompt,
     version: await versionOf(raw),

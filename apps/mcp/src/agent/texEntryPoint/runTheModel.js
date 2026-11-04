@@ -39,6 +39,7 @@ import { agentTools, runTurn } from "../turn.js";
 import { chatHubUrl, hubPrompt } from "../hubLinks.js";
 import { withVaultWatch } from "../vaultSaved.js";
 import { doItChecks } from "../doItChecks.js";
+import { replyJudge } from "../replyJudge.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function runTheModel(t) {
@@ -52,6 +53,8 @@ export async function runTheModel(t) {
   const delegation = delegationBeside(delegated, computers);
   // A read offered back instead of done, and an advisor they asked for and nobody asked, go back once, on the front door too (`doItChecks.js`).
   const doIt = chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
+  // The setup's reply judge, after those: Clef reads the reply against every action this turn took, and sends it back once (`replyJudge.js`).
+  const judge = chatTurn && job === null && !runner && (texted || group !== null) && production?.replyJudge ? replyJudge({ ai: env.AI, setting: production.replyJudge, question: logged?.question ?? askedWith(question, quoted), history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
   if (planning) background.plan = planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) });
   if (planning) splitFirst(background); // a lone job is offered the planner once
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
@@ -68,7 +71,7 @@ export async function runTheModel(t) {
     // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
     // per-call scope refusal. An agent that reached past it would be a second, untested authority.
     onModel: (model) => void (store.usageModel = model),
-    answerCheck: doIt?.check ?? claims?.check ?? tries?.check ?? null, endsTurn: background?.endsTurn ?? null, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`)
+    answerCheck: judge?.check ?? doIt?.check ?? claims?.check ?? tries?.check ?? null, endsTurn: background?.endsTurn ?? null, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`)
     callTool: allowedFirst(tex.lean ? allowedRead : null, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,
