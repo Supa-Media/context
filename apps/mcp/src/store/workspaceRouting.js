@@ -50,6 +50,20 @@ const coversRevisions = (prefix) => typeof prefix === "string" && (REVISIONS.sta
 export const REVISION_GRACE_MS = 10 * 60 * 1000;
 
 /**
+ * One backup write per key: the last the object made. A save writes its document's state twice (accepted, then
+ * rendered); the backup is a copy nobody reads mid-save, so only where each key ended is copied.
+ */
+export function lastWriteEach(writes) {
+  const last = new Map();
+  for (const write of writes) {
+    if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
+    last.delete(write.key);
+    last.set(write.key, write);
+  }
+  return [...last.values()];
+}
+
+/**
  * @param {object} store the bucket's store
  * @param {{workspaceId: string, client?: object|null, known?: {home?: string, backfilledAt?: number|null}|null, now?: () => number, defer?: ((promise: Promise<unknown>) => void)|null, log?: (event: string, fields: object) => void}} options
  *   `client` is `workspaceClient(env, workspaceId)`; absent, the store is returned as it is. `known` is the home the
@@ -254,8 +268,7 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
    * response exactly as `put` copies one, and a document state it wrote prunes the object's older versions the same way.
    */
   const copyHandedBack = async (answer) => {
-    for (const write of Array.isArray(answer?.writes) ? answer.writes : []) {
-      if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
+    for (const write of lastWriteEach(Array.isArray(answer?.writes) ? answer.writes : [])) {
       await mirror("put", write.key, () => store.put(write.key, write.body));
       const documentId = documentStateId(write.key);
       if (documentId !== null) await mirror("prune", write.key, () => pruneRevisions(documentId, write.body));

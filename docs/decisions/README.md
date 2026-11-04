@@ -74,6 +74,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A shared note takes typing before its document arrives
 - A note that turns shared under the person typing keeps taking typing
 - A closed shared note's unsent typing is sent without opening it
+- A save keeps one current copy of its history, and a version when the person goes idle
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
