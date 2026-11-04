@@ -104,7 +104,7 @@ const JOBS: Record<string, JobDetail> = {
     startedAt: at(18, 9),
     failedSteps: 3,
     slot: 1,
-    now: "Reading the agents docs.",
+    now: "browse: maritime.sh/docs/agents",
     steps: [
       { at: at(18, 1), text: "Opened maritime.sh · tried twice", failed: true, why: "Try 1: the page took too long to load. Try 2: no browser was open by then." },
       { at: at(18, 2), text: "Opened 4 pages: pricing, GitHub and 2 more" },

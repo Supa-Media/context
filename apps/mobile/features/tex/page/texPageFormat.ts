@@ -3,6 +3,7 @@
  * mock's wording ("Working on 2 jobs · 1 needs you", "Helped twice today").
  */
 
+import { MINION_PROPS, activityOf } from "./minionProps";
 import type { Behind, ChatRef, JobSummary, Mood, Overview, Tiles, Turn, TurnAction } from "./texPageTypes";
 
 /** `6:05`, or `9:20 am` before noon: the page's clock, in the viewer's own time. */
@@ -107,7 +108,10 @@ export function moodOf(job: JobSummary | null): Mood {
 /** The line under a running job: `1 min · 3 steps didn't work`, `Needs your sign-in code`, `For Ada · Claude Code · 3 min`. */
 export function slotLine(job: JobSummary, now: number = Date.now()): { text: string; failed?: string; warn?: boolean } {
   if (job.state === "waiting" && job.needs) return { text: job.needs, warn: true };
-  const parts = [job.for ? `For ${job.for}` : null, job.tool ?? null, span(now - job.startedAt)].filter((x): x is string => x !== null);
+  // What its minion is doing, in words beside the picture (`minionProps.ts`); a coding tool's name already says it.
+  const doing = job.tool ? null : MINION_PROPS[activityOf(job)].word;
+  // The duration never breaks across lines ("4" / "min").
+  const parts = [doing, job.for ? `For ${job.for}` : null, job.tool ?? null, span(now - job.startedAt).replace(/ /g, "\u00a0")].filter((x): x is string => x !== null);
   return {
     text: parts.join(" · "),
     ...(job.failedSteps > 0 ? { failed: `${plural(job.failedSteps, "step")} didn't work` } : {}),

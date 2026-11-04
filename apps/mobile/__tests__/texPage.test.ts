@@ -181,9 +181,9 @@ describe("the mock's words", () => {
 
   test("minions", () => {
     expect(busyLine([{ slot: 1, job: job() }, { slot: 2, job: job() }, { slot: 3, job: null }])).toBe("Minions · 2 of 3 busy");
-    expect(slotLine(job({ failedSteps: 3 }), 60_000)).toEqual({ text: "1 min", failed: "3 steps didn't work" });
+    expect(slotLine(job({ failedSteps: 3 }), 60_000)).toEqual({ text: "Thinking · 1\u00a0min", failed: "3 steps didn't work" });
     expect(slotLine(job({ state: "waiting", needs: "Needs your sign-in code" }))).toEqual({ text: "Needs your sign-in code", warn: true });
-    expect(slotLine(job({ for: "Ada" }), 180_000)).toEqual({ text: "For Ada · 3 min" });
+    expect(slotLine(job({ for: "Ada", now: "search_web: flights" }), 180_000)).toEqual({ text: "Researching · For Ada · 3\u00a0min" });
     expect(moodOf(null)).toBe("rest");
     expect(moodOf(job({ state: "waiting" }))).toBe("stuck");
     expect(endedLine(job({ state: "done", endedAt: 0 }), 20 * 60_000)).toBe("Done · 20 min ago ›");

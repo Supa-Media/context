@@ -16,6 +16,8 @@ import { TexSelect } from "./TexSelect";
 import type { ViewProps } from "./TexPageBody";
 import { MachineAskCard } from "./TexMachineAsk";
 import { EarlierRow, MinionPool } from "./TexMinionPool";
+import { MinionFigure } from "./TexMinionFigure";
+import { activityOf } from "./minionProps";
 import {
   actionPieces,
   advisorLine,
@@ -305,7 +307,11 @@ export function Minion({ slot, now, wide, go }: { slot: Slot; now: number; wide:
   const s = job ? slotLine(job, now) : null;
   const body = (
     <>
-      <Figure mood={minionMood(job)} size={wide ? 64 : 52} testID={`tex-minion-figure-${slot.place ?? "cloud"}-${slot.slot}`} />
+      {job ? (
+        <MinionFigure activity={activityOf(job)} trouble={job.failedSteps > 0} size={wide ? 64 : 52} testID={`tex-minion-figure-${slot.place ?? "cloud"}-${slot.slot}`} />
+      ) : (
+        <Figure mood={minionMood(job)} size={wide ? 64 : 52} testID={`tex-minion-figure-${slot.place ?? "cloud"}-${slot.slot}`} />
+      )}
       <View style={styles.minionText}>
         <T size={11} weight="600" tone="muted" upper>
           {`Minion ${slot.slot}`}
@@ -345,6 +351,7 @@ export function Minion({ slot, now, wide, go }: { slot: Slot; now: number; wide:
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={`Minion ${slot.slot}: ${job.title}. ${s ? s.text.replace(/\u00a0/g, " ") : ""}${s?.failed ? `. ${s.failed}` : ""}`}
       onPress={() => go({ job: job.id })}
       style={frame}
       testID={`tex-slot-${slot.slot}`}
