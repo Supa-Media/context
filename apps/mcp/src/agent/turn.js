@@ -288,7 +288,7 @@ export async function runTurn(options) {
     aboutMe = null, identity = null, // who they are by their account (`identity.js`), told beside it
     jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
     voice = null, // `tex/voice.md`'s text on a texted turn (`personVoice.js`); null says nothing about it.
-    answerCheck = null, // reads a final answer, once, and may send one more round (`claimCheck.js`)
+    answerCheck = null, // reads a final answer and the turn's messages, and may send one more round (`claimCheck.js`, `replyJudge.js`)
     endsTurn = null, // `(name, result) => string|null`: a call that settles the turn, answered with its line at once (`background.js`)
     roundNote = null, // `(round, elapsedMs) => string|null`: a line told before a round (`background.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
@@ -539,7 +539,7 @@ export async function runTurn(options) {
     }
 
     if (answer.toolCalls.length === 0) {
-      const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text)) ?? null : null;
+      const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text, { messages })) ?? null : null;
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
       if (late !== null) {

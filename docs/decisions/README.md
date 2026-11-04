@@ -784,6 +784,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A person's texts with Tex are one record in their Tex object, read with About me in one call (2026-11-01)](./texting-assistant/one-to-one-history.md)
 - [Each chat with Tex has one ledger, and every view is rebuilt from it (2026-11-02)](./texting-assistant/chat-ledger.md)
 - [What was said stays in the record, and Tex does the read instead of offering it (2026-11-04)](./texting-assistant/do-the-read.md)
+- [A decision model judges each texted reply before it goes (2026-11-04)](./texting-assistant/reply-judge.md)
 - [A person's Tex folder and a group chat's home use the same names (2026-11-01)](./texting-assistant/tex-folders.md)
 - [The advisor's asks, the Mail checker's verdicts and jobs go in the chat's ledger (2026-11-02)](./texting-assistant/ledger-asks.md)
 - [A guest in a group chat opens a shared note with a texted code, and the code makes an account (2026-10-27, 2026-10-31)](./texting-assistant/guest-phone-pass.md)
