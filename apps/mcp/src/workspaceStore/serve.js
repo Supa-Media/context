@@ -6,6 +6,7 @@
  * The `ws.*` calls carry JSON bodies and answer JSON.
  */
 
+import { serveMachineCall } from "./serveMachines.js";
 import { canSee, PrivacyOverrides } from "../privacy/engine.js";
 import { serveTexStore } from "../texStore/wire.js";
 import { HOMES, isWorkspaceObjectKey, MAX_READ_IDS } from "./api.js";
@@ -227,6 +228,9 @@ export async function serveWorkspaceStore(store, request) {
     rows.pinWorkspace(fields.workspaceId);
     const membership = await serveMembersCall(store, op, fields);
     if (membership !== null) return membership;
+    // The computers this workspace owns and their runs (`serveMachines.js`).
+    const machine = await serveMachineCall(store, op, fields);
+    if (machine !== null) return machine;
     // The sealed binding and the one call a request's store is opened from (`bindingRows.js`).
     // `ws.open` waits for an open mark like every read, and says whether one is still open (`marks.js`), so the
     // gateway need not ask the control plane whether the object is behind before a read (`store/objectBinding.js`).

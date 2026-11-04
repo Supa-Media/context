@@ -21,6 +21,8 @@
  * in tables of their own, answered to a call that names the person.
  */
 
+import { workspaceMachines } from "./workspaceStore/machines.js";
+import { machineSockets } from "./workspaceStore/machineSockets.js";
 import { workspaceMarks } from "./workspaceStore/marks.js";
 import { workspaceHandles } from "./workspaceStore/handleCache.js";
 import { workspaceAccess } from "./workspaceStore/accessRows.js";
@@ -174,6 +176,10 @@ export class WorkspaceStore {
     this.store.onTreeChange = (change) => tree.changed(change);
     this.tree = tree;
     this.access = accessSockets(this.state, sql);
+    // The computers this workspace owns: their rows, runs and the runner's socket (`workspaceStore/machines.js`).
+    this.store.machines = workspaceMachines(sql);
+    this.machines = machineSockets(this.state, sql, this.store.machines, { notify: (event) => machineEvent(this.env, event) });
+    this.store.machineSockets = this.machines;
     // Convex written behind each take-away access write, before the object reports it done (`controlPlane/accessMirror.js`).
     const mirror = async (workspaceId, change) => await createControlPlane(this.env).accessMirror(workspaceId, change);
     watchMembers(this.store, this.access, this.env, { mirror });
@@ -186,7 +192,9 @@ export class WorkspaceStore {
     if (isTexCall(request)) return await this.tex().fetch(request);
     const store = this.ready();
     if ((request.headers.get("Upgrade") || "").toLowerCase() === "websocket") {
-      return new URL(request.url).pathname === "/access" ? this.access.accept(request) : this.tree.accept(request);
+      const path = new URL(request.url).pathname;
+      if (path === "/machine") return this.machines.accept(request);
+      return path === "/access" ? this.access.accept(request) : this.tree.accept(request);
     }
     // Whether this is the first call this instance answers: a woken object, for the gateway's log line.
     const cold = this.answered !== true;
@@ -230,6 +238,7 @@ export class WorkspaceStore {
     this.ready();
     if (this.tex().owns(ws)) return this.tex().message(ws, raw);
     if (this.access.owns(ws)) return await this.access.message(ws, raw);
+    if (this.machines.owns(ws)) return await this.machines.message(ws, raw);
     await this.tree.message(ws, raw);
   }
 
@@ -237,6 +246,7 @@ export class WorkspaceStore {
     this.ready();
     if (this.tex().owns(ws)) return closeQuietly(ws);
     if (this.access.owns(ws)) return this.access.closed(ws);
+    if (this.machines.owns(ws)) return await this.machines.closed(ws);
     this.tree.closed(ws);
   }
 
@@ -244,6 +254,17 @@ export class WorkspaceStore {
     this.ready();
     if (this.tex().owns(ws)) return closeQuietly(ws);
     if (this.access.owns(ws)) return this.access.closed(ws);
+    if (this.machines.owns(ws)) return await this.machines.closed(ws);
     this.tree.closed(ws);
   }
+}
+
+/**
+ * A machine run's event, handed to the texting Worker, which passes it to the
+ * job's own object. Absent the binding (a self-hosted gateway without Tex, most
+ * tests) it is only kept on the run's row, where the job reads it.
+ */
+async function machineEvent(env, event) {
+  if (typeof env?.TEXTING?.machineEvent !== "function") return;
+  await env.TEXTING.machineEvent(event);
 }

@@ -212,6 +212,7 @@ import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_lib_gatewayRoutes_textsOpened from "../functions/lib/gatewayRoutes/textsOpened.js";
 import type * as functions_lib_textingRefresh from "../functions/lib/textingRefresh.js";
 import type * as functions_textingObjects from "../functions/textingObjects.js";
+import type * as functions_texMachines from "../functions/texMachines.js";
 import type * as functions_textGroupUsage from "../functions/textGroupUsage.js";
 import type * as functions_textGroupsMarked from "../functions/textGroupsMarked.js";
 import type * as functions_textGroupNames from "../functions/textGroupNames.js";
@@ -483,6 +484,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/gatewayRoutes/textsOpened": typeof functions_lib_gatewayRoutes_textsOpened;
   "functions/lib/textingRefresh": typeof functions_lib_textingRefresh;
   "functions/textingObjects": typeof functions_textingObjects;
+  "functions/texMachines": typeof functions_texMachines;
   "functions/textGroupUsage": typeof functions_textGroupUsage;
   "functions/textGroupsMarked": typeof functions_textGroupsMarked;
   "functions/textGroupNames": typeof functions_textGroupNames;

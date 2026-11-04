@@ -124,6 +124,8 @@ test/storeHead.test.mjs
 test/texComputer.test.mjs
 test/toolNews.test.mjs
 test/noteMail.test.mjs
+test/noteMailKinds.test.mjs
+test/noteMailDelivery.test.mjs
 test/toolTitles.test.mjs
 test/treeFacts.test.mjs
 test/treeLinks.test.mjs
@@ -428,3 +430,5 @@ test/agentUntriedWeb.test.mjs
 test/readerNames.test.mjs
 test/workspaceTreeSort.test.mjs
 test/machineProtocol.test.mjs
+test/machineSockets.test.mjs
+test/machineRoutes.test.mjs
