@@ -84,6 +84,7 @@ import {
   type TranscriptSegment,
   type TrayCommand,
   type UpcomingMeetings,
+  machineFoldersFrom,
   machineStatusFrom,
   type MachineRunStatus,
 } from "@context/desktop-bridge";
@@ -217,6 +218,9 @@ export interface ConsoleBridgeDeps {
    */
   machine?: () => MachineRunStatus;
   setMachineEnabled?: (enabled: boolean) => Promise<MachineRunStatus>;
+  /** Version 11: the folders Tex may work in, read and chosen in the Mac's own picker. */
+  machineFolders?: () => Promise<string[] | null>;
+  chooseMachineFolders?: () => Promise<string[] | null>;
 }
 
 export interface ConsoleBridge {
@@ -601,6 +605,8 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     const enabled = (payload as { enabled?: unknown } | undefined)?.enabled === true;
     return machineStatusFrom(deps.setMachineEnabled ? await deps.setMachineEnabled(enabled) : null);
   });
+  handle(BRIDGE_CHANNELS.machineFolders, async () => machineFoldersFrom(deps.machineFolders ? await deps.machineFolders() : null));
+  handle(BRIDGE_CHANNELS.machineChooseFolders, async () => machineFoldersFrom(deps.chooseMachineFolders ? await deps.chooseMachineFolders() : null));
 
   function send(channel: string, payload: unknown): void {
     /*
@@ -686,6 +692,8 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.calendarSetUpcoming,
         BRIDGE_CHANNELS.machineStatus,
         BRIDGE_CHANNELS.machineSetEnabled,
+        BRIDGE_CHANNELS.machineFolders,
+        BRIDGE_CHANNELS.machineChooseFolders,
       ]) {
         deps.ipc.removeHandler(channel);
       }

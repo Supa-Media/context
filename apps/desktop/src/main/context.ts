@@ -35,6 +35,7 @@ import type { DesktopCaptureRecorder } from "./capture.ts";
 import type { DesktopStore } from "./store.ts";
 import type { LocalAgentRunner } from "./localAgent.ts";
 import type { MachineRunner } from "./machineRunner.ts";
+import type { MachineFolders } from "./machineFolders.ts";
 import type { ImessageSyncService } from "./imessage.ts";
 import type { MessagesBackupService } from "./messagesBackup.ts";
 import type { AppTray } from "./tray.ts";
@@ -166,6 +167,8 @@ export interface MainServices {
   localAgent: LocalAgentRunner;
   /** Let Tex use this Mac: the bundled runner (`main/machineRunner.ts`). */
   machine: MachineRunner;
+  /** The folders Tex may work in here, chosen in the Mac's own picker (`main/machineFolders.ts`). */
+  machineFolders: MachineFolders;
   imessage: ImessageSyncService;
   messagesBackup: MessagesBackupService;
   /** `null` in console mode — see `UI_MODE`. */

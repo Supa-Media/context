@@ -83,6 +83,8 @@ export interface MachineRunnerDeps {
 
 export interface MachineRunner {
   status(): MachineStatus;
+  /** The id the gateway gave this Mac when it registered, or null before that. */
+  machineId(): Promise<string | null>;
   setEnabled(on: boolean): Promise<MachineStatus>;
   /** On quit: stop the child and release the awake hold. */
   shutdown(): Promise<void>;
@@ -251,6 +253,10 @@ export function createMachineRunner(deps: MachineRunnerDeps): MachineRunner {
 
   return {
     status: () => status,
+    async machineId() {
+      const stored = await deps.grantStore.read();
+      return stored === null ? null : (readStored(stored)?.machineId ?? null);
+    },
     async setEnabled(on) {
       epoch += 1;
       attempts = 0;

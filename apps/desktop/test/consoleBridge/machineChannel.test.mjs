@@ -37,4 +37,27 @@ export async function runMachineChannelChecks(check) {
   const { ipc: bare } = mainBridge({ deps: { machine: undefined, setMachineEnabled: undefined } });
   const off = (await bare.handlers.get(BRIDGE_CHANNELS.machineStatus)(sender())).value;
   check("a shell wired without a runner answers off, not an error", off.state === "off" && off.available === false);
+
+  // Version 11: the folders Tex may work in, read and chosen in the Mac's own picker.
+  const picks = [];
+  const { ipc: folders } = mainBridge({
+    deps: {
+      machineFolders: async () => ["/Users/a/Code", "relative", "/Users/a/Code"],
+      chooseMachineFolders: async () => (picks.push(true), ["/Users/a/Code/context"]),
+    },
+  });
+  const read = (await folders.handlers.get(BRIDGE_CHANNELS.machineFolders)(sender())).value;
+  check("the console reads the folders Tex may work in, rebuilt: absolute paths, each once", JSON.stringify(read) === JSON.stringify(["/Users/a/Code"]));
+  const chosen = (await folders.handlers.get(BRIDGE_CHANNELS.machineChooseFolders)(sender())).value;
+  check("...and opens the picker, answering what it saved", picks.length === 1 && JSON.stringify(chosen) === JSON.stringify(["/Users/a/Code/context"]));
+  let pickRefused = false;
+  try {
+    const answer = await folders.handlers.get(BRIDGE_CHANNELS.machineChooseFolders)(sender({ id: 99 }));
+    pickRefused = answer?.ok === false;
+  } catch {
+    pickRefused = true;
+  }
+  check("...and a frame that is not the console cannot open the folder picker", pickRefused && picks.length === 1);
+  const unknown = (await bare.handlers.get(BRIDGE_CHANNELS.machineFolders)(sender())).value;
+  check("...and a shell wired without folders answers unknown (null), not an empty list", unknown === null);
 }

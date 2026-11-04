@@ -68,7 +68,7 @@ export type { MachineRunState, MachineRunStatus } from "./machine.ts";
  * the **UI** is the half that has to be backward compatible, because it is the
  * half that can be updated in an afternoon.
  */
-export const BRIDGE_VERSION = 10;
+export const BRIDGE_VERSION = 11;
 
 /**
  * The oldest bridge this bundle will still talk to.
@@ -691,6 +691,14 @@ export interface DesktopBridge {
     status(): Promise<MachineRunStatus>;
     setEnabled(enabled: boolean): Promise<MachineRunStatus>;
     onChange(handler: (status: MachineRunStatus) => void): Unsubscribe;
+    /**
+     * The folders Tex may work in on this Mac, as the gateway keeps them, or
+     * `null` before it registered or when it can't be read. **Version 11.**
+     * Paths the person chose, shown back to them; never a credential.
+     */
+    folders?(): Promise<string[] | null>;
+    /** The macOS folder picker; what it saves, or `folders()` when cancelled. **Version 11.** */
+    chooseFolders?(): Promise<string[] | null>;
   };
   /** Today's meetings for the menu bar. **Version 9.** See `calendar.ts` for what the shell does with them. */
   calendar?: { setUpcoming(upcoming: UpcomingMeetings): void };
@@ -768,6 +776,8 @@ export const BRIDGE_CHANNELS = Object.freeze({
   calendarSetUpcoming: "context:calendar-set-upcoming", // Version 9: today's meetings, for the menu bar.
   machineStatus: "context:machine-status", // Version 10: Let Tex use this Mac.
   machineSetEnabled: "context:machine-set-enabled",
+  machineFolders: "context:machine-folders", // Version 11: the folders Tex may work in, chosen in the Mac's own picker.
+  machineChooseFolders: "context:machine-choose-folders",
 
   /** Main → page. Pushed; the page subscribes through the bridge. */
   segment: "context:on-segment",

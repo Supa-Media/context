@@ -70,7 +70,7 @@ function appOrigin(env, origin) {
 async function addToObject(env, claimed, started) {
   const stub = workspaceStub(env, claimed.workspaceId);
   if (stub === null) return false;
-  const machine = { id: claimed.machineId, ownerId: claimed.ownerId, publicKey: started.publicKey, name: claimed.name ?? started.name, os: started.os, facts: started.facts ?? null };
+  const machine = { id: claimed.machineId, ownerId: claimed.ownerId, publicKey: started.publicKey, name: claimed.name ?? started.name, os: started.os ?? started.facts?.os, facts: started.facts ?? null };
   // A device a session paired through its own Context connection takes mail and never jobs, and leaves by a time (`pair_device`).
   if (claimed.mailOnly === true) Object.assign(machine, { mailOnly: true, ...(Number.isSafeInteger(claimed.expiresAt) ? { expiresAt: claimed.expiresAt } : {}) });
   const response = await callTexStore(stub, "ws.machine.add", {}, new TextEncoder().encode(JSON.stringify({ workspaceId: claimed.workspaceId, machine })));

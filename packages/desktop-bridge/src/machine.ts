@@ -40,3 +40,18 @@ export function machineStatusFrom(value: unknown): MachineRunStatus {
     message: typeof r.message === "string" && r.message.length > 0 ? r.message.slice(0, 200) : null,
   };
 }
+
+/** At most this many folders, each an absolute path of at most 1,024 characters; anything else is dropped. */
+export const MAX_MACHINE_FOLDERS = 20;
+
+/** The folders a shell answered, rebuilt: `null` stays `null` (unknown), never an empty list. */
+export function machineFoldersFrom(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string" || !entry.startsWith("/") || entry.length > 1024 || out.includes(entry)) continue;
+    out.push(entry);
+    if (out.length === MAX_MACHINE_FOLDERS) break;
+  }
+  return out;
+}

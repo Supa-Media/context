@@ -91,7 +91,7 @@ export function refusedText(title: string, name: string, code: string): string {
     case "limit_others":
       return `I paused ${where}: it has used the time you allowed Tex there. You can raise it in Tex's settings, then text me to pick it back up.`;
     case "folder":
-      return `I couldn't start ${where}: Tex may not work in that folder there. You can add it in Tex's settings.`;
+      return `I couldn't start ${where}: Tex may not work in that folder there. On that computer, open the Context app, Settings › Tex, and add it.`;
     case "rule":
       return `I couldn't start ${where}: its owner hasn't let this chat use it.`;
     case "ask_first":

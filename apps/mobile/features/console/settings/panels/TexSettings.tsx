@@ -9,10 +9,10 @@ import { Switch } from "../../../design/components/Switch";
 import { TextField } from "../../../design/components/Input";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
-import { useThemedStyles } from "../../../design/theme";
+import { useThemedStyles, type Colors } from "../../../design/theme";
 import { settingsSectionLabel } from "../sections";
 import { PickMenu, type PickOption } from "./PickMenu";
-import { thisMacLine, useThisMac } from "../../../tex/page/useThisMac";
+import { foldersLine, thisMacLine, useThisMac } from "../../../tex/page/useThisMac";
 
 /**
  * Settings › Tex (Dev2, 2026-11-01; docs/decisions/texting-assistant/custom-instructions.md):
@@ -67,6 +67,23 @@ function ThisMac() {
           <Switch value={thisMac.status.enabled} label="Let Tex use this Mac" onValueChange={thisMac.setEnabled} testID="tex-this-mac-switch" />
         ) : null}
       </Row>
+      {/* Only while it is on: a folder choice for a Mac Tex can't use is noise (artboard audit, finding 1). */}
+      {thisMac.status.enabled && thisMac.folders !== null ? (
+        <View style={styles.folders} testID="tex-this-mac-folders">
+          <Row>
+            <Grow>
+              <Text variant="rowTitle">Folders Tex can work in</Text>
+              <Text variant="rowSub">{foldersLine(thisMac.folders.list)}</Text>
+            </Grow>
+            <Button
+              label={thisMac.folders.list && thisMac.folders.list.length > 0 ? "Change…" : "Choose…"}
+              look="outline"
+              onPress={thisMac.folders.choose}
+              testID="tex-this-mac-folders-choose"
+            />
+          </Row>
+        </View>
+      ) : null}
     </Card>
   );
 }
@@ -180,10 +197,11 @@ export function TexSettingsView({
   );
 }
 
-const makeStyles = () =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     head: { marginBottom: space.x3 },
     actions: { flexDirection: "row", gap: space.x2, marginVertical: space.x3, alignItems: "center" },
     problem: { marginTop: space.x2 },
     mac: { marginTop: space.x3 },
+    folders: { marginTop: space.x3, paddingTop: space.x3, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   });

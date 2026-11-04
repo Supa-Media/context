@@ -185,6 +185,8 @@ const REQUIRED_MEMBERS: Readonly<Record<number, readonly string[]>> = Object.fre
   9: VERSION_1_MEMBERS,
   /** Version 10 adds `machine`, a sub-object again. */
   10: VERSION_1_MEMBERS,
+  /** Version 11 adds two methods to `machine`. */
+  11: VERSION_1_MEMBERS,
 });
 
 /** The sub-objects, and the methods each must carry, per version. */
@@ -297,6 +299,15 @@ const REQUIRED_SUB_MEMBERS: Readonly<
     spelling: Object.freeze(["check"]),
     calendar: Object.freeze(["setUpcoming"]),
     machine: Object.freeze(["status", "setEnabled", "onChange"]),
+  }),
+  /* Version 11: `machine` also reads and chooses the folders Tex may work in, in the Mac's own picker. */
+  11: Object.freeze({
+    ...VERSION_3_SUB_MEMBERS,
+    imessage: Object.freeze(["status", "setEnabled", "requestFullDiskAccess", "onChange"]),
+    agent: Object.freeze(["status", "ask"]),
+    spelling: Object.freeze(["check"]),
+    calendar: Object.freeze(["setUpcoming"]),
+    machine: Object.freeze(["status", "setEnabled", "onChange", "folders", "chooseFolders"]),
   }),
 });
 

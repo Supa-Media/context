@@ -13,6 +13,7 @@
  *  7. `raise` skipping `runsMachine` → "more time today is the computer's runner's, and lasts the day".
  *  8. `namedAsks` keeping the chat's key → "an ask names who asked, never the chat's key".
  *  4. `ownComputer` accepting the workspace's owner → "only a computer's own owner lends it to a group chat".
+ *  9. the missing-workspace default dropped → "the Mac app, naming no workspace, changes its own computer's folders in the session's workspace".
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -216,4 +217,17 @@ test("more time today is the computer's runner's, and lasts the day", async () =
   // (The socket has long gone by then: the limit is read as if it were online.)
   assert.deepEqual(w.machines.admit("mch_1", { chat: "texts-user_owner", fromOwner: true, askerId: "user_owner", tool: "claude", folder: "/srv/code" }, true), { code: "limit_day" });
   assert.equal((await ask("/machines/app/raise", { workspaceId: "ws_team", machineId: "mch_1", minutes: 0 }, app("user_owner", "editor"))).status, 400);
+});
+
+test("the Mac app, naming no workspace, changes its own computer's folders in the session's workspace", async () => {
+  const { ask } = await setup();
+  const changed = await ask("/machines/app/set", { machineId: "mch_1", patch: { folders: ["/Users/a/Code"] } }, app("user_owner", "owner"));
+  assert.equal(changed.body.ok, true);
+  assert.deepEqual(changed.body.machine.folders, ["/Users/a/Code"]);
+  // The default is still checked as membership: a session no longer a live member of its own workspace reaches nothing.
+  const left = app("user_owner", "owner", { workspaces: [] });
+  assert.deepEqual((await ask("/machines/app/set", { machineId: "mch_1", patch: { folders: ["/x"] } }, left)).body, { ok: false, code: "unknown_machine" });
+  // And another person's session, defaulting to its own workspace, can't name this one's computer.
+  const ade = app("user_ade", "editor");
+  assert.deepEqual((await ask("/machines/app/set", { machineId: "mch_1", patch: { folders: ["/x"] } }, ade)).body, { ok: false, code: "unknown_machine" });
 });

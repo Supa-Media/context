@@ -35,7 +35,7 @@ const read = async (env, workspaceId, op, fields) => {
   }
 };
 
-const listed = (workspaceId, machine) => ({ workspaceId, id: machine.id, name: machine.name, online: machine.online === true, tools: machine.tools ?? [], folders: machine.folders ?? [], ownerId: machine.ownerId, ...(Number.isSafeInteger(machine.limits?.slots) ? { slots: machine.limits.slots } : {}) });
+const listed = (workspaceId, machine) => ({ workspaceId, id: machine.id, name: machine.name, online: machine.online === true, tools: machine.tools ?? [], folders: machine.folders ?? [], ownerId: machine.ownerId, os: machine.os ?? machine.facts?.os ?? null, ...(Number.isSafeInteger(machine.limits?.slots) ? { slots: machine.limits.slots } : {}) });
 
 /**
  * The computers this session may name: `{workspaceId, id, name, online, tools, folders, ownerId}`. A person's own
@@ -68,6 +68,15 @@ export async function machinesFor(env, session, controlPlane = null) {
 const plain = (value) => (typeof value === "string" ? value.trim().toLowerCase() : "");
 
 /**
+ * A Mac's folders are chosen on that Mac, in the Context app's own picker (Dev2, 2026-11-04); a runner with no app
+ * has them typed on the Tex page.
+ */
+function noFolder(machine) {
+  const where = /^(mac|darwin)/i.test(machine.os ?? "") ? "on that Mac they open the Context app, Settings › Tex, and choose one" : "they choose one on the Tex page";
+  return `"${machine.name}" has no folder Tex may work in yet: ${where}, then text again.`;
+}
+
+/**
  * The computer and how to run on it, from what the turn asked: `{machine}` or `{error}` in words the model acts on.
  * `ask` is `{name, tool?, folder?, repo?}`; a lone computer is found without its name.
  */
@@ -81,7 +90,7 @@ export function pickMachine(machines, ask) {
   const tool = TOOLS.has(ask?.tool) ? ask.tool : found.tools[0];
   if (!found.tools.includes(tool)) return { error: `"${found.name}" can run ${found.tools.join(" or ") || "no coding tool yet"}.` };
   const folder = typeof ask?.folder === "string" && ask.folder.trim() !== "" ? ask.folder.trim() : found.folders[0];
-  if (!found.folders.includes(folder)) return { error: found.folders.length === 0 ? `"${found.name}" has no folder Tex may work in yet: they choose one in Tex's settings.` : `On "${found.name}" Tex may work only in ${found.folders.join(", ")}.` };
+  if (!found.folders.includes(folder)) return { error: found.folders.length === 0 ? noFolder(found) : `On "${found.name}" Tex may work only in ${found.folders.join(", ")}.` };
   // A repo is a name under the folder (`context`, `Supa-Media/context`), never a path that climbs out of it.
   const repo = typeof ask?.repo === "string" && REPO.test(ask.repo.trim()) ? ask.repo.trim() : undefined;
   // `computer`: its id and slots, which the chat counts a job there against (`agent/jobSlots.js`).
