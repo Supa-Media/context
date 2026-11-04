@@ -395,3 +395,24 @@ test("a body without a scope, or without from and to, is a 422 and queues nothin
     assert.equal(counts.flushes + counts.soon, 0, JSON.stringify(body));
   }
 });
+
+test("a move says how long the object spent on it and, of that, waiting for its writes to be durable", async () => {
+  const { store } = await ready();
+  store.settle = () => new Promise((resolve) => setTimeout(resolve, 15));
+  const answer = await (await callMove(store, { from: "projects/plan.md", to: "projects/plan-timed.md", ...OWNER })).json();
+  assert.equal(answer.ok, true);
+  assert.ok(answer.commit >= 10, JSON.stringify(answer));
+  assert.ok(answer.took >= answer.commit, JSON.stringify(answer));
+});
+
+test("a refused move says nothing of time, and waits for nothing", async () => {
+  const { store } = await ready();
+  let waited = 0;
+  store.settle = async () => {
+    waited += 1;
+  };
+  const answer = await (await callMove(store, { from: "projects/missing.md", to: "projects/x.md", ...OWNER })).json();
+  assert.notEqual(answer.ok, true);
+  assert.equal("took" in answer, false);
+  assert.equal(waited, 0);
+});

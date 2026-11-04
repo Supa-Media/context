@@ -19,7 +19,7 @@
  */
 
 import { recordChange } from "../../activity/record.js";
-import { phase } from "../../mcp/phase.js";
+import { phase, phaseTook } from "../../mcp/phase.js";
 import { recordForwarding } from "../../forwarding.js";
 import { withActivityHint } from "../../live/activityHint.js";
 import { announceMoves } from "../../moves/keyedCollaboration.js";
@@ -101,6 +101,10 @@ export async function startObjectMove(store, scope, source, destination, expecte
     return null;
   }
 
+  // The object's own time on the move and, of that, its wait for durable writes (`serveWrites.js`), beside the call's
+  // whole trip (`obj:ws.write.move`), so a slow move says whether the time is the object's or the trip's.
+  phaseTook(store, "move", answer.took);
+  phaseTook(store, "move_commit", answer.commit);
   const files = Array.isArray(answer.files) ? answer.files : [{ from: source, to: destination }];
   // Each step after the object's answer is timed on its own (`phase:move_*`), so a move over 0.1 s says where.
   await phase(store, "move_announce", () => announceMoves(store, files, privacy));
