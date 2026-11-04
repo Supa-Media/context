@@ -114,6 +114,18 @@ describe("a repeat tag in a group", () => {
     expect(w.tokens).toEqual(["Bearer cat_x", "Bearer cat_x"]); // muted: no third turn
   });
 
+  it("a reused turn that fails drops the kept token, so the retry asks first", async () => {
+    const storage = new MemoryStorage();
+    const w = world([READY("cat_r"), READY("cat_s")]);
+    await tag(storage, w, "Tex, hi");
+    const refusing = deps(w);
+    const fetcher = refusing.fetch;
+    refusing.fetch = (async (url: string, init: RequestInit) => (new URL(url).pathname === "/agent" ? Response.json({ error: "invalid_token" }, { status: 401 }) : fetcher(url, init))) as unknown as Fetch;
+    await acceptGroup(storage, message("Tex, again"), w.now);
+    await drainGroup(storage, refusing);
+    expect(await storage.get(KEPT_KEY)).toBeUndefined();
+  });
+
   it("the introduction is never given twice from a kept answer", async () => {
     const storage = new MemoryStorage();
     const w = world([READY("cat_i", { intro: true, reach: ["band"] }), READY("cat_i")]);

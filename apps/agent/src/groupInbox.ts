@@ -571,7 +571,11 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const contextUntil = Math.max(acceptedAt, item.contextUntil ?? acceptedAt);
   const upTo = Math.max(acceptedAt, ...entries.map(([, entry]) => entry.at ?? 0));
   // Addressed: decide is asked now, beside the turn, and its verdict is waited on only before anything is sent.
-  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, upTo, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken, silenced: decideBeside(storage, deps, entries) });
+  // A turn that fails on a kept token (the gateway refused it, say) drops it, so its retry asks the control plane first.
+  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, upTo, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken, silenced: decideBeside(storage, deps, entries) }).catch(async (error: unknown) => {
+    if (kept !== null) await dropKept(storage);
+    throw error;
+  });
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   await behind?.();
   return outcome;
