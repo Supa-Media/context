@@ -16,7 +16,8 @@
 #   - Xcode command line tools, Node 22+, pnpm, Rust (rustup), gh signed in
 #     with write access to the repository.
 #   - The 1Password CLI `op` signed in to the account holding the `Context`
-#     vault: the five signing values are read from it at run time
+#     vault, or OP_SERVICE_ACCOUNT_TOKEN exported for a service account: the
+#     five signing values are read from it at run time
 #     (op://Context/<NAME>/production) and never written anywhere but a
 #     temporary directory deleted on exit. A value already in the environment
 #     is used instead of the vault's.
@@ -82,6 +83,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
+say "Installing dependencies"
+# Before the signing checks: build/notarize.cjs --check needs @electron/notarize.
+pnpm install --filter "@context/desktop..." --frozen-lockfile
+
 say "Reading the signing values from 1Password"
 secret() {
   local name="$1"
@@ -120,8 +125,7 @@ unset CSC_LINK CSC_KEY_PASSWORD
   || die "the certificate imported but is not a Developer ID Application identity macOS will sign with"
 (cd apps/desktop && node build/notarize.cjs --check) || die "the App Store Connect key does not check out"
 
-say "Installing, testing, building"
-pnpm install --filter "@context/desktop..." --frozen-lockfile
+say "Testing, building"
 (cd apps/desktop && node -e '
   const fs = require("node:fs");
   const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
