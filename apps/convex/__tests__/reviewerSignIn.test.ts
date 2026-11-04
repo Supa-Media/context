@@ -19,6 +19,7 @@ import { REVIEWER_EMAIL, REVIEWER_PROVIDER_ID } from "../functions/lib/reviewerA
 const REVIEWER_CODE = "482913";
 const ENV_KEYS = [
   "REVIEWER_SIGNIN_CODE",
+  "DIRECTORY_REVIEW_SIGNIN_CODE",
   "RESEND_API_KEY",
   "SITE_URL",
   "CONVEX_SITE_URL",
@@ -32,6 +33,7 @@ beforeEach(async () => {
   // No RESEND_API_KEY: nothing here may reach a mail provider.
   delete process.env.RESEND_API_KEY;
   process.env.REVIEWER_SIGNIN_CODE = REVIEWER_CODE;
+  process.env.DIRECTORY_REVIEW_SIGNIN_CODE = "731905";
   const { generateKeyPairSync } = await import("node:crypto");
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   process.env.JWT_PRIVATE_KEY = privateKey
@@ -100,4 +102,12 @@ describe("the directory reviewer's provider, end to end", () => {
     const result = await requestThenVerify(t, REVIEWER_EMAIL, REVIEWER_CODE);
     expect(result.tokens).not.toBeNull();
   });
+});
+
+ test("the fresh directory principal has an independent working provider", async () => {
+  const t = setupTest();
+  await t.action(api.auth.signIn, { provider: "test-email-directory-review", params: { email: "directory-review@supa.media" } });
+  const signed = await t.action(api.auth.signIn, { provider: "test-email-directory-review", params: { email: "directory-review@supa.media", code: "731905" } });
+  expect(signed.tokens?.token).toBeTruthy();
+  await expect(t.action(api.auth.signIn, { provider: "test-email-directory-review", params: { email: "stranger@example.invalid" } })).rejects.toThrow(/not available/);
 });

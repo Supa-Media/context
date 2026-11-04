@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
-import { GOOGLE_REVIEW_EMAIL, REVIEWER_EMAIL } from "./lib/reviewerAccount";
+import { GOOGLE_REVIEW_EMAIL, REVIEWER_EMAIL, DIRECTORY_REVIEW_EMAIL } from "./lib/reviewerAccount";
 
 /**
  * Counts, and only counts, of what the reserved review accounts already hold.
@@ -27,7 +27,7 @@ export const counts = internalQuery({
   returns: v.array(row),
   handler: async (ctx) => {
     const rows = [];
-    for (const address of [REVIEWER_EMAIL, GOOGLE_REVIEW_EMAIL]) {
+    for (const address of [REVIEWER_EMAIL, GOOGLE_REVIEW_EMAIL, DIRECTORY_REVIEW_EMAIL]) {
       const users = await ctx.db.query("users").withIndex("by_email", (q) => q.eq("email", address)).take(10);
       let ownedWorkspaces = 0;
       let otherMemberships = 0;
