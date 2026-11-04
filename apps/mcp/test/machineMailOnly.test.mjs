@@ -125,6 +125,7 @@ test("an interrupt from someone else's agent never reaches a device; an ask to i
   assert.equal(sent.length, 1);
   assert.match(String(sent[0].id), /ws_vm/, "pushed through the device's own workspace object");
   assert.equal(sent[0].body.id, "mch_vm");
+  assert.equal(sent[0].body.workspaceId, "ws_vm", "every call to a workspace object names its workspace");
   assert.equal(sent[0].body.mail.kind, "ask");
   // The sender's own name is never handed its own line.
   assert.deepEqual(await deliverMail(env, { jobMailboxes: boxes }, { ...line, from: "vm", mailKind: "note" }), []);
