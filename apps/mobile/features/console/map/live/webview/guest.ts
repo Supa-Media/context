@@ -33,6 +33,7 @@ export function mountMapGuest(
   const engine = createMapEngine(canvas, {
     ...options,
     opening: true,
+    ambient: true,
     faceFor: faceImages,
     onCamera: (info) => send({ type: "camera", info }),
     onFollow: (state) => send({ type: "follow", state }),

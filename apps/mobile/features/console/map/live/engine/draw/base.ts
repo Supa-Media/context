@@ -6,6 +6,7 @@ import { clamp, lerp, quad, type Point } from "../math";
 import { DUR } from "../scene";
 import { BOW, bowOf, grain, textureOf } from "./board";
 import type { DrawEnv } from "./env";
+import { BREATH } from "../motion";
 import { dotColour } from "./colour";
 import { drawBundles, linesShown } from "./lines";
 import { TRACE_REST } from "./marks";
@@ -356,7 +357,8 @@ export function drawNotes(env: DrawEnv): void {
     const colour = colourOf(n);
     let list = buckets.get(colour);
     if (!list) buckets.set(colour, (list = []));
-    list.push(p.x, p.y, R);
+    // Breathing: each dot swells and settles a little, out of step with its neighbours.
+    list.push(p.x, p.y, env.breathe ? R * (1 + BREATH * Math.sin(scene.phase * 1.2 + bowOf(n.x, n.y, n.y, n.x) * 6)) : R);
     env.hit.circle(p.x, p.y, Math.max(R, 3), { kind: "note", workspaceId: n.workspaceId, path: n.path }, LAYER.note);
   }
   // Drawn dots: a grainy fill, and round the bigger ones a loose rim, as a

@@ -43,6 +43,7 @@ export function LiveMapCanvas(props: LiveMapCanvasProps) {
     engine = createMapEngine(canvas, {
       faceFor: faces,
       opening: true,
+      ambient: true,
       reducedMotion: !!propsRef.current.reducedMotion,
       inset: propsRef.current.inset,
       minimap: propsRef.current.minimap,
