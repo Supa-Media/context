@@ -101,7 +101,7 @@ test("the judge sees every action the turn took and sends a dropped ask back onc
   const judged = result.timing.trace.filter((entry) => entry.kind === "judge");
   assert.equal(judged.length, 1, "the verdict is in the turn's trace, for the turn log and the benchmark");
   assert.equal(judged[0].verdict, "only_acknowledged");
-  assert.deepEqual(wireTraceEntry(judged[0]), { kind: "judge", ok: true, ms: judged[0].ms, verdict: "only_acknowledged", acted: true });
+  assert.deepEqual(wireTraceEntry(judged[0]), { kind: "judge", ok: true, ms: judged[0].ms, verdict: "only_acknowledged", acted: true, confidence: 0.9 });
   const logged = JSON.parse(logs[0]);
   assert.equal(logged.event, "tex_reply_judge");
   assert.ok(!logs[0].includes("Thanks"), "the log carries no words of the reply");
