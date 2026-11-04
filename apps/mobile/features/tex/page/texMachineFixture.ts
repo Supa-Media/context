@@ -11,6 +11,7 @@
 
 import { fixtureNow, fixtureSource } from "./texPageFixture";
 import type { Read, TexPageSource } from "./texPageSource";
+import { readOverview } from "./texPageRead";
 import type { Machine, MachineAsk, MachinesPage, Pairing, SlotPlace } from "./texMachineTypes";
 import type { JobSummary, Overview, Slot } from "./texPageTypes";
 
@@ -196,14 +197,16 @@ export function machineFixtureSource(scenario: MachineScenario = "full", options
       const o: Overview = read.value;
       if (chat !== "me") return ok({ ...o, places: undefined });
       const { places, minions } = placesFor(page);
-      return ok({
+      // Through the reader, as the gateway's answer goes: it fills each place's free slots.
+      const read2 = readOverview(clone({
         ...o,
         places,
         minions,
         asks,
         status: { ...o.status, needsYou: o.status.needsYou + asks.length },
-        earlier: o.earlier.map((j, i) => (i === 0 ? { ...j, ranOn: page.machines[0] ? `On ${page.machines[0].name}` : undefined } : j)),
-      } as Overview);
+        earlier: o.earlier.map((j, i) => (i === 0 && page.machines[0] ? { ...j, ranOn: `On ${page.machines[0].name}` } : j)),
+      }));
+      return read2 ? ok(read2) : { kind: "failed" };
     },
     async machines(chat) {
       if (chat !== "me" && chat !== TEAM.key && chat !== "g-care") return { kind: "notYours" };

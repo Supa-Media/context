@@ -16,7 +16,7 @@ import {
 import { TexSelect } from "./TexSelect";
 import type { ViewProps } from "./TexPageBody";
 import { MachineAskCard } from "./TexMachineAsk";
-import { MinionPool } from "./TexMinionPool";
+import { EarlierRow, MinionPool } from "./TexMinionPool";
 import {
   actionPieces,
   advisorLine,
@@ -169,9 +169,10 @@ export function TexHome({
           </T>
         ) : (
           overview.earlier.map((job) => (
-            <JobRow
+            <EarlierRow
               key={job.id}
               title={job.title}
+              ranOn={job.ranOn}
               right={endedLine(job, now)}
               onPress={() => go({ job: job.id })}
               testID={`tex-earlier-${job.id}`}
