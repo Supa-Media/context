@@ -14,6 +14,8 @@
  *   not clearing the stored grant on exit code 3                             1
  *   sending `kind` in the register body (PairStart refuses unknown keys)       1
  *   services.ts handing the register the keychain record (`tokens.read()`)   1
+ *   `runArgv` leaving out `--machine-id`                                     3
+ *   a two-part stored grant (v0.1.70) kept instead of registering again      1
  */
 
 import { readFileSync } from "node:fs";
@@ -104,17 +106,20 @@ const flush = () => new Promise((r) => setTimeout(r, 10));
 
 export async function runMachineRunnerChecks(check) {
   // ---- pure decisions ----
-  const argv = runArgv({ dataDir: "/d", grantFile: "/d/grant-x/grant", socketUrl: "wss://g/s" });
+  const argv = runArgv({ dataDir: "/d", grantFile: "/d/grant-x/grant", socketUrl: "wss://g/s", machineId: "m-1" });
   check("the runner gets the grant as a path, never as a value", argv.includes("--grant-file") && argv.includes("/d/grant-x/grant"));
   check("the app keeps the Mac awake itself, so the runner is told not to", argv.includes("--no-keep-awake") && argv.includes("--status-json"));
   check("key asks for JSON in the runner's own data directory", keyArgv("/d").join(" ") === "key --data-dir /d --json");
   let threw = false;
   try {
-    runArgv({ dataDir: "", grantFile: "/x", socketUrl: "wss://g" });
+    runArgv({ dataDir: "", grantFile: "/x", socketUrl: "wss://g", machineId: "m-1" });
   } catch {
     threw = true;
   }
   check("an empty data directory is refused, never defaulted to the working directory", threw);
+  // The app registers the machine itself, so the runner's folder has no pairing record: without the id it
+  // exits at once ("no machine id"), which the switch showed as "Tex's runner stopped" (Dev2, 2026-11-04).
+  check("the runner is told its machine id", argv[argv.indexOf("--machine-id") + 1] === "m-1");
 
   check("a status line reads", readStatusLine('{"state":"online","slots":4,"busy":1}')?.busy === 1);
   check("a line that is not a status is ignored", readStatusLine("Looking for Claude Code…") === null && readStatusLine('{"state":"hacked"}') === null);
@@ -149,6 +154,7 @@ export async function runMachineRunnerChecks(check) {
     check("...and nothing the register schema refuses: exactly publicKey, name and facts", Object.keys(body).sort().join(",") === "facts,name,publicKey");
     check("the machine grant is kept in the keychain store", (await h.grantStore.read())?.endsWith(GRANT));
     check("the runner is started", run !== undefined && run.args[0] === "run");
+    check("...with the id the register answered", run.args[run.args.indexOf("--machine-id") + 1] === "m-1");
     check("the grant is in no argument", !run.args.some((a) => a.includes(GRANT)));
     const grantPath = run.args[run.args.indexOf("--grant-file") + 1];
     const mode = (await stat(grantPath)).mode & 0o777;
@@ -209,5 +215,17 @@ export async function runMachineRunnerChecks(check) {
       "the register and the local agent get the connection's access token, never the keychain record",
       /consoleToken: \(\) => connection\.token\(\)/.test(services) && !/tokens\.read\(\)/.test(services),
     );
+  }
+  {
+    // v0.1.70 kept `<socketUrl>\n<grant>` with no id; that grant can't start the runner, so the Mac registers again.
+    const h = await harness();
+    await h.grantStore.write(`wss://gateway.example/machines/socket\n${GRANT}`);
+    await h.runner.setEnabled(true);
+    const run = h.spawned[0];
+    check(
+      "a stored grant with no machine id is dropped, and the Mac registers again and starts with the new id",
+      h.posts.length === 1 && run !== undefined && run.args[run.args.indexOf("--machine-id") + 1] === "m-1",
+    );
+    await rm(h.dataDir, { recursive: true, force: true });
   }
 }

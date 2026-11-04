@@ -66,8 +66,10 @@ export function keyArgv(dataDir: string): string[] {
 }
 
 /** `context-machine run`: the grant as a file path, statuses on stdout, the app keeps the Mac awake. */
-export function runArgv(options: { dataDir: string; grantFile: string; socketUrl: string }): string[] {
+export function runArgv(options: { dataDir: string; grantFile: string; socketUrl: string; machineId: string }): string[] {
   if (!options.dataDir || !options.grantFile) throw new Error("machine runner: missing paths");
+  // The app registers the machine itself, so the runner's folder has no pairing record to read the id from.
+  if (!options.machineId) throw new Error("machine runner: missing machine id");
   return [
     "run",
     "--data-dir",
@@ -76,6 +78,8 @@ export function runArgv(options: { dataDir: string; grantFile: string; socketUrl
     options.grantFile,
     "--socket-url",
     options.socketUrl,
+    "--machine-id",
+    options.machineId,
     "--status-json",
     "--no-keep-awake",
   ];

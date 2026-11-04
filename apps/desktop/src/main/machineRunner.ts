@@ -119,7 +119,7 @@ export function createMachineRunner(deps: MachineRunnerDeps): MachineRunner {
     deps.onChange(status);
   });
 
-  async function register(publicKey: string, facts: Record<string, unknown>): Promise<{ grant: string; socketUrl: string } | "refused" | null> {
+  async function register(publicKey: string, facts: Record<string, unknown>): Promise<{ grant: string; socketUrl: string; machineId: string } | "refused" | null> {
     const endpoint = deps.endpoint();
     const url = endpoint ? registerUrl(endpoint) : null;
     const token = await deps.consoleToken();
@@ -133,7 +133,7 @@ export function createMachineRunner(deps: MachineRunnerDeps): MachineRunner {
     if (response.status === 401 || response.status === 403) return "refused";
     if (!response.ok) return null;
     const reg = readRegistration(await response.json().catch(() => null), endpoint);
-    return reg ? { grant: reg.grant, socketUrl: reg.socketUrl } : null;
+    return reg ? { grant: reg.grant, socketUrl: reg.socketUrl, machineId: reg.machineId } : null;
   }
 
   async function start(mine: number): Promise<void> {
@@ -149,8 +149,14 @@ export function createMachineRunner(deps: MachineRunnerDeps): MachineRunner {
     if (mine !== epoch) return;
     if (!key) return failed("Tex's runner didn't start on this Mac.");
 
-    // The stored grant is `<socketUrl>\n<grant>`: both are needed to start, and neither is a path the page sees.
+    // The stored grant is `<socketUrl>\n<machineId>\n<grant>`: all three are needed to start, and none is a
+    // path the page sees. One stored before the id was kept (`<socketUrl>\n<grant>`, v0.1.70) can't start the
+    // runner, so it is dropped and the Mac registers again.
     let stored = await deps.grantStore.read();
+    if (stored !== null && readStored(stored) === null) {
+      await deps.grantStore.clear();
+      stored = null;
+    }
     if (stored === null) {
       let reg;
       try {
@@ -161,12 +167,10 @@ export function createMachineRunner(deps: MachineRunnerDeps): MachineRunner {
       if (mine !== epoch) return;
       if (reg === "refused") return failed("Sign in to Context on this Mac again, then turn this back on.");
       if (reg === null) return failed("Context can't be reached right now. It tries again on its own.", true);
-      stored = `${reg.socketUrl}\n${reg.grant}`;
+      stored = `${reg.socketUrl}\n${reg.machineId}\n${reg.grant}`;
       await deps.grantStore.write(stored);
     }
-    const cut = stored.indexOf("\n");
-    const socketUrl = stored.slice(0, cut);
-    const grant = stored.slice(cut + 1);
+    const { socketUrl, machineId, grant } = readStored(stored)!;
 
     const dir = await mkdtemp(join(deps.dataDir, "grant-"));
     const grantFile = join(dir, "grant");
@@ -181,7 +185,7 @@ export function createMachineRunner(deps: MachineRunnerDeps): MachineRunner {
 
     let spawned: RunnerChild;
     try {
-      spawned = deps.spawn(binary, runArgv({ dataDir: deps.dataDir, grantFile, socketUrl }));
+      spawned = deps.spawn(binary, runArgv({ dataDir: deps.dataDir, grantFile, socketUrl, machineId }));
     } catch {
       removeGrant();
       return failed("Tex's runner didn't start on this Mac.", true);
@@ -267,4 +271,15 @@ export function createMachineRunner(deps: MachineRunnerDeps): MachineRunner {
       awakeId = null;
     },
   };
+}
+
+/** The stored grant's three parts, or null for one that lacks any (an older, two-part one). */
+export function readStored(stored: string): { socketUrl: string; machineId: string; grant: string } | null {
+  const first = stored.indexOf("\n");
+  const second = first < 0 ? -1 : stored.indexOf("\n", first + 1);
+  if (second < 0) return null;
+  const socketUrl = stored.slice(0, first);
+  const machineId = stored.slice(first + 1, second);
+  const grant = stored.slice(second + 1);
+  return socketUrl && machineId && grant ? { socketUrl, machineId, grant } : null;
 }
