@@ -251,17 +251,28 @@ export async function steerJobs(
   return count;
 }
 
+/** A waiting job's status once its wait ran out: its run is gone, so their answer can no longer pick it up (`jobRun.ts` `resumeJob`). */
+export const WAIT_ENDED_STATUS = "Stopped waiting: no answer within two hours. Ask me to start it fresh.";
+
 /**
- * The chat's jobs as the next turn is shown them, running first. A finished
- * one is shown for `JOB_SHOWN_MS` after it finished; one older than
- * `JOB_KEPT_MS` is deleted, and a running one past `JOB_STALE_MS` is marked
- * stopped: its object is gone, so it never will say.
+ * Every job the chat's inbox keeps, with what has run out settled first, the
+ * one place both the chat's turns (`chatJobs`) and the Tex page
+ * (`texPage.ts` `pageJobsOf`) read them through, so the two never disagree:
+ * - a finished one older than `JOB_KEPT_MS` is deleted;
+ * - a running one past `JOB_STALE_MS` died with its object, so it never will
+ *   say: it is marked failed;
+ * - a waiting one whose `JOB_SHOWN_MS` has passed can no longer be picked up
+ *   (its object deleted the run it was waiting in), so it is marked stuck at
+ *   the moment the wait ran out. Before 2026-11-04 it stayed "waiting" for
+ *   seven days and held a minion on the page the whole time, long after the
+ *   chat's own turns had stopped being shown it.
  */
-export async function chatJobs(storage: InboxStorage, now: number, { results = false, all = false }: { results?: boolean; all?: boolean } = {}): Promise<RunningJob[]> {
+export async function sweptJobs(storage: InboxStorage, now: number): Promise<JobEntry[]> {
   const entries = await storage.list<JobEntry>({ prefix: JOB_PREFIX });
   const kept: JobEntry[] = [];
   for (const [key, entry] of entries) {
-    if (entry.state !== "running" && now - (entry.finishedAt ?? entry.startedAt) > JOB_KEPT_MS) {
+    const ended = entry.finishedAt ?? entry.startedAt;
+    if (entry.state !== "running" && now - ended > JOB_KEPT_MS) {
       await storage.delete(key);
       continue;
     }
@@ -271,8 +282,26 @@ export async function chatJobs(storage: InboxStorage, now: number, { results = f
       kept.push(stopped);
       continue;
     }
-    if (entry.state === "running" || now - (entry.finishedAt ?? entry.startedAt) <= JOB_SHOWN_MS) kept.push(entry);
+    if (entry.state === "waiting" && now - ended > JOB_SHOWN_MS) {
+      const { verdict: _v, advice: _a, ...rest } = entry;
+      const lapsed: JobEntry = { ...rest, state: "stuck", status: WAIT_ENDED_STATUS, finishedAt: ended + JOB_SHOWN_MS };
+      await storage.put(key, lapsed);
+      log("wait_ended", entry.id);
+      kept.push(lapsed);
+      continue;
+    }
+    kept.push(entry);
   }
+  return kept;
+}
+
+/**
+ * The chat's jobs as the next turn is shown them, running first: every
+ * running one, and a finished one for `JOB_SHOWN_MS` after it finished
+ * (`sweptJobs` settles what has run out).
+ */
+export async function chatJobs(storage: InboxStorage, now: number, { results = false, all = false }: { results?: boolean; all?: boolean } = {}): Promise<RunningJob[]> {
+  const kept = (await sweptJobs(storage, now)).filter((entry) => entry.state === "running" || now - (entry.finishedAt ?? entry.startedAt) <= JOB_SHOWN_MS);
   return kept
     .sort((a, b) => Number(b.state === "running") - Number(a.state === "running") || b.startedAt - a.startedAt)
     // Every running one, so the gateway counts each place's slots right; finished ones fill what is left of six. `all`: every job.

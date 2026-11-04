@@ -21,7 +21,7 @@ import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
 import { acceptJob, runJob, type JobDeps } from "./jobRun";
-import { chatJobs, JOB_KEPT_MS, JOB_LIMIT_MS, JOB_LINES, JOB_SHOWN_MS, JOB_STALE_MS, noteJobUpdate, MAX_JOB_ATTEMPTS, MAX_RUNNING_JOBS, notStartedText, readStartedJobs, RUN_KEY, startJobs, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
+import { chatJobs, JOB_KEPT_MS, JOB_LIMIT_MS, JOB_LINES, JOB_SHOWN_MS, JOB_STALE_MS, noteJobUpdate, MAX_JOB_ATTEMPTS, MAX_RUNNING_JOBS, notStartedText, readStartedJobs, RUN_KEY, startJobs, WAIT_ENDED_STATUS, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
 import { jobUpdate } from "./jobTexts";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
@@ -162,6 +162,24 @@ describe("background jobs", () => {
     expect(storage.data.has("job:done-8d-1")).toBe(false);
     expect(JOB_KEPT_MS).toBe(7 * day);
     expect(JOB_SHOWN_MS).toBe(2 * 60 * 60 * 1000);
+  });
+
+  it("ends a wait nobody can answer any more: once its run is gone, a waiting job is stuck, never waiting", async () => {
+    // 2026-11-04: a job waiting on a Gmail yes since 11-02 still held a minion on the Tex page, two days after its run was deleted.
+    const storage = new MemoryStorage();
+    const waited = (id: string, finishedAt: number): JobEntry => ({ id, title: id, state: "waiting", startedAt: finishedAt - 60_000, finishedAt, status: "Needs their yes in Gmail", verdict: "waiting", advice: "Ask them" });
+    await storage.put("job:wait-1h-1", waited("wait-1h-1", NOW - 60 * 60 * 1000));
+    await storage.put("job:wait-2d-1", waited("wait-2d-1", NOW - 2 * 24 * 60 * 60 * 1000));
+    const listed = await chatJobs(storage, NOW, { all: true });
+    // Still answerable: shown waiting, so their answer picks it up (`resumeJob` keeps the run this long).
+    expect(listed.find((job) => job.id === "wait-1h-1")!.state).toBe("waiting");
+    const lapsed = storage.data.get("job:wait-2d-1") as JobEntry;
+    expect(lapsed).toMatchObject({ state: "stuck", status: WAIT_ENDED_STATUS, finishedAt: NOW - 2 * 24 * 60 * 60 * 1000 + JOB_SHOWN_MS });
+    expect(lapsed).not.toHaveProperty("verdict");
+    expect(lapsed).not.toHaveProperty("advice");
+    // Settled once: a second read leaves it as it is.
+    await chatJobs(storage, NOW + 1);
+    expect(storage.data.get("job:wait-2d-1")).toEqual(lapsed);
   });
 
   it("uses the gateway's job id when it is well formed and free, and a fresh one when it is taken", async () => {

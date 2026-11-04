@@ -106,16 +106,28 @@ const MACHINE_SLOTS = 8;
 /**
  * Which slot each live job holds, numbered from 1 in the place it runs: Tex's
  * cloud's three, or each computer's own (a job on a computer never takes a
- * cloud slot: `apps/agent/src/jobs.ts`). The oldest first, as they were started.
+ * cloud slot: `apps/agent/src/jobs.ts`), numbered oldest first, as they were
+ * started. When a place has more live jobs than slots, running ones get them
+ * before ones waiting on the person: Tex counts only running jobs against its
+ * limit (`fits`), so a waiting one must never hide a job that is running.
  */
 export function slotsOf(jobs) {
-  const held = new Map();
+  const room = (place) => (place === null ? SLOTS : MACHINE_SLOTS);
+  const byStart = (a, b) => a.startedAt - b.startedAt;
   const taken = new Map();
-  for (const job of jobs.filter(live).sort((a, b) => a.startedAt - b.startedAt)) {
+  const chosen = [];
+  for (const job of [...jobs.filter((job) => job.state === "running").sort(byStart), ...jobs.filter((job) => job.state === "waiting").sort(byStart)]) {
     const place = job.on?.id ?? null;
-    const next = (taken.get(place) ?? 0) + 1;
-    if (next > (place === null ? SLOTS : MACHINE_SLOTS)) continue;
-    taken.set(place, next);
+    if ((taken.get(place) ?? 0) >= room(place)) continue;
+    taken.set(place, (taken.get(place) ?? 0) + 1);
+    chosen.push(job);
+  }
+  const held = new Map();
+  const numbered = new Map();
+  for (const job of chosen.sort(byStart)) {
+    const place = job.on?.id ?? null;
+    const next = (numbered.get(place) ?? 0) + 1;
+    numbered.set(place, next);
     held.set(job.id, next);
   }
   return held;

@@ -16,7 +16,7 @@ import { lastTurnPeople } from "./groupChat";
 import { groupInboxName } from "./groupInbox";
 import { inboxByName } from "./objectPlace";
 import type { InboxStorage } from "./inbox";
-import { JOB_KEPT_MS, JOB_PREFIX, JOB_STALE_MS, MACHINE_JOB_STALE_MS, type JobEntry, type JobState, type JobStep, type JobSteer } from "./jobs";
+import { JOB_PREFIX, sweptJobs, type JobEntry, type JobState, type JobStep, type JobSteer } from "./jobs";
 
 /** Most jobs a page is shown, newest first. */
 export const MAX_PAGE_JOBS = 40;
@@ -63,27 +63,12 @@ export type PageSteer = { id: string; text: string; stop?: true };
 
 /**
  * Every job the chat's inbox keeps, running and finished, newest first, at
- * most `MAX_PAGE_JOBS`. Prunes the way `chatJobs` does: a finished job past
- * `JOB_KEPT_MS` is deleted, and a running one past `JOB_STALE_MS` is marked
- * failed, since its object is gone.
+ * most `MAX_PAGE_JOBS`, read through `sweptJobs` as the chat's own turns
+ * read them: what has run out (a dead run, a wait nobody can answer any more)
+ * is settled first, so it never holds a minion.
  */
 export async function pageJobsOf(storage: InboxStorage, now: number): Promise<PageJobs> {
-  const entries = await storage.list<JobEntry>({ prefix: JOB_PREFIX });
-  const kept: JobEntry[] = [];
-  for (const [key, entry] of entries) {
-    if (entry.state !== "running" && now - (entry.finishedAt ?? entry.startedAt) > JOB_KEPT_MS) {
-      await storage.delete(key);
-      continue;
-    }
-    // A job on their computer may run hours longer than a cloud job (`jobs.ts`), so it is stale later.
-    if (entry.state === "running" && now - entry.startedAt > (entry.machine ? MACHINE_JOB_STALE_MS : JOB_STALE_MS)) {
-      const stopped = { ...entry, state: "failed" as const, finishedAt: now };
-      await storage.put(key, stopped);
-      kept.push(stopped);
-      continue;
-    }
-    kept.push(entry);
-  }
+  const kept = await sweptJobs(storage, now);
   const jobs = kept
     .sort((a, b) => b.startedAt - a.startedAt)
     .slice(0, MAX_PAGE_JOBS)
