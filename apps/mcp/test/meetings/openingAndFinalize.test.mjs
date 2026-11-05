@@ -327,10 +327,10 @@ export async function runMeetingOpeningAndFinalizeChecks(check, harness) {
   const listed = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", { method: "GET" });
   check("and the recent list names it", (listed.body?.sessions || []).some((row) => row.id === SESSION_MAIN));
 
-  // The two other doors onto the same routes: a context named in the URL, and
-  // the token-in-path fallback for clients that cannot set a header. Both are
-  // transports for the same grant and neither is a boundary — the point of
-  // checking them is that they reach the same context and no other.
+  // The other door onto the same routes: a context named in the URL. It is a
+  // selector for the same grant and never a boundary — the point of checking
+  // it is that it reaches the same context and no other. The token-in-path
+  // form is retired and refused outright.
   const bySlug = await meetingRequest(env, TOKEN_OWNER, `/@recorder/meetings/sessions/${SESSION_MAIN}`, {
     method: "GET",
   });
@@ -338,7 +338,7 @@ export async function runMeetingOpeningAndFinalizeChecks(check, harness) {
   const byPathToken = await meetingRequest(env, null, `/t/${TOKEN_OWNER}/meetings/sessions/${SESSION_MAIN}`, {
     method: "GET",
   });
-  check("and so does the token-in-path fallback", byPathToken.status === 200);
+  check("and the retired token-in-path form is refused", byPathToken.status === 410);
 
   /*
     The event a client must never be able to send.

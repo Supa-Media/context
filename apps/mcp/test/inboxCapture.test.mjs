@@ -1,16 +1,7 @@
 import { check, objects, storedText, env, accessTokenFor, worker } from "./harness.mjs";
 
 export async function runInboxCaptureChecks() {
-  // -- path token + inbox (the per-person capture route; every write goes through the session)
-  const pt = await worker.fetch(
-    new Request(`https://x/t/${encodeURIComponent(accessTokenFor("pub-token"))}/mcp`, {
-      method: "POST",
-      body: JSON.stringify({ jsonrpc: "2.0", id: 999, method: "ping" }),
-    }),
-    env,
-    { waitUntil() {} }
-  );
-  check("token-in-path auth works", (await pt.json()).id === 999);
+  // -- inbox (the per-person capture route; every write goes through the session)
   const inbox = await worker.fetch(
     new Request("https://x/inbox", {
       method: "POST",
