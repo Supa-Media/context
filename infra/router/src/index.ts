@@ -37,7 +37,7 @@ import { isTexHost, TEX_ROBOTS_TXT } from "./texHost";
 import { ingestResponse } from "./analyticsIngest";
 import { withSecurityHeaders } from "./securityHeaders";
 import { assetsWithStyleNonce } from "./styleNonce";
-import { CSP_REPORT_PATH, cspReportResponse } from "./cspReport";
+import { cspReportResponse, isCspReportPath } from "./cspReport";
 import { isPluginSandboxPath, pluginSandboxResponse } from "./pluginSandbox";
 import { coverOf, noteTitle, SHARE_TITLE_TIMEOUT_MS } from "./previewTitles";
 import { COVER_VERSION } from "./preview/meta";
@@ -60,7 +60,7 @@ export default {
 
 /** Everything a platform host answers; `fetch` hardens it (`securityHeaders.ts`). */
 async function platformResponse(request: Request, url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
-    if (url.pathname === CSP_REPORT_PATH) return await cspReportResponse(request);
+    if (isCspReportPath(url.pathname)) return await cspReportResponse(request);
     if (isPluginSandboxPath(url.pathname)) return await pluginSandboxResponse(request, url, env);
     const simulator = textsSimulatorResponse(request, url, env);
     if (simulator !== null) return await simulator;
