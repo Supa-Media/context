@@ -100,6 +100,7 @@
  */
 import { openTextsSession } from "./agent/textsSession.js";
 import { hearForTexts, TEXTS_HEAR_PATH } from "./agent/textsHear.js";
+import { decideForTexts, TEXTS_DECIDE_PATH, TEXTS_RECHECK_PATH } from "./agent/textsDecide.js";
 import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import { TexStore as TexStoreDurableObject } from "./texStore.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
@@ -179,6 +180,9 @@ export const TexTexts = {
     try {
       // A group's voice message, heard before the chat decides whether it is for Tex (`agent/textsHear.js`).
       if (new URL(request.url).pathname === TEXTS_HEAR_PATH) return await hearForTexts(request, env);
+      // Decide and the last look, asked of Clef here; the cap and usage rows stay in the control plane (`agent/textsDecide.js`).
+      const path = new URL(request.url).pathname;
+      if (path === TEXTS_DECIDE_PATH || path === TEXTS_RECHECK_PATH) return await decideForTexts(request, env);
       return await openTextsSession(request, env, ctx);
     } catch {
       // The Worker reads anything but a linked answer as "ask Convex".

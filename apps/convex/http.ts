@@ -959,6 +959,8 @@ http.route({ path: "/agent-texts/group", method: "POST", handler: agentTextsGrou
 /* Whether Tex answers, reacts or stays silent, and a group's chosen style (`docs/design/tex-event-log/CONTRACT.md`). */
 http.route({ path: "/agent-texts/decide", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsDecideHandler) });
 http.route({ path: "/agent-texts/recheck", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsRecheckHandler) }); // `textRecheck.ts`
+http.route({ path: "/agent-texts/decide/gate", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsDecideGateHandler) }); // `textDecideMeter.ts`
+http.route({ path: "/agent-texts/decide/usage", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsDecideUsageHandler) });
 http.route({ path: "/agent-texts/group/engagement", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsGroupEngagementHandler) });
 http.route({ path: "/agent-texts/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsStyleHandler) });
 for (const [path, handler] of texStyleRoutes.AGENT_GROUP_ROUTES) http.route({ path, method: "POST", handler: agentWorkerRoute(handler) }); // a group's style, and its name for its home (`textGroupNames.ts`)
