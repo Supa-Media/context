@@ -131,7 +131,6 @@ const OUT_OF_TIME =
   "Out of time: no more tool calls this turn. Answer now with what you already have, " +
   "and say plainly what you could not check.";
 
-
 export class AgentRefusal extends Error {
   constructor(code, message) {
     super(message);
@@ -546,8 +545,7 @@ export async function runTurn(options) {
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
       if (late !== null) {
         messages.push({ role: "assistant", text: answer.text }, { role: "user", text: `${LATE_TEXT}\n\n${late}` });
-        // A draft the judges passed did not go after all: the history says so (`ledger.js` judge entries).
-        if (answerCheck) tell({ kind: "judge", by: "late", draft: answer.text, went: false, reason: "a text came in while it was written, so it was written again with it" });
+        if (answerCheck) tell({ kind: "judge", by: "late", draft: answer.text, went: false, reason: "a text came in while it was written, so it was written again with it" }); // a passed draft held after all: the history says so
         tell({ kind: "steered", text: steer.words.at(-1) ?? "" });
         continue;
       }
