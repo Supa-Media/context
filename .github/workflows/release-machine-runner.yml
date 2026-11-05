@@ -12,7 +12,10 @@
 # the release also carries a combined `SHA256SUMS` and `install.sh`. install.sh
 # picks the newest release whose tag starts with `machine-runner-v`, because
 # GitHub's "latest" pointer belongs to whichever release was made last in this
-# repository, which need not be this binary.
+# repository, which need not be this binary. This release never takes that
+# pointer (`make_latest: false`): the desktop app's updater reads `latest-mac.yml`
+# from the release GitHub calls latest, so a runner release made after the app's
+# left every Mac app saying "could not check for updates" (2026-11-05).
 #
 # ## Signing
 #
@@ -309,6 +312,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: ${{ steps.tag.outputs.tag }}
           generate_release_notes: true
+          make_latest: false
           fail_on_unmatched_files: true
           files: |
             dist/context-machine-*.tar.gz
