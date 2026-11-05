@@ -156,3 +156,13 @@ test('production decides what to deploy only after proving staging passed', () =
   const plan = production.indexOf('run: node scripts/deploy-plan.mjs --target production');
   assert.ok(proof !== -1 && plan > proof, 'the staging proof must run before the plan, in the same job');
 });
+
+// The Mac app's updater reads `latest-mac.yml` from the release GitHub calls
+// latest. A machine-runner release has no such file, so if it takes that pointer
+// every installed app says "could not check for updates" (2026-11-05).
+test('a machine-runner release never becomes the release the Mac app updates from', () => {
+  const text = readFileSync(new URL('../.github/workflows/release-machine-runner.yml', import.meta.url), 'utf8');
+  const steps = text.split(/\n\s*- (?=uses:|name:)/).filter((step) => /softprops\/action-gh-release/.test(step));
+  assert.ok(steps.length > 0, 'the release step is found');
+  for (const step of steps) assert.match(step, /\n\s*make_latest:\s*false\s*\n/);
+});
