@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,6 +89,13 @@ test("--parallel answers the conversations in child processes and assembles the 
     const ids = out.match(/^#### \S+$/gm) ?? [];
     assert.equal(ids.length, 2 * (out.match(/^### \d+\. /gm) ?? []).length, "every question has both runs");
     assert.ok(!out.includes("Error:"), out.slice(0, 600));
+    // Every conversation's ledger file is beside the result (`modelLog.mjs`), and none is in the result note.
+    const ledgers = (await readdir(join(dir, "result ledgers"))).sort();
+    assert.equal(ledgers.length, ids.length, ledgers.join(", "));
+    const ledger = JSON.parse((await readFile(join(dir, "result ledgers", ledgers[0]), "utf8")).split("```json\n")[1].split("\n```")[0]);
+    assert.equal(ledger.schema, "bench-ledger");
+    assert.ok(ledger.model.calls.length > 0 && ledger.conversation.length > 0 && ledger.turns.length > 0);
+    assert.ok(!out.includes('"schema": "bench-ledger"') && !out.includes("bench-ledger"));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

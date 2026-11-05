@@ -88,7 +88,12 @@ this folder: it is public, like the rest of the repository.
   way. Retired setups stay in `@context-lc ai/setups/retired/`.
 - `results/`: written by a run and ignored by git. The Action uploads the
   result and the key as artifacts and writes the scores to
-  `@context-lc ai/results/` (`pnpm ai publish`).
+  `@context-lc ai/results/` (`pnpm ai publish`). Every conversation also
+  gets a ledger file in `<result> ledgers/` (`bench/modelLog.mjs`): its texts,
+  each turn's trace with the reply judge's verdict, the chat's own ledger,
+  and every model request and answer, tool results included. The Action
+  uploads them as the `ledgers` artifact and writes them to
+  `@context-lc ai/results/<result> ledgers/` beside the scores.
 
 A case an AI drafted carries `- drafted: <who>` under its heading. `pnpm ai run` skips it, naming it on stderr, until a person has checked it and removed that line, so a drafted case never reaches a score. A scored result ends its `## Scored by` section with a `### Case by case` table (one row per question, one column per setup), placed after the setup table so a reader of the first table never takes a case for a setup.
 

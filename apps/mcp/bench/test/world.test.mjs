@@ -489,3 +489,24 @@ test("a test's computer is the one a job can run on, and the record says it ran 
     world.close();
   }
 });
+
+test("a conversation keeps every model call and the chat's own ledger, for its ledger file", async () => {
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: readsOnce({ path: "health/dentist.md" }) });
+  try {
+    const turn = await world.text("when's the dentist?");
+    assert.ok(turn.trace.some((entry) => entry.kind === "tool"), "the turn's trace comes back with the turn");
+    const calls = world.modelCalls();
+    assert.equal(calls.length, 2, "one call per model round");
+    assert.ok(typeof calls[0].system === "string" && calls[0].system.length > 0, "the first call keeps the system prompt");
+    assert.equal(calls[1].system, undefined, "an unchanged system prompt is kept once");
+    assert.ok(JSON.stringify(calls[1].messages).includes("DENTIST-MARK"), "the second round keeps the tool result the model was shown");
+    assert.equal(calls[0].answer.content[0].type, "tool_use");
+    const chat = await world.chatLedger();
+    const read = chat.find((entry) => entry.kind === "tool" && entry.name === "read_note");
+    assert.deepEqual(read.args, { path: "health/dentist.md" });
+    assert.ok(String(read.result).includes("DENTIST-MARK"));
+    assert.ok(chat.some((entry) => entry.kind === "reply"));
+  } finally {
+    world.close();
+  }
+});
