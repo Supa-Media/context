@@ -3,8 +3,9 @@
  * socket (decided by the owner, 2026-11-02). It authorizes like `/tex/page`
  * (`page.js`): the console's own client, the page's own handle, a chat the
  * person is in now, and a key they are not in is refused exactly as one that
- * names nothing. The token is offered as a subprotocol beside
- * `context.tex-page`, so it never sits in a URL, and never echoed back.
+ * names nothing. It opens on a one-use ticket offered as a subprotocol beside
+ * `context.tex-page` (`live/ticket.js`), so no token is on the socket, and the
+ * ticket is never echoed back.
  *
  * Then the upgrade goes to the chat's own Tex object (`texStore/pageLive.js`),
  * on a request built from nothing but the viewer this route decided: their

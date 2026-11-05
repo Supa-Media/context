@@ -23,6 +23,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { ticketNamespace, ticketProtocols } from "./liveTicketFixture.mjs";
 import { createControlPlaneStub, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 import { handleTexPageLive } from "../src/http/texPage/live.js";
@@ -259,6 +260,7 @@ test("the live socket: no token is refused; alice's goes to her chat's own Tex o
     const opened = [];
     const env = {
       ...world.env,
+      LIVE_TICKET: ticketNamespace(),
       TEX_STORE: {
         idFromName: (name) => ({ name }),
         get: (id) => ({
@@ -269,14 +271,15 @@ test("the live socket: no token is refused; alice's goes to her chat's own Tex o
         }),
       },
     };
-    const socket = (token, query) =>
+    // The page's socket opens on a one-use ticket, as the app sends (`src/live/ticket.js`).
+    const socket = async (token, query) =>
       new Request(`https://mcp.context.test/tex/page/live?${query}`, {
-        headers: { Upgrade: "websocket", "x-sneaky": "1", ...(token ? { "Sec-WebSocket-Protocol": `context.tex-page, context.token.${token}` } : {}) },
+        headers: { Upgrade: "websocket", "x-sneaky": "1", ...(token ? { "Sec-WebSocket-Protocol": await ticketProtocols(env, { token, socket: "/tex/page/live", protocol: "context.tex-page" }) } : {}) },
       });
     const deps = { upgraded: (headers, webSocket) => ({ status: 101, headers, webSocket }) };
-    const refused = await handleTexPageLive(socket(null, "handle=alice&chat=me"), env, { slug: null, pathToken: null, origin: "https://mcp.context.test" }, deps);
+    const refused = await handleTexPageLive(await socket(null, "handle=alice&chat=me"), env, { slug: null, pathToken: null, origin: "https://mcp.context.test" }, deps);
     assert.equal(refused.status, 401);
-    const answer = await handleTexPageLive(socket(T.alice, `handle=alice&chat=${GROUP}`), env, { slug: null, pathToken: null, origin: "https://mcp.context.test" }, deps);
+    const answer = await handleTexPageLive(await socket(T.alice, `handle=alice&chat=${GROUP}`), env, { slug: null, pathToken: null, origin: "https://mcp.context.test" }, deps);
     assert.equal(answer.status, 101);
     assert.equal(answer.headers.get("Sec-WebSocket-Protocol"), "context.tex-page");
     assert.equal(opened.length, 1);
@@ -286,9 +289,12 @@ test("the live socket: no token is refused; alice's goes to her chat's own Tex o
     assert.ok(opened[0].viewer.deadline <= Date.now() + 5 * 60 * 1000);
     assert.equal(opened[0].sneaky, null);
     // Bob, naming alice's group: refused as a missing one, nothing opened.
-    const bob = await handleTexPageLive(socket(T.bob, `handle=bob&chat=${GROUP}`), env, { slug: null, pathToken: null, origin: "https://mcp.context.test" }, deps);
+    const bob = await handleTexPageLive(await socket(T.bob, `handle=bob&chat=${GROUP}`), env, { slug: null, pathToken: null, origin: "https://mcp.context.test" }, deps);
     assert.equal(bob.status, 404);
     assert.equal(opened.length, 1);
+    // A token offered as a subprotocol is no token.
+    const asToken = new Request(`https://mcp.context.test/tex/page/live?handle=alice&chat=me`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `context.tex-page, context.token.${T.alice}` } });
+    assert.equal((await handleTexPageLive(asToken, env, { slug: null, pathToken: null, origin: "https://mcp.context.test" }, deps)).status, 401);
   } finally {
     world.restore();
   }

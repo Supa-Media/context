@@ -25,11 +25,10 @@ import {
   publicOrigin,
   unauthorizedResponse,
 } from "../oauth.js";
-import { isRetiredTokenPath, LIVE_SOCKET_PATHS, resolvePresentedSession, retiredTokenPathResponse } from "./presentedToken.js";
+import { isRetiredTokenPath, resolvePresentedSession, retiredTokenPathResponse } from "./presentedToken.js";
 import { attachPinnedDoors } from "./pinnedDoors.js";
 import { attachContextOpener, onceEach } from "./contextOpener.js";
 import {
-  decodePathSegment,
   hasScope,
   SCOPE_CAPTURE,
   SCOPE_READ,
@@ -120,22 +119,11 @@ export async function route(request, env, ctx) {
     // token is never looked up and never sent to the control plane, and the
     // answer is the same bytes whatever the token.
     //
-    // Except, for now, on the live sockets (presence, tree, access, agent
-    // activity, the Tex page): a browser `WebSocket` cannot set a header, the
-    // app offers its token as a subprotocol instead, and older app builds
-    // still put it in the path. That form is still counted
-    // (`presentedToken.js`) and is retired separately.
-    let path = afterSlug;
-    let pathToken = null;
-    const tokenInPath = path.match(/^\/t\/([^/]+)(\/.*)?$/);
-    if (tokenInPath || isRetiredTokenPath(path)) {
-      const rest = tokenInPath?.[2] || "/";
-      if (!tokenInPath || !LIVE_SOCKET_PATHS.has(rest)) return retiredTokenPathResponse();
-      // A malformed escape decodes to nothing rather than throwing out of
-      // `fetch`; the socket route then gives its ordinary 401.
-      pathToken = decodePathSegment(tokenInPath[1]);
-      path = rest;
-    }
+    // The live sockets were the last exception; they open on one-use tickets
+    // now (`live/ticket.js`), so no route reads a token in the URL.
+    const path = afterSlug;
+    const pathToken = null;
+    if (isRetiredTokenPath(path)) return retiredTokenPathResponse();
 
     // MCP says a server MUST validate `Origin` on the Streamable HTTP
     // transport, to stop a page in a victim's browser from reaching an

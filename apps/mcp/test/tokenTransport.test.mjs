@@ -1,12 +1,13 @@
 import { check, controlPlane, env, accessTokenFor, worker } from "./harness.mjs";
-import { isRetiredTokenPath, LIVE_SOCKET_PATHS, pathTokenRoute, presentedToken } from "../src/http/presentedToken.js";
+import { isRetiredTokenPath, pathTokenRoute, presentedToken } from "../src/http/presentedToken.js";
 
 /**
  * The token-in-URL fallback is retired (docs/decisions/gateway-protocol/token-transport.md).
  * `/t/<token>/...` and `/@slug/t/<token>/...` are refused with one fixed 410,
  * before the origin check and before any session is resolved, so a token in a
  * URL is never looked up: valid or not, the control plane never hears of it.
- * The live sockets alone still read it, counted, until that form is retired too.
+ * The live sockets included: they open on one-use tickets (`liveTicket.test.mjs`),
+ * and a token offered as a socket subprotocol is no token either.
  *
  * Sabotage (temporary local edit, reverted): restoring the `/t/` strip in
  * `route.js` fails "a valid token in the URL is refused"; moving the refusal
@@ -33,6 +34,11 @@ export async function runTokenTransportChecks() {
     `/t/${token}/inbox`,
     `/t/${token}/collaboration`,
     `/t/${token}/tex/computer`,
+    `/t/${token}/presence`,
+    `/t/${token}/presence/tree`,
+    `/t/${token}/presence/access`,
+    `/t/${token}/agent-activity`,
+    `/t/${token}/tex/page/live`,
     `/t/not-a-real-token-at-all-000000/mcp`,
     "/t/%zz/mcp",
     "/t",
@@ -57,14 +63,7 @@ export async function runTokenTransportChecks() {
     viaHeader.sessionCalls.length === 1 && Object.keys(viaHeader.sessionCalls[0].body).join(",") === "accessToken"
   );
 
-  check(
-    "the live sockets are the only routes that still read a token in the path",
-    [...LIVE_SOCKET_PATHS].sort().join(",") === ["/agent-activity", "/presence", "/presence/access", "/presence/tree", "/tex/page/live"].sort().join(",")
-  );
-  check(
-    "a socket's path token is still counted with its coarse route",
-    pathTokenRoute("/presence") === "presence" && presentedToken(new Request("https://x/presence"), "path-token-value-00000", "/presence").transport?.kind === "path"
-  );
+  check("a path token handed in directly is still counted with its coarse route", pathTokenRoute("/presence") === "presence" && presentedToken(new Request("https://x/presence"), "path-token-value-00000", "/presence").transport?.kind === "path");
   check(
     "only the `/t` segment itself is the retired form",
     isRetiredTokenPath("/t/x/mcp") && isRetiredTokenPath("/t") && !isRetiredTokenPath("/tex/computer") && !isRetiredTokenPath("/mcp") && !isRetiredTokenPath("/tree")
@@ -72,7 +71,7 @@ export async function runTokenTransportChecks() {
   const socketHeader = new Request("https://x/mcp", {
     headers: { "Sec-WebSocket-Protocol": "context.presence, context.token.subprotocol-token-0000" },
   });
-  check("a subprotocol token is read on /presence only", presentedToken(socketHeader, null, "/presence").transport?.kind === "subprotocol");
-  check("and is no token anywhere else", presentedToken(socketHeader, null, "/mcp").token === null);
+  check("a token offered as a subprotocol is no token, on a socket", presentedToken(socketHeader, null, "/presence").token === null);
+  check("or anywhere else", presentedToken(socketHeader, null, "/mcp").token === null);
   check("no token at all is no transport", presentedToken(new Request("https://x/mcp"), null, "/mcp").transport === null);
 }
