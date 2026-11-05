@@ -203,6 +203,13 @@ note setting wins, moving onto tree rows per
 its *plumbing* freely; changing its *semantics* is a decision for
 `docs/decisions/`.
 
+**Tex has one drawing**, [`docs/architecture/tex.md`](./docs/architecture/tex.md):
+the Worker's lanes, `texEntryPoint`'s steps and every model the answer maker
+calls. Any change to that architecture redraws it in the same pull request
+(decided by the owner, 2026-11-05;
+[architecture-diagram](./docs/decisions/texting-assistant/architecture-diagram.md));
+`scripts/tex-diagram-check.mjs` fails CI when it falls behind.
+
 ## Vocabulary
 
 One user-facing noun for a context (decided by the owner, 2026-09-13, reversing

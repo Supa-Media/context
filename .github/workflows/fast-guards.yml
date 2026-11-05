@@ -157,3 +157,17 @@ jobs:
 
       - name: Gateway health probe can still fail
         run: node scripts/health-check-gateway.mjs --self-test
+
+      # The one Tex drawing moves with the code it draws (docs/architecture/tex.md, Dev2 2026-11-05).
+      - name: The Tex diagram matches the code
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TEX_PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          node scripts/tex-diagram-check.mjs --self-test
+          if [ -n "$BASE_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            node scripts/tex-diagram-check.mjs --base "$BASE_SHA"
+          else
+            node scripts/tex-diagram-check.mjs
+          fi
