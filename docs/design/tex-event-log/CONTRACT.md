@@ -59,6 +59,16 @@ length caps, `at` within ±1 day of now, ids well-formed. Returns
 
 ## 3. Convex: `POST /agent-texts/decide`
 
+Since 2026-11-05 (Dev2's pick for the one-door plan) the Worker asks this of
+Clef in the gateway first, over the `TexTexts` binding (`/texts/decide`,
+`/texts/recheck`: the same body, the same answer, plus `meter` counts). The
+control plane keeps the daily cap and usage rows: the Worker asks
+`/agent-texts/decide/gate` now and then and keeps the answer five minutes,
+and reports `{ calls, failed, refused, questions, chars, ms }` to
+`/agent-texts/decide/usage` after each answer. Both name the chat as decide
+does and return no workspace id. The routes below are the fallback when the
+gateway cannot be reached.
+
 Auth: `AGENT_WORKER_SECRET` bearer, as `/agent-texts/session`. Body:
 
 ```ts

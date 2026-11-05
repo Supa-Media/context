@@ -373,6 +373,7 @@ test/accessContract.test.mjs
 test/personObject.test.mjs
 test/textingObjects.test.mjs
 test/pausedJobs.test.mjs
+test/textsDecide.test.mjs
 test/textsHear.test.mjs
 test/textsSession.test.mjs
 test/texFolderNames.test.mjs
