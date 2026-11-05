@@ -59,6 +59,8 @@ export type Pending = {
   askText?: string;
   /** The reply is one of the Worker's own texts, logged as the system's with no turn (`inbox.ts` `sendReply`). */
   system?: true;
+  /** A turn's draft for it was held by `lookAgain` once already: the next answer is sent. */
+  rechecked?: true;
 };
 export type Entry = [string, Pending];
 

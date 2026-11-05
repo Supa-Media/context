@@ -87,9 +87,10 @@ workspace per day). Typed questions only. Returns:
 
 ## 3b. Convex: `POST /agent-texts/recheck`
 
-A group answer's last look before it sends (2026-10-30). Same auth and the
-same body as section 3, for a group only, without `running` and
-`waitingAsks`, plus:
+An answer's last look before it sends (2026-10-30 for groups; 1:1 chats
+too since 2026-11-05, `style: "direct"` with `sender`, metered to the
+sender's personal workspace). Same auth and the same body as section 3,
+without `running` and `waitingAsks`, plus:
 
 ```ts
 { draft: string;     // Tex's unsent reply, <= 4,000 chars (cut, not refused)
