@@ -18,7 +18,8 @@
  * - Tex's answer is its texts of one turn, shown only when the gateway's own
  *   `reply` entry for that turn exists: the Worker's events never vouch for
  *   themselves (`ledgerHistory.js`). `clean: false` marks it tainted, as the
- *   record did, so a later turn that reads it is untrusted (`historyIsTainted`).
+ *   record did; that mark is the answer's alone and never a later turn's
+ *   (`docs/decisions/texting-assistant/turn-trust.md`).
  *   A Tex text with no reply behind it is never shown: one Tex sent by itself
  *   is its `note`, and one nobody can vouch for has no words worth the risk.
  * - A text Tex sent by itself (a check-in, a routine's run, a job's update, a

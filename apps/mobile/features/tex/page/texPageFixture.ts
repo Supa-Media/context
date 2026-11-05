@@ -426,7 +426,7 @@ export function fixtureSource(): TexPageSource {
       if (!copies.has(chat)) return { kind: "notYours" };
       const group = chat !== "me";
       return ok({
-        settings: { thinking: false, toolNames: true, toolResults: false, heldBack: !group, budgetChars: 48000, lastDayFrom: "texting Worker", before: "ledger" },
+        settings: { thinking: false, toolNames: true, toolResults: false, budgetChars: 48000, lastDayFrom: "texting Worker", before: "ledger" },
         text: `[9:02 AM] ${group ? "Ada" : "You"}: what's on my calendar today?\n[9:03 AM] Tex: Standup at 10 and the dentist at 3.\n  (used: calendar_events, read_note)`,
       });
     },

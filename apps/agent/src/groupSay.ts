@@ -5,10 +5,11 @@
 
 import { ServiceError } from "./clients";
 import { MAX_CANDIDATES } from "./decide";
-import { addEvent, kindOf, type EventReason, type TexEvent } from "./events";
+import { addEvent, type EventReason, type TexEvent } from "./events";
 import { chatEvents } from "./chatRead";
 import { groupLineFor, type GroupLineDeps, type GroupPlace } from "./groupLine";
-import { PICTURE_FAILED, shrinkPicture, type OutgoingPicture } from "./outgoing";
+import { shrinkPicture, type OutgoingPicture } from "./outgoing";
+import { sendPicturePart, sendWords, type PartLine } from "./sendOne";
 import type { ImagesLike } from "./attachments";
 import type { Picture } from "./line";
 import type { InboxStorage } from "./inbox";
@@ -154,12 +155,37 @@ export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, mes
 }
 
 async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
+  await sendWords(groupPartLine(storage, deps, message, meta), text);
+}
+
+/** This lane's way out for the one sender (`sendOne.ts`): the group line, under the message answered, and Tex's sent handles. */
+function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, meta: SayMeta): PartLine<OutgoingPicture> {
   const place: GroupPlace = { line: message.line, groupId: message.groupId };
-  const handle = await groupLineFor(deps, message.groupId).sendText(place, text, message.messageId);
-  await logOut(storage, deps, message.groupId, { kind: kindOf(text), text, delivered: true }, meta);
-  if (handle === undefined) return;
-  const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
-  await storage.put(SENT_KEY, [...sent.filter((entry) => entry !== handle), handle].slice(-MAX_SENT));
+  return {
+    sendText: (text) => groupLineFor(deps, message.groupId).sendText(place, text, message.messageId),
+    sendPicture: async (picture) => {
+      let url: string;
+      try {
+        const hosted = "url" in picture ? picture.url : deps.hostPicture ? await deps.hostPicture(await shrinkPicture(deps.images, picture)) : null;
+        if (hosted === null) throw new Error("no host");
+        url = hosted;
+      } catch {
+        log("picture_failed", "host");
+        return null;
+      }
+      await groupLineFor(deps, message.groupId).sendMedia(place, url, message.messageId);
+      return url;
+    },
+    // The words already went: throwing would answer the whole turn again (three "Here's the one-pager"s and
+    // then "I couldn't answer that one", 2026-10-26), so a picture that won't send is said once, never retried.
+    refused: (error) => (log("picture_failed", error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "host"), true),
+    remember: async (handle) => {
+      if (handle === undefined) return;
+      const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
+      await storage.put(SENT_KEY, [...sent.filter((entry) => entry !== handle), handle].slice(-MAX_SENT));
+    },
+    log: (part, system) => logOut(storage, deps, message.groupId, part, system ? { system: true } : meta),
+  };
 }
 
 export async function logOut(storage: InboxStorage, deps: GroupSayDeps, chat: string, part: Pick<TexEvent, "kind" | "text" | "delivered" | "reason">, meta: SayMeta): Promise<void> {
@@ -183,18 +209,5 @@ export async function sendPicture(storage: InboxStorage, deps: GroupSayDeps, mes
 }
 
 async function sendPictureNow(storage: InboxStorage, deps: GroupSayDeps, message: GroupMessage, picture: OutgoingPicture, meta: SayMeta): Promise<void> {
-  let url: string | null = null;
-  try {
-    url = "url" in picture ? picture.url : deps.hostPicture ? await deps.hostPicture(await shrinkPicture(deps.images, picture)) : null;
-    if (url === null) throw new ServiceError("sendblue", 400);
-    await groupLineFor(deps, message.groupId).sendMedia({ line: message.line, groupId: message.groupId }, url, message.messageId);
-    await logOut(storage, deps, message.groupId, { kind: "picture", text: url, delivered: true }, meta);
-  } catch (error) {
-    // The words already went: throwing would answer the whole turn again (three "Here's the one-pager"s and
-    // then "I couldn't answer that one", 2026-10-26), so a picture that won't send is said once, never retried.
-    log("picture_failed", error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "host");
-    await logOut(storage, deps, message.groupId, { kind: "picture", delivered: false, reason: url === null ? "upload_failed" : "send_refused" }, meta);
-    await say(storage, deps, message, PICTURE_FAILED, { system: true });
-  }
+  await sendPicturePart(groupPartLine(storage, deps, message, meta), picture);
 }
-

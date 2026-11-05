@@ -67,11 +67,13 @@ test("a check-in in the record is shown in the log, before the yes that answers 
   const transcript = logged.history[0].text;
   assert.match(transcript, /\[6:03 PM\] You: Two receipts came in today\. Want me to forward both\?/);
   assert.ok(transcript.indexOf("Morning!") < transcript.indexOf(OFFER), "kept in time order");
-  assert.equal(logged.tainted, false);
+  assert.equal(logged.tainted, undefined);
 });
 
-test("a check-in that read mail taints the turn shown it", async () => {
-  assert.equal((await yesTurn(exchange(CHECK_IN, OFFER, NOW - 30_000, { tainted: true }))).tainted, true);
+test("a check-in that read mail is shown in its words and never marks the turn shown it (the owner, 2026-11-05)", async () => {
+  const logged = await yesTurn(exchange(CHECK_IN, OFFER, NOW - 30_000, { tainted: true }));
+  assert.ok(logged.history[0].text.includes(OFFER));
+  assert.equal(logged.tainted, undefined);
 });
 
 test("a text the log already holds, a texted exchange and one past the day are not shown twice or at all", async () => {

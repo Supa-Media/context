@@ -533,30 +533,14 @@ test("a reflect step that finds nothing worth writing changes nothing", async ()
   assert.equal(bucket.get("tex/skills/plan-review.md"), undefined);
 });
 
-test("a tainted turn reflects blind, and can't write a skill itself", async () => {
-  // An earlier answer written after a read from outside taints this turn from its start (`conversation.js`).
-  const history = async (tainted) => {
-    // The chat is the person's ledger (`src/agent/ledgerConversation.js`); a turn reads the taint from it.
-    seedChat(bucket, [{ role: "user", text: "what does this page say?" }, { role: "assistant", text: "It says hi.", ...(tainted ? { tainted: true } : {}) }]);
-  };
-  const writeEvil = { calls: [["write_note", { path: "tex/skills/evil.md", content: skill("evil", { updated: TODAY }) }]] };
-  await history(true);
-  script = [writeEvil, { text: "Sorted. TAINTED-ANSWER-MARK" }, { text: "NONE" }];
+test("an earlier answer from a turn that read outside never taints this one: it writes and reflects as any turn does", async () => {
+  // Trust is the turn's own (the owner, 2026-11-05; docs/decisions/texting-assistant/turn-trust.md). What a tainted turn
+  // may not do is proven where the turn itself is tainted: "a tainted turn can't write a skill" and the reflect units above.
+  seedChat(bucket, [{ role: "user", text: "what does this page say?" }, { role: "assistant", text: "It says hi.", tainted: true }]);
+  script = [{ calls: [["write_note", { path: "tex/skills/booking.md", content: skill("booking", { updated: TODAY }) }]] }, { text: "Sorted. OWN-ANSWER-MARK" }, { text: "NONE" }];
   await text("no, the other one", { conversation: "texts" });
-  assert.equal(bucket.get("tex/skills/evil.md"), undefined, "the turn itself still can't write a skill");
-  assert.match(JSON.stringify(requests.find((r) => r.metadataClient === "turn" && JSON.stringify(r.body.messages).includes("can't write or change a skill"))?.body.messages ?? ""), /can't write or change a skill/);
+  assert.notEqual(bucket.get("tex/skills/booking.md"), undefined, "the turn read nothing from outside, so it writes its skill");
   const reflected = reflectRequests();
-  assert.equal(reflected.length, 1, "their own correction still reflects");
-  const asked = JSON.stringify(reflected[0].body);
-  assert.match(asked, /no, the other one/);
-  assert.match(asked, /write_note: failed/);
-  assert.ok(!asked.includes("TAINTED-ANSWER-MARK"), "a tainted turn's answer is never shown");
-
-  // Positive control: the same correction and write, untainted, are written and reflect.
-  await history(false);
-  requests.length = 0;
-  script = [writeEvil, { text: "Sorted." }, { text: "NONE" }];
-  await text("no, the other one", { conversation: "texts" });
-  assert.equal(reflectRequests().length, 1);
-  assert.notEqual(bucket.get("tex/skills/evil.md"), undefined);
+  assert.equal(reflected.length, 1);
+  assert.ok(JSON.stringify(reflected[0].body).includes("OWN-ANSWER-MARK"), "and reflects with its own answer shown");
 });

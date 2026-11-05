@@ -139,3 +139,19 @@ from its first round, is offered the advisor, and told when to ask it", "an
 ordinary text is never told the job line, and is still offered the advisor",
 "the setup before it put a job's first two rounds on Opus: the cost this
 change removes".
+
+## The prompt cache keeps an hour (owner, 2026-11-05)
+
+A texted turn's tools, system prompt and history carry Anthropic's one-hour
+cache mark; the round's own end keeps five minutes, and one-off callers keep
+five minutes, since nothing reads them back and an hour's write costs 2x input
+instead of 1.25x. With five-minute marks the first round of most texts re-wrote
+about 80% of its cached prompt (`tex_model_calls`, 2026-11-01 to 11-04), and
+writes were about 80% of the front door's cost. The owner asked to "just set
+it" and assume the gateway accepts the field. A 400 on a body with one-hour
+marks is resent once without them and, when that goes through, remembered for
+the isolate, so a refused field never fails a turn.
+
+**What a simplification would cost:** dropping the fallback makes one refused
+field fail every texted turn; dropping the hour brings the re-writes back.
+Tests: `apps/mcp/test/agentHourCache.test.mjs`.
