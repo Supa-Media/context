@@ -24,6 +24,7 @@ import { queueByCode, type InboxStorage } from "./inbox";
 import { queueGroupByCode, type GroupDeps } from "./groupInbox";
 import { JOB_PREFIX, log, noteJobUpdate, type JobEntry, type JobReport, type JobUpdate } from "./jobs";
 import { watchForSave } from "./vaultWatch";
+import { armBy } from "./events";
 import type { LineDeps } from "./line";
 
 export type JobTextDeps = LineDeps & GroupDeps;
@@ -46,6 +47,8 @@ export async function jobUpdate(storage: InboxStorage, deps: JobTextDeps, update
   // A link to save a login went out through the coordinator: watch for the save (`vaultWatch.ts`).
   if (!noted.quiet && update.vaultWatch !== undefined && noted.groupId === undefined) await watchForSave(storage, update.vaultWatch, deps.now());
   if (noted.quiet) return true;
+  // Paused at the daily limit: the alarm restarts it once the limit resets (`jobPause.ts`).
+  if (noted.state === "waiting" && noted.resumeAt !== undefined) await armBy(storage, noted.resumeAt, deps.now());
   const report = reportOf(noted, update);
   if (report === null) return true;
   if (update.asked === undefined) {

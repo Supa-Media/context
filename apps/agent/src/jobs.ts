@@ -38,7 +38,7 @@ export type JobStep = { at: number; text: string; failed?: true; why?: string };
 /** Whether a streamed step failed, and why (`clients.ts`). */
 export type StepHow = { failed?: true; why?: string };
 /** One line of the chat's job list, sent with every texted turn, with its steps; `verdict`/`advice`: the advisor's last check (`apps/mcp/src/agent/jobCheck.js`); `result`: a finished job's report, for the chat's turns only. */
-export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string; on?: string };
+export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string; on?: string; resumeAt?: number };
 /** The advisor's call on a job's part that just ended (`apps/mcp/src/agent/jobCheck.js`). */
 export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
@@ -69,6 +69,7 @@ export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin
 export type MachineRunRef = { runId: string; part: number; deadline: number };
 
 /** The chat's record of a job: no ask, only where its answer goes. */
+/** `resumeAt`: a job paused at the daily limit starts again then, by itself (`jobPause.ts`). */
 export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; stopped?: true; finalPass?: string; machine?: true; onName?: string; onTool?: "claude" | "codex" };
 
 /** What a job's object tells the chat's inbox. `first`: the job's count of texts before these, so a retry repeats none. */
@@ -76,7 +77,7 @@ export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?
 /** `pictures`: the answer's pictures (a page's cover), sent before its texts and counted with them in `first`. */
 /** `asked`: who asked for the job and their words, so the chat's turn on its report can start it again (`jobTexts.ts`). */
 /** `pass`: the job's pass that sent it (`jobRun.ts` `PASS_KEY`); once one pass finished the job, no other pass's word is texted. */
-export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; pass?: string; asked?: { from: string; text: string }; ask?: string };
+export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; pass?: string; asked?: { from: string; text: string }; ask?: string; resumeAt?: number };
 
 /** A job's answer texts at most this many pictures: a page's cover, a card or two. */
 export const MAX_JOB_PICTURES = 2;
@@ -151,11 +152,11 @@ export const JOB_LINES = {
   /** A part the gateway refused to run (`jobRun.ts`): the job waits on them, and they're told why. */
   refused: (title: string, why: "daily_limit" | "no_model") =>
     why === "daily_limit"
-      ? `I paused "${title}": I've hit today's limit for background work. Text me tomorrow and I'll pick it back up.`
+      ? `I paused "${title}": I've hit today's limit for background work. I'll pick it back up by myself as soon as the limit resets, and tell you when it's done.`
       : `I paused "${title}": I can't reach my model right now. Text me in a bit and I'll pick it back up.`,
   /** A part the gateway turned down before it ran (`jobRun.ts` `rejected`): asking again is turned down the same way. */
   rejected: (title: string, why: string) => `I couldn't run "${title}": it was turned down before it started (${why}). Text me if you want me to try again.`,
-  refusedStatus: { daily_limit: "Paused: today's limit for background work is used up", no_model: "Paused: no model could run it" },
+  refusedStatus: { daily_limit: "Paused: today's limit for background work is used up; it starts again by itself once the limit resets", no_model: "Paused: no model could run it" },
 } as const;
 
 /**
@@ -250,6 +251,14 @@ export async function steerJobs(
   for (const { id, stop, note, resume } of asks) {
     if (resume) continue; // `resumeJobs`
     const entry = await storage.get<JobEntry>(entryKey(id));
+    // Paused at the daily limit: a stop keeps it from starting again by itself (`jobPause.ts`); nothing else reaches it.
+    if (entry?.state === "waiting" && entry.resumeAt !== undefined && stop) {
+      const { resumeAt: _r, ...rest } = entry;
+      await storage.put<JobEntry>(entryKey(id), { ...rest, state: "failed", status: "Stopped when they asked", finishedAt: now, stopped: true });
+      count += 1;
+      log("stopped_paused", id);
+      continue;
+    }
     if (entry?.state !== "running") continue;
     // The coordinating turn's own instruction goes as its, never as their words; a turn with no text of theirs passes only that, or a stop.
     const text = note ? `(From your coordinator, the chat's own turn, not their words: ${note})` : steer.text || (stop ? "(Stopped by your coordinator.)" : "");
@@ -294,9 +303,11 @@ export async function sweptJobs(storage: InboxStorage, now: number): Promise<Job
       kept.push(stopped);
       continue;
     }
-    if (entry.state === "waiting" && now - ended > JOB_SHOWN_MS) {
-      const { verdict: _v, advice: _a, ...rest } = entry;
-      const lapsed: JobEntry = { ...rest, state: "stuck", status: WAIT_ENDED_STATUS, finishedAt: ended + JOB_SHOWN_MS };
+    // A job paused at the daily limit waits until two hours past its restart (`jobPause.ts`), as its object keeps the run.
+    const waitEnds = (entry.resumeAt ?? ended) + JOB_SHOWN_MS;
+    if (entry.state === "waiting" && now > waitEnds) {
+      const { verdict: _v, advice: _a, resumeAt: _r, ...rest } = entry;
+      const lapsed: JobEntry = { ...rest, state: "stuck", status: WAIT_ENDED_STATUS, finishedAt: waitEnds };
       await storage.put(key, lapsed);
       log("wait_ended", entry.id);
       kept.push(lapsed);
@@ -313,16 +324,19 @@ export async function sweptJobs(storage: InboxStorage, now: number): Promise<Job
  * (`sweptJobs` settles what has run out).
  */
 export async function chatJobs(storage: InboxStorage, now: number, { results = false, all = false }: { results?: boolean; all?: boolean } = {}): Promise<RunningJob[]> {
-  const kept = (await sweptJobs(storage, now)).filter((entry) => entry.state === "running" || now - (entry.finishedAt ?? entry.startedAt) <= JOB_SHOWN_MS);
+  // A paused job is shown until it starts again, however long that is (`jobPause.ts`).
+  const kept = (await sweptJobs(storage, now)).filter((entry) => entry.state === "running" || (entry.state === "waiting" && entry.resumeAt !== undefined) || now - (entry.finishedAt ?? entry.startedAt) <= JOB_SHOWN_MS);
   return kept
     .sort((a, b) => Number(b.state === "running") - Number(a.state === "running") || b.startedAt - a.startedAt)
     // Every running one, so the gateway counts each place's slots right; finished ones fill what is left of six. `all`: every job.
     .filter((entry, index) => all || entry.state === "running" || index < MAX_SHOWN)
-    .map(({ id, title, state, startedAt, finishedAt, status, steps, verdict, advice, result, on }) => ({
+    .map(({ id, title, state, startedAt, finishedAt, status, steps, verdict, advice, result, on, resumeAt }) => ({
       id,
       title,
       state,
       startedAt,
+      // Paused at the daily limit, to start again by itself: the gateway lets a turn stop it (`jobPause.ts`).
+      ...(state === "waiting" && resumeAt !== undefined ? { resumeAt } : {}),
       // The computer it runs on, so the gateway counts it against that computer's slots, not the cloud's.
       ...(typeof on === "string" ? { on } : {}),
       ...(finishedAt !== undefined ? { finishedAt } : {}),
@@ -366,7 +380,7 @@ export async function resumeJobs(
     // A finished job has nothing to pick up: its object kept no run (`resumeJob`).
     const ok = entry.state !== "done" && fits(running, machineOfEntry(entry)) && (await send(id, { id: steer.id, text: steer.text.trim() || PICKED_UP, resume: true }).catch(() => false));
     if (ok) {
-      const { finishedAt: _f, finalPass: _p, verdict: _v, advice: _a, result: _r, stopped: _s, ...kept } = entry;
+      const { finishedAt: _f, finalPass: _p, verdict: _v, advice: _a, result: _r, stopped: _s, resumeAt: _ra, ...kept } = entry;
       await storage.put<JobEntry>(entryKey(id), { ...kept, state: "running", startedAt: now, status: "Picking up where it stopped" });
     } else missed.push(entry.title);
     log(ok ? "resumed" : "not_resumed", id);
@@ -460,7 +474,10 @@ export async function noteJobUpdate(storage: InboxStorage, update: JobUpdate, no
     ...(update.verdict ? { verdict: update.verdict, advice: line(update.advice, MAX_ADVICE) } : {}),
     ...(step ? { steps: [...(entry.steps ?? []), stepOf(update, step, now)].slice(-MAX_STEPS_KEPT) } : {}),
     ...(state !== "running" ? { finishedAt: now, ...(update.pass ? { finalPass: update.pass } : {}), ...resultOf(update) } : {}),
+    ...(state === "waiting" && update.resumeAt !== undefined ? { resumeAt: update.resumeAt } : {}),
   };
+  // Paused for the daily limit only while this word says so (`jobPause.ts`).
+  if (state !== "waiting" || update.resumeAt === undefined) delete next.resumeAt;
   await storage.put(entryKey(update.id), next);
   return next;
 }
@@ -480,7 +497,7 @@ function resultOf(update: JobUpdate): { result?: string } {
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, pass, asked, verdict, advice, ask } = value as Record<string, unknown>;
+  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, pass, asked, verdict, advice, ask, resumeAt } = value as Record<string, unknown>;
   const by = asked && typeof asked === "object" ? (asked as Record<string, unknown>) : {};
   const read = jobPictures(readPictures(pictures));
   if (typeof id !== "string" || !ID.test(id) || typeof state !== "string" || !STATES.has(state)) return null;
@@ -495,6 +512,7 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(typeof pass === "string" && ID.test(pass) ? { pass } : {}),
     ...(typeof by.from === "string" && /^\+[1-9]\d{6,14}$/.test(by.from) && typeof by.text === "string" ? { asked: { from: by.from, text: by.text.slice(0, MAX_ASKED) } } : {}),
     ...(Number.isInteger(first) && (first as number) >= 0 ? { first: first as number } : {}),
+    ...(Number.isSafeInteger(resumeAt) && (resumeAt as number) > 0 ? { resumeAt: resumeAt as number } : {}),
     ...(read.length > 0 ? { pictures: read } : {}),
     ...(Array.isArray(texts) ? { texts: texts.filter((text): text is string => typeof text === "string" && text.trim() !== "").slice(0, 12) } : {}),
   };

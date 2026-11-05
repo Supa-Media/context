@@ -167,7 +167,9 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   const setting = !message.sms && engagement === null ? await groupSettingReply(storage, message.text, now) : null;
   // A reply to one of Tex's texts that says more than thanks is addressed: its turn starts at once, decide beside it (Dev2, 2026-11-01, superseding 2026-10-27's decide-first).
   // A reaction answering Tex's own question is answered as a message to Tex is (the 1:1's, #2469): never left silent.
-  const addressed = message.reaction === undefined ? addressesTex(message.text, repliesToTex) : answeringTex;
+  // A voice message is addressed by what it says (`groupVoice.ts`): said aloud, Tex's name anywhere is the tag, since decide can't hear it.
+  const heard = message.reaction === undefined && message.heard !== undefined && (addressesTex(message.heard, repliesToTex) || namesTex(message.heard));
+  const addressed = message.reaction === undefined ? addressesTex(message.text, repliesToTex) || heard : answeringTex;
   const tagged = addressed || yes || engagement !== null || setting !== null;
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";

@@ -427,3 +427,14 @@ which answers only the computer reads), and `must start: … on a computer` /
 and a big one. Tests: `apps/mcp/test/machineForJobs.test.mjs` ("a
 deployment that binds MACHINE_STORE"), `agentPlanBigAsk.test.mjs` ("code
 goes to a computer").
+
+## A job paused at the daily limit picks itself back up (2026-11-05)
+
+Dev2 chose this on the 2026-11-05 bug hunt. A part refused at the daily limit said "Text me tomorrow and I'll pick it back up", but the paused job's run was kept two hours, so the next day "pick it back up" found nothing.
+
+- **It waits for the reset, then restarts by itself** (`apps/agent/src/jobPause.ts`). The limit is counted per UTC day (`apps/convex/functions/lib/jev/meter.ts` `utcDay`), so the pause carries `resumeAt`, two minutes past the next midnight UTC. The job's object keeps its run until two hours past `resumeAt` (`jobRun.ts` `keepUntil`), the chat's inbox keeps the entry waiting until then (`sweptJobs`) and shows it to every turn meanwhile (`chatJobs`), and its alarm is armed for `resumeAt` (`jobTexts.ts`).
+- **The restart is "restart it"** (`resumeJobs`): the same ask, brief and finish line, its last answer to build on, under a new workflow, shown "(Picked back up.)". Three jobs already running, or a restart that fails, tries again every ten minutes until the two hours are up; then it lapses to stuck as any ended wait does.
+- **It can still be stopped.** The chat's turns are shown it with `resumeAt` and offered `steer_job` for it: a stop marks it stopped so it never starts again (`steerJobs`); a change is refused until it is running, and the turn is told why (`background.js`).
+- **The words promise only that:** "I'll pick it back up by myself as soon as the limit resets, and tell you when it's done." A pause for no model keeps its two hours and waits to be asked.
+
+What a simplification would cost: keeping the two-hour window breaks the promise every time; resuming from the job's own object skips the chat's slot count. Tests: `apps/agent/src/jobPause.test.ts`.

@@ -99,6 +99,7 @@
  * from tools/readImage.js by the email worker's and control plane's tests.
  */
 import { openTextsSession } from "./agent/textsSession.js";
+import { hearForTexts, TEXTS_HEAR_PATH } from "./agent/textsHear.js";
 import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import { TexStore as TexStoreDurableObject } from "./texStore.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
@@ -176,6 +177,8 @@ export const WorkspaceStore = WorkspaceStoreDurableObject;
 export const TexTexts = {
   async fetch(request, env, ctx) {
     try {
+      // A group's voice message, heard before the chat decides whether it is for Tex (`agent/textsHear.js`).
+      if (new URL(request.url).pathname === TEXTS_HEAR_PATH) return await hearForTexts(request, env);
       return await openTextsSession(request, env, ctx);
     } catch {
       // The Worker reads anything but a linked answer as "ask Convex".

@@ -38,6 +38,7 @@ import { machineTurn, type MachineLive, type MachineOutcome } from "./machineTur
 import { JOB_SHOWN_MS, JOB_LIMIT_MS, JOB_LINES, MACHINE_JOB_LIMIT_MS, MAX_MACHINE_JOB_ATTEMPTS, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobMail, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
+import { limitResetAt } from "./jobPause";
 import { STEER_TIMEOUT_MS } from "./steer";
 
 export type JobDeps = {
@@ -89,7 +90,9 @@ const MAX_MAIL_KEPT = 20;
  * from the restart text (Dev2, 2026-10-31). Dropped once that time is up.
  */
 export const ENDED_KEY = "jobended";
-type Ended = { run: JobRun; endedAt: number };
+/** `keepUntil`: a job paused at the daily limit is kept past its restart, not two hours from its pause (`jobPause.ts`). */
+type Ended = { run: JobRun; endedAt: number; keepUntil?: number };
+const keptUntil = (ended: Ended) => ended.keepUntil ?? ended.endedAt + JOB_SHOWN_MS;
 /** The most of a replaced answer handed to the next part. */
 const MAX_DRAFT = 4_000;
 
@@ -164,7 +167,7 @@ export async function resumeJob(
 ): Promise<boolean> {
   if ((await storage.get<JobRun>(RUN_KEY)) !== undefined) return false;
   const ended = await storage.get<Ended>(ENDED_KEY);
-  if (ended === undefined || now - ended.endedAt > JOB_SHOWN_MS) return false;
+  if (ended === undefined || now > keptUntil(ended)) return false;
   // The text that restarted it is theirs and newer than the plan ("book with santana"): the first resumed part is shown it.
   if (steer !== undefined && steer.text.trim() !== "" && steer.text !== PICKED_UP) {
     const steers = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
@@ -227,7 +230,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   if (run === undefined) {
     // The alarm set when a job ended unfinished: its kept run goes once nobody can pick it up any more.
     const ended = await storage.get<Ended>(ENDED_KEY);
-    if (ended !== undefined && deps.now() - ended.endedAt > JOB_SHOWN_MS) await storage.delete(ENDED_KEY);
+    if (ended !== undefined && deps.now() > keptUntil(ended)) await storage.delete(ENDED_KEY);
     return { kind: "done" };
   }
   let sent = run.sent ?? 0;
@@ -353,7 +356,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           ...watch,
         }
       : outcome.kind === "refused"
-        ? { state: "waiting", status: JOB_LINES.refusedStatus[outcome.why], texts: [JOB_LINES.refused(run.title, outcome.why)] }
+        ? { state: "waiting", status: JOB_LINES.refusedStatus[outcome.why], texts: [JOB_LINES.refused(run.title, outcome.why)], ...(outcome.why === "daily_limit" ? { resumeAt: limitResetAt(deps.now()) } : {}) } // starts again by itself (`jobPause.ts`)
         : outcome.kind === "rejected"
           ? { state: "failed", status: `Stopped: turned down before it ran (${outcome.why})`.slice(0, 280), texts: [JOB_LINES.rejected(run.title, outcome.why)] }
         : outcome.kind === "stop"
@@ -381,8 +384,9 @@ async function finish(
   if (update.state === "done") await storage.delete(ENDED_KEY);
   else {
     const { sent: _s, owed: _o, owedTries: _t, unfinished: _u, idle: _i, ...kept } = run;
-    await storage.put<Ended>(ENDED_KEY, { run: kept, endedAt: now });
-    await storage.setAlarm(now + JOB_SHOWN_MS + 60_000);
+    const keepUntil = update.resumeAt === undefined ? undefined : update.resumeAt + JOB_SHOWN_MS;
+    await storage.put<Ended>(ENDED_KEY, { run: kept, endedAt: now, ...(keepUntil !== undefined ? { keepUntil } : {}) });
+    await storage.setAlarm((keepUntil ?? now + JOB_SHOWN_MS) + 60_000);
   }
   await storage.delete(RUN_KEY);
   await storage.delete(STEERS_KEY);
