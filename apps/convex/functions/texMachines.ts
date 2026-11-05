@@ -363,6 +363,7 @@ export const issueTexMachineRunGrant = internalMutation({
     hashedAccessToken: v.string(),
     machineId: v.string(),
     runId: v.string(),
+    jobId: v.optional(v.string()),
     expiresAt: v.number(),
   },
   returns: v.object({ expiresAt: v.number() }),
@@ -379,6 +380,7 @@ export const issueTexMachineRunGrant = internalMutation({
     // A mail-only device takes mail and never jobs: no part runs on it, whatever the gateway asks.
     if (machine === null || machine.status !== "active" || machine.mailOnly === true) throw texMachineRefusal("MACHINE_NOT_FOUND");
     if (!TEX_MACHINE_RUN_ID_PATTERN.test(args.runId)) throw texMachineRefusal("BAD_RUN");
+    if (args.jobId !== undefined && !/^[A-Za-z0-9_-]{8,64}$/.test(args.jobId)) throw texMachineRefusal("BAD_RUN");
 
     const now = Date.now();
     const expiresAt = Math.min(args.expiresAt, now + TEX_MACHINE_RUN_MAX_MS);
@@ -389,6 +391,7 @@ export const issueTexMachineRunGrant = internalMutation({
       parentGrantId: parent.grant._id,
       machineId: machine._id,
       runId: args.runId,
+      ...(args.jobId !== undefined ? { jobId: args.jobId } : {}),
       expiresAt,
       createdAt: now,
     });

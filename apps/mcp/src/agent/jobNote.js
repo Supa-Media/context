@@ -128,7 +128,9 @@ async function noteRoute(request, store, session, call) {
   const given = jobMailOf(body.note);
   // With no project of its own, a person's job keeps its note in Tex's own notes; a group's has none to fall back to.
   if (given === null && session.actorClientId !== TEXTS_CLIENT_ID) return json({ ok: false, code: "no_note" });
-  const note = given ?? { path: fallbackPath(title, body.jobId), name: jobName(title) };
+  // A job never takes the name of an agent on the roster, so no line it gets can pass for Tex's or the advisor's.
+  const named = given && (given.name === TEX_NAME || given.name === ADVISOR_NAME) ? { ...given, name: jobName(title) } : given;
+  const note = named ?? { path: fallbackPath(title, body.jobId), name: jobName(title) };
   let existing = await readNote(call, note);
   if (existing === null) {
     const doneWhen = clip(body.doneWhen, 600);

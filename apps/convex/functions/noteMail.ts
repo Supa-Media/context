@@ -44,9 +44,22 @@ function view(row: Doc<"noteMailboxes">) {
  * The grant a mail call acts as: a live grant, or a job part's run grant on the person's computer, which acts as the
  * job's own texting grant (`liveGrants.ts` `resolveRunGrant`). So a part reads and sends on the job note's mail with
  * the mailbox its job joined (the owner, 2026-11-05: the job, Tex and the advisor on one job note's mail).
+ *
+ * A run grant reaches only the mailboxes bound to its own job (`onlyJob`), never the rest of what its parent joined:
+ * the part runs untrusted work on a computer, so it must not speak as Tex, the advisor or another job. A run grant
+ * that names no job reaches no mail.
  */
 async function mailGrant(ctx: QueryCtx, hashedAccessToken: string) {
-  return (await resolveLiveGrant(ctx, hashedAccessToken)) ?? (await resolveRunGrant(ctx, hashedAccessToken));
+  const live = await resolveLiveGrant(ctx, hashedAccessToken);
+  if (live !== null) return { ...live, onlyJob: null as string | null };
+  const run = await resolveRunGrant(ctx, hashedAccessToken);
+  if (run === null || run.run.jobId === undefined) return null;
+  return { ...run, onlyJob: run.run.jobId as string | null };
+}
+
+/** Whether this grant may use a mailbox row: its own, and for a run grant only its job's. */
+function mayUse(live: { grant: { _id: Id<"oauthGrants"> }; onlyJob: string | null }, row: Doc<"noteMailboxes">): boolean {
+  return row.grantId === live.grant._id && (live.onlyJob === null || row.jobId === live.onlyJob);
 }
 
 /** The live mailbox this token's grant joined, or null for anything else. */
@@ -57,7 +70,7 @@ async function ownMailbox(ctx: QueryCtx, hashedAccessToken: string, mailboxId: s
     .query("noteMailboxes")
     .withIndex("by_mailboxId", (q) => q.eq("mailboxId", mailboxId))
     .unique();
-  if (row === null || row.grantId !== live.grant._id) return null;
+  if (row === null || !mayUse(live, row)) return null;
   const reach = addressable(await contextsForGrant(ctx, live));
   if (!reach.some((entry) => entry.workspaceId === row.workspaceId)) return null;
   return row;
@@ -94,6 +107,8 @@ export const joinMailbox = internalMutation({
     if (args.jobId !== undefined && !JOB_ID_RE.test(args.jobId)) return refused;
     const live = await mailGrant(ctx, args.hashedAccessToken);
     if (live === null) return refused;
+    // A run grant never joins on its own: its job's mailbox was joined for it, and it may only rejoin that one.
+    if (live.onlyJob !== null && (args.jobId !== live.onlyJob || args.machineId !== undefined)) return refused;
     let machineId: Id<"texMachines"> | undefined;
     if (args.machineId !== undefined) {
       const id = ctx.db.normalizeId("texMachines", args.machineId);
@@ -112,6 +127,7 @@ export const joinMailbox = internalMutation({
       )
       .collect();
     const mine = existing.find((row) => row.grantId === live.grant._id);
+    if (live.onlyJob !== null && (mine === undefined || !mayUse(live, mine))) return refused;
     if (mine) {
       // A rejoin that names a job re-binds the mailbox to it; a rejoin that names none leaves the binding as it is.
       if (args.jobId !== undefined && mine.jobId !== args.jobId) await ctx.db.patch(mine._id, { jobId: args.jobId });
@@ -201,7 +217,7 @@ export const jobMailboxes = internalQuery({
       const grant = await ctx.db.get(row.grantId);
       if (grant === null || grant.status !== "active") continue;
       // `own`: joined by the presenting grant, so the sender is that job's own Tex (the gateway lets only Tex's own turn interrupt it).
-      const own = row.grantId === live.grant._id;
+      const own = mayUse(live, row);
       if (row.jobId !== undefined) out.push({ mailboxId: row.mailboxId, name: row.name, jobId: row.jobId, own });
       else if (row.machineId !== undefined) {
         const machine = await ctx.db.get(row.machineId);

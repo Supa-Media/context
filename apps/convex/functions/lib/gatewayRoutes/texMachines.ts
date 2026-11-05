@@ -225,6 +225,7 @@ async function issueRunGrantHandler(ctx: ActionCtx, body: Record<string, unknown
   const parentToken = stringField(body, "parentToken");
   const machineId = stringField(body, "machineId");
   const runId = stringField(body, "runId");
+  const jobId = stringField(body, "jobId");
   const expiresAt = body.expiresAt;
   if (parentToken === null || machineId === null || runId === null || typeof expiresAt !== "number" || !Number.isFinite(expiresAt)) {
     return badRequest();
@@ -236,6 +237,7 @@ async function issueRunGrantHandler(ctx: ActionCtx, body: Record<string, unknown
       hashedAccessToken: await hashToken(accessToken),
       machineId,
       runId,
+      ...(jobId !== null ? { jobId } : {}),
       expiresAt,
     });
     return json({ accessToken, expiresAt: issued.expiresAt });

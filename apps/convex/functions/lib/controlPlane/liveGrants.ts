@@ -98,6 +98,8 @@ export interface RunGrantInfo {
   machineId: Id<"texMachines">;
   runId: string;
   expiresAt: number;
+  /** The job whose part this is, when the gateway named it. */
+  jobId?: string;
 }
 
 export async function resolveRunGrant(
@@ -121,7 +123,7 @@ export async function resolveRunGrant(
   // The parent's own token expiry is replaced by the run's, so only the run's time bounds this grant here.
   const live = await validateLiveGrantRecord(ctx, { ...parent, accessTokenExpiresAt: row.expiresAt });
   if (live === null) return null;
-  return { ...live, run: { machineId: machine._id, runId: row.runId, expiresAt: row.expiresAt } };
+  return { ...live, run: { machineId: machine._id, runId: row.runId, expiresAt: row.expiresAt, ...(row.jobId !== undefined ? { jobId: row.jobId } : {}) } };
 }
 
 /**
