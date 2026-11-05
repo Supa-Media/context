@@ -22,8 +22,7 @@
  *   anything kept.
  * - Fresh enough to trust, by part: the setup (a pinned note that changes
  *   rarely) for an hour; the learned skills and who they are by their
- *   account for ten minutes, the skills dropped by any turn that wrote; its
- *   turns' clean marks for a day.
+ *   account for ten minutes, the skills dropped by any turn that wrote.
  * - Past fresh, the setup and the skills are still used for up to a day
  *   (`WARM_STALE_MS`), and read again beside the turn instead of before it:
  *   what that read finds goes in the copy this turn hands back, so the next
@@ -60,8 +59,6 @@ const decoder = new TextDecoder();
 export const WARM_NOTES_MS = 10 * 60 * 1000;
 /** The texting setup, a note in the pinned workspace that changes rarely: trusted this long, then read again. */
 export const WARM_SETUP_MS = 60 * 60 * 1000;
-/** The chat's turns' clean marks, carried forward turn by turn (never the chat itself). */
-export const WARM_CHAT_MS = 24 * 60 * 60 * 1000;
 /**
  * The setup and the learned skills, past fresh: used this much longer while they are read again beside the turn
  * (`warmTurn` `part`), so a text after a quiet hour waits for neither. Who they are is never served stale.
@@ -127,12 +124,12 @@ export async function openWarm(env, session, sealed, now = Date.now()) {
     const copy = await openSealed(env, session, sealed);
     if (copy === null) return null;
     const fresh = (part, ms) => (part && Number.isFinite(part.at) && part.at <= now && now - part.at < ms ? part : undefined);
-    const chat = fresh(copy.chat, WARM_CHAT_MS);
-    // Only the parts named here: a copy sealed before 2026-11-01 carried the history and About me, and neither is ever used again.
+    // Only the parts named here: a copy sealed before 2026-11-01 carried the history and About me, and one before
+    // 2026-11-05 the chat's day and its turns' clean marks; none of them is ever used again.
     const setup = fresh(copy.setup, WARM_SETUP_MS), skills = fresh(copy.skills, WARM_NOTES_MS);
     // Past fresh and inside a day: used while read again (`WARM_STALE_MS`), never as fresh.
     const stale = { setup: setup === undefined ? fresh(copy.setup, WARM_STALE_MS) : undefined, skills: skills === undefined ? fresh(copy.skills, WARM_STALE_MS) : undefined };
-    return { setup, skills, identity: fresh(copy.identity, WARM_NOTES_MS), stale, chat: chat && { at: chat.at, ...(chat.clean && typeof chat.clean === "object" ? { clean: chat.clean } : {}) } };
+    return { setup, skills, identity: fresh(copy.identity, WARM_NOTES_MS), stale };
   } catch {
     return null;
   }
@@ -152,7 +149,6 @@ export async function openWarm(env, session, sealed, now = Date.now()) {
 export function warmTurn(env, session, body, { eligible, logEligible = false, now = Date.now() }) {
   const opened = eligible ? openWarm(env, session, body?.warm, now) : Promise.resolve(null);
   const next = { v: 1 };
-  const cleanSeen = {};
   // A background job writes on its own (task notes, the jobs list, a skill): while one runs, or just after, those are read fresh.
   const jobBusy = (Array.isArray(body?.running) ? body.running : []).some((job) => job?.state === "running" || (Number.isFinite(job?.finishedAt) && now - job.finishedAt < WARM_NOTES_MS));
   // A setup that could not be read is never kept: a turn without it runs on the built-in words, and a kept miss
@@ -185,8 +181,6 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
     if (eligible && keeps(name, value)) next[name] = { at: now, value };
     return value;
   };
-  const chat = (async () => (eligible ? (await opened)?.chat : undefined))();
-  let chatRead = null;
   return {
     /** The setup's text; the turn parses it either way. */
     setup: part("setup"),
@@ -199,44 +193,19 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
       const logs = eligible || logEligible; // the texting Worker's own turn, one to one or a group's
       // Always the ledger's day, never a carried one (Dev2, 2026-11-05): a copy is sealed before the turn's reply goes and
       // the Worker forgets that reply once the gateway takes it, so a carried day never held Tex's own answers.
-      const base = await read();
-      const events = mergeEvents(base, logs ? body?.recent : null, { chat: chatKey, now }); // only the texting Worker's own turn hands events in
-      chatRead = { events };
-      return events;
-    },
-    /** Whether a turn record is clean, from the copy when it knows it. */
-    async clean(turn, read) {
-      const known = (await chat)?.clean?.[turn];
-      if (typeof known === "boolean") return known;
-      const clean = await read();
-      if (typeof clean === "boolean") cleanSeen[turn] = clean;
-      return clean;
+      return mergeEvents(await read(), logs ? body?.recent : null, { chat: chatKey, now }); // only the texting Worker's own turn hands events in
     },
     /**
-     * The copy to hand back: what this turn read. `turn` and `clean` its own
-     * record, `wrote` whether it changed anything (then the notes and skills
-     * are read again).
+     * The copy to hand back: what this turn read. `wrote` whether it changed
+     * anything (then the skills are read again).
      */
-    async seal({ turn = null, clean = null, wrote = false } = {}) {
+    async seal({ wrote = false } = {}) {
       if (!eligible) return null;
-      const warm = await chat;
       const out = { ...next };
       // A part this turn never asked for (a yes the gateway settled reads none) is carried as it was, still fresh by its own time.
       const was = await opened;
       for (const name of ["setup", "skills", "identity"]) if (out[name] === undefined && !dropped.has(name) && was?.[name] !== undefined && keeps(name, was[name]?.value) && !(name !== "setup" && jobBusy)) out[name] = was[name];
       if (wrote) delete out.skills;
-      // A record only moves toward not clean (`loggedTurn.js` `recordTurn`): a retried turn id's earlier attempt may have recorded false, so its own clean exit is left for the next turn to read.
-      const known = { ...(warm?.clean ?? {}), ...cleanSeen, ...(typeof turn === "string" && clean === false ? { [turn]: false } : {}) };
-      if (typeof turn === "string" && clean !== false && known[turn] === true) delete known[turn];
-      // The chat itself is never carried: the next turn reads its day from the ledger. Only the clean marks of the turns this
-      // one was shown go on (all of them when it read no day: a yes the gateway settled).
-      const events = chatRead?.events;
-      const shown = new Set((events ?? []).map((event) => event.turn).filter(Boolean));
-      if (typeof turn === "string") shown.add(turn);
-      out.chat = {
-        at: warm?.at ?? now,
-        clean: Object.fromEntries(Object.entries(known).filter(([id]) => events === undefined || shown.has(id))),
-      };
       return await sealWarm(env, session, out);
     },
   };

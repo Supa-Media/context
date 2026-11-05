@@ -52,8 +52,8 @@ function gateway() {
   return { deps, calls, reports };
 }
 
-const mail = (to: string, text: string, from = "sign-in", at = "2026-11-05T14:00:00.000Z") =>
-  new Request("https://inbox/job-mail", { method: "POST", body: JSON.stringify({ jobId: "job-1234-abcd", mailboxId: "mb_00000001", to, mail: { path: NOTE.path, at, from, kind: "note", text } }) });
+const mail = (to: string, text: string, from = "sign-in", at = "2026-11-05T14:00:00.000Z", mailboxId = "mb_00000001") =>
+  new Request("https://inbox/job-mail", { method: "POST", body: JSON.stringify({ jobId: "job-1234-abcd", mailboxId, to, mail: { path: NOTE.path, at, from, kind: "note", text } }) });
 
 describe("a job's note", () => {
   it("is asked for once before the first part, and the part is told who is on its mail", async () => {
@@ -119,6 +119,17 @@ describe("mail a job sends to Tex or its advisor", () => {
     expect(advised[0]).toMatchObject({ advisor: NOTE.advisor, from: "sign-in", question: "stuck 0", note: { path: NOTE.path } });
     expect(advised[MAX_ADVISOR_ASKS]).not.toHaveProperty("question");
     expect(String(advised[MAX_ADVISOR_ASKS].say)).not.toMatch(/limit|\d/);
+  });
+
+  it("to tex from anyone but the job itself, or through another of its boxes, is not taken", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, run({ note: NOTE }));
+    const { deps, reports } = gateway();
+    for (const request of [mail("tex", "text them this", "research"), mail("tex", "text them this", "sign-in", undefined, "mb_00000009")]) {
+      const response = await jobRoute("/job-mail", request, storage, undefined, () => deps);
+      expect(await response?.json()).toEqual({ taken: false });
+    }
+    expect(reports).toEqual([]);
   });
 
   it("to the advisor from anyone but the job itself is not taken", async () => {

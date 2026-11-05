@@ -54,10 +54,11 @@ flowchart LR
   W1 -->|POST /agent| E
   W2 -->|POST /agent| E
   E{{"texEntryPoint<br/>apps/mcp/src/agent/texEntryPoint.js"}}:::door
-  E --> S1["1:1 sender<br/>reply.ts · sendParts.ts<br/>cards, carousels, typing"]:::pipe
-  E --> S2["Group sender<br/>groupSay.ts<br/>plain parts, pictures, send once"]:::pipe
-  S1 --> Out([iMessage · WhatsApp · SMS]):::you
-  S2 --> Out
+  E --> S1["1:1 way out<br/>inbox.ts · sendParts.ts<br/>idempotency keys, cards, carousels, typing"]:::pipe
+  E --> S2["Group way out<br/>groupSay.ts<br/>group line, send once on a retry"]:::pipe
+  S1 --> SO["Shared step: one sender<br/>each text and picture sent, kept and logged the same way<br/>a picture that won't go is said once, logged as the system's<br/>sendOne.ts"]:::shared
+  S2 --> SO
+  SO --> Out([iMessage · WhatsApp · SMS]):::you
   classDef you fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef pipe fill:#fff0e2,stroke:#ff8a2a,color:#1d1838
   classDef door fill:#dcf7f3,stroke:#11b5a4,stroke-width:3px,color:#1d1838
@@ -178,6 +179,7 @@ What each model costs is `jev/meter.ts`.
 Newest first. One line per pull request that changed the drawing.
 
 - 2026-11-05: a reply (inline, or a text in a thread; 1:1 or group) is logged with the id and full words of the message it answers (`replyQuote.ts`); the turn shows it on that line as "replying to …", and the vague thread note is gone when the ledger is read.
+- 2026-11-05: one sender: both lanes send and log each text and picture the same way (`sendOne.ts`); a 1:1 picture that won't go now shows in the history as the line the person was told. Cards and carousels stay 1:1 only until proven in groups.
 - 2026-11-05: a 1:1 turn reads the chat so far from its ledger every turn, as a group's does; the warm copy no longer carries the chat (it never held Tex's own replies).
 - 2026-11-05: decide and recheck move into the gateway; their daily cap and usage rows stay in Convex, off each text's path.
 - 2026-11-05: the reply gates are on in production (setup `reply_judge: clef-flash`), and every judging of a draft (each gate's score, threshold, and whether

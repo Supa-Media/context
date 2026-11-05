@@ -68,7 +68,6 @@ test("what changes outside the chat is trusted for ten minutes, then read again"
   const sealed = await sealWarm(env, session, { v: 1, identity: { at: now, value: "n" }, chat: { at: now, events: [] } });
   const later = await openWarm(env, session, sealed, now + WARM_NOTES_MS + 1);
   assert.equal(later.identity, undefined);
-  assert.notEqual(later.chat, undefined, "the chat is carried for a day");
   let reads = 0;
   const hot = warmTurn(env, session, { warm: sealed }, { eligible: true, now: now + WARM_NOTES_MS + 1 });
   assert.equal(await hot.identity(async () => (reads += 1, "fresh")), "fresh");
@@ -203,7 +202,7 @@ test("a copy never carries the chat's day, and a day in an older copy is never u
   assert.equal(reads, 1, "the ledger's day is read on every turn");
   assert.ok(day.some((entry) => entry.id === answer.id), "the answer the ledger holds is shown");
   const opened = await openWarm(env, session, await hot.seal({}), now);
-  assert.equal(opened.chat.events, undefined, "no day goes on to the next turn");
+  assert.equal(opened.chat, undefined, "nothing of the chat goes on to the next turn");
 });
 
 test("a turn that wrote anything drops the skills from the copy it hands back, and never carries the history", async () => {
@@ -213,18 +212,16 @@ test("a turn that wrote anything drops the skills from the copy it hands back, a
   await hot.events(CHAT, async () => []);
   const opened = await openWarm(env, session, await hot.seal({ wrote: true }), now);
   assert.equal(opened.skills, undefined);
-  assert.equal(opened.chat.history, undefined, "the history is the person's object's, never the copy's");
-  assert.equal(opened.chat.events, undefined, "nor the chat's day: the next turn reads it from the ledger");
+  assert.equal(opened.chat, undefined, "the history and the chat's day are never the copy's: the next turn reads them from the ledger");
 });
 
-test("a turn record the copy knows is not read again, and an unknown one is", async () => {
+test("a copy sealed before 2026-11-05 carries its turns' clean marks, and none is used again", async () => {
+  // Trust is the turn's own (docs/decisions/texting-assistant/turn-trust.md): nothing reads an earlier turn's mark.
   const now = Date.now();
-  const sealed = await sealWarm(env, session, { v: 1, chat: { at: now, events: [], clean: { "turn-known-01": false } } });
+  const sealed = await sealWarm(env, session, { v: 1, chat: { at: now, clean: { "turn-known-01": false } } });
   const hot = warmTurn(env, session, { warm: sealed }, { eligible: true, now });
-  let reads = 0;
-  assert.equal(await hot.clean("turn-known-01", async () => (reads += 1, true)), false, "a tainted turn stays tainted");
-  assert.equal(await hot.clean("turn-other-01", async () => (reads += 1, true)), true);
-  assert.equal(reads, 1);
+  assert.equal(hot.clean, undefined);
+  assert.equal((await openWarm(env, session, sealed, now)).chat, undefined);
 });
 
 test("a setup that could not be read is never kept, so the next turn reads it again", async () => {

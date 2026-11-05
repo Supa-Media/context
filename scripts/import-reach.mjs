@@ -23,6 +23,9 @@
  * - a specifier it cannot resolve is ignored only when it names no workspace
  *   file, which is the case for every npm dependency.
  *
+ * A statement that imports only types (`import type`) is not followed: the
+ * types are erased and nothing it names runs.
+ *
  * What it cannot see is code loaded by computed path (`require(variable)`);
  * the app has none, and `check-ci-path-gates.mjs` pins the entry list.
  */
@@ -40,6 +43,8 @@ const SPECIFIERS = [
   /\brequire\(\s*["']([^"']+)["']\s*\)/g,
   /\bimport\(\s*["']([^"']+)["']\s*\)/g,
 ];
+
+const TYPE_ONLY = /^\s*(?:import|export)\s+type\s/;
 
 const isFile = (root, path) => existsSync(join(root, path)) && statSync(join(root, path)).isFile();
 
@@ -109,7 +114,11 @@ export function reach(entries, root = process.cwd()) {
     if (!SOURCE.test(file)) continue;
     const source = readFileSync(join(root, file), "utf8");
     for (const pattern of SPECIFIERS) {
-      for (const [, specifier] of source.matchAll(pattern)) {
+      for (const [statement, specifier] of source.matchAll(pattern)) {
+        // `import type … from` and `export type … from` are erased before the
+        // code runs, so what they name is not executed (#3038's two-line icon
+        // list change ran the editor's browser tests through one).
+        if (TYPE_ONLY.test(statement)) continue;
         if (specifier.startsWith(".")) {
           const base = relative(root, resolve(root, dirname(file), specifier)).replaceAll("\\", "/");
           if (!base.startsWith("..")) queue.push(...candidates(root, base));

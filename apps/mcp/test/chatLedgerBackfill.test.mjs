@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { BACKFILLED, backfillEntries, backfillLedger, GROUP_BACKFILLED } from "../src/agent/ledgerBackfill.js";
-import { earlierFromLedger, HELD_BACK, readLedger } from "../src/agent/ledgerHistory.js";
+import { earlierFromLedger, readLedger } from "../src/agent/ledgerHistory.js";
 import { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { HISTORY_KEY } from "../src/agent/history.js";
 import { LOG_PREFIX, logPrefix } from "../src/agent/log.js";
@@ -66,16 +66,16 @@ test("the old chat goes in before the ledger, oldest first, once, ending with th
   assert.equal((await ledger.read(ONE_TO_ONE_CHAT)).entries.length, count, "running it again copies nothing");
 });
 
-test("an old answer is proven clean only by the record, and a tainted one stays held back", async () => {
+test("every old answer is shown in its words, a tainted one too (the owner, 2026-11-05)", async () => {
   const { store, ledger } = await world();
   await backfillLedger(store);
   const entries = await readLedger(ledger, ONE_TO_ONE_CHAT);
   const shown = earlierFromLedger(entries, "c", { before: T0 + 30 * DAY }).events.map((event) => event.text);
   assert.ok(shown.includes("answer 1"), "the record holds it, clean");
   assert.ok(shown.includes("Saved Dr Lee."), "the record's own exchange, clean");
-  assert.ok(!shown.includes("Here's what the bank email said"), "the record marked it tainted");
-  assert.ok(!shown.includes("answer 3"), "the record does not hold it: never proven");
-  assert.ok(shown.includes(HELD_BACK));
+  assert.ok(shown.includes("Here's what the bank email said"), "the record marked it tainted, and it is shown");
+  assert.ok(shown.includes("answer 3"), "one the record does not hold is shown too");
+  assert.ok(!shown.some((text) => /not shown/.test(text)), "nothing is held back");
   const tools = earlierFromLedger(entries, "c").tools;
   assert.deepEqual(tools.get("turn000001"), ["search_notes"]);
 });

@@ -13,7 +13,9 @@ import { MemoryStorage } from "./memoryStorage.testing";
 import { addEvent, keptEvents } from "./events";
 import { logInbound, type Pending } from "./inboxTurn";
 import { logGroupInbound } from "./groupTurn";
-import { noteHandle, replyFields, sameText } from "./replyQuote";
+import { HANDLES_KEY, noteHandle, replyFields, sameText } from "./replyQuote";
+import { say } from "./groupSay";
+import { setup } from "./groupWorld.testing";
 import type { GroupMessage } from "./sendblueGroups";
 
 type Message = Pending["message"];
@@ -84,4 +86,17 @@ describe("a reply keeps what it answers", () => {
     expect(fields.quoted).toBe("Yes, book it for 7 at Lilia");
     expect(fields.replyTo).toBe(long);
   });
+
+  it("a text Tex says in a group keeps its handle beside its event, so a reply under it finds it", async () => {
+    const storage = new MemoryStorage();
+    const w = setup(GROUP);
+    const asked = w.message("Tex where are we eating?");
+    await say(storage, w.deps, asked, "Lilia at 7.", { turn: "turn-0000009" });
+    const sent = (await keptEvents(storage, GROUP)).find((event) => event.text === "Lilia at 7.");
+    const kept = (await storage.get<{ h: string; ev: string }[]>(HANDLES_KEY)) ?? [];
+    expect(sent).toBeDefined();
+    expect(kept.at(-1)?.ev).toBe(sent?.id);
+    expect(await replyFields(storage, GROUP, { handle: kept.at(-1)?.h })).toEqual({ replyTo: sent?.id, quoted: "Lilia at 7." });
+  });
 });
+

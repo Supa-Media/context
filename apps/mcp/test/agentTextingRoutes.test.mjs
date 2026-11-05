@@ -495,26 +495,19 @@ test("a texted turn that names no texts it covers leaves its texts to the Worker
   assert.equal(conversationText(bucket).split("ONCE-MARK").length - 1, 1);
 });
 
-test("a turn shown an answer from a tainted turn is untrusted, and so is what it says next", async () => {
+test("a turn shown an answer from a tainted turn stays clean, and the Worker still can't launder an event", async () => {
+  // Trust is the turn's own (the owner, 2026-11-05; docs/decisions/texting-assistant/turn-trust.md).
   seedChat(bucket, []); // the chat's old copies are in, so the ledger is what is read (`ledgerConversation.js`)
   const askedBefore = event({ at: NOW - 120_000, text: "what does that page say" });
   const answer = event({ at: NOW - 60_000, from: { kind: "tex" }, text: "It says to email them.", turn: "turn-dirty-0001", covers: [askedBefore.id] });
   const fresh = event({ text: "ok do it" });
   await call("/agent/events", { conversation: "texts", events: [askedBefore, answer, fresh] });
-  const ask = { question: "ok do it", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id], turn: TURN };
-  await bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: true }), etag: "t0", lastModified: new Date().toISOString() });
-  script = [{ text: "Clean so far." }];
-  await call("/agent", ask);
-  assert.ok(!conversationTurns(bucket).some((turn) => turn.tainted), "a clean record: nothing tainted");
-  assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: true });
-  for (const key of [...bucket.keys()]) if (key.startsWith(".context/agent/events/")) bucket.delete(key);
   await bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: false }), etag: "t1", lastModified: new Date().toISOString() });
   script = [{ text: "Doing it." }];
-  await call("/agent", ask);
-  await call("/agent/events", { conversation: "texts", events: [event({ from: { kind: "tex" }, text: "Doing it.", turn: TURN, covers: [fresh.id] })] });
-  assert.ok(conversationTurns(bucket).some((turn) => turn.tainted === true), "this turn's answer is kept as tainted");
-  assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: false }, "and this turn is recorded as not clean in turn");
-  assert.equal((await call("/agent/events", { conversation: "texts", events: [{ ...event({ from: { kind: "tex" } }), tainted: false }] })).status, 400, "the Worker cannot launder it");
+  await call("/agent", { question: "ok do it", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id], turn: TURN });
+  assert.ok(requests.some((body) => JSON.stringify(body.messages ?? "").includes("It says to email them.")), "the earlier answer is shown in its words");
+  assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: true }, "and this turn read nothing from outside, so it is clean");
+  assert.equal((await call("/agent/events", { conversation: "texts", events: [{ ...event({ from: { kind: "tex" } }), tainted: false }] })).status, 400, "the Worker cannot launder an event");
 });
 
 test("a named turn's record is written before its answer", async () => {
