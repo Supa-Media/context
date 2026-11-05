@@ -43,7 +43,7 @@ the owner rejected; judging without the turn's actions cannot tell "found it"
 from a claim with nothing behind it; judging more than once a turn turns one
 slow reply into a loop. Tests: `apps/mcp/test/replyJudge.test.mjs`.
 
-## Nine parallel gates, sent back at most twice (2026-11-05)
+## Ten parallel gates, sent back at most twice (2026-11-05)
 
 The owner asked for the pattern checks on replies to go ("a series of parallel
 judges, fine tuned individually ... [when] they don't [pass] it's given back to
@@ -52,9 +52,10 @@ limit that the judges can only send back 2 times", and "make sure each of these
 judges are also well tuned". This replaces the one-call, eight-check judge
 above:
 
-- Nine gates (`apps/mcp/src/agent/replyGates.js`): did what it says, tried
-  first, does it, finished, sourced, heard them, followed them, promises kept, short and
-  clean. Each is one yes/no question with passing and failing examples, the
+- Ten gates (`apps/mcp/src/agent/replyGates.js`): did what it says, tried
+  first, does it, finished, sourced, heard them, followed them, never arrived,
+  promises kept, short and clean. "Never arrived" was split out of "followed
+  them" because Clef Flash missed it inside a three-part question. Each is one yes/no question with passing and failing examples, the
   notice the model gets when it fails, and its own threshold (`at`).
 - Every gate is its own decision call on the same packet (`judgeState`), all
   at once, so the wait is the slowest gate. Every gate at or over its
@@ -67,7 +68,8 @@ above:
 - Tuning: each gate has a labelled set (`apps/mcp/bench/gates/<gate>.json`),
   and is also scored on every other gate's good replies, since a gate that
   fires on a good reply is a false alarm wherever that reply came from. `pnpm
-  ai gates` (workflow "AI Gates", on every push that changes a gate or a set)
+  ai gates` (workflow "AI Gates", run by hand on any branch, since it holds
+  production's Workers AI token)
   picks the threshold that catches the most faults with at most 10% false
   alarms; a gate clears the bar at 80% caught. No set case may be one of its
   gate's own examples (a test fails if one is).

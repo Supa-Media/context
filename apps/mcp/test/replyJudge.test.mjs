@@ -92,7 +92,7 @@ test("every gate runs at once on the same packet, and each failed gate goes back
       { calls: [{ name: "browse", args: { url: "https://filebox.example/garden-club/resources/brand-assets" } }] },
       { text: "Here it is: https://filebox.example/garden-club/resources/brand-assets/garden-club-logo.png" },
     ],
-    [{ finished: 0.9, heard_them: 0.6 }, { __ran: 2 }],
+    [{ finished: 0.9, heard_them: 0.85 }, { __ran: 2 }],
   );
   const logs = [];
   const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question, history, log: (line) => logs.push(line) });

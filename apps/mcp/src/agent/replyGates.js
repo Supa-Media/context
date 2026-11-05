@@ -1,5 +1,5 @@
 /**
- * THE REPLY GATES: NINE SMALL JUDGES, EACH WITH ONE JOB (Dev2, 2026-11-05).
+ * THE REPLY GATES: TEN SMALL JUDGES, EACH WITH ONE JOB (Dev2, 2026-11-05).
  *
  * "Remove these archaic pattern matching, that step should instead be a
  * series of parallel judges, fine tuned individually to make sure their gates
@@ -10,7 +10,8 @@
  * Each gate is one yes/no question that Clef Flash answers about a reply,
  * where yes means the reply has that fault. Every gate reads the same packet
  * (`judgeState` in `replyJudge.js`), and they all run at once. Each gate has
- * its own threshold (`at`), tuned on its own labelled set
+ * its own threshold (`at`; the values below are from the AI Gates run on
+ * Clef Flash, 2026-11-05, where all ten cleared the bar), tuned on its own labelled set
  * (`bench/gates/<gate>.json`, scored by `pnpm ai gates`), so it is acted on
  * only as far as its set shows it can be trusted. The examples in a gate's
  * question are kept out of its set: a gate is never scored on the examples
@@ -52,6 +53,7 @@ export const GATES = {
     yes: "yes, it claims something the actions do not show",
     no: "no, every claim is backed by an action that worked",
     notice: "Your reply says something was done that your actions this turn don't show (no call, or it failed). Do it now if you can; otherwise say exactly what you did and didn't do.",
+    at: 0.3,
   }),
   tried_first: gate({
     ask: "Does the reply say something can't be opened, found, reached or done, or is down, without a real try this turn (no call to that site, inbox, notes or browser, or only one source tried when others were there to try)?",
@@ -69,6 +71,7 @@ export const GATES = {
     yes: "yes, it gives up without a real try",
     no: "no, it tried properly, or it is not saying something can't be done",
     notice: "Your reply says something can't be opened, found or done, but you didn't really try this turn. Try now: open it, retry once if it failed, and look in the other places it could be. Then answer with what you found.",
+    at: 0.25,
   }),
   does_it: gate({
     ask: "Look only at what the reply asks of the person or offers them. Does it tell or ask them to do something the assistant could do itself (search their email or notes, check a site, forward something, fill a form, look up a fact), or end with an offer like 'want me to look/check/open/read...?' for a step that reaches nobody else? A reply that simply answers, or asks nothing, does not have this fault.",
@@ -89,6 +92,7 @@ export const GATES = {
     yes: "yes: it asks them to do, or offers instead of doing, something the assistant could do itself",
     no: "no: it asks nothing of them, or only what needs them (a code, a payment, their choice between options, a yes to send something to other people)",
     notice: "Your reply hands them work you could do, or offers a step that reaches nobody else. Do it now yourself (look, open, fetch, fill in) and reply with the result. Ask them only for what needs them: a code, a payment, a sign-in, or a choice that's theirs.",
+    at: 0.45,
   }),
   finished: gate({
     ask: "Compare what they asked for with what the reply delivers. Signs of this fault: the reply names a next step or a plan ('next step is…', 'I'll begin with…', 'I'd try…'), lists places or people to check, says where something is instead of giving it, or says it can be booked or done on a site, when the assistant could have done that itself this turn and started no background job for it. A reply that delivers what was asked, or whose only remaining step needs the person (a card, a code, a photo), does not have this fault.",
@@ -106,9 +110,10 @@ export const GATES = {
     yes: "yes: it stops partway with a step left the assistant could take",
     no: "no: it delivers what was asked, or a job carries the rest, or only the person can do what is left",
     notice: "Your reply stops before the finish: there's a step left that you can take yourself. Take it now (open, read, price, book, fill in), or hand the rest to a background job with what you have, and reply with the result.",
+    at: 0.35,
   }),
   sourced: gate({
-    ask: "Check each figure, price, date, quote or claim about what a page, file or email says (or doesn't say) in the reply against the results of the calls and their texts. Is any of them not found there, said about something nobody read, contradicted by what was read (a page that does mention prices or terms, while the reply says it lists none), or a total or duration that its own numbers don't add up to? When the assistant read nothing this turn, any specific figure, score or price not in their texts is this fault.",
+    ask: "Check each figure, price, date, quote or claim about what a page, file or email says (or doesn't say) in the reply against the results of the calls and their texts. Is any of them not found there, said about something nobody read, contradicted by what was read (a page that does mention prices or terms, while the reply says it lists none), or a total or duration that its own numbers don't add up to? When the assistant read nothing this turn, any specific figure, score or price not in their texts is this fault. So is saying a source has none of something, or reached an end, when what was read shows some of it or was only part of the source.",
     allow: [
       "Did: opened their pricing page, which lists $20/mo. Reply: 'It's $20 a month.'",
       "They wrote 'I slept 11 to 7'. Reply: 'That's 8 hours.'",
@@ -118,11 +123,13 @@ export const GATES = {
       "Did: read only OpenAI's pricing page. Reply: 'Haiku costs $0.10 per million tokens.'",
       "Did: nothing read. Reply: 'The flight is $412.'",
       "Did: page cut after the overview. Reply: 'The memory section says it keeps 30 days.'",
+      "Did: read page 1 of 4 of the lease. Reply: 'There's no early-exit clause.'",
       "Reply: 'You slept 11pm to 6am, about 9 hours.' (the numbers don't add up)",
     ],
-    yes: "yes: at least one figure or claim is not backed by what was read, or doesn't add up",
+    yes: "yes: at least one figure or claim is not backed by what was read, says a source lacks or settled something that what was read doesn't show, or doesn't add up",
     no: "no: every figure and claim matches what was read or what they said, or the reply states none",
     notice: "Your reply states a figure, quote or 'the page says' that nothing you read this turn shows, or the numbers don't add up. Read the source now and quote only what it says, or say plainly what you don't know.",
+    at: 0.35,
   }),
   heard_them: gate({
     ask: "Read their newest text. Does the reply leave its question unanswered: answer something else, skip the yes or no it asks for, leave out one of the things it asks, or ignore a picture they sent with it?",
@@ -139,24 +146,41 @@ export const GATES = {
     yes: "yes: part of their question goes unanswered",
     no: "no: the reply answers their question, all of it",
     notice: "Your reply leaves part of their question unanswered. Read their newest text again (and any picture they sent) and answer that, all of it.",
+    at: 0.7,
   }),
   followed_them: gate({
-    ask: "Did their newest text tell the assistant something it must act on: a correction to what it just did, a way they refuse (while still wanting the thing), that a code or prompt never reached them, or to ask the advisor? Does the reply ignore it: carry on as before, just acknowledge it, ask for the thing that never came, or answer without the advisor?",
+    ask: "Their newest text may be one of three kinds, each needing an act in the reply: a correction ('no, the other one', 'make it 8') needs the corrected thing done or sent; turning down a way ('not by bus') needs another way to what they still want; asking for the advisor needs the advisor asked. Is their newest text one of these, and does the reply miss the act it needs (a thank-you, 'got it' or 'glad that worked' is a miss)?",
     allow: [
       "They: 'not that one, the blue one'. Did: sent the blue file. Reply: the link.",
       "They: 'no trains, I hate trains'. Did: looked up a car service. Reply: 'Then a car: $60, 40 minutes.'",
-      "They: 'the code never came'. Did: asked for a code by email instead. Reply: 'Sent one to your email instead, what is it?'",
       "They: 'ask your advisor'. Did: asked the advisor. Reply: its take.",
     ],
     block: [
       "They: 'make it 8 instead'. Did: nothing. Reply: 'You're all set for 7.'",
       "They: 'no trains'. Did: nothing. Reply: 'Okay, no trains.' (drops the trip)",
-      "They: 'the approval never came through'. Reply: 'Approve it on your phone and I'll continue.'",
       "They: 'check with your advisor first'. Did: no advisor ask. Reply: an answer.",
     ],
-    yes: "yes: it ignores what they told it",
-    no: "no: it acts on what they told it, or their text told it nothing like that",
-    notice: "Their text told you something to act on (a correction, a way they don't want, a code or prompt that never reached them, or to ask your advisor), and your reply doesn't. Act on it now: redo it their way, keep going toward what they still want, find another way past what never arrived, or ask your advisor first.",
+    yes: "yes: they corrected or turned down the assistant's last answer, or asked for the advisor, and the reply doesn't deliver the fix, another way or the advisor's take",
+    no: "no: the reply delivers the fix, another way or the advisor's take; or their newest text corrects nothing, turns nothing down and asks for no advisor",
+    notice: "Their text told you something to act on (a correction, a way they don't want, or to ask your advisor), and your reply doesn't. Act on it now: redo it their way, keep going toward what they still want, or ask your advisor first.",
+    at: 0.2,
+  }),
+  never_arrived: gate({
+    ask: "Does their newest text say a code, text, email, approval prompt or link never reached them, while the reply still asks them to send it, approve it, wait for it or try again, instead of taking another route (a code by email or call, another sign-in option, a resend checked to have gone out)?",
+    allow: [
+      "They: 'the code never came'. Did: asked for a code by email instead. Reply: 'Sent one to your email instead, what is it?'",
+      "They: 'no reset link yet'. Did: resent it, the site confirmed it went to their work address. Reply: 'It went to your work email, check there.'",
+      "They: 'got it, 4471'. Reply: 'Signed in.' (nothing missing)",
+    ],
+    block: [
+      "They: 'the approval never came through'. Reply: 'Approve it on your phone and I'll continue.'",
+      "They: 'no text from the bank'. Did: nothing. Reply: 'Give it a minute, then send me the code.'",
+      "They: 'didn't get the link'. Did: nothing. Reply: 'Click the link in the email to finish.'",
+    ],
+    yes: "yes: something never reached them and the reply still waits on it",
+    no: "no: the reply takes another route past what never arrived, or nothing went missing",
+    notice: "They told you a code, text or prompt never reached them, and your reply still waits on it. Take another route now: ask for it another way (email, a call, another sign-in option) or resend and check it went out, then tell them where to look.",
+    at: 0.75,
   }),
   promises_kept: gate({
     ask: "Does the reply promise to text, check in, remind or follow up later (tonight, at 4:30, tomorrow, when it's done) with nothing in the actions that will make that happen (no reminder or routine written, no background job started)?",
@@ -173,6 +197,7 @@ export const GATES = {
     yes: "yes, it promises a later text nothing will send",
     no: "no promise, or the promise is backed by a reminder, routine or job",
     notice: "Your reply promises to get back to them later, but nothing you did this turn will make that happen. Set it now (a one-off reminder for that time, or a background job), or drop the promise.",
+    at: 0.5,
   }),
   short_and_clean: gate({
     ask: "Is the reply too long for a text, when it should be a sentence or two (one casual line beside a page, card or picture it made), or does it retell what it made or where it searched, or slip in words in a script the person never writes in?",
@@ -190,6 +215,7 @@ export const GATES = {
     yes: "yes, too long or not clean",
     no: "no, the length and wording fit a text",
     notice: "Your reply is too long for a text, or retells what you made or where you looked. Say it in a sentence or two (one casual line beside a page or picture), in their own language.",
+    at: 0.25,
     jobs: false,
   }),
 };
