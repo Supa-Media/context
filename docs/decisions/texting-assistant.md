@@ -322,14 +322,8 @@ credit, and nothing that costs money is spent while it lasts:
   text. The address is built from two ids checked against a strict shape, so
   nothing a caller sends can point the gateway's token at another host.
 - Prompt caching: tools, stable system prompt, slow context, then the chat,
-  each behind a one-hour mark (the round's own end five minutes); per-text
-  facts (clock, model, nudge) ride in the person's turn (`turnPrompt.js`,
-  guarded by `agentPromptCache.test.mjs`). The hour is the owner's call
-  (2026-11-05, "just set it"): with five-minute marks the first round of most
-  texts re-wrote about 80% of its prompt, and writes were about 80% of the
-  front door's cost. A 400 on the hour is resent once without it and remembered
-  for the isolate, so a refused field never fails a turn
-  (`agentHourCache.test.mjs`). One-off callers keep five minutes.
+  each behind a one-hour mark (why: model-plan.md); per-text facts ride in
+  the person's turn (`turnPrompt.js`, guarded by `agentPromptCache.test.mjs`).
 
 **What a simplification would cost:** dropping `cf-aig-collect-log` would
 quietly copy every texted question and the notes it read into a log outside
