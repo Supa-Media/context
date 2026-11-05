@@ -199,6 +199,20 @@ pub fn stop() -> Result<String> {
     Ok("Stopped the runner.".to_string())
 }
 
+/// After `context-machine update`: the background service, if it is running, moves onto the new binary.
+pub fn restart_if_running() {
+    let done = match platform() {
+        Some(Platform::Linux) => run("systemctl", &["--user", "try-restart", UNIT]).is_ok(),
+        Some(Platform::Mac) => {
+            run("launchctl", &["kickstart", "-k", mac_target().as_str()]).is_ok()
+        }
+        None => false,
+    };
+    if !done {
+        println!("If the runner is running in a terminal, stop it and start it again.");
+    }
+}
+
 pub fn is_installed(home: &Path) -> bool {
     platform().is_some_and(|p| unit_path(p, home).exists())
 }

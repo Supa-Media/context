@@ -131,6 +131,11 @@ impl Machine {
         })))
     }
 
+    /// Nothing under way: no job, no install. A runner may restart itself into an update only then.
+    pub async fn idle(&self) -> bool {
+        self.inner.lock().await.running.is_empty() && self.installs.lock().await.is_empty()
+    }
+
     pub async fn status(&self) -> Status {
         let inner = self.inner.lock().await;
         let now = now_ms();
