@@ -1,12 +1,11 @@
 /**
  * Which way a request carried its access token, and the session it resolves to.
  *
- * The token reaches the gateway one of two ways: an `Authorization: Bearer`
- * header, or the `/t/<token>/...` path fallback for a client that cannot set
- * one. Both resolve identically (`resolveSession`). The path form puts the
- * token where browser history, proxy logs and referrers keep it, so it is on
- * its way out, and taking it out without breaking somebody's connection first
- * needs to know who still uses it (docs/decisions/gateway-protocol/token-transport.md).
+ * The token reaches the gateway in an `Authorization: Bearer` header, or, on
+ * the app's live sockets, as a subprotocol (below) or, from older app builds,
+ * in a `/t/<token>/...` path. Every other route refuses the path form outright
+ * (`route.js`, retired 2026-11-05); on the sockets it is still counted until
+ * it is retired there too (docs/decisions/gateway-protocol/token-transport.md).
  *
  * So the control plane is told the transport, and for the path form a coarse
  * name for the route. Never the token (the control plane hashes it to find the
@@ -69,6 +68,37 @@ export function withPresenceProtocol(response) {
   const headers = new Headers(response.headers);
   headers.set("Sec-WebSocket-Protocol", PRESENCE_PROTOCOL);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers, webSocket: response.webSocket });
+}
+
+/**
+ * The only routes that still read a token in the URL: the live sockets, whose
+ * older app builds put it there (`route.js`). Everything else answers
+ * `retiredTokenPathResponse`.
+ */
+export const LIVE_SOCKET_PATHS = new Set(["/presence", "/agent-activity", TREE_SOCKET_PATH, ACCESS_SOCKET_PATH, TEX_PAGE_SOCKET_PATH]);
+
+/**
+ * `/t/<token>/...` once carried a token in the URL. `path` is the route after
+ * the workspace selector came off, so `/@slug/t/...` is caught too.
+ *
+ * @param {string} path
+ */
+export function isRetiredTokenPath(path) {
+  return path === "/t" || path.startsWith("/t/");
+}
+
+/**
+ * The answer to a token in the URL: the same bytes whatever the token, so it
+ * says nothing about whether the token was real, and it names the header.
+ */
+export function retiredTokenPathResponse() {
+  return new Response(
+    JSON.stringify({
+      error: "invalid_request",
+      error_description: "Tokens in the URL are not accepted. Send the access token in the Authorization header.",
+    }),
+    { status: 410, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }
+  );
 }
 
 /** The only route names a path-token use is recorded under. */

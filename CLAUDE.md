@@ -118,8 +118,9 @@ breaking one, stop and say so rather than working around it.
    `TEAM_TOKEN` / `PUBLIC_TOKEN`) to multiple customers — it is single-tenant by
    construction and exists only to keep the original single-tenant deployment
    running. MCP access
-   uses OAuth with per-client revocable grants; token-in-URL is a compatibility
-   fallback and never the security boundary. Prove isolation with tests: one
+   uses OAuth with per-client revocable grants, the token in a header; the
+   token-in-URL fallback is retired (decided by the owner, 2026-11-05;
+   [token-transport](./docs/decisions/gateway-protocol/token-transport.md)). Prove isolation with tests: one
    tenant must not enumerate, read, or infer the existence of another.
 5. **`team` never means public.** A row's access is `private` (owners) or
    `team` (members), plus any mix of groups and named people, inside the

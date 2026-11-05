@@ -16,7 +16,9 @@ import {
   EDITOR_POLICY,
   EDITOR_STYLE_HASHES,
   EMPTY_STYLE_HASH,
+  ENFORCED_REPORT_PATH,
   fetchDirectives,
+  LANDING_SCRIPT_HOSTS,
   parseCspReport,
   reportOnlyPolicyFor,
   SCRIPT_HOSTS,
@@ -24,7 +26,7 @@ import {
   SHELL_SCRIPT_HASHES,
   SHELL_STYLE_HASHES,
 } from "./cspReport";
-import { ENFORCED_POLICY, SECURITY_HEADERS } from "./securityHeaders";
+import { ENFORCED_POLICY, SECURITY_HEADERS, shellEnforcedPolicy } from "./securityHeaders";
 import { PLUGIN_SANDBOX_PREFIX } from "./pluginSandbox";
 
 const CTX = { waitUntil: (promise: Promise<unknown>) => void promise, passThroughOnException: () => {} } as unknown as ExecutionContext;
@@ -70,14 +72,15 @@ describe("the policy", () => {
   });
 
   it("allows no host it does not need", () => {
-    const hosts = SCRIPT_POLICY.match(/https:\/\/[^\s;]+/g) ?? [];
-    expect(hosts).toEqual([
-      "https://challenges.cloudflare.com",
-      "https://static.cloudflareinsights.com",
+    const hosts: string[] = SCRIPT_POLICY.match(/https:\/\/[^\s;]+/g) ?? [];
+    expect(hosts).toEqual(["https://challenges.cloudflare.com", "https://static.cloudflareinsights.com"]);
+    expect(SCRIPT_POLICY).not.toMatch(/'unsafe-inline'|'unsafe-eval'|\*/);
+    // The landing page adds the two ad pixels' hosts, and nothing else.
+    const landing = reportOnlyPolicyFor("/", undefined, true).match(/https:\/\/[^\s;]+/g) ?? [];
+    expect(landing.filter((host) => !hosts.includes(host) && !fetchDirectives(undefined).includes(host))).toEqual([
       "https://static.ads-twitter.com",
       "https://connect.facebook.net",
     ]);
-    expect(SCRIPT_POLICY).not.toMatch(/'unsafe-inline'|'unsafe-eval'|\*/);
   });
 
   // The shell's inline scripts run by hash. One edited without its hash here
@@ -148,13 +151,25 @@ describe("the policy", () => {
   */
   it("never enforces script-src while the landing page's ad hosts are in the global policy", () => {
     const landingOnly = ["https://static.ads-twitter.com", "https://connect.facebook.net"];
-    const enforcesScript = SECURITY_HEADERS["Content-Security-Policy"].includes("script-src");
-    const global = landingOnly.filter((host) => SCRIPT_HOSTS.includes(host));
+    expect(LANDING_SCRIPT_HOSTS).toEqual(landingOnly);
+    const global = landingOnly.filter((host) => SCRIPT_HOSTS.includes(host) || shellEnforcedPolicy(false).includes(host));
+    expect(global, `enforced script-src with ${global.join(" and ")} still global: serve them for context.lc/ only`).toEqual([]);
+    for (const host of landingOnly) expect(shellEnforcedPolicy(true)).toContain(host);
+  });
 
-    expect(
-      enforcesScript && global.length > 0,
-      `enforced script-src with ${global.join(" and ")} still global: serve them for context.lc/ only first`,
-    ).toBe(false);
+  // The shell's script policy enforces (2026-11-05). Its script-src is the
+  // report-only one exactly, and it reports to its own address.
+  it("enforces the shell's script-src on the shell document, with no unsafe source", () => {
+    for (const landing of [false, true]) {
+      const enforced = shellEnforcedPolicy(landing);
+      const script = (policy: string) => policy.split("; ").find((part) => part.startsWith("script-src "));
+      expect(script(enforced)).toBe(script(reportOnlyPolicyFor(landing ? "/" : "/console", undefined, landing)));
+      expect(enforced.startsWith(`${ENFORCED_POLICY}; `)).toBe(true);
+      expect(enforced).toMatch(new RegExp(`report-uri ${ENFORCED_REPORT_PATH}$`));
+      expect(enforced).not.toMatch(/'unsafe-inline'|'unsafe-eval'|\*|style-src|default-src/);
+    }
+    // Every other platform response keeps the platform's policy alone.
+    expect(SECURITY_HEADERS["Content-Security-Policy"]).toBe(ENFORCED_POLICY);
   });
 
   it("gives the drawing editor its own policy, and only it may build functions", async () => {
@@ -233,7 +248,19 @@ describe("the report endpoint", () => {
       blocked: "https://evil.example",
       page: "https://context.lc",
       document: "shared-note",
+      disposition: "report",
     });
+    expect(logs[0]).not.toMatch(/secret-merger|abc123|localStorage|steal|acme|projects/);
+  });
+
+  it("logs a refusal sent to the enforced address as enforced", async () => {
+    const response = await worker.fetch(
+      new Request(`https://context.lc${ENFORCED_REPORT_PATH}`, { method: "POST", body: JSON.stringify({ "csp-report": LEAKY }) }),
+      ENV,
+      CTX,
+    );
+    expect(response.status).toBe(204);
+    expect(JSON.parse(logs[0])).toMatchObject({ event: "csp_violation", disposition: "enforce", directive: "script-src-elem" });
     expect(logs[0]).not.toMatch(/secret-merger|abc123|localStorage|steal|acme|projects/);
   });
 

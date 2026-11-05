@@ -295,21 +295,40 @@ async function anonymous(response) {
  * and body together, so replayed as stored, every offline load would carry
  * the same nonce, and a nonce that repeats is no defence. So each replay
  * swaps the stored one for 128 fresh random bits, in the same places. A shell
- * stored without a nonce is replayed as it is.
+ * stored without a nonce is replayed as it is, the landing page's script
+ * hosts aside (below).
  */
 const POLICY_HEADERS = ["Content-Security-Policy", "Content-Security-Policy-Report-Only"];
 const NONCE_SOURCE = /'nonce-([A-Za-z0-9+/]+={0,2})'/;
 
+/*
+  The ad pixels' script hosts, which the router names in the shell's script
+  policy on context.lc's landing page only (`LANDING_SCRIPT_HOSTS` in
+  `infra/router/src/cspReport.ts`; `appShellWorker.test.ts` holds the two lists
+  together). A shell held from the landing page and replayed at another
+  address would otherwise carry them onto an app page, so a replay never does.
+*/
+const LANDING_SCRIPT_HOSTS = ["https://static.ads-twitter.com", "https://connect.facebook.net"];
+
+/** `policy` without the landing page's script hosts. */
+function withoutLandingHosts(policy) {
+  return LANDING_SCRIPT_HOSTS.reduce((out, host) => out.split(` ${host}`).join(""), policy);
+}
+
 async function renonced(held) {
   let old = null;
   for (const name of POLICY_HEADERS) old = old ?? (held.headers.get(name) ?? "").match(NONCE_SOURCE)?.[1] ?? null;
-  if (old === null) return held;
+  const landing = POLICY_HEADERS.some((name) => withoutLandingHosts(held.headers.get(name) ?? "") !== (held.headers.get(name) ?? ""));
+  if (old === null && !landing) return held;
   const fresh = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
   const headers = new Headers(held.headers);
   for (const name of POLICY_HEADERS) {
     const value = headers.get(name);
-    if (value !== null) headers.set(name, value.split(`'nonce-${old}'`).join(`'nonce-${fresh}'`));
+    if (value === null) continue;
+    const renoncedValue = old === null ? value : value.split(`'nonce-${old}'`).join(`'nonce-${fresh}'`);
+    headers.set(name, withoutLandingHosts(renoncedValue));
   }
+  if (old === null) return new Response(held.body, { status: held.status, statusText: held.statusText, headers });
   // The body is read decoded and written again: the stored length and encoding describe other bytes.
   headers.delete("Content-Length");
   headers.delete("Content-Encoding");

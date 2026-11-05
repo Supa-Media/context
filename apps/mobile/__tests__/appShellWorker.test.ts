@@ -407,6 +407,36 @@ describe("a navigation", () => {
     expect(await response!.text()).toBe(html.split(OLD).join(nonce));
   });
 
+  /*
+    The router names the ad pixels' script hosts on context.lc's landing page
+    only (`LANDING_SCRIPT_HOSTS`, `infra/router/src/cspReport.ts`). A shell
+    held from there and replayed at an app address would carry them onto it.
+  */
+  test("offline, a held landing shell is replayed without the landing page's script hosts", async () => {
+    const router = readFileSync(join(__dirname, "..", "..", "..", "infra", "router", "src", "cspReport.ts"), "utf8");
+    const listed = /export const LANDING_SCRIPT_HOSTS = (\[[^\]]*\]);/.exec(router)?.[1];
+    const hosts = JSON.parse(listed ?? "[]") as string[];
+    expect(hosts).toHaveLength(2);
+    const script = `script-src 'self' 'sha256-abc=' https://challenges.cloudflare.com`;
+    const landing = `frame-ancestors 'self'; ${script} ${hosts.join(" ")} 'wasm-unsafe-eval'; report-uri /_csp-report/enforce`;
+    worker.setFetch(
+      async () =>
+        new Response("<!doctype html>the landing shell", {
+          status: 200,
+          headers: { "Content-Type": "text/html", "Content-Security-Policy": landing, "Content-Security-Policy-Report-Only": `${script} ${hosts.join(" ")}` },
+        }),
+    );
+    await navigate(worker, `${ORIGIN}/`);
+    worker.setFetch(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    const response = await navigate(worker, `${ORIGIN}/console`);
+    expect(response!.headers.get("Content-Security-Policy")).toBe(`frame-ancestors 'self'; ${script} 'wasm-unsafe-eval'; report-uri /_csp-report/enforce`);
+    expect(response!.headers.get("Content-Security-Policy-Report-Only")).toBe(script);
+    expect(await response!.text()).toBe("<!doctype html>the landing shell");
+  });
+
   test("a held shell without a nonce is replayed as it was", async () => {
     await navigate(worker, `${ORIGIN}/console`);
     worker.setFetch(async () => {
