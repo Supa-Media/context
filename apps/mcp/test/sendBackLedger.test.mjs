@@ -21,7 +21,7 @@ import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { RECHECK_FROM } from "../src/agent/recheck.js";
 import { GATES } from "../src/agent/replyGates.js";
 import { replyJudge } from "../src/agent/replyJudge.js";
-import { ALREADY_DONE, repeatedWrite, sendBackNote } from "../src/agent/sendBack.js";
+import { ALREADY_DONE, repeatedWrite, sendBackNote, turnLedger } from "../src/agent/sendBack.js";
 import { runTurn } from "../src/agent/turn.js";
 
 const MAIN = "@cf/acme/main-model";
@@ -66,7 +66,13 @@ async function the1447Turn() {
       { calls: [{ name: "search_notes", args: { query: "review reply window" } }, { name: "read_email", args: { id: "email:me@example.com/1" } }] },
       { calls: [{ name: "save_email_draft", args: { to: "robin@reviewer.example", body: "Hi Robin..." } }] },
       { text: ANSWER },
-      { calls: [{ name: "read_email", args: { id: "email:me@example.com/1" } }, { name: "save_email_draft", args: { to: "robin@reviewer.example", body: "Hi Robin, shorter" } }] },
+      {
+        calls: [
+          { name: "read_email", args: { id: "email:me@example.com/1" } },
+          { name: "save_email_draft", args: { body: "Hi Robin...", to: "robin@reviewer.example" } },
+          { name: "save_email_draft", args: { to: "sam@team.example", body: "Robin's window closed Tuesday." } },
+        ],
+      },
       { text: "No, three business days, not 48 hours; it closed Tuesday. Your follow-up to Robin is in Drafts." },
     ],
     [{ short_and_clean: 0.71 }, { __ran: 1 }],
@@ -121,7 +127,7 @@ test("the rewrite is shown every action the turn already took, from its ledger",
 
 test("a write already made this turn is not run again on a rewrite, and the ledger says why", async () => {
   const { ran, told, ai } = await the1447Turn();
-  assert.deepEqual(ran.filter((name) => name === "save_email_draft"), ["save_email_draft"], "one draft saved, not two");
+  assert.deepEqual(ran.filter((name) => name === "save_email_draft"), ["save_email_draft", "save_email_draft"], "the same draft saved once, not twice; a different one may go");
   const refused = told.filter((event) => event.kind === "tool" && event.reason === "already done this turn");
   assert.equal(refused.length, 1);
   assert.equal(refused[0].name, "save_email_draft");
@@ -129,13 +135,27 @@ test("a write already made this turn is not run again on a rewrite, and the ledg
   assert.equal(ran.filter((name) => name === "read_email").length, 2, "a read may run again on a rewrite");
 });
 
-test("a read may run again on a rewrite, and nothing is refused before any send-back", () => {
-  const entries = [{ kind: "tool", name: "read_email", ok: true }, { kind: "tool", name: "save_email_draft", ok: true }, { kind: "tool", name: "write_note", ok: false }];
+test("only the same write with the same arguments is refused; a read, a failed write or another call runs", () => {
+  const draft = { to: "a@x.example", body: "hi" };
+  const entries = [
+    { kind: "tool", name: "read_email", args: { id: "1" }, ok: true },
+    { kind: "tool", name: "save_email_draft", args: draft, ok: true },
+    { kind: "tool", name: "write_note", args: { path: "lisbon.md", content: "x" }, ok: true },
+    { kind: "tool", name: "calendar_event", args: { title: "A" }, ok: false },
+  ];
   const isWrite = (name) => name !== "read_email";
-  assert.equal(repeatedWrite({ name: "read_email", entries, isWrite }), null);
-  assert.equal(repeatedWrite({ name: "save_email_draft", entries, isWrite }), ALREADY_DONE);
-  assert.equal(repeatedWrite({ name: "write_note", entries, isWrite }), null, "a write that failed may be tried again");
-  assert.equal(repeatedWrite({ name: "send_email", entries: [{ kind: "tool", name: "send_email", ok: false, held: true }], isWrite }), ALREADY_DONE, "a send held for their yes counts as done");
+  assert.equal(repeatedWrite({ name: "read_email", args: { id: "1" }, entries, isWrite }), null);
+  assert.equal(repeatedWrite({ name: "save_email_draft", args: { body: "hi", to: "a@x.example" }, entries, isWrite }), ALREADY_DONE, "key order does not matter");
+  assert.equal(repeatedWrite({ name: "write_note", args: { path: "lisbon.page.md", content: "x" }, entries, isWrite }), null, "the page notice's rewrite as a page runs");
+  assert.equal(repeatedWrite({ name: "calendar_event", args: { title: "A" }, entries, isWrite }), null, "a write that failed may be tried again");
+  assert.equal(repeatedWrite({ name: "send_email", args: draft, entries: [{ kind: "tool", name: "send_email", args: draft, ok: false, held: true }], isWrite }), ALREADY_DONE, "a send held for their yes counts as done");
+  const ledger = turnLedger({ tools: [{ name: "save_email_draft", annotations: { readOnlyHint: false } }, { name: "job_status" }] });
+  ledger.keep({ kind: "tool", name: "job_status", args: {}, ok: true });
+  ledger.keep({ kind: "tool", name: "save_email_draft", args: draft, ok: true });
+  assert.equal(ledger.refusal("save_email_draft", draft), null, "nothing is refused before a send-back");
+  ledger.sendBack("Fix it.", "draft");
+  assert.equal(ledger.refusal("save_email_draft", draft), ALREADY_DONE);
+  assert.equal(ledger.refusal("job_status", {}), null, "a tool with no annotations is not taken for a write");
 });
 
 test("every earlier draft of the turn is shown, each with what held it", () => {

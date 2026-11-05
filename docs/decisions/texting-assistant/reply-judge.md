@@ -100,13 +100,16 @@ the answer it had found; one also saved a second, unasked email draft.
   every action the turn took and how it went, every draft so far quoted and
   marked NOT sent with the judges that held it (score against threshold), the
   notice, and "revise the latest draft, keep its answer, don't start over".
-- After a send-back, a write tool (MCP annotations: not `readOnlyHint`) that
-  already succeeded, or was held for their yes, this turn is not run again
-  (`repeatedWrite`); the model is told so in band and the refusal is a ledger
-  entry ("already done this turn"). Reads, browser steps and the turn's own
-  local tools may run again.
+- After a send-back, a write (an MCP tool marked `readOnlyHint: false`) that
+  already succeeded, or was held for their yes, this turn with the same
+  arguments is not run again (`repeatedWrite`); the model is told so in band
+  and the refusal is a ledger entry ("already done this turn"). The same tool
+  with other arguments runs, because one tool covers many actions and a check
+  may ask for exactly that (the page notice's "write it again as a page", the
+  rest of several calendar events). Reads, browser steps, the turn's own local
+  tools and unannotated agent tools (`job_status`) may run again.
 
 **What a simplification would cost:** the draft back as an assistant message
 is the 11-05 failure; a note without the actions makes the rewrite redo them;
-letting a write run again on a rewrite saves or sends twice. Test:
+letting a write run again on a rewrite saves or sends twice; refusing by tool name alone blocks the second, different write a check asks for. Test:
 `apps/mcp/test/sendBackLedger.test.mjs`, built from the 14:47 turn.

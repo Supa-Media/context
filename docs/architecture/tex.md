@@ -134,7 +134,7 @@ flowchart TB
 
   FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js<br/>sent back once"]:::judge
   CHK -->|reply_judge: clef-flash| RJ["Reply gates<br/>ten Clef Flash judges at once<br/>each tuned, sent back at most twice<br/>verdicts kept in the chat history<br/>replyJudge.js · replyGates.js"]:::judge
-  CHK -->|held back| SB["Send-back, from the turn's ledger<br/>each draft quoted, marked NOT sent<br/>every action taken, the judges that failed<br/>revise, don't restart; a write made is not rerun<br/>sendBack.js"]:::judge
+  CHK -->|held back| SB["Send-back, from the turn's ledger<br/>each draft quoted, marked NOT sent<br/>every action taken, the judges that failed<br/>revise, don't restart; the same write is not rerun<br/>sendBack.js"]:::judge
   RJ -->|held back| SB
   SB -->|revise the draft| FD
   CHK --> SEND([sendTheReply]):::door
@@ -180,7 +180,7 @@ What each model costs is `jev/meter.ts`.
 
 Newest first. One line per pull request that changed the drawing.
 
-- 2026-11-05: a send-back is written from the turn's ledger: the held draft is quoted as NOT sent (never put in as said), with every action the turn took and the judges that failed; the model revises it, and a write it already made is not run again.
+- 2026-11-05: a send-back is written from the turn's ledger: the held draft is quoted as NOT sent (never put in as said), with every action the turn took and the judges that failed; the model revises it, and a write it already made (same tool, same arguments) is not run again.
 - 2026-11-05: a 1:1 turn reads the chat so far from its ledger every turn, as a group's does; the warm copy no longer carries the chat (it never held Tex's own replies).
 - 2026-11-05: decide and recheck move into the gateway; their daily cap and usage rows stay in Convex, off each text's path.
 - 2026-11-05: the reply gates are on in production (setup `reply_judge: clef-flash`), and every judging of a draft (each gate's score, threshold, and whether

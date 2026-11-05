@@ -596,7 +596,7 @@ export async function runTurn(options) {
         tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
         continue;
       }
-      const repeated = held.refusal(call.name); // a write already made, asked again after a send-back
+      const repeated = held.refusal(call.name, call.args); // a write already made, asked again after a send-back
       if (repeated !== null) {
         messages.push({ role: "tool", id: call.id, name: made.name, text: repeated, isError: true });
         tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "already done this turn" });
