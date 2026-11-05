@@ -48,6 +48,7 @@
  */
 
 import { queueItem, TEXTS_QUEUE } from "./chatQueue";
+import { isItForTexAlone } from "./isItForTex";
 import { partEvent, sendCardPart, threadFor } from "./sendParts";
 import type { Choice } from "./pickCard";
 import { settleCard, withCardsHere } from "./cardChats";
@@ -70,7 +71,7 @@ import { MAX_CANDIDATES, staleAsks } from "./decide"; import { lookAgainTexts } 
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
-import { closeMenu, isSettingsText, menuState, openMenu } from "./texStyle";
+import { closeMenu, menuState, openMenu } from "./texStyle";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
@@ -188,8 +189,8 @@ export async function accept(
   // A plain text after a quiet spell starts a topic (`threadFor`).
   const quiet = previous === undefined || previous.chatId !== message.chatId || now - previous.at >= NEW_TOPIC_AFTER_MS;
   if (quiet && !message.threaded && !message.tapback) message = { ...message, newTopic: true };
-  // A settings text, or a reply the open menu reads, is answered by code before decide (Dev2, 2026-10-28; `texStyle.ts`).
-  if (!message.sms && !message.tapback && (await isSettingsText(storage, message.text, now))) message = { ...message, setting: true };
+  // A settings text, or a reply the open menu reads, is answered by code before decide (Dev2, 2026-10-28; `isItForTex.ts`).
+  ({ message } = await isItForTexAlone(storage, message, now));
   await storage.put(seenKey(message.eventId), now);
   // An SMS is never logged as the person's words: anyone can send one that shows their number.
   const ev = message.sms ? undefined : await logInbound(storage, message, now);
