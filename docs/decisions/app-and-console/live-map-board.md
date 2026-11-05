@@ -274,3 +274,21 @@ merge. So:
 Reversing it: `__tests__/asideMapTabs.test.ts` fails if the panel ignores the
 map's tabs or a click stops bringing Note forward, and
 `liveMapPeekEngine.test.ts` fails if a drag clears the selected note.
+
+### Unselecting, and the panel beside the map at every width (Dev2, 2026-11-05)
+
+Dev2: "unselecting a note doesnt work. and also there is no way to interact
+with the side panel as i'm moving through the map".
+
+- **A single click on a folder or a workspace is a click on empty space.**
+  Their areas are click targets that cover most of the map, and a single
+  click on one used to do nothing, so the clicked note could hardly ever be
+  cleared. Now it clears the note; a double click still goes into them.
+  `liveMapPeekEngine.test.ts` fails if a folder or workspace click stops
+  clearing it.
+- **The right panel is a column beside the map at medium too.** Under 1180pt
+  the panel came in over the page behind a scrim, so using it and moving the
+  map were either/or. The map page asks the frame for it beside
+  (`FrameApi.setAsideBeside`), and a note click opens it at every width.
+  A note's page keeps the overlay. `mapAsideBeside.test.ts` fails if the
+  frame ignores the ask.

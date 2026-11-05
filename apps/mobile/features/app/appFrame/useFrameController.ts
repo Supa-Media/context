@@ -129,7 +129,9 @@ export function useFrameController({
     return () => setTopChromeHoldsLights(lightsClaim, false);
   }, [lightsClaim, holdsLights]);
   const hasExplorer = explorer != null;
-  const regions = regionsFor(density, state, { hasExplorer });
+  // Held by a page that wants the right panel beside it at medium too (`FrameApi.setAsideBeside`).
+  const [asideBeside, setAsideBeside] = useState(false);
+  const regions = regionsFor(density, state, { hasExplorer, asideBeside });
 
   /*
     A panel is not a preference. `railCollapsed` and `explorerWidth` survive a
@@ -475,6 +477,7 @@ export function useFrameController({
       setExplorerFolded,
       toggleAside,
       setAsideWidth,
+      setAsideBeside,
       toggleFocus,
       setExplorerPeeking,
       closeDrawer,

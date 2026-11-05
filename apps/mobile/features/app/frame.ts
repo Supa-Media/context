@@ -317,7 +317,16 @@ export function regionsFor(
    * constellation and a phone would offer a drawer button that pulls in
    * nothing, which is worse than either pane simply being full width.
    */
-  options: { hasExplorer?: boolean } = {},
+  options: {
+    hasExplorer?: boolean;
+    /**
+     * The page asks for the right panel beside it at medium too, never over
+     * it: the live map, whose panel holds its Activity and the clicked note
+     * and is used while the map moves (Dev2, 2026-11-05). There is no note
+     * behind it to protect, which is the overlay's whole reason.
+     */
+    asideBeside?: boolean;
+  } = {},
 ): Regions {
   const hasExplorer = options.hasExplorer ?? true;
 
@@ -403,7 +412,7 @@ export function regionsFor(
   */
   const aside: Regions["aside"] = !state.asideOpen
     ? "hidden"
-    : density === "wide"
+    : density === "wide" || options.asideBeside === true
       ? "column"
       : "overlay";
 

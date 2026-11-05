@@ -68,13 +68,19 @@ function DesktopMap({
     note: <MapNote page={page} peek={peek} onOpenNote={onOpenNote} />,
     noteKey,
   });
-  // A note clicked with the panel shut opens it, beside the map, where there is room for a column.
+  // The right panel is a column beside the map at every width, never over it:
+  // it is used while the map moves (Dev2, 2026-11-05).
   const frame = useFrame();
+  const setAsideBeside = frame.setAsideBeside;
+  useEffect(() => {
+    setAsideBeside(true);
+    return () => setAsideBeside(false);
+  }, [setAsideBeside]);
+  // A note clicked with the panel shut opens it.
   const asideShut = !frame.state.asideOpen;
   const toggleAside = frame.toggleAside;
-  const wide = frame.density === "wide";
   useEffect(() => {
-    if (noteKey !== null && asideShut && wide) toggleAside();
+    if (noteKey !== null && asideShut) toggleAside();
     // Only a new note opens it: the panel shut by hand with a note open stays shut.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noteKey]);

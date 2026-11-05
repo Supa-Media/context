@@ -274,7 +274,10 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     },
     tap: (x, y) => {
       const target = hitTest(hit, x, y);
-      if (!target) {
+      // A workspace's and a folder's areas cover most of the map, so a single
+      // click on one is a click on empty space: it clears the clicked note.
+      // A double click still goes into them (Dev2, 2026-11-05).
+      if (!target || target.kind === "folder" || target.kind === "workspace") {
         options.onTapEmpty?.();
         return;
       }
