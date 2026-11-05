@@ -117,11 +117,11 @@ export function WorkspaceMenu({
 }
 
 /**
- * The bottom of the desktop map: Map or Columns, and zoom. Replay lives in the
- * map's settings (Dev2, 2026-11-04: "move the map replay stuff into the
- * settings"); while one plays, the replay bar opens inside this dock above the
- * row, with Back to live beside the layout. Columns does not zoom, so it has
- * no − and +.
+ * The bottom of the desktop map: zoom out and in. Replay lives in the map's
+ * settings (Dev2, 2026-11-04: "move the map replay stuff into the settings");
+ * while one plays, the replay bar opens inside this dock above the row, with
+ * Back to live beside zoom. The Columns layout is gone (Dev2, 2026-11-05:
+ * "lets remove the columns view here. only leave the - +").
  */
 export function MapDock({ page, onHeight }: { page: MapPageState; onHeight?: (height: number) => void }) {
   const styles = useThemedStyles(makeStyles);
@@ -146,19 +146,10 @@ export function MapDock({ page, onHeight }: { page: MapPageState; onHeight?: (he
             <View style={styles.rule} />
           </>
         )}
-        <View style={styles.group} accessibilityRole="radiogroup" accessibilityLabel="Layout">
-          <DockButton label="Map" role="radio" on={page.view === "map"} onPress={() => page.setView("map")} testID="map-view-map" />
-          <DockButton label="Columns" role="radio" on={page.view === "folders"} onPress={() => page.setView("folders")} testID="map-view-folders" />
+        <View style={styles.group}>
+          <DockButton icon="minus" label="Zoom out" onPress={() => page.engineRef.current?.zoomOut()} testID="map-zoom-out" />
+          <DockButton icon="plus" label="Zoom in" onPress={() => page.engineRef.current?.zoomIn()} testID="map-zoom-in" />
         </View>
-        {page.view === "map" ? (
-          <>
-            <View style={styles.rule} />
-            <View style={styles.group}>
-              <DockButton icon="minus" label="Zoom out" onPress={() => page.engineRef.current?.zoomOut()} testID="map-zoom-out" />
-              <DockButton icon="plus" label="Zoom in" onPress={() => page.engineRef.current?.zoomIn()} testID="map-zoom-in" />
-            </View>
-          </>
-        ) : null}
       </View>
     </View>
   );

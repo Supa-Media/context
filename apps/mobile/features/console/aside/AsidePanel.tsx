@@ -6,10 +6,13 @@ import type { ApprovalsView } from "../../approvals/useApprovals";
 import { Dot } from "../../design/components/Dot";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
-import { useThemedStyles, type Colors } from "../../design/theme";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useMeetingsSnapshot } from "../../meetings/useMeetings";
 import { MeetingsTab } from "./MeetingsTab";
 import { useMapSide } from "./mapSide";
+import { AsideStrip } from "./AsideStrip";
+import { useFrame } from "../../app/AppFrame";
+import { Icon } from "../../design/components/Icon";
 import type { CalendarEvent } from "../../meetings/protocol";
 import {
   ASIDE_TABS,
@@ -120,6 +123,23 @@ export function AsidePanel({
 
   const live = useMeetingsSnapshot().live;
   const meetingLive = live !== null;
+  const colors = useColors();
+  const frame = useFrame();
+  const setFolded = frame.setAsideFolded;
+
+  if (frame.state.asideFolded) {
+    return (
+      <AsideStrip
+        tabs={tabs}
+        showing={showing}
+        recording={meetingLive}
+        onUnfold={(tab) => {
+          if (tab !== null) setChosen(tab);
+          setFolded(false);
+        }}
+      />
+    );
+  }
 
   return (
     <View style={styles.panel} testID="aside-panel">
@@ -177,6 +197,16 @@ export function AsidePanel({
             </Pressable>
           );
         })}
+        <View style={styles.tabsGap} />
+        <Pressable
+          onPress={() => setFolded(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Fold the panel"
+          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.fold, hovered && styles.tabCurrent]}
+          testID="aside-fold"
+        >
+          <Icon name="chevronRight" size={16} color={colors.text2} />
+        </Pressable>
       </View>
 
       {showing === "activity" && map !== null ? (
@@ -203,6 +233,7 @@ const makeStyles = (colors: Colors) =>
     panel: { flex: 1, minWidth: 0 },
     tabs: {
       flexDirection: "row",
+      alignItems: "center",
       gap: space.x1,
       paddingHorizontal: space.x2,
       paddingTop: space.x2,
@@ -219,6 +250,8 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.control,
     },
     tabCurrent: { backgroundColor: colors.chrome },
+    tabsGap: { flex: 1 },
+    fold: { width: 36, minHeight: layout.minTouchTarget, borderRadius: radii.control, alignItems: "center", justifyContent: "center" },
     tabLabel: { color: colors.muted },
     count: { color: colors.muted },
     tabLabelCurrent: { color: colors.text },

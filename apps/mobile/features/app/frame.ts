@@ -215,7 +215,16 @@ export interface FrameState {
   asideOpen: boolean;
   /** Medium and wide: the right panel's width, in points. */
   asideWidth: number;
+  /**
+   * The open right panel folded to a slim strip of its tabs down the right
+   * edge (Dev2, 2026-11-05: "i would also like the panel to be collapsable").
+   * A press on a tab there unfolds it; the top bar's button still shuts it.
+   */
+  asideFolded: boolean;
 }
+
+/** The folded right panel's width, in points: one column of tab buttons. */
+export const ASIDE_FOLDED_WIDTH = 48;
 
 export const initialFrame: FrameState = {
   drawerOpen: false,
@@ -225,6 +234,7 @@ export const initialFrame: FrameState = {
   focus: false,
   asideOpen: false,
   asideWidth: layout.asideWidth,
+  asideFolded: false,
 };
 
 export interface Regions {

@@ -42,7 +42,9 @@ describe("the phone map bar", () => {
     const bar = host.querySelector('[data-testid="map-bar"]') as HTMLElement;
     expect(bar).not.toBeNull();
     expect(getComputedStyle(bar).alignSelf).toBe("stretch");
-    for (const id of ["map-view", "map-scope", "map-settings-open"]) {
+    // Columns is gone (Dev2, 2026-11-05), so there is no layout switch.
+    expect(host.querySelector('[data-testid="map-view"]')).toBeNull();
+    for (const id of ["map-scope", "map-settings-open"]) {
       expect(host.querySelector(`[data-testid="${id}"]`)).not.toBeNull();
     }
     await act(async () => root.unmount());

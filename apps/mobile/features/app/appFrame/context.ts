@@ -56,6 +56,8 @@ export interface FrameApi {
    * on mount and false on unmount.
    */
   setAsideBeside: (beside: boolean) => void;
+  /** Fold the open right panel to its slim strip of tabs, or unfold it (`FrameState.asideFolded`). */
+  setAsideFolded: (folded: boolean) => void;
   /**
    * ⌘\, and the pill on the focus edge.
    *
@@ -232,6 +234,7 @@ export function useFrame(): FrameApi {
       toggleAside: noop,
       setAsideWidth: noop,
       setAsideBeside: noop,
+      setAsideFolded: noop,
       toggleFocus: noop,
       setExplorerPeeking: noop,
       closeDrawer: noop,

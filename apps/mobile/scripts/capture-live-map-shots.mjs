@@ -44,7 +44,6 @@ const VIEWPORTS = [
 const BOARDS = [
   { name: "1-live", steps: [] },
   { name: "2-following-an-ai", steps: [{ label: "Follow Seyi's Claude" }, { wait: 2500 }], ready: "map-follow-panel" },
-  { name: "3-columns", steps: [{ id: "map-view-folders" }, { wait: 1500 }] },
   // The phone has no side panel, so nothing lists the moves between workspaces there.
   {
     name: "4-all-workspaces",

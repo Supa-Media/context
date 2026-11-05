@@ -6,7 +6,8 @@ import { Chip, LiveDot, Segmented } from "./controls";
 import { SettingsButton } from "./MapDock";
 
 /**
- * The phone's bar over the map: Map / Columns beside which workspaces, and the
+ * The phone's bar over the map: which workspaces (the Columns layout is gone,
+ * Dev2 2026-11-05), and the
  * gear for the map's settings, where Replay lives (Dev2, 2026-11-04). While a
  * replay plays, Back to live sits above them. A desktop map has the workspace
  * menu, the gear and the bottom dock instead (`MapDock`).
@@ -21,16 +22,6 @@ export function MapBar({ page, onSettings }: { page: MapPageState; onSettings: (
         </View>
       ) : null}
       <View style={styles.phoneRow}>
-        <Segmented
-          label="Layout"
-          value={page.view}
-          onChange={page.setView}
-          testID="map-view"
-          options={[
-            { value: "map", label: "Map" },
-            { value: "folders", label: "Columns" },
-          ]}
-        />
         {page.many ? (
           <Segmented
             label="Which workspaces"

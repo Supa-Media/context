@@ -190,7 +190,7 @@ describe("the note card", () => {
 describe("the map's own column, with no console around it", () => {
   // Dev2 (2026-11-04): the note is previewed on the side, not over the map.
   const peekWith = (open: OpenPeek | null, calls: string[]): MapPeek =>
-    ({ peek: open, close: () => calls.push("close"), onTapNote: () => {}, onTapEmpty: () => {}, onCamera: () => {}, onEngine: () => {} }) as MapPeek;
+    ({ peek: open, close: () => calls.push("close"), show: () => {}, onTapNote: () => {}, onCamera: () => {}, onEngine: () => {} }) as MapPeek;
   const column = async (open: OpenPeek | null, calls: string[] = []) =>
     act(async () => root!.render(createElement(MapColumn, { page: pageWith([]), peek: peekWith(open, calls), onOpenNote: () => {} })));
 

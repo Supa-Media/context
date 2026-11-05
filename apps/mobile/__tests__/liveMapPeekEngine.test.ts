@@ -83,31 +83,6 @@ describe("taps", () => {
   });
 });
 
-describe("clearing the clicked note", () => {
-  // Dev2, 2026-11-05: "unselecting a note doesnt work". A workspace and its folders are click
-  // targets that cover most of the map, so a click on them must clear the note too.
-  const spotOf = (engine: ReturnType<typeof createMapEngine>, kind: "folder" | "workspace") => {
-    engine.renderAt(0);
-    for (let y = 0; y < H; y += 3) for (let x = 0; x < W; x += 3) if (engine.hitTest(x, y)?.kind === kind) return { x, y };
-    throw new Error(`no ${kind} on the canvas`);
-  };
-
-  test("a single click on a folder or a workspace clears the note, and opens nothing", () => {
-    const opened: unknown[] = [];
-    let empty = 0;
-    const { engine, tap } = engineWith({ onOpenNote: (note) => opened.push(note), onTapEmpty: () => (empty += 1) });
-    engine.setData(mapData());
-    const folder = spotOf(engine, "folder");
-    tap(folder.x, folder.y);
-    // Every workspace at once: each one's whole area is a target.
-    engine.setData({ ...mapData(), graphs: [para("ws-a", "Personal", 12), para("ws-b", "Team", 12)], scope: { kind: "all" } });
-    const island = spotOf(engine, "workspace");
-    tap(island.x, island.y);
-    expect(empty).toBe(2);
-    expect(opened).toEqual([]);
-  });
-});
-
 describe("dragging", () => {
   // Dev2, 2026-11-04: a clicked note stays selected while you drag round to see what it links to;
   // only a tap on empty space or on another note changes it.

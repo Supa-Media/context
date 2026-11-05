@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import type { EdgeInsets } from "react-native-safe-area-context";
 import { layout } from "../../design/tokens";
-import type { FrameState, Regions } from "../frame";
+import { ASIDE_FOLDED_WIDTH, type FrameState, type Regions } from "../frame";
 import { AsideResizer, ExplorerResizer } from "./resizers";
 import { ClosedExplorerSeam, FocusEdge } from "./seams";
 import type { FrameStyles } from "./styles";
@@ -142,7 +142,7 @@ export function frameBody({
         `medium` gets the other.
       */}
       {regions.aside === "column" ? (
-        <View style={[styles.asideColumn, { width: state.asideWidth }]}>{aside}</View>
+        <View style={[styles.asideColumn, { width: state.asideFolded ? ASIDE_FOLDED_WIDTH : state.asideWidth }]}>{aside}</View>
       ) : null}
 
       {/*
@@ -151,7 +151,7 @@ export function frameBody({
         is wider than a hairline, so part of it lies over the editor, and
         as the column's own child the editor would take those presses.
       */}
-      {regions.aside === "column" ? (
+      {regions.aside === "column" && !state.asideFolded ? (
         <AsideResizer width={state.asideWidth} onResize={setAsideWidth} />
       ) : null}
 

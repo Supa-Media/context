@@ -108,6 +108,18 @@ function DesktopMap({
                 />
               </View>
             ) : null}
+            {open !== null ? (
+              // Which note is selected, and the way to unselect it: a click on empty space is for looking around.
+              <View style={styles.selected} pointerEvents="box-none">
+                <Chip
+                  label={`Selected: ${isolateForDisplay(page.book.title(open.workspaceId, open.path))}`}
+                  accessibilityLabel={`Unselect ${page.book.title(open.workspaceId, open.path)}`}
+                  trailing={<Icon name="close" size={12} color={colors.text2} />}
+                  onPress={peek.close}
+                  testID="map-selected"
+                />
+              </View>
+            ) : null}
             <MapDock page={page} onHeight={setDock} />
             <MapNotice page={page} bottom={dock + DOCK_GAP} />
             {settings ? (
@@ -117,7 +129,7 @@ function DesktopMap({
                 onClose={() => setSettings(false)}
                 onFind={(note) => {
                   page.engineRef.current?.focusPath(note.workspaceId, note.path);
-                  peek.onTapNote({ ...note, at: null });
+                  peek.show({ ...note, at: null });
                 }}
               />
             ) : null}
@@ -150,6 +162,8 @@ const makeStyles = (colors: Colors) =>
     canvasBox: { flex: 1, minHeight: 0, position: "relative", overflow: "hidden", backgroundColor: colors.surface2 },
     following: { position: "absolute", right: 16 + 34 + 10, top: 16 },
     gear: { position: "absolute", right: 16, top: 16, zIndex: 3 },
+    // Top centre, clear of the workspace menu on the left and the gear on the right.
+    selected: { position: "absolute", top: 16, left: 180, right: 180, alignItems: "center", zIndex: 2 },
     notice: {
       position: "absolute",
       alignSelf: "center",
