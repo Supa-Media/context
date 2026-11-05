@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Uploads, MAX_UPLOAD_CHARS, SNAPSHOT_SOURCE, offLimits, onSite, parseBrowseRequest, runSteps, snapshot, uploadSource, wordsSource, type BrowsePage } from "./browse";
+import { type Uploads, BROWSE_END_MS, MAX_UPLOAD_CHARS, SNAPSHOT_SOURCE, offLimits, onSite, parseBrowseRequest, runSteps, snapshot, uploadSource, wordsSource, type BrowsePage } from "./browse";
 
 /**
  * A page with a few numbered elements. `navigate` maps a ref to the address a
@@ -299,10 +299,64 @@ describe("runSteps", () => {
   });
 
   it("leaves the rest for the next call when time runs out", async () => {
+    const { page, state } = fakePage();
+    let t = 0;
+    const result = await runSteps(page, [{ do: "click", ref: 3 }, { do: "click", ref: 3 }], { budgetMs: 5, now: () => (t += 10) });
+    expect(result.ran.at(-1)).toEqual({ do: "click", ok: false, reason: "out of time; run it again" });
+    expect(state.clicks.length).toBeLessThan(2);
+  });
+
+  // 2026-11-05: an airline's pages took 7 seconds to open, so every click after an open was turned away, the open was
+  // sent again, and a check-in job spent its ten parts reopening the same page.
+  it("does not charge the steps after a page open for the time it took to open", async () => {
+    const { page, state } = fakePage();
+    let t = 0;
+    const slow = page.goto.bind(page);
+    page.goto = async (next, options) => {
+      t += 7_000;
+      await slow(next, options);
+    };
+    const result = await runSteps(
+      page,
+      [{ do: "goto", url: "https://shop.example.com/checkin" }, { do: "type", ref: 1, text: "AF003", enter: false, onlyOn: null }, { do: "click", ref: 3 }, { do: "read" }],
+      { now: () => t },
+    );
+    expect(result.ran.every((r) => r.ok)).toBe(true);
+    expect(state.typed[1]).toBe("AF003");
+    expect(state.clicks).toEqual([3]);
+  });
+
+  it("still opens a second page only inside the first five seconds, so the call ends in time", async () => {
     const { page } = fakePage();
     let t = 0;
-    const result = await runSteps(page, [{ do: "read" }, { do: "read" }], { budgetMs: 5, now: () => (t += 10) });
-    expect(result.ran.at(-1)).toEqual({ do: "read", ok: false, reason: "out of time; run it again" });
+    const slow = page.goto.bind(page);
+    page.goto = async (next, options) => {
+      t += 7_000;
+      await slow(next, options);
+    };
+    const result = await runSteps(page, [{ do: "goto", url: "https://shop.example.com/a" }, { do: "goto", url: "https://shop.example.com/b" }], { now: () => t });
+    expect(result.ran.at(-1)).toEqual({ do: "goto", ok: false, reason: "out of time; run it again" });
+  });
+
+  it("turns a short step away when it could not end by the time a slow open would have", async () => {
+    const { page, state } = fakePage();
+    let t = 0;
+    const slow = page.goto.bind(page);
+    page.goto = async (next, options) => {
+      t += BROWSE_END_MS - 2_000;
+      await slow(next, options);
+    };
+    const result = await runSteps(page, [{ do: "goto", url: "https://shop.example.com/a" }, { do: "click", ref: 3 }], { now: () => t });
+    expect(result.ran.at(-1)).toEqual({ do: "click", ok: false, reason: "out of time; run it again" });
+    expect(state.clicks).toEqual([]);
+  });
+
+  it("never turns a read or a look away: the page is handed back either way", async () => {
+    const { page } = fakePage();
+    let t = 0;
+    const result = await runSteps(page, [{ do: "read" }, { do: "look" }], { budgetMs: 5, now: () => (t += 10_000) });
+    expect(result.ran).toEqual([{ do: "read", ok: true }, { do: "look", ok: true }]);
+    expect(result.page.shot).toBeDefined();
   });
 
   it("never stays on Context's vault screens, by address or by a click", async () => {
