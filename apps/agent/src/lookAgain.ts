@@ -90,7 +90,7 @@ export async function lookAgain<Item>(
 
 /**
  * The same look for a 1:1 chat (`inbox.ts` `answerTurn`): the turn answered `entries`, its reply `parts` not sent.
- * A text code answers (a yes, a code, a setting), a tapback or the simulator never holds a reply.
+ * A text code answers (a yes, a code, a setting), a tapback, a job's report or the simulator never holds a reply.
  */
 export async function lookAgainTexts(
   storage: InboxStorage,
@@ -100,7 +100,7 @@ export async function lookAgainTexts(
   started: number,
 ): Promise<Rechecked> {
   const message = entries.at(-1)![1].message;
-  if (message.channel === "simulator" || decidedByCode(message)) return "send";
+  if (message.channel === "simulator" || message.jobReport !== undefined || decidedByCode(message)) return "send"; // a job's report is not an answer to their words
   const covers = entries.flatMap(([, entry]) => (entry.ev ? [entry.ev] : []));
   const upTo = Math.max(started, ...entries.map(([, entry]) => entry.at ?? 0));
   return await lookAgain<Pending>(
