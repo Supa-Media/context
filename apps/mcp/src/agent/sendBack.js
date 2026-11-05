@@ -118,6 +118,7 @@ export function turnLedger({ tools = [], ranHere = () => false } = {}) {
 function heldBy(entry) {
   const judges = Array.isArray(entry.judges) ? entry.judges.filter((judge) => judge?.passed === false) : [];
   if (judges.length > 0) return judges.map((judge) => `${String(judge.id).replaceAll("_", " ")} (${judge.yes} against ${judge.at})`).join(", ");
+  if (entry.by === "late") return "a text that came in while it was written (it was written again with it)";
   return entry.by === "code" ? "a code check" : "the checks named below";
 }
 

@@ -173,3 +173,13 @@ test("every earlier draft of the turn is shown, each with what held it", () => {
   const bare = sendBackNote({ entries: [], notice: "Fix it.", draft: "only" });
   assert.ok(bare.includes("Actions you took: none.") && bare.includes("> only"), "with no ledger entries, the draft just held is still quoted");
 });
+
+test("a draft a late text held is named as held by that text, not by checks (2026-11-05)", () => {
+  // Sabotage: drop the `by === "late"` line in sendBack.js `heldBy` → "the checks named below".
+  const entries = [
+    { kind: "judge", by: "late", draft: "first", went: false, judges: [] },
+    { kind: "judge", by: "gates", draft: "second", went: false, judges: [{ id: "finished", yes: 0.82, at: 0.5, passed: false }] },
+  ];
+  const note = sendBackNote({ entries, notice: "Fix it.", draft: "second" });
+  assert.ok(note.includes("Held back by: a text that came in while it was written"));
+});
