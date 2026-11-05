@@ -66,7 +66,8 @@ export async function openJobNote(deps: NoteDeps, token: string, run: JobRun): P
  */
 export async function mailToTex(storage: InboxStorage, delivery: MailDelivery, report: (inbox: string, update: JobUpdate) => Promise<boolean>): Promise<boolean> {
   const run = await storage.get<JobRun>(RUN_KEY);
-  if (run === undefined) return false;
+  // Only the job's own line, from its own mailbox, is its word to Tex: nobody else on the note texts through it.
+  if (run === undefined || run.note === undefined || delivery.mailboxId !== run.note.mailbox || delivery.mail.from !== run.note.name) return false;
   const asked = run.origin.kind === "phone" ? { from: run.origin.phone, text: run.origin.question } : { from: run.origin.message.from, text: run.origin.message.text };
   const text = delivery.mail.text;
   return await report(run.inbox, { id: run.id, pass: `mail-${Date.parse(delivery.mail.at)}`, first: 0, state: "running", status: text.slice(0, 280), texts: [text], asked }).catch(() => false);
@@ -75,12 +76,13 @@ export async function mailToTex(storage: InboxStorage, delivery: MailDelivery, r
 /** A line the job mailed to its advisor: answered on the note, to the job, while asks last. */
 export async function mailToAdvisor(storage: InboxStorage, delivery: MailDelivery, deps: NoteDeps, token: () => Promise<string | null>): Promise<boolean> {
   const run = await storage.get<JobRun & { note?: JobNote }>(RUN_KEY);
-  if (run === undefined || run.note?.advisor === undefined || delivery.mail.from !== run.note.name) return false;
+  if (run === undefined || run.note?.advisor === undefined || delivery.mailboxId !== run.note.mailbox || delivery.mail.from !== run.note.name) return false;
+  // Counted before anything waits, so two lines at once can't both slip under the cap.
   const asks = (await storage.get<number>(ASKS_KEY)) ?? 0;
-  const minted = await token();
-  if (minted === null) return false;
   const over = asks >= MAX_ADVISOR_ASKS;
   if (!over) await storage.put(ASKS_KEY, asks + 1);
+  const minted = await token();
+  if (minted === null) return false;
   const { status, json } = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/job/advise`, minted, {
     jobId: run.id,
     note: { path: run.note.path, ...(run.note.context ? { context: run.note.context } : {}) },

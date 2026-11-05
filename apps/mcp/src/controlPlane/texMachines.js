@@ -58,8 +58,8 @@ export function createTexMachineMethods({ post }) {
      * (`parentToken`, the texting token the job presented) is no longer live or the machine is gone. The control
      * plane keeps only its hash and resolves it as the job's own grant under `context_tex_machine_run`.
      */
-    async texMachineRunGrant({ parentToken, machineId, runId, expiresAt }) {
-      const answer = await call("/gateway/machines/run-grant", { parentToken, machineId, runId, expiresAt });
+    async texMachineRunGrant({ parentToken, machineId, runId, jobId, expiresAt }) {
+      const answer = await call("/gateway/machines/run-grant", { parentToken, machineId, runId, ...(typeof jobId === "string" ? { jobId } : {}), expiresAt });
       return answer.ok && typeof answer.value?.accessToken === "string" ? answer.value : null;
     },
     /** `{attached, workspaceId}` when the machine's own owner, a person in the chat, lends it there; else `{refused}`. */

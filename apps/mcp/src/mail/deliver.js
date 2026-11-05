@@ -94,7 +94,7 @@ export async function deliverMail(env, mail, line) {
     }
   }
   const addressed = (Array.isArray(boxes) ? boxes : [])
-    .filter((box) => typeof box?.mailboxId === "string" && box.name !== line.from)
+    .filter((box) => typeof box?.mailboxId === "string" && box.name !== line.from && !ROSTER_AGENTS.has(box.name))
     .filter((box) => line.to === "everyone" || box.name === line.to)
     .slice(0, MAX_DELIVERIES);
   // A session on a machine (a cloud VM's Claude Code): through its workspace object, never an interrupt from another agent.

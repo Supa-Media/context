@@ -73,12 +73,13 @@ async function aJob(clientId = "context_texts", parentToken = PARENT) {
 async function mint(
   t: TestConvex,
   machineId: Id<"texMachines">,
-  body: { parentToken?: string; runId?: string; expiresAt?: number } = {},
+  body: { parentToken?: string; runId?: string; jobId?: string; expiresAt?: number } = {},
 ) {
   return await gatewayPost(t, "/gateway/machines/run-grant", {
     parentToken: body.parentToken ?? PARENT,
     machineId,
     runId: body.runId ?? RUN_ID,
+    ...(body.jobId !== undefined ? { jobId: body.jobId } : {}),
     expiresAt: body.expiresAt ?? Date.now() + 10 * MINUTE,
   });
 }
@@ -123,13 +124,26 @@ describe("minting and resolving a run grant", () => {
 
   test("a run grant reads and is delivered the job note's mail its job's own grant joined, and no one else's", async () => {
     const { t, alfa, parentId, machineId } = await aJob();
-    const token = await mintedToken(t, machineId);
+    const token = await mintedToken(t, machineId, { jobId: "job_aaaaaaaa" });
     const post = async (path: string, body: Record<string, unknown>) => await json(await gatewayPost(t, path, body));
-    const joined = (await post("/gateway/mail/join", { accessToken: PARENT, workspaceId: alfa, path: "projects/sign-in.md", name: "dev2", jobId: "job_aaaaaaaa" })) as { mailbox: { mailboxId: string } };
-    const mailboxId = joined.mailbox.mailboxId;
+    const join = (name: string, jobId?: string) => post("/gateway/mail/join", { accessToken: PARENT, workspaceId: alfa, path: "projects/sign-in.md", name, ...(jobId ? { jobId } : {}) }) as Promise<{ mailbox: { mailboxId: string } }>;
+    const mailboxId = (await join("dev2", "job_aaaaaaaa")).mailbox.mailboxId;
+    // The same parent grant holds Tex's box and another job's on the same note: the part reaches neither.
+    const texBox = (await join("tex")).mailbox.mailboxId;
+    const otherJob = (await join("other", "job_bbbbbbbb")).mailbox.mailboxId;
     expect(((await post("/gateway/mail/get", { accessToken: token, mailboxId })) as { mailbox: { name: string } | null }).mailbox?.name).toBe("dev2");
+    for (const box of [texBox, otherJob]) expect(((await post("/gateway/mail/get", { accessToken: token, mailboxId: box })) as { mailbox: unknown }).mailbox).toBeNull();
     const boxes = ((await post("/gateway/mail/jobs", { accessToken: token, workspaceId: alfa, path: "projects/sign-in.md" })) as { mailboxes: Array<{ name: string; own: boolean }> }).mailboxes;
-    expect(boxes).toEqual([expect.objectContaining({ name: "dev2", own: true })]);
+    expect(boxes).toEqual(expect.arrayContaining([expect.objectContaining({ name: "dev2", own: true }), expect.objectContaining({ name: "other", own: false })]));
+    // It cannot join as Tex, as another job, or anew; it can only rejoin its own job's box.
+    const asPart = (name: string, jobId?: string) => post("/gateway/mail/join", { accessToken: token, workspaceId: alfa, path: "projects/sign-in.md", name, ...(jobId ? { jobId } : {}) });
+    expect(await asPart("tex", "job_aaaaaaaa")).toEqual({ error: "refused" });
+    expect(await asPart("other", "job_bbbbbbbb")).toEqual({ error: "refused" });
+    expect(await asPart("fresh", "job_aaaaaaaa")).toEqual({ error: "refused" });
+    expect(await asPart("dev2", "job_aaaaaaaa")).toMatchObject({ mailbox: { mailboxId } });
+    // A run grant that names no job reaches no mail at all.
+    const unnamed = await mintedToken(t, machineId, { runId: OTHER_RUN_ID });
+    expect(((await post("/gateway/mail/get", { accessToken: unnamed, mailboxId })) as { mailbox: unknown }).mailbox).toBeNull();
     // Revoked with its parent: the run grant reaches no mailbox.
     await t.run((ctx) => ctx.db.patch(parentId, { status: "revoked" }));
     expect(((await post("/gateway/mail/get", { accessToken: token, mailboxId })) as { mailbox: unknown }).mailbox).toBeNull();
