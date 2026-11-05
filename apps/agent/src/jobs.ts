@@ -153,8 +153,20 @@ export const JOB_LINES = {
     why === "daily_limit"
       ? `I paused "${title}": I've hit today's limit for background work. Text me tomorrow and I'll pick it back up.`
       : `I paused "${title}": I can't reach my model right now. Text me in a bit and I'll pick it back up.`,
+  /** A part the gateway turned down before it ran (`jobRun.ts` `rejected`): asking again is turned down the same way. */
+  rejected: (title: string, why: string) => `I couldn't run "${title}": it was turned down before it started (${why}). Text me if you want me to try again.`,
   refusedStatus: { daily_limit: "Paused: today's limit for background work is used up", no_model: "Paused: no model could run it" },
 } as const;
+
+/**
+ * What a job is asked: the person's own words, typed and said aloud. The model only names a job; its question
+ * is always what they sent. A voice message has no typed words, and the gateway hears it inside the turn
+ * (`clients.ts` `heard`), so a job started from one was asked nothing and every part was refused (2026-11-05,
+ * the Morocco trip job). At most as long as the gateway takes a question (`apps/mcp/src/agent/turn.js`).
+ */
+export function jobQuestion(typed: string, heard?: string): string {
+  return [typed.trim(), (heard ?? "").trim()].filter(Boolean).join("\n\n").slice(0, MAX_ASKED);
+}
 
 const line = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
 

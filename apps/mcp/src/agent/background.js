@@ -639,14 +639,15 @@ export function jobSavedLine(job) {
 
 /**
  * The answer's `jobs`: what the Worker starts, with whether the turn that
- * planned them had read from outside; and `steers`: the running jobs the
+ * planned them had read from outside, and `heard`, what the person said aloud
+ * this turn, which the Worker adds to their typed words as the jobs' question; and `steers`: the running jobs the
  * Worker hands this text to.
  */
-export function startedJobs(background, tainted) {
+export function startedJobs(background, tainted, heard = "") {
   if (background === null) return {};
   return {
     ...(background.started.length > 0
-      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })) }
+      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })), ...(heard ? { heard } : {}) } // `heard`: a voice message's words, the jobs' question beside what they typed (`heardWords.js`)
       : {}),
     ...(background.steered.length + background.resumed.length > 0
       ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true }))] }

@@ -30,6 +30,8 @@ import type { TexEvent } from "./events";
 
 /** The gateway seals a warm copy only this large (`apps/mcp/src/agent/warmCopy.js` `WARM_MAX_CHARS`). */
 export const MAX_WARM_CHARS = 1_500_000;
+/** The gateway hands back at most this much of what it heard (`apps/mcp/src/agent/heardWords.js` `MAX_HEARD_CHARS`). */
+const MAX_HEARD = 3_000;
 
 export type Fetch = typeof fetch;
 
@@ -233,7 +235,8 @@ export type AgentAnswer =
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string }
+  /** `heard`: what the person said aloud this turn, transcribed by the gateway: the jobs it started are asked it beside their typed words (`jobs.ts` `jobQuestion`). */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; heard?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -242,8 +245,13 @@ export type AgentAnswer =
   | { kind: "not_started" }
   /** The gateway's 503 for a workspace with no bucket it can reach: a new one still starting, or a broken binding. */
   | { kind: "no_storage" }
-  /** `timedOut`: a streamed turn that ran past its time, not one that failed. */
-  | { kind: "unavailable"; timedOut?: true };
+  /**
+   * `timedOut`: a streamed turn that ran past its time, not one that failed.
+   * `refused`: the gateway turned the request down before anything ran (a 4xx other than 401, 408, 409 and 429), as its
+   * status and its own reason, a fixed line of the gateway's, never the person's words. Asking the same thing
+   * again is refused the same way, so a job stops on it and says why (`jobRun.ts`).
+   */
+  | { kind: "unavailable"; timedOut?: true; refused?: string };
 
 /**
  * Ask the gateway's `/agent` route. `conversation` names the thread the
@@ -403,6 +411,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
       ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),
+      ...(typeof body.heard === "string" && body.heard.trim() ? { heard: body.heard.trim().slice(0, MAX_HEARD) } : {}),
     };
   }
   if (status === 409) return { kind: "no_model" };
@@ -411,7 +420,15 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
   // a platform 503 (a Worker over its limits) can come after tools ran.
   if (status === 503 && body.error === "model_unavailable") return { kind: "not_started" };
   if (status === 503 && body.error === "storage_unavailable") return { kind: "no_storage" };
+  // 401 and 408 can pass on a new try (a fresh session, a quieter moment); the rest of 4xx is the request itself.
+  if (status >= 400 && status < 500 && status !== 401 && status !== 408) return { kind: "unavailable", refused: refusalOf(status, body) };
   return { kind: "unavailable" };
+}
+
+/** A gateway refusal as one short line for a job's status and the logs: its status and its own reason (`agentAnswer`). */
+function refusalOf(status: number, body: Record<string, unknown>): string {
+  const why = typeof body.error_description === "string" ? body.error_description : typeof body.error === "string" ? body.error : "";
+  return `${status}${why ? ` ${why.replace(/\s+/g, " ").trim()}` : ""}`.slice(0, 160);
 }
 
 /**

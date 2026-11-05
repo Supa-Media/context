@@ -18,7 +18,7 @@ import { groupLineFor } from "./groupLine";
 import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
-import { chatJobs, resumeJobs, startJobs, steerJobs, viewLink, withThreadsLine } from "./jobs";
+import { chatJobs, jobQuestion, resumeJobs, startJobs, steerJobs, viewLink, withThreadsLine } from "./jobs";
 import { addEvent, kindOf, logAsk, recentEvents } from "./events";
 import { cancelTurn, staleAsks } from "./decide";
 import { startTurn } from "./steer";
@@ -215,7 +215,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     await startJobs(storage, answer.jobs, {
       now: deps.now(),
       inbox: groupInboxName(message.groupId),
-      origin: { kind: "group", message, at: acceptedAt },
+      origin: { kind: "group", message: { ...message, text: jobQuestion(message.text, answer.heard) }, at: acceptedAt }, // typed and said aloud
       place: { line: message.line, groupId: message.groupId, messageId: message.messageId },
       spawn: deps.spawnJob,
     });
