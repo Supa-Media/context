@@ -24,14 +24,32 @@ whoever still depends on it without anyone knowing who that is. So:
    answers with `context.presence` alone, so the token is never echoed, and a
    token offered without `context.presence` is not read. Builds from before
    this still use the path form and still work.
-3. **Retire per route, on evidence.** A route's URL form is refused only after
+3. **Then no token on a socket at all** (decided by the owner, 2026-11-05,
+   for CASA). A subprotocol is still a request header that a proxy or a
+   handshake log can keep, and the console token in it is reusable. The app's
+   sockets (presence, the tree, access, the Tex page) now trade the token, in
+   an `Authorization` header, for a ticket at `POST /presence/ticket`, naming
+   the one socket it opens, and offer `context.ticket.<ticket>` instead
+   (`apps/mcp/src/live/ticket.js`). A ticket is the token sealed with AES-GCM
+   under a key derived from `GATEWAY_SECRET`, bound to that socket path and
+   workspace selector, good for one minute and spent once: its nonce is
+   marked in a `LiveTicket` Durable Object of its own, deleted by an alarm
+   after it expires. The socket resolves the token inside exactly as before,
+   so revocation and every clamp are unchanged, and a ticket that does not
+   open is refused, never passed over for a token offered beside it. The
+   `context.token.<token>` subprotocol is accepted only until the app builds
+   that send it have rolled over, then removed.
+4. **Retire per route, on evidence.** A route's URL form is refused only after
    its census reads zero outside-client grants for 30 days and the console
    count has drained as old app builds age out. That date is the owner's call,
    made with the census in hand. It is not a fixed date written here.
 
-What a simplification would cost: refusing `/t/` outright breaks every
+What a simplification would cost: a ticket that is only signed (no spent
+mark) can be replayed for its whole minute; a ticket not bound to its socket
+opens any of them; refusing `/t/` outright breaks every
 connection that still uses it, unmeasured; counting by logging the path would
-put tokens or note paths in logs. `apps/mcp/test/tokenTransport.test.mjs`,
+put tokens or note paths in logs. `apps/mcp/test/tokenTransport.test.mjs`, `apps/mcp/test/liveTicket.test.mjs`
+(spent, expired, forged, wrong-socket and wrong-selector tickets refused),
 the presence route checks and `apps/convex/__tests__/controlPlane/tokenTransport.test.ts`
 fail if a header token is counted, a route is recorded as anything but its
 coarse name, the subprotocol answer echoes the token, or a revoked grant is

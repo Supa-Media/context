@@ -35,7 +35,7 @@ export async function handleTexPageLive(request, env, { slug, pathToken, origin 
   const controlPlane = deps.controlPlane ?? createControlPlane(env);
   let session;
   try {
-    session = await resolvePresentedSession(request, { pathToken, path: TEX_PAGE_SOCKET_PATH, slug, controlPlane });
+    session = await resolvePresentedSession(request, { pathToken, path: TEX_PAGE_SOCKET_PATH, slug, controlPlane, env });
   } catch (error) {
     if (!(error instanceof SessionRefusal)) throw error;
     return error.status === 403 ? forbiddenResponse(origin, null, error) : unauthorizedResponse(origin, slug, error);

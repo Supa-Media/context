@@ -60,6 +60,7 @@ import { APP_SEARCH_PATH, handleAppSearch } from "./appSearch.js";
 import { handleTexPageLive, TEX_PAGE_SOCKET_PATH } from "./texPage/live.js";
 import { ACCESS_SOCKET_PATH, handleAccess, handleAgentActivity, handlePresence, handleTree, TREE_SOCKET_PATH } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
+import { handleLiveTicket, LIVE_TICKET_PATH } from "../live/ticket.js";
 import { FILE_OP_PATHS, handleFileOp } from "../live/fileOpsRoute.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
 import {
@@ -201,6 +202,8 @@ export async function route(request, env, ctx) {
     // 101 rather than JSON, and needs no queue, no usage counter and no search
     // budget — it never reads a note and never writes one.
     if (path === "/presence") return await handlePresence(request, env, { slug, pathToken, origin });
+    // A one-use ticket for one of the sockets here, so none of them carries a token (`live/ticket.js`).
+    if (path === LIVE_TICKET_PATH) return await handleLiveTicket(request, env, { slug, pathToken, origin });
     // The app's live file tree and access screens from the objects (`live/treeRoute.js`, `live/accessRoute.js`): sockets, likewise.
     if (path === TREE_SOCKET_PATH || path === ACCESS_SOCKET_PATH) return await (path === TREE_SOCKET_PATH ? handleTree : handleAccess)(request, env, { slug, pathToken, origin });
 

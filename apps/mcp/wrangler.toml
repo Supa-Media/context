@@ -155,6 +155,19 @@ class_name = "WorkspaceStore"
 tag = "v3-workspace-store"
 new_sqlite_classes = ["WorkspaceStore"]
 
+# One live-socket ticket's spent mark (src/live/ticket.js): an object per
+# ticket, one key, deleted by an alarm two minutes after it was minted. The
+# app's sockets open on a one-use ticket instead of carrying a token.
+# Self-hosting on the free tier: leave it out, and `POST /presence/ticket`
+# answers 501 (the sockets need Durable Objects anyway).
+[[durable_objects.bindings]]
+name = "LIVE_TICKET"
+class_name = "LiveTicket"
+
+[[migrations]]
+tag = "v4-live-ticket"
+new_sqlite_classes = ["LiveTicket"]
+
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
 # account's Analytics Engine SQL API (`SELECT ... FROM tex_timing`). The code
@@ -298,6 +311,10 @@ class_name = "TexStore"
 [[env.staging.durable_objects.bindings]]
 name = "WORKSPACE_STORE"
 class_name = "WorkspaceStore"
+
+[[env.staging.durable_objects.bindings]]
+name = "LIVE_TICKET"
+class_name = "LiveTicket"
 
 [[env.staging.analytics_engine_datasets]]
 binding = "TEX_TIMING"

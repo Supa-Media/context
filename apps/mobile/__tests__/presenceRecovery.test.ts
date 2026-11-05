@@ -9,6 +9,11 @@ const mockIssue = jest.fn<() => Promise<ConsoleGrant>>();
 let mockCache: ConsoleGrantCache;
 const mockGrant = ({ workspaceId }: { workspaceId: string }, force = false) =>
   mockCache.get(workspaceId, mockIssue, force);
+// The socket's one-use ticket (`POST /presence/ticket`) is the gateway's; here it is the token, marked.
+jest.mock("@context/shared/src/liveTicket.cjs", () => ({
+  ...jest.requireActual<Record<string, unknown>>("@context/shared/src/liveTicket.cjs"),
+  fetchLiveTicket: async ({ token }: { token: string }) => `ticket-${token}`,
+}));
 jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => mockGrant }));
 
 import { usePresence } from "../features/console/presence/usePresence";
