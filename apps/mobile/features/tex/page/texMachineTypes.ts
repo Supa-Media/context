@@ -9,7 +9,7 @@
  * the page then draws no machine screens and no link to them.
  */
 
-/** `mac`: the Context Mac app carries the runner. `cli`: the runner started by `npx @supa-media/context machine`. */
+/** `mac`: the Context Mac app carries the runner. `cli`: the runner installed on its own (`context.lc/download`). */
 export type MachineKind = "mac" | "cli";
 
 /**

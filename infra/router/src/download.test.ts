@@ -38,6 +38,11 @@ describe("download: one address for the newest Mac app", () => {
     },
   );
 
+  it("leaves /download itself to the app, which draws the install page (`apps/mobile/app/download.tsx`)", () => {
+    expect(route(new URL("https://context.lc/download"), "Mozilla/5.0")).toEqual({ kind: "proxy", upstream: "expo", path: "/download" });
+    expect(route(new URL("https://context.lc/download?tab=headless"), "Mozilla/5.0")).toMatchObject({ kind: "proxy", upstream: "expo" });
+  });
+
   it("routes ahead of the crawler check, so an unfurler is sent to the file too", () => {
     expect(route(new URL("https://context.lc/download/mac"), SLACKBOT_UA)).toEqual({
       kind: "download",
