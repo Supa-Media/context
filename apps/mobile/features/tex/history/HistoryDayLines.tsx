@@ -152,9 +152,11 @@ function Line({ line: given, open, onPress, look = "page", step = false }: { lin
         )}
         <View style={step || look === "phone" ? styles.wordsStacked : styles.words}>
           {line.replyTo ? (
-            <T size={13} tone="muted">
-              {`↳ ${line.replyTo}`}
-            </T>
+            <View style={styles.quote} testID="history-reply-quote">
+              <T size={13} tone="muted" line={1.4}>
+                {`↳ ${line.replyTo}`}
+              </T>
+            </View>
           ) : null}
           <T size={quiet ? (look === "page" ? 13 : 14) : 15} line={1.45} tone={failed ? "crit" : quiet ? "muted" : "text"} style={line.tone === "thinking" ? styles.thinking : null}>
             {failed ? "✕ " : ""}
@@ -223,6 +225,8 @@ const makeStyles = (colors: Colors) =>
     state: { paddingHorizontal: 8, paddingVertical: 1, borderRadius: 999, borderWidth: 1, borderColor: colors.muted, overflow: "hidden" },
     stateStuck: { borderColor: colors.crit },
     steps: { borderLeftWidth: 2, borderLeftColor: colors.line, paddingLeft: 14, marginBottom: 4 },
+    // What a reply answers, quoted above its words like a reply bubble's quote (Dev2, 2026-11-05).
+    quote: { borderLeftWidth: 2, borderLeftColor: colors.line, paddingLeft: 8, marginBottom: 4 },
     // Under the words, past the time and who columns.
     stepsFile: { marginLeft: 72 + 12 + 128 + 12 },
     stepsPage: { marginLeft: 64 + 12 + 104 + 12 },

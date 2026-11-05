@@ -29,7 +29,7 @@ flowchart LR
     H["Hear a group voice memo first<br/>groupVoice.ts"]:::pipe
     W2 --- H
     LA["Shared step: lookAgain<br/>their newer words may change the answer<br/>lookAgain.ts"]:::shared
-    RT["Shared rule: a failed turn is tried 3 more times<br/>from 10 s, doubling, then one failed line<br/>1:1 by the queue's alarm, groups by groupTurnWorkflow.ts"]:::shared
+    RT["Shared rule: a failed turn is tried 3 more times<br/>from 10 s, doubling, then one failed line<br/>1:1 by the queue's alarm, groups by groupTurnWorkflow.ts<br/>1:1 says a refusal or a turn past its time at once"]:::shared
     W1 --- RT
     W2 --- RT
     Q["Shared step: the chat's queue<br/>each text waits in its chat's object, in order<br/>1:1 up to 20, a group up to 10<br/>chatQueue.ts"]:::shared
@@ -85,7 +85,7 @@ flowchart TB
   settleAYesOrNo["settleAYesOrNo<br/>a yes or 👍 to a waiting send, in code, no model"]:::rail
   watchWhatLeaves["watchWhatLeaves<br/>what this turn may read in and send out"]:::rail
   checkItMayRun["checkItMayRun<br/>tools, history, may the model run here"]:::step
-  readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far<br/>read from its ledger every turn"]:::step
+  readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far<br/>read from its ledger every turn<br/>a reply shows the full words it answers"]:::step
   openTheWeb["openTheWeb<br/>write tools and the browser"]:::step
   readTheSetup["readTheSetup<br/>prompt, skills, models, fallback"]:::step
   prepareBookkeeping["prepareBookkeeping<br/>usage, turn log, the chat's ledger"]:::step
@@ -182,6 +182,9 @@ What each model costs is `jev/meter.ts`.
 Newest first. One line per pull request that changed the drawing.
 
 - 2026-11-05: with the reply gates on, the older word checks they replace (`doItChecks.js`, `untriedWeb.js`) no longer run; tried_first and followed_them do their job. They stay for a setup without gates. Every gate reads each rewrite, a job's report no longer runs the gates, and a draft a late text holds is recorded as held.
+- 2026-11-05: a reply (inline, or a text in a thread; 1:1 or group) is logged with the id and full words of the message it answers (`replyQuote.ts`); the turn shows it on that line as "replying to …", and the vague thread note is gone when the ledger is read.
+- 2026-11-05: a text that comes in while Tex writes is handled like a send-back (the draft quoted as NOT sent, writes not repeated), and a reworded email to the same people counts as the same write.
+- 2026-11-05: review fixes: a 1:1 turn the gateway refused, or that ran past its time, is no longer retried; the last look keeps the draft in view on a long chat (the transcript gives way from its oldest end).
 - 2026-11-05: a send-back is written from the turn's ledger: the held draft is quoted as NOT sent (never put in as said), with every action the turn took and the judges that failed; the model revises it, and a write it already made (same tool, same arguments) is not run again.
 - 2026-11-05: one sender: both lanes send and log each text and picture the same way (`sendOne.ts`); a 1:1 picture that won't go now shows in the history as the line the person was told. Cards and carousels stay 1:1 only until proven in groups.
 - 2026-11-05: a 1:1 turn reads the chat so far from its ledger every turn, as a group's does; the warm copy no longer carries the chat (it never held Tex's own replies).

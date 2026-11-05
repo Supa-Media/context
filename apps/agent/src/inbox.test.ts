@@ -218,6 +218,29 @@ describe("inbox", () => {
     expect(sent).toEqual([{ text: COPY.unavailable, idempotency: "reply:e1" }]);
   });
 
+  it("never retries a turn the gateway refused outright: it is refused the same way every time", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "q"), 1_000);
+    const asks: string[] = [];
+    const sent: Sent[] = [];
+    await drain(storage, deps({ asks, sent, agentStatus: () => 400 }));
+    await drain(storage, deps({ asks, sent, agentStatus: () => 400 }));
+    expect(asks).toEqual(["q"]);
+    expect(sent).toEqual([{ text: COPY.unavailable, idempotency: "reply:e1" }]);
+  });
+
+  it("a newer text merged into a failing burst does not start its tries over", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "q"), 1_000);
+    const asks: string[] = [];
+    const sent: Sent[] = [];
+    await drain(storage, deps({ asks, sent, agentStatus: () => 502 }));
+    await accept(storage, msg("e2", "and r"), 2_000);
+    for (let i = 0; i < MAX_ANSWER_ATTEMPTS + 2 && sent.length === 0; i++) await drain(storage, deps({ asks, sent, agentStatus: () => 502 }));
+    expect(asks).toHaveLength(MAX_ANSWER_ATTEMPTS);
+    expect(sent.map((one) => one.text)).toEqual([COPY.unavailable]);
+  });
+
   it("a retried turn that then answers sends only the answer", async () => {
     const storage = new MemoryStorage();
     await accept(storage, msg("e1", "q"), 1_000);

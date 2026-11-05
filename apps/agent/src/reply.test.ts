@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COPY, linkCode, replyTo, type Message, type ReplyDeps } from "./reply";
+import { COPY, linkCode, replyTo, triedAgain, type Message, type ReplyDeps } from "./reply";
 import type { Fetch } from "./clients";
 import { SETUP_COPY } from "./setup";
 
@@ -378,5 +378,15 @@ describe("replyTo", () => {
         }),
       ),
     ).toEqual([COPY.unavailable]);
+  });
+});
+
+describe("which unanswered 1:1 turns are tried again (`triedAgain`)", () => {
+  it("tries again a turn that never started or failed, never a refusal or a turn that ran out of time", () => {
+    expect(triedAgain({ kind: "not_started" })).toBe(true);
+    expect(triedAgain({ kind: "unavailable" })).toBe(true);
+    expect(triedAgain({ kind: "unavailable", refused: "400 bad_request" })).toBe(false);
+    expect(triedAgain({ kind: "unavailable", timedOut: true })).toBe(false);
+    expect(triedAgain({ kind: "no_storage" })).toBe(false);
   });
 });

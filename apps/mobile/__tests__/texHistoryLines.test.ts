@@ -96,6 +96,21 @@ describe("the history's lines", () => {
     ]);
   });
 
+  test("a reply shows the message it answers in full, and the words kept with it when that message is out of view", () => {
+    const long = "Drafted in the wrong account. Want me to save it in the other account, where the thread is? 👍 or 👎?";
+    const entries: LedgerEntry[] = [
+      { id: "q3", at: at(2, 9, 51), kind: "text", eid: "w3", replyTo: "w0", quoted: "An older message this view doesn't hold", from: { kind: "person" }, text: "I never sent a note?" },
+      { id: "q2", at: at(2, 9, 48), kind: "text", eid: "w2", replyTo: "w1", quoted: long, from: { kind: "person" }, text: "what do you mean?" },
+      { id: "q1", at: at(2, 9, 47), kind: "text", eid: "w1", turn: "t1", from: { kind: "tex" }, text: long },
+    ];
+    const lines = historyDays(entries, NOW).flatMap((d) => d.turns.flatMap((t) => t.lines)).filter((l) => l.entry.kind === "text");
+    expect(lines.map((l) => [l.text, l.replyTo ?? null])).toEqual([
+      [long, null],
+      ["what do you mean?", `Tex: ${long}`],
+      ["I never sent a note?", "An older message this view doesn't hold"],
+    ]);
+  });
+
   test("a reaction sits under the text it is on, never as a line, as in the mock; one taken back is gone", () => {
     const entries: LedgerEntry[] = [
       { id: "r5", at: at(2, 12, 5), kind: "text", event: "reaction", from: { kind: "person", name: "Ada" }, text: 'took back ❤️ on the message "Will do. I\'ll text you"' },

@@ -28,6 +28,8 @@ export type TexEvent = {
   kind: EventKind;
   text?: string;
   replyTo?: string;
+  /** On a reply: the full words of the message it answers (`replyQuote.ts`). */
+  quoted?: string;
   delivered?: boolean;
   reason?: EventReason;
   turn?: string;
@@ -85,9 +87,10 @@ export async function addEvent(storage: InboxStorage, event: Omit<TexEvent, "id"
   const at = Math.max(0, Math.floor(event.at));
   const id = `${String(at).padStart(13, "0")}-${String(seq % 1_000_000).padStart(6, "0")}`;
   const text = event.text === undefined ? {} : { text: event.text.slice(0, MAX_EVENT_TEXT) };
+  const quoted = event.quoted === undefined || event.quoted === "" ? {} : { quoted: event.quoted.slice(0, MAX_EVENT_TEXT) };
   const name = displayName(event.from.name);
   const from = { kind: event.from.kind, ...(event.from.who ? { who: event.from.who } : {}), ...(name ? { name } : {}) };
-  await storage.put<Kept>(`${PREFIX}${id}`, { e: { ...event, ...text, from, at, id } });
+  await storage.put<Kept>(`${PREFIX}${id}`, { e: { ...event, ...text, ...quoted, from, at, id } });
   await prune(storage, event.at);
   // Words held outside the customer's bucket never outlive the day, even in a chat that goes quiet.
   await armBy(storage, at + KEEP_EVENTS_MS, at);

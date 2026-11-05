@@ -123,9 +123,6 @@ const TOOL_TIMED_OUT =
   "That call took too long and was stopped. Don't retry it. Answer with what you already have, " +
   "and say plainly what you could not check.";
 
-/** Before a text that came in while the reply above was written: that reply has not gone out. */
-export const LATE_TEXT = "(Your reply above has NOT been sent. They texted more while you wrote it, below. Write one reply that answers all of it.)";
-
 /** What the model reads for a call asked for after `TURN_TOOL_BUDGET_MS`. */
 const OUT_OF_TIME =
   "Out of time: no more tool calls this turn. Answer now with what you already have, " +
@@ -544,7 +541,7 @@ export async function runTurn(options) {
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
       if (late !== null) {
-        messages.push({ role: "assistant", text: answer.text }, { role: "user", text: `${LATE_TEXT}\n\n${late}` });
+        messages.push({ role: "user", text: held.lateText(answer.text, late) }); // the draft quoted as NOT sent, never put in as said
         if (answerCheck) tell({ kind: "judge", by: "late", draft: answer.text, went: false, reason: "a text came in while it was written, so it was written again with it" }); // a passed draft held after all: the history says so
         tell({ kind: "steered", text: steer.words.at(-1) ?? "" });
         continue;
