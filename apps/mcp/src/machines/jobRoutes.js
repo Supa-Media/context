@@ -45,6 +45,7 @@ import { builtinModel, canRunBuiltin } from "../agent/builtin.js";
 import { jobChatOf, reachedWorkspace, TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "./reach.js";
 import { machineAskLine, ownerHandleIn } from "./groupAsk.js";
 import { personHubUrl } from "../agent/hubLinks.js";
+import { backgroundedBrief } from "./jobBackground.js";
 
 export const MACHINE_RUN_CLIENT_ID = "context_tex_machine_run";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -124,7 +125,8 @@ async function assign(request, env, session, controlPlane, origin, now) {
     folder: body.folder,
     repo: body.repo,
     permission: body.permission,
-    brief: body.brief,
+    // Who the part works for and where it was started from, from this grant, ahead of the job's own words (`jobBackground.js`).
+    brief: typeof body.brief === "string" && body.brief.trim() !== "" ? backgroundedBrief(session, body.brief, { machineName: machine.machine.name, fromOwner: machine.machine.ownerId === session.actorUserId }) : body.brief,
     doneWhen: body.doneWhen,
     advice: body.advice,
     resumeSession: body.resumeSession,

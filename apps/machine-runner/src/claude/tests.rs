@@ -156,6 +156,16 @@ fn a_full_run_is_plain_claude_code_and_resume_uses_the_id() {
     assert!(a.contains("--resume sid"));
 }
 
+/// Every part runs on Opus 5.5, never on whatever default the computer's Claude Code
+/// has (the owner, 2026-11-05).
+#[test]
+fn every_run_is_pinned_to_opus() {
+    let cfg = PathBuf::from("/c");
+    let cmds = vec![];
+    let a = args(&plan(&cfg, &cmds)).join(" ");
+    assert!(a.contains("--model claude-opus-5-5"), "{a}");
+}
+
 #[test]
 fn stdin_lines() {
     let v: Value = serde_json::from_str(&user_line("a \"quoted\"\nline")).unwrap();

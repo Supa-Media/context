@@ -124,7 +124,7 @@ flowchart TB
   JN -->|mail to tex| SEND
   JN -->|mail to advisor| JNA["Advisor on the mail<br/>Opus 5.5, ten asks a job<br/>jobNote.js"]:::opus
   JOB -->|a job's answer| JCK["claimCheck.js, code<br/>+ hand-back judge, Haiku 5.5<br/>handbackJudge.js"]:::judge
-  FD -->|delegate| DL["A person's computer<br/>Claude Code or Codex, supervised<br/>delegate.js · supervise.js"]:::tool
+  FD -->|delegate| DL["A person's computer<br/>Claude Code on Opus 5.5, or Codex<br/>told where it was started from (1:1 or group)<br/>delegate.js · supervise.js · jobBackground.js"]:::tool
 
   T -->|send_email| MC["Mail checker<br/>Haiku 5.5, reads the draft<br/>mailChecker.js"]:::judge
   MC --> YES([Waits for the person's yes, in code]):::rail
@@ -190,6 +190,7 @@ Newest first. One line per pull request that changed the drawing.
 - 2026-11-05: decide and recheck move into the gateway; their daily cap and usage rows stay in Convex, off each text's path.
 - 2026-11-05: the reply gates are on in production (setup `reply_judge: clef-flash`), and every judging of a draft (each gate's score, threshold, and whether
   the draft went or went back) is kept in the chat's history as a `judge` entry.
+- 2026-11-05: a computer job's brief opens with its background (`jobBackground.js`): started 1:1 (acts as the person) or from a group (the group's reach only), Context and `orient` first, keyed API calls through Context, only Tex reaches the person, a part ends at its answer. Claude Code is pinned to Opus 5.5, the runner ends a part ten seconds after its answer, and a run may make keyed API calls (`send` action `api`), a group's run with the group's keys only.
 - 2026-11-05: every job gets a job note (its project's note, or Tex's own `tex/jobs/`); the job, Tex and the advisor join its mail; mail to tex reaches the chat's report turn, mail to advisor is answered on the note; computer jobs read and send it with their run grant.
 - 2026-11-05: gatherTheTurn is shared: one rule for which waiting texts a turn answers (`gatherTheTurn.ts`).
 - 2026-11-05: isItForTex is shared: one step says whether a text is for Tex and whether code answers it (`isItForTex.ts`).
