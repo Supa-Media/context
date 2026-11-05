@@ -109,7 +109,7 @@ flowchart TB
   IMG --> CC
 
   FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js<br/>sent back once"]:::judge
-  CHK -. off unless reply_judge .-> RJ["Reply judge<br/>Clef or Clef Flash<br/>replyJudge.js"]:::off
+  CHK -. off unless reply_judge .-> RJ["Reply gates<br/>ten Clef Flash judges at once<br/>each tuned, sent back at most twice<br/>replyJudge.js · replyGates.js"]:::off
   CHK --> SEND([sendTheReply]):::door
   SEND -. behind the reply .-> SR["Self-review<br/>Haiku 5.5 scores the chat<br/>selfReview.js"]:::judge
 
@@ -152,4 +152,6 @@ What each model costs is `jev/meter.ts`.
 
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-05: the reply judge becomes ten parallel Clef Flash gates, each
+  tuned on its own set, sent back at most twice; still off in production.
 - 2026-11-05: first drawing, from main at `d88e2bc` (Dev2's ask).
