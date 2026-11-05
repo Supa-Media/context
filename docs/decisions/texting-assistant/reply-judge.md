@@ -73,6 +73,13 @@ above:
   picks the threshold that catches the most faults with at most 10% false
   alarms; a gate clears the bar at 80% caught. No set case may be one of its
   gate's own examples (a test fails if one is).
+- With the gates on, the word checks they replace are off: `untriedWeb.js`
+  ("I can't open it" with nothing tried, now `tried_first`) and
+  `doItChecks.js` (a read offered back, an advisor asked for and not asked,
+  now `does_it` and `followed_them`). They still run for a setup without
+  gates. `claimCheck.js` still runs first; its word checks go next, its facts
+  stay. Test: `apps/mcp/test/agentProduction.test.mjs` ("with reply judges,
+  the word checks they replace stay off").
 - Facts stay code, because they are not readings of words: an empty reply, a
   note link no tool gave, held approvals, send limits, step budgets.
 

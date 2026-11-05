@@ -82,7 +82,8 @@ export function judgeState({ question, history = [], messages = [], answer }) {
 
 /**
  * `{ check, verdicts }` for `runTurn`'s `answerCheck`, around the turn's other
- * check (`doItChecks.js`, `claimCheck.js` or `untriedWeb.js`), which runs first.
+ * check (`claimCheck.js`; the word checks the gates replace, `doItChecks.js` and
+ * `untriedWeb.js`, are off when they run), which runs first.
  * `check(answer, { messages })` runs the gates; `verdicts` keeps each judging,
  * for the turn's log and the benchmark. `job` leaves out the texting-only gates.
  */
