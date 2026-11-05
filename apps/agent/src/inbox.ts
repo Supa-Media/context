@@ -49,7 +49,7 @@
 
 import { queueItem, TEXTS_QUEUE } from "./chatQueue";
 import { isItForTexAlone } from "./isItForTex";
-import { partEvent, sendCardPart, threadFor } from "./sendParts";
+import { partEvent, sendCardPart, threadFor } from "./sendParts"; import { sendPicturePart, sendWords, type PartLine, type PartLogged } from "./sendOne";
 import type { Choice } from "./pickCard";
 import { settleCard, withCardsHere } from "./cardChats";
 import type { Offer } from "./dataCards";
@@ -61,7 +61,7 @@ import { pruneMedia } from "./media";
 import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
 import { isWhapiChat } from "./whapi";
 import { carouselRun, isRefusal } from "./carousel";
-import { PICTURE_FAILED, describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
+import { describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
 import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
@@ -76,7 +76,7 @@ import { answers, clearReactions, noteReaction, notedReactions, reactionLine, ta
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
-import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events"; import { warmDeps } from "./warm";
+import { addEvent, flushChat, kindOf, logAsk, pruneEvents } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
 import { chatJobs, jobQuestion, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, viewLink, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
@@ -392,15 +392,15 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
 async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: Entry, timing?: TurnTiming): Promise<boolean> {
   const reply = [item.reply ?? []].flat();
   let sent = item.sent ?? 0;
-  const out = (part: Omit<TexEvent, "id" | "at" | "chat" | "from">) => {
+  const out = (part: PartLogged, system = item.system === true) => {
     // Each part is logged once it went: the first is when the person's wait ended (`textTiming.ts`).
     if (timing && timing.firstSent === undefined) timing.firstSent = deps.now();
     return addEvent(storage, {
       at: deps.now(),
       chat: item.message.chatId,
-      from: { kind: item.system ? "system" : "tex" },
-      ...(item.turn ? { turn: item.turn } : {}),
-      ...(item.covers ? { covers: item.covers } : {}),
+      from: { kind: system ? "system" : "tex" },
+      ...(!system && item.turn ? { turn: item.turn } : {}),
+      ...(!system && item.covers ? { covers: item.covers } : {}),
       ...part,
     });
   };
@@ -439,17 +439,17 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
         continue;
       }
       const idempotency = index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`;
-      if (typeof part === "string" && isControlWord(part)) console.log(JSON.stringify({ event: "reply", outcome: "control_word_dropped" })); // a word meant for us, never a text (`controlWords.ts`)
-      else if (typeof part === "string") {
-        const handle = await line.sendText(item.message.chatId, part, idempotency, thread);
-        await rememberText(storage, item.message.chatId, handle, part, deps.now());
-        await out(partEvent(part));
-      } else if ("card" in part) {
-        await sendCardPart(line, item.message.chatId, part, thread, idempotency);
-      } else {
-        const went = await sendPicture(deps, item.message.chatId, part.media, idempotency, thread);
-        await out(went ? partEvent(part) : { kind: "picture", delivered: false, reason: "send_refused" });
-      }
+      // One sender (`sendOne.ts`): this lane's way out is its idempotency key and thread.
+      const partLine: PartLine<Media> = {
+        sendText: (text, failure) => line.sendText(item.message.chatId, text, failure ? `${idempotency}:failed` : idempotency, thread),
+        sendPicture: async (media) => (await line.sendMedia(item.message.chatId, media, idempotency, thread), "url" in media ? media.url : undefined),
+        refused: refusedPicture,
+        remember: (handle, text) => rememberText(storage, item.message.chatId, handle, text, deps.now()),
+        log: async (logged, system) => void (await out(logged, system || item.system === true)),
+      };
+      if (typeof part === "string") await sendWords(partLine, part);
+      else if ("card" in part) await sendCardPart(line, item.message.chatId, part, thread, idempotency);
+      else await sendPicturePart(partLine, part.media);
       sent = index + 1;
     }
     if (timing) timing.sendEnd = deps.now();
@@ -624,17 +624,10 @@ async function dropSteered(storage: InboxStorage, ids: string[], covers: string[
  * becomes a sentence saying so rather than a reply retried until dropped; a
  * failure that is not a refusal is retried with the reply.
  */
-async function sendPicture(deps: InboxDeps, chatId: string, media: Media, key: string, thread?: string): Promise<boolean> {
-  const line = lineFor(lineDeps(deps), chatId);
-  try {
-    await line.sendMedia(chatId, media, key, thread);
-    return true;
-  } catch (error) {
-    const status = (error as { status?: number | null }).status;
-    if (typeof status !== "number" || status < 400 || status >= 500 || status === 429) throw error;
-    await line.sendText(chatId, PICTURE_FAILED, `${key}:failed`, thread);
-    return false;
-  }
+/** A picture the line refuses outright (a 4xx that is not a rate limit) is said once; any other failure retries the reply. */
+function refusedPicture(error: unknown): boolean {
+  const status = (error as { status?: number | null }).status;
+  return typeof status === "number" && status >= 400 && status < 500 && status !== 429;
 }
 
 async function answerTexts(message: Message, work: string, deps: InboxDeps, storage: InboxStorage, presence: Presence | undefined, timing: TurnTiming): Promise<string[]> {
