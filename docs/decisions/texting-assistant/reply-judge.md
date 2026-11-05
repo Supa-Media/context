@@ -42,3 +42,40 @@ reply, with the model going back to correct itself before anything is sent.
 the owner rejected; judging without the turn's actions cannot tell "found it"
 from a claim with nothing behind it; judging more than once a turn turns one
 slow reply into a loop. Tests: `apps/mcp/test/replyJudge.test.mjs`.
+
+## Nine parallel gates, sent back at most twice (2026-11-05)
+
+The owner asked for the pattern checks on replies to go ("a series of parallel
+judges, fine tuned individually ... [when] they don't [pass] it's given back to
+the model and they are told which gates don't pass"), on Clef Flash, with "a
+limit that the judges can only send back 2 times", and "make sure each of these
+judges are also well tuned". This replaces the one-call, eight-check judge
+above:
+
+- Nine gates (`apps/mcp/src/agent/replyGates.js`): did what it says, tried
+  first, does it, finished, sourced, heard them, followed them, promises kept, short and
+  clean. Each is one yes/no question with passing and failing examples, the
+  notice the model gets when it fails, and its own threshold (`at`).
+- Every gate is its own decision call on the same packet (`judgeState`), all
+  at once, so the wait is the slowest gate. Every gate at or over its
+  threshold fails; all failed gates go back in one notice that names each and
+  says what it needs (`sendBackNotice`). Only the failed gates read the
+  rewrite. At most `MAX_SEND_BACKS` (2) send-backs a turn; then the reply goes.
+- A background job's report runs the gates too, less `short_and_clean` (it is
+  read by Tex, not texted).
+- `judge_at`, when a setup names it, replaces every gate's own threshold.
+- Tuning: each gate has a labelled set (`apps/mcp/bench/gates/<gate>.json`),
+  and is also scored on every other gate's good replies, since a gate that
+  fires on a good reply is a false alarm wherever that reply came from. `pnpm
+  ai gates` (workflow "AI Gates", on every push that changes a gate or a set)
+  picks the threshold that catches the most faults with at most 10% false
+  alarms; a gate clears the bar at 80% caught. No set case may be one of its
+  gate's own examples (a test fails if one is).
+- Facts stay code, because they are not readings of words: an empty reply, a
+  note link no tool gave, held approvals, send limits, step budgets.
+
+**What a simplification would cost:** one call for all gates lets one fault's
+wording drown another's (the nine-way choice above); sending back only the
+worst fault costs a round per fault; no cap on send-backs is a loop; a gate
+shipped without its set scored is a guess. Tests:
+`apps/mcp/test/replyJudge.test.mjs`, `apps/mcp/bench/test/gates.test.mjs`.

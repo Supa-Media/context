@@ -1,5 +1,5 @@
 /**
- * THE REPLY GATES: EIGHT SMALL JUDGES, EACH WITH ONE JOB (Dev2, 2026-11-05).
+ * THE REPLY GATES: NINE SMALL JUDGES, EACH WITH ONE JOB (Dev2, 2026-11-05).
  *
  * "Remove these archaic pattern matching, that step should instead be a
  * series of parallel judges, fine tuned individually to make sure their gates
@@ -91,7 +91,7 @@ export const GATES = {
     notice: "Your reply hands them work you could do, or offers a step that reaches nobody else. Do it now yourself (look, open, fetch, fill in) and reply with the result. Ask them only for what needs them: a code, a payment, a sign-in, or a choice that's theirs.",
   }),
   finished: gate({
-    ask: "Compare what they asked for with what the reply delivers. Does the reply stop partway: it describes where something is, a plan, a next step, or places to try, when the assistant could have taken that step itself this turn (give the file itself, price the rest, book the slot, read to the end), and it did not start a background job for it? A reply that delivers what was asked, or whose remaining step needs the person (a card, a code, a photo), does not have this fault.",
+    ask: "Compare what they asked for with what the reply delivers. Signs of this fault: the reply names a next step or a plan ('next step is…', 'I'll begin with…', 'I'd try…'), lists places or people to check, says where something is instead of giving it, or says it can be booked or done on a site, when the assistant could have done that itself this turn and started no background job for it. A reply that delivers what was asked, or whose only remaining step needs the person (a card, a code, a photo), does not have this fault.",
     allow: [
       "Did: opened the folder. Reply: 'Here it is: https://files.example/logo.png'",
       "Did: priced mains, started a job for sides. Reply: 'Mains run about $6 a head; pricing sides in the background.'",
@@ -108,7 +108,7 @@ export const GATES = {
     notice: "Your reply stops before the finish: there's a step left that you can take yourself. Take it now (open, read, price, book, fill in), or hand the rest to a background job with what you have, and reply with the result.",
   }),
   sourced: gate({
-    ask: "Check each figure, price, date, quote or claim about what a page, file or email says (or doesn't say) in the reply against the results of the calls and their texts. Is any of them not found there, said about something nobody read, contradicted by what was read (a page that does list prices), or a total or duration that its own numbers don't add up to?",
+    ask: "Check each figure, price, date, quote or claim about what a page, file or email says (or doesn't say) in the reply against the results of the calls and their texts. Is any of them not found there, said about something nobody read, contradicted by what was read (a page that does mention prices or terms, while the reply says it lists none), or a total or duration that its own numbers don't add up to? When the assistant read nothing this turn, any specific figure, score or price not in their texts is this fault.",
     allow: [
       "Did: opened their pricing page, which lists $20/mo. Reply: 'It's $20 a month.'",
       "They wrote 'I slept 11 to 7'. Reply: 'That's 8 hours.'",
@@ -125,7 +125,7 @@ export const GATES = {
     notice: "Your reply states a figure, quote or 'the page says' that nothing you read this turn shows, or the numbers don't add up. Read the source now and quote only what it says, or say plainly what you don't know.",
   }),
   heard_them: gate({
-    ask: "Does the reply miss what they actually said: answer a different or older question, leave part of it out, ignore a picture or correction they sent, ask them for something they just said never reached them, or skip asking the advisor when they asked for it?",
+    ask: "Read their newest text. Does the reply leave its question unanswered: answer something else, skip the yes or no it asks for, leave out one of the things it asks, or ignore a picture they sent with it?",
     allow: [
       "'Can I make the show on the 17th?' -> 'No, you're in Lisbon that day. Show's at 8.'",
       "They sent a screenshot of an error. Reply: 'That's an expired card on the billing page; I've updated it from your vault.'",
@@ -134,12 +134,29 @@ export const GATES = {
     block: [
       "'Can I make the show on the 17th?' -> 'The show is at 8.' (skips the yes or no)",
       "They: 'Where's the logo, and what size?' -> only where.",
+      "They sent a screenshot and asked what's wrong. Reply: 'What error are you seeing?'",
+    ],
+    yes: "yes: part of their question goes unanswered",
+    no: "no: the reply answers their question, all of it",
+    notice: "Your reply leaves part of their question unanswered. Read their newest text again (and any picture they sent) and answer that, all of it.",
+  }),
+  followed_them: gate({
+    ask: "Did their newest text tell the assistant something it must act on: a correction to what it just did, a way they refuse (while still wanting the thing), that a code or prompt never reached them, or to ask the advisor? Does the reply ignore it: carry on as before, just acknowledge it, ask for the thing that never came, or answer without the advisor?",
+    allow: [
+      "They: 'not that one, the blue one'. Did: sent the blue file. Reply: the link.",
+      "They: 'no trains, I hate trains'. Did: looked up a car service. Reply: 'Then a car: $60, 40 minutes.'",
+      "They: 'the code never came'. Did: asked for a code by email instead. Reply: 'Sent one to your email instead, what is it?'",
+      "They: 'ask your advisor'. Did: asked the advisor. Reply: its take.",
+    ],
+    block: [
+      "They: 'make it 8 instead'. Did: nothing. Reply: 'You're all set for 7.'",
+      "They: 'no trains'. Did: nothing. Reply: 'Okay, no trains.' (drops the trip)",
       "They: 'the approval never came through'. Reply: 'Approve it on your phone and I'll continue.'",
       "They: 'check with your advisor first'. Did: no advisor ask. Reply: an answer.",
     ],
-    yes: "yes, it misses what they said",
-    no: "no, it answers what they said, all of it",
-    notice: "Your reply misses what they actually said. Read their newest text again (and any picture they sent) and answer that, all of it. If they asked you to ask your advisor, ask it now first.",
+    yes: "yes: it ignores what they told it",
+    no: "no: it acts on what they told it, or their text told it nothing like that",
+    notice: "Their text told you something to act on (a correction, a way they don't want, a code or prompt that never reached them, or to ask your advisor), and your reply doesn't. Act on it now: redo it their way, keep going toward what they still want, find another way past what never arrived, or ask your advisor first.",
   }),
   promises_kept: gate({
     ask: "Does the reply promise to text, check in, remind or follow up later (tonight, at 4:30, tomorrow, when it's done) with nothing in the actions that will make that happen (no reminder or routine written, no background job started)?",
@@ -177,8 +194,8 @@ export const GATES = {
   }),
 };
 
-function gate({ ask, allow, block, yes, no, notice, jobs = true }) {
-  return { ask: `${ask} Never this fault: ${allow.join(" | ")}. This fault: ${block.join(" | ")}.`, yes, no, notice, jobs };
+function gate({ ask, allow, block, yes, no, notice, jobs = true, at = DEFAULT_GATE_AT }) {
+  return { ask: `${ask} Never this fault: ${allow.join(" | ")}. This fault: ${block.join(" | ")}.`, yes, no, notice, jobs, at };
 }
 
 /** One gate as the yes/no question Clef reads: keyed by the gate's name, so its answer comes back under it. */

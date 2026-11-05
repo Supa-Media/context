@@ -4,8 +4,9 @@
 # production (Dev2, 2026-11-05: "make sure each of these judges are also well
 # tuned"). The report is the run's summary page. Nothing is written anywhere.
 #
-# Runs by hand, and on a push that changes a gate or its set, so the numbers
-# sit beside the change that moved them. One Clef Flash call per case per
+# Runs by hand only, like the AI Benchmark: it holds production's Workers AI
+# token, so it never runs on a pushed branch's unreviewed code
+# (scripts/check-workflow-triggers.mjs). One Clef Flash call per case per
 # gate, a few hundred calls a run: cents.
 
 name: AI Gates
@@ -25,18 +26,13 @@ on:
         options:
           - clef-flash
           - clef
-  push:
-    paths:
-      - apps/mcp/src/agent/replyGates.js
-      - apps/mcp/bench/gates/**
-      - apps/mcp/bench/gates.mjs
 
 permissions:
   contents: read
 
 concurrency:
-  group: ai-gates-${{ github.ref }}
-  cancel-in-progress: true
+  group: ai-gates
+  cancel-in-progress: false
 
 jobs:
   gates:

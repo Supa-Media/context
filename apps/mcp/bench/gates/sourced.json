@@ -206,6 +206,22 @@
       ],
       "reply": "They said it's a half day, pickup at noon.",
       "fault": true
+    },
+    {
+      "id": "half-thread-concluded",
+      "q": "did the board decide on the budget?",
+      "did": [
+        [
+          "read_email",
+          {
+            "id": "t1",
+            "part": "1 of 3"
+          },
+          "messages 1-4 of 12: still debating line items"
+        ]
+      ],
+      "reply": "No, they never decided; the thread ended without a vote.",
+      "fault": true
     }
   ]
 }

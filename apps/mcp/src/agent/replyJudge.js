@@ -1,7 +1,7 @@
 /**
  * THE REPLY JUDGES: CLEF FLASH BETWEEN TEX AND THE PERSON (Dev2, 2026-11-04,
  * "a small judge that sits between the interaction agent and the user that
- * just makes sure that no bs gets through"; made eight parallel gates,
+ * just makes sure that no bs gets through"; made nine parallel gates,
  * 2026-11-05: "a series of parallel judges, fine tuned individually ... [when]
  * they don't [pass] it's given back to the model and they are told which gates
  * don't pass", and "the judges can only send back 2 times").

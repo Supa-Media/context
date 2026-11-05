@@ -98,7 +98,7 @@ test("every gate runs at once on the same packet, and each failed gate goes back
   const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question, history, log: (line) => logs.push(line) });
   const result = await turn(ai, judge);
   assert.equal(result.answer, "Here it is: https://filebox.example/garden-club/resources/brand-assets/garden-club-logo.png");
-  const first = ai.judged.slice(0, 8);
+  const first = ai.judged.slice(0, Object.keys(GATES).length);
   assert.deepEqual(first.map((call) => call.gate).sort(), Object.keys(GATES).sort(), "one call per gate, each asking one question");
   assert.ok(first.every((call) => call.model === "@cf/cloudflare/clef-flash" && call.selector === "clef-flash"));
   assert.ok(first.every((call) => call.state === first[0].state), "every gate reads the same packet");
@@ -142,7 +142,7 @@ test("only the failed gates read the rewrite", async () => {
   const ai = scripted([{ text: "Thanks." }, { text: "Still thanks." }, { text: "Here it is." }], [{ finished: 0.9, does_it: 0.8 }, { __ran: 2 }]);
   const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question, history, log: () => {} });
   await turn(ai, judge);
-  assert.deepEqual(ai.judged.slice(8).map((call) => call.gate).sort(), ["does_it", "finished"]);
+  assert.deepEqual(ai.judged.slice(Object.keys(GATES).length).map((call) => call.gate).sort(), ["does_it", "finished"]);
   assert.equal(judge.verdicts[1].verdict, "accepted");
 });
 
