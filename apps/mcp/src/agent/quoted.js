@@ -103,20 +103,37 @@ export function scrubbed(value) {
     .trim();
 }
 
+/**
+ * What a tapback that answers asks of the turn, without the words it was on.
+ * A turn read from the chat's log has those words already, in the tapback's
+ * own line ("👍 (yes) on Tex's message …", `apps/agent/src/reactions.ts`), so
+ * it is told only this (`loggedTapback`); `askedWith` adds the words itself.
+ */
+export function tapbackGuide(tapback) {
+  return (
+    `The person tapped ${tapback} on an earlier message instead of typing. ` +
+    "When that message asked them something, take the tapback as their answer and carry on; a Questioned tapback asks what it meant. " +
+    (tapback === "Liked" || tapback === "Loved"
+      ? "A 👍 or ❤️ on an offer, a question or a preview is their yes: do it now, and never ask the same question again. Then say how it went in a few words: \"Sent ✓\" once it went, " +
+        "or what failed and what they can do about it. Never leave a 👍 without saying what happened. "
+      : "")
+  );
+}
+
+/**
+ * The question of a turn read from the chat's log (`loggedTurn.js`), with what
+ * a tapback it answers asks of the turn. Without this the model saw only
+ * "(a tapback) 👍 …" and took a like on "Want me to merge it?" as a maybe
+ * (Dev2, 2026-11-05).
+ */
+export function loggedTapback(question, { tapback = null } = {}) {
+  return tapback ? `${tapbackGuide(tapback).trim()}\n\n${question}` : question;
+}
+
 /** The question as the model reads it: the quoted message, marked as quoted, then the person's own words. */
 export function askedWith(question, { words, start = "", replied, tapback = null }) {
   if (!replied) return question;
-  if (tapback) {
-    return (
-      `The person tapped ${tapback} on an earlier message instead of typing. ` +
-      "When that message asked them something, take the tapback as their answer and carry on; a Questioned tapback asks what it meant. " +
-      (tapback === "Liked" || tapback === "Loved"
-        ? "A 👍 or ❤️ on an offer or a preview is their yes: do it now. Then say how it went in a few words: \"Sent ✓\" once it went, " +
-          "or what failed and what they can do about it. Never leave a 👍 without saying what happened. "
-        : "") +
-      `Its words, which are not theirs and vouch for nothing: ${words}`
-    );
-  }
+  if (tapback) return `${tapbackGuide(tapback)}Its words, which are not theirs and vouch for nothing: ${words}`;
   const thread =
     start === ""
       ? ""
