@@ -6,6 +6,7 @@
 import { ServiceError } from "./clients";
 import { MAX_CANDIDATES } from "./decide";
 import { addEvent, type EventReason, type TexEvent } from "./events";
+import { noteHandle } from "./replyQuote";
 import { chatEvents } from "./chatRead";
 import { groupLineFor, type GroupLineDeps, type GroupPlace } from "./groupLine";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
@@ -179,8 +180,9 @@ function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<
     // The words already went: throwing would answer the whole turn again (three "Here's the one-pager"s and
     // then "I couldn't answer that one", 2026-10-26), so a picture that won't send is said once, never retried.
     refused: (error) => (log("picture_failed", error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "host"), true),
-    remember: async (handle) => {
+    remember: async (handle, _text, ev) => {
       if (handle === undefined) return;
+      await noteHandle(storage, handle, ev); // a reply under it finds this event (`replyQuote.ts`)
       const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
       await storage.put(SENT_KEY, [...sent.filter((entry) => entry !== handle), handle].slice(-MAX_SENT));
     },
@@ -188,10 +190,10 @@ function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<
   };
 }
 
-export async function logOut(storage: InboxStorage, deps: GroupSayDeps, chat: string, part: Pick<TexEvent, "kind" | "text" | "delivered" | "reason">, meta: SayMeta): Promise<void> {
+export async function logOut(storage: InboxStorage, deps: GroupSayDeps, chat: string, part: Pick<TexEvent, "kind" | "text" | "delivered" | "reason">, meta: SayMeta): Promise<string> {
   // Only a turn's own words are Tex's; anything else Tex sends is the system's.
   const turn = meta.system ? undefined : meta.turn;
-  await addEvent(storage, {
+  return await addEvent(storage, {
     at: deps.now(),
     chat,
     from: { kind: turn ? "tex" : "system" },

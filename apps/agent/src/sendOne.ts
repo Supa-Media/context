@@ -23,10 +23,10 @@ export type PartLine<P> = {
   sendPicture(picture: P): Promise<string | undefined | null>;
   /** Whether a picture's failure is the line refusing it (said once, never retried) rather than one to retry. */
   refused(error: unknown): boolean;
-  /** Keep a text's handle, so an inline reply to it reaches Tex. */
-  remember(handle: string | undefined, text: string): Promise<void>;
-  /** Log what went, or did not: the failure line is the system's, never a turn's. */
-  log(part: PartLogged, system: boolean): Promise<void>;
+  /** Keep a text's handle, so an inline reply to it reaches Tex; `ev` is the event it was logged as, when the lane says. */
+  remember(handle: string | undefined, text: string, ev?: string): Promise<void>;
+  /** Log what went, or did not: the failure line is the system's, never a turn's. The event's id, when the lane keeps one. */
+  log(part: PartLogged, system: boolean): Promise<string | void>;
 };
 
 /** Send one text. False when it was only a control word, so nothing went. */
@@ -38,8 +38,8 @@ export async function sendWords<P>(line: PartLine<P>, text: string): Promise<boo
   // A picture that never uploaded (`partsFor`) stands in the answer as the line saying so.
   if (text === PICTURE_FAILED) return (await saidFailed(line, "upload_failed"), true);
   const handle = await line.sendText(text, false);
-  await line.remember(handle, text);
-  await line.log({ kind: kindOf(text), text, delivered: true }, false);
+  const ev = await line.log({ kind: kindOf(text), text, delivered: true }, false);
+  await line.remember(handle, text, ev ?? undefined);
   return true;
 }
 
@@ -60,7 +60,7 @@ export async function sendPicturePart<P>(line: PartLine<P>, picture: P): Promise
 async function saidFailed<P>(line: PartLine<P>, reason: "upload_failed" | "send_refused"): Promise<false> {
   await line.log({ kind: "picture", delivered: false, reason }, false);
   const handle = await line.sendText(PICTURE_FAILED, true);
-  await line.remember(handle, PICTURE_FAILED);
-  await line.log({ kind: "text", text: PICTURE_FAILED, delivered: true }, true);
+  const ev = await line.log({ kind: "text", text: PICTURE_FAILED, delivered: true }, true);
+  await line.remember(handle, PICTURE_FAILED, ev ?? undefined);
   return false;
 }

@@ -12,6 +12,7 @@
  */
 
 import { gatherTheTurn } from "./gatherTheTurn";
+import { noteHandle, replyFields } from "./replyQuote";
 import { chatEvent } from "./chatState";
 import type { SettingReply } from "./texStyle";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
@@ -73,14 +74,18 @@ export async function keepNames(storage: InboxStorage, names: readonly { phone: 
 export async function logGroupInbound(storage: InboxStorage, message: GroupMessage, now: number): Promise<string> {
   const who = await sha256Hex(message.from);
   const name = ((await storage.get<Record<string, string>>(NAMES_KEY)) ?? {})[who];
-  return await addEvent(storage, {
+  const id = await addEvent(storage, {
     at: now,
     chat: message.groupId,
     from: { kind: "person", who, ...(name ? { name } : {}) },
     kind: message.reaction ? "reaction" : kindOf(message.text, message.attachments),
     text: message.text,
     people: await eventPeople(storage, message),
+    // A reply under an earlier message, found by the handle the webhook names: its id and full words (`replyQuote.ts`).
+    ...(message.reaction || message.replyTo === undefined ? {} : await replyFields(storage, message.groupId, { handle: message.replyTo })),
   });
+  if (!message.reaction) await noteHandle(storage, message.messageId, id);
+  return id;
 }
 
 async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: GroupMessage, candidates: string[], running: boolean, addressed = false): Promise<Decision> {

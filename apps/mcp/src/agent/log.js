@@ -36,7 +36,7 @@ const MAX_COVERS = 32;
 export const EVENT_KINDS = new Set(["text", "picture", "file", "link", "reaction", "ask", "ask_settled", "delivery"]);
 export const FROM_KINDS = new Set(["person", "tex", "system"]);
 export const REASONS = new Set(["upload_failed", "send_refused", "held_newcomer", "failed", "timed_out", "too_long"]);
-const FIELDS = new Set(["id", "at", "chat", "from", "kind", "text", "replyTo", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard"]);
+const FIELDS = new Set(["id", "at", "chat", "from", "kind", "text", "replyTo", "quoted", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard"]);
 const FROM_FIELDS = new Set(["kind", "who", "name"]);
 
 export const EVENT_ID = /^\d{13}-\d{6}$/;
@@ -85,6 +85,8 @@ export function checkEvent(event, { chat, now }) {
   if (!EVENT_KINDS.has(event.kind)) throw new EventRefusal("kind");
   if (event.text !== undefined && (typeof event.text !== "string" || event.text.length > MAX_EVENT_TEXT)) throw new EventRefusal("text");
   if (event.replyTo !== undefined && (typeof event.replyTo !== "string" || !EVENT_ID.test(event.replyTo))) throw new EventRefusal("replyTo");
+  // `quoted`: on a person's reply only, the full words of the message it answers (`apps/agent/src/replyQuote.ts`).
+  if (event.quoted !== undefined && (typeof event.quoted !== "string" || event.quoted.length > MAX_EVENT_TEXT || from.kind !== "person")) throw new EventRefusal("quoted");
   if (event.delivered !== undefined && typeof event.delivered !== "boolean") throw new EventRefusal("delivered");
   if (event.reason !== undefined && !REASONS.has(event.reason)) throw new EventRefusal("reason");
   if (event.turn !== undefined && (typeof event.turn !== "string" || !TURN.test(event.turn))) throw new EventRefusal("turn");
@@ -96,7 +98,7 @@ export function checkEvent(event, { chat, now }) {
   if (event.heard !== undefined && (event.heard !== "voice" || event.kind !== "file" || from.kind !== "person")) throw new EventRefusal("heard");
   if (event.ask !== undefined && (event.kind !== "ask" || typeof event.ask !== "string" || !ASK.test(event.ask))) throw new EventRefusal("ask");
   const kept = { id, at, chat, from: { kind: from.kind, ...(from.who ? { who: from.who } : {}), ...(from.name ? { name: from.name } : {}) }, kind: event.kind };
-  for (const field of ["text", "replyTo", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard"]) {
+  for (const field of ["text", "replyTo", "quoted", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard"]) {
     if (event[field] !== undefined) kept[field] = event[field];
   }
   return kept;
