@@ -113,3 +113,14 @@ the answer it had found; one also saved a second, unasked email draft.
 is the 11-05 failure; a note without the actions makes the rewrite redo them;
 letting a write run again on a rewrite saves or sends twice; refusing by tool name alone blocks the second, different write a check asks for. Test:
 `apps/mcp/test/sendBackLedger.test.mjs`, built from the 14:47 turn.
+
+Follow-up the same day, from the review thread: the framing (`recheck.js`)
+now points at the draft quoted below, not "above", and asks for plain text
+without the quote marks; an email or email draft to the same people from the
+same account counts as the same write however it is reworded (`SAME_TARGET`);
+the note says a browser step already happened on the real site and must not
+be clicked, submitted or paid again; a text that comes in mid-reply quotes
+the unsent draft the same way (`lateText`) instead of putting it in as said,
+and arms the same repeat refusal; and every held draft is remembered by the
+turn itself, so a second send-back from a code check (no reply gates, no
+judge entry) still shows draft 1.

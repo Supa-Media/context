@@ -12,16 +12,19 @@
  *  2. `refusal` check removed from turn.js → "a write already made this turn is not run again…".
  *  3. `sendBackNote` leaving out the actions list → "the rewrite is shown every action…".
  *  4. `turnLedger` treating every tool as a write (reads refused too) → "a write already made this turn is not run again…".
+ *  5. (follow-up) `SAME_TARGET` emptied → the reworded draft to the same person runs: tests 3 and 7 fail.
+ *  6. (follow-up) the late-text path pushing the draft as an assistant message again → test 7 fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { RECHECK_FROM } from "../src/agent/recheck.js";
+import { BROWSE_TOOL } from "../src/agent/browse.js";
+import { RECHECK_FROM, RECHECK_REPLACES } from "../src/agent/recheck.js";
 import { GATES } from "../src/agent/replyGates.js";
 import { replyJudge } from "../src/agent/replyJudge.js";
-import { ALREADY_DONE, repeatedWrite, sendBackNote, turnLedger } from "../src/agent/sendBack.js";
+import { ALREADY_DONE, LATE_FROM, repeatedWrite, turnLedger } from "../src/agent/sendBack.js";
 import { runTurn } from "../src/agent/turn.js";
 
 const MAIN = "@cf/acme/main-model";
@@ -69,7 +72,7 @@ async function the1447Turn() {
       {
         calls: [
           { name: "read_email", args: { id: "email:me@example.com/1" } },
-          { name: "save_email_draft", args: { body: "Hi Robin...", to: "robin@reviewer.example" } },
+          { name: "save_email_draft", args: { body: "Hi Robin, reworded and shorter.", to: "Robin@Reviewer.example" } },
           { name: "save_email_draft", args: { to: "sam@team.example", body: "Robin's window closed Tuesday." } },
         ],
       },
@@ -127,7 +130,7 @@ test("the rewrite is shown every action the turn already took, from its ledger",
 
 test("a write already made this turn is not run again on a rewrite, and the ledger says why", async () => {
   const { ran, told, ai } = await the1447Turn();
-  assert.deepEqual(ran.filter((name) => name === "save_email_draft"), ["save_email_draft", "save_email_draft"], "the same draft saved once, not twice; a different one may go");
+  assert.deepEqual(ran.filter((name) => name === "save_email_draft"), ["save_email_draft", "save_email_draft"], "the same draft (same people, reworded) saved once, not twice; one to someone else may go");
   const refused = told.filter((event) => event.kind === "tool" && event.reason === "already done this turn");
   assert.equal(refused.length, 1);
   assert.equal(refused[0].name, "save_email_draft");
@@ -158,18 +161,60 @@ test("only the same write with the same arguments is refused; a read, a failed w
   assert.equal(ledger.refusal("job_status", {}), null, "a tool with no annotations is not taken for a write");
 });
 
-test("every earlier draft of the turn is shown, each with what held it", () => {
-  const entries = [
-    { kind: "tool", name: "search_notes", args: { query: "x" }, ok: true },
-    { kind: "judge", by: "gates", draft: "first", went: false, judges: [{ id: "finished", yes: 0.82, at: 0.5, passed: false }, { id: "sourced", yes: 0.1, at: 0.5, passed: true }] },
-    { kind: "judge", by: "code", draft: "second", went: false, judges: [], notice: "Fix it." },
-  ];
-  const note = sendBackNote({ entries, notice: "Fix it.", draft: "second" });
+test("every earlier draft of the turn is shown, each with what held it, even with no judge entry", () => {
+  const ledger = turnLedger();
+  ledger.keep({ kind: "tool", name: "search_notes", args: { query: "x" }, ok: true });
+  ledger.keep({ kind: "judge", by: "gates", draft: "first", went: false, judges: [{ id: "finished", yes: 0.82, at: 0.5, passed: false }, { id: "sourced", yes: 0.1, at: 0.5, passed: true }] });
+  ledger.sendBack("Finish it.", "first");
+  // A code check with no reply gates tells no judge entry: the draft is still remembered.
+  const note = ledger.sendBack("Fix it.", "second");
   assert.ok(note.indexOf("Draft 1, NOT sent") < note.indexOf("> first"));
   assert.ok(note.includes("Held back by: finished (0.82 against 0.5)"));
   assert.ok(!note.includes("sourced"), "a judge that passed is not named");
   assert.ok(note.includes("Draft 2, NOT sent") && note.includes("> second") && note.includes("Held back by: a code check"));
   assert.ok(note.includes("Revise draft 2"));
-  const bare = sendBackNote({ entries: [], notice: "Fix it.", draft: "only" });
+  assert.ok(note.startsWith(RECHECK_FROM) && RECHECK_FROM.includes("quoted below") && !RECHECK_FROM.includes("draft above"), "the framing points at the quote below");
+  assert.ok(note.endsWith(RECHECK_REPLACES) && RECHECK_REPLACES.includes("without the > marks"));
+  const bare = turnLedger().sendBack("Fix it.", "only");
   assert.ok(bare.includes("Actions you took: none.") && bare.includes("> only"), "with no ledger entries, the draft just held is still quoted");
+});
+
+test("a browser step already taken is named as having happened on the real site", () => {
+  const ledger = turnLedger();
+  ledger.keep({ kind: "tool", name: BROWSE_TOOL, args: { url: "https://shop.example/checkout" }, ok: true });
+  assert.match(ledger.sendBack("Fix it.", "Ordered."), /never click, submit, order or pay again/);
+  assert.doesNotMatch(turnLedger().sendBack("Fix it.", "x"), /real site/);
+});
+
+test("a text that came in mid-reply: the draft is quoted as NOT sent, never put in as said, and a write is not repeated", async () => {
+  const ai = scripted(
+    [
+      { calls: [{ name: "save_email_draft", args: { to: ["robin@reviewer.example"], body: "Hi Robin" } }] },
+      { text: "Drafted the nudge to Robin." },
+      { calls: [{ name: "save_email_draft", args: { to: ["robin@reviewer.example"], body: "Hi Robin, and cc Sam" } }] },
+      { text: "Drafted it; I'll add Sam when you say." },
+    ],
+    [],
+  );
+  const ran = [];
+  let late = true;
+  let asked = 0; // asked after the tool round (nothing yet), then as the draft is done (the text came in)
+  await runTurn({
+    question,
+    history,
+    credential: { provider: BUILTIN_PROVIDER, apiKey: null },
+    tools: TOOLS,
+    env: { AI: ai, AGENT_BUILTIN_MODEL: MAIN },
+    providerOptions: { ai },
+    texting: true,
+    builtinModelOverride: MAIN,
+    steer: { get late() { return late; }, words: ["also cc sam"], next: async () => ((asked += 1) === 1 ? null : ((late = false), "also cc sam")) },
+    callTool: async (name) => (ran.push(name), { content: [{ type: "text", text: "Draft saved." }] }),
+  });
+  const sent = ai.calls[2];
+  assert.ok(!JSON.stringify(sent.filter((message) => message.role === "assistant")).includes("Drafted the nudge"), "the draft is not an assistant message");
+  const note = JSON.stringify(sent.at(-1));
+  assert.ok(note.includes(JSON.stringify(LATE_FROM).slice(1, 30)) && note.includes("> Drafted the nudge to Robin.") && note.includes("also cc sam"));
+  assert.ok(note.includes("they texted more while you wrote it"));
+  assert.deepEqual(ran, ["save_email_draft"], "the reworded draft to the same person is not saved again");
 });

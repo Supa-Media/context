@@ -77,7 +77,7 @@ export interface HistoryLine {
   /** "tex" for Tex's texts, so they can be told apart at a glance. */
   tone: "text" | "tex" | "quiet" | "thinking";
   text: string;
-  /** The message a text answers, in a few words, when it names one this view holds. */
+  /** The message a text answers, in full (Dev2, 2026-11-05): who sent it and its words, from this view or the words kept with the reply. */
   replyTo?: string;
   /** The reactions on this text, under it as in the mock: `👍 Mom, Ada · ❤️ You`. */
   reactions?: string;
@@ -364,7 +364,8 @@ export function historyDays(entries: readonly LedgerEntry[], now: Date, { group 
       }
     }
     const answered = typeof e.replyTo === "string" ? byEventId.get(e.replyTo) : undefined;
-    if (answered !== undefined) line.replyTo = `${whoOf(answered, group)}: ${short(textWords(answered), 60)}`;
+    if (answered !== undefined) line.replyTo = `${whoOf(answered, group)}: ${textWords(answered)}`;
+    else if (typeof e.quoted === "string" && e.quoted.trim() !== "") line.replyTo = oneLine(e.quoted); // replied-to message outside this view: the words kept with the reply
     const on = reactions.get(e.id);
     if (on !== undefined && reactionWords(on) !== "") line.reactions = reactionWords(on);
     // The advisor's own thinking, kept beside its answer, shown under it with Thinking on.
