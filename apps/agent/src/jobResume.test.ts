@@ -104,6 +104,46 @@ describe("picking an ended job back up", () => {
     expect(await resumeJob(done, NOW + 1)).toBe(false);
   });
 
+  it("a computer job picked back up runs where the computer's settings say now, not where it first ran", async () => {
+    // 2026-11-05: a GitHub sign-in restarted after its folder was cleared kept the old folder and was refused at once.
+    const machine = { workspaceId: "ws_a", machineId: "mch_1", name: "dev2", tool: "claude" as const, folder: "/code", repo: "Supa-Media/context" };
+    const storage = new MemoryStorage();
+    await storage.put(ENDED_KEY, { run: run({ machine, machineSession: "sess_old" }), endedAt: NOW });
+    const now = { ...machine, folder: "@work", repo: undefined };
+    delete now.repo;
+    expect(await resumeJob(storage, NOW + 60_000, undefined, { id: "e1", text: "try again", resume: true, machine: now })).toBe(true);
+    const kept = await storage.get<JobRun>(RUN_KEY);
+    expect(kept?.machine).toEqual({ ...machine, folder: "@work" });
+    // A new folder is a new session there: Claude Code keeps its sessions per folder.
+    expect(kept?.machineSession).toBeUndefined();
+    // Another computer's settings never move a job.
+    const other = new MemoryStorage();
+    await other.put(ENDED_KEY, { run: run({ machine, machineSession: "sess_old" }), endedAt: NOW });
+    await resumeJob(other, NOW + 60_000, undefined, { id: "e2", text: "again", resume: true, machine: { ...now, machineId: "mch_2" } });
+    expect((await other.get<JobRun>(RUN_KEY))?.machine).toEqual(machine);
+    expect((await other.get<JobRun>(RUN_KEY))?.machineSession).toBe("sess_old");
+  });
+
+  it("the gateway's restart carries the computer as it is now, read strictly", () => {
+    const machine = { workspaceId: "ws_a", machineId: "mch_1", name: "dev2", tool: "claude", folder: "@work" };
+    expect(readSteers([{ id: "c1667a96-c13d-4594-ad0a-28918542283f", resume: true, machine }])).toEqual([{ id: "c1667a96-c13d-4594-ad0a-28918542283f", resume: true, machine }]);
+    expect(readSteers([{ id: "c1667a96-c13d-4594-ad0a-28918542283f", resume: true, machine: { ...machine, tool: "rm" } }])).toEqual([{ id: "c1667a96-c13d-4594-ad0a-28918542283f", resume: true }]);
+  });
+
+  it("the chat hands a restarted computer job the computer as it is now, and only that computer's", async () => {
+    const storage = new MemoryStorage();
+    const id = "c1667a96-c13d-4594-ad0a-28918542283f";
+    await storage.put(`job:${id}`, { id, title: "Sign in", state: "failed", startedAt: NOW, finishedAt: NOW + 1, machine: true, on: "mch_1", onName: "dev2" });
+    const steers: JobSteer[] = [];
+    const send = async (_id: string, steer: JobSteer) => (steers.push(steer), true);
+    const machine = { workspaceId: "ws_a", machineId: "mch_1", name: "dev2", tool: "claude" as const, folder: "@work" };
+    await resumeJobs(storage, [{ id, resume: true, machine }], { id: "e1", text: "" }, send, NOW + 2);
+    expect(steers[0]?.machine).toEqual(machine);
+    await storage.put(`job:${id}`, { ...(await storage.get<object>(`job:${id}`)), state: "failed", finishedAt: NOW + 3 });
+    await resumeJobs(storage, [{ id, resume: true, machine: { ...machine, machineId: "mch_2" } }], { id: "e2", text: "" }, send, NOW + 4);
+    expect(steers[1]?.machine).toBeUndefined();
+  });
+
   it("a restart's own words reach the job it picks up", async () => {
     // 2026-11-03: "book with santana, mens adult style cut" restarted a haircut job that never saw the barber or the cut.
     const storage = new MemoryStorage();

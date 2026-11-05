@@ -396,13 +396,21 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   let justResumed = []; // their titles, read once by `endsTurn`
   let quietAck = false; // they asked to hear nothing until it's done: the start or restart texts nothing (`QUIET_ACK`)
   const slots = jobSlots(() => [...running.filter((entry) => entry.state === "running"), ...started, ...resumed]);
-  const resume = (entries) => {
+  // A job on a computer picks it again from the computer's settings now, never the folder it was handed when it first
+  // ran: the owner may have changed or cleared it since (2026-11-05, a restarted sign-in kept a folder no longer allowed).
+  const repick = async (entry) => {
+    if (typeof entry.on !== "string" || machines === null) return entry;
+    const picked = pickMachine(await machines(), { name: entry.on, ...(entry.onTool ? { tool: entry.onTool } : {}), group: inGroup });
+    return picked.machine ? { ...entry, repicked: picked.machine } : entry;
+  };
+  const resume = async (entries) => {
     // One at a time, each against its own place's slots: the cloud's three, or its computer's (`jobSlots.js`).
     const taken = [];
     for (const entry of entries) {
       if (resumed.some((kept) => kept.id === entry.id) || !slots.room(entry.on ? { id: entry.on, slots: MAX_MACHINE_SLOTS } : null)) continue;
-      resumed.push(entry);
-      taken.push(entry);
+      const again = await repick(entry);
+      resumed.push(again);
+      taken.push(again);
     }
     justResumed = taken.map((entry) => entry.title);
     return taken;
@@ -424,7 +432,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     // The same job that stopped before finishing is picked back up, never started over from this text (2026-10-31).
     const stopped = running.find((entry) => resumable(entry) && sameJob(entry.title, title));
     if (stopped && slots.room(stopped.on ? { id: stopped.on, slots: MAX_MACHINE_SLOTS } : null)) {
-      resume([stopped]);
+      await resume([stopped]);
       return text(`Picking "${stopped.title}" back up where it stopped. They're told so; send nothing more.`);
     }
     const mail = jobMailOf(args?.mail);
@@ -514,7 +522,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
         true,
       );
     }
-    const taken = resume(picked);
+    const taken = await resume(picked);
     if (taken.length === 0) return text(`Every slot they'd run in is taken. Tell them you'll pick these up once one finishes.`, true);
     const left = picked.filter((entry) => !taken.includes(entry)).map((entry) => `"${entry.title}"`);
     return text(`Picking ${taken.map((entry) => `"${entry.title}"`).join(", ")} back up.${left.length > 0 ? ` No room for ${left.join(", ")} yet: ${MAX_RUNNING_JOBS} run at once.` : ""}`);
@@ -667,7 +675,7 @@ export function startedJobs(background, tainted, { heard = "", sent = "" } = {})
       ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })) }
       : {}),
     ...(background.steered.length + background.resumed.length > 0
-      ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true }))] }
+      ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true, ...(entry.repicked ? { machine: entry.repicked } : {}) }))] }
       : {}),
     // What they said aloud and the files they sent with this text, for every job it starts, changes or restarts (`heardWords.js`):
     // a job's turn sees none of the chat, so a voice message or a picture would otherwise never reach it.

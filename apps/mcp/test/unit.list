@@ -330,6 +330,7 @@ test/texRoutineAlarms.test.mjs
 test/chatReach.test.mjs
 test/agentJobCheck.test.mjs
 test/agentJobRestart.test.mjs
+test/jobReportEntry.test.mjs
 test/jobReportReply.test.mjs
 test/agentHeartbeatFailure.test.mjs
 test/groupMemoryCarry.test.mjs

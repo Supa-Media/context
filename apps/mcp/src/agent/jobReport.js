@@ -61,7 +61,9 @@ export function jobReportOf(body, { chatTurn, job }) {
     .map((text) => text.trim().slice(0, MAX_TEXT));
   // A lent computer's owner asked for their 👍 in the gateway's own words (`machines/groupAsk.js`): only on a running job's report.
   const ask = value.state === "running" && typeof value.ask === "string" && value.ask.includes(MACHINE_ASK_OPENING) ? value.ask.trim().slice(0, MAX_ASK) : "";
-  return { title, state: value.state, texts, ...(ask ? { ask } : {}) };
+  // The job's id, so the chat's history can say which job it was (`workEntries.js` `reportEntry`).
+  const id = typeof value.id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value.id) ? value.id : null;
+  return { title, state: value.state, texts, ...(ask ? { ask } : {}), ...(id ? { id } : {}) };
 }
 
 /** What the coordinator's turn is asked: the gateway's own line, kept in the history as Tex speaking by itself. */

@@ -400,7 +400,7 @@ describe("background jobs", () => {
     expect(sent).toEqual([]);
     const queued = [...(await storage.list<{ message: Message }>({ prefix: "pending:" })).values()].map((item) => item.message);
     expect(queued).toEqual([
-      expect.objectContaining({ chatId: "chat_1", from: PHONE, messageId: "m_ask", text: "q", event: "job_report", jobReport: { title: "Competitor research", state: "done", texts: ["Wrote it.", "https://context.lc/n/abc"] } }),
+      expect.objectContaining({ chatId: "chat_1", from: PHONE, messageId: "m_ask", text: "q", event: "job_report", jobReport: { id, title: "Competitor research", state: "done", texts: ["Wrote it.", "https://context.lc/n/abc"] } }),
     ]);
     const [listed] = await chatJobs(storage, NOW + 1);
     expect(listed).toMatchObject({ state: "done", status: "Wrote it.", finishedAt: NOW + 1 });
