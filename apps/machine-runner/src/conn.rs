@@ -45,6 +45,20 @@ pub fn backoff(attempt: u32) -> Duration {
     Duration::from_millis(ms - ms / 8 + jitter)
 }
 
+/// Whether a failed dial means this machine is gone, not just offline: the gateway answered the upgrade with 401
+/// (the grant is unknown or revoked) or 404 (the workspace object removed the machine, as it does a mail-only device
+/// offline past its time). Dialling again would loop forever on the same answer, so the runner treats it as a
+/// "revoked" goodbye: the grant is deleted and the next hook pairs the device again.
+pub fn gone(err: &anyhow::Error) -> bool {
+    use tokio_tungstenite::tungstenite::{http::StatusCode, Error};
+    err.chain().any(|e| {
+        matches!(
+            e.downcast_ref::<Error>(),
+            Some(Error::Http(r)) if r.status() == StatusCode::NOT_FOUND || r.status() == StatusCode::UNAUTHORIZED
+        )
+    })
+}
+
 /// Where and as whom to dial.
 #[derive(Clone)]
 pub struct Dial {
@@ -103,12 +117,23 @@ async fn connect_once(
         "user-agent",
         format!("context-machine/{}", env!("CARGO_PKG_VERSION")).parse()?,
     );
-    let (ws, _) = tokio::time::timeout(
+    let dialled = tokio::time::timeout(
         Duration::from_secs(20),
         tokio_tungstenite::connect_async(req),
     )
     .await
-    .context("connect timed out")??;
+    .context("connect timed out")?;
+    let (ws, _) = match dialled {
+        Ok(ws) => ws,
+        Err(e) => {
+            let e = anyhow::Error::from(e);
+            if gone(&e) {
+                eprintln!("connection: {e:#}; this device is gone from Context");
+                return Ok(Stop::Goodbye(GoodbyeReason::Revoked));
+            }
+            return Err(e);
+        }
+    };
     let (mut tx, mut rx) = ws.split();
 
     let challenge = loop {
@@ -218,6 +243,43 @@ mod tests {
         assert!(!valid_nonce(&"a".repeat(31)));
         assert!(!valid_nonce(&"a".repeat(129)));
         assert!(!valid_nonce(&format!("{}:x", "a".repeat(40))));
+    }
+
+    /// A one-shot HTTP server that answers every upgrade with `status`.
+    async fn answering(status: &'static str) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            while let Ok((mut s, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf).await;
+                let _ = s
+                    .write_all(format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\n\r\n").as_bytes())
+                    .await;
+            }
+        });
+        format!("ws://{addr}{SOCKET_PATH}")
+    }
+
+    async fn dial_error(status: &'static str) -> anyhow::Error {
+        let url = answering(status).await;
+        let err = tokio_tungstenite::connect_async(url).await.unwrap_err();
+        anyhow::Error::from(err)
+    }
+
+    #[tokio::test]
+    async fn a_machine_the_gateway_no_longer_knows_is_gone_not_offline() {
+        // 404: the workspace object removed it (a mail-only device past its time).
+        assert!(gone(&dial_error("404 Not Found").await));
+        // 401: the grant is unknown or revoked.
+        assert!(gone(&dial_error("401 Unauthorized").await));
+        // Anything else is a bad moment, and the runner dials again.
+        assert!(!gone(&dial_error("503 Service Unavailable").await));
+        assert!(!gone(
+            &dial_error("407 Proxy Authentication Required").await
+        ));
+        assert!(!gone(&anyhow::anyhow!("connect timed out")));
     }
 
     #[test]

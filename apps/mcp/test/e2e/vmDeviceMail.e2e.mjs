@@ -27,7 +27,8 @@
  * command ending wakes the session.
  *
  * Sabotage record: `hello` without the replay of a device's held mail → "the mail sent while down, after
- * the runner is back" times out (2026-11-04).
+ * the runner is back" times out (2026-11-04). A runner that treats a 404 on its socket as one more bad moment
+ * (dialling again for ever) → "a new pairing code on a prompt" times out (2026-11-05).
  *
  * Needs the runner built (`cargo build` in apps/machine-runner). CI builds it
  * and runs this file (.github/workflows/machine-runner.yml); without the binary
@@ -443,6 +444,40 @@ test("a Claude Code VM pairs through its own Context connection, shows up mail-o
   await until("the device to leave", () => gw.object.machines.list().length === 0);
   assert.ok([...gw.plane.machines.values()].every((m) => m.revoked), "its grant is revoked");
   assert.equal(await deliverMail(gw.env, { jobMailboxes: boxes }, line).then((names) => names.length), 0, "mail to a device that left is kept in the note only");
+});
+
+test("a device the workspace object removed (offline past its time) notices, and the next prompt pairs it again", { skip: !HAVE_BIN && "the runner is not built" }, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "vm-device-"));
+  const gw = await gateway();
+  const vm = runner(dir, gw.endpoint);
+  t.after(async () => {
+    await vm.hook("SessionEnd").catch(() => {});
+    await gw.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const start = await vm.hook("SessionStart", { source: "startup" });
+  await toolPairDevice({ pairDevice: gw.session.pairDevice }, { code: CODE.exec(start.stdout)?.[1] });
+  const device = await until("the device to come online", () => gw.object.machines.list().find((m) => gw.object.sockets.online(m.id)));
+  await vm.hook("UserPromptSubmit", { prompt: "carry on" });
+
+  // The VM's container restarts and stays down past a mail-only device's time: the object removes it, as `prune` does.
+  process.kill(Number(readFileSync(join(dir, "daemon.pid"), "utf8").trim()), "SIGTERM");
+  await until("the daemon to stop", () => !existsSync(join(dir, "daemon.pid")));
+  gw.object.machines.remove(device.id);
+
+  // The next prompt restarts the runner, whose socket is now answered 404. It must not keep dialling a device that
+  // no longer exists while the session is told it is paired: it lets the grant go, and a later prompt shows a new code.
+  const again = await until("a new pairing code on a prompt", async () => {
+    const answer = await vm.hook("UserPromptSubmit", { prompt: "next" });
+    return CODE.test(answer.stdout) && /pair_device/.test(answer.stdout) ? answer : null;
+  }, 20_000);
+  assert.doesNotMatch(again.stdout, new RegExp(`device ${device.id}`), "the session is no longer told it is the old device");
+  assert.equal(existsSync(join(dir, "grant")), false, "the dead grant is gone from the VM");
+
+  // Approving it makes a new device, online and mail-only.
+  await toolPairDevice({ pairDevice: gw.session.pairDevice }, { code: CODE.exec(again.stdout)[1] });
+  const fresh = await until("the new device to come online", () => gw.object.machines.list().find((m) => m.id !== device.id && gw.object.sockets.online(m.id)));
+  assert.equal(fresh.mailOnly, true);
 });
 
 test("revoking the AI connection that paired a VM ends the device", { skip: !HAVE_BIN && "the runner is not built" }, async (t) => {

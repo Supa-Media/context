@@ -212,6 +212,12 @@ codex vms would already be connected to the MCP". Claude Code first.
   (`/machines/leave`), and the object drops it at once; one that never says
   goodbye leaves the devices list after fifteen minutes offline, and the
   hourly purge deletes the row and its mailboxes an hour after it ended.
+  A runner whose socket is answered 404 (the object removed it) or 401 (its
+  grant no longer resolves) takes that as a goodbye, not a bad moment: it
+  deletes the grant and stops, so the next hook pairs the VM again rather
+  than the session being told it is a device that no longer exists
+  (2026-11-05; found live after a container stayed down past the fifteen
+  minutes).
 - **Mail reaches the session at once.** A session joins a note's mail with
   `{ join, device }`; the control plane checks the device is live and the
   joining grant's own person's, and lists it beside job mailboxes with the
