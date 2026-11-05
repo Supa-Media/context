@@ -95,7 +95,12 @@ The gateway checks the rules too, but the runner never trusts it to: every
   run is plain Claude Code or Codex (owner, 2026-11-04): it starts in the
   checkout the job names when that is under the folder, or in the folder
   itself, told to clone the repo, when it is not. Nothing is copied, no branch
-  is made, and nothing is removed when the part ends.
+  is made, and nothing is removed when the part ends. A machine whose owner
+  chose no folder runs jobs in its own work folder, made on first use:
+  `~/.local/share/context-machine/work` (`$XDG_DATA_HOME` respected), or
+  `~/Library/Application Support/context-machine/work` on a Mac, or
+  `CONTEXT_MACHINE_WORK`. The gateway names it with the word `@work`, never a
+  path, and a `folders` list in `local.json` must hold it for it to be used.
 - **Limits.** Agent time per day and week, others' share and runs per day,
   the longest run, an optional weekly token ceiling, slots (one kept for the
   owner if asked), free memory of at least 1 GB, and a pause while a plan is

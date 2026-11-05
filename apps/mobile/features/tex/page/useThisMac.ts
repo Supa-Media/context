@@ -102,7 +102,7 @@ export function folderLabel(path: string): string {
 export function foldersLine(list: string[] | null, failed = false): string {
   if (failed) return "Couldn't reach Context to save or read them. Try again.";
   if (list === null) return "Checking…";
-  if (list.length === 0) return "None yet. Tex can't start a job here until you choose one.";
+  if (list.length === 0) return "None chosen, so Tex works in its own folder on this Mac. Choose one to let it work in yours.";
   return list.map(folderLabel).join(" · ");
 }
 

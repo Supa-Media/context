@@ -614,7 +614,13 @@ async fn status(state: &State, home: &std::path::Path, json: bool) -> Result<()>
         hm(week_limit)
     );
     if rules.folders.is_empty() {
-        println!("No folders allowed yet: set them on this machine's page in Context.");
+        match crate::rules::work_dir() {
+            Some(work) => println!(
+                "Folder: none chosen, so jobs run in {} (add your own on this machine's page in Context).",
+                work.display()
+            ),
+            None => println!("No folders allowed yet: set them on this machine's page in Context."),
+        }
     } else {
         for f in &rules.folders {
             println!("Folder: {f}");

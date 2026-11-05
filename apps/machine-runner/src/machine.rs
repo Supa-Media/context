@@ -392,6 +392,9 @@ impl Machine {
         let ids: Vec<String> = inner.running.keys().cloned().collect();
         let now = now_ms();
         inner.ledger.clear_expired(now);
+        let work = (a.folder == rules::WORK_FOLDER)
+            .then(|| rules::ready_work_dir(&self.state.local()))
+            .flatten();
         let checked = rules::check(
             &inner.rules,
             &a,
@@ -404,6 +407,7 @@ impl Machine {
                 codex_ready: crate::facts::ready(&inner.facts, Tool::Codex),
                 ledger: &inner.ledger,
                 utc_offset_minutes: inner.utc_offset_minutes,
+                work: work.as_deref(),
             },
         );
         let root = match checked {

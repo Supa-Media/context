@@ -97,6 +97,13 @@ export function limitsOf(raw, slotsDefault = DEFAULT_LIMITS.slots) {
   return limits;
 }
 
+/**
+ * The folder a job names when it names none of the owner's: the runner's own work folder in its app data
+ * (`apps/machine-runner/src/rules.rs` `WORK_FOLDER`; owner, 2026-11-05). A word, never a path, so it names
+ * nothing of the person's; the runner resolves it, and an older runner that does not know it refuses it.
+ */
+export const WORK_FOLDER = "@work";
+
 /** Folders the owner allowed: absolute paths, never `/` or a bare home folder, at most 32. */
 export function foldersOf(raw) {
   if (!Array.isArray(raw)) return [];
@@ -376,7 +383,7 @@ export function workspaceMachines(sql, deps = {}) {
       if (machine.status && machine.status.ready === false) return { code: "not_ready" };
       if (machine.pausedUntil !== null && machine.pausedUntil > now()) return { code: "plan_limit", until: machine.pausedUntil };
       if (!machine.tools.includes(ask.tool)) return { code: "tool" };
-      if (!machine.folders.includes(ask.folder)) return { code: "folder" };
+      if (ask.folder !== WORK_FOLDER && !machine.folders.includes(ask.folder)) return { code: "folder" };
       const live = liveRuns(id);
       const { limits } = machine;
       if (live.length >= limits.slots) return { code: "busy" };

@@ -184,6 +184,31 @@ describe("a job on the person's own computer", () => {
     expect(await storage.get("jobended")).toBeDefined();
   });
 
+  it("a part the computer itself refuses ends the job once, saying why, and is never tried again", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const { deps, calls, reports } = world({ reads: [{ state: "ended", result: { outcome: "failed", error: "refused: folder", refused: "folder", wallMs: 0 } }] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    expect(calls.filter((call) => call.path === "/agent/machine/assign")).toHaveLength(1);
+    expect(reports[reports.length - 1].texts).toEqual([refusedText("Fix the flaky test", "Studio Mac", "folder")]);
+  });
+
+  it("a part that fails before its first step ends the job with the computer's own reason", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const { deps, calls, reports } = world({ reads: [{ state: "ended", result: { outcome: "failed", error: "repo not found in the folder", wallMs: 0 } }] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    expect(calls.filter((call) => call.path === "/agent/machine/assign")).toHaveLength(1);
+    expect((reports[reports.length - 1]?.texts ?? []).join(" ")).toContain('it said "repo not found in the folder"');
+  });
+
+  it("a part that fails partway is still carried on by the next", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const { deps } = world({ reads: [{ state: "ended", steps: [{ seq: 1, tool: "Bash", action: "ran", target: "pnpm test" }], result: { outcome: "failed", error: "claude exited 1", session: "sess_1" }, session: "sess_1" }] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "now" });
+  });
+
   it("the computer a job runs on is read strictly from the gateway's answer", () => {
     const [job] = readStartedJobs([{ title: "Fix it", brief: "Fix the test.", machine: { ...MACHINE, repo: "Supa-Media/context" } }]);
     expect(job.machine).toEqual({ ...MACHINE, repo: "Supa-Media/context" });

@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { pickMachine } from "../src/machines/forJobs.js";
+import { WORK_FOLDER } from "../src/workspaceStore/machines.js";
 import { backgroundSession, START_JOB_TOOL, startedJobs, withBackground } from "../src/agent/background.js";
 
 const STUDIO = { workspaceId: "ws_seyi", id: "mch_1", name: "Studio Mac", online: true, tools: ["claude", "codex"], folders: ["/Users/seyi/code"], ownerId: "user_seyi" };
@@ -20,9 +21,11 @@ test("a computer is found by its name, or alone, with its tool and folder checke
   assert.match(pickMachine([STUDIO], { tool: "codex", folder: "/etc" }).error, /only in \/Users\/seyi\/code/);
   assert.match(pickMachine([VM], { tool: "codex" }).error, /can run claude/);
   assert.match(pickMachine([], {}).error, /no computer paired/);
-  // A Mac's folders are chosen on that Mac, in the Context app; a runner without the app has the Tex page.
-  assert.match(pickMachine([{ ...STUDIO, os: "macos", folders: [] }], {}).error, /on that Mac they open the Context app, Settings › Tex/);
-  assert.match(pickMachine([{ ...VM, os: "linux", folders: [] }], {}).error, /choose one on the Tex page/);
+  // None of theirs chosen: the computer's own work folder, so a sign-in or a scratch job needs no setup (owner, 2026-11-05).
+  assert.equal(pickMachine([{ ...STUDIO, os: "macos", folders: [] }], {}).machine.folder, WORK_FOLDER);
+  assert.equal(pickMachine([{ ...VM, os: "linux", folders: [] }], {}).machine.folder, "@work");
+  // A folder the turn names is still only one of theirs.
+  assert.match(pickMachine([{ ...VM, folders: [] }], { folder: "/etc" }).error, /leave the folder out/);
   for (const repo of ["../../etc", "/etc", "a/../../b", "a/b/c"]) assert.equal(pickMachine([STUDIO], { repo }).machine.repo, undefined, repo);
   assert.equal(pickMachine([STUDIO], { repo: "Supa-Media/context" }).machine.repo, "Supa-Media/context");
 });

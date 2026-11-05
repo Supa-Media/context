@@ -85,6 +85,7 @@ fn snap(ledger: &Ledger, running: u32) -> Snapshot<'_> {
         codex_ready: false,
         ledger,
         utc_offset_minutes: 0,
+        work: None,
     }
 }
 
@@ -417,4 +418,46 @@ fn a_machine_with_no_folder_takes_no_run() {
         code(check(&r, &assign(&f.allowed, true), &snap(&l, 0))),
         Some(RefusalCode::Folder)
     );
+}
+
+#[test]
+fn a_job_with_no_folder_of_the_owners_runs_in_the_work_folder() {
+    let f = fixture();
+    let l = Ledger::default();
+    let work = f.outside.join("work");
+    fs::create_dir_all(&work).unwrap();
+    let mut a = assign(&f.allowed, true);
+    a.folder = WORK_FOLDER.into();
+    let mut r = rules(&f);
+    r.folders.clear();
+    let s = Snapshot {
+        work: Some(&work),
+        ..snap(&l, 0)
+    };
+    assert_eq!(check(&r, &a, &s).unwrap(), fs::canonicalize(&work).unwrap());
+    // Not made, or narrowed out by local.json: refused, never some other folder.
+    assert_eq!(code(check(&r, &a, &snap(&l, 0))), Some(RefusalCode::Folder));
+}
+
+#[test]
+fn the_work_folder_word_is_never_read_as_a_path() {
+    let f = fixture();
+    let l = Ledger::default();
+    let mut a = assign(&f.allowed, true);
+    // A folder literally named "@work" inside the allowed folder is not the work folder, nor is the word a way out.
+    fs::create_dir_all(f.allowed.join("@work")).unwrap();
+    a.folder = "@work/../../private".into();
+    assert_eq!(
+        code(check(&rules(&f), &a, &snap(&l, 0))),
+        Some(RefusalCode::Folder)
+    );
+}
+
+#[test]
+fn local_folders_narrow_the_work_folder_out() {
+    let local = LocalLimits {
+        folders: Some(vec!["/nowhere/at/all".into()]),
+        ..Default::default()
+    };
+    assert_eq!(ready_work_dir(&local), None);
 }

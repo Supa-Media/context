@@ -133,6 +133,17 @@ test("a refused assignment takes its run grant back at once", async () => {
   assert.equal(grant.revoked, true);
 });
 
+test("a job naming no folder of the owner's goes to the computer's own work folder, by its word", async () => {
+  const { server, ask, assignBody } = await setup();
+  const { body } = await ask("/agent/machine/assign", assignBody({ folder: "@work" }));
+  assert.equal(body.ok, true);
+  assert.equal(server.last().type, "assign");
+  assert.equal(server.last().folder, "@work");
+  // The word only: a path made to look like it is still outside the owner's folders.
+  const dotted = await ask("/agent/machine/assign", assignBody({ folder: "@work/../etc" }));
+  assert.deepEqual(dotted.body, { ok: false, code: "folder" });
+});
+
 test("no run grant, no assignment", async () => {
   const { server, controlPlane, ask, assignBody } = await setup();
   controlPlane.refuse = true;
