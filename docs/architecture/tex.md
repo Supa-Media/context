@@ -131,7 +131,7 @@ flowchart TB
   IMG --> CC
 
   FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js<br/>sent back once"]:::judge
-  CHK -. off unless reply_judge .-> RJ["Reply gates<br/>ten Clef Flash judges at once<br/>each tuned, sent back at most twice<br/>replyJudge.js · replyGates.js"]:::off
+  CHK -->|reply_judge: clef-flash| RJ["Reply gates<br/>ten Clef Flash judges at once<br/>each tuned, sent back at most twice<br/>verdicts kept in the chat history<br/>replyJudge.js · replyGates.js"]:::judge
   CHK --> SEND([sendTheReply]):::door
   SEND -. behind the reply .-> SR["Self-review<br/>Haiku 5.5 scores the chat<br/>selfReview.js"]:::judge
 
@@ -174,6 +174,8 @@ What each model costs is `jev/meter.ts`.
 
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-05: the reply gates are on in production (setup `reply_judge: clef-flash`), and every judging of a draft (each gate's score, threshold, and whether
+  the draft went or went back) is kept in the chat's history as a `judge` entry.
 - 2026-11-05: every job gets a job note (its project's note, or Tex's own `tex/jobs/`); the job, Tex and the advisor join its mail; mail to tex reaches the chat's report turn, mail to advisor is answered on the note; computer jobs read and send it with their run grant.
 - 2026-11-05: gatherTheTurn is shared: one rule for which waiting texts a turn answers (`gatherTheTurn.ts`).
 - 2026-11-05: isItForTex is shared: one step says whether a text is for Tex and whether code answers it (`isItForTex.ts`).

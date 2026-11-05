@@ -24,7 +24,7 @@ export const LEDGER_SCHEMA = "tex-ledger";
 export const LEDGER_VERSION = 1;
 
 /** What one entry may be about (`agent/ledger.js` says what each carries). */
-export const LEDGER_KINDS = new Set(["text", "thinking", "said", "tool", "advisor", "mail_check", "job", "reply", "note"]);
+export const LEDGER_KINDS = new Set(["text", "thinking", "said", "tool", "advisor", "mail_check", "job", "reply", "note", "judge"]);
 
 /** One entry, as JSON: a long tool result is cut by the gateway well before this. */
 export const MAX_ENTRY_BYTES = 512 * 1024;
