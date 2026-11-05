@@ -77,6 +77,13 @@ test("the job joins bound to itself; Tex and the advisor join unbound, and the t
   assert.deepEqual(fake.store.mailTurn, { role: "tex" });
 });
 
+test("a job Tex names tex or advisor takes a name of its own", async () => {
+  const fake = fakeNotes({ "projects/x/overview.md": "# X" });
+  const { body } = await ask(fake, "/agent/job/note", { jobId: JOB, title: "Pricing", brief: "Price it.", note: { path: "projects/x/overview.md", name: "tex" } });
+  assert.equal(body.name, "pricing");
+  assert.deepEqual(fake.joins.map(({ name, job }) => [name, job]), [["pricing", JOB], ["tex", null], ["advisor", null]]);
+});
+
 test("every job is told who is on its note and what each is for", async () => {
   const fake = fakeNotes({ "projects/x/overview.md": "# X\n\n- 2026-11-05T13:00:00.000Z research (Tex) joined" });
   const { body } = await ask(fake, "/agent/job/note", { jobId: JOB, title: "Pricing", brief: "Price it.", note: { path: "projects/x/overview.md", name: "pricing" } });
@@ -138,6 +145,12 @@ test("a line to tex or advisor reaches only the sender's own job, and nobody els
   calls.length = 0;
   assert.deepEqual(await deliverMail(env, { jobMailboxes: async () => boxes }, { ...line, to: "advisor", mailKind: "ask" }), ["advisor"]);
   assert.equal(calls[0].jobId, "job-price-0001");
+  calls.length = 0;
+  // A job's box can't pass for Tex or the advisor: a line to everyone never reaches a box by those names.
+  calls.length = 0;
+  const posing = [...boxes, { mailboxId: "mb_00000003", name: "tex", jobId: "job-posed-0001", own: false }];
+  await deliverMail(env, { jobMailboxes: async () => posing }, { ...line, from: "research", to: "everyone" });
+  assert.ok(calls.every((call) => call.to !== "tex"), "no job box named tex is handed a line");
   calls.length = 0;
   // From another person's job, or a connection that never joined as a job: neither agent is reached.
   assert.deepEqual(await deliverMail(env, { jobMailboxes: async () => boxes }, { ...line, from: "research" }), []);

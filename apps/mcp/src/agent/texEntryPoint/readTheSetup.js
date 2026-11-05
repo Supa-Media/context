@@ -1,10 +1,10 @@
 /** Reads Tex's production setup: its prompt, history length, skills, models, router and fallback. One step of Tex's turn (`../texEntryPoint.js`). */
 
-import { markChatWords, markUntrusted } from "../../privacy/egress.js";
+import { markUntrusted } from "../../privacy/egress.js";
 import { searchSettingsOf } from "../../search/settings.js";
 import { pictureFallback } from "../attachments.js";
 import { builtinModel, canRunBuiltin } from "../builtin.js";
-import { SHOWN_HISTORY_TURNS, earlierTextsTool, historyIsTainted } from "../conversation.js";
+import { SHOWN_HISTORY_TURNS, earlierTextsTool } from "../conversation.js";
 import { decisionEngine } from "../decide.js";
 import { delegateSession } from "../delegate.js";
 import { earlierChatTool } from "../groupTurn.js";
@@ -26,11 +26,10 @@ export async function readTheSetup(t) {
   const production = await tex.wait("setup", setupRead); stages?.mark("setup");
   // What of the conversation this turn is shown: the setup's `history:`, else the default; a text typed in a thread, that thread (`threadView.js`).
   const { shown, ...inThread } = threadView(history, quoted, job !== null ? 0 : production?.history ?? SHOWN_HISTORY_TURNS); // a job works from its own record, not the chat (`loggedTurn.js` `JOB_HISTORY_ENTRIES`)
-  // A previous answer written after a read from outside still carries it.
-  if (historyIsTainted(shown) || logged?.tainted === true) (group !== null ? markChatWords : markUntrusted)(ledger); // and what the log shows of a tainted turn (`loggedTurn.js`)
+  // An earlier answer never marks this turn: only what this turn itself reads from outside does (`docs/decisions/texting-assistant/turn-trust.md`).
   if (attachments.length > 0) markUntrusted(ledger); // a forwarded PDF is someone else's words, like a page
   // The rest is read on request, and carries its own mark when it is read.
-  const earlier = group !== null ? [earlierChatTool(history)] : conversation === null ? [] : [earlierTextsTool(history, () => markUntrusted(ledger))];
+  const earlier = group !== null ? [earlierChatTool(history)] : conversation === null ? [] : [earlierTextsTool(history)];
   // The setup's `search:` section, when it has one, over the deployment's
   // settings for this turn's searches, in this context and any it addresses
   // (`openContext` copies the store's settings at open time).

@@ -69,22 +69,20 @@ export async function ledgerView(env, page, chat, body, { now = Date.now() } = {
 /**
  * What Tex sees: the chat the next texted turn is shown, rebuilt from the
  * ledger the way the turn rebuilds it. The last day is shown as the texting
- * Worker hands it; before it, what the ledger adds, with an answer whose turn
- * was not recorded clean held back in a one-to-one chat.
+ * Worker hands it; before it, what the ledger adds, every answer in its words
+ * (`docs/decisions/texting-assistant/turn-trust.md`).
  */
 async function sees(ledger, place, page, chat, now) {
   const entries = await readLedger(ledger, place.name);
-  const group = chat.kind === "group";
-  const recent = earlierFromLedger(entries, place.name, { before: Number.MAX_SAFE_INTEGER, untrusted: true }).events.filter((event) => event.at >= now - HELD_MS);
+  const recent = earlierFromLedger(entries, place.name, { before: Number.MAX_SAFE_INTEGER }).events.filter((event) => event.at >= now - HELD_MS);
   const held = recent.reduce((sum, event) => sum + String(event.text ?? "").length, 0);
-  const earlier = earlierFromLedger(entries, place.name, { before: recent[0]?.at ?? now - HELD_MS, chars: Math.max(0, READ_CHARS - held), known: new Set(recent.map((event) => event.id)), untrusted: group });
+  const earlier = earlierFromLedger(entries, place.name, { before: recent[0]?.at ?? now - HELD_MS, chars: Math.max(0, READ_CHARS - held), known: new Set(recent.map((event) => event.id)) });
   const text = renderEvents([...earlier.events, ...recent], { timeZone: page.timeZone || "UTC", tools: earlier.tools });
   return {
     settings: {
       thinking: false,
       toolNames: true,
       toolResults: false,
-      heldBack: !group,
       budgetChars: READ_CHARS,
       lastDayFrom: "texting Worker",
       before: "ledger",

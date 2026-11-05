@@ -11,7 +11,7 @@ import { turnKind, turnReport, waitBefore } from "../turnLog.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function prepareBookkeeping(t) {
-  const { body, builtinUsed, controlPlane, fresh, group, hot, job, logged, ownConversation, received, report, routine, runner, session, stages, store, tex, texting, web } = t;
+  const { body, builtinUsed, controlPlane, fresh, group, job, logged, ownConversation, received, report, routine, runner, session, stages, store, tex, texting, web } = t;
   const started = Date.now();
   /*
     The built-in turn was counted when it was allowed; this adds what it spent.
@@ -70,9 +70,9 @@ export async function prepareBookkeeping(t) {
   // Their zone: a routine's own, else the one the texting Worker sent (`localNow.js`).
   const timeZone = runner ? routineTimeZone(routine.settings, body.routine.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE;
   const chatLog = texting || group !== null || ownConversation !== null ? store.ledger : null, ledgerTurn = typeof body.turn === "string" && body.turn !== "" ? body.turn : `gw${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`, ledgerAt = { turn: ledgerTurn, ownSlug: session.workspaceSlug }; tex.turn = ledgerTurn; if (stages) stages.turn = ledgerTurn; // every timing point carries it (`texTiming.js`, `turnStages.js`) // a turn the Worker named none for gets one, so its steps and reply are its own (`ledgerConversation.js`) // the chat's one record of everything (`ledger.js`); the pictures they texted are kept below under an egress ledger of its own
-  // A voice message's words, heard this turn, written onto their own line of the chat's one record (`heardWords.js`), and onto the day the Worker's copy carries to the next turn.
+  // A voice message's words, heard this turn, written onto their own line of the chat's one record (`heardWords.js`): the next turn reads them there.
   const heard = chatLog !== null && !runner && job === null ? heardEvents(fresh, logged?.covered) : [];
-  if (heard.length > 0) { chatLog.write(heard.map(heardEntry)); hot?.restate?.(heard); }
+  if (heard.length > 0) chatLog.write(heard.map(heardEntry));
   const unseen = { ...session, egress: { ...session.egress, ledger: newLedger() } };
   Object.defineProperty(unseen, "accessToken", { value: session.accessToken, enumerable: false }); // as `sessionForContext`
   // The pictures they texted, kept in a note of their own (`textedPictures.js`) as the turn is saved: the daily transcripts that kept them are no longer written.

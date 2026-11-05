@@ -112,7 +112,7 @@ async function assign(request, env, session, controlPlane, origin, now) {
   const at = now();
   const deadline = Math.min(Number.isSafeInteger(body.deadline) ? body.deadline : at + MAX_PART_MS, at + MAX_PART_MS);
   const runId = mintRunId();
-  const runGrant = await controlPlane.texMachineRunGrant({ parentToken: session.accessToken, machineId: body.machineId, runId, expiresAt: deadline });
+  const runGrant = await controlPlane.texMachineRunGrant({ parentToken: session.accessToken, machineId: body.machineId, runId, jobId: body.jobId, expiresAt: deadline });
   if (runGrant === null) return refused("grant");
   const fields = {
     runId,

@@ -345,66 +345,22 @@ test("the Worker cannot say an event is clean", () => {
   assert.equal(refusedField(() => checkEvent(event({ from: { kind: "tex" }, tainted: false }), { chat: CHAT, now: NOW })), "event");
 });
 
-async function shownTainted(answerFields, setup = async () => {}) {
+// Trust is the turn's own (the owner, 2026-11-05; docs/decisions/texting-assistant/turn-trust.md): an earlier answer from a turn
+// that read from outside is shown as it was said, and never marks the turn shown it, whatever its record says.
+test("an earlier answer from a tainted turn is shown, and never marks the turn shown it", async () => {
   const store = memoryStore();
   const old = event({ text: "read that page" });
-  const answer = event({ at: NOW + 1, from: { kind: "tex" }, text: "It says...", covers: [old.id], ...answerFields });
+  const answer = event({ at: NOW + 1, from: { kind: "tex" }, text: "It says the shop opens at nine.", turn: "turn-tainted-01", covers: [old.id] });
   const fresh = event({ at: NOW + 2, text: "and then?" });
   await appendEvents(store, CHAT, [old, answer, fresh], { now: NOW });
-  await setup(store);
-  return (await loggedTurn(store, { chat: CHAT, covers: [fresh.id] })).tainted;
-}
-
-test("a turn shown an answer from a tainted turn is tainted", async () => {
-  assert.equal(await shownTainted({ turn: "turn-tainted-01" }, (store) => recordTurn(store, "turn-tainted-01", false)), true);
-});
-
-test("a Tex event is trusted only by its turn's clean record", async () => {
-  assert.equal(await shownTainted({}), true, "no turn");
-  assert.equal(await shownTainted({ turn: "turn-unknown-01" }), true, "no record");
-  assert.equal(await shownTainted({ turn: "turn-garbled-1" }, (store) => store.put(".context/agent/turns/turn-garbled-1.json", "not json")), true, "unreadable");
-  assert.equal(await shownTainted({ turn: "turn-other-001" }, (store) => recordTurn(store, "turn-clean-001", true)), true, "another turn's record");
-  assert.equal(await shownTainted({ turn: "turn-clean-001" }, (store) => recordTurn(store, "turn-clean-001", true)), false, "clean");
-});
-
-test("turn records are read side by side, and an unproven one is logged by count", async () => {
-  const store = memoryStore();
-  const old = event({ text: "read that page" });
-  const one = event({ at: NOW + 1, from: { kind: "tex" }, text: "a", turn: "turn-par-0001" });
-  const two = event({ at: NOW + 2, from: { kind: "tex" }, text: "b", turn: "turn-par-0002" });
-  const fresh = event({ at: NOW + 3, text: "and then?" });
-  await appendEvents(store, CHAT, [old, one, two, fresh], { now: NOW });
-  await recordTurn(store, "turn-par-0001", true);
+  await recordTurn(store, "turn-tainted-01", false);
+  const reads = [];
   const get = store.get;
-  let open = 0;
-  let most = 0;
-  store.get = async (key) => {
-    if (!key.startsWith(TURNS_PREFIX)) return get(key);
-    open += 1;
-    most = Math.max(most, open);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    open -= 1;
-    return get(key);
-  };
-  const lines = [];
-  const log = console.log;
-  console.log = (line) => lines.push(line);
-  try {
-    assert.equal((await loggedTurn(store, { chat: CHAT, covers: [fresh.id] }, { workspace: "ws_1" })).tainted, true);
-  } finally {
-    console.log = log;
-  }
-  assert.equal(most, 2, "both read at once");
-  assert.deepEqual(lines.map((line) => JSON.parse(line)), [{ event: "tex_turn_unproven", workspace: "ws_1", count: 1 }]);
-  await recordTurn(store, "turn-par-0002", false);
-  lines.length = 0;
-  console.log = (line) => lines.push(line);
-  try {
-    assert.equal((await loggedTurn(store, { chat: CHAT, covers: [fresh.id] }, { workspace: "ws_1" })).tainted, true);
-  } finally {
-    console.log = log;
-  }
-  assert.deepEqual(lines, [], "a record saying not clean is a verdict, not a failure to prove");
+  store.get = async (key) => (reads.push(key), get(key));
+  const turn = await loggedTurn(store, { chat: CHAT, covers: [fresh.id] });
+  assert.equal(turn.tainted, undefined, "the turn carries no mark from what it is shown");
+  assert.ok(turn.history[0].text.includes("It says the shop opens at nine."), "the answer is shown in its words");
+  assert.equal(reads.filter((key) => key.startsWith(TURNS_PREFIX)).length, 0, "no turn record is read to decide it");
 });
 
 function datedStore(now) {

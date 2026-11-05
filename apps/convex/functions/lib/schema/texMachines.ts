@@ -98,6 +98,8 @@ export const texMachineTables = {
     machineId: v.id("texMachines"),
     /** The workspace object's run id (`run_` + 24 hex), for revoking at the part's end. */
     runId: v.string(),
+    /** The job whose part this is: its note's mail reaches only that job's own mailbox (`noteMail.ts` `mailGrant`). */
+    jobId: v.optional(v.string()),
     expiresAt: v.number(),
     createdAt: v.number(),
   })

@@ -785,6 +785,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A group chat's history has one copy: the memory page in its home, kept in its Durable Object (2026-11-01)](./texting-assistant/group-memory-one-copy.md)
 - [A person's texts with Tex are one record in their Tex object, read with About me in one call (2026-11-01)](./texting-assistant/one-to-one-history.md)
 - [Each chat with Tex has one ledger, and every view is rebuilt from it (2026-11-02)](./texting-assistant/chat-ledger.md)
+- [A turn's trust is its own; nothing it said marks a later turn (2026-11-05)](./texting-assistant/turn-trust.md)
 - [What was said stays in the record, and Tex does the read instead of offering it (2026-11-04)](./texting-assistant/do-the-read.md)
 - [A decision model judges each texted reply before it goes (2026-11-04)](./texting-assistant/reply-judge.md)
 - [A person's Tex folder and a group chat's home use the same names (2026-11-01)](./texting-assistant/tex-folders.md)
