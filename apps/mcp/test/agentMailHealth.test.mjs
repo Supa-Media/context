@@ -140,7 +140,7 @@ function unitChecks(check) {
   check(
     "a routine is told the same lines, and that it never answers for them alone",
     routineMailSection([stale], now).includes("quiet@example.invalid has not synced") &&
-      routineMailSection([stale], now).includes("never a reason to answer instead of SKIP"),
+      routineMailSection([stale], now).includes("never a reason to text when you would otherwise say nothing"),
   );
   check(
     "orient names only a mailbox the person must act on",
@@ -262,7 +262,7 @@ export async function runAgentMailHealthChecks(check) {
       "a routine is told about a stale mailbox, and that it never answers for it alone",
       ran.status === 200 && ran.body?.outcome === "skipped" &&
         userText(model.requests.at(-1)).includes(`${ADDRESS} has not synced since 9 hours ago`) &&
-        userText(model.requests.at(-1)).includes("never a reason to answer instead of SKIP"),
+        userText(model.requests.at(-1)).includes("never a reason to text when you would otherwise say nothing"),
     );
     check("a routine raises nothing itself", raised.length === 1);
 

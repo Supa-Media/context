@@ -83,7 +83,7 @@ const MAX_STEP = 140;
 const MAX_WHY = 160;
 const MAX_ADVICE = 600;
 /** The most of a finished job's report `job_status` shows. */
-const MAX_RESULT = 1_500;
+export const MAX_RESULT = 8_000; // the Worker keeps as much (`apps/agent/src/jobs.ts`); 1,500 cut a ten-PR report after the fourth (Tex Devs, 2026-11-05)
 
 const STOP_WORDS = new Set(
   "a an and the of for to on in at by with about my our your me us it its this that these those up do make write".split(" "),

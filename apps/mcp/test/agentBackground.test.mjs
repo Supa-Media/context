@@ -111,6 +111,14 @@ test("running jobs are read strictly, and a caller that sends none gets no backg
   assert.ok(read.length <= MAX_RUNNING_SHOWN, "at most every running job and a few finished");
 });
 
+// Tex Devs, 2026-11-05: job_status showed 1,500 characters of a ten-PR report, ending "The sev", and Tex said it had only four.
+test("job_status shows a finished job's whole report", () => {
+  const report = Array.from({ length: 10 }, (_, i) => `${i + 1}. #${2839 - i} – a PR, what it changed and its risk.`.padEnd(400, ".")).join("\n");
+  const [done] = runningJobsOf([{ id: "job-ten-prs-1", title: "Summarize ten PRs", state: "done", finishedAt: NOW - 60_000, result: report }]);
+  assert.equal(done.result, report);
+  assert.match(jobStatusText(done, NOW), /10\. #2830 – a PR/);
+});
+
 test("two titles name the same job when most of the shorter one's words are in the other", () => {
   assert.ok(sameJob("Competitor research for Tex", "Tex competitor research"));
   assert.ok(sameJob("research competitors", "Research the competitors"));

@@ -31,6 +31,7 @@
  */
 
 import { saysQuiet } from "./checkInGuards.js";
+import { SAY_NOTHING } from "./sayNothing.js";
 import { MACHINE_ASK_OPENING } from "../machines/groupAsk.js";
 
 const MAX_TITLE = 120;
@@ -75,7 +76,7 @@ export function jobReportQuestion(report) {
 export function jobReportPrompt(report) {
   if (report === null) return "";
   // The owner's ask goes out as the gateway wrote it, whatever this turn says (`reportReply`): nothing to decide.
-  if (report.ask) return `\n\nYour job "${report.title}" is waiting for the owner of the computer it runs on to say yes. Their ask is texted for you as it is; answer exactly SKIP.`;
+  if (report.ask) return `\n\nYour job "${report.title}" is waiting for the owner of the computer it runs on to say yes. Their ask is texted for you as it is; ${SAY_NOTHING}.`;
   const how =
     report.state === "running"
       ? "is still running and sent this on its way (a sign-in link, a question)"
@@ -100,8 +101,8 @@ export function jobReportPrompt(report) {
     '(send { action: "background" }) with a brief that says what to do differently, and tell them in one line which it is.\n' +
     '- A job still running that should change course gets your instruction with send { action: "steer_job", args: { title, note } }.\n' +
     (report.state === "running"
-      ? "- If nothing in it is new to them (they already have it, or it repeats another job), answer exactly SKIP: nothing is texted."
-      : "- It has ended, so they always get one line from you saying where it stands and what it found, even when that repeats what they have. Never answer SKIP.")
+      ? `- If nothing in it is new to them (they already have it, or it repeats another job), ${SAY_NOTHING}: nothing is texted.`
+      : "- It has ended, so they always get one line from you saying where it stands and what it found, even when that repeats what they have. Never say nothing.")
   );
 }
 

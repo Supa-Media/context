@@ -336,6 +336,18 @@ describe("background jobs", () => {
     expect(JSON.stringify(shown)).not.toMatch(/confirmation 42|Sign in first/);
   });
 
+  // Tex Devs, 2026-11-05: a ten-PR report (about 4,000 characters) was kept to 1,500 and cut after the fourth PR.
+  it("keeps a long report whole for the chat's turns", async () => {
+    const storage = new MemoryStorage();
+    await startJobs(storage, [{ title: "Summarize ten PRs", brief: "b" }], { now: NOW, inbox: PHONE, origin: { kind: "phone", phone: PHONE, question: "q" }, place: { chatId: "chat_1", messageId: "m_ask" }, spawn: async () => {} });
+    const [{ id }] = await chatJobs(storage, NOW);
+    const report = Array.from({ length: 10 }, (_, i) => `${i + 1}. #${2839 - i} – a PR title (Nov 3)\n   What it changed, in plain words, and the risk it carries.`.padEnd(400, ".")).join("\n");
+    await noteJobUpdate(storage, { id, state: "done", status: "Done.", texts: [report] }, NOW + 1);
+    const [ended] = await chatJobs(storage, NOW + 1, { results: true });
+    expect(ended.result).toBe(report);
+    expect(ended.result).toMatch(/^10\. #2830/m);
+  });
+
   it("tries a turn that could not start again later, then says it couldn't finish", async () => {
     const storage = new MemoryStorage();
     await acceptJob(storage, run(), NOW);

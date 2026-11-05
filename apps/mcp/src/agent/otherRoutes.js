@@ -139,7 +139,7 @@ export const LATER_NOTICE =
   "Before this goes: your answer promises to text them later, but nothing in this turn will. " +
   "Keep it now: write a routine note under tex/routines/hourly/ (never more often) with `until:` in its front matter naming what answers their question, " +
   "whose body says to try the source again and the other ways to the answer (their email from that app, their calendar, their notes, the app's website in your browser), " +
-  "text them the answer in this chat with where it came from once it has one, and answer SKIP until then. Or start a background job if it is long work happening now. " +
+  "text them the answer in this chat with where it came from once it has one, and send say_nothing until then. Or start a background job if it is long work happening now. " +
   "Then send your answer, saying when you'll check. If the promise was about something already running, send your answer again as it was. " +
   // 2026-10-29: a count blocked on a sign-in only the person could finish became an hourly check nobody asked for.
   "But if they didn't ask to be told later, or nothing can change until they do something (a sign-in, a code, an approval, access only they can give), set nothing: " +

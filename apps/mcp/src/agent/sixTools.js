@@ -60,6 +60,7 @@ export const ASSISTANT_SEND_ACTIONS = {
   draw_visual: { tool: "draw_visual", summary: "Turn your answer into one of your designed picture cards (options, photos, a trip, a day, a plan, a board, a chart), to text them.", take: own },
   draw_picture: { tool: "draw_picture", summary: "Make a graphic from an HTML page you write, to text them. Make it first; guess what they left out.", take: own },
   make_picture: { tool: "make_picture", summary: "Generate or edit a photo with an image model, to text them. Make it first; guess what they left out.", take: own },
+  say_nothing: { tool: "say_nothing", summary: "Text nothing this time and end your turn, only where your instructions say silence fits; never type a word like SKIP instead.", take: own }, // `sayNothing.js`
   // Tex's chat commands (`commandTools.js`): offered only when the turn holds them.
   ...Object.fromEntries(Object.entries(COMMAND_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
 };

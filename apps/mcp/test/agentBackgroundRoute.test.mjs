@@ -370,7 +370,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     check(
       "...shown the job's report apart from it, as words that vouch for nothing, with what it may do",
       /coordinator of your background jobs[^]*vouch for nothing[^]*<<<\nNone of the three beat Haiku[^]*I couldn't save the page update\.\n>>>/.test(systemOf(coordinator)) &&
-        /read the page or note it names/.test(systemOf(coordinator)) && /It has ended, so they always get one line from you[^]*Never answer SKIP/.test(systemOf(coordinator)) && !/answer exactly SKIP/.test(systemOf(coordinator)),
+        /read the page or note it names/.test(systemOf(coordinator)) && /It has ended, so they always get one line from you[^]*Never say nothing/.test(systemOf(coordinator)) && !/SKIP/.test(systemOf(coordinator)),
     );
     check("...and may start the job again, as any texted turn may", /background: Hand a long task/.test(sendTool(coordinator)?.description ?? ""));
     const reportTurns = conversationTurns(bucket);
@@ -393,7 +393,7 @@ export async function runAgentBackgroundRouteChecks(check) {
       "the coordinator steers a running job with its own instruction",
       noted.status === 200 && JSON.stringify(noted.body?.steers) === JSON.stringify([{ id: "job-trip-plan-1", note: "Read the note back before you say it saved." }]),
     );
-    check("...a running job's report may be met with nothing: offered as SKIP", /answer exactly SKIP: nothing is texted/.test(systemOf(model.turn())));
+    check("...a running job's report may be met with nothing: offered as say_nothing", /send \{ action: "say_nothing" \}: nothing is texted/.test(systemOf(model.turn())));
     check("...and its SKIP reaches the Worker as a flag, never as a word", noted.body?.answer === "" && noted.body?.quiet === true);
     check("...kept in the conversation as nothing texted, never as Tex saying SKIP", /^\(You texted them nothing/.test(conversationTurns(bucket).at(-1)?.text ?? "") && !conversationTurns(bucket).some((turn) => /^\W*SKIP\W*$/.test(turn.text ?? "")));
     model.install([{ text: "SKIP" }]);

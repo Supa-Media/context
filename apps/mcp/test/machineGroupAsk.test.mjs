@@ -122,7 +122,7 @@ test("the chat's Tex texts the owner's ask word for word, whatever its model sai
   const ask = machineAskLine({ title: "Fix the flaky test", machineName: "Studio Mac", ownerHandle: "seyi" });
   const report = jobReportOf({ event: "job_report", jobReport: { title: "Fix the flaky test", state: "running", texts: [ask], ask } }, { chatTurn: true, job: null });
   assert.equal(report.ask, ask);
-  assert.match(jobReportPrompt(report), /answer exactly SKIP/);
+  assert.match(jobReportPrompt(report), /send \{ action: "say_nothing" \}/);
   assert.deepEqual(reportReply(report, "SKIP"), { answer: ask, quiet: false });
   assert.deepEqual(reportReply(report, "Seyi, can I use your Mac?"), { answer: ask, quiet: false });
   // A job's own words that only look like one are not the gateway's ask, and an ended job's report carries none.

@@ -26,6 +26,7 @@ import { MAX_QUESTION_LENGTH } from "./turn.js";
 import { readMailHealth, routineMailSection } from "./mailHealth.js";
 import { QUIET_WORD, saysQuiet, spokenToThem } from "./checkInGuards.js";
 import { readConversation } from "./conversation.js";
+import { SAY_NOTHING } from "./sayNothing.js";
 
 /** The routine runner's first-party client (`apps/convex`). Decided by the grant. */
 export const ROUTINES_CLIENT_ID = "context_routines";
@@ -176,7 +177,7 @@ export function recentTextsSection(history, path, timeZone = null) {
   if (shown.length === 0) return "";
   return (
     `Your last texts with them, oldest first:\n${shown.join("\n")}\n\n` +
-    `If another routine or a check-in above already told them what this run would, they already said it is done, or they asked not to be texted until a time still to come ("don't bother me till 5"), answer ${SKIP_WORD}. ` +
+    `If another routine or a check-in above already told them what this run would, they already said it is done, or they asked not to be texted until a time still to come ("don't bother me till 5"), ${SAY_NOTHING}: nothing is texted. ` +
     "Never ask again what they already told you above."
   );
 }
@@ -229,7 +230,7 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", re
     // The owner, 2026-10-23: "Remind them to call Apple ..." went out word for word, and "... no status update. SKIP" with it.
     "Your answer is texted to them exactly as you write it. Speak to them (you, your), never about them, " +
       'and never read the routine\'s instructions back: a routine that says "Remind them to call the bank" texts "Reminder: call the bank".',
-    `Do what the routine below asks. If there is nothing worth telling this time, answer with exactly ${SKIP_WORD} and nothing else: no reason, no other words.`,
+    `Do what the routine below asks. If there is nothing worth telling this time, ${SAY_NOTHING}: nothing is texted, and no word like SKIP is ever needed.`,
     "Routine:",
   );
   const framing = `${lines.join("\n\n")}\n\n`;
