@@ -8,9 +8,9 @@ function fakeCdp() {
   const sent: string[] = [];
   const listeners = new Map<string, Array<(params: unknown, sessionId?: string) => void>>();
   const cdp: CdpTransport = {
-    async send(method) {
+    async send<T>(method: string) {
       sent.push(method);
-      return {};
+      return {} as T;
     },
     on(method, listener) {
       listeners.set(method, [...(listeners.get(method) ?? []), listener]);
