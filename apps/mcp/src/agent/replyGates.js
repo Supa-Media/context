@@ -272,7 +272,7 @@ export const GATES = {
     yes: "yes, clearly too long for a text, or not clean",
     no: "no, the length and wording fit a text",
     notice: "Your reply is too long for a text, or retells what you made or where you looked. Keep the answer and every fact and link it gives, and cut the rest: a sentence or two (one casual line beside a page or picture), in their own language.",
-    at: 0.2, // AI Gates 2026-11-05: 5/7 by Clef, 0/75 false alarms; a stray script is the fact below
+    at: 0.25, // AI Gates 2026-11-05, long drafts only: 6/7 caught (the stray script by its fact), 1/78 false alarms
     when: (draft, turn) => longDraft(draft, turn) || strayScript(draft, turn),
     fact: strayScript, // Clef missed it (0.04): letters in a script they never write in are a fact, so code fails it
   }),
