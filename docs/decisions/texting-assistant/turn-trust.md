@@ -35,8 +35,16 @@ turn read from outside, because what the nudge writes is read as Tex's memory
 on every later turn. A turn that is itself tainted still reflects blind and
 can't write a skill (`reflect.js`, `learnedSkills.js`).
 
-The warm copy no longer carries turns' clean marks, and no turn record is read
-to show a turn its chat.
+One line holds where a turn's words could live on: a turn shown an earlier
+tainted answer (in its history, which `earlier_texts` also reads) reflects and
+nudges as a tainted turn does, on the person's own text and its step names, so
+its answer, which may repeat those words, never becomes a skill or About me
+(`sendTheReply.js` `showsOutsideWords`; review, 2026-11-05). The turn itself is
+not marked: it sends, writes and is shown as any clean turn.
+
+The warm copy no longer carries turns' clean marks, and turn records
+(`.context/agent/turns/`) are no longer written or read; old ones and stray
+running and cancel marks are pruned after 48h (`loggedTurn.js` `pruneTurns`).
 
 ## Why this is safe enough
 
@@ -54,6 +62,6 @@ from it, for anyone who uses it for email. Tests:
 `apps/mcp/test/agentEventLog.test.mjs` ("an earlier answer from a tainted turn
 is shown, and never marks the turn shown it"),
 `apps/mcp/test/agentLearnedSkills.test.mjs` ("an earlier answer from a turn that
-read outside never taints this one"), `apps/mcp/test/agentMemoryNudge.test.mjs`
+read outside never taints this one, but reflect never writes from its words"), `apps/mcp/test/agentMemoryNudge.test.mjs`
 ("an answer that read from outside is never shown to the nudge, their text
 always is"), `apps/mcp/test/chatLedgerReads.test.mjs`.

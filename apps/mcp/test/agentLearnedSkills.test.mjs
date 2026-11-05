@@ -533,14 +533,25 @@ test("a reflect step that finds nothing worth writing changes nothing", async ()
   assert.equal(bucket.get("tex/skills/plan-review.md"), undefined);
 });
 
-test("an earlier answer from a turn that read outside never taints this one: it writes and reflects as any turn does", async () => {
+test("an earlier answer from a turn that read outside never taints this one, but reflect never writes from its words", async () => {
   // Trust is the turn's own (the owner, 2026-11-05; docs/decisions/texting-assistant/turn-trust.md). What a tainted turn
   // may not do is proven where the turn itself is tainted: "a tainted turn can't write a skill" and the reflect units above.
+  // A turn shown a tainted answer could repeat its words, so its reflect step sees only their text and its step names.
   seedChat(bucket, [{ role: "user", text: "what does this page say?" }, { role: "assistant", text: "It says hi.", tainted: true }]);
   script = [{ calls: [["write_note", { path: "tex/skills/booking.md", content: skill("booking", { updated: TODAY }) }]] }, { text: "Sorted. OWN-ANSWER-MARK" }, { text: "NONE" }];
   await text("no, the other one", { conversation: "texts" });
   assert.notEqual(bucket.get("tex/skills/booking.md"), undefined, "the turn read nothing from outside, so it writes its skill");
   const reflected = reflectRequests();
+  assert.equal(reflected.length, 1, "it still reflects, on their own text");
+  assert.ok(!JSON.stringify(reflected[0].body).includes("OWN-ANSWER-MARK"), "but its answer, which could repeat the tainted words, is not shown");
+  assert.ok(JSON.stringify(reflected[0].body).includes("no, the other one"), "their own text is");
+});
+
+test("a turn shown only clean answers reflects with its own answer shown", async () => {
+  seedChat(bucket, [{ role: "user", text: "what is on today?" }, { role: "assistant", text: "Nothing yet." }]);
+  script = [{ calls: [["write_note", { path: "tex/skills/booking.md", content: skill("booking", { updated: TODAY }) }]] }, { text: "Sorted. OWN-ANSWER-MARK" }, { text: "NONE" }];
+  await text("no, the other one", { conversation: "texts" });
+  const reflected = reflectRequests();
   assert.equal(reflected.length, 1);
-  assert.ok(JSON.stringify(reflected[0].body).includes("OWN-ANSWER-MARK"), "and reflects with its own answer shown");
+  assert.ok(JSON.stringify(reflected[0].body).includes("OWN-ANSWER-MARK"), "its own answer is shown");
 });
