@@ -108,7 +108,7 @@ export const GATES = {
     notice: "Your reply stops before the finish: there's a step left that you can take yourself. Take it now (open, read, price, book, fill in), or hand the rest to a background job with what you have, and reply with the result.",
   }),
   sourced: gate({
-    ask: "Check each figure, price, date, quote or claim about what a page, file or email says (or doesn't say) in the reply against the results of the calls and their texts. Is any of them not found there, said about something nobody read, contradicted by what was read (a page that does mention prices or terms, while the reply says it lists none), or a total or duration that its own numbers don't add up to? When the assistant read nothing this turn, any specific figure, score or price not in their texts is this fault.",
+    ask: "Check each figure, price, date, quote or claim about what a page, file or email says (or doesn't say) in the reply against the results of the calls and their texts. Is any of them not found there, said about something nobody read, contradicted by what was read (a page that does mention prices or terms, while the reply says it lists none), or a total or duration that its own numbers don't add up to? When the assistant read nothing this turn, any specific figure, score or price not in their texts is this fault. So is saying a source has none of something, or reached an end, when what was read shows some of it or was only part of the source.",
     allow: [
       "Did: opened their pricing page, which lists $20/mo. Reply: 'It's $20 a month.'",
       "They wrote 'I slept 11 to 7'. Reply: 'That's 8 hours.'",
@@ -118,6 +118,7 @@ export const GATES = {
       "Did: read only OpenAI's pricing page. Reply: 'Haiku costs $0.10 per million tokens.'",
       "Did: nothing read. Reply: 'The flight is $412.'",
       "Did: page cut after the overview. Reply: 'The memory section says it keeps 30 days.'",
+      "Did: read page 1 of 4 of the lease. Reply: 'There's no early-exit clause.'",
       "Reply: 'You slept 11pm to 6am, about 9 hours.' (the numbers don't add up)",
     ],
     yes: "yes: at least one figure or claim is not backed by what was read, or doesn't add up",
@@ -141,7 +142,7 @@ export const GATES = {
     notice: "Your reply leaves part of their question unanswered. Read their newest text again (and any picture they sent) and answer that, all of it.",
   }),
   followed_them: gate({
-    ask: "Did their newest text tell the assistant something it must act on: a correction to what it just did, a way they refuse (while still wanting the thing), that a code or prompt never reached them, or to ask the advisor? Does the reply ignore it: carry on as before, just acknowledge it, ask for the thing that never came, or answer without the advisor?",
+    ask: "Read their newest text. Does it correct what the assistant just did, turn down a way of doing it, say a code or prompt never reached them, or ask for the advisor? If so, does the reply fail to act on it: only acknowledge it ('got it', 'glad that worked'), drop what they still want, carry on as before, ask again for the thing that never arrived, or answer without the advisor?",
     allow: [
       "They: 'not that one, the blue one'. Did: sent the blue file. Reply: the link.",
       "They: 'no trains, I hate trains'. Did: looked up a car service. Reply: 'Then a car: $60, 40 minutes.'",
