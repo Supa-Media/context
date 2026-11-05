@@ -159,6 +159,8 @@ const TEX_PART_ICONS = Object.freeze({
   "heartbeat.md": contextPartMarker("tex_heartbeat"),
   housekeeping: contextPartMarker("tex_housekeeping"),
   "jobs.md": contextPartMarker("tex_jobs"),
+  // A job's own note, when it belongs to no project (`apps/mcp/src/agent/jobNote.js`): the jobs list's clipboard.
+  jobs: contextPartMarker("tex_jobs"),
   // The pictures they texted Tex, a note a month (`apps/mcp/src/agent/textedPictures.js`): a camera.
   pictures: contextPartMarker("tex_pictures"),
   routines: contextPartMarker("tex_routines"),

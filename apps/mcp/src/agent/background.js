@@ -197,6 +197,8 @@ export function jobOf(value) {
     draft: typeof value.draft === "string" ? value.draft.trim().slice(0, MAX_DRAFT) : "",
     // The project note it shares with the other parts of a split ask (`START_JOB_TOOL`'s `mail`).
     project: jobMailOf(value.project),
+    // Who is on its note's mail and what each is for, as the gateway wrote it when the job's note was made (`jobNote.js`).
+    roster: typeof value.roster === "string" ? value.roster.trim().slice(0, 4_000) : "",
     // The draft stopped short of what they asked (`stopsShort.js`, `jobCheck.js`), rather than being overtaken by a text of theirs.
     unfinished: value.unfinished === true,
     // The advisor's advice on the last part (`jobCheck.js`): what this part starts on.
@@ -621,7 +623,9 @@ export function jobPrompt(job) {
         "new way, and fix anything you already made the old way; a text telling you to stop or not to do something is a rule for the rest of the job, retries included):\n" +
         job.followUps.map((words) => `- ${words}`).join("\n")
       : "") +
-    (job.project
+    (job.roster
+      ? `\n${job.roster}`
+      : job.project
       ? `\nYou are one part of a bigger ask that runs in parallel. Before anything else, join the mail of ${job.project.path}` +
         `${job.project.context ? ` in ${job.project.context}` : ""} as "${job.project.name}" (write action mail, args { join: "${job.project.name}" }), ` +
         "and read what is there. The other parts' jobs and Tex are on it: tell them when you finish or when something you found changes their part, " +

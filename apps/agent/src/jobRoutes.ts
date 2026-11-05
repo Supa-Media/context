@@ -6,9 +6,10 @@
  */
 
 import type { InboxStorage } from "./inbox";
-import { jobMailResponse } from "./jobMail";
-import { acceptJob, failJob, resumeJob, runJob, steerJob, type JobDeps } from "./jobRun";
-import { readJobSteer, type JobRun } from "./jobs";
+import { jobMailResponse, readMailDelivery } from "./jobMail";
+import { mailToAdvisor, mailToTex } from "./jobNote";
+import { acceptJob, failJob, jobToken, resumeJob, runJob, steerJob, type JobDeps } from "./jobRun";
+import { readJobSteer, RUN_KEY, type JobRun } from "./jobs";
 import { startJobFlow, type JobRunParams } from "./jobWorkflow";
 
 export async function jobRoute(path: string, request: Request, storage: InboxStorage, flow: Workflow<JobRunParams> | undefined, deps: () => JobDeps): Promise<Response | undefined> {
@@ -27,6 +28,16 @@ export async function jobRoute(path: string, request: Request, storage: InboxSto
     if (steer.resume) return Response.json({ taken: await resumeJob(storage, Date.now(), flow ? (id, resumes) => startJobFlow(flow, id, resumes) : undefined, steer) });
     return Response.json({ taken: await steerJob(storage, steer) });
   }
-  if (path === "/job-mail") return await jobMailResponse(storage, await request.json().catch(() => null), steerJob);
+  if (path === "/job-mail") {
+    const body = await request.json().catch(() => null);
+    // Mail this job sent to Tex or its advisor (`apps/mcp/src/mail/deliver.js`): to the chat, or answered on the note (`jobNote.ts`).
+    const delivery = readMailDelivery(body);
+    if (delivery?.to === "tex") return Response.json({ taken: await mailToTex(storage, delivery, deps().report) });
+    if (delivery?.to === "advisor") {
+      const made = deps();
+      return Response.json({ taken: await mailToAdvisor(storage, delivery, made, async () => { const run = await storage.get<JobRun>(RUN_KEY); return run ? await jobToken(run, made) : null; }) });
+    }
+    return await jobMailResponse(storage, body, steerJob);
+  }
   return undefined;
 }

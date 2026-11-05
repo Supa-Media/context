@@ -25,6 +25,13 @@
 import { callTexStore } from "../texStore/wire.js";
 import { workspaceStub } from "../workspaceStore/api.js";
 
+/**
+ * The agents on every job note besides its jobs (`agent/jobNote.js`): a line addressed to one is handed to the job
+ * that sent it, whose own object tells the chat (Tex) or asks the advisor (`apps/agent/src/jobNote.ts`). Only a
+ * sender's own job mailbox counts, so a line from anybody else reaches neither.
+ */
+const ROSTER_AGENTS = new Set(["tex", "advisor"]);
+
 /** Recipients handed one line at most; a note's mail is a small team, not a broadcast list. */
 export const MAX_DELIVERIES = 20;
 
@@ -70,6 +77,22 @@ export async function deliverMail(env, mail, line) {
   } catch {
     return [];
   }
+  const texting = env?.TEXTING;
+  if (ROSTER_AGENTS.has(line.to)) {
+    const sender = (Array.isArray(boxes) ? boxes : []).find((box) => box?.name === line.from && typeof box.jobId === "string" && typeof box.mailboxId === "string" && box.own === true);
+    if (!sender || typeof texting?.mailDeliver !== "function") return [];
+    try {
+      const answer = await texting.mailDeliver({
+        jobId: sender.jobId,
+        mailboxId: sender.mailboxId,
+        to: line.to,
+        mail: { path: line.path, at: line.at, from: line.from, app: line.app, kind: line.mailKind, text: line.text },
+      });
+      return answer?.taken === true ? [line.to] : [];
+    } catch {
+      return [];
+    }
+  }
   const addressed = (Array.isArray(boxes) ? boxes : [])
     .filter((box) => typeof box?.mailboxId === "string" && box.name !== line.from)
     .filter((box) => line.to === "everyone" || box.name === line.to)
@@ -78,7 +101,6 @@ export async function deliverMail(env, mail, line) {
   // The machine lives in its own workspace's object, which need not be the note's (`machineWorkspaceId`).
   const machines = addressed.filter((box) => typeof box.machineId === "string" && typeof box.machineWorkspaceId === "string" && (line.mailKind !== "interrupt" || box.own === true));
   const toMachines = machines.map(async (box) => ((await toMachine(env, box.machineWorkspaceId, box, line).catch(() => false)) ? box.name : null));
-  const texting = env?.TEXTING;
   const jobs = typeof texting?.mailDeliver === "function" ? addressed.filter((box) => typeof box.jobId === "string") : [];
   const to = jobs
     // An interrupt reaches only a job its sender's own grant joined as: one person's Tex never stops another person's job.

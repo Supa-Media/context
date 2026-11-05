@@ -128,6 +128,7 @@ test/toolNews.test.mjs
 test/noteMail.test.mjs
 test/noteMailKinds.test.mjs
 test/noteMailDelivery.test.mjs
+test/jobNote.test.mjs
 test/toolTitles.test.mjs
 test/treeFacts.test.mjs
 test/treeLinks.test.mjs

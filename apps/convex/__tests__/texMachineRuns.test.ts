@@ -121,6 +121,20 @@ describe("minting and resolving a run grant", () => {
     expect(session!.workspaces[0]).toMatchObject({ workspaceId: alfa, role: "owner" });
   });
 
+  test("a run grant reads and is delivered the job note's mail its job's own grant joined, and no one else's", async () => {
+    const { t, alfa, parentId, machineId } = await aJob();
+    const token = await mintedToken(t, machineId);
+    const post = async (path: string, body: Record<string, unknown>) => await json(await gatewayPost(t, path, body));
+    const joined = (await post("/gateway/mail/join", { accessToken: PARENT, workspaceId: alfa, path: "projects/sign-in.md", name: "dev2", jobId: "job_aaaaaaaa" })) as { mailbox: { mailboxId: string } };
+    const mailboxId = joined.mailbox.mailboxId;
+    expect(((await post("/gateway/mail/get", { accessToken: token, mailboxId })) as { mailbox: { name: string } | null }).mailbox?.name).toBe("dev2");
+    const boxes = ((await post("/gateway/mail/jobs", { accessToken: token, workspaceId: alfa, path: "projects/sign-in.md" })) as { mailboxes: Array<{ name: string; own: boolean }> }).mailboxes;
+    expect(boxes).toEqual([expect.objectContaining({ name: "dev2", own: true })]);
+    // Revoked with its parent: the run grant reaches no mailbox.
+    await t.run((ctx) => ctx.db.patch(parentId, { status: "revoked" }));
+    expect(((await post("/gateway/mail/get", { accessToken: token, mailboxId })) as { mailbox: unknown }).mailbox).toBeNull();
+  });
+
   test("a run grant stops resolving when its parent texting grant is revoked", async () => {
     const { t, parentId, machineId } = await aJob();
     const token = await mintedToken(t, machineId);

@@ -39,6 +39,8 @@ function deps(answers: Array<{ status?: number; body: Record<string, unknown> }>
     fetch: (async (url: string) => {
       const path = new URL(url).pathname;
       if (path === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "t", timeZone: "UTC" });
+      // Its note, asked for before its first part (`jobNote.ts`): none here, and the job runs on as before.
+      if (path === "/agent/job/note") return Response.json({ ok: false, code: "no_note" });
       const next = answers.shift();
       if (!next) throw new Error("no answer left");
       return Response.json(next.body, { status: next.status ?? 200 });

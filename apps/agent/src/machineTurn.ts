@@ -188,7 +188,8 @@ export async function machineTurn(
       ...(machine.repo ? { repo: machine.repo } : {}),
       // Plain Claude Code, as in their own terminal (owner, 2026-11-04): who may ask is the owner's control.
       permission: "full",
-      brief: run.brief,
+      // Who is on its note's mail and what each is for, ahead of the work (`jobNote.ts`): the runner keeps no prompt of its own for it.
+      brief: run.note ? `${run.brief}\n\n${run.note.roster}` : run.brief,
       doneWhen: run.doneWhen ?? "",
       ...(advice ? { advice } : {}),
       ...(run.machineSession ? { resumeSession: run.machineSession } : {}),
@@ -245,7 +246,7 @@ export async function machineTurn(
         // The advisor checks the part against the finish line, as it checks a cloud part; unreachable, the outcome alone decides.
         const ended = current.runId;
         const checked = async () =>
-          checkOf(await ask("/agent/machine/check", { runId: ended, job: { title: job.title, brief: job.brief, doneWhen: job.doneWhen ?? "", attempt: job.attempt, followUps: job.followUps ?? [], advice: job.advice ?? "" } }).catch(() => ({})));
+          checkOf(await ask("/agent/machine/check", { runId: ended, job: { title: job.title, brief: job.brief, doneWhen: job.doneWhen ?? "", attempt: job.attempt, followUps: job.followUps ?? [], advice: job.advice ?? "", roster: job.roster ?? "" } }).catch(() => ({})));
         switch (read.result.outcome) {
           case "finished": {
             const check = await checked();

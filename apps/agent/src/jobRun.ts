@@ -40,6 +40,7 @@ import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
 import { limitResetAt } from "./jobPause";
 import { STEER_TIMEOUT_MS } from "./steer";
+import { advisorVerdict, openJobNote } from "./jobNote";
 
 export type JobDeps = {
   fetch: Fetch;
@@ -258,6 +259,15 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   // Stopped between turns: it ends here, saying nothing (the chat's turn already told them).
   if ((await storage.get<boolean>(STOP_KEY)) === true) return await finish(storage, run, { state: "failed", status: "Stopped" }, tell, deps.now(), pass);
   await storage.put(PASS_KEY, pass);
+  // Its note, asked for once before its first part: the job, Tex and the advisor on its mail, and the job told who is there (`jobNote.ts`).
+  // A group's job has a note only where Tex put it in a project (`apps/mcp/src/agent/jobNote.js`), so one without asks nothing.
+  if (run.note === undefined && run.noteAsked !== true && (run.origin.kind === "phone" || run.mail !== undefined)) {
+    const token = await jobToken(run, deps).catch(() => null);
+    const note = token === null ? null : await openJobNote(deps, token, run);
+    run.noteAsked = true;
+    if (note !== null) run.note = note;
+    await storage.put<Stored>(RUN_KEY, { ...run, sent });
+  }
   const onProgress = async (text: string) => {
     // Only a line with a link is texted (a sign-in page): the rest is status, read when they ask.
     await tell({ state: "running", status: text, ...(HAS_LINK.test(text) ? { texts: [text] } : {}) });
@@ -317,6 +327,11 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const carryOn = (outcome.kind === "answer" && outcome.exhausted) || outcome.kind === "broken" || changed || unfinished;
   const advice = outcome.kind === "answer" ? outcome.advice : undefined;
   const checked = outcome.kind === "answer" && outcome.verdict ? { verdict: outcome.verdict, ...(advice ? { advice } : {}) } : {};
+  // The advisor's judgement of the part, said on the job's note too, so everyone on its mail sees it (`jobNote.ts`).
+  if (outcome.kind === "answer" && outcome.verdict && run.note?.advisor) {
+    const token = await jobToken(run, deps).catch(() => null);
+    if (token !== null) await advisorVerdict(run, deps, token, `My check of part ${run.attempt}: ${outcome.verdict.replace("_", " ")}.${advice ? ` ${advice}` : ""}`);
+  }
   // Dev2, 2026-10-31: a job keeps going for at most 30 minutes or 10 parts, then reports where it got to.
   // A job on their own computer runs for hours, in fifteen-minute parts (`machineTurn.ts`).
   const roomLeft = run.machine !== undefined ? run.attempt < MAX_MACHINE_JOB_ATTEMPTS && deps.now() - run.startedAt < MACHINE_JOB_LIMIT_MS : run.attempt < MAX_JOB_ATTEMPTS && deps.now() - run.startedAt < JOB_LIMIT_MS;
@@ -420,6 +435,7 @@ function ask(run: JobRun, followUps: string[], mail: Array<JobMail & { text: str
     attempt: run.attempt,
     ...(run.doneWhen ? { doneWhen: run.doneWhen } : {}),
     ...(run.mail ? { project: run.mail } : {}),
+    ...(run.note ? { roster: run.note.roster } : {}),
     ...(run.tainted ? { tainted: true as const } : {}),
     ...(run.draft ? { draft: run.draft } : {}),
     ...(run.draft && run.unfinished ? { unfinished: true as const } : {}),
@@ -503,6 +519,13 @@ async function phoneTurn(
   const outcome = outcomeOf(answer, (text) => textsWithExact(text, answer.kind === "answer" ? answer.verbatim : []));
   if (outcome.kind === "stop") return { kind: "stop", text: JOB_LINES.failed(run.title) };
   return outcome;
+}
+
+/** The job's own grant now, a person's or its group chat's, for a call of its own beside a part; null when it may not run. */
+export async function jobToken(run: JobRun, deps: JobDeps): Promise<string | null> {
+  if (run.origin.kind === "group") return await groupGrant(run, deps);
+  const session = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, run.origin.phone);
+  return session.status === "linked" ? session.accessToken : null;
 }
 
 /** A group job's grant, minted as its own turn's is: the chat's people read again, so somebody who joined since narrows it. Null when it may not run. */
