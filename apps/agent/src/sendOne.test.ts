@@ -84,4 +84,13 @@ describe("one sender (sendOne.ts)", () => {
     expect(line.texts).toEqual([]);
     expect(line.logged).toEqual([]);
   });
+
+  it("logs nothing about a failed picture until the line saying so went, so a retried reply never logs it twice", async () => {
+    const line = fakeLine(async () => null);
+    line.sendText = async () => {
+      throw Object.assign(new Error("down"), { status: 503 });
+    };
+    await expect(sendPicturePart(line, "x")).rejects.toThrow("down");
+    expect(line.logged).toEqual([]);
+  });
 });
