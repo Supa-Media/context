@@ -28,6 +28,8 @@ import { sha256Hex } from "./groupChat";
 import { linkCode, type Message } from "./reply";
 import { restartTurn, runningTurn, steerInto } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
+import { reactionLine, type Tapback } from "./reactions";
+import { onTexText } from "./thumbs";
 import type { SendPart } from "./outgoing";
 import type { InboxStorage } from "./inbox";
 
@@ -63,15 +65,31 @@ export type Entry = [string, Pending];
 const UNLINK = /^\s*unlink\s*[.!]?\s*$/i;
 const PURE_ACK = /^\s*(?:ok|okay|k|kk|thanks|thank you|thx|ty|cool|got it|great|nice|perfect|👍|🙏|❤️)[\s.!]*$/iu;
 
-/** The event for one text in (`events.ts`): who sent it as a hash, never the number. */
-export async function logInbound(storage: InboxStorage, message: Message, now: number): Promise<string> {
+/**
+ * The event for one text in (`events.ts`): who sent it as a hash, never the number.
+ *
+ * A tapback is logged as its whole line, "👍 (yes) on Tex's message …", never
+ * its bare emoji: the log is the one copy of the chat, and a turn's question
+ * is read from it (`apps/mcp/src/agent/loggedTurn.js`). Logged as "👍" alone,
+ * a like on "Want me to merge it? 👍 or 👎?" reached the model with nothing
+ * saying what it was on, and Tex asked again three times (Dev2, 2026-11-05).
+ * The message itself keeps its emoji, which code reads (`pureAck`, the gateway's yes).
+ */
+export async function logInbound(storage: InboxStorage, message: Message, now: number, line?: string): Promise<string> {
   return await addEvent(storage, {
     at: now,
     chat: message.chatId,
     from: { kind: "person", who: await sha256Hex(message.from) },
     kind: message.tapback ? "reaction" : kindOf(message.text, message.attachments),
-    text: message.text,
+    // `line`: a tapback whose line is made already (`inbox.ts` `react`: one taken back, or one only noted).
+    text: line ?? (message.tapback ? await tapbackLogLine(storage, message, message.tapback) : message.text),
   });
+}
+
+/** A tapback as the log keeps it: its line, with the words it was on when it was on any. */
+async function tapbackLogLine(storage: InboxStorage, message: Message, how: Tapback): Promise<string> {
+  const reaction = { how, words: message.quoted ?? "" };
+  return reactionLine(reaction, await onTexText(storage, message.chatId, reaction));
 }
 
 /** Texts that are code's to answer, never the model's to choose: LINK, UNLINK, an SMS, a saved login's turn, a 👍 held as an ask's yes. */

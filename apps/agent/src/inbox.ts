@@ -268,7 +268,7 @@ export async function react(
   now: number,
 ): Promise<"queued" | "duplicate" | "full" | "noted" | "preview" | "held" | "dropped"> {
   const { reaction, kind: _kind, ...message } = inbound;
-  const logged = async () => logInbound(storage, { kind: "message", ...message, text: reactionLine(reaction, await onTexText(storage, message.chatId, reaction)), tapback: reaction.how }, now); // every reaction in the log, as its line (Dev2, 2026-11-01)
+  const logged = async () => { const line = reactionLine(reaction, await onTexText(storage, message.chatId, reaction)); return logInbound(storage, { kind: "message", ...message, text: line, tapback: reaction.how }, now, line); }; // every reaction in the log, as its line (Dev2, 2026-11-01)
   // A 👍 or 👎 on an ask goes on the next alarm, at once; taking it back before then drops it (`thumbs.ts`).
   if (reaction.removed) return (await logged(), await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
   // On the line above an ask, it is a 👍 on the ask; taking it back still names the line it was on.

@@ -449,6 +449,7 @@ test/agentPlanBigAsk.test.mjs
 test/machineForTurn.test.mjs
 test/agentJobSlots.test.mjs
 test/morningChat.test.mjs
+test/thumbsUpMerge.test.mjs
 test/groupNames.test.mjs
 test/replyJudge.test.mjs
 
