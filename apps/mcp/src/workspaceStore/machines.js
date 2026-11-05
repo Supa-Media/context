@@ -294,6 +294,8 @@ export function workspaceMachines(sql, deps = {}) {
       if (!machine) return null;
       const next = { ...machine, seenAt: now() };
       if (fields.facts) next.facts = fields.facts;
+      // The runner's own report is the truth: a Mac added before the register path kept the OS read "Linux" (2026-11-05).
+      if (["macos", "linux", "windows"].includes(fields.facts?.os)) next.os = fields.facts.os;
       if (fields.slotCounts) {
         // The first report sizes the slots at the recommended count; a later one only caps them at the most.
         if (!machine.slotsChosen) next.limits = { ...machine.limits, slots: fields.slotCounts.recommended };

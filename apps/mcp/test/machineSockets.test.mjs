@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { foldersOf } from "../src/workspaceStore/machines.js";
 import { CLOSE_PROTOCOL, CLOSE_REAUTH, MACHINE_SOCKET_MAX_MS } from "../src/workspaceStore/machineSockets.js";
-import { keyPair, machineWorld, protocol } from "./machineWorld.mjs";
+import { FACTS, keyPair, machineWorld, protocol } from "./machineWorld.mjs";
 
 const parsedServer = (frame) => protocol.parseServerFrame(JSON.stringify(frame));
 
@@ -273,4 +273,13 @@ test("deliver and interrupt reach only a live run", async () => {
   assert.equal(server.last().type, "interrupt");
   assert.equal((await world.call("ws.machine.deliver", { runId: "run_none", messageId: "m", kind: "note", from: "x", text: "y" })).code, "unknown_run");
   assert.equal((await world.call("ws.machine.deliver", { runId: run.runId, messageId: "m", kind: "interrupt", from: "x", text: "y" })).code, "bad_message", "an interrupt never rides as a mail kind");
+});
+
+// A Mac registered before the register path kept the runner's OS was saved as
+// "linux" and the page said "Online · Linux". The runner's hello repairs it.
+test("the runner's reported OS replaces a wrong one on the machine row", async () => {
+  const world = machineWorld();
+  const machine = await world.add("mch_mac", { os: "linux" });
+  await world.connect(machine, { hello: { facts: { ...FACTS, os: "macos" } } });
+  assert.equal(world.machines.get(machine.id).os, "macos");
 });
