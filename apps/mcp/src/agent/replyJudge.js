@@ -74,9 +74,14 @@ export const CHECKS = {
     false: "no, it acted on it, or their text gave nothing an ask needed",
   },
   sent_elsewhere: {
-    ask: "Does the reply tell them someone else would know, or ask them to find, open, send, download or do the thing themselves, when the assistant could do it (anything but a sign-in code, a payment, a choice that is theirs, or a fact only they know)?",
-    true: "yes, it hands the work back or sends them to someone",
-    false: "no",
+    ask:
+      "Does the reply push work back onto them, or onto someone else, that the assistant could do itself? " +
+      "Bad: 'Jo would know where it is.' 'Can you send me the file?' when they named where it lives and it was not opened. 'You can download it from the site.' " +
+      "Fine, never this fault: a draft waiting for their yes before it goes to other people ('Here's the text: ... Say yes and I'll send it.'); " +
+      "something the assistant cannot do, with the next best thing ('I can't text Mina, but here's one you can send: ...'); " +
+      "asking a fact only they know ('Did you pay the balance?'), a sign-in code, a payment, or a choice that is theirs.",
+    true: "yes, it pushes work back that the assistant could do",
+    false: "no, or the hand-back is one of the fine kinds",
   },
   unbacked_claim: {
     ask: "Does the reply say something was found, opened, saved, sent, booked or done that the actions do not show (no such call, or the call failed)?",
@@ -89,9 +94,16 @@ export const CHECKS = {
     false: "no, it answers what they asked",
   },
   too_verbose: {
-    ask: "Is the reply far longer than a text should be: retelling what they know, listing options nobody asked for, or explaining the steps it took? A link or a short answer is never too long.",
-    true: "yes, far too long for a text",
-    false: "no, short enough",
+    ask:
+      "Is the reply wordy when it should not be? A text answers in a sentence or two, and extra lines are fine only when they are the details they asked for. " +
+      "Good, never this fault: 'No, you're in Lisbon that day. The show is at 8, load-in 6:30.' " +
+      "'Physio check-up on the 20th, and the credenza glue-up is planned that day.' 'Found it: https://files.example/logo.png' " +
+      "'Done, it's on your list for Friday.' A list of the dates, items or steps they asked for. " +
+      "Wordy: retelling every place it searched ('I looked through your notes, your email and your other workspaces and...'); " +
+      "explaining why or how it did something nobody asked about; repeating what they just said; options or caveats nobody asked for; " +
+      "two paragraphs where one line answers.",
+    true: "yes, wordy when it should not be",
+    false: "no, the length fits what they asked",
   },
 };
 
