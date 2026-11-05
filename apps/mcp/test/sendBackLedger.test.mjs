@@ -47,10 +47,10 @@ function scripted(replies, verdicts) {
     async run(model, input) {
       if (model.startsWith("@cf/cloudflare/clef")) {
         const [name] = Object.keys(input.questions);
+        if (verdicts[0]?.__names?.has(name)) verdicts.shift(); // a gate asked again is the next judging
         const next = verdicts[0];
         if (next === undefined) return null;
-        next.__seen = (next.__seen ?? 0) + 1;
-        if (next.__seen >= (next.__ran ?? Object.keys(GATES).length)) verdicts.shift();
+        (next.__names ??= new Set()).add(name);
         return { answers: { [name]: { type: "noul", noul: next[name] ?? 0.05 } } };
       }
       calls.push(structuredClone(input.messages));
@@ -78,7 +78,7 @@ async function the1447Turn() {
       },
       { text: "No, three business days, not 48 hours; it closed Tuesday. Your follow-up to Robin is in Drafts." },
     ],
-    [{ short_and_clean: 0.71 }, { __ran: 1 }],
+    [{ short_and_clean: 0.71 }, {}],
   );
   const ran = [];
   const told = [];

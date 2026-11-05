@@ -9,7 +9,8 @@
  *  1. `MAX_SEND_BACKS` check removed from `check` → "at most two send-backs…".
  *  2. `open = failed` put back (only failed gates re-read; reversed by review 2026-11-05) → "every gate reads the rewrite…".
  *  3. failing on `>` instead of `>=` its threshold → "a gate fails at its threshold…".
- *  4. `gatesFor` ignoring `job` → "a job's report skips the texting-only gates".
+ *  4. `gatesFor` ignoring `report` → "a job's report runs the report set…".
+ *  5. `gateReads` always true → "short_and_clean and on_a_page read only a long draft…".
  */
 
 import assert from "node:assert/strict";
@@ -18,11 +19,13 @@ import { test } from "node:test";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { parseSetup } from "../src/agent/production.js";
 import { actionsOf, judgeState, MAX_SEND_BACKS, readReplyJudge, replyJudge, runGates } from "../src/agent/replyJudge.js";
-import { GATES, gatesFor, sendBackNotice } from "../src/agent/replyGates.js";
+import { GATES, gateReads, gatesFor, LONG_DRAFT_WORDS, sendBackNotice } from "../src/agent/replyGates.js";
 import { runTurn } from "../src/agent/turn.js";
 import { wireTraceEntry } from "../src/agent/turnLog.js";
 
 const MAIN = "@cf/acme/main-model";
+/** The gates a short draft to their text is read by: the text set, less those that read only long drafts. */
+const SHORT_READ = gatesFor().filter((name) => GATES[name].when === null);
 const BROWSE = {
   name: "browse",
   description: "Open a page.",
@@ -32,7 +35,7 @@ const BROWSE = {
 /**
  * A Workers AI binding: the main model answers from a script; each Clef call is one gate, answered from
  * the current judging's yes values (`verdicts`, one object per judging; an unnamed gate says 0.05). A
- * judging moves on once every gate it ran has answered.
+ * judging moves on when a gate it already asked is asked again.
  */
 function scripted(replies, verdicts) {
   const calls = [];
@@ -44,11 +47,11 @@ function scripted(replies, verdicts) {
       if (model.startsWith("@cf/cloudflare/clef")) {
         const [name] = Object.keys(input.questions);
         judged.push({ model, selector: input.model, state: input.state, questions: input.questions, gate: name });
+        if (verdicts[0]?.__names?.has(name)) verdicts.shift(); // a gate asked again is the next judging
         const next = verdicts[0];
-        if (next instanceof Error) throw next;
         if (next === undefined) return null;
-        next.__seen = (next.__seen ?? 0) + 1;
-        if (next.__seen >= (next.__ran ?? Object.keys(GATES).length)) verdicts.shift();
+        (next.__names ??= new Set()).add(name);
+        if (next instanceof Error) throw next;
         return { answers: { [name]: { type: "noul", noul: next[name] ?? 0.05 } } };
       }
       calls.push(input.messages);
@@ -93,14 +96,14 @@ test("every gate runs at once on the same packet, and each failed gate goes back
       { calls: [{ name: "browse", args: { url: "https://filebox.example/garden-club/resources/brand-assets" } }] },
       { text: "Here it is: https://filebox.example/garden-club/resources/brand-assets/garden-club-logo.png" },
     ],
-    [{ finished: 0.9, heard_them: 0.85 }, { __ran: 2 }],
+    [{ finished: 0.9, heard_them: 0.85 }, {}],
   );
   const logs = [];
   const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question, history, log: (line) => logs.push(line) });
   const result = await turn(ai, judge);
   assert.equal(result.answer, "Here it is: https://filebox.example/garden-club/resources/brand-assets/garden-club-logo.png");
-  const first = ai.judged.slice(0, Object.keys(GATES).length);
-  assert.deepEqual(first.map((call) => call.gate).sort(), Object.keys(GATES).sort(), "one call per gate, each asking one question");
+  const first = ai.judged.slice(0, SHORT_READ.length);
+  assert.deepEqual(first.map((call) => call.gate).sort(), [...SHORT_READ].sort(), "one call per gate, each asking one question");
   assert.ok(first.every((call) => call.model === "@cf/cloudflare/clef-flash" && call.selector === "clef-flash"));
   assert.ok(first.every((call) => call.state === first[0].state), "every gate reads the same packet");
   assert.ok(first[0].state.includes("The reply about to be sent: Thanks, that helps."));
@@ -149,12 +152,12 @@ test("every judging goes to the chat's history: the draft, each judge's score an
   await turn(ai, judge, (event) => told.push(event));
   const judged = told.filter((event) => event.kind === "judge");
   assert.deepEqual(judged.map((event) => [event.draft, event.round, event.went]), [["one", 0, false], ["two", 1, false], ["three", 2, true]]);
-  assert.equal(judged[0].judges.length, Object.keys(GATES).length, "every judge's verdict on the first draft");
+  assert.equal(judged[0].judges.length, SHORT_READ.length, "every judge's verdict on the first draft");
   assert.deepEqual(judged[0].judges.find((j) => j.id === "finished"), { id: "finished", yes: 0.9, at: GATES.finished.at, passed: false });
   assert.deepEqual(judged[0].failed, ["finished"]);
   assert.equal(judged[0].notice, sendBackNotice(["finished"]), "what Tex was told");
   assert.equal(judged[0].model, "@cf/cloudflare/clef-flash");
-  assert.equal(judged[1].judges.length, Object.keys(GATES).length, "every judge reads the rewrite");
+  assert.equal(judged[1].judges.length, SHORT_READ.length, "every judge reads the rewrite");
   assert.deepEqual(judged[2].judges, [], "past the cap nothing judges it");
   assert.match(judged[2].reason, /twice/);
 });
@@ -175,7 +178,7 @@ test("every gate reads the rewrite, so a fault the rewrite brings in is caught",
   const ai = scripted([{ text: "Want me to check?" }, { text: "Checked your email, nothing there." }, { text: "Here it is." }], [{ does_it: 0.9 }, { did_what_it_says: 0.9 }]);
   const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question, history, log: () => {} });
   const result = await turn(ai, judge);
-  assert.equal(ai.judged.length, Object.keys(GATES).length * 2, "all ten gates on both judged drafts (the third is past the cap)");
+  assert.equal(ai.judged.length, SHORT_READ.length * 2, "every gate on both judged drafts (the third is past the cap)");
   assert.deepEqual(judge.verdicts.map((v) => v.failed), [["does_it"], ["did_what_it_says"]], "the rewrite's new fault was caught");
   assert.equal(result.answer, "Here it is.");
 });
@@ -220,12 +223,31 @@ test("a gate's own threshold applies when the setup names none", async () => {
   }
 });
 
-test("a job's report skips the texting-only gates", async () => {
-  assert.ok(!gatesFor({ job: true }).includes("short_and_clean"));
-  assert.deepEqual(gatesFor(), Object.keys(GATES));
-  const ai = scripted([], [{ __ran: Object.keys(GATES).length - 1 }]);
-  await replyJudge({ ai, setting: { model: "clef", at: null }, question, history, job: true, log: () => {} }).check("x", { messages: [] });
+test("a job's report runs the report set, never the text set, and the gates read the report", async () => {
+  // Dev2, 2026-11-05: a ten-PR report went through the text gates and short_and_clean cut it to one line.
+  assert.deepEqual(gatesFor({ report: true }), ["reached_them", "on_a_page"]);
+  assert.ok(!gatesFor().includes("reached_them") && gatesFor().includes("short_and_clean"));
+  const report = { title: "Last ten PRs", state: "done", texts: ["1. #101 search rework, risk: index rebuild"] };
+  const long = "Here they are: " + "one PR and its risk, ".repeat(10);
+  const ai = scripted([], [{ reached_them: 0.9 }]);
+  const judge = replyJudge({ ai, setting: { model: "clef", at: null }, question: "(Not a text from them.)", history, report, log: () => {} });
+  const notice = await judge.check(long, { messages: [] });
+  assert.deepEqual(ai.judged.map((call) => call.gate).sort(), ["on_a_page", "reached_them"]);
+  assert.ok(ai.judged[0].state.includes("#101 search rework"), "the report is in the packet");
+  assert.match(notice, /reached them/);
+});
+
+test("short_and_clean and on_a_page read only a long draft, or one in a script they never write in", async () => {
+  // Dev2, 2026-11-05: "retune short and clean, it should also only be activated some times".
+  const ai = scripted([], [{}]);
+  await replyJudge({ ai, setting: { model: "clef", at: null }, question, history, log: () => {} }).check("Here it is: https://filebox.example/garden-club/logo.png", { messages: [] });
   assert.ok(!ai.judged.some((call) => call.gate === "short_and_clean"));
+  assert.equal(ai.judged.length, gatesFor().length - 1);
+  assert.ok(gateReads("short_and_clean", "That's 医保.", { question: "what's that charge" }));
+  assert.ok(!gateReads("short_and_clean", "That's 医保.", { question: "what is 医保?" }), "their own script is clean");
+  assert.ok(gateReads("short_and_clean", "word ".repeat(LONG_DRAFT_WORDS + 1)));
+  assert.ok(!gateReads("short_and_clean", `${"word ".repeat(LONG_DRAFT_WORDS)} https://a.example/${"x/".repeat(40)}`), "a link is not length");
+  assert.ok(!gateReads("on_a_page", "Booked, Lupa at 7, confirmation 4471."));
 });
 
 test("the turn's other check runs first, and no Workers AI binding means no judge", async () => {

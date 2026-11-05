@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 
 import { decisionEngine } from "../src/agent/decide.js";
 import { JUDGE_MODELS, judgeState } from "../src/agent/replyJudge.js";
-import { GATES, gateQuestion } from "../src/agent/replyGates.js";
+import { GATES, gateQuestion, gateReads } from "../src/agent/replyGates.js";
 import { workersAi } from "./models.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -36,7 +36,7 @@ export const MAX_FALSE_ALARMS = 0.1;
 export const MIN_CATCH = 0.8;
 const THRESHOLDS = Array.from({ length: 17 }, (_, i) => Math.round((0.1 + i * 0.05) * 100) / 100);
 
-/** A case's turn in the shape `judgeState` reads: `did` rows are [tool, args, result, "failed"?]. */
+/** A case's turn in the shape `judgeState` reads: `did` rows are [tool, args, result, "failed"?]; a report set's case has `report` ({ title, state, texts }). */
 export function caseTurn(item) {
   const messages = [];
   for (const [name, args, result, failed] of item.did ?? []) {
@@ -44,7 +44,7 @@ export function caseTurn(item) {
     messages.push({ role: "tool", name, text: String(result ?? ""), isError: failed === "failed" });
   }
   const history = (item.earlier ?? []).map(([who, text]) => ({ role: who === "tex" ? "assistant" : "user", text }));
-  return judgeState({ question: item.q, history, messages, answer: item.reply });
+  return judgeState({ question: item.q, history, messages, answer: item.reply, report: item.report ?? null });
 }
 
 export async function loadSets(dir = SETS) {
@@ -57,11 +57,11 @@ export async function loadSets(dir = SETS) {
   return sets;
 }
 
-/** Every case a gate is scored on: its own, and the other gates' good replies (`cross`). */
+/** Every case a gate is scored on: its own, and the good replies of the other gates in its set (`text` or `report`; `cross`). */
 export function casesFor(gate, sets) {
   const own = (sets[gate] ?? []).map((item) => ({ ...item, cross: false }));
   const others = Object.entries(sets)
-    .filter(([name]) => name !== gate)
+    .filter(([name]) => name !== gate && GATES[name].on === GATES[gate].on)
     .flatMap(([name, cases]) => cases.filter((item) => !item.fault).map((item) => ({ ...item, id: `${name}/${item.id}`, fault: false, cross: true })));
   return [...own, ...others];
 }
@@ -97,7 +97,13 @@ export async function scoreGate(gate, cases, decide, concurrency = 8) {
     Array.from({ length: Math.min(concurrency, cases.length) }, async () => {
       while (next < cases.length) {
         const at = next++;
-        const answers = await decide(caseTurn(cases[at]), gateQuestion(gate));
+        const item = cases[at];
+        // A draft the gate does not read in production (`when`) is never sent back: it passes, as it would there.
+        if (!gateReads(gate, item.reply, { question: item.q, history: (item.earlier ?? []).map(([, text]) => ({ text })) })) {
+          out[at] = { ...item, yes: 0, unread: true };
+          continue;
+        }
+        const answers = await decide(caseTurn(item), gateQuestion(gate));
         const yes = answers?.[gate]?.noul;
         out[at] = { ...cases[at], yes: typeof yes === "number" && Number.isFinite(yes) ? yes : null };
       }

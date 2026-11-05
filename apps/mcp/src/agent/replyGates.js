@@ -1,5 +1,5 @@
 /**
- * THE REPLY GATES: TEN SMALL JUDGES, EACH WITH ONE JOB (Dev2, 2026-11-05).
+ * THE REPLY GATES: SMALL JUDGES, EACH WITH ONE JOB (Dev2, 2026-11-05).
  *
  * "Remove these archaic pattern matching, that step should instead be a
  * series of parallel judges, fine tuned individually to make sure their gates
@@ -11,7 +11,7 @@
  * where yes means the reply has that fault. Every gate reads the same packet
  * (`judgeState` in `replyJudge.js`), and they all run at once. Each gate has
  * its own threshold (`at`; the values below are from the AI Gates run on
- * Clef Flash, 2026-11-05, where all ten cleared the bar), tuned on its own labelled set
+ * Clef Flash, 2026-11-05), tuned on its own labelled set
  * (`bench/gates/<gate>.json`, scored by `pnpm ai gates`), so it is acted on
  * only as far as its set shows it can be trusted. The examples in a gate's
  * question are kept out of its set: a gate is never scored on the examples
@@ -20,20 +20,57 @@
  * The facts stay code, because they are not readings of words: an empty
  * reply, a note link no tool gave, held approvals (a non-negotiable, checked
  * by the gateway), send limits and step budgets.
+ *
+ * Two sets (Dev2, 2026-11-05: "the judges should run on everything sent to
+ * the user including reports ... maybe a different set of judges? because
+ * reports should have artifacts and a page.md most of the times"): `text`
+ * gates read a reply to a person's text, and `report` gates read what Tex
+ * texts after a background job reports to it, where there is no text of
+ * theirs to answer, and what matters is that the result reaches them, a long
+ * one on a page with its link. A gate with `when` runs only on the drafts it
+ * names (Dev2: short and clean "should also only be activated some times"):
+ * a short draft is never too long, so it is never sent back for length.
  */
 
 /** Each gate's threshold, unless its tuning says otherwise: Clef's yes is a probability, so a half is an even call. */
 export const DEFAULT_GATE_AT = 0.5;
+
+/** Words past which a draft is long enough to be judged for length: a sentence or two is under it. */
+export const LONG_DRAFT_WORDS = 30;
+
+/** Scripts a stray word may be in; Latin is left out, since every text here is mostly in it. */
+const SCRIPTS = ["Han", "Hiragana", "Katakana", "Hangul", "Cyrillic", "Arabic", "Hebrew", "Thai", "Devanagari", "Greek"].map((name) => [name, new RegExp(`\\p{Script=${name}}`, "u")]);
+
+/** A draft's own words, links left out: a link is one tap, never length. */
+export function draftWords(draft) {
+  return String(draft ?? "")
+    .replace(/https?:\/\/\S+/g, " ")
+    .split(/\s+/)
+    .filter((word) => /[\p{L}\p{N}]/u.test(word)).length;
+}
+
+/** Whether a draft has letters in a script that neither their text nor the chat so far uses. */
+export function strayScript(draft, { question = "", history = [] } = {}) {
+  const theirs = [String(question ?? ""), ...(Array.isArray(history) ? history.map((turn) => String(turn?.text ?? "")) : [])].join("\n");
+  return SCRIPTS.some(([, letter]) => letter.test(String(draft ?? "")) && !letter.test(theirs));
+}
+
+const longDraft = (draft) => draftWords(draft) > LONG_DRAFT_WORDS;
 
 const ABOUT =
   "A person texted their assistant, which can search their notes and email, browse the web, open sites with saved logins, write notes, set reminders and start background jobs. " +
   "The state has their text, the reply the assistant is about to send, everything the assistant did this turn (each call and what came back), and earlier texts. " +
   "Judge only this one question about the reply. ";
 
+const REPORT_ABOUT =
+  "An assistant started a background job for a person, and the job has just reported back to the assistant; nothing from it has reached the person yet. " +
+  "The state has the job's report, the text the assistant is about to send the person about it, everything the assistant did this turn, and earlier texts. " +
+  "Judge only this one question about that text. ";
+
 /**
  * The gates, in the order a send-back lists them. `ask` is the question (yes = the fault), with replies
  * that pass and replies that fail it so Clef judges by example; `notice` is what the model is told when
- * the gate fails; `jobs: false` keeps a gate off a background job's report, which is read by Tex, not texted.
+ * the gate fails; `on` is the set it is in (`text` or `report`); `when`, if any, says which drafts it reads.
  */
 export const GATES = {
   did_what_it_says: gate({
@@ -200,11 +237,12 @@ export const GATES = {
     at: 0.5,
   }),
   short_and_clean: gate({
-    ask: "Is the reply too long for a text, when it should be a sentence or two (one casual line beside a page, card or picture it made), or does it retell what it made or where it searched, or slip in words in a script the person never writes in?",
+    ask: "Is the reply clearly too long for a text: a paragraph or more where a sentence or two would do, a retelling of what it made (a page, card or picture it links) or of every place it searched, or caveats and options nobody asked for? Or does it slip in words in a script the person never writes in? Two or three plain sentences that answer, a list they asked for, or steps they asked for are not this fault.",
     allow: [
       "'No, you're in Lisbon that day. Show's at 8.'",
       "'I think you keep what you've got and borrow a bit from Cloudflare, here are my notes: https://context.example/note'",
       "A list of the dates they asked for.",
+      "Three short sentences: the answer, why, and the one thing left that needs them.",
     ],
     block: [
       "Two paragraphs describing the page it just linked.",
@@ -212,27 +250,72 @@ export const GATES = {
       "'The bulk of that is 医保 and necessities' (a script they never write in)",
       "Caveats and three options nobody asked for.",
     ],
-    yes: "yes, too long or not clean",
+    yes: "yes, clearly too long for a text, or not clean",
     no: "no, the length and wording fit a text",
-    notice: "Your reply is too long for a text, or retells what you made or where you looked. Say it in a sentence or two (one casual line beside a page or picture), in their own language.",
+    notice: "Your reply is too long for a text, or retells what you made or where you looked. Keep the answer and every fact and link it gives, and cut the rest: a sentence or two (one casual line beside a page or picture), in their own language.",
     at: 0.25,
-    jobs: false,
+    when: (draft, turn) => longDraft(draft) || strayScript(draft, turn),
+  }),
+  reached_them: gate({
+    on: "report",
+    ask: "The job's report says how it stands (done, failed, stuck, waiting or still running). Does the text fail to get the job's result to the person: an ended job's result left out (only 'done', 'the report has the details', or a pointer to a report they cannot see), a link the report gave dropped, the result changed into something the report doesn't say, or a job that has ended described as still working? For a job still running, saying nothing, or one line about what it sent on its way, is not this fault.",
+    allow: [
+      "Report: done, 'Booked 7pm at Lupa, confirmation 4471'. Text: 'Booked, Lupa at 7, confirmation 4471.'",
+      "Report: done, a page at https://context.example/note/research/ovens.page.md. Text: 'I'd get the Breville, notes here: https://context.example/note/research/ovens.page.md'",
+      "Report: still running, 'opened the portal, filling page 2'. Text: nothing, it stays quiet",
+      "Report: stuck, the site wants a phone code. Text: 'The site wants the code it texted you, what is it?'",
+    ],
+    block: [
+      "Report: done, ten PRs listed with risks. Text: 'The report has the details and risks.' (they never see the report)",
+      "Report: done, a page link. Text: 'Done, I wrote it up.' (no link)",
+      "Report: failed, the form refused the date. Text: 'Still working on it.'",
+      "Report: done, 'cheapest is $412 on Delta'. Text: 'Found flights from $380.'",
+    ],
+    yes: "yes: the job's result does not reach them in this text",
+    no: "no: the text gives them the result (or its link), or the job is still running and nothing new needs saying",
+    notice: "Your text doesn't get the job's result to them: they can't see the job's report, only what you text. Give them the result itself, with every link the report gave, exactly as it wrote them; a long result goes on a page with its link.",
+    at: 0.5,
+  }),
+  on_a_page: gate({
+    on: "report",
+    ask: "Is the text a long result texted in full (a list of many items, a table, research findings, a breakdown, a write-up) where it should be one or two lines with a link to a page (.page.md note) or a card holding it? A short result (a confirmation, a price, a yes or no, a few dates) needs no page, and neither does a text that already links the page or card with one or two lines beside it.",
+    allow: [
+      "Report: ten PRs with risks, written to a page. Text: 'Your last ten merged PRs, riskiest is #2684: https://context.example/note/jobs/prs.page.md'",
+      "Report: done, three flights. Text: 'Delta at 8:10 for $412 is the pick, United at noon is $430, JetBlue $455.'",
+      "Report: done, a card of five couches sent. Text: 'The Kivik is the value pick, the Sven lasts.'",
+    ],
+    block: [
+      "Report: ten PRs with risks. Text: all ten PRs, each with its title, summary and risk, in the text.",
+      "Report: research on five CRMs. Text: three paragraphs comparing them, no link.",
+      "Report: a week's meal plan. Text: every day's breakfast, lunch and dinner listed.",
+    ],
+    yes: "yes: a long result texted in full with no page or card to hold it",
+    no: "no: the result is short, or it is on a page or card the text links",
+    notice: "That's too much for a text. Put the full result on a page (write_note to a .page.md note), or a card, then text one or two lines with your take and the link.",
+    at: 0.5,
+    when: longDraft,
   }),
 };
 
-function gate({ ask, allow, block, yes, no, notice, jobs = true, at = DEFAULT_GATE_AT }) {
-  return { ask: `${ask} Never this fault: ${allow.join(" | ")}. This fault: ${block.join(" | ")}.`, yes, no, notice, jobs, at };
+function gate({ ask, allow, block, yes, no, notice, on = "text", when = null, at = DEFAULT_GATE_AT }) {
+  return { ask: `${ask} Never this fault: ${allow.join(" | ")}. This fault: ${block.join(" | ")}.`, yes, no, notice, on, when, at };
 }
 
 /** One gate as the yes/no question Clef reads: keyed by the gate's name, so its answer comes back under it. */
 export function gateQuestion(name) {
   const g = GATES[name];
-  return { [name]: { type: "noul", instructions: ABOUT + g.ask, criteria: { true: g.yes, false: g.no } } };
+  return { [name]: { type: "noul", instructions: (g.on === "report" ? REPORT_ABOUT : ABOUT) + g.ask, criteria: { true: g.yes, false: g.no } } };
 }
 
-/** The gates a turn runs: all of them on a texted reply, all but the texting-only ones on a background job's report. */
-export function gatesFor({ job = false } = {}) {
-  return Object.keys(GATES).filter((name) => !job || GATES[name].jobs);
+/** The gates a turn runs: the `text` set on a reply to their text, the `report` set on what Tex texts about a job's report. */
+export function gatesFor({ report = false } = {}) {
+  return Object.keys(GATES).filter((name) => GATES[name].on === (report ? "report" : "text"));
+}
+
+/** Whether a gate reads this draft: every draft, unless its `when` names only some (`turn` is `{ question, history }`). */
+export function gateReads(name, draft, turn = {}) {
+  const when = GATES[name].when;
+  return typeof when !== "function" || when(draft, turn) === true;
 }
 
 /** What the model is told when gates fail: which ones, and what each needs, in the gates' own order. */
