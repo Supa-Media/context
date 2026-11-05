@@ -22,8 +22,8 @@
  *   anything kept.
  * - Fresh enough to trust, by part: the setup (a pinned note that changes
  *   rarely) for an hour; the learned skills and who they are by their
- *   account for ten minutes, the skills dropped by any turn that wrote; the
- *   chat's event log and its turns' clean marks for a day.
+ *   account for ten minutes, the skills dropped by any turn that wrote; its
+ *   turns' clean marks for a day.
  * - Past fresh, the setup and the skills are still used for up to a day
  *   (`WARM_STALE_MS`), and read again beside the turn instead of before it:
  *   what that read finds goes in the copy this turn hands back, so the next
@@ -36,8 +36,10 @@
  *   person's own Tex Durable Object (`history.js`, `texDesk.js`), so no copy
  *   here can be behind them. `test/texHistoryOneCopy.test.mjs` fails if one
  *   comes back.
- * - The chat's newest events come from the Worker itself (`recent`), as they
- *   would reach the log through `/agent/events`, on the same grant.
+ * - Never the chat's day either (Dev2, 2026-11-05): every turn reads it from
+ *   the chat's ledger, with the Worker's outbox (`recent`) on top. A carried
+ *   day was sealed before its turn's reply went, and the Worker forgets a
+ *   reply once the gateway has it, so Tex never saw what it had said.
  * - The waiting asks are never kept: a job, a routine or the heartbeat arms one
  *   beside the chat without touching this copy, so every turn that may have one
  *   reads them for itself (`frontDoor.js`).
@@ -58,7 +60,7 @@ const decoder = new TextDecoder();
 export const WARM_NOTES_MS = 10 * 60 * 1000;
 /** The texting setup, a note in the pinned workspace that changes rarely: trusted this long, then read again. */
 export const WARM_SETUP_MS = 60 * 60 * 1000;
-/** The chat's event log and clean marks, carried forward turn by turn. */
+/** The chat's turns' clean marks, carried forward turn by turn (never the chat itself). */
 export const WARM_CHAT_MS = 24 * 60 * 60 * 1000;
 /**
  * The setup and the learned skills, past fresh: used this much longer while they are read again beside the turn
@@ -130,7 +132,7 @@ export async function openWarm(env, session, sealed, now = Date.now()) {
     const setup = fresh(copy.setup, WARM_SETUP_MS), skills = fresh(copy.skills, WARM_NOTES_MS);
     // Past fresh and inside a day: used while read again (`WARM_STALE_MS`), never as fresh.
     const stale = { setup: setup === undefined ? fresh(copy.setup, WARM_STALE_MS) : undefined, skills: skills === undefined ? fresh(copy.skills, WARM_STALE_MS) : undefined };
-    return { setup, skills, identity: fresh(copy.identity, WARM_NOTES_MS), stale, chat: chat && { at: chat.at, ...(Array.isArray(chat.events) ? { events: chat.events } : {}), ...(chat.clean && typeof chat.clean === "object" ? { clean: chat.clean } : {}) } };
+    return { setup, skills, identity: fresh(copy.identity, WARM_NOTES_MS), stale, chat: chat && { at: chat.at, ...(chat.clean && typeof chat.clean === "object" ? { clean: chat.clean } : {}) } };
   } catch {
     return null;
   }
@@ -195,8 +197,9 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
     /** The chat's day (the ledger's, `loggedTurn.js`), with the Worker's outbox on top. */
     async events(chatKey, read) {
       const logs = eligible || logEligible; // the texting Worker's own turn, one to one or a group's
-      const warm = await chat;
-      const base = warm?.events ?? (await read());
+      // Always the ledger's day, never a carried one (Dev2, 2026-11-05): a copy is sealed before the turn's reply goes and
+      // the Worker forgets that reply once the gateway takes it, so a carried day never held Tex's own answers.
+      const base = await read();
       const events = mergeEvents(base, logs ? body?.recent : null, { chat: chatKey, now }); // only the texting Worker's own turn hands events in
       chatRead = { events };
       return events;
@@ -230,13 +233,13 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
       // A record only moves toward not clean (`loggedTurn.js` `recordTurn`): a retried turn id's earlier attempt may have recorded false, so its own clean exit is left for the next turn to read.
       const known = { ...(warm?.clean ?? {}), ...cleanSeen, ...(typeof turn === "string" && clean === false ? { [turn]: false } : {}) };
       if (typeof turn === "string" && clean !== false && known[turn] === true) delete known[turn];
-      // The log this turn read, or the copy's when it read none (a yes the gateway settled); a log the Worker holds is never carried.
-      const events = chatRead?.events ?? warm?.events;
+      // The chat itself is never carried: the next turn reads its day from the ledger. Only the clean marks of the turns this
+      // one was shown go on (all of them when it read no day: a yes the gateway settled).
+      const events = chatRead?.events;
       const shown = new Set((events ?? []).map((event) => event.turn).filter(Boolean));
       if (typeof turn === "string") shown.add(turn);
       out.chat = {
         at: warm?.at ?? now,
-        ...(events !== undefined ? { events } : {}),
         clean: Object.fromEntries(Object.entries(known).filter(([id]) => events === undefined || shown.has(id))),
       };
       return await sealWarm(env, session, out);
