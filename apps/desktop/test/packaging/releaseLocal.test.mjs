@@ -60,4 +60,12 @@ export async function runReleaseLocalChecks(check) {
     "the workflow refuses an older version than the latest release (a local release may be ahead of the run number)",
     /is older than the latest release/.test(workflow) && /sort -V/.test(workflow),
   );
+  // GitHub's "latest" pointer can name a machine-runner release, which has no
+  // app version; both places compare against the app's own v<x.y.z> tags only.
+  for (const [name, text] of [["deploy-desktop.yml", workflow], ["release-local.sh", code]]) {
+    check(
+      `${name}: the newest app release is read from v<x.y.z> tags, not GitHub's latest pointer`,
+      !/gh release view (--repo "\$[A-Z_a-z]+" )?--json tagName/.test(text) && /grep -E '\^v\[0-9\]\+/.test(text),
+    );
+  }
 }

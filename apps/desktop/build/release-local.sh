@@ -56,7 +56,9 @@ commit="$(git rev-parse --short HEAD)"
 
 say "Picking the version"
 base="$(node -p 'require("./apps/desktop/package.json").version')"
-latest="$(gh release view --repo "$repo" --json tagName -q .tagName 2>/dev/null || echo v0.0.0)"
+# Only the app's own `v<x.y.z>` tags: GitHub's "latest" can be a machine-runner release.
+latest="$( (gh release list --repo "$repo" --limit 100 --json tagName -q '.[].tagName' 2>/dev/null || true) | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)"
+latest="${latest:-v0.0.0}"
 version="$(node -e '
   const [base, latest] = process.argv.slice(1);
   const [major, minor] = base.split(".").map(Number);
