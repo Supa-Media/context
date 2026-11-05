@@ -133,7 +133,9 @@ export async function attachPage(cdp: CdpTransport): Promise<AttachedPage> {
     await sleep(300);
   }
 
-  const attached = { send, evaluate, settle };
+  // Heard from here on: a press made while Browserbase solves a captcha is turned away (./captchaSolver.ts).
+  const solver = await watchSolver(cdp, (method) => send(method));
+  const attached = { send, evaluate, settle, solver };
   // Before anything presses or pictures the page: a passkey window Chrome
   // draws over it is in no picture and takes every press (./passkeys.ts).
   await turnOffPasskeys(attached);
