@@ -39,6 +39,7 @@ export const ROUTE_SEGMENTS: ReadonlySet<string> = new Set([
   "authorize",
   "cli",
   "connect",
+  "download",
   "connections",
   "console",
   "e2e-fixture",
