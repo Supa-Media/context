@@ -175,6 +175,11 @@ pub fn parse(line: &str) -> Vec<CliEvent> {
                             out.push(CliEvent::Text(t));
                         }
                     }
+                    Some("thinking") => {
+                        if let Some(t) = s(block, "thinking").filter(|t| !t.trim().is_empty()) {
+                            out.push(CliEvent::Thinking(t));
+                        }
+                    }
                     _ => {}
                 }
             }

@@ -487,6 +487,24 @@ pub struct Step {
     pub at: u64,
 }
 
+/// What the coding tool said or thought, for the chat's history (`said`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SaidKind {
+    Text,
+    Thinking,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Said {
+    pub run_id: String,
+    pub seq: u64,
+    pub kind: SaidKind,
+    pub text: String,
+    pub at: u64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TokenUsage {
@@ -567,6 +585,7 @@ pub enum RunnerMsg {
     Refuse(Refuse),
     Session(Session),
     Step(Step),
+    Said(Said),
     Usage(Usage),
     Result(RunResult),
     Status(Status),

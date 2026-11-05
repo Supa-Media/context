@@ -8,7 +8,9 @@
 //! everything the agent started, not only the tool.
 
 use crate::cli::CliEvent;
-use crate::protocol::{Assign, Outcome, RunnerMsg, Session, Step, TokenUsage, Tool, Usage};
+use crate::protocol::{
+    Assign, Outcome, RunnerMsg, Said, SaidKind, Session, Step, TokenUsage, Tool, Usage,
+};
 use crate::run::{deliver_text, interrupt_text, save_record, RunInput, RunRecord, Spent};
 use crate::state::State;
 use std::path::PathBuf;
@@ -130,6 +132,24 @@ impl Sink<'_> {
         }
     }
 
+    /// The tool's words or thinking, for the chat's history: numbered with the steps, cut to what a frame carries,
+    /// and best effort like a step (a full queue, offline, drops it).
+    fn said(&mut self, kind: SaidKind, text: &str) {
+        let text: String = text.trim().chars().take(4000).collect();
+        if text.is_empty() {
+            return;
+        }
+        self.record.last_step += 1;
+        save_record(self.state, self.record);
+        let _ = self.out.try_send(RunnerMsg::Said(Said {
+            run_id: self.a.run_id.clone(),
+            seq: self.record.last_step,
+            kind,
+            text,
+            at: now_ms(),
+        }));
+    }
+
     /// Handles one event; returns the turn's end when it is one.
     async fn event(&mut self, ev: CliEvent) -> Option<(bool, Option<String>)> {
         match ev {
@@ -160,7 +180,11 @@ impl Sink<'_> {
                     at: now_ms(),
                 }));
             }
-            CliEvent::Text(t) => self.answer = t,
+            CliEvent::Text(t) => {
+                self.said(SaidKind::Text, &t);
+                self.answer = t;
+            }
+            CliEvent::Thinking(t) => self.said(SaidKind::Thinking, &t),
             CliEvent::Usage {
                 input,
                 output,

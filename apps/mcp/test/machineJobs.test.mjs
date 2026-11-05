@@ -210,6 +210,41 @@ test("a part's steps on the computer reach the chat's record as the job's tool c
   assert.equal(appended.length, before);
 });
 
+test("what the tool said and thought, and how the part ended, reach the chat's record naming the computer", async () => {
+  const { w, server, ask, assignBody } = await setup();
+  const appended = [];
+  const store = { contexts: [], texLedger: () => ({ append: async (chat, entries) => void appended.push(...entries.map((e) => ({ chat, ...e }))) }) };
+  const me = session({ workspaceKind: "personal" });
+  const read = async () => (await ask("/agent/machine/run", { workspaceId: "ws_a", runId }, me, store)).body;
+  const { body } = await ask("/agent/machine/assign", assignBody(), me);
+  const runId = body.runId;
+  await w.frame(server, { type: "accept", runId });
+  await w.frame(server, { type: "said", runId, seq: 1, kind: "thinking", text: "Check gh first.", at: w.clock.at });
+  await w.frame(server, { type: "step", runId, seq: 2, tool: "Bash", action: "run", target: "gh", at: w.clock.at });
+  await w.frame(server, { type: "said", runId, seq: 3, kind: "text", text: "gh needs a browser sign-in.", at: w.clock.at });
+  // A resend after a reconnect is recognised by its number and kept once.
+  await w.frame(server, { type: "said", runId, seq: 3, kind: "text", text: "gh needs a browser sign-in.", at: w.clock.at });
+  await w.frame(server, { type: "result", runId, outcome: "failed", error: "notSignedIn", wallMs: 2000 });
+  const answer = await read();
+  assert.equal(answer.run.said, undefined, "the job's read itself carries no words: they go to the record");
+  const byId = new Map(appended.map((e) => [e.id, e]));
+  const thinking = appended.find((e) => e.kind === "thinking");
+  const said = appended.filter((e) => e.kind === "said");
+  const end = appended.find((e) => e.name === "computer_part");
+  assert.equal(thinking.text, "Check gh first.");
+  assert.equal(said.length, 1);
+  assert.equal(said[0].text, "gh needs a browser sign-in.");
+  assert.deepEqual(end.args, { outcome: "failed", error: "notSignedIn" });
+  assert.equal(end.ok, false);
+  for (const e of byId.values()) {
+    assert.equal(e.computer, "mch_1");
+    assert.equal(typeof e.computerName, "string");
+    assert.ok(e.computerName.length > 0);
+    assert.equal(e.jobId, "job_1");
+  }
+  assert.equal(byId.size, 4, "thinking, step, words and the end, each once");
+});
+
 test("stopping a run cancels it on the machine and takes its grant back", async () => {
   const { server, controlPlane, ask, assignBody } = await setup();
   const { body } = await ask("/agent/machine/assign", assignBody());

@@ -69,6 +69,7 @@ fn every_runner_frame_round_trips() {
             "installState",
             "refuse",
             "result",
+            "said",
             "session",
             "signInState",
             "status",
