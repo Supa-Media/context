@@ -131,7 +131,7 @@ letting a write run again on a rewrite saves or sends twice; refusing by tool na
 Follow-up the same day, from the review thread: the framing (`recheck.js`)
 now points at the draft quoted below, not "above", and asks for plain text
 without the quote marks; an email or email draft to the same people from the
-same account counts as the same write however it is reworded (`SAME_TARGET`);
+same account (and the same email replied to or forwarded) counts as the same write however it is reworded (`SAME_TARGET`);
 the note says a browser step already happened on the real site and must not
 be clicked, submitted or paid again; a text that comes in mid-reply quotes
 the unsent draft the same way (`lateText`) instead of putting it in as said,

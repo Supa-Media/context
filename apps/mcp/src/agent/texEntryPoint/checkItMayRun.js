@@ -11,10 +11,10 @@ import { AgentRefusal, openProvider } from "../turn.js";
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function checkItMayRun(t) {
   const { body, controlPlane, dispatch, env, group, hot, job, outcome, report, routine, runner, runs, session, stages, store, tex } = t;
-  const offeredRead = tex.ahead("tools_list", () => grantedToolsFor(session, store)), historyRead = tex.ahead("history", () => turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, job: job !== null, time: { memory: (run) => tex.ahead("history_memory", run), ledger: (run) => tex.ahead("history_ledger", run), log: (run) => tex.ahead("history_log", run), groupReads: (run) => tex.ahead("history_group_notes", run), groupLedger: (run) => tex.ahead("history_group_ledger", run) } })); // beside the provider check (`ahead`), a group's memory too now that the egress ledger is set above (2026-10-31)
+  const offeredRead = tex.ahead("tools_list", () => grantedToolsFor(session, store, { texts: true })), historyRead = tex.ahead("history", () => turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, job: job !== null, time: { memory: (run) => tex.ahead("history_memory", run), ledger: (run) => tex.ahead("history_ledger", run), log: (run) => tex.ahead("history_log", run), groupReads: (run) => tex.ahead("history_group_notes", run), groupLedger: (run) => tex.ahead("history_group_ledger", run) } })); // beside the provider check (`ahead`), a group's memory too now that the egress ledger is set above (2026-10-31)
   const allowedRead = tex.ahead("allowed", () => openProvider(controlPlane, session, body.provider, env, { background: job !== null || report !== null })); // a job's part or report: not on the daily cap (Dev2, 2026-10-31)
   const refused = async (error) => { // the turn's answer when the model may not run here (beside the model on a chat's text: `tex.lean`)
-    outcome.turn = undefined; // no model ran: no record (`loggedTurn.js`)
+    outcome.turn = undefined; // no model ran
     if (runner) await tex.step("keep_run", () => keepRun(store, routine, runs, error instanceof AgentRefusal ? error.code : "failed", ""));
     if (error instanceof AgentRefusal && error.code === "daily_limit") {
       return json(
