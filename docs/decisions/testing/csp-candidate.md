@@ -61,7 +61,8 @@ that keeps "per push, a real browser tests only the note editor"
 request themselves and never see these headers. The specs have to pass, and the log must hold no enforced
 `script-src` violation. Both checks are needed: when the shell's appearance
 script was sabotaged (its hash changed), the smoke spec stayed green and only
-the log check failed.
+the log check failed. The style-nonce half (the `full` runs below) is its own
+job, `Style nonce enforced in WebKit`, running beside it since 2026-11-05.
 
 ### What the first runs showed (Chromium, 2026-10-29)
 

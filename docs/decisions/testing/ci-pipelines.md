@@ -118,6 +118,15 @@ an artifact. On a pull request or a push to main:
 - Note editor in WebKit runs the editor's own specs (`editor`,
   `editorFormatting`, `callouts`, `tables`, `comments`) in one job, and only
   when the editor or what it is built from changed.
+- The CSP candidate runs in two jobs on the same scope, side by side: Script
+  policy enforced in WebKit (production's headers, then `script-src`
+  enforced) and Style nonce enforced in WebKit (the whole policy with a style
+  nonce per response, its offline replay, and the diagram page's own policy).
+  They were one job until 2026-11-05, when it ran five and a half minutes and
+  was the longest check on any pull request that reached the editor; split,
+  each runs in about two and a half. `Editor in WebKit` requires both, and
+  `scripts/check-ci-path-gates.mjs` fails if it stops requiring either or if
+  their specs drift from the scope.
 
 Once a day (and on demand):
 
