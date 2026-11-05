@@ -150,6 +150,15 @@ aren't touching the editor"). Replayed over the 111 merges before 2026-10-07,
 or a change to the CI scope tooling itself. The old per-push trigger ran the
 full suite on 43.
 
+A type-only import (`import type … from`, `export type … from`) is not
+followed, since it is erased before anything runs. Until 2026-11-05 it was:
+the editor's context menu named `MenuItem` from the file tree's menu by type
+alone, which pulled the tree menu, folder jobs and the folder icon list into
+the editor's scope (280 files, now 228). #3038 changed two lines of that icon
+list and ran the editor's browser tests for it (Dev2: "why would a tex change
+trigger a browser job?"). `ci-change-scope.mjs --self-test` fails if the icon
+list comes back into the editor scope.
+
 The scope fails open:
 
 - a workspace package with no `main` to follow counts whole (one with a `main`

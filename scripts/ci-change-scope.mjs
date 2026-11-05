@@ -182,6 +182,8 @@ export function selfTest() {
     }).affected;
   if (!editor("packages/shared/src/links.ts")) throw new Error("a shared file the editor imports is outside its scope");
   if (editor("packages/shared/src/siteDesign/css.ts")) throw new Error("a shared file the editor never imports matched its scope");
+  // Reached before only through `import type { MenuItem } from "./menu"` in editorMenu.ts: types are erased.
+  if (editor("packages/shared/src/folderIcons.cjs")) throw new Error("a file reached only through a type import matched the editor scope");
   if (!editor("apps/mcp/src/forms/grammar.js")) throw new Error("gateway code the editor imports is outside its scope");
   if (editor("apps/mcp/wrangler.toml")) throw new Error("a config of an app the editor only imports from matched its scope");
   if (!editor("apps/mobile/metro.config.js")) throw new Error("a build config of the app the editor is built in did not fail open");
