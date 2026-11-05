@@ -203,14 +203,28 @@ describe("inbox", () => {
     expect(storage.data.has("pending:000000000001")).toBe(false);
   });
 
-  it("never asks again a turn that failed after it started, since its tools may have run", async () => {
+  // Dev2's one-door plan (2026-11-05): a 1:1 turn that failed after it started is tried again, as a group's is
+  // (`groupTurnWorkflow.ts`: three more times), where it used to say "something went wrong" at once.
+  it("tries a turn that failed after it started three more times, then says so once", async () => {
     const storage = new MemoryStorage();
     await accept(storage, msg("e1", "q"), 1_000);
     const asks: string[] = [];
     const sent: Sent[] = [];
     await drain(storage, deps({ asks, sent, agentStatus: () => 502 }));
     expect(asks).toEqual(["q"]);
+    expect(sent).toEqual([]);
+    for (let i = 1; i < MAX_ANSWER_ATTEMPTS; i++) await drain(storage, deps({ asks, sent, agentStatus: () => 502 }));
+    expect(asks).toEqual(["q", "q", "q", "q"]);
     expect(sent).toEqual([{ text: COPY.unavailable, idempotency: "reply:e1" }]);
+  });
+
+  it("a retried turn that then answers sends only the answer", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "q"), 1_000);
+    const sent: Sent[] = [];
+    await drain(storage, deps({ sent, agentStatus: () => 502 }));
+    await drain(storage, deps({ sent }));
+    expect(sent.map((s) => s.text)).toEqual(["answer to q"]);
   });
 
   it("sends a sign-in link as its own text, and a retry resends only the text that failed", async () => {

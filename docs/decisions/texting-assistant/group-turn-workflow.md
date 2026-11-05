@@ -29,7 +29,11 @@ attempt can take) is given up on, with the failed line, rather than holding
 the chat.
 
 **Rollout.** Every group at once, tested in production, since group chats are
-still in beta. The fallback is reverting the change. 1:1 chats are unchanged.
+still in beta. The fallback is reverting the change. 1:1 chats were unchanged
+until the one-door plan (Dev2, 2026-11-05): a 1:1 turn that fails, started or
+not, is now tried three more times from ten seconds, doubling, by its queue's
+alarm (`inbox.ts` `MAX_ANSWER_ATTEMPTS`, `reply.ts` `TryLater`), then says it
+couldn't answer once, the same experience a group gets.
 
 What a simplification would cost: answering a handed turn without the
 per-turn part record sends a reply twice whenever a retry follows a partial
