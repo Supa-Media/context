@@ -38,13 +38,19 @@ const THRESHOLDS = Array.from({ length: 17 }, (_, i) => Math.round((0.1 + i * 0.
 
 /** A case's turn in the shape `judgeState` reads: `did` rows are [tool, args, result, "failed"?]; a report set's case has `report` ({ title, state, texts }). */
 export function caseTurn(item) {
+  const messages = caseMessages(item);
+  const history = (item.earlier ?? []).map(([who, text]) => ({ role: who === "tex" ? "assistant" : "user", text }));
+  return judgeState({ question: item.q, history, messages, answer: item.reply, report: item.report ?? null });
+}
+
+/** A case's calls as the turn's messages. */
+export function caseMessages(item) {
   const messages = [];
   for (const [name, args, result, failed] of item.did ?? []) {
     messages.push({ role: "assistant", text: "", toolCalls: [{ name, args: args ?? {} }] });
     messages.push({ role: "tool", name, text: String(result ?? ""), isError: failed === "failed" });
   }
-  const history = (item.earlier ?? []).map(([who, text]) => ({ role: who === "tex" ? "assistant" : "user", text }));
-  return judgeState({ question: item.q, history, messages, answer: item.reply, report: item.report ?? null });
+  return messages;
 }
 
 export async function loadSets(dir = SETS) {
@@ -99,7 +105,7 @@ export async function scoreGate(gate, cases, decide, concurrency = 8) {
         const at = next++;
         const item = cases[at];
         // A draft the gate does not read in production (`when`) is never sent back: it passes, as it would there.
-        const turn = { question: item.q, history: (item.earlier ?? []).map(([, text]) => ({ text })) };
+        const turn = { question: item.q, history: (item.earlier ?? []).map(([, text]) => ({ text })), messages: caseMessages(item) };
         if (!gateReads(gate, item.reply, turn)) {
           out[at] = { ...item, yes: 0, unread: true };
           continue;

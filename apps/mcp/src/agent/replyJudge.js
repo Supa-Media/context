@@ -107,7 +107,7 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
         turn.tell?.(judgeEvent({ by: "code", round: sentBack, draft: answer, went: false, notice: before }));
         return before;
       }
-      const open = set.filter((name) => gateReads(name, answer, { question, history }));
+      const open = set.filter((name) => gateReads(name, answer, { question, history, messages: turn.messages }));
       if (decide === null || open.length === 0) return null;
       if (sentBack >= MAX_SEND_BACKS) {
         turn.tell?.(judgeEvent({ by: "gates", model: pick.model, round: sentBack, draft: answer, went: true, reason: "sent back twice already, so it goes as it is" }));

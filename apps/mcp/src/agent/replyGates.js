@@ -35,8 +35,16 @@
 /** Each gate's threshold, unless its tuning says otherwise: Clef's yes is a probability, so a half is an even call. */
 export const DEFAULT_GATE_AT = 0.5;
 
-/** Words past which a draft is long enough to be judged for length: a sentence or two is under it. */
-export const LONG_DRAFT_WORDS = 30;
+/**
+ * Words past which a draft is judged for length. A few plain sentences are under it: in Tex Devs on
+ * 2026-11-05 short_and_clean sent back 30- to 55-word answers that were fine, and every one it was right
+ * about ran past 75. Beside a page, card or picture the turn made, `MADE_LINE_WORDS` (one line) is the bar.
+ */
+export const LONG_DRAFT_WORDS = 60;
+/** Words past which a draft beside something the turn made (or a report's result) is more than a line or two. */
+export const MADE_LINE_WORDS = 30;
+/** Calls that make something the person sees beside the text. */
+const MAKERS = new Set(["draw_visual", "draw_picture", "make_picture"]);
 
 /** Scripts a stray word may be in; Latin is left out, since every text here is mostly in it. */
 const SCRIPTS = ["Han", "Hiragana", "Katakana", "Hangul", "Cyrillic", "Arabic", "Hebrew", "Thai", "Devanagari", "Greek"].map((name) => [name, new RegExp(`\\p{Script=${name}}`, "u")]);
@@ -55,7 +63,17 @@ export function strayScript(draft, { question = "", history = [] } = {}) {
   return SCRIPTS.some(([, letter]) => letter.test(String(draft ?? "")) && !letter.test(theirs));
 }
 
-const longDraft = (draft) => draftWords(draft) > LONG_DRAFT_WORDS;
+/** Whether the turn made a page, card or picture: then the text beside it should be a line. */
+export function madeSomething(messages) {
+  return (Array.isArray(messages) ? messages : []).some(
+    (message) =>
+      message?.role === "assistant" &&
+      Array.isArray(message.toolCalls) &&
+      message.toolCalls.some((call) => MAKERS.has(call?.name) || (call?.name === "write_note" && /\.page\.md$/i.test(String(call?.args?.path ?? "")))),
+  );
+}
+
+const longDraft = (draft, turn = {}) => draftWords(draft) > (madeSomething(turn.messages) ? MADE_LINE_WORDS : LONG_DRAFT_WORDS);
 
 const ABOUT =
   "A person texted their assistant, which can search their notes and email, browse the web, open sites with saved logins, write notes, set reminders and start background jobs. " +
@@ -255,7 +273,7 @@ export const GATES = {
     no: "no, the length and wording fit a text",
     notice: "Your reply is too long for a text, or retells what you made or where you looked. Keep the answer and every fact and link it gives, and cut the rest: a sentence or two (one casual line beside a page or picture), in their own language.",
     at: 0.2, // AI Gates 2026-11-05: 5/7 by Clef, 0/75 false alarms; a stray script is the fact below
-    when: (draft, turn) => longDraft(draft) || strayScript(draft, turn),
+    when: (draft, turn) => longDraft(draft, turn) || strayScript(draft, turn),
     fact: strayScript, // Clef missed it (0.04): letters in a script they never write in are a fact, so code fails it
   }),
   reached_them: gate({
@@ -295,7 +313,7 @@ export const GATES = {
     no: "no: the result is short, or it is on a page or card the text links",
     notice: "That's too much for a text. Put the full result on a page (write_note to a .page.md note), or a card, then text one or two lines with your take and the link.",
     at: 0.15, // AI Gates 2026-11-05: 5/5 caught, 0/14 false alarms
-    when: longDraft,
+    when: (draft) => draftWords(draft) > MADE_LINE_WORDS,
   }),
 };
 
@@ -320,7 +338,7 @@ export function gateFact(name, draft, turn = {}) {
   return typeof fact === "function" && fact(draft, turn) === true;
 }
 
-/** Whether a gate reads this draft: every draft, unless its `when` names only some (`turn` is `{ question, history }`). */
+/** Whether a gate reads this draft: every draft, unless its `when` names only some (`turn` is `{ question, history, messages }`). */
 export function gateReads(name, draft, turn = {}) {
   const when = GATES[name].when;
   return typeof when !== "function" || when(draft, turn) === true;

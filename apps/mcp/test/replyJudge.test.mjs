@@ -20,7 +20,7 @@ import { test } from "node:test";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { parseSetup } from "../src/agent/production.js";
 import { actionsOf, judgeState, MAX_SEND_BACKS, readReplyJudge, replyJudge, runGates } from "../src/agent/replyJudge.js";
-import { GATES, gateReads, gatesFor, LONG_DRAFT_WORDS, sendBackNotice } from "../src/agent/replyGates.js";
+import { GATES, gateReads, gatesFor, LONG_DRAFT_WORDS, MADE_LINE_WORDS, sendBackNotice } from "../src/agent/replyGates.js";
 import { runTurn } from "../src/agent/turn.js";
 import { wireTraceEntry } from "../src/agent/turnLog.js";
 
@@ -252,6 +252,12 @@ test("short_and_clean and on_a_page read only a long draft, or one in a script t
   assert.ok(gateReads("short_and_clean", "word ".repeat(LONG_DRAFT_WORDS + 1)));
   assert.ok(!gateReads("short_and_clean", `${"word ".repeat(LONG_DRAFT_WORDS)} https://a.example/${"x/".repeat(40)}`), "a link is not length");
   assert.ok(!gateReads("on_a_page", "Booked, Lupa at 7, confirmation 4471."));
+  // A few plain sentences go unread; beside a page, card or picture the turn made, more than a line is read.
+  const fewSentences = "word ".repeat(MADE_LINE_WORDS + 5);
+  assert.ok(!gateReads("short_and_clean", fewSentences, { messages: [] }));
+  assert.ok(gateReads("short_and_clean", fewSentences, { messages: [{ role: "assistant", toolCalls: [{ name: "draw_visual", args: {} }] }] }));
+  assert.ok(gateReads("short_and_clean", fewSentences, { messages: [{ role: "assistant", toolCalls: [{ name: "write_note", args: { path: "research/x.page.md" } }] }] }));
+  assert.ok(!gateReads("short_and_clean", fewSentences, { messages: [{ role: "assistant", toolCalls: [{ name: "write_note", args: { path: "notes/x.md" } }] }] }), "a plain note is not something beside the text");
   // A stray script is a fact: code fails the gate and Clef is not asked it.
   const stray = scripted([], [{}]);
   const notice = await replyJudge({ ai: stray, setting: { model: "clef", at: null }, question: "what's that charge", history, log: () => {} }).check("That's 医保.", { messages: [] });

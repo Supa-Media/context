@@ -1,6 +1,6 @@
 {
   "gate": "short_and_clean",
-  "about": "Too long for a text, retelling what it made or where it looked, or a stray script. From Dev2 2026-10-29 ('TEX NEEDS TO STOP BEING SO WORDY') and the 2026-10-24 Chinese-character slip. Reads only a draft over LONG_DRAFT_WORDS words or one in a script they never write in (Dev2 2026-11-05: 'should also only be activated some times'); a shorter draft passes unread. Two- and three-sentence answers are labelled good after Tex Devs 2026-11-05, where this gate made 7 of 9 send-backs.",
+  "about": "Clearly too long for a text, retelling what it made or where it looked, or a stray script. From Dev2 2026-10-29 ('TEX NEEDS TO STOP BEING SO WORDY') and the 2026-10-24 Chinese-character slip. Retuned 2026-11-05 (Dev2: 'retune short and clean, it should also only be activated some times'): it reads only a draft over LONG_DRAFT_WORDS (60) words, or over MADE_LINE_WORDS (30) beside a page, card or picture the turn made, or one in a script they never write in (a fact code fails). In Tex Devs that day it sent back 30- to 55-word answers that were fine. Mid-length faults it used to catch (a 35-word retelling of where it searched) are now let through, by that choice; the long ones below are modelled on that chat's real long drafts.",
   "cases": [
     {
       "id": "page-retold",
@@ -31,21 +31,6 @@
       ],
       "reply": "I'd keep what you've got and borrow their queueing, notes here: https://context.example/note/research/cloudflare.page.md",
       "fault": false
-    },
-    {
-      "id": "search-retold-long",
-      "q": "when's mom's birthday?",
-      "did": [
-        [
-          "search_notes",
-          {
-            "query": "mom birthday"
-          },
-          "family.md: Mom, March 3"
-        ]
-      ],
-      "reply": "I looked through your notes, then your email, then your contacts, and finally your calendar invites from last year, and in the family note you wrote last spring it says Mom's birthday is March 3, so that's the date.",
-      "fault": true
     },
     {
       "id": "short-answer",
@@ -104,7 +89,7 @@
           "70% rain after 2pm"
         ]
       ],
-      "reply": "Probably, 70% after 2pm. Of course forecasts can change, and it depends on where exactly you'll be, so you may want to check again in the morning, or I can keep an eye on it, or you could bring an umbrella just in case, or plan indoor options.",
+      "reply": "Probably, 70% after 2pm. Of course forecasts can change a lot this far out, and it depends on where exactly you'll be, since the city and the coast often differ. You may want to check again in the morning, or I can keep an eye on it for you. You could also bring an umbrella just in case, or plan a few indoor options, or move the picnic to Sunday, which looks drier.",
       "fault": true
     },
     {
@@ -163,19 +148,6 @@
       ],
       "reply": "Tue: slides to Maya. Wed: tax docs. Fri: grant report.",
       "fault": false
-    },
-    {
-      "id": "explains-itself",
-      "q": "ok thanks",
-      "earlier": [
-        [
-          "tex",
-          "Found the lease: https://drive.example/lease.pdf"
-        ]
-      ],
-      "did": [],
-      "reply": "You're welcome! My earlier reply said I couldn't find it because I had only searched your notes, but after looking in Drive I found it, which is why the link is there now.",
-      "fault": true
     },
     {
       "id": "three-sentences",
@@ -256,8 +228,83 @@
           "Dentist, Tue 3pm, Dr. Ames, 40 Elm St"
         ]
       ],
-      "reply": "Your dentist appointment is Tuesday at 3pm with Dr. Ames at 40 Elm St. Parking there can be tricky in the afternoon, so you might want to leave a little early, and remember they ask you to arrive ten minutes ahead to fill in forms. If anything changes I can help you reschedule, or look up their cancellation policy.",
+      "reply": "Your dentist appointment is Tuesday at 3pm with Dr. Ames at 40 Elm St. Parking there can be tricky in the afternoon, so you might want to leave a little early, and remember they ask you to arrive ten minutes ahead to fill in forms. Bring your insurance card too, since they changed systems last month. If anything changes I can help you reschedule, or look up their cancellation policy.",
       "fault": true
+    },
+    {
+      "id": "style-retold",
+      "q": "why do you sound like a status report?",
+      "did": [
+        [
+          "read_note",
+          {
+            "path": "chat/voice.md"
+          },
+          "lowercase, short, slang, roasts, tapbacks"
+        ]
+      ],
+      "reply": "Here's how you all talk: lowercase, short, lots of slang, and roasts that are never meant seriously. You react with tapbacks more than full replies, and emoji show up as reactions rather than sentences.\n\nMine doesn't match that. I open with 'On it:' or 'Fair.', write long answers with caveats about what I can't verify, and hand you links with no lead-in. That's why it sounds like a status report. I tried to change my instructions to match, but the settings wanted the exact words, so I saved the style to the voice note instead and I'll go by it.",
+      "fault": true
+    },
+    {
+      "id": "quick-question-essay",
+      "q": "is the fix live yet?",
+      "did": [
+        [
+          "read_note",
+          {
+            "path": "jobs/fix-check.md"
+          },
+          "read main, not the deployment; fallback risk; tapbacks intentional"
+        ]
+      ],
+      "reply": "The check is back. Here's what I can confirm. Deployed or not: it read main, not what's running, so none of it is confirmed live. Reactions: the docs exempt acknowledgement tapbacks from the emoji setting, so fewer emoji won't stop them. Follow-along: untagged texts can reach the decider for up to 20 texts after I speak, and if that times out a text ending in a question mark can get a reply meant for someone else. That's the biggest risk, so I'd fix it first, then the reactions, then the rest.",
+      "fault": true
+    },
+    {
+      "id": "analysis-asked",
+      "q": "give me a full analysis of how we talk in here, with examples",
+      "did": [
+        [
+          "read_note",
+          {
+            "path": "chat/history.md"
+          },
+          "messages"
+        ]
+      ],
+      "reply": "How you three talk: casual and fast, mostly lowercase, with slang like bet, bro, lmao and smh. You roast each other and me, and a roast gets a roast back, not an apology. Asks are direct ('Tex, do X') and you want the answer first, with no 'Sure!', no restating the ask and no 'want me to?' when I can just do it. You're impatient with hedging and long caveats. Emoji mostly come as tapbacks, with a few 😭 and 😂 in text. Example: 'ight bet' closes most plans.",
+      "fault": false
+    },
+    {
+      "id": "prompt-drafted",
+      "q": "write me a prompt for my coding agent to install the desktop app",
+      "did": [
+        [
+          "search_notes",
+          {
+            "query": "desktop app install"
+          },
+          "releases page, v0.1.68"
+        ]
+      ],
+      "reply": "Here's one:\n\n\"Install the Context desktop app from https://github.example/context/releases/tag/v0.1.68 on this laptop. Sign in with my account. Don't connect it to shared compute or give any workspace access until I say so. When it's done, tell me the version it installed, whether sign-in worked, and the exact error if any step failed, with the command you ran.\"\n\nPaste it in and text me what it says.",
+      "fault": false
+    },
+    {
+      "id": "steps-asked-long",
+      "q": "walk me through setting up the new printer, every step",
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://printer.example/setup"
+          },
+          "steps"
+        ]
+      ],
+      "reply": "1. Unbox it and pull every orange tape strip, including the one inside the lid. 2. Plug it in and press power until the screen lights. 3. Pick your language and country. 4. Load paper face down to the line in the tray. 5. Snap in the four ink cartridges by color. 6. Let it print the alignment page. 7. On the screen pick Wi-Fi, choose your network and type the password. 8. On your laptop open Settings, Printers, Add, and pick it from the list.",
+      "fault": false
     }
   ]
 }

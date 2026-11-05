@@ -77,13 +77,15 @@ above:
   The wiring had passed `job: job !== null` on a turn built only when
   `job === null`, so it was always false; `report` is passed now.
 - A gate may read only some drafts (`when`; Dev2: short and clean "should
-  also only be activated some times"). `short_and_clean` and `on_a_page` read
-  a draft over `LONG_DRAFT_WORDS` (30) words, links not counted, and
-  `short_and_clean` also one with letters in a script neither their text nor
-  the chat uses. A shorter draft is never sent back for length: on
-  2026-11-05 that gate made 7 of 9 send-backs in Tex Devs, on two- and
-  three-sentence drafts, and each rewrite dropped content. The bench scores
-  an unread case as passed, as production would.
+  also only be activated some times"). `short_and_clean` reads a draft over
+  `LONG_DRAFT_WORDS` (60) words, or over `MADE_LINE_WORDS` (30) beside a
+  page, card or picture the turn made, links not counted, and one with
+  letters in a script neither their text nor the chat uses. `on_a_page`
+  reads a report's text over 30 words. In Tex Devs on 2026-11-05 the gate
+  made 7 of 9 send-backs, on 30- to 55-word answers that were fine, and each
+  rewrite dropped content; every draft it was right about ran past 75. A
+  mid-length retelling now goes through: the cost of this choice. The bench
+  scores an unread case as passed, as production would.
 - A gate may name a `fact`, a fault code can see, which fails it with no
   Clef call: a stray script fails `short_and_clean` this way, since Clef
   scored one 0.04 (AI Gates, 2026-11-05). Facts stay code.
