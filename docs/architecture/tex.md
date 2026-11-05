@@ -25,15 +25,18 @@ flowchart LR
   P2([Group text]):::you --> W2
   subgraph Worker["Texting Worker · apps/agent"]
     W1["1:1 lane<br/>inbox.ts · inboxTurn.ts<br/>queue, which texts, steer"]:::pipe
-    W2["Group lane<br/>groupInbox.ts · groupTurn.ts<br/>for Tex? · style · Workflow retries · last look"]:::pipe
+    W2["Group lane<br/>groupInbox.ts · groupTurn.ts<br/>for Tex? · style · Workflow retries"]:::pipe
     H["Hear a group voice memo first<br/>groupVoice.ts"]:::pipe
     W2 --- H
+    LA["Shared step: lookAgain<br/>their newer words may change the answer<br/>lookAgain.ts"]:::shared
   end
   subgraph Control["Control plane · Convex"]
     D["decide · recheck<br/>Clef, @cf/cloudflare/clef<br/>jev/models.ts"]:::judge
   end
   W1 -. which texts, wait or answer .-> D
-  W2 -. which texts, last look .-> D
+  W2 -. which texts .-> D
+  E -. draft, before it sends .-> LA
+  LA -. still fits? .-> D
   W1 -->|POST /agent| E
   W2 -->|POST /agent| E
   E{{"texEntryPoint<br/>apps/mcp/src/agent/texEntryPoint.js"}}:::door
@@ -45,7 +48,11 @@ flowchart LR
   classDef pipe fill:#fff0e2,stroke:#ff8a2a,color:#1d1838
   classDef door fill:#dcf7f3,stroke:#11b5a4,stroke-width:3px,color:#1d1838
   classDef judge fill:#fff5d6,stroke:#e09a00,color:#1d1838
+  classDef shared fill:#dcf6e7,stroke:#19a75a,stroke-width:3px,color:#1d1838
 ```
+
+Green boxes are door steps both lanes already share. Each one-door pull
+request moves another job out of the two lanes into one.
 
 ## 2. The door: texEntryPoint, top to bottom
 
@@ -152,6 +159,7 @@ What each model costs is `jev/meter.ts`.
 
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-05: lookAgain is shared: 1:1 replies get the last look groups had (recheck takes `direct`).
 - 2026-11-05: the reply judge becomes ten parallel Clef Flash gates, each
   tuned on its own set, sent back at most twice; still off in production.
 - 2026-11-05: first drawing, from main at `d88e2bc` (Dev2's ask).

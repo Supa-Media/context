@@ -65,7 +65,7 @@ import { record } from "./simulator";
 import { oweReadyText } from "./ready";
 import { clearTold, noteTold, owedTold } from "./told";
 import { startPresence, type Presence } from "./presence";
-import { MAX_CANDIDATES, staleAsks } from "./decide";
+import { MAX_CANDIDATES, staleAsks } from "./decide"; import { lookAgainTexts } from "./lookAgain";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
@@ -113,7 +113,6 @@ export type InboxDeps = ReplyDeps &
  * `sent` counts the parts already sent, so a retry after a partial send repeats
  * none of them on a line with no idempotency key (Sendblue).
  */
-
 
 export const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
 const PROGRESS_PREFIX = "psent:"; // a progress line sent for the oldest text a turn answers, by the line's hash, until that work is answered (`answerTexts`)
@@ -369,8 +368,9 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
     await storage.setAlarm(deps.now() + 2 ** tries * 5_000);
     return false;
   }
-  // Restarted (`steer.ts`): nothing it said goes; its texts wait, marked, for the turn that answers them with the newer one.
+  // Restarted (`steer.ts`), or held by the last look at their newer texts (`lookAgain.ts`): nothing it said goes; its texts wait, marked, for the turn that answers them with the newer one.
   if (turn.cancelled) return true;
+  if (!turn.fixed && (await lookAgainTexts(storage, deps, entries, turn.parts, timing.started)) === "held") return (turn.asks.length > 0 && turn.token !== undefined && (await staleAsks(deps, turn.token, turn.asks)), true);
   for (const sentKey of (await storage.list({ prefix: `${PROGRESS_PREFIX}${work}:` })).keys()) await storage.delete(sentKey); // answered: its lines (`answerTexts`) go
   let reply = turn.parts;
   // The first answer on the new line says it is Tex's new number, once.
@@ -507,7 +507,7 @@ export { ACKNOWLEDGE_AFTER_MS, TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./pres
  * `fixed`: the reply is one of the Worker's own texts (a failure, a limit,
  * setup), never the model's: the gateway recorded no turn for it.
  */
-type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; askText: string; fixed: boolean };
+type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; askText: string; fixed: boolean; token?: string };
 
 async function answering(message: Message, work: string, deps: InboxDeps, storage: InboxStorage, covers: string[], presence: Presence | undefined, timing: TurnTiming): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
@@ -566,7 +566,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
     presence,
     timing,
   ).finally(end);
-  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, askText, fixed: !modelWrote });
+  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, askText, fixed: !modelWrote, token: live.accessToken });
   if (live.cancelled) {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.
     if (asks.length > 0 && live.accessToken !== undefined) await staleAsks(deps, live.accessToken, asks);

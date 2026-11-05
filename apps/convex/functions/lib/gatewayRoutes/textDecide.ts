@@ -256,7 +256,8 @@ export function readDecideAnswers(body: DecideBody, answers: JevAnswers): Decide
   };
 }
 
-async function workspaceFor(ctx: ActionCtx, body: DecideBody): Promise<Id<"workspaces"> | null> {
+/** The workspace a decision is metered against: the sender's personal one in a 1:1 chat, the bound one in a group. */
+export async function workspaceFor(ctx: ActionCtx, body: DecideBody): Promise<Id<"workspaces"> | null> {
   if (body.style === "direct") return await ctx.runQuery(internal.functions.textLinks.textsDecideWorkspace, { phone: body.sender! });
   return await ctx.runQuery(internal.functions.textGroups.groupDecideWorkspace, { groupKey: await groupKeyOf(body.line!, body.chat) });
 }
