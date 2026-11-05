@@ -81,3 +81,46 @@ wording drown another's (the nine-way choice above); sending back only the
 worst fault costs a round per fault; no cap on send-backs is a loop; a gate
 shipped without its set scored is a guess. Tests:
 `apps/mcp/test/replyJudge.test.mjs`, `apps/mcp/bench/test/gates.test.mjs`.
+
+## A send-back is written from the turn's ledger (Dev2, 2026-11-05)
+
+"When judges send something back ... it should know his entire history. I
+tried to reply with this, but the judges said this. It should just read the
+ledger ... and based off the ledger, try to tweak its response. It should know
+... the tool calls that it already did."
+
+On 2026-11-05 (14:47-15:02Z) every send-back in Dev2's 1:1 made the answer
+worse: the held draft was put back into the conversation as something Tex had
+said, then the notice, so the model took it as sent, and each rewrite dropped
+the answer it had found; one also saved a second, unasked email draft.
+
+- The held draft is never put in as said. The model gets one note
+  (`sendBackNote`, `apps/mcp/src/agent/sendBack.js`) built from the turn's
+  ledger entries (`tool` and `judge`, the same ones the chat's history keeps):
+  every action the turn took and how it went, every draft so far quoted and
+  marked NOT sent with the judges that held it (score against threshold), the
+  notice, and "revise the latest draft, keep its answer, don't start over".
+- After a send-back, a write (an MCP tool marked `readOnlyHint: false`) that
+  already succeeded, or was held for their yes, this turn with the same
+  arguments is not run again (`repeatedWrite`); the model is told so in band
+  and the refusal is a ledger entry ("already done this turn"). The same tool
+  with other arguments runs, because one tool covers many actions and a check
+  may ask for exactly that (the page notice's "write it again as a page", the
+  rest of several calendar events). Reads, browser steps, the turn's own local
+  tools and unannotated agent tools (`job_status`) may run again.
+
+**What a simplification would cost:** the draft back as an assistant message
+is the 11-05 failure; a note without the actions makes the rewrite redo them;
+letting a write run again on a rewrite saves or sends twice; refusing by tool name alone blocks the second, different write a check asks for. Test:
+`apps/mcp/test/sendBackLedger.test.mjs`, built from the 14:47 turn.
+
+Follow-up the same day, from the review thread: the framing (`recheck.js`)
+now points at the draft quoted below, not "above", and asks for plain text
+without the quote marks; an email or email draft to the same people from the
+same account counts as the same write however it is reworded (`SAME_TARGET`);
+the note says a browser step already happened on the real site and must not
+be clicked, submitted or paid again; a text that comes in mid-reply quotes
+the unsent draft the same way (`lateText`) instead of putting it in as said,
+and arms the same repeat refusal; and every held draft is remembered by the
+turn itself, so a second send-back from a code check (no reply gates, no
+judge entry) still shows draft 1.

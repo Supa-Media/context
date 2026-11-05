@@ -36,6 +36,7 @@ import {
   requestLinkInvite,
   ServiceError,
   unlinkPhone,
+  type AgentAnswer,
   type Fetch,
   type SessionAnswer,
   type TextsBinding,
@@ -163,6 +164,15 @@ async function textSession(phone: string, deps: ReplyDeps): Promise<SessionAnswe
 }
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
+/**
+ * Whether a 1:1 turn that did not answer is tried again (`inbox.ts`, up to `MAX_ANSWER_ATTEMPTS`). A refusal
+ * (`agentRefusal.ts`) is refused the same way on every try, so it is said at once; so is a turn that ran out of
+ * time, which may still be running at the gateway, where a second one would run its tools twice.
+ */
+export function triedAgain(answer: AgentAnswer): boolean {
+  return answer.kind === "not_started" || (answer.kind === "unavailable" && answer.refused === undefined && answer.timedOut !== true);
+}
+
 export class TryLater extends Error {
   constructor() {
     super("try this text again later");
@@ -332,7 +342,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // what they read (`apps/mcp/src/tools/emailGate.js`).
       return [...textsWithExact(answer.text, answer.verbatim), ...after];
     }
-    if ((answer.kind === "not_started" || answer.kind === "unavailable") && deps.retry) throw new TryLater();
+    if (triedAgain(answer) && deps.retry) throw new TryLater();
     // A job's report the chat's turn was refused for is never lost in silence: the result waits in the job list for their next text.
     if (message.event === "job_report" && (answer.kind === "no_model" || answer.kind === "daily_limit")) return [COPY.jobReportRefused];
     // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.

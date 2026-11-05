@@ -42,13 +42,13 @@ import { isPlainNoteWrite, settleNoteWrite, ToolTimeout, withinTime } from "./no
 import { isMove, MOVE_TIMED_OUT, MOVE_TIMEOUTS } from "./slowMoves.js";
 import { addModelUsage, failedCall, modelForRound, thinkRoundsFor, whyFailed } from "./modelPlan.js";
 import { PROGRESS_TOOL } from "./progress.js";
+import { turnLedger } from "./sendBack.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
 import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
-import { recheckNote } from "./recheck.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -122,9 +122,6 @@ export const TURN_TOOL_BUDGET_MS = 70_000;
 const TOOL_TIMED_OUT =
   "That call took too long and was stopped. Don't retry it. Answer with what you already have, " +
   "and say plainly what you could not check.";
-
-/** Before a text that came in while the reply above was written: that reply has not gone out. */
-export const LATE_TEXT = "(Your reply above has NOT been sent. They texted more while you wrote it, below. Write one reply that answers all of it.)";
 
 /** What the model reads for a call asked for after `TURN_TOOL_BUDGET_MS`. */
 const OUT_OF_TIME =
@@ -303,7 +300,9 @@ export async function runTurn(options) {
     // Never throws back into the turn, and asks the model for its thinking in words.
     observe = null,
   } = options;
+  const held = turnLedger({ tools: options.tools, ranHere: (name) => webNames.has(name) || localCalls.has(name) }); // the turn as its ledger keeps it (`sendBack.js`)
   const tell = (event) => {
+    held.keep(event);
     if (typeof observe !== "function") return;
     try {
       observe(event);
@@ -543,12 +542,12 @@ export async function runTurn(options) {
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
       if (late !== null) {
-        messages.push({ role: "assistant", text: answer.text }, { role: "user", text: `${LATE_TEXT}\n\n${late}` });
+        messages.push({ role: "user", text: held.lateText(answer.text, late) }); // the draft quoted as NOT sent, never put in as said
         tell({ kind: "steered", text: steer.words.at(-1) ?? "" });
         continue;
       }
       if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: { system: systemText(prompt.system), messages } }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
-      messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheckNote(recheck) });
+      messages.push({ role: "user", text: held.sendBack(recheck, answer.text) }); // the draft quoted as NOT sent, never put in as said (`sendBack.js`)
       continue;
     }
 
@@ -592,6 +591,12 @@ export async function runTurn(options) {
         });
         escalate = true;
         tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
+        continue;
+      }
+      const repeated = held.refusal(call.name, call.args); // a write already made, asked again after a send-back
+      if (repeated !== null) {
+        messages.push({ role: "tool", id: call.id, name: made.name, text: repeated, isError: true });
+        tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "already done this turn" });
         continue;
       }
       if (clock() - began >= toolBudgetMs) {

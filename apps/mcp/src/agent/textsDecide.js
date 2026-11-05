@@ -43,19 +43,19 @@ export async function decideForTexts(request, env, { engine = decisionEngine(env
   const raw = await readJson(request);
   const body = raw === null ? null : recheck ? readRecheckBody(raw) : readDecideBody(raw);
   if (body === null) return new Response(null, { status: 400 });
+  // No model here (a gateway with no AI binding): 503, so the Worker asks the control plane as it did before.
+  if (engine === null) return new Response(null, { status: 503 });
   const asked = recheck ? recheckRequest(body) : decideRequest(body);
   const meter = { questions: Object.keys(asked.questions).length, chars: asked.state.length + JSON.stringify(asked.questions).length, ms: 0 };
   const started = Date.now();
-  const answers = engine === null ? null : await engine(asked.state, asked.questions);
+  const answers = await engine(asked.state, asked.questions);
   meter.ms = Date.now() - started;
   const result =
-    engine === null
-      ? { ok: false, reason: "unavailable", cause: "unconfigured" }
-      : answers === null
-        ? { ok: false, reason: "unavailable", cause: "model_failed" }
-        : recheck
-          ? readRecheckAnswers(answers)
-          : readDecideAnswers(body, answers);
+    answers === null
+      ? { ok: false, reason: "unavailable", cause: "model_failed" }
+      : recheck
+        ? readRecheckAnswers(answers)
+        : readDecideAnswers(body, answers);
   // Counts and codes only: never the transcript, a draft, or a number.
   console.log(
     JSON.stringify({
