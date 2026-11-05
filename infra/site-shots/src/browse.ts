@@ -39,8 +39,14 @@ export { dropSource, pickerHookSource, pickerResult, uploadSource, sizeOf, type 
 /*
   The gateway gives one tool call 20 seconds (`TOOL_TIMEOUT_MS`), and a call
   that outlives it loses the browser's session id with its answer. So a step
-  starts only in the first 5 seconds, and the slowest step (open, then settle)
-  ends within 12 more, leaving room to connect.
+  that opens a page (the slowest: open, then settle) starts only in the first
+  5 seconds, and ends within 12 more, leaving room to connect. The time a page
+  took to open does not count against the other steps (owner, 2026-11-05: an
+  airline's pages took 7 seconds to open, so every click after one was turned
+  away and the open sent again): they start within 5 seconds of the call's own
+  work, and only while one still ends by the time an open would have. Reading
+  and looking are the page as it is, which every call hands back anyway, so
+  they are never turned away.
 */
 /** How long a page may take to open. */
 export const BROWSE_GOTO_TIMEOUT_MS = 9_000;
@@ -48,6 +54,10 @@ export const BROWSE_GOTO_TIMEOUT_MS = 9_000;
 export const BROWSE_BUDGET_MS = 5_000;
 /** How long to let a page settle after it opens, or after a click or a key. */
 export const SETTLE_MS = 3_000;
+/** By when one call's steps have ended: the slowest step started at the last moment it may. */
+export const BROWSE_END_MS = BROWSE_BUDGET_MS + BROWSE_GOTO_TIMEOUT_MS + SETTLE_MS;
+/** The longest a step that opens no page takes: its press, then the settle. */
+const SHORT_STEP_MS = SETTLE_MS + 1_000;
 /** Steps in one call. */
 export const MAX_STEPS = 10;
 export { MAX_BROWSE_TEXT, MAX_ELEMENTS, MAX_SCANNED, SNAPSHOT_SOURCE, snapshot, snapshotSource } from "./reading";
@@ -411,11 +421,20 @@ export async function runSteps(
   const started = now();
   const ran: StepResult[] = [];
   let file: DownloadedFile | undefined;
+  // Time spent opening pages, which the steps after them do not pay for.
+  let opening = 0;
+  const end = started + BROWSE_END_MS - BROWSE_BUDGET_MS + budgetMs;
   for (const step of steps) {
-    if (now() - started > budgetMs) {
+    const elapsed = now() - started;
+    const opens = step.do === "goto" || step.do === "back";
+    const waits = step.do === "download" || step.do === "upload";
+    const marker = step.do === "read" || step.do === "look";
+    const late = opens || waits ? elapsed > budgetMs : elapsed - opening > budgetMs || now() + SHORT_STEP_MS > end;
+    if (late && !marker) {
       ran.push({ do: step.do, ok: false, reason: "out of time; run it again" });
       break;
     }
+    const stepStarted = now();
     const before = (await where(page).catch(() => null))?.href ?? null;
     const begun = downloads?.began?.() ?? 0;
     const pressedAt = Date.now();
@@ -439,7 +458,8 @@ export async function runSteps(
     }
     // A click or a key that started a download (an invoice's menu, wherever it is) hands the file back too.
     if (result.ok && (step.do === "click" || step.do === "press") && downloads?.began !== undefined && downloads.began() > begun) {
-      const got = await downloads.take(pressedAt, DOWNLOAD_WAIT_MS).catch(() => null);
+      // A click let in late waits only as long as the call has left.
+      const got = await downloads.take(pressedAt, Math.max(0, Math.min(DOWNLOAD_WAIT_MS, end - now()))).catch(() => null);
       if (got !== null && "refused" in got) {
         ran.push({ ...result, reason: `that started a download, but ${got.refused}` });
         break;
@@ -450,9 +470,10 @@ export async function runSteps(
         break;
       }
     }
+    if (opens) opening += now() - stepStarted;
     ran.push(result);
     if (!result.ok) break;
-    if (step.do === "goto" || step.do === "back") continue;
+    if (opens) continue;
     const after = (await where(page).catch(() => null))?.href ?? null;
     if (before !== null && after !== null && after !== before && steps.indexOf(step) < steps.length - 1) {
       ran.push({ do: "read", ok: true, reason: "the page changed, so the steps after this one were not run" });

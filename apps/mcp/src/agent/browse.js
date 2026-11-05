@@ -50,6 +50,7 @@ import { captchaLadder } from "./captchaLadder.js";
 import { NOT_THEIRS, handoffIsTheirs } from "./handoffGate.js";
 import { silentSubmits } from "./silentSubmit.js";
 import { waitsOnThem } from "./browserHold.js";
+import { notAStep } from "./browseNotAStep.js";
 
 export const BROWSE_TOOL = "browse";
 
@@ -219,7 +220,7 @@ export const BROWSE_DEFINITION = {
     "A long page lists its first elements and then every box, menu and button; a read step with from (a number) lists everything from that number on. " +
     UPLOAD_SENTENCE +
     DOWNLOAD_SENTENCE +
-    "Pass several steps in one call (fill a form and press its button); the call stops early if the page changes. " +
+    "Pass several steps in one call (fill a form and press its button); the call stops early if the page changes. There is no wait step: every step waits for the page to settle. A key is a press step. " +
     ADDRESS_RULE +
     TYPING_RULE +
     HANDOFF_SENTENCE +
@@ -478,7 +479,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       let handoff = false;
       let from = null;
       for (const raw of asked) {
-        if (!MODEL_STEPS.has(raw?.do)) return textResult(`There is no "${String(raw?.do).slice(0, 20)}" step.`, true);
+        if (!MODEL_STEPS.has(raw?.do)) return textResult(notAStep(raw?.do, MODEL_STEPS), true);
         const step = withRef(raw);
         if (REF_STEPS.has(step.do) && !Number.isInteger(step.ref)) {
           return textResult(`A ${step.do} step needs ref: the element's number from the last reading, like 3 for [3].`, true);
