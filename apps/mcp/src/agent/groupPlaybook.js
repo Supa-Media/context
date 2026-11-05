@@ -73,7 +73,7 @@ function touchesPlaybook(name, args) {
 export function withPlaybookGate(callTool, { outside = () => false } = {}) {
   return async (name, args) => {
     if (outside() && touchesPlaybook(name, args ?? {})) {
-      return toolError(`This turn read something from outside this chat, so it can't change ${PLAYBOOK_PATH}. Nothing was changed.`);
+      return toolError(`This turn read something from outside this chat, so it can't change ${PLAYBOOK_PATH}. Nothing was changed. If it should be kept, say what you would save and ask them to confirm it; their answer is a new turn that can save it.`);
     }
     return await callTool(name, args);
   };
