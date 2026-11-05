@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 
 import { decisionEngine } from "../src/agent/decide.js";
 import { JUDGE_MODELS, judgeState } from "../src/agent/replyJudge.js";
-import { GATES, gateQuestion, gateReads } from "../src/agent/replyGates.js";
+import { GATES, gateFact, gateQuestion, gateReads } from "../src/agent/replyGates.js";
 import { workersAi } from "./models.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -99,8 +99,13 @@ export async function scoreGate(gate, cases, decide, concurrency = 8) {
         const at = next++;
         const item = cases[at];
         // A draft the gate does not read in production (`when`) is never sent back: it passes, as it would there.
-        if (!gateReads(gate, item.reply, { question: item.q, history: (item.earlier ?? []).map(([, text]) => ({ text })) })) {
+        const turn = { question: item.q, history: (item.earlier ?? []).map(([, text]) => ({ text })) };
+        if (!gateReads(gate, item.reply, turn)) {
           out[at] = { ...item, yes: 0, unread: true };
+          continue;
+        }
+        if (gateFact(gate, item.reply, turn)) {
+          out[at] = { ...item, yes: 1, fact: true }; // code sees it, as production does
           continue;
         }
         const answers = await decide(caseTurn(item), gateQuestion(gate));

@@ -27,7 +27,7 @@
  */
 
 import { decisionEngine, decisionTokens } from "./decide.js";
-import { DEFAULT_GATE_AT, GATES, gateQuestion, gateReads, gatesFor, sendBackNotice } from "./replyGates.js";
+import { DEFAULT_GATE_AT, GATES, gateFact, gateQuestion, gateReads, gatesFor, sendBackNotice } from "./replyGates.js";
 
 /** The decision models a setup may name, by the word it uses. */
 export const JUDGE_MODELS = {
@@ -115,7 +115,8 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
       }
       const state = judgeState({ question, history, messages: turn.messages, answer, report });
       const started = clock();
-      const yes = await runGates(decide, state, open);
+      const facts = open.filter((name) => gateFact(name, answer, { question, history })); // seen by code: no Clef call
+      const yes = { ...(await runGates(decide, state, open.filter((name) => !facts.includes(name)))), ...Object.fromEntries(facts.map((name) => [name, 1])) };
       const ms = clock() - started;
       const failed = open.filter((name) => typeof yes[name] === "number" && yes[name] >= atOf(name));
       const acted = failed.length > 0;

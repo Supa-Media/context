@@ -84,6 +84,9 @@ above:
   2026-11-05 that gate made 7 of 9 send-backs in Tex Devs, on two- and
   three-sentence drafts, and each rewrite dropped content. The bench scores
   an unread case as passed, as production would.
+- A gate may name a `fact`, a fault code can see, which fails it with no
+  Clef call: a stray script fails `short_and_clean` this way, since Clef
+  scored one 0.04 (AI Gates, 2026-11-05). Facts stay code.
 - A draft the gates passed that a late text then holds is recorded in the
   history as held (`by: "late"`), so the history never says a draft went
   out that was not sent.

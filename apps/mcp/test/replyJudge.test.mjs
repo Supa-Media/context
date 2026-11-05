@@ -11,6 +11,7 @@
  *  3. failing on `>` instead of `>=` its threshold → "a gate fails at its threshold…".
  *  4. `gatesFor` ignoring `report` → "a job's report runs the report set…".
  *  5. `gateReads` always true → "short_and_clean and on_a_page read only a long draft…".
+ *  6. facts dropped from `check` → the same test (a stray script must fail with no Clef call).
  */
 
 import assert from "node:assert/strict";
@@ -251,6 +252,11 @@ test("short_and_clean and on_a_page read only a long draft, or one in a script t
   assert.ok(gateReads("short_and_clean", "word ".repeat(LONG_DRAFT_WORDS + 1)));
   assert.ok(!gateReads("short_and_clean", `${"word ".repeat(LONG_DRAFT_WORDS)} https://a.example/${"x/".repeat(40)}`), "a link is not length");
   assert.ok(!gateReads("on_a_page", "Booked, Lupa at 7, confirmation 4471."));
+  // A stray script is a fact: code fails the gate and Clef is not asked it.
+  const stray = scripted([], [{}]);
+  const notice = await replyJudge({ ai: stray, setting: { model: "clef", at: null }, question: "what's that charge", history, log: () => {} }).check("That's 医保.", { messages: [] });
+  assert.match(notice, /short and clean/);
+  assert.ok(!stray.judged.some((call) => call.gate === "short_and_clean"));
 });
 
 test("the turn's other check runs first, and no Workers AI binding means no judge", async () => {

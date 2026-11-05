@@ -70,7 +70,8 @@ const REPORT_ABOUT =
 /**
  * The gates, in the order a send-back lists them. `ask` is the question (yes = the fault), with replies
  * that pass and replies that fail it so Clef judges by example; `notice` is what the model is told when
- * the gate fails; `on` is the set it is in (`text` or `report`); `when`, if any, says which drafts it reads.
+ * the gate fails; `on` is the set it is in (`text` or `report`); `when`, if any, says which drafts it reads;
+ * `fact`, if any, is a fault code can see, which fails the gate with no Clef call.
  */
 export const GATES = {
   did_what_it_says: gate({
@@ -237,7 +238,7 @@ export const GATES = {
     at: 0.5,
   }),
   short_and_clean: gate({
-    ask: "Is the reply clearly too long for a text: a paragraph or more where a sentence or two would do, a retelling of every place it searched, or caveats and options nobody asked for? Beside a page, card or picture it made, anything past one line that describes what is in it (item by item, its prices, its sections) is this fault, since they can see it. So is any word in a script the person never writes in (Chinese, Japanese, Korean, Cyrillic and so on in an English chat), even one. Two or three plain sentences that answer their question, a list they asked for, or steps they asked for are not this fault.",
+    ask: "Is the reply clearly too long for a text: a paragraph or more where a sentence or two would do, a retelling of what it made (a page, card or picture it links) or of every place it searched, or caveats and options nobody asked for? Or does it slip in words in a script the person never writes in? Two or three plain sentences that answer, a list they asked for, or steps they asked for are not this fault.",
     allow: [
       "'No, you're in Lisbon that day. Show's at 8.'",
       "'I think you keep what you've got and borrow a bit from Cloudflare, here are my notes: https://context.example/note'",
@@ -253,8 +254,9 @@ export const GATES = {
     yes: "yes, clearly too long for a text, or not clean",
     no: "no, the length and wording fit a text",
     notice: "Your reply is too long for a text, or retells what you made or where you looked. Keep the answer and every fact and link it gives, and cut the rest: a sentence or two (one casual line beside a page or picture), in their own language.",
-    at: 0.25,
+    at: 0.2, // AI Gates 2026-11-05: 5/7 by Clef, 0/75 false alarms; a stray script is the fact below
     when: (draft, turn) => longDraft(draft) || strayScript(draft, turn),
+    fact: strayScript, // Clef missed it (0.04): letters in a script they never write in are a fact, so code fails it
   }),
   reached_them: gate({
     on: "report",
@@ -297,8 +299,8 @@ export const GATES = {
   }),
 };
 
-function gate({ ask, allow, block, yes, no, notice, on = "text", when = null, at = DEFAULT_GATE_AT }) {
-  return { ask: `${ask} Never this fault: ${allow.join(" | ")}. This fault: ${block.join(" | ")}.`, yes, no, notice, on, when, at };
+function gate({ ask, allow, block, yes, no, notice, on = "text", when = null, fact = null, at = DEFAULT_GATE_AT }) {
+  return { ask: `${ask} Never this fault: ${allow.join(" | ")}. This fault: ${block.join(" | ")}.`, yes, no, notice, on, when, fact, at };
 }
 
 /** One gate as the yes/no question Clef reads: keyed by the gate's name, so its answer comes back under it. */
@@ -310,6 +312,12 @@ export function gateQuestion(name) {
 /** The gates a turn runs: the `text` set on a reply to their text, the `report` set on what Tex texts about a job's report. */
 export function gatesFor({ report = false } = {}) {
   return Object.keys(GATES).filter((name) => GATES[name].on === (report ? "report" : "text"));
+}
+
+/** Whether a gate's fault is a fact code can see in this draft: then it fails without asking Clef (`fact`). */
+export function gateFact(name, draft, turn = {}) {
+  const fact = GATES[name].fact;
+  return typeof fact === "function" && fact(draft, turn) === true;
 }
 
 /** Whether a gate reads this draft: every draft, unless its `when` names only some (`turn` is `{ question, history }`). */
