@@ -231,8 +231,11 @@ function readRecheckBody(body) {
 
 /** One question. The draft rides in the state, beside the transcript, so its words are read as words, never as instructions. */
 function recheckRequest(body) {
+  // The model reads the first MAX_TRANSCRIPT characters of the state (`apps/mcp/src/agent/decide.js`), so the
+  // transcript gives way from its oldest end: the draft and the newest lines are what the question is about.
+  const tail = `\n\nTex's reply to <${body.draftFor}>, written but not sent yet:\n${body.draft}`;
   return {
-    state: `${body.transcript}\n\nTex's reply to <${body.draftFor}>, written but not sent yet:\n${body.draft}`,
+    state: `${newestWithin(body.transcript, MAX_TRANSCRIPT - tail.length)}${tail}`,
     questions: {
       draft_fits: {
         type: "noul",
@@ -244,6 +247,15 @@ function recheckRequest(body) {
       },
     },
   };
+}
+
+/** The newest whole lines of a transcript that fit in `room` characters. */
+function newestWithin(transcript, room) {
+  if (transcript.length <= room) return transcript;
+  if (room <= 0) return "";
+  const cut = transcript.slice(transcript.length - room);
+  const line = cut.indexOf("\n");
+  return line < 0 ? cut : cut.slice(line + 1);
 }
 
 function readRecheckAnswers(answers) {

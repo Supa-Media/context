@@ -352,7 +352,8 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   const message = merged(entries.map(([, entry]) => entry.message));
   const work = entries[0][1].message.eventId; // a rerun, a newer text merged in or not, still answers its oldest: its lines are kept by that
   const covers = entries.flatMap(([, entry]) => (entry.ev ? [entry.ev] : [])).slice(-MAX_CANDIDATES);
-  const tries = (item.tries ?? 0) + 1;
+  // A newer text merged into a failing burst brings no tries of its own: the burst's count is its most-tried text's.
+  const tries = Math.max(...entries.map(([, entry]) => entry.tries ?? 0)) + 1;
   const timing: TurnTiming = { started: deps.now(), arrived: arrivedAt(entries) };
   let turn: Answered;
   try {
@@ -360,7 +361,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
     if (typeof turn.turn === "string") timing.turn = turn.turn; // its timing row lines up with the gateway's (`textTiming.ts`)
   } catch (error) {
     if (!(error instanceof TryLater)) throw error;
-    // Nothing ran, so these texts and the ones behind them wait; later ones keep their order.
+    // Tried again later: these texts and the ones behind them wait; later ones keep their order.
     await storage.put<Pending>(key, { ...item, tries });
     await storage.setAlarm(deps.now() + 2 ** tries * 5_000);
     return false;
