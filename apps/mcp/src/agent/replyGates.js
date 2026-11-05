@@ -237,7 +237,7 @@ export const GATES = {
     at: 0.5,
   }),
   short_and_clean: gate({
-    ask: "Is the reply clearly too long for a text: a paragraph or more where a sentence or two would do, a retelling of what it made (a page, card or picture it links) or of every place it searched, or caveats and options nobody asked for? Or does it slip in words in a script the person never writes in? Two or three plain sentences that answer, a list they asked for, or steps they asked for are not this fault.",
+    ask: "Is the reply clearly too long for a text: a paragraph or more where a sentence or two would do, a retelling of every place it searched, or caveats and options nobody asked for? Beside a page, card or picture it made, anything past one line that describes what is in it (item by item, its prices, its sections) is this fault, since they can see it. So is any word in a script the person never writes in (Chinese, Japanese, Korean, Cyrillic and so on in an English chat), even one. Two or three plain sentences that answer their question, a list they asked for, or steps they asked for are not this fault.",
     allow: [
       "'No, you're in Lisbon that day. Show's at 8.'",
       "'I think you keep what you've got and borrow a bit from Cloudflare, here are my notes: https://context.example/note'",

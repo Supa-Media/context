@@ -625,7 +625,7 @@ test("with reply judges, the word checks they replace stay off: tried_first deci
   const ai = gatesPass();
   const response = await ask({ ...onGateway, SITE_SHOTS, AI: ai }, TOKEN_FREE, { question: "thoughts? https://example.com/status", conversation: "texts" });
   assert.equal(gatewayCalls.length, 1, "the gates passed it and nothing else sent it back");
-  assert.ok(ai.calls >= 10, "the ten gates read it");
+  assert.ok(ai.calls >= 9, "the text gates read it (short_and_clean reads only long drafts)");
   assert.equal(response.body?.answer, GAVE_UP);
 });
 
@@ -645,7 +645,7 @@ test("with reply judges, the advisor word check stays off: followed_them decides
   const ai = gatesPass();
   await ask({ ...onGateway, AI: ai }, TOKEN_FREE, { question: "ask your advisor whether we ship today", conversation: "texts" });
   assert.equal(gatewayCalls.length, 1, "the gates passed it and nothing else sent it back");
-  assert.ok(ai.calls >= 10, "the ten gates read it");
+  assert.ok(ai.calls >= 9, "the text gates read it (short_and_clean reads only long drafts)");
 });
 
 test("a setup naming reply judges on a deployment with no Workers AI keeps the word checks (2026-11-05)", async () => {
