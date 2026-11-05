@@ -28,7 +28,7 @@ import { conversationPath, readConversation } from "./conversation.js";
 import { readGroupMemory } from "./groupTurn.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { EVENT_ID, isChatKey, READ_CHARS, readEvents } from "./log.js";
-import { renderEvents, speaker, words } from "./logRender.js";
+import { renderEvents, replyingTo, speaker, TIME_OF, words } from "./logRender.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX } from "./steer.js";
 import { sentByItself, withSentByItself } from "./sentByItself.js";
 import { dayFromLedger, earlierFromLedger, readLedger } from "./ledgerHistory.js";
@@ -206,7 +206,10 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
   const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [], tainted: false };
   const transcript = renderEvents(withSentByItself([...earlier.events, ...shown], own.shown), { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools });
-  return { covered, history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: own.tainted || (await showsTainted(store, shown, workspace, warm, records, group === null ? cleanByReply(read?.entries) : new Map())) };
+  // What the texts it answers were typed under, quoted in full as the transcript shows that message (`logRender.js` `replyingTo`).
+  const byId = new Map([...earlier.events, ...events].map((event) => [event.id, event]));
+  const replying = covered.map((event) => replyingTo(event, byId, TIME_OF(timeZone))).filter((line) => line !== "");
+  return { covered, history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, replying, tainted: own.tainted || (await showsTainted(store, shown, workspace, warm, records, group === null ? cleanByReply(read?.entries) : new Map())) };
 }
 
 /**

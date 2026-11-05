@@ -48,7 +48,7 @@ test("a logged 👍 is told it is the yes, and only a tapback is", () => {
   assert.ok(question.endsWith(`(a tapback) ${LINE}`), "the log's line stays the question");
   assert.equal(loggedTapback("merge it", quotedOf({ quoted: ASK })), "merge it", "an inline reply is not a tapback");
   assert.equal(loggedTapback("hi", quotedOf({})), "hi");
-  // The turn uses it whenever its question comes from the log.
+  // The turn uses it (through `loggedQuestion`) whenever its question comes from the log.
   const source = readFileSync(new URL("../src/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
-  assert.equal((source.match(/logged \? loggedTapback\(logged\.question, quoted\) : askedWith\(question, quoted\)/g) ?? []).length, 2);
+  assert.equal((source.match(/logged \? loggedQuestion\(logged\.question, quoted, logged\.replying\) : askedWith\(question, quoted\)/g) ?? []).length, 2);
 });

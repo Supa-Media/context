@@ -6,6 +6,7 @@
 import { ServiceError } from "./clients";
 import { MAX_CANDIDATES } from "./decide";
 import { addEvent, kindOf, type EventReason, type TexEvent } from "./events";
+import { noteHandle } from "./replyQuote";
 import { chatEvents } from "./chatRead";
 import { groupLineFor, type GroupLineDeps, type GroupPlace } from "./groupLine";
 import { PICTURE_FAILED, shrinkPicture, type OutgoingPicture } from "./outgoing";
@@ -156,16 +157,17 @@ export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, mes
 async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
   const place: GroupPlace = { line: message.line, groupId: message.groupId };
   const handle = await groupLineFor(deps, message.groupId).sendText(place, text, message.messageId);
-  await logOut(storage, deps, message.groupId, { kind: kindOf(text), text, delivered: true }, meta);
+  const ev = await logOut(storage, deps, message.groupId, { kind: kindOf(text), text, delivered: true }, meta);
   if (handle === undefined) return;
+  await noteHandle(storage, handle, ev); // a reply under it finds this event (`replyQuote.ts`)
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   await storage.put(SENT_KEY, [...sent.filter((entry) => entry !== handle), handle].slice(-MAX_SENT));
 }
 
-export async function logOut(storage: InboxStorage, deps: GroupSayDeps, chat: string, part: Pick<TexEvent, "kind" | "text" | "delivered" | "reason">, meta: SayMeta): Promise<void> {
+export async function logOut(storage: InboxStorage, deps: GroupSayDeps, chat: string, part: Pick<TexEvent, "kind" | "text" | "delivered" | "reason">, meta: SayMeta): Promise<string> {
   // Only a turn's own words are Tex's; anything else Tex sends is the system's.
   const turn = meta.system ? undefined : meta.turn;
-  await addEvent(storage, {
+  return await addEvent(storage, {
     at: deps.now(),
     chat,
     from: { kind: turn ? "tex" : "system" },

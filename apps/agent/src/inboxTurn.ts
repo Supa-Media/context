@@ -21,6 +21,7 @@
  */
 
 import { gatherTheTurn } from "./gatherTheTurn";
+import { replyFields } from "./replyQuote";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
 import { chatEvents } from "./chatRead";
@@ -86,6 +87,8 @@ export async function logInbound(storage: InboxStorage, message: Message, now: n
     kind: message.tapback ? "reaction" : kindOf(message.text, message.attachments),
     // `line`: a tapback whose line is made already (`inbox.ts` `react`: one taken back, or one only noted).
     text: line ?? (message.tapback ? await tapbackLogLine(storage, message, message.tapback) : message.text),
+    // A reply under an earlier text: which one, and its full words (`replyQuote.ts`). A tapback's line already names it.
+    ...(message.tapback || line !== undefined || !message.quoted ? {} : await replyFields(storage, message.chatId, { words: message.quoted })),
   });
 }
 

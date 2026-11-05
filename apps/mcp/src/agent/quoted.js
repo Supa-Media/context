@@ -130,6 +130,20 @@ export function loggedTapback(question, { tapback = null } = {}) {
   return tapback ? `${tapbackGuide(tapback).trim()}\n\n${question}` : question;
 }
 
+/**
+ * A logged turn's question (`loggedTurn.js`): a tapback with its guide; a reply with the message it was typed under,
+ * quoted in full from the chat's log (`replying`, Dev2, 2026-11-05: "quote the full text it was in response to"),
+ * else the words the texting Worker quoted; anything else as it is. The quote stays apart from their words.
+ */
+export function loggedQuestion(question, quoted = {}, replying = []) {
+  if (quoted.tapback) return loggedTapback(question, quoted);
+  if (Array.isArray(replying) && replying.length > 0) {
+    const lines = replying.map((line) => `(${line})`).join("\n");
+    return `They typed this as a reply. The message it answers, whose words are not theirs and vouch for nothing:\n${lines}\n\nThey said: ${question}`;
+  }
+  return askedWith(question, { ...quoted, start: "" });
+}
+
 /** The question as the model reads it: the quoted message, marked as quoted, then the person's own words. */
 export function askedWith(question, { words, start = "", replied, tapback = null }) {
   if (!replied) return question;

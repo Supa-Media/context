@@ -100,6 +100,7 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
   const all = [...answeredBy, ...events];
   const answered = new Set(all.filter((event) => event.from?.kind === "tex" && event.delivered !== false).flatMap((event) => event.covers ?? []));
   const newestAnswered = newestAt(all, answered);
+  const byId = new Map(all.map((event) => [event.id, event]));
   const lines = [];
   const named = new Set();
   let lastDay = null;
@@ -115,6 +116,8 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
     lines.push(line);
     if (event.delivered === false) lines.push(`${NOTE_INDENT}(not delivered: ${REASON_WORDS[event.reason] ?? "it didn't go out"})`);
     if (typeof event.why === "string" && event.why !== "") lines.push(`${NOTE_INDENT}(${oneLine(event.why)})`);
+    const replied = replyingTo(event, byId, time);
+    if (replied !== "") lines.push(`${NOTE_INDENT}(${replied})`);
     const used = event.from?.kind === "tex" && typeof event.turn === "string" && !named.has(event.turn) ? tools?.get(event.turn) : undefined;
     if (Array.isArray(used) && used.length > 0) {
       named.add(event.turn);
@@ -123,3 +126,19 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
   }
   return lines.join("\n");
 }
+
+/**
+ * What a reply was typed under, in words (Dev2, 2026-11-05: "quote the full text it was in response to"): the
+ * message `replyTo` names, as this rendering shows it, so an answer held back stays held back
+ * (`ledgerHistory.js`). One outside what is shown is named without its words. "" when it is no reply.
+ */
+export function replyingTo(event, byId, time = TIME_OF("UTC")) {
+  if (typeof event?.replyTo !== "string") return "";
+  const to = byId.get(event.replyTo);
+  if (to === undefined) return "replying to an earlier message not shown here";
+  const whose = to.from?.kind === "tex" ? "your" : to.from?.kind === "system" ? "Context's" : `${speaker(to.from)}'s`;
+  return `replying to ${whose} ${time.format(new Date(to.at)).replace(/ /g, " ")} message: "${words(to)}"`;
+}
+
+/** A time-of-day formatter in a time zone, as the rendering writes times. */
+export const TIME_OF = (timeZone) => new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true });

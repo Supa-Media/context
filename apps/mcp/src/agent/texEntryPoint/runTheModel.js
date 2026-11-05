@@ -21,7 +21,7 @@ import { meterEach, meterParts } from "../modelPlan.js";
 import { sentNoteLinksLine, withNoteLinks } from "../noteLinks.js";
 import { withDrawnImages, withPictureMaker } from "../pictureMaker.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS } from "../progress.js";
-import { askedWith, loggedTapback, reactedLine } from "../quoted.js";
+import { askedWith, loggedQuestion, reactedLine } from "../quoted.js";
 import { withSameAsk } from "../sameAsk.js";
 import { withSkills } from "../skills.js";
 import { withMailAgent } from "../supervise.js";
@@ -54,14 +54,14 @@ export async function runTheModel(t) {
   // A read offered back instead of done, and an advisor they asked for and nobody asked, go back once, on the front door too (`doItChecks.js`).
   const doIt = chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
   // The setup's reply judges, after those: ten Clef Flash gates read the reply against every action this turn took, at once, and send back what fails, at most twice (`replyJudge.js`). A job's report runs them too, less the texting-only ones.
-  const judge = chatTurn && !runner && (texted || group !== null) && production?.replyJudge ? replyJudge({ ai: env.AI, setting: production.replyJudge, job: job !== null, question: (logged ? loggedTapback(logged.question, quoted) : askedWith(question, quoted)), history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
+  const judge = chatTurn && !runner && (texted || group !== null) && production?.replyJudge ? replyJudge({ ai: env.AI, setting: production.replyJudge, job: job !== null, question: (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
   if (planning) background.plan = planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) });
   if (planning) splitFirst(background); // a lone job is offered the planner once
   // The advisor, when the setup names one this deployment can run: offered on every chat turn, a job's included (`advisor.js`).
   const advising = chatTurn && productionModel !== null && Boolean(production.advisor) && canRunBuiltin(production.advisor, env);
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
-    question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedTapback(logged.question, quoted) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
+    question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
     place: body.place ?? null,
     tools: [
       ...agentTools(offered),
@@ -97,7 +97,7 @@ export async function runTheModel(t) {
     },
     web: steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
     history: logged?.history ?? shown,
-    threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (job === null ? computersLine(computers, { planning }) : "") + (chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : "") + jobPrompt(job) + jobAdvisorLine(job, advising) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
+    threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(logged ? { thread: null } : inThread) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (job === null ? computersLine(computers, { planning }) : "") + (chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : "") + jobPrompt(job) + jobAdvisorLine(job, advising) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
     local: (doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])]), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
