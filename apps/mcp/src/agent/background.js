@@ -134,6 +134,8 @@ export function runningJobsOf(value) {
         status: line(entry.status, MAX_STATUS),
         // The computer it runs on, by machine id (`apps/agent/src/jobs.ts`), which counts it against that computer's slots, not the cloud's.
         on: typeof entry.on === "string" && ID.test(entry.on) ? entry.on : null,
+        // Paused at the daily limit, to start again by itself (`apps/agent/src/jobPause.ts`): it can still be stopped.
+        paused: entry.state === "waiting" && Number.isFinite(entry.resumeAt) && entry.resumeAt > 0,
         // The advisor's last call on it and its advice (`jobCheck.js`), and a finished job's report: for `job_status`.
         verdict: VERDICTS.has(entry.verdict) ? entry.verdict : null,
         advice: line(entry.advice, MAX_ADVICE),
@@ -458,6 +460,18 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     const title = line(args?.title, MAX_TITLE);
     const target = live.find((entry) => entry.title.toLowerCase() === title.toLowerCase()) ?? live.find((entry) => sameJob(entry.title, title));
     if (!target) {
+      const paused = running.find((entry) => entry.paused && (entry.title.toLowerCase() === title.toLowerCase() || sameJob(entry.title, title)));
+      if (paused && args?.stop === true) {
+        if (!steered.some((entry) => entry.id === paused.id)) steered.push({ id: paused.id, stop: true });
+        return text(`Stopped "${paused.title}": it won't start again by itself. Tell them in one short line that it's stopped.`);
+      }
+      if (paused) {
+        return text(
+          `"${paused.title}" is paused at today's limit for background work and starts again by itself once the limit resets; it can't take a change ` +
+            "until then. Tell them so in one short line; if they no longer want it, stop it with stop: true.",
+          true,
+        );
+      }
       const finished = running.find((entry) => entry.state !== "running" && sameJob(entry.title, title));
       return text(
         finished && resumable(finished)
@@ -533,7 +547,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     (job === null ? JOB_FIRST : "");
   let nudged = false;
   return {
-    tools: job === null ? [TOOL, ...(live.length > 0 ? [STEER_TOOL] : []), ...(running.length > 0 ? [STATUS_TOOL] : []), ...(running.some(resumable) ? [RESTART_TOOL] : [])] : [],
+    tools: job === null ? [TOOL, ...(live.length > 0 || running.some((entry) => entry.paused) ? [STEER_TOOL] : []), ...(running.length > 0 ? [STATUS_TOOL] : []), ...(running.some(resumable) ? [RESTART_TOOL] : [])] : [],
     /** A job that started settles the turn: the fixed line goes out, with no model round after (`turn.js` `endsTurn`). */
     endsTurn:
       job === null

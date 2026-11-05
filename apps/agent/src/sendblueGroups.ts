@@ -54,6 +54,8 @@ export type GroupMessage = {
    * A link's preview card is not one (`isLinkPreview`).
    */
   attachments?: InboundAttachment[];
+  /** What a voice-only message says, heard before the chat decides whether it is for Tex (`groupVoice.ts`); never a webhook's. */
+  heard?: string;
   /** A chat routine's run, queued by this Worker itself and never by a webhook (`groupRoutines.ts`). */
   routine?: { runId: string; path: string };
   /** A background job's report, queued by this Worker for the chat's own turn, which decides what is said (`jobTexts.ts`). */

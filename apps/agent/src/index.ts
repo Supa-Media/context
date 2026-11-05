@@ -42,6 +42,7 @@ import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, OBJECT_ID, ORIGIN_KEY, serveMed
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, repliedToText, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
 import { groupNameOf, parseSendblueGroup, sendGroupName, type GroupMessage } from "./sendblueGroups";
+import { heardInGroup } from "./groupVoice";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
 import { flushWithReader } from "./chatRead";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
@@ -52,6 +53,7 @@ import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
 import { mintThreadsLink, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 import { jobAlarm, steerJob } from "./jobRun";
+import { resumePausedJobs } from "./jobPause";
 import { type JobRunParams } from "./jobWorkflow";
 import { jobUpdate } from "./jobTexts";
 import { pageJobsOf, pageSteerResponse } from "./texPage";
@@ -520,8 +522,10 @@ export class SenderInbox implements DurableObject {
     if (path === "/group-accept") {
       await this.keepOrigin(request);
       // Only this Worker's cron queues a routine's run (`/group-routine`); a webhook's message never names one.
-      const { routine: _routine, ...message } = (await request.json()) as GroupMessage;
-      await this.keepWhere(message);
+      // Nor its `heard`: only this object sets that, from the recording itself (`groupVoice.ts`).
+      const { routine: _routine, heard: _heard, ...sent } = (await request.json()) as GroupMessage;
+      await this.keepWhere(sent);
+      const message = await heardInGroup(sent, { fetch: (input, init) => fetch(input, init), gateway: this.env.GATEWAY_TEXTS });
       const outcome = await acceptGroup(this.state.storage, message, Date.now());
       // What the chat just said goes to its ledger now, not at Tex's next turn, so its history keeps up (`chatRead.ts`).
       if (outcome === "kept" || outcome === "queued") this.handOff(flushWithReader(this.state.storage, message.groupId, () => Date.now()));
@@ -595,6 +599,8 @@ export class SenderInbox implements DurableObject {
     await logged("alarm_review", () => checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) }));
     // A job's object has only `jobrun`; every other object finds nothing to run.
     await logged("alarm_job", () => jobAlarm(this.state.storage, this.jobDeps(), this.env.JOB_RUN !== undefined));
+    // A chat's job paused at the daily limit starts again once it resets (`jobPause.ts`).
+    await logged("alarm_paused_jobs", () => resumePausedJobs(this.state.storage, this.deps().steerJob, Date.now()));
   }
 
   private jobDeps() {
