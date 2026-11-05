@@ -78,9 +78,44 @@ the work moves to the machine.
 - **Groups.** A machine in a group serves only its owner by default ("Only
   me"); the owner may open it to everyone or to named people, with "Ask me
   first" on, which the gateway holds until the owner's own yes. Other people's
-  runs never get computer use, folders outside the allowlist, the owner's
+  runs get plain Claude Code like the owner's (see below), but never computer use, folders outside the allowlist, the owner's
   personal notes (they run on the group's grant), the owner's kept slot, or
   the network unless the owner turned it on for that chat.
+
+### A run is plain Claude Code in the person's folder (owner, 2026-11-04)
+
+The owner, after a job named `context` failed 96 times on their Mac in two
+minutes: "I want to essentially use it as a way to run claude code remotely,
+i dont want to create a new harness, on my laptop if I started claude code in
+any directory it pretty much can do anything", and then "plain claude code for
+me and anyone else that I give access to". The only allowed folder was an
+empty `~/Code/tex-files` and the repo sat beside it, so every part failed
+"repo not found in the folder" before Claude Code started.
+
+- **Where it starts.** In the checkout the job names when it is under the
+  allowed folder, or in the folder itself, told the repo's name so it clones
+  it there. A missing repo never stops a run. No worktree, no `tex/<jobId>`
+  branch, no `.context-machine-work`, and nothing removed when the part ends
+  (`apps/machine-runner/src/workdir.rs` `start_dir`). Parts of one job, and
+  jobs side by side, share the checkout, as two terminals would. Tests: "a
+  missing repo starts the tool in the folder instead of failing" (unit) and
+  "a repo missing from the folder still runs in the folder" (`tests/e2e.rs`).
+- **What it may do.** Tex sends `full` for every run (`machineTurn.ts`), the
+  workspace object no longer narrows another person's run to `edits`
+  (`serveMachines.js`), and the runner no longer refuses it (`rules.rs`): the
+  owner's choice of who may send work (Only me / named people / everyone,
+  Ask me first) is the control. The folder's own `.claude` settings, hooks
+  and MCP servers load for every run (`trustedRepos` is no longer read). Only
+  `--strict-mcp-config` stays, so the run's Context server carries the run's
+  own grant.
+- **Unchanged.** The allowed folders (never `/` or a home folder itself),
+  computer use (the owner's own asks only), the per-chat network and helpers
+  switches for other people's runs, the limits and slots, and the run grant's
+  handling.
+- **What a simplification costs.** Putting the copy-per-job back brings back
+  the failure that started this: a job that names a repo the folder does not
+  hold never reaches Claude Code. Test: "other people's runs get full
+  permissions but never computer use" (`machineSockets.test.mjs`).
 
 ### Credentials on a device: the machine grant and the run grant (2026-11-04)
 

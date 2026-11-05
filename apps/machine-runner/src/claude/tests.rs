@@ -115,7 +115,6 @@ fn plan<'a>(cfg: &'a Path, cmds: &'a [String]) -> ClaudePlan<'a> {
         settings_file: None,
         permission: PermissionMode::Edits,
         allowed_commands: cmds,
-        repo_settings: false,
         helpers: false,
         network: false,
         system_prompt: "p",
@@ -133,7 +132,8 @@ fn argv_never_holds_the_grant_or_the_brief() {
     assert!(joined.contains("--session-id sid"));
     assert!(joined.contains("--allowedTools mcp__context,Bash(git:*)"));
     assert!(joined.contains("--disallowedTools Task,Agent,WebFetch,WebSearch"));
-    assert!(joined.contains("--setting-sources user"));
+    // Plain Claude Code: the folder's own settings load, as in their terminal.
+    assert!(!joined.contains("--setting-sources"));
     assert!(!joined.contains("Bearer"));
     let doc = mcp_config("https://x/mcp", "SENTINEL-GRANT").to_string();
     assert!(doc.contains("Bearer SENTINEL-GRANT"));
@@ -141,11 +141,10 @@ fn argv_never_holds_the_grant_or_the_brief() {
 }
 
 #[test]
-fn the_owners_run_keeps_repo_settings_and_resume_uses_the_id() {
+fn a_full_run_is_plain_claude_code_and_resume_uses_the_id() {
     let cfg = PathBuf::from("/c");
     let cmds = vec![];
     let mut p = plan(&cfg, &cmds);
-    p.repo_settings = true;
     p.helpers = true;
     p.network = true;
     p.resume = true;

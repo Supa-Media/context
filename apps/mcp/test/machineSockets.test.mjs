@@ -137,7 +137,7 @@ test("an ask from somebody the owner did not allow never reaches the runner", as
   assert.ok(server.sent.slice(before).every((frame) => frame.type === "rules"));
 });
 
-test("other people's runs never get computer use, full permissions, or the network unless the chat allows it", async () => {
+test("other people's runs get full permissions but never computer use, or the network unless the chat allows it", async () => {
   const world = machineWorld();
   const machine = await world.add("mch_1", { computerUse: true });
   const server = await world.connect(machine);
@@ -145,7 +145,8 @@ test("other people's runs never get computer use, full permissions, or the netwo
   const answer = await world.call("ws.machine.assign", world.assignment(machine.id, { fromOwner: false, askerId: "user_bola", chat: "chat_devs", computerUse: true, permission: "full" }));
   assert.equal(answer.ok, true);
   const assign = server.last();
-  assert.deepEqual([assign.computerUse, assign.network, assign.helpers, assign.permission, assign.fromOwner], [false, false, false, "edits", false]);
+  // Plain Claude Code for anyone the owner lets in (owner, 2026-11-04).
+  assert.deepEqual([assign.computerUse, assign.network, assign.helpers, assign.permission, assign.fromOwner], [false, false, false, "full", false]);
   // The owner's own ask may use the screen when the machine allows it.
   const own = await world.call("ws.machine.assign", world.assignment(machine.id, { jobId: "job_2", computerUse: true }));
   assert.equal(own.ok, true);

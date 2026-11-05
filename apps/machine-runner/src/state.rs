@@ -60,6 +60,21 @@ impl State {
         self.runs_dir().join(job_id)
     }
 
+    /// Where a job's tool first started, so a later part resumes its session
+    /// in the same folder (Claude Code keeps sessions per folder): a part that
+    /// cloned the repo would otherwise start the next one inside the clone.
+    pub fn job_start(&self, job_id: &str) -> Option<PathBuf> {
+        let raw = fs::read_to_string(self.dir.join("jobs").join(job_id)).ok()?;
+        Some(PathBuf::from(raw.trim())).filter(|p| p.is_absolute())
+    }
+
+    pub fn save_job_start(&self, job_id: &str, dir: &Path) {
+        let jobs = self.dir.join("jobs");
+        if make_private_dir(&jobs).is_ok() {
+            let _ = write_private(&jobs.join(job_id), dir.display().to_string().as_bytes());
+        }
+    }
+
     /// The machine's key pair, made on first use. The private half never
     /// leaves this file.
     pub fn signing_key(&self) -> Result<SigningKey> {

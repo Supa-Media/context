@@ -15,11 +15,10 @@
 //! - `--session-id <uuid>` picks the id before the run starts, so the runner
 //!   knows what to `--resume` after a crash without waiting for the CLI.
 //!
-//! Without `--bare` (which would cost the subscription login) a `-p` run loads
-//! the hooks and MCP servers it finds in its folder. So `--strict-mcp-config`
-//! always, and for other people's asks `--setting-sources user` unless the
-//! owner trusted the repository: a repo's `.claude` settings run only for the
-//! owner.
+//! A run is plain Claude Code (owner, 2026-11-04): full permissions and the
+//! folder's own `.claude` settings, as in their own terminal. Only
+//! `--strict-mcp-config` stays, so the run's Context server is the one with
+//! the run's own grant.
 
 use crate::cli::{CliEvent, LimitSignal, StepLine};
 use crate::protocol::PermissionMode;
@@ -33,7 +32,6 @@ pub struct ClaudePlan<'a> {
     pub settings_file: Option<&'a Path>,
     pub permission: PermissionMode,
     pub allowed_commands: &'a [String],
-    pub repo_settings: bool,
     pub helpers: bool,
     pub network: bool,
     pub system_prompt: &'a str,
@@ -62,7 +60,7 @@ pub fn args(p: &ClaudePlan) -> Vec<String> {
         a.extend(["--session-id".into(), p.session_id.into()]);
     }
     // read: only reading tools; edits: file edits and the allowlisted
-    // programs; full: whatever Claude Code allows (owner's own asks only).
+    // programs; full: whatever Claude Code allows, the mode Tex sends.
     let (mode, extra): (&str, Vec<String>) = match p.permission {
         PermissionMode::Read => (
             "default",
@@ -100,9 +98,6 @@ pub fn args(p: &ClaudePlan) -> Vec<String> {
     if !denied.is_empty() {
         a.push("--disallowedTools".into());
         a.push(denied.join(","));
-    }
-    if !p.repo_settings {
-        a.extend(["--setting-sources".into(), "user".into()]);
     }
     if let Some(s) = p.settings_file {
         a.extend(["--settings".into(), s.display().to_string()]);

@@ -179,7 +179,8 @@ export async function machineTurn(
       tool: machine.tool,
       folder: machine.folder,
       ...(machine.repo ? { repo: machine.repo } : {}),
-      permission: "edits",
+      // Plain Claude Code, as in their own terminal (owner, 2026-11-04): who may ask is the owner's control.
+      permission: "full",
       brief: run.brief,
       doneWhen: run.doneWhen ?? "",
       ...(advice ? { advice } : {}),

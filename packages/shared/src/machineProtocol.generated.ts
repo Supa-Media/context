@@ -20,7 +20,7 @@ export type Timestamp = number;
 /** The coding tool a run starts. A slot is compute, not a tool: any slot runs either. */
 export type Tool = "claude" | "codex";
 
-/** How much the coding tool may do without asking. edits: edit files in the run's folder and run allowlisted shell commands. read: read only. full: whatever the tool allows inside its sandbox (owner's own asks only). */
+/** How much the coding tool may do without asking. edits: edit files in the run's folder and run allowlisted shell commands. read: read only. full: whatever the tool allows, plain Claude Code or Codex as in the person's own terminal; what Tex sends for every run the owner lets in. */
 export type PermissionMode = "read" | "edits" | "full";
 
 /** A delivered note-mail line. note: FYI. ask: needs an answer. Interrupts travel as their own message, never as a kind here. */
@@ -86,7 +86,7 @@ export type Rules = {
   limits: Limits;
   /** Whether the owner's own runs may use the screen. Never for others. */
   computerUse: boolean;
-  /** Repos whose own .claude settings, hooks and MCP servers may load, for the owner's own asks. */
+  /** No longer read: every run loads its folder's own .claude settings, as plain Claude Code does. Kept so older gateways' rules frames stay valid. */
   trustedRepos?: string[];
 };
 
@@ -108,7 +108,7 @@ export type Assign = {
   tool: Tool;
   /** One of the rules' folders; the run makes a fresh worktree or scratch folder under it. */
   folder: string;
-  /** A repo under the folder to make the worktree from; absent means a scratch folder. */
+  /** A repo the job names: the tool starts in its checkout under the folder, or in the folder itself, told to clone it, when it is not there. */
   repo?: string;
   permission: PermissionMode;
   /** Words handed to the agent, never a shell line. */
@@ -121,7 +121,7 @@ export type Assign = {
   grant: RunGrant;
   /** When this part must end; the runner kills the run at this time. */
   deadline: Timestamp;
-  /** Whether the machine's owner asked for this job. Other people's runs never get computer use, trusted repo settings or the kept slot. */
+  /** Whether the machine's owner asked for this job. Other people's runs never get computer use or the kept slot. */
   fromOwner: boolean;
   /** Who asked, as shown to the owner (a handle or name). */
   asker?: string;
@@ -303,7 +303,7 @@ export type Result = {
   wallMs: number;
   /** A short reason, never a file's contents or a credential. */
   error?: string;
-  /** The branch the run committed to, when it made a worktree. */
+  /** No longer sent: a run works in the person's own checkout and makes no branch of its own. Kept so older runners' results stay valid. */
   branch?: string;
 };
 

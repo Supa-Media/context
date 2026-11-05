@@ -3,6 +3,7 @@
 //! sabotage runs that proved each one fails when its check is removed.
 
 use super::*;
+use crate::protocol::PermissionMode;
 use crate::protocol::{Limits, RunGrant};
 use std::fs;
 
@@ -260,16 +261,17 @@ fn others_have_their_own_share_and_the_owner_is_not_blocked_by_it() {
 }
 
 #[test]
-fn computer_use_and_full_permission_are_the_owners_alone() {
+fn computer_use_is_the_owners_alone_and_full_permission_is_anyones_let_in() {
     let f = fixture();
     let r = rules(&f);
     let l = Ledger::default();
     let mut a = assign(&f.allowed, false);
     a.computer_use = true;
     assert_eq!(code(check(&r, &a, &snap(&l, 0))), Some(RefusalCode::Rule));
+    // Plain Claude Code for anyone the owner lets in (owner, 2026-11-04).
     let mut a = assign(&f.allowed, false);
     a.permission = PermissionMode::Full;
-    assert_eq!(code(check(&r, &a, &snap(&l, 0))), Some(RefusalCode::Rule));
+    assert!(check(&r, &a, &snap(&l, 0)).is_ok());
     let mut a = assign(&f.allowed, true);
     a.computer_use = true;
     a.permission = PermissionMode::Full;

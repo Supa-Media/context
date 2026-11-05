@@ -66,8 +66,8 @@ function assign(store, fields) {
   const now = machines.now();
   // A part never runs past the machine's longest job, whatever the caller asked.
   const deadline = Math.min(Number.isSafeInteger(fields.deadline) ? fields.deadline : now + machine.limits.longestRunMs, now + machine.limits.longestRunMs);
-  // Only the owner's own asks may run with the tool's full permissions.
-  const permission = fields.permission === "full" && !ask.fromOwner ? "edits" : fields.permission;
+  // Plain Claude Code for the owner and for anyone they let in (owner, 2026-11-04): the caller's permission stands.
+  const permission = fields.permission;
   // The gateway mints the id first when it mints the run's grant for it (`machines/jobRoutes.js`).
   const runId = typeof fields.runId === "string" && RUN_ID.test(fields.runId) ? fields.runId : mintRunId();
   const frame = {
