@@ -26,6 +26,16 @@ context-machine service install      # systemd --user or launchd, starts at logi
 context-machine status
 ```
 
+### Updates
+
+A runner put in place by `install.sh` keeps itself up to date: five minutes
+after it starts and then every six hours it looks for a newer
+`machine-runner-v<x.y.z>` release, checks the download against its `.sha256`,
+swaps the binary in, and once no job or install is under way restarts into it
+with the same arguments. The Mac app's runner never does (the app updates as a
+whole). `CONTEXT_MACHINE_AUTO_UPDATE=off` turns it off; `context-machine update`
+does it at once.
+
 ## Commands
 
 | Command | What it does |
@@ -34,6 +44,7 @@ context-machine status
 | `run` | Connects and takes jobs in the foreground. |
 | `status [--json]` | Pairing, tools, slots, today's and this week's use. |
 | `service install\|uninstall`, `stop` | The background service. |
+| `update` | Updates to the newest release now and restarts the background service onto it. |
 | `forget` | Removes the service, the key, the grant and every run's files. |
 | `key [--json]` | Prints the public key (made on first use); with `--json`, `{publicKey, facts}`. |
 | `hook <event>` | What Claude Code's hooks run: joins as a mail-only device and shows its mail to the session. Always exits 0. |

@@ -239,6 +239,11 @@ export function machineCallOf(action: MachineAction, machine: (id: string) => Re
       }
       if (v.computerUse !== undefined) patch.computerUse = v.computerUse;
       if (v.folders !== undefined) patch.folders = v.folders;
+      if (v.name !== undefined) {
+        const name = v.name.trim();
+        if (name === "" || name.length > 100) return { refused: "bad_name" };
+        patch.name = name;
+      }
       return { route: "set", body: { machineId: action.id, patch } };
     }
     case "machine.chat": {

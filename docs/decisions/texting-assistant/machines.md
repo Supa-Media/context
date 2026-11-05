@@ -455,3 +455,19 @@ a command turns the owner's phone into a remote shell on their computer.
 `machineInstall.test.mjs` checks the frame carries only the tool, and
 `install.rs` tests refuse any tarball not on the registry under that package.
 
+
+## A headless runner updates itself (owner, 2026-11-05)
+
+The owner asked that a headless runner check for updates and update itself.
+A runner `install.sh` put in place (`~/.context-machine/bin/context-machine`)
+looks for a newer `machine-runner-v<x.y.z>` release five minutes after it starts
+and every six hours, from the same GitHub release `install.sh` reads, checks the
+archive against its `.sha256`, swaps the binary in with one rename, and restarts
+into it (`exec`, same arguments) only once no job or install is under way, so a
+job is never cut off by an update. Drafts, pre-releases and anything but a plain
+`x.y.z` never count, and it only ever moves forward. The Mac app's runner never
+updates itself: it lives in the app's signed bundle, which updates as a whole
+(the app passes `--grant-file`). `CONTEXT_MACHINE_AUTO_UPDATE=off` turns it off.
+Trust is the same as `install.sh`'s: GitHub over TLS. Reversing this means every
+headless computer stays on whatever version was first installed.
+Tests: `apps/machine-runner/src/update.rs`.

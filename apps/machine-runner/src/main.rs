@@ -23,6 +23,7 @@ mod service;
 mod sign_in;
 mod slots;
 mod state;
+mod update;
 mod workdir;
 
 use anyhow::{bail, Context, Result};
@@ -89,6 +90,8 @@ enum Command {
     },
     /// Stop the background service.
     Stop,
+    /// Update this runner to the newest release now, and restart the background service onto it.
+    Update,
     /// Unpair: stop the service and delete the key, the grant and every run's files.
     Forget,
     /// Print this machine's public key (made on first use), and with --json its facts, for the Mac app to pair with.
@@ -213,6 +216,20 @@ async fn real_main(args: Args) -> Result<()> {
             action: ServiceAction::Uninstall,
         } => {
             println!("{}", service::uninstall(&home)?);
+            Ok(())
+        }
+        Command::Update => {
+            let exe = update::this_exe()?;
+            match update::fetch_newer(&exe).await? {
+                None => println!(
+                    "context-machine {} is the newest.",
+                    env!("CARGO_PKG_VERSION")
+                ),
+                Some(v) => {
+                    println!("Updated to {v}.");
+                    service::restart_if_running();
+                }
+            }
             Ok(())
         }
         Command::Stop => {
@@ -410,6 +427,13 @@ pub(crate) async fn run(state: State, opts: &RunOpts) -> Result<()> {
     if !opts.no_keep_awake {
         tokio::spawn(awake::keep_awake_while_plugged_in());
     }
+    // A runner `install.sh` put in place keeps itself up to date (`update.rs`).
+    if let Ok(me) = update::this_exe() {
+        let off = std::env::var("CONTEXT_MACHINE_AUTO_UPDATE").ok();
+        if update::may_update(&me, opts.grant_file.is_some(), off.as_deref()) {
+            tokio::spawn(keep_updated(m.clone(), me));
+        }
+    }
     // Sign-ins change: look again every ten minutes.
     let refresh = m.clone();
     tokio::spawn(async move {
@@ -454,6 +478,27 @@ pub(crate) async fn run(state: State, opts: &RunOpts) -> Result<()> {
     // Running parts are killed with the process (kill_on_drop); their grant
     // files go with the guards, and the next start sweeps any left.
     Ok(())
+}
+
+/// Looks for a newer runner now and then; once one is in place and nothing is under way, restarts into it.
+async fn keep_updated(m: machine::Machine, exe: PathBuf) {
+    tokio::time::sleep(update::FIRST_LOOK).await;
+    loop {
+        match update::fetch_newer(&exe).await {
+            Ok(Some(v)) => {
+                eprintln!("updated to {v}; restarting once nothing is running");
+                while !m.idle().await {
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                }
+                if let Err(e) = update::restart(&exe) {
+                    eprintln!("update: {e:#}");
+                }
+            }
+            Ok(None) => {}
+            Err(e) => eprintln!("update check: {e:#}"),
+        }
+        tokio::time::sleep(update::EVERY).await;
+    }
 }
 
 async fn status_lines(m: machine::Machine, mut conn: tokio::sync::watch::Receiver<String>) {
