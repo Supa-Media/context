@@ -1,5 +1,6 @@
 import { APP_PANE_REACHABILITY } from "./appPaneReachability";
 import { DELIBERATELY_UNREACHABLE } from "./unreachableRoutes";
+import { INSTALL_REACHABILITY } from "./installReachability";
 
 /**
  * Every route in the app, and what navigates to it.
@@ -585,6 +586,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     ],
   },
   ...APP_PANE_REACHABILITY,
+  ...INSTALL_REACHABILITY,
   {
     route: "/invite",
     file: "app/invite/index.tsx",

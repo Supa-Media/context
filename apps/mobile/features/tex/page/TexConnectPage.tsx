@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
+import { Link } from "expo-router";
 import { writeClipboard } from "../../design/clipboard";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { ViewProps } from "./TexPageBody";
@@ -8,11 +9,15 @@ import { Button, ButtonRow, DotLine, GlyphSquare } from "./TexMachineParts";
 import { pairingFacts } from "./texMachineFormat";
 import type { Read } from "./texPageSource";
 import type { MachinesPage, Pairing } from "./texMachineTypes";
+import { INSTALL_AND_PAIR_COMMAND } from "../../install/installGuide";
 
 /** How often the page re-reads the machines while it is open: the pairing code appears on its own. */
 const POLL_MS = 3_000;
 
-const COMMAND = "npx @supa-media/context machine";
+/** Installs the runner and starts pairing (`installGuide.ts`); `npx @supa-media/context machine` is not on npm yet. */
+const COMMAND = INSTALL_AND_PAIR_COMMAND;
+/** Every way in, Mac, Linux and headless, with the steps after this one: `app/download.tsx`. */
+const GUIDE_HREF = "/download?tab=headless";
 
 /**
  * Settings › Your machines › Connect a machine (artboards `03-connect` and
@@ -107,7 +112,7 @@ export function ConnectPage({ source, page, chat, go }: ViewProps) {
         <View style={[card, styles.path]} testID="tex-connect-cli">
           <Heading glyph="terminal" title="Another computer" />
           <T size={13} tone="muted" line={1.5}>
-            Any Mac, Linux computer or server with Node 20 or later. Run this there:
+            Any Mac, Linux computer or server. Run this there:
           </T>
           <View style={styles.code}>
             <T size={13} mono line={1.5} testID="tex-connect-command">
@@ -118,7 +123,10 @@ export function ConnectPage({ source, page, chat, go }: ViewProps) {
             </T>
           </View>
           <T size={13} tone="muted" line={1.5}>
-            It prints a short code. You approve it here.
+            It prints a short code. You approve it here.{" "}
+            <Link href={GUIDE_HREF} style={{ color: colors.accent }} testID="tex-connect-guide">
+              Every step, and instructions for your agent ›
+            </Link>
           </T>
           <View style={styles.pinned}>
             <Button label={copied ? "Copied" : "Copy the command"} look="primary" onPress={() => void copy()} testID="tex-connect-copy" />
