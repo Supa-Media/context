@@ -26,6 +26,7 @@
  * Kept apart from `./index.ts` for the reason `./shoot.ts` gives.
  */
 
+import { STILL_SOLVING, nap, solveEnds } from "./captchaSolver";
 import { publicHttpsUrl } from "./shoot";
 import { dropSource, fillMarkedSource, markedSelector, markedSizeSource, pickerHookSource, pickerResult, refSelector as selector, uploadSource, sizeOf, type UploadFile, type Uploads } from "./picker";
 import { DOWNLOAD_WAIT_MS, runDownload, type DownloadedFile, type Downloads } from "./download";
@@ -143,6 +144,7 @@ export interface BrowsePage {
   setFiles?(selector: string, paths: string[]): Promise<boolean>;
   screenshot(options: { type: "jpeg"; quality: number; encoding: "base64"; fullPage: false }): Promise<string | Uint8Array>;
   waitForNetworkIdle(options: { idleTime: number; timeout: number }): Promise<void>;
+  /** Whether Browserbase's captcha solver is at work on the page now (./captchaSolver.ts); absent elsewhere. */ solving?(): boolean;
 }
 
 const SESSION_ID = /^[A-Za-z0-9-]{8,80}$/;
@@ -416,7 +418,7 @@ async function where(page: Pick<Doc, "evaluate">): Promise<{ href: string; host:
 export async function runSteps(
   page: BrowsePage,
   steps: Step[],
-  { budgetMs = BROWSE_BUDGET_MS, now = Date.now, downloads = null, uploads = null }: { budgetMs?: number; now?: () => number; downloads?: Downloads | null; uploads?: Uploads | null } = {},
+  { budgetMs = BROWSE_BUDGET_MS, now = Date.now, pause = nap, downloads = null, uploads = null }: { budgetMs?: number; now?: () => number; pause?: (ms: number) => Promise<unknown>; downloads?: Downloads | null; uploads?: Uploads | null } = {},
 ): Promise<{ ran: StepResult[]; page: Reading; file?: DownloadedFile }> {
   const started = now();
   const ran: StepResult[] = [];
@@ -425,10 +427,15 @@ export async function runSteps(
   let opening = 0;
   const end = started + BROWSE_END_MS - BROWSE_BUDGET_MS + budgetMs;
   for (const step of steps) {
-    const elapsed = now() - started;
     const opens = step.do === "goto" || step.do === "back";
     const waits = step.do === "download" || step.do === "upload";
     const marker = step.do === "read" || step.do === "look";
+    // Browserbase is solving a captcha: nothing is pressed until it is done, uncharged, while steps may still run.
+    if (!marker && page.solving?.()) {
+      opening += await solveEnds(page.solving, end, now, pause);
+      if (page.solving()) { ran.push({ do: step.do, ok: false, reason: STILL_SOLVING }); break; }
+    }
+    const elapsed = now() - started;
     const late = opens || waits ? elapsed > budgetMs : elapsed - opening > budgetMs || now() + SHORT_STEP_MS > end;
     if (late && !marker) {
       ran.push({ do: step.do, ok: false, reason: "out of time; run it again" });

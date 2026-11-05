@@ -245,7 +245,8 @@ and counts, and never a path, query, console text or typed word").
 
 The owner, on the Browserbase audit: "let's use all these features we are
 paying for". A new browser is asked for with residential proxies
-(`proxies: true`), advanced stealth (`browserSettings.advancedStealth`) and a
+(`proxies: true`), advanced stealth (`browserSettings.advancedStealth`, since 2026-11-05
+`verified`, below) and a
 region (`BROWSERBASE_REGION`, `us-east-1` in `wrangler.jsonc`, since the people
 texting Tex are in the US), on top of `blockAds` and captcha solving. Google's
 admin pages, banks, airlines and shops refuse or captcha a data centre's
@@ -325,3 +326,35 @@ and the tool's description says there is no wait step.
 again brings back the loop on any slow site; dropping the end check lets a
 call outlive the gateway and lose its browser. `browse.test.ts` ("does not charge the
 steps after a page open...", "turns a short step away...") and `agentBrowseNotAStep.test.mjs` fail.
+
+## Verified, and waiting for Browserbase's captcha solver (2026-11-05)
+
+An airline's check-in form reset without a word every time Tex pressed Check
+in, while another agent got through the same form four minutes later (the
+owner's flight check-in, 2026-11-05). Browserbase renamed advanced stealth to
+**Verified** (`browserSettings.verified`; the SDK marks `advancedStealth`
+deprecated): its own browser with real fingerprints that its bot-protection
+partners recognize, on the Scale plan only. The first tier now asks for it,
+without our viewport, which Verified refuses alongside its own fingerprint; a
+plan without it steps down as before (the owner chose "the basic verified",
+what the lower plans give, and Verified when the plan has it).
+
+Browserbase solves captchas itself and writes `browserbase-solving-started`,
+`-finished` or `-errored` to the page's console; its guide for agents says
+to press nothing while a solve runs. An invisible reCAPTCHA shows nothing on
+the page, so Tex could not see one being solved. Now each Browserbase
+connection listens for those three lines (`infra/site-shots/src/captchaSolver.ts`),
+turning on the Log domain and never Runtime (a known bot-check tell); a step
+other than read or look waits while a solve runs, for as long as the call's
+steps may, and is turned away with "a captcha is being solved for you" if it
+outlasts them; after the steps, a running solve counts as a captcha on the
+page (`settleCaptcha`), and an errored one as unsolved. Only the solver's own
+fixed words are matched; the event `site_shots_captcha_solver` logs the state
+and which channel carried it.
+
+**What a simplification would cost:** pressing during a solve throws it away
+and the site answers nothing; asking for `advancedStealth` keeps a name
+Browserbase is retiring. Tests: `captchaSolver.test.ts`, `browse.test.ts`
+("holds a press until the solve ends...", "presses nothing while a solve
+outlasts the call..."), `browserbase.test.ts` ("asks for proxies, Verified and
+the region first...").

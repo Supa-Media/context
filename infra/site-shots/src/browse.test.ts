@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { STILL_SOLVING, type SolverState } from "./captchaSolver";
 import { type Uploads, BROWSE_END_MS, MAX_UPLOAD_CHARS, SNAPSHOT_SOURCE, offLimits, onSite, parseBrowseRequest, runSteps, snapshot, uploadSource, wordsSource, type BrowsePage } from "./browse";
 
 /**
@@ -324,6 +325,34 @@ describe("runSteps", () => {
     expect(result.ran.every((r) => r.ok)).toBe(true);
     expect(state.typed[1]).toBe("AF003");
     expect(state.clicks).toEqual([3]);
+  });
+
+  // 2026-11-05: Browserbase solves captchas itself, and a press made mid-solve is turned away without a word.
+  it("holds a press until the solve ends, and the wait costs the later steps nothing", async () => {
+    let t = 0;
+    let state: SolverState | null = "solving";
+    const { page, state: seen } = fakePage();
+    page.solving = () => state === "solving";
+    const result = await runSteps(page, [{ do: "click", ref: 3 }, { do: "click", ref: 4 }], {
+      now: () => t,
+      pause: async (ms) => {
+        t += ms;
+        // The solve takes 8 seconds, longer than the steps' own 5.
+        if (t >= 8_000) state = "finished";
+      },
+    });
+    expect(result.ran.map((r) => r.ok)).toEqual([true, true]);
+    expect(seen.clicks).toEqual([3, 4]);
+    expect(t).toBeGreaterThanOrEqual(8_000);
+  });
+
+  it("presses nothing while a solve outlasts the call, and says to read again", async () => {
+    let t = 0;
+    const { page, state: seen } = fakePage();
+    page.solving = () => true;
+    const result = await runSteps(page, [{ do: "read" }, { do: "click", ref: 3 }], { now: () => t, pause: async (ms) => void (t += ms) });
+    expect(result.ran.at(-1)).toEqual({ do: "click", ok: false, reason: STILL_SOLVING });
+    expect(seen.clicks).toEqual([]);
   });
 
   it("still opens a second page only inside the first five seconds, so the call ends in time", async () => {
