@@ -95,7 +95,7 @@ export function PhoneMap({ page, camera, peek, onOpenNote }: { page: MapPageStat
         {page.mode !== "live" ? <ReplayBar page={page} compact /> : null}
       </View>
       {card !== null ? (
-        <NotePeek page={page} peek={card} compact onClose={peek.close} onExpand={() => onOpenNote(card.workspaceId, card.path)} onPeek={peek.onTapNote} />
+        <NotePeek page={page} peek={card} compact onClose={peek.close} onExpand={() => onOpenNote(card.workspaceId, card.path)} onPeek={peek.show} />
       ) : null}
       {settings ? (
         <MapSettings
@@ -106,7 +106,7 @@ export function PhoneMap({ page, camera, peek, onOpenNote }: { page: MapPageStat
             // On a phone the sheet covers the map: close it to show the note.
             setSettings(false);
             page.engineRef.current?.focusPath(note.workspaceId, note.path);
-            peek.onTapNote({ ...note, at: null });
+            peek.show({ ...note, at: null });
           }}
         />
       ) : null}

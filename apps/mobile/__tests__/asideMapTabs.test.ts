@@ -14,6 +14,7 @@
  *  1. `AsidePanel` ignoring `map` in `visibleAsideTabs` → "the open map leads
  *     with Activity" fails.
  *  2. The `noteKey` effect dropped → "a clicked note brings Note forward" fails.
+ *  4. `AsidePanel` ignoring `asideFolded` → both folding tests fail.
  *  3. The map's effects declared before `started`'s → "a panel opened on the
  *     map shows Activity" fails (the fixture showed Meetings this way).
  */
@@ -27,11 +28,13 @@ jest.mock("../features/meetings/useMeetings", () => ({
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-import { act, createElement, type ReactNode } from "react";
+import { act, createElement, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Text } from "react-native";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
 import { MapSideProvider, useOfferMapSide, type MapSide } from "../features/console/aside/mapSide";
+import { FrameContext, type FrameApi } from "../features/app/appFrame/context";
+import { initialFrame } from "../features/app/frame";
 
 function Offer({ side }: { side: MapSide | null }) {
   useOfferMapSide(side);
@@ -116,5 +119,40 @@ describe("the map's tabs in the right panel", () => {
     await show(null, false);
     expect(tabs()).toEqual(["Meetings"]);
     expect(byTest("aside-map-activity")).toHaveLength(0);
+  });
+});
+
+describe("folding the panel (Dev2, 2026-11-05: 'collapsable')", () => {
+  // A frame of its own: the panel reads `asideFolded` and sets it, nothing else.
+  function Framed({ side }: { side: MapSide | null }) {
+    const [folded, setFolded] = useState(false);
+    const frame = { state: { ...initialFrame, asideOpen: true, asideFolded: folded }, setAsideFolded: setFolded } as unknown as FrameApi;
+    return createElement(
+      FrameContext.Provider,
+      { value: frame },
+      createElement(Offer, { side }),
+      createElement(AsidePanel, { started: null, onOpenNote: null }),
+    );
+  }
+  const framed = async (side: MapSide | null) =>
+    act(async () => root.render(createElement(MapSideProvider, null, createElement(Framed, { side }))));
+
+  test("the fold button folds it to a strip of its tabs, and a tab there unfolds it on that tab", async () => {
+    await framed(mapOpen("ws\na.md"));
+    expect(byTest("note-body")).toHaveLength(1);
+    await act(async () => (byTest("aside-fold")[0] as HTMLElement).click());
+    expect(byTest("aside-strip")).toHaveLength(1);
+    expect(byTest("note-body")).toHaveLength(0);
+    expect(["activity", "note", "meetings"].map((k) => byTest(`aside-strip-${k}`).length)).toEqual([1, 1, 1]);
+    await act(async () => (byTest("aside-strip-activity")[0] as HTMLElement).click());
+    expect(byTest("aside-strip")).toHaveLength(0);
+    expect(byTest("activity-body")).toHaveLength(1);
+  });
+
+  test("the strip's top button unfolds it as it was", async () => {
+    await framed(mapOpen("ws\na.md"));
+    await act(async () => (byTest("aside-fold")[0] as HTMLElement).click());
+    await act(async () => (byTest("aside-unfold")[0] as HTMLElement).click());
+    expect(byTest("note-body")).toHaveLength(1);
   });
 });

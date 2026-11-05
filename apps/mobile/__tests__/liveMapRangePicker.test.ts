@@ -5,7 +5,7 @@
 /**
  * The map's controls and the custom range picker, as a person meets them. On a
  * desktop every control is in one dock at the bottom of the map (Dev2 picked
- * it, 2026-10-14): Map or Columns and zoom; the workspace menu in the top
+ * it, 2026-10-14): zoom (Columns removed 2026-11-05); the workspace menu in the top
  * left stands for the breadcrumb and the scope pills. The replay moved into
  * the map's settings (Dev2, 2026-11-04): Live, the past 24 hours, the past
  * week and Pick dates, which opens the picker, whose Replay hands the stretch
@@ -101,11 +101,12 @@ const press = async (el: Element | null) => {
 };
 
 describe("the desktop dock", () => {
-  test("holds Map, Columns and zoom; the replay lives in the map's settings now", async () => {
+  test("holds only − and + (Dev2, 2026-11-05: Columns is gone); the replay lives in the map's settings", async () => {
     const { page } = pageWith();
     const host = await mount(createElement(MapDock, { page }));
     const text = host.textContent ?? "";
-    for (const word of ["Map", "Columns"]) expect(text).toContain(word);
+    expect(text).not.toContain("Columns");
+    expect(find(host, "map-view-folders")).toBeNull();
     expect(text).not.toContain("Replay");
     expect(text).not.toContain("Past week");
     expect(find(host, "map-zoom-in")).not.toBeNull();
@@ -121,14 +122,6 @@ describe("the desktop dock", () => {
     expect(find(host, "map-replay-bar")).not.toBeNull();
     await press(find(host, "map-when-live"));
     expect(calls.setMode).toEqual(["live"]);
-  });
-
-  test("Columns has nothing to zoom, so it has no − and +", async () => {
-    const { page, calls } = pageWith({ view: "folders" });
-    const host = await mount(createElement(MapDock, { page }));
-    expect(find(host, "map-zoom-in")).toBeNull();
-    await press(find(host, "map-view-map"));
-    expect(calls.setView).toEqual(["map"]);
   });
 });
 

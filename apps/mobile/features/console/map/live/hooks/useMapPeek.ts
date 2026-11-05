@@ -8,9 +8,15 @@ export type MapPeek = {
   /** The note the card is open on, or `null`. */
   peek: OpenPeek | null;
   close: () => void;
-  /** The canvas's handlers: a note tap opens the card, a tap on nothing closes it. */
+  /** Show this note: Find, and a link in the preview. */
+  show: (note: OpenPeek) => void;
+  /**
+   * A click on a note on the map selects it; a click on the selected note
+   * unselects it. A click on empty space does nothing: it is how people look
+   * around (Dev2, 2026-11-05), so the chip's ×, Esc and a second click are
+   * the ways to unselect.
+   */
   onTapNote: (note: OpenPeek) => void;
-  onTapEmpty: () => void;
   /** Kept as you move, so the map comes back where you left it. */
   onCamera: (detail: CameraDetail) => void;
   /** The engine arriving: put the camera and the highlighted note back. */
@@ -63,13 +69,29 @@ export function useMapPeek(page: MapPageState): MapPeek {
     if (shown !== null) engine.select({ workspaceId: shown.workspaceId, path: shown.path });
   }, []);
 
+  const close = useCallback(() => open(null), [open]);
+  // Esc unselects, wherever the focus is, while a note is selected (web).
+  const selected = peek !== null;
+  useEffect(() => {
+    if (!selected || typeof document === "undefined") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selected, close]);
+
   return {
     peek,
-    close: useCallback(() => open(null), [open]),
-    onTapNote: open,
-    onTapEmpty: useCallback(() => {
-      if (peekRef.current !== null) open(null);
-    }, [open]),
+    close,
+    show: open,
+    onTapNote: useCallback(
+      (note: OpenPeek) => {
+        const shown = peekRef.current;
+        open(shown !== null && shown.workspaceId === note.workspaceId && shown.path === note.path ? null : note);
+      },
+      [open],
+    ),
     onCamera,
     onEngine,
   };

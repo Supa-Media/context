@@ -274,3 +274,30 @@ merge. So:
 Reversing it: `__tests__/asideMapTabs.test.ts` fails if the panel ignores the
 map's tabs or a click stops bringing Note forward, and
 `liveMapPeekEngine.test.ts` fails if a drag clears the selected note.
+
+### Unselecting, folding the panel, and no Columns (Dev2, 2026-11-05)
+
+Dev2: "unselecting a note doesnt work. and also there is no way to interact
+with the side panel as i'm moving through the map", then "there should be a
+better way of unselecting than just clicking on empty space. we click on
+empty space to look around", "i would also like the panel to be
+collapsable", and "lets remove the columns view here. only leave the - +".
+
+- **A click on empty space never unselects**: it is how people look around.
+  A note is unselected by the **Selected: name ×** chip at the top of the
+  map, by clicking the selected note again, or by Esc. A click on another note
+  switches to it; Find and a link in the preview only ever show a note
+  (`useMapPeek`: `onTapNote` toggles, `show` does not). The engine still
+  reports empty taps; the map does not listen. `liveMapUnselect.test.ts`.
+- **The right panel is a column beside the map at medium too.** Under 1180pt
+  it came in over the page behind a scrim, so using it and moving the map
+  were either/or. The map page asks the frame for it beside
+  (`FrameApi.setAsideBeside`), and a note click opens it at every width; a
+  note's page keeps the overlay. `mapAsideBeside.test.ts`.
+- **The panel folds** to a 48pt strip of its tabs as icons (`AsideStrip`,
+  `FrameState.asideFolded`), from a button at the end of its tab row. A tab in
+  the strip unfolds it on that tab; a running meeting keeps its dot there.
+  The top bar's button still shuts it, and opening it again unfolds it.
+  `asideMapTabs.test.ts`.
+- **No Columns layout control.** The dock holds only − and +, and the phone's
+  bar loses its Map / Columns switch; the map always opens as the map.

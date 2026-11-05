@@ -129,7 +129,9 @@ export function useFrameController({
     return () => setTopChromeHoldsLights(lightsClaim, false);
   }, [lightsClaim, holdsLights]);
   const hasExplorer = explorer != null;
-  const regions = regionsFor(density, state, { hasExplorer });
+  // Held by a page that wants the right panel beside it at medium too (`FrameApi.setAsideBeside`).
+  const [asideBeside, setAsideBeside] = useState(false);
+  const regions = regionsFor(density, state, { hasExplorer, asideBeside });
 
   /*
     A panel is not a preference. `railCollapsed` and `explorerWidth` survive a
@@ -202,9 +204,12 @@ export function useFrameController({
       if (current.focus) return { ...current, focus: false };
       const field = asideToggleFor(densityFor(width));
       if (field === null) return current;
-      return { ...current, [field]: !current[field], explorerPeeking: false };
+      // Opening it from the top bar brings it back unfolded.
+      return { ...current, [field]: !current[field], asideFolded: false, explorerPeeking: false };
     });
   }, [width]);
+
+  const setAsideFolded = useCallback((folded: boolean) => setState((current) => ({ ...current, asideFolded: folded })), []);
 
   const setAsideWidth = useCallback(
     (next: number) => setState((current) => ({ ...current, asideWidth: clampAsideWidth(next) })),
@@ -475,6 +480,8 @@ export function useFrameController({
       setExplorerFolded,
       toggleAside,
       setAsideWidth,
+      setAsideBeside,
+      setAsideFolded,
       toggleFocus,
       setExplorerPeeking,
       closeDrawer,
@@ -498,6 +505,7 @@ export function useFrameController({
       setExplorerFolded,
       toggleAside,
       setAsideWidth,
+      setAsideFolded,
       toggleFocus,
       setExplorerPeeking,
       closeDrawer,

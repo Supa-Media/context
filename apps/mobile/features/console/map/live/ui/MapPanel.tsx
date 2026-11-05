@@ -64,7 +64,7 @@ export function MapNote({ page, peek, onOpenNote }: { page: MapPageState; peek: 
       compact={false}
       onClose={peek.close}
       onExpand={() => onOpenNote(open.workspaceId, open.path)}
-      onPeek={peek.onTapNote}
+      onPeek={peek.show}
     />
   );
 }
