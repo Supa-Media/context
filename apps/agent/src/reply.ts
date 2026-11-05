@@ -123,7 +123,7 @@ export type ReplyDeps = {
    */
   running?: RunningJob[];
   /** Resolves to a line for the answer when a job Tex said it started never did (`notStartedText`). */
-  onJobs?: (jobs: StartedJob[]) => Promise<string | undefined | void>;
+  onJobs?: (jobs: StartedJob[], heard?: string) => Promise<string | undefined | void>; // `heard`: what they said aloud, part of the jobs' question (`jobs.ts` `jobQuestion`)
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
   onSteers?: (asks: JobSteerAsk[]) => Promise<string | undefined | void>;
   /** "Tex, settings" (`texStyle.ts`): where the open menu is kept. Absent, settings texts go to the model like any other. */
@@ -316,7 +316,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();
-      const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs) : undefined;
+      const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs, answer.heard) : undefined;
       const notResumed = answer.steers ? await deps.onSteers?.(answer.steers) : undefined;
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);

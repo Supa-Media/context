@@ -25,6 +25,7 @@ import type { JobReport } from "./jobs";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 import { readChoices, type Choice } from "./pickCard";
 import { readOffers, type Offer } from "./dataCards";
+import { MAX_HEARD, refusalOf } from "./agentRefusal";
 import { readHub, readStartedJobs, readSteers, type JobAsk, type StepHow, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
 import type { TexEvent } from "./events";
 
@@ -233,7 +234,8 @@ export type AgentAnswer =
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string }
+  /** `heard`: what the person said aloud this turn, transcribed by the gateway: the jobs it started are asked it beside their typed words (`jobs.ts` `jobQuestion`). */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; heard?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -242,8 +244,8 @@ export type AgentAnswer =
   | { kind: "not_started" }
   /** The gateway's 503 for a workspace with no bucket it can reach: a new one still starting, or a broken binding. */
   | { kind: "no_storage" }
-  /** `timedOut`: a streamed turn that ran past its time, not one that failed. */
-  | { kind: "unavailable"; timedOut?: true };
+  /** `timedOut`: a streamed turn that ran past its time, not one that failed; `refused`: turned down before anything ran (`agentRefusal.ts`). */
+  | { kind: "unavailable"; timedOut?: true; refused?: string };
 
 /**
  * Ask the gateway's `/agent` route. `conversation` names the thread the
@@ -403,6 +405,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
       ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),
+      ...(typeof body.heard === "string" && body.heard.trim() ? { heard: body.heard.trim().slice(0, MAX_HEARD) } : {}),
     };
   }
   if (status === 409) return { kind: "no_model" };
@@ -411,6 +414,8 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
   // a platform 503 (a Worker over its limits) can come after tools ran.
   if (status === 503 && body.error === "model_unavailable") return { kind: "not_started" };
   if (status === 503 && body.error === "storage_unavailable") return { kind: "no_storage" };
+  const refused = refusalOf(status, body);
+  if (refused !== null) return { kind: "unavailable", refused };
   return { kind: "unavailable" };
 }
 

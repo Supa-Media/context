@@ -76,7 +76,7 @@ import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
-import { chatJobs, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, viewLink, type JobRun, type JobSteer } from "./jobs";
+import { chatJobs, jobQuestion, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, viewLink, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
 import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
@@ -595,11 +595,11 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
   const channel = message.channel === "simulator" ? { channel: "simulator" as const } : {};
   return {
     running: await chatJobs(storage, deps.now(), { results: true }),
-    onJobs: async (jobs) =>
+    onJobs: async (jobs, heard) =>
       notStartedText((await startJobs(storage, jobs, {
         now: deps.now(),
         inbox: message.from,
-        origin: { kind: "phone", phone: message.from, question: message.text, ...channel },
+        origin: { kind: "phone", phone: message.from, question: jobQuestion(message.text, heard), ...channel }, // typed and said aloud
         place: { chatId: message.chatId, ...(message.messageId ? { messageId: message.messageId } : {}), ...channel },
         spawn,
       })).notStarted),

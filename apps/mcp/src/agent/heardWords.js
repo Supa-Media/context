@@ -29,6 +29,19 @@ import { eventEntry } from "./ledger.js";
 /** A heard voice message's words kept on its event, at most this long (as `attached` kept them). */
 export const MAX_HEARD_CHARS = 3000;
 
+/**
+ * What the person said aloud this turn, as one string, or "" for nothing
+ * heard: the transcription service's words, never the model's. A job the turn
+ * starts is handed the person's own words as its question (`apps/agent/src/jobs.ts`
+ * `jobQuestion`); a voice-only text has no typed words, so without these a
+ * job started from a voice message was asked nothing and every part was
+ * refused (2026-11-05, the Morocco trip job).
+ */
+export function heardWords(attachments) {
+  const heard = (Array.isArray(attachments) ? attachments : []).filter((attachment) => attachment?.heard === true && !attachment.carried && typeof attachment.text === "string" && attachment.text.trim() !== "");
+  return heard.map((attachment) => attachment.text.trim()).join(" ").slice(0, MAX_HEARD_CHARS);
+}
+
 const wordless = (event) => event?.from?.kind === "person" && event.kind === "file" && event.heard === undefined && String(event.text ?? "").trim() === "";
 
 /**

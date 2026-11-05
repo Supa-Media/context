@@ -106,7 +106,9 @@ type Outcome =
   /** Ends here, with this to say, or silently. */
   | { kind: "stop"; text?: string }
   /** The gateway refused to run it (`daily_limit`, `no_model`): it waits on them, and says why. */
-  | { kind: "refused"; why: "daily_limit" | "no_model" };
+  | { kind: "refused"; why: "daily_limit" | "no_model" }
+  /** The gateway turned the part down before anything ran (`clients.ts` `refused`): the same ask is turned down again, so it ends here and says why. */
+  | { kind: "rejected"; why: string };
 
 /** What a job's driver does after a pass: nothing more, the next pass now, or the next pass after `ms`. */
 export type JobNext = { kind: "done" } | { kind: "now" } | { kind: "after"; ms: number };
@@ -335,6 +337,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   }
 
   // What the advisor said decides how it ended: waiting on them, stuck, or (still short when its room ran out) stuck too; else done.
+  if (outcome.kind === "rejected") log("rejected", run.id, outcome.why); // 2026-11-05: a voice-only ask gave a job no question, and ten refused parts went in eight seconds, with no reason kept
   const ended = outcome.kind !== "answer" || changed ? "done" : outcome.verdict === "waiting" ? "waiting" : outcome.verdict === "stuck" || outcome.verdict === "keep_going" || unfinished ? "stuck" : "done";
   if (ended !== "done") log(spinning ? "ended_spinning" : `ended_${ended}`, run.id);
   const why = spinning ? "Two parts in a row did none of the work. " : ended === "stuck" && outcome.kind === "answer" && outcome.verdict !== "stuck" ? "Ran out of time. " : "";
@@ -351,6 +354,8 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
         }
       : outcome.kind === "refused"
         ? { state: "waiting", status: JOB_LINES.refusedStatus[outcome.why], texts: [JOB_LINES.refused(run.title, outcome.why)] }
+        : outcome.kind === "rejected"
+          ? { state: "failed", status: `Stopped: turned down before it ran (${outcome.why})`.slice(0, 280), texts: [JOB_LINES.rejected(run.title, outcome.why)] }
         : outcome.kind === "stop"
           ? { state: "failed", ...(outcome.text ? { texts: [outcome.text] } : {}) }
           : { state: "failed", texts: [JOB_LINES.failed(run.title)] };
@@ -454,7 +459,7 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
     };
   }
   if (answer.kind === "not_started") return { kind: "retry" };
-  if (answer.kind === "unavailable") return { kind: "broken" };
+  if (answer.kind === "unavailable") return answer.refused ? { kind: "rejected", why: answer.refused } : { kind: "broken" };
   // Refused before anything ran: never a silent failure (Dev2, 2026-10-31, the day three jobs ran into the cap).
   if (answer.kind === "daily_limit" || answer.kind === "no_model") return { kind: "refused", why: answer.kind };
   return { kind: "stop", text: undefined };
@@ -531,7 +536,7 @@ async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, on
     async () => {},
     onStep,
   );
-  if (answer.kind === "unavailable") return { kind: "broken" };
+  if (answer.kind === "unavailable" && !answer.refused) return { kind: "broken" };
   const outcome = outcomeOf(answer, textsFromAnswer);
   if (outcome.kind !== "answer") return outcome;
   // Sent only to the people it was written for, as a group's answer is (`groupInbox.ts`).
