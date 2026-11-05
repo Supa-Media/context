@@ -136,6 +136,36 @@ The person's subscription logins (`~/.claude`, `~/.codex`) never leave their
 machine: we never read, copy, seal or store them. The runner starts the
 unmodified CLI, which signs itself in.
 
+### Signing a coding tool in from the app, with a pasted code (owner, 2026-11-05)
+
+Claude Code signed itself out on the owner's Mac mid-evening and every job was
+refused until someone ran `/login` in a terminal. The owner: "I should be able
+to log in through the app and the hub", and chose signing in from any phone
+too. So the computer's page has **Sign in** beside a signed-out tool:
+
+- The gateway sends the runner `signIn` with no code. The runner starts the
+  tool's own fixed sign-in (`claude auth login`, `sign_in.rs` `command`; the
+  gateway names only the tool, from the enum), reads the link it prints, and
+  sends back `signInState` `link` only when the link is on the tool maker's
+  own site (`link_in`). The page opens only such a link too (`signInLinkOk`).
+- The owner signs in on that page, on any device, and pastes the code it
+  shows. The gateway hands it to the runner in one `signIn` frame and keeps it
+  nowhere: not on the machine's row (`signInOf` keeps id, tool, state, link,
+  error), not in a refusal, not in a log. The runner types it into the
+  waiting sign-in, never writes it down, and strips it from any error.
+- Only the computer's **own owner** starts one or sends a code, never the
+  workspace's owner who also runs it, and only they see the link. A code for
+  a sign-in that is not the newest, or older than 16 minutes, is refused.
+
+This keeps the rule above: the subscription login is still made and kept by
+the CLI on the machine; the code is a one-time step in the tool's own flow.
+After any failed part the runner asks the tool once more whether it is signed
+in, one ask at a time, so a signed-out machine reads "not ready" and the next
+part is refused instead of started and failed again. In the owner's own
+texts, a refusal for a signed-out tool names the computer's page on their hub
+(`jobRoutes.js` `fixLink`). Tests: `machineSignIn.test.mjs`,
+`texMachineSignIn.test.ts`, `sign_in.rs`.
+
 ### Pairing: a code compared on both screens, a grant only the machine can collect (2026-11-04)
 
 - **A runner pairs with a short code** (`POST /machines/pair`, `apps/mcp/src/machines/routes.js`):

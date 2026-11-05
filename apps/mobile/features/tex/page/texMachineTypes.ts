@@ -26,6 +26,20 @@ export type ToolState = "signedIn" | "installed" | "missing" | "off";
 
 export type ToolName = "claude" | "codex";
 
+/**
+ * A sign-in its owner started from the page (`/machines/app/sign-in`): `starting` while the computer gets the tool's
+ * link, `link` while it waits for the code that link's page shows, `checking` once the code is on its way.
+ */
+export interface MachineSignIn {
+  id: string;
+  tool: ToolName;
+  state: "starting" | "link" | "checking" | "done" | "failed";
+  /** The tool maker's own sign-in page; only its own owner is sent it. */
+  url?: string;
+  error?: string;
+  at: number;
+}
+
 /** Who besides the owner may send a machine work in one chat: nobody, everyone there, or the people named. */
 export type MachineWho = "me" | "everyone" | string[];
 
@@ -84,6 +98,9 @@ export interface Machine {
   chats: MachineChat[];
   /** The pairing code, while `pending`. */
   code?: string;
+  /** The tools its runner can sign in from the page. */
+  canSignIn?: ToolName[];
+  signIn?: MachineSignIn;
 }
 
 /** A device code waiting for the person's yes (screen 3b). */
@@ -157,4 +174,6 @@ export type MachineAction =
   | { type: "machine.chat.add"; id: string; chat: string }
   | { type: "machine.chat.remove"; id: string; chat: string }
   | { type: "machine.raise"; id: string; minutes: number }
+  | { type: "machine.signIn"; id: string; tool: ToolName }
+  | { type: "machine.signInCode"; id: string; signInId: string; code: string }
   | { type: "job.allow"; job: string; mode: "once" | "always" | "decline" };

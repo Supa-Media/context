@@ -19,6 +19,7 @@ mod protocol;
 mod rules;
 mod run;
 mod service;
+mod sign_in;
 mod slots;
 mod state;
 mod workdir;

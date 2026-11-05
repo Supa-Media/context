@@ -44,6 +44,7 @@ import { aiGatewayConfig } from "../agent/aiGateway.js";
 import { builtinModel, canRunBuiltin } from "../agent/builtin.js";
 import { jobChatOf, reachedWorkspace, TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "./reach.js";
 import { machineAskLine, ownerHandleIn } from "./groupAsk.js";
+import { personHubUrl } from "../agent/hubLinks.js";
 
 export const MACHINE_RUN_CLIENT_ID = "context_tex_machine_run";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -146,9 +147,21 @@ async function assign(request, env, session, controlPlane, origin, now) {
     // now in a group chat, the job also gets the line the chat is asked in, the owner's 👍 there being the yes.
     const asking = answer?.code === "ask_first" && answer.fresh === true && session.actorClientId === TEXTS_GROUP_CLIENT_ID;
     const askLine = asking ? machineAskLine({ title: body.title, machineName: machine.machine.name, ownerHandle: await ownerHandleIn(controlPlane, session, machine.machine.ownerId) }) : null;
-    return json({ ok: false, code: answer?.code ?? "server_error", ...(typeof answer?.askId === "string" ? { askId: answer.askId } : {}), ...(askLine ? { askLine } : {}) });
+    const fixAt = fixLink(env, session, machine.machine, answer?.code);
+    return json({ ok: false, code: answer?.code ?? "server_error", ...(typeof answer?.askId === "string" ? { askId: answer.askId } : {}), ...(askLine ? { askLine } : {}), ...fixAt });
   }
   return json({ ok: true, runId: answer.runId, deadline: answer.deadline, powers: answer.powers });
+}
+
+/**
+ * A computer whose coding tool signed out, in its own owner's texts: why, and the computer's page on their hub, where
+ * they sign it back in (the owner, 2026-11-05). Never in a group, where the hub is the group's and the computer isn't.
+ */
+function fixLink(env, session, machine, code) {
+  if (code !== "not_ready" || session.actorClientId !== TEXTS_CLIENT_ID || machine.ownerId !== session.actorUserId) return {};
+  const why = machine.status?.notReady === "signed_out" ? "signed_out" : null;
+  const hub = personHubUrl(env, session);
+  return { ...(why ? { why } : {}), ...(hub && typeof machine.id === "string" ? { fixAt: `${hub}/machine?machine=${encodeURIComponent(machine.id)}` } : {}) };
 }
 
 async function readRun(request, env, session, controlPlane, store) {

@@ -45,6 +45,7 @@ fn every_server_frame_round_trips() {
             "mail",
             "message",
             "rules",
+            "signIn",
             "welcome"
         ]
     );
@@ -61,7 +62,17 @@ fn every_runner_frame_round_trips() {
         frames.iter().map(|f| f["type"].as_str().unwrap()).collect();
     assert_eq!(
         kinds.into_iter().collect::<Vec<_>>(),
-        ["accept", "hello", "refuse", "result", "session", "status", "step", "usage"]
+        [
+            "accept",
+            "hello",
+            "refuse",
+            "result",
+            "session",
+            "signInState",
+            "status",
+            "step",
+            "usage"
+        ]
     );
 }
 

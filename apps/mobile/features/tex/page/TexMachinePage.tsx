@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Linking, StyleSheet, TextInput, View } from "react-native";
 import { Switch } from "../../design/components/Switch";
 import { useFieldFont } from "../../design/fieldFont";
@@ -24,6 +24,7 @@ import {
 } from "./texMachineFormat";
 import type { MachineValues, ToolName, ToolState } from "./texMachineTypes";
 import { useTexMachines } from "./useTexPage";
+import { SignInPanel, signInBusy, signInFor } from "./TexMachineSignIn";
 
 /** Where each coding tool's sign-in and install instructions are. */
 const TOOL_HELP: Record<ToolName, string> = {
@@ -45,8 +46,19 @@ const OTHERS_OPTIONS: readonly SelectOption[] = OTHERS_PER_DAY.map((n) => ({ key
  */
 export function MachinePage(props: ViewProps) {
   const { source, page, chat, go, machine: id } = props;
-  const read = useTexMachines(source, chat, page.changes);
+  const [again, setAgain] = useState(0);
+  const read = useTexMachines(source, chat, page.changes, again);
   const now = useNow();
+  // The coding tool being signed in from here, while its panel is open.
+  const [signingIn, setSigningIn] = useState<ToolName | null>(null);
+  const shownMachine = read?.kind === "ok" ? read.value.machines.find((x) => x.id === id) : undefined;
+  const busy = shownMachine ? signInBusy(shownMachine, Date.now()) : false;
+  // While the computer works on a sign-in, read again every two seconds: its link, then whether it took.
+  useEffect(() => {
+    if (!busy) return;
+    const timer = setTimeout(() => setAgain((n) => n + 1), 2000);
+    return () => clearTimeout(timer);
+  }, [busy, again]);
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const field = useFieldFont(texPageType.field);
@@ -69,6 +81,10 @@ export function MachinePage(props: ViewProps) {
   }
 
   const set = (values: MachineValues) => void page.act({ type: "machine.set", id: m.id, values });
+  const startSignIn = (tool: ToolName) => {
+    setSigningIn(tool);
+    void page.act({ type: "machine.signIn", id: m.id, tool }).then(() => setAgain((n) => n + 1));
+  };
   const notReady = m.state === "notReady";
   const paused = m.state === "paused";
   const total = m.limitMin + (m.raisedMin ?? 0);
@@ -89,11 +105,31 @@ export function MachinePage(props: ViewProps) {
           testID={`tex-machine-tool-${tool}-switch`}
         />
       );
+    } else if (state === "installed" && (m.canSignIn ?? []).includes(tool) && m.state !== "offline") {
+      right = <Button label="Sign in" look="primary" onPress={() => startSignIn(tool)} testID={`tex-machine-tool-${tool}-signin`} />;
     } else {
       const label = state === "installed" ? "How to sign in" : "How to add it";
       right = <RowLink label={label} onPress={() => void Linking.openURL(TOOL_HELP[tool])} testID={`tex-machine-tool-${tool}-link`} />;
     }
-    return <ListRow key={tool} title={title} sub={toolLine(state, m)} right={right} testID={`tex-machine-tool-${tool}`} />;
+    const row = <ListRow key={tool} title={title} sub={toolLine(state, m)} right={right} testID={`tex-machine-tool-${tool}`} />;
+    if (signingIn !== tool) return row;
+    return (
+      <View key={tool}>
+        {row}
+        <SignInPanel
+          m={m}
+          tool={tool}
+          signIn={signInFor(m, tool, now)}
+          onStart={() => startSignIn(tool)}
+          onCode={async (signInId, code) => {
+            const answer = await page.act({ type: "machine.signInCode", id: m.id, signInId, code });
+            setAgain((n) => n + 1);
+            return answer.ok ? null : (answer.error ?? "failed");
+          }}
+          onClose={() => setSigningIn(null)}
+        />
+      </View>
+    );
   };
 
   const codingTools = (
@@ -265,7 +301,9 @@ export function MachinePage(props: ViewProps) {
       </View>
       {notReady ? (
         <Notice testID="tex-machine-not-ready">
-          {`Sign in to Claude Code or Codex on ${hereOf(m)} and Tex can start running jobs here. This page updates on its own.`}
+          {m.tools.claude === "installed" && (m.canSignIn ?? []).includes("claude")
+            ? `Claude Code is signed out on ${hereOf(m)}. Sign it in below and Tex can run jobs here again.`
+            : `Sign in to Claude Code or Codex on ${hereOf(m)} and Tex can start running jobs here. This page updates on its own.`}
         </Notice>
       ) : null}
       {paused && m.paused === "limit" ? (

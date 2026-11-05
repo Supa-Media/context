@@ -1,0 +1,161 @@
+/**
+ * @jest-environment jsdom
+ */
+
+/**
+ * Signing Claude Code in on a computer from the Tex page (`TexMachineSignIn.tsx`,
+ * the gateway's `/machines/app/sign-in`): the list answer's sign-in read into
+ * the page, the page's actions as route calls, only the maker's own link
+ * opened, and the steps on the glass from Sign in to signed in.
+ *
+ * ## Sabotage record (2026-11-05, temporary local edits, reverted)
+ *
+ *   `signInLinkOk` accepting any https host                        1 failing
+ *   the Sign in button drawn for a runner that can't sign in        1 failing
+ *   the code sent untrimmed                                         1 failing
+ */
+
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
+import { act, createElement, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { SafeAreaProvider, type Metrics } from "react-native-safe-area-context";
+
+jest.mock("../features/tex/history/useSeesTurnTiming", () => ({ useSeesTurnTiming: () => false }));
+jest.mock("expo-router", () => ({ Redirect: () => null, Stack: () => null, router: { push: () => {} }, useLocalSearchParams: () => ({}) }));
+
+import { TexPageBody, type Place } from "../features/tex/page/TexPageBody";
+import { SIGN_IN_FRESH_MS, signInFor, signInLinkOk } from "../features/tex/page/TexMachineSignIn";
+import { machineCallOf, machinesPageOf } from "../features/tex/page/texMachineGateway";
+import { machineFixtureSource } from "../features/tex/page/texMachineFixture";
+import { fixtureNow } from "../features/tex/page/texPageFixture";
+import type { TexPageSource } from "../features/tex/page/texPageSource";
+import type { PageAction } from "../features/tex/page/texPageTypes";
+import { useTexPage } from "../features/tex/page/useTexPage";
+
+const NOW = 1_800_000_000_000;
+const LINK = "https://claude.com/cai/oauth/authorize?code=true&state=x";
+
+const listed = (extra: Record<string, unknown> = {}) => ({
+  id: "m1",
+  name: "Ada's MacBook Pro",
+  os: "macos",
+  ownerId: "user_1",
+  runs: true,
+  online: true,
+  tools: ["claude"],
+  limits: { slots: 2, dayMs: 3_600_000 },
+  facts: { signIn: ["claude"] },
+  status: { ready: false, notReady: "signed_out", tools: [{ name: "claude", installed: true, signedIn: false }] },
+  ...extra,
+});
+
+describe("a sign-in, read and sent", () => {
+  test("the list answer's sign-in and what the runner can sign in reach the page", () => {
+    const m = machinesPageOf({ ok: true, machines: [listed({ signIn: { id: "si_1", tool: "claude", state: "link", url: LINK, at: NOW } })] }, { now: NOW })?.machines[0];
+    expect(m?.state).toBe("notReady");
+    expect(m?.tools.claude).toBe("installed");
+    expect(m?.canSignIn).toEqual(["claude"]);
+    expect(m?.signIn).toEqual({ id: "si_1", tool: "claude", state: "link", url: LINK, at: NOW });
+  });
+
+  test("an older runner can't sign in from the page, and a link that isn't https is dropped", () => {
+    const m = machinesPageOf({ ok: true, machines: [listed({ facts: {}, signIn: { id: "si_1", tool: "claude", state: "link", url: "http://claude.com/x", at: NOW } })] }, { now: NOW })?.machines[0];
+    expect(m?.canSignIn).toEqual([]);
+    expect(m?.signIn?.url).toBeUndefined();
+  });
+
+  test("starting and finishing go to the sign-in route, the code trimmed", () => {
+    expect(machineCallOf({ type: "machine.signIn", id: "m1", tool: "claude" }, () => null)).toEqual({ route: "sign-in", body: { machineId: "m1", tool: "claude" } });
+    expect(machineCallOf({ type: "machine.signInCode", id: "m1", signInId: "si_1", code: "  abc#def \n" }, () => null)).toEqual({ route: "sign-in", body: { machineId: "m1", signInId: "si_1", code: "abc#def" } });
+  });
+
+  test("only the tool maker's own page is opened", () => {
+    expect(signInLinkOk(LINK)).toBe(true);
+    expect(signInLinkOk("https://platform.claude.com/oauth")).toBe(true);
+    expect(signInLinkOk("https://claude.com.evil.example/x")).toBe(false);
+    expect(signInLinkOk("https://evil.example/claude.com")).toBe(false);
+    expect(signInLinkOk("http://claude.com/x")).toBe(false);
+    expect(signInLinkOk(undefined)).toBe(false);
+  });
+
+  test("a sign-in older than the computer waits is not drawn", () => {
+    const signIn = { id: "si_1", tool: "claude" as const, state: "link" as const, at: NOW };
+    expect(signInFor({ signIn }, "claude", NOW + 60_000)).toBe(signIn);
+    expect(signInFor({ signIn }, "claude", NOW + SIGN_IN_FRESH_MS + 1)).toBeNull();
+    expect(signInFor({ signIn }, "codex", NOW)).toBeNull();
+  });
+});
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+const METRICS: Metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } };
+
+let container: HTMLDivElement;
+let root: Root;
+beforeEach(() => {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
+
+function Harness({ source, start }: { source: TexPageSource; start: Place }) {
+  const [place, setPlace] = useState<Place>(start);
+  const page = useTexPage(source, place.chat);
+  return createElement(TexPageBody, { source, page, place, go: setPlace, computer: null, openComputer: () => {}, now: fixtureNow });
+}
+
+const tick = () =>
+  act(async () => {
+    for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+  });
+const byTestId = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+async function press(id: string) {
+  const el = byTestId(id);
+  if (el === null) throw new Error(`no ${id}`);
+  act(() => el.click());
+  await tick();
+}
+
+describe("on the computer's page", () => {
+  test("Sign in shows the link, and the pasted code signs Claude Code in", async () => {
+    const source = machineFixtureSource("notReady");
+    const sent: PageAction[] = [];
+    const watched: TexPageSource = { ...source, act: async (chat, a) => (sent.push(a), source.act(chat, a)) };
+    act(() => root.render(createElement(SafeAreaProvider, { initialMetrics: METRICS }, createElement(Harness, { source: watched, start: { chat: "me", view: "machine", machine: "m-mbp" } }))));
+    await tick();
+    expect(byTestId("tex-machine-tool-claude-link")).toBeNull();
+    await press("tex-machine-tool-claude-signin");
+    expect(sent).toEqual([{ type: "machine.signIn", id: "m-mbp", tool: "claude" }]);
+    expect(byTestId("tex-machine-signin")).not.toBeNull();
+    expect(byTestId("tex-machine-signin-open")?.textContent).toContain("Open Claude Code sign-in");
+    const input = byTestId("tex-machine-signin-code") as HTMLInputElement;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(input, " good#state ");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await press("tex-machine-signin-send");
+    expect(sent[1]).toEqual({ type: "machine.signInCode", id: "m-mbp", signInId: "si_fixture", code: "good#state" });
+    await tick();
+    expect(byTestId("tex-machine-signin-done")?.textContent).toContain("Claude Code is signed in on");
+  });
+
+  test("a runner that can't sign in from the page keeps the how-to link", async () => {
+    const source = machineFixtureSource("notReady");
+    const plain: TexPageSource = {
+      ...source,
+      machines: async (chat) => {
+        const read = await source.machines(chat);
+        if (read.kind === "ok") for (const m of read.value.machines) m.canSignIn = [];
+        return read;
+      },
+    };
+    act(() => root.render(createElement(SafeAreaProvider, { initialMetrics: METRICS }, createElement(Harness, { source: plain, start: { chat: "me", view: "machine", machine: "m-mbp" } }))));
+    await tick();
+    expect(byTestId("tex-machine-tool-claude-signin")).toBeNull();
+    expect(byTestId("tex-machine-tool-claude-link")?.textContent).toContain("How to sign in");
+  });
+});

@@ -14,7 +14,10 @@ use crate::state::{write_private, State};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
+
+/// A sign-in from the app waiting for its code, by tool: its id and where the code goes.
+type SignIns = HashMap<Tool, (String, oneshot::Sender<String>)>;
 
 pub struct Inner {
     pub rules: Rules,
@@ -32,6 +35,9 @@ pub struct Machine {
     pub out: mpsc::Sender<RunnerMsg>,
     pub runner_exe: PathBuf,
     pub name: String,
+    sign_ins: Arc<Mutex<SignIns>>,
+    /// One `auth status` at a time: several at once can race the tool's own token refresh.
+    probe: Arc<Mutex<()>>,
 }
 
 pub fn now_ms() -> u64 {
@@ -75,6 +81,8 @@ impl Machine {
             out,
             runner_exe,
             name,
+            sign_ins: Arc::new(Mutex::new(HashMap::new())),
+            probe: Arc::new(Mutex::new(())),
         }
     }
 
@@ -205,9 +213,94 @@ impl Machine {
                     self.forget_run(&c.run_id);
                 }
             }
+            ServerMsg::SignIn(s) => self.sign_in(s).await,
             ServerMsg::Goodbye(g) => return Stop::Goodbye(g.reason),
         }
         Stop::No
+    }
+
+    /// The owner signing a tool in from the app (`sign_in.rs`): a start, or the code for the one waiting.
+    async fn sign_in(&self, s: SignIn) {
+        let refuse = |why: &str| {
+            RunnerMsg::SignInState(SignInState {
+                sign_in_id: s.sign_in_id.clone(),
+                tool: s.tool,
+                state: SignInStep::Failed,
+                url: None,
+                error: Some(why.to_string()),
+            })
+        };
+        let mut held = self.sign_ins.lock().await;
+        if let Some(code) = s.code.clone() {
+            match held.remove(&s.tool) {
+                Some((id, tx)) if id == s.sign_in_id => {
+                    let _ = tx.send(code);
+                }
+                other => {
+                    if let Some(kept) = other {
+                        held.insert(s.tool, kept);
+                    }
+                    drop(held);
+                    let _ = self
+                        .out
+                        .send(refuse("This sign-in has ended. Start again."))
+                        .await;
+                }
+            }
+            return;
+        }
+        let Some((name, args)) = crate::sign_in::command(s.tool) else {
+            drop(held);
+            let _ = self
+                .out
+                .send(refuse("This tool can't be signed in from the app yet."))
+                .await;
+            return;
+        };
+        let Some(program) = crate::facts::which(name) else {
+            drop(held);
+            let _ = self
+                .out
+                .send(refuse("It isn't installed on this computer."))
+                .await;
+            return;
+        };
+        // A newer sign-in replaces an older one: dropping its sender ends it.
+        let (tx, rx) = oneshot::channel();
+        held.insert(s.tool, (s.sign_in_id.clone(), tx));
+        drop(held);
+        eprintln!("sign-in {}: started for {}", s.sign_in_id, s.tool.name());
+        let me = self.clone();
+        tokio::spawn(async move {
+            let (id, tool) = (s.sign_in_id, s.tool);
+            let ok = crate::sign_in::run(program, args, id.clone(), tool, rx, me.out.clone()).await;
+            {
+                let mut held = me.sign_ins.lock().await;
+                if held.get(&tool).is_some_and(|(held_id, _)| *held_id == id) {
+                    held.remove(&tool);
+                }
+            }
+            eprintln!("sign-in {id}: {}", if ok { "done" } else { "ended" });
+            me.recheck(tool).await;
+            let status = me.status().await;
+            let _ = me.out.send(RunnerMsg::Status(status)).await;
+        });
+    }
+
+    /// Asks a tool again whether it is signed in, one ask at a time, and keeps the answer.
+    pub async fn recheck(&self, tool: Tool) {
+        let _one = self.probe.lock().await;
+        let state = crate::facts::cli_state(tool.name()).await;
+        let mut inner = self.inner.lock().await;
+        for fact in inner
+            .facts
+            .tools
+            .iter_mut()
+            .filter(|t| t.name == tool.name())
+        {
+            fact.installed = state != crate::facts::ToolState::Missing;
+            fact.signed_in = state == crate::facts::ToolState::SignedIn;
+        }
     }
 
     /// After a welcome: cancel runs the workspace object no longer wants,
@@ -345,7 +438,13 @@ impl Machine {
         }
         self.inner.lock().await.running.remove(&run_id);
         eprintln!("run {run_id}: ended {:?}", result.outcome);
+        let failed = result.outcome == Outcome::Failed;
         let _ = self.out.send(RunnerMsg::Result(result)).await;
+        // A failed part may mean the tool signed out: ask it before the status goes, so the machine reads
+        // "not ready" and the next part is refused there, not started and failed again.
+        if failed {
+            self.recheck(tool).await;
+        }
         let status = self.status().await;
         let _ = self.out.send(RunnerMsg::Status(status)).await;
     }

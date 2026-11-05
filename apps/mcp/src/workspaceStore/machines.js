@@ -150,6 +150,21 @@ export function dayLimitOf(machine, at) {
 
 const raiseOf = (raw) => (raw && typeof raw === "object" && typeof raw.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.day) && Number.isSafeInteger(raw.extraMs) && raw.extraMs > 0 ? { day: raw.day, extraMs: Math.min(raw.extraMs, DAY_MS) } : null);
 
+const SIGN_IN_ID = /^si_[0-9a-f]{24}$/;
+const SIGN_IN_STATES = new Set(["starting", "link", "checking", "done", "failed"]);
+/** A sign-in the owner started from the app: its id, tool, where it got to, the tool's link, why it failed. Never the code. */
+export function signInOf(raw) {
+  if (!raw || typeof raw !== "object" || !SIGN_IN_ID.test(raw.id ?? "") || !TOOLS.has(raw.tool) || !SIGN_IN_STATES.has(raw.state) || !Number.isSafeInteger(raw.at)) return null;
+  return {
+    id: raw.id,
+    tool: raw.tool,
+    state: raw.state,
+    at: raw.at,
+    ...(typeof raw.url === "string" && raw.url.startsWith("https://") && raw.url.length <= 2048 ? { url: raw.url } : {}),
+    ...(typeof raw.error === "string" && raw.error !== "" ? { error: raw.error.slice(0, 300) } : {}),
+  };
+}
+
 function machineOf(raw, previous = null) {
   const given = raw && typeof raw === "object" ? raw : {};
   const base = previous ?? {};
@@ -182,6 +197,8 @@ function machineOf(raw, previous = null) {
     seenAt: Number.isSafeInteger(pick("seenAt", null)) ? pick("seenAt", null) : null,
     // Never from the app's settings: only `raise` below sets it, for one day.
     raise: raiseOf(base.raise ?? null),
+    // Never from the app's settings either: only `signIn` below sets it.
+    signIn: signInOf(base.signIn ?? null),
     ...(mailOnly ? { mailOnly: true } : {}),
     // When a mail-only device leaves on its own, whatever else happens; fixed at add.
     ...(mailOnly && Number.isSafeInteger(base.expiresAt ?? given.expiresAt) ? { expiresAt: base.expiresAt ?? given.expiresAt } : {}),
@@ -262,6 +279,13 @@ export function workspaceMachines(sql, deps = {}) {
       const day = dayOf(now(), machine.limits.timeZone);
       const already = machine.raise?.day === day ? machine.raise.extraMs : 0;
       return save({ ...machine, raise: { day, extraMs: Math.min(already + minutes * 60_000, DAY_MS) } });
+    },
+
+    /** Where a sign-in from the app has got to (`serveMachines.js`, `machineSockets.js`). */
+    signIn(id, next) {
+      const machine = get(id);
+      if (!machine) return null;
+      return save({ ...machine, signIn: signInOf({ ...next, at: now() }) });
     },
 
     /** What the runner reported: facts, slot counts, status. */

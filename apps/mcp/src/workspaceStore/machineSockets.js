@@ -228,6 +228,13 @@ export function machineSockets(state, sql, machines, deps = {}) {
       case "status":
         machines.seen(machineId, { status: { ready: message.ready, notReady: message.notReady ?? null, busy: message.busy, freeMemoryMb: message.freeMemoryMb, tools: message.tools ?? null }, ...(message.pausedUntil !== undefined ? { pausedUntil: message.pausedUntil } : {}) });
         return;
+      case "signInState": {
+        // Only the sign-in this machine's owner started last: an old or unknown id changes nothing.
+        const held = machines.get(machineId)?.signIn;
+        if (!held || held.id !== message.signInId || held.tool !== message.tool || held.state === "done" || held.state === "failed") return;
+        machines.signIn(machineId, { id: held.id, tool: held.tool, state: message.state, ...(message.url ? { url: message.url } : {}), ...(message.error ? { error: message.error } : {}) });
+        return;
+      }
       default:
         close(ws, CLOSE_PROTOCOL, "unknown frame");
     }
