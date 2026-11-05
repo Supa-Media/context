@@ -136,6 +136,44 @@ The person's subscription logins (`~/.claude`, `~/.codex`) never leave their
 machine: we never read, copy, seal or store them. The runner starts the
 unmodified CLI, which signs itself in.
 
+### What a part is told, and how it ends (owner, 2026-11-05)
+
+A GitHub sign-in job on the owner's computer got its one-time code in 29
+seconds, put it only in its final answer, and left `gh auth login` and a
+15-minute check running in the background. Those kept Claude Code's output
+open, the runner waited for an exit that never came, the part was cut off at
+its deadline as out of time, and an out-of-time part's words are never texted.
+The code expired unseen. The owner: "the model is probably way way smarter
+than our runner, what we need to do is tell claude code the context in which
+it's running". So:
+
+- **The gateway opens every brief with the part's background**
+  (`apps/mcp/src/machines/jobBackground.js`), written from the job's own
+  grant, never from the caller's words: started from the person's own texts
+  (it acts as them) or from a group chat (only the group's reach, and the
+  owner's computer used only for the job); that nobody is at the keyboard;
+  what the person sees; Context as the shared memory, `orient` first; keyed
+  API calls through Context; that only Tex reaches the person, by mail on the
+  job's note, at once; and that a part ends at its answer. The runner's own
+  prompt (`run.rs` `system_prompt`) says the same in short, for the computer.
+  Being in the brief, it reaches runners of every version.
+- **A part ends at its answer.** Ten seconds after the tool's answer the
+  runner kills whatever it left running and reports the answer as finished
+  (`drive.rs` `AFTER_ANSWER`), so the advisor's check runs and a `waiting`
+  verdict is texted. Test: `a_background_process_never_holds_a_finished_run_open`.
+- **Claude Code runs on Opus 5.5** (`claude.rs` `MODEL`), never on whatever
+  default the computer has.
+- **Keyed API calls are allowed.** A run may use `send` action `api`
+  (`vault_list` with `fetch`): Context adds the saved key on the way out and
+  blanks it from the answer, so the key never reaches the computer, and the
+  first use by "Tex on your computer" waits for the person's yes like any AI's
+  (`vault/asks.js`). Every other send action, and every vault page link, stays
+  refused. A run started from a group carries `groupChat` on its actor
+  (`context/identity.js`), so it uses only the keys given to the whole
+  workspace, as the group's own turn does (`vault/access.js` `workspaceOnly`;
+  test in `vaultGroupChat.test.mjs`). Reverting that would let a group's job
+  use the tagger's personal keys.
+
 ### Signing a coding tool in from the app, with a pasted code (owner, 2026-11-05)
 
 Claude Code signed itself out on the owner's Mac mid-evening and every job was

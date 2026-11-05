@@ -49,6 +49,11 @@ pub struct DriveOutcome {
 
 /// How often spent time is handed to the ledger while a run goes.
 const TICK: Duration = Duration::from_secs(30);
+/// How long a tool that has given its answer may take to exit. Past it, whatever
+/// it left running is killed and the answer stands: a backgrounded command that
+/// keeps the output open must never hold a finished part to its deadline
+/// (2026-11-05: a GitHub login job's one-time code waited 15 minutes, unsent).
+const AFTER_ANSWER: Duration = Duration::from_secs(10);
 
 pub async fn drive(
     d: Driver,
@@ -342,6 +347,7 @@ async fn claude(
     let mut pending: Vec<String> = vec![];
     let mut after_interrupt: Option<String> = None;
     let mut last: Option<(bool, Option<String>)> = None;
+    let mut answered: Option<tokio::time::Instant> = None;
     let mut tick = tokio::time::interval(TICK);
     loop {
         tokio::select! {
@@ -358,6 +364,7 @@ async fn claude(
                         } else {
                             last = Some(done);
                             stdin = None; // EOF: the tool exits after its turn.
+                            answered = Some(tokio::time::Instant::now() + AFTER_ANSWER);
                         }
                     }
                 }
@@ -374,6 +381,7 @@ async fn claude(
                 }
                 Some(RunInput::Cancel) | None => { kill_group(&mut child).await; return ended(Outcome::Cancelled, "cancelled"); }
             },
+            _ = tokio::time::sleep_until(answered.unwrap_or(deadline)), if answered.is_some() => { kill_group(&mut child).await; break; }
             _ = tokio::time::sleep_until(deadline) => { kill_group(&mut child).await; return ended(Outcome::Limit, "the run reached its deadline"); }
             _ = tick.tick() => sink.tick(false).await,
         }
@@ -422,13 +430,17 @@ async fn codex(
         let mut pending: Vec<String> = vec![];
         let mut interrupted: Option<String> = None;
         let mut done: Option<(bool, Option<String>)> = None;
+        let mut answered: Option<tokio::time::Instant> = None;
         loop {
             tokio::select! {
                 line = lines.recv() => {
                     let Some(line) = line else { break };
                     for ev in crate::codex::parse(&line) {
                         if let CliEvent::Session(id) = &ev { thread = Some(id.clone()); }
-                        if let Some(d) = sink.event(ev).await { done = Some(d); }
+                        if let Some(d) = sink.event(ev).await {
+                            done = Some(d);
+                            answered = Some(tokio::time::Instant::now() + AFTER_ANSWER);
+                        }
                     }
                 }
                 input = inputs.recv() => match input {
@@ -436,6 +448,7 @@ async fn codex(
                     Some(RunInput::Interrupt(i)) => { interrupted = Some(interrupt_text(&i)); sigint(&child); }
                     Some(RunInput::Cancel) | None => { kill_group(&mut child).await; return ended(Outcome::Cancelled, "cancelled"); }
                 },
+                _ = tokio::time::sleep_until(answered.unwrap_or(deadline)), if answered.is_some() => { kill_group(&mut child).await; break; }
                 _ = tokio::time::sleep_until(deadline) => { kill_group(&mut child).await; return ended(Outcome::Limit, "the run reached its deadline"); }
                 _ = tick.tick() => sink.tick(false).await,
             }

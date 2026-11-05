@@ -37,6 +37,9 @@ pub struct ClaudePlan<'a> {
     pub system_prompt: &'a str,
 }
 
+/// The model every part runs on.
+pub const MODEL: &str = "claude-opus-5-5";
+
 /// The argv after `claude`. The brief is not here: it is the first stdin line,
 /// so it never shows in `ps`.
 pub fn args(p: &ClaudePlan) -> Vec<String> {
@@ -54,6 +57,8 @@ pub fn args(p: &ClaudePlan) -> Vec<String> {
     .map(|s| s.to_string())
     .collect();
     a.push(p.mcp_config.display().to_string());
+    // The model is ours to choose, never the computer's default (the owner, 2026-11-05).
+    a.extend(["--model".into(), MODEL.into()]);
     if p.resume {
         a.extend(["--resume".into(), p.session_id.into()]);
     } else {

@@ -46,6 +46,9 @@ while IFS= read -r -t 1 line; do extra="$line"; done
 res="all done"
 case "$extra" in *Mail*vouch*) res="got mail";; esac
 echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"$res\",\"usage\":{\"input_tokens\":5,\"output_tokens\":7}}"
+# "linger": a background command left running holds the output open after the answer, as a backgrounded
+# `gh auth login` did on 2026-11-05.
+case "$first" in *linger*) (sleep 600) & ;; esac
 "#;
 
 struct Rig {
@@ -466,6 +469,34 @@ async fn mail_reaches_a_running_session() {
     let result = next(&mut ws, "result").await;
     // The fake CLI answers "got mail" only if a [Mail] line reached its stdin.
     assert_eq!(result["answer"], "got mail", "{result}");
+    let _ = runner.kill().await;
+}
+
+/// A part ends at its answer: something the tool left running in the background
+/// never holds the run open to its deadline (2026-11-05: a GitHub login job's
+/// answer, with its one-time code, waited 15 minutes and was never texted).
+#[tokio::test]
+async fn a_background_process_never_holds_a_finished_run_open() {
+    let r = rig();
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut runner = start_runner(&r, l.local_addr().unwrap().port());
+    let (mut ws, _) = accept(&r, &l, &[]).await;
+    send(
+        &mut ws,
+        assignment("run_l", "job_l", &r.repo, "log in, linger"),
+    )
+    .await;
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(Duration::from_secs(60), next(&mut ws, "result"))
+        .await
+        .expect("the run ended at its answer");
+    assert_eq!(result["outcome"], "finished", "{result}");
+    assert_eq!(result["answer"], "all done", "{result}");
+    assert!(
+        started.elapsed() < Duration::from_secs(45),
+        "took {:?}",
+        started.elapsed()
+    );
     let _ = runner.kill().await;
 }
 
