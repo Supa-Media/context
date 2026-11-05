@@ -71,7 +71,7 @@ export const GATES = {
     notice: "Your reply says something can't be opened, found or done, but you didn't really try this turn. Try now: open it, retry once if it failed, and look in the other places it could be. Then answer with what you found.",
   }),
   does_it: gate({
-    ask: "Does the reply hand the person work the assistant could do itself (find, forward, check, look up, fill in, decide something findable), or offer to do something that reaches nobody else instead of just doing it?",
+    ask: "Look only at what the reply asks of the person or offers them. Does it tell or ask them to do something the assistant could do itself (search their email or notes, check a site, forward something, fill a form, look up a fact), or end with an offer like 'want me to look/check/open/read...?' for a step that reaches nobody else? A reply that simply answers, or asks nothing, does not have this fault.",
     allow: [
       "'What's the code they texted you?' (only they have it)",
       "'Here's the email to the band: ... Give it a 👍 and I'll send it.' (it reaches other people)",
@@ -86,12 +86,12 @@ export const GATES = {
       "'Can you forward me the receipt?' (it can search their mail)",
       "'You can finish the registration form on their site.' (it can fill it)",
     ],
-    yes: "yes, it hands back or offers work it could do",
-    no: "no, or what it asks truly needs them",
+    yes: "yes: it asks them to do, or offers instead of doing, something the assistant could do itself",
+    no: "no: it asks nothing of them, or only what needs them (a code, a payment, their choice between options, a yes to send something to other people)",
     notice: "Your reply hands them work you could do, or offers a step that reaches nobody else. Do it now yourself (look, open, fetch, fill in) and reply with the result. Ask them only for what needs them: a code, a payment, a sign-in, or a choice that's theirs.",
   }),
   finished: gate({
-    ask: "Does the reply stop short of what they wanted, with a step left the assistant could take now (give the file itself, price the rest, book it, read to the answer), not taken and not handed to a background job; or does it pick for them while leaving the choice that changes everything as an aside?",
+    ask: "Compare what they asked for with what the reply delivers. Does the reply stop partway: it describes where something is, a plan, a next step, or places to try, when the assistant could have taken that step itself this turn (give the file itself, price the rest, book the slot, read to the end), and it did not start a background job for it? A reply that delivers what was asked, or whose remaining step needs the person (a card, a code, a photo), does not have this fault.",
     allow: [
       "Did: opened the folder. Reply: 'Here it is: https://files.example/logo.png'",
       "Did: priced mains, started a job for sides. Reply: 'Mains run about $6 a head; pricing sides in the background.'",
@@ -103,12 +103,12 @@ export const GATES = {
       "Reply: 'You can book the 3pm on their site.' (it could book it)",
       "Reply: 'Here are three caterers to call for quotes.' (it could read their prices)",
     ],
-    yes: "yes, it stops short",
-    no: "no, it finished, or handed the rest to a job, or what is left needs them",
+    yes: "yes: it stops partway with a step left the assistant could take",
+    no: "no: it delivers what was asked, or a job carries the rest, or only the person can do what is left",
     notice: "Your reply stops before the finish: there's a step left that you can take yourself. Take it now (open, read, price, book, fill in), or hand the rest to a background job with what you have, and reply with the result.",
   }),
   sourced: gate({
-    ask: "Does the reply state a figure, price, date, quote, total, or what a page, file or email says, that nothing read this turn (or their own texts) shows, or that its own numbers contradict?",
+    ask: "Check each figure, price, date, quote or claim about what a page, file or email says (or doesn't say) in the reply against the results of the calls and their texts. Is any of them not found there, said about something nobody read, contradicted by what was read (a page that does list prices), or a total or duration that its own numbers don't add up to?",
     allow: [
       "Did: opened their pricing page, which lists $20/mo. Reply: 'It's $20 a month.'",
       "They wrote 'I slept 11 to 7'. Reply: 'That's 8 hours.'",
@@ -120,8 +120,8 @@ export const GATES = {
       "Did: page cut after the overview. Reply: 'The memory section says it keeps 30 days.'",
       "Reply: 'You slept 11pm to 6am, about 9 hours.' (the numbers don't add up)",
     ],
-    yes: "yes, it states something nothing read shows, or that does not add up",
-    no: "no, every figure and quote comes from what was read or what they said",
+    yes: "yes: at least one figure or claim is not backed by what was read, or doesn't add up",
+    no: "no: every figure and claim matches what was read or what they said, or the reply states none",
     notice: "Your reply states a figure, quote or 'the page says' that nothing you read this turn shows, or the numbers don't add up. Read the source now and quote only what it says, or say plainly what you don't know.",
   }),
   heard_them: gate({
