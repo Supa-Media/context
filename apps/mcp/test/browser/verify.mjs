@@ -224,15 +224,15 @@ async function main() {
     nothing at it), and the people who are not the owner have to be able to see
     it (they connect at `team` tier, and a folder with no rule defaults to
     private). Both are set here the way a person would set them — `write_note`
-    and `set_folder_visibility` over `/t/<token>/mcp` — so the fixture is the
+    and `set_folder_visibility` over `/mcp` — so the fixture is the
     product's own save path rather than a bucket the test arranged to its own
     liking.
   */
   let rpcId = 0;
   const callTool = async (token, name, args) => {
-    const response = await fetch(`${GATEWAY}/t/${token}/mcp`, {
+    const response = await fetch(`${GATEWAY}/mcp`, {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: ++rpcId,

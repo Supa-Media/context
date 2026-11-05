@@ -25,7 +25,7 @@
  * Endpoints:
  *   POST /mcp                  MCP streamable HTTP (Authorization: Bearer <access token>)
  *   POST /@<slug>/mcp          the same context, named in the URL — a selector, never a boundary
- *   POST /t/<token>/mcp        compatibility fallback for clients that cannot set headers
+ *   /t/<token>/...             retired 2026-11-05: 410, token never looked up (live sockets excepted, for now)
  *   POST /inbox                drop a capture into inbox/ (needs context:capture)
  *   GET  /.well-known/oauth-protected-resource[/…]    RFC 9728
  *   GET  /.well-known/oauth-authorization-server[/…]  RFC 8414
