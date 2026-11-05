@@ -25,13 +25,22 @@ flowchart LR
   P2([Group text]):::you --> W2
   subgraph Worker["Texting Worker · apps/agent"]
     W1["1:1 lane<br/>inbox.ts · inboxTurn.ts<br/>queue, which texts, steer"]:::pipe
-    W2["Group lane<br/>groupInbox.ts · groupTurn.ts<br/>for Tex? · style"]:::pipe
+    W2["Group lane<br/>groupInbox.ts · groupTurn.ts<br/>style, chatter kept"]:::pipe
     H["Hear a group voice memo first<br/>groupVoice.ts"]:::pipe
     W2 --- H
     LA["Shared step: lookAgain<br/>their newer words may change the answer<br/>lookAgain.ts"]:::shared
     RT["Shared rule: a failed turn is tried 3 more times<br/>from 10 s, doubling, then one failed line<br/>1:1 by the queue's alarm, groups by groupTurnWorkflow.ts"]:::shared
     W1 --- RT
     W2 --- RT
+    Q["Shared step: the chat's queue<br/>each text waits in its chat's object, in order<br/>1:1 up to 20, a group up to 10<br/>chatQueue.ts"]:::shared
+    W1 --- Q
+    W2 --- Q
+    FT["Shared step: isItForTex<br/>1:1: always; group: a tag, the asker's yes, a setting<br/>and whether code answers it, never the model<br/>isItForTex.ts"]:::shared
+    W1 --- FT
+    W2 --- FT
+    GT["Shared step: gatherTheTurn<br/>what decide named is answered, an older must-answer first<br/>1:1 drops what's left, a group keeps it as chat<br/>gatherTheTurn.ts"]:::shared
+    W1 --- GT
+    W2 --- GT
   end
   subgraph Control["Control plane · Convex"]
     D["decide · recheck<br/>Clef, @cf/cloudflare/clef<br/>jev/models.ts"]:::judge
@@ -166,6 +175,9 @@ What each model costs is `jev/meter.ts`.
 Newest first. One line per pull request that changed the drawing.
 
 - 2026-11-05: every job gets a job note (its project's note, or Tex's own `tex/jobs/`); the job, Tex and the advisor join its mail; mail to tex reaches the chat's report turn, mail to advisor is answered on the note; computer jobs read and send it with their run grant.
+- 2026-11-05: gatherTheTurn is shared: one rule for which waiting texts a turn answers (`gatherTheTurn.ts`).
+- 2026-11-05: isItForTex is shared: one step says whether a text is for Tex and whether code answers it (`isItForTex.ts`).
+- 2026-11-05: the queue is shared: both lanes put a text in line the same way (`chatQueue.ts`).
 - 2026-11-05: retries are shared: a 1:1 turn that fails is tried 3 more times, as a group's.
 - 2026-11-05: lookAgain is shared: 1:1 replies get the last look groups had (recheck takes `direct`).
 - 2026-11-05: the reply judge becomes ten parallel Clef Flash gates, each

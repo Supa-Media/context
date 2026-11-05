@@ -20,6 +20,7 @@
  * (`steer.ts`): fold, queue, or restart.
  */
 
+import { gatherTheTurn } from "./gatherTheTurn";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
 import { chatEvents } from "./chatRead";
@@ -202,21 +203,9 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
     return { answer: [], drop: burst, ...(decision.act === "react" ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {}) };
   }
   const covered = (entry: Entry) => entry[1].force === true || (entry[1].ev !== undefined && decision.covers.includes(entry[1].ev));
-  // An older text it left out that still needs an answer goes first, on its own, so answers keep the order texts came in.
-  const skipped = burst.findIndex((entry) => !covered(entry));
-  const lastCovered = burst.length - 1 - [...burst].reverse().findIndex(covered);
-  if (skipped !== -1 && lastCovered < burst.length && skipped < lastCovered) {
-    const left = burst[skipped];
-    const acks = burst.slice(0, skipped);
-    if (!pureAck(left[1].message)) return { answer: [...acks, left].filter((entry) => entry === left || covered(entry)), drop: [] };
-  }
-  const chosen = burst.filter(covered);
-  // Nothing named: the newest is what woke it.
-  const answer = chosen.length > 0 ? chosen : [burst.at(-1)!];
-  const last = burst.indexOf(answer.at(-1)!);
-  // Acknowledgements before the answer that it left out go unanswered.
-  const drop = burst.slice(0, last).filter((entry) => !answer.includes(entry));
-  return { answer, drop };
+  // An older text it left out that still needs an answer goes first; acknowledgements before the answer go unanswered (`gatherTheTurn.ts`).
+  const { answer, left } = gatherTheTurn(burst, covered, (entry) => !pureAck(entry[1].message));
+  return { answer, drop: left };
 }
 
 /** Several texts as the one a turn answers: words in order, files first-sent first, the newest's place. */
