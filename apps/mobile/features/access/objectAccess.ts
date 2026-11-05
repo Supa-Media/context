@@ -6,8 +6,8 @@
  * - `person`: this person's own reach, invitations, connected apps and
  *   "shared with me", from their personal workspace's object.
  *
- * The token is the console grant, offered as a subprotocol beside
- * `context.access` so it never sits in a URL, as the tree's socket does.
+ * The console grant's token is traded for a one-use ticket, offered as a
+ * subprotocol beside `context.access`, as the tree's socket does.
  *
  * What the socket can say, and what the screens do about it:
  * - a topic's rows: show them, in place of the Convex query's;

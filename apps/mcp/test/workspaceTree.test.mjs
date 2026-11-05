@@ -16,6 +16,7 @@ import { workspaceMembers } from "../src/workspaceStore/members.js";
 import { handleTree } from "../src/live/treeRoute.js";
 import { handleWorkspaceStoreDoor } from "../src/workspaceStore/door.js";
 import { isTransportPath } from "../src/origin.js";
+import { ticketNamespace, ticketProtocols } from "./liveTicketFixture.mjs";
 import { decodeClientFrame, decodeServerFrame, TREE_CLOSE_NOT_SERVED, TREE_CLOSE_REAUTH, TREE_SOCKET_PATH } from "../../../packages/shared/src/treeFrames.cjs";
 
 let DatabaseSync = null;
@@ -300,6 +301,8 @@ function routeWorld(resolved) {
   };
   const forwarded = [];
   const env = {
+    GATEWAY_SECRET: "s".repeat(32),
+    LIVE_TICKET: ticketNamespace(),
     WORKSPACE_STORE: {
       idFromName: (name) => ({ name }),
       get: (id) => ({
@@ -311,10 +314,11 @@ function routeWorld(resolved) {
     },
   };
   const deps = { controlPlane: { resolveSession: async () => resolved, objectBehind: async () => behind() }, upgraded: (headers, webSocket) => ({ status: 101, headers, webSocket }) };
-  const ask = (headers = {}) =>
+  // Each ask opens on a fresh one-use ticket, as the app does (`src/live/ticket.js`).
+  const ask = async (headers = {}) =>
     handleTree(
       new Request("https://gateway/presence/tree", {
-        headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `context.tree, context.token.${TOKEN}`, ...headers },
+        headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": await ticketProtocols(env, { token: TOKEN, socket: TREE_SOCKET_PATH, protocol: "context.tree" }), ...headers },
       }),
       env,
       { slug: null, pathToken: null, origin: null },

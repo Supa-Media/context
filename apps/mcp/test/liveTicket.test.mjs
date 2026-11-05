@@ -1,5 +1,6 @@
 import { check, env, accessTokenFor, worker } from "./harness.mjs";
-import { LiveTicketObject, openTicket, redeemTicket, sealTicket, TICKET_TTL_MS } from "../src/live/ticket.js";
+import { openTicket, redeemTicket, sealTicket, TICKET_TTL_MS } from "../src/live/ticket.js";
+import { ticketNamespace } from "./liveTicketFixture.mjs";
 import { resolvePresentedSession } from "../src/http/presentedToken.js";
 import { createControlPlane } from "../src/controlPlane.js";
 import { SessionRefusal } from "../src/session.js";
@@ -16,32 +17,6 @@ import { SessionRefusal } from "../src/session.js";
  * `body.e <= now` test fails "an expired ticket is refused"; dropping the
  * `body.p !== socket` test fails "a ticket for the tree socket opens no presence socket".
  */
-
-/** An in-memory Durable Object namespace of `LiveTicketObject`s, one per name. */
-function ticketNamespace() {
-  const objects = new Map();
-  const storageFor = () => {
-    const values = new Map();
-    let alarm = null;
-    return {
-      values,
-      get alarmAt() { return alarm; },
-      async get(key) { return values.get(key); },
-      async put(key, value) { values.set(key, value); },
-      async setAlarm(at) { alarm = at; },
-      async deleteAll() { values.clear(); },
-    };
-  };
-  return {
-    objects,
-    idFromName: (name) => name,
-    get(id) {
-      if (!objects.has(id)) objects.set(id, new LiveTicketObject({ storage: storageFor() }));
-      const object = objects.get(id);
-      return { fetch: (request) => object.fetch(request) };
-    },
-  };
-}
 
 const refused = async (work) => {
   try {

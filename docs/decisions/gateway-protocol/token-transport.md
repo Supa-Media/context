@@ -1,7 +1,7 @@
 # URL tokens are counted, then retired route by route
 
 Decided 2026-10-28 (CASA round 2, token-in-URL finding). **Retired on every
-route but the live sockets by the owner, 2026-11-05** (below).
+route by the owner, 2026-11-05** (below).
 
 The gateway takes an access token two ways: an `Authorization: Bearer`
 header, or `/t/<token>/...` in the path for a client that cannot set one. Both
@@ -37,9 +37,9 @@ whoever still depends on it without anyone knowing who that is. So:
    marked in a `LiveTicket` Durable Object of its own, deleted by an alarm
    after it expires. The socket resolves the token inside exactly as before,
    so revocation and every clamp are unchanged, and a ticket that does not
-   open is refused, never passed over for a token offered beside it. The
-   `context.token.<token>` subprotocol is accepted only until the app builds
-   that send it have rolled over, then removed.
+   open is refused, never passed over for a token offered beside it. Once the
+   app on tickets was live, the `context.token.<token>` subprotocol stopped
+   being read (the owner, 2026-11-05): a token offered there is no token.
 4. **Retire per route, on evidence.** A route's URL form is refused only after
    its census reads zero outside-client grants for 30 days and the console
    count has drained as old app builds age out. That date is the owner's call,
@@ -48,10 +48,9 @@ whoever still depends on it without anyone knowing who that is. So:
    and it predates OAuth. `route.js` answers `/t/...` and `/@slug/t/...`
    with one fixed `410` that names the header, before the origin check and
    before any session is resolved, so the token is never looked up or sent to
-   the control plane, valid or not. The one exception, for now, is the live
-   sockets (`LIVE_SOCKET_PATHS`: presence, tree, access, agent activity, the
-   Tex page), where older app builds still put the token in the path; that
-   form is still counted and is retired separately.
+   the control plane, valid or not. The live sockets were the last
+   exception, and since they open on tickets (step 3) they answer the same
+   `410`: no route reads a token in the URL.
 
 What a simplification would cost: a ticket that is only signed (no spent
 mark) can be replayed for its whole minute; a ticket not bound to its socket

@@ -246,9 +246,8 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
         : {}),
     }),
   );
-  // The browser compatibility transport carries its bearer in the public URL.
-  // The room has no use for it after the gateway resolves the session, so the
-  // internal request is rebuilt on a fixed origin and contains no token, note
+  // The room has no use for the caller's ticket or URL after the gateway
+  // resolves the session, so the internal request is rebuilt on a fixed origin and contains no token, note
   // path, or other caller-controlled URL material.
   const roomUrl = collaborationV2
     ? "https://presence.invalid/presence?collaboration=2"
