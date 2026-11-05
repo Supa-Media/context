@@ -469,4 +469,5 @@ test/agentJobHaiku.test.mjs
 test/agentReplyQuote.test.mjs
 test/sendBackLedger.test.mjs
 test/agentHourCache.test.mjs
+test/emailReplyNeedsId.test.mjs
 test/agentTexts.test.mjs

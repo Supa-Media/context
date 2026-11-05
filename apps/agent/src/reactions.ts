@@ -16,8 +16,8 @@
  * Messages sends a tapback as words ("Loved “…”"), so the words it was on are
  * all there is, never a handle. A removed tapback is dropped as before.
  *
- * What it keeps: `reactions` holds at most five noted tapbacks, each with up
- * to 500 characters of the text it was on (Tex's own text, nearly always),
+ * What it keeps: `reactions` holds at most five noted tapbacks, each with
+ * up to 3,000 characters of the text it was on (Tex's own text, nearly always),
  * for at most a day, and is cleared as soon as a turn has been told them.
  */
 
@@ -26,7 +26,8 @@ import type { InboxStorage } from "./inbox";
 export const REACTIONS_KEY = "reactions";
 export const MAX_REACTIONS = 5;
 export const REACTIONS_FOR_MS = 24 * 60 * 60 * 1000;
-const MAX_WORDS = 500;
+// The words a tapback was on, as many as a quoted reply keeps (`sendblue.ts` MAX_QUOTED_TEXT): a whole email draft.
+const MAX_WORDS = 3000;
 
 /** A tapback by its English name, as the gateway reads it. */
 export type Tapback = "Loved" | "Liked" | "Disliked" | "Laughed at" | "Emphasized" | "Questioned" | "Reacted";

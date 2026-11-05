@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_TEXTS, textsFromAnswer } from "./format";
+import { readTapback } from "./reactions";
 
 describe("textsFromAnswer", () => {
   it("strips the Markdown that arrived as punctuation in the owner's first real text", () => {
@@ -77,5 +78,27 @@ describe("textsFromAnswer", () => {
 
   it("falls back to the answer itself rather than sending nothing", () => {
     expect(textsFromAnswer("notes.md")).toEqual(["notes.md"]);
+  });
+
+  it("sends an email draft as one text, from its To: line to the end, so a 👍 on it holds the address and every word (Dev2, 2026-11-05)", () => {
+    const body =
+      "Hi Jo,\n\nThanks for reaching out. We've decided to move forward, but we haven't heard anything back since we submitted on October 29. " +
+      "Were we supposed to hear anything within the three-business-day response window from your October 28 email?\n\nThanks,\nSeyi";
+    const answer = `Softer version, from seyi@example.com. It's not sent.\n\nTo: jo@example.com\nSubject: Re: Plan recommended\n\n${body}\n\nSend it? 👍 or 👎?`;
+    const texts = textsFromAnswer(answer);
+    expect(texts).toEqual([
+      "Softer version, from seyi@example.com. It's not sent.",
+      `To: jo@example.com\nSubject: Re: Plan recommended\n\n${body}\n\nSend it? 👍 or 👎?`,
+    ]);
+    // A 👍 on a long draft keeps all of it: the send gate needs every word.
+    const long = `${texts[1]}\n\n${"More of the email. ".repeat(40)}`.trim();
+    expect(readTapback(`Liked “${long}”`)?.words).toBe(long);
+  });
+
+  it("keeps a draft that opens with From: whole too, and leaves an answer with no header line split as before", () => {
+    expect(textsFromAnswer("From: seyi@example.com\nTo: jo@example.com\n\nHi Jo,\n\nSee you Thursday.\n\nSeyi")).toEqual([
+      "From: seyi@example.com\nTo: jo@example.com\n\nHi Jo,\n\nSee you Thursday.\n\nSeyi",
+    ]);
+    expect(textsFromAnswer("To do: call Jo.\n\nThen book the room.")).toEqual(["To do: call Jo.", "Then book the room."]);
   });
 });

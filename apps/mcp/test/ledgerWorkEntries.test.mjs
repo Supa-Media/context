@@ -78,11 +78,11 @@ test("a held email settled: sent on a yes, stopped on a no or a failed send", as
   const ledger = fakeLedger();
   store.ledger = ledger;
   const hold = async () =>
-    createPending(store, { name: "send_email", args: { to: ["jo@example.com"], subject: "Re: Thursday", body: "Hi" }, actor: { userId: "u1", clientId: "context_texts" }, texting: true });
+    createPending(store, { name: "send_email", args: { to: ["jo@example.com"], subject: "Thursday", body: "Hi" }, actor: { userId: "u1", clientId: "context_texts" }, texting: true });
   const sent = await hold();
   await settlePending(store, sent.id, { userId: "u1", action: "approve", run: async () => ({ content: [{ type: "text", text: "Sent." }] }) });
   const first = ledger.entries[0];
-  assert.deepEqual([first.kind, first.verdict, first.why, first.ref, first.to, first.subject, first.from], ["mail_check", "sent", "They said yes", heldCheckId(sent.id), "jo@example.com", "Re: Thursday", "your texts"]);
+  assert.deepEqual([first.kind, first.verdict, first.why, first.ref, first.to, first.subject, first.from], ["mail_check", "sent", "They said yes", heldCheckId(sent.id), "jo@example.com", "Thursday", "your texts"]);
   const failed = await hold();
   await settlePending(store, failed.id, { userId: "u1", action: "approve", run: async () => ({ content: [{ type: "text", text: "Gmail refused it." }], isError: true }) });
   assert.equal(ledger.entries[1].verdict, "stopped", "an approved email that could not be sent reads stopped");
@@ -102,7 +102,7 @@ test("a texted email's check is read back from the chat's ledger, and its yes na
   try {
     controlPlane.flags.emailSender = "seyi@gmail.example";
     model.install([
-      { toolCalls: [{ name: "send", args: { action: "email", args: { to: ["jo@example.com"], subject: "Re: Thursday", body: "Hi Jo,\n\nThursday at 3 works.\n" } } }] },
+      { toolCalls: [{ name: "send", args: { action: "email", args: { to: ["jo@example.com"], subject: "Thursday", body: "Hi Jo,\n\nThursday at 3 works.\n" } } }] },
       { text: JSON.stringify({ verdict: "yes", reason: "" }) },
       { text: "I drafted a reply to Jo." },
     ]);
@@ -111,7 +111,7 @@ test("a texted email's check is read back from the chat's ledger, and its yes na
     const ledger = ledgerFor(env, { person: "ws_egress" });
     const held = (await ledger.read("texts", { kinds: ["mail_check"] })).entries;
     assert.equal(held.length, 1, "one check, kept once");
-    assert.deepEqual([held[0].verdict, held[0].to, held[0].subject, held[0].from], ["waiting", "jo@example.com", "Re: Thursday", "your texts"]);
+    assert.deepEqual([held[0].verdict, held[0].to, held[0].subject, held[0].from], ["waiting", "jo@example.com", "Thursday", "your texts"]);
     await ask(env, TOKEN_TEXTS, "yes");
     const after = (await ledger.read("texts", { kinds: ["mail_check"] })).entries;
     assert.equal(after.length, 2, "the yes is a new entry, the first is never rewritten");
