@@ -74,7 +74,13 @@
                                                         "type": "array",
                                                         "maxItems": 100,
                                                         "items": {"type": "string", "maxLength": 200}
-                                                      }
+                                                      },
+                                              "signIn": {
+                                                         "description": "The coding tools this runner can sign in when the owner asks from the app (`signIn`).",
+                                                         "type": "array",
+                                                         "maxItems": 2,
+                                                         "items": {"$ref": "#/$defs/Tool"}
+                                                       }
                                             }
                             },
             "SlotCounts": {
@@ -318,6 +324,18 @@
                                         "reason": {"enum": ["stopped", "limit", "removed", "disconnected", "superseded"]}
                                       }
                       },
+            "SignIn": {
+                       "description": "The machine's owner signs a coding tool in from the app. Without a code: start the tool's own sign-in and answer with its link. With one: hand the tool the code its sign-in page showed. The code is never kept, by the runner or the workspace object.",
+                       "type": "object",
+                       "additionalProperties": false,
+                       "required": ["type", "signInId", "tool"],
+                       "properties": {
+                                       "type": {"const": "signIn"},
+                                       "signInId": {"$ref": "#/$defs/Id"},
+                                       "tool": {"$ref": "#/$defs/Tool"},
+                                       "code": {"type": "string", "pattern": "^[A-Za-z0-9#_.~-]{1,512}$"}
+                                     }
+                     },
             "Challenge": {
                           "description": "The first frame on every connection. The runner signs it to prove it holds the machine's private key.",
                           "type": "object",
@@ -372,6 +390,7 @@
                                         {"$ref": "#/$defs/Mail"},
                                         {"$ref": "#/$defs/Interrupt"},
                                         {"$ref": "#/$defs/Cancel"},
+                                        {"$ref": "#/$defs/SignIn"},
                                         {"$ref": "#/$defs/Goodbye"}
                                       ]
                             },
@@ -528,6 +547,20 @@
                                         "tools": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/ToolFact"}}
                                       }
                       },
+            "SignInState": {
+                            "description": "Where a sign-in the owner started from the app has got to: `link` carries the tool's sign-in page, `done` and `failed` end it. A fresh status follows an ending.",
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["type", "signInId", "tool", "state"],
+                            "properties": {
+                                            "type": {"const": "signInState"},
+                                            "signInId": {"$ref": "#/$defs/Id"},
+                                            "tool": {"$ref": "#/$defs/Tool"},
+                                            "state": {"enum": ["link", "done", "failed"]},
+                                            "url": {"description": "The tool's own sign-in page, on its maker's site.", "type": "string", "pattern": "^https://", "maxLength": 2048},
+                                            "error": {"type": "string", "maxLength": 300}
+                                          }
+                          },
             "RunnerMessage": {
                               "description": "Every frame a runner sends. Anything else closes the connection.",
                               "oneOf": [
@@ -538,7 +571,8 @@
                                         {"$ref": "#/$defs/Step"},
                                         {"$ref": "#/$defs/Usage"},
                                         {"$ref": "#/$defs/Result"},
-                                        {"$ref": "#/$defs/Status"}
+                                        {"$ref": "#/$defs/Status"},
+                                        {"$ref": "#/$defs/SignInState"}
                                       ]
                             },
             "PairStart": {

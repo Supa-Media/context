@@ -32,7 +32,7 @@ function objects() {
       },
     }),
   };
-  return { world, env: { WORKSPACE_STORE: namespace, AI: { run: async () => ({}) } } };
+  return { world, env: { WORKSPACE_STORE: namespace, AI: { run: async () => ({}) }, APP_ORIGIN: "https://app.example.test" } };
 }
 
 function fakeControlPlane() {
@@ -362,4 +362,14 @@ test("a no ends the ask, and always lets that person in that chat in without ask
   assert.equal((await ask("/agent/machine/assign", assignBody({ jobId: "job_3" }), groupSession("user_ade"))).body.ok, true);
   // Only that person: somebody else in the chat is still asked first.
   assert.equal((await ask("/agent/machine/assign", assignBody({ jobId: "job_4" }), groupSession("user_bola"))).body.code, "ask_first");
+});
+
+test("a computer whose Claude Code signed out says why, and in its owner's own texts names the page to sign it in", async () => {
+  const { w, server, ask, assignBody } = await setup();
+  await w.frame(server, { type: "status", ready: false, notReady: "signed_out", busy: 0, freeMemoryMb: 4000 });
+  const { body } = await ask("/agent/machine/assign", assignBody());
+  assert.deepEqual(body, { ok: false, code: "not_ready", why: "signed_out", fixAt: "https://app.example.test/tex/@seyi/machine?machine=mch_1" });
+  // Someone else's ask, or a group's, gets no link to the owner's page.
+  const other = await ask("/agent/machine/assign", assignBody(), session({ actorClientId: "context_texts_group", actorUserId: "user_ade" }));
+  assert.equal(other.body.fixAt, undefined);
 });

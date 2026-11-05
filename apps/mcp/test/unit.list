@@ -435,6 +435,7 @@ test/machineProtocol.test.mjs
 test/machineMailOnly.test.mjs
 test/machineMailDelivery.test.mjs
 test/pairDevice.test.mjs
+test/machineSignIn.test.mjs
 test/machineSockets.test.mjs
 test/machineRoutes.test.mjs
 test/machineJobs.test.mjs

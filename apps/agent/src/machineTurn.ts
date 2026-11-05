@@ -74,8 +74,13 @@ type RunRead = { state: string; steps: { seq: number; tool: string; action: stri
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Words a refusal is told to them in: the job ends, and "pick it back up" starts it again once fixed. */
-export function refusedText(title: string, name: string, code: string): string {
+export function refusedText(title: string, name: string, code: string, fix: { why?: unknown; fixAt?: unknown } = {}): string {
   const where = `"${title}" on ${name}`;
+  // The computer's own page on their hub, where they sign it back in (the gateway names it only in its owner's texts).
+  const page = typeof fix.fixAt === "string" && /^https:\/\/[^\s]+$/.test(fix.fixAt) && fix.fixAt.length <= 300 ? fix.fixAt : null;
+  if (code === "not_ready" && fix.why === "signed_out" && page !== null) {
+    return `Claude Code is signed out on ${name}, so I couldn't start "${title}". Sign it back in at ${page} and text me to pick it back up.`;
+  }
   switch (code) {
     case "offline":
       return `I couldn't start ${where}: it's offline. Open it, then text me to pick it back up.`;
@@ -199,7 +204,7 @@ export async function machineTurn(
       answer = await assign();
     }
     if (answer.ok !== true || typeof answer.runId !== "string") {
-      return { kind: "stop", text: refusedText(run.title, machine.name, typeof answer.code === "string" ? answer.code : "") };
+      return { kind: "stop", text: refusedText(run.title, machine.name, typeof answer.code === "string" ? answer.code : "", { why: answer.why, fixAt: answer.fixAt }) };
     }
     current = { runId: answer.runId, part: run.attempt, deadline: typeof answer.deadline === "number" ? Math.min(answer.deadline, partEnds) : partEnds };
     run.machineRun = current;

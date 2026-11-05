@@ -78,6 +78,7 @@ pub async fn gather() -> MachineFacts {
         has_screen: Some(cfg!(target_os = "macos")),
         tools,
         repos: None,
+        sign_in: Some(vec![crate::protocol::Tool::Claude]),
     }
 }
 

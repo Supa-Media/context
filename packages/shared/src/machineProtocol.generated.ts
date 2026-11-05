@@ -52,6 +52,8 @@ export type MachineFacts = {
   tools: ToolFact[];
   /** Repository names (owner/name or folder name) found in the allowlisted folders. Never paths outside them. */
   repos?: string[];
+  /** The coding tools this runner can sign in when the owner asks from the app (`signIn`). */
+  signIn?: Tool[];
 };
 
 /** Slot counts the runner works out from memory and cores. recommended: for a machine the person also uses. most: for a machine that only runs Tex. Never over 8. */
@@ -183,6 +185,14 @@ export type Cancel = {
   reason: "stopped" | "limit" | "removed" | "disconnected" | "superseded";
 };
 
+/** The machine's owner signs a coding tool in from the app. Without a code: start the tool's own sign-in and answer with its link. With one: hand the tool the code its sign-in page showed. The code is never kept, by the runner or the workspace object. */
+export type SignIn = {
+  type: "signIn";
+  signInId: Id;
+  tool: Tool;
+  code?: string;
+};
+
 /** The first frame on every connection. The runner signs it to prove it holds the machine's private key. */
 export type Challenge = {
   type: "challenge";
@@ -213,7 +223,7 @@ export type Goodbye = {
 };
 
 /** Every frame the workspace object sends a runner. Nothing here runs a command: assign hands words to an agent the runner starts under its own rules. */
-export type ServerMessage = Challenge | Welcome | RulesChanged | Assign | Deliver | Mail | Interrupt | Cancel | Goodbye;
+export type ServerMessage = Challenge | Welcome | RulesChanged | Assign | Deliver | Mail | Interrupt | Cancel | SignIn | Goodbye;
 
 /** A run the runner still has after a reconnect, so the job resumes instead of starting over. */
 export type HeldRun = {
@@ -319,8 +329,19 @@ export type Status = {
   tools?: ToolFact[];
 };
 
+/** Where a sign-in the owner started from the app has got to: `link` carries the tool's sign-in page, `done` and `failed` end it. A fresh status follows an ending. */
+export type SignInState = {
+  type: "signInState";
+  signInId: Id;
+  tool: Tool;
+  state: "link" | "done" | "failed";
+  /** The tool's own sign-in page, on its maker's site. */
+  url?: string;
+  error?: string;
+};
+
 /** Every frame a runner sends. Anything else closes the connection. */
-export type RunnerMessage = Hello | Accept | Refuse | Session | Step | Usage | Result | Status;
+export type RunnerMessage = Hello | Accept | Refuse | Session | Step | Usage | Result | Status | SignInState;
 
 /** POST /machines/pair: a runner asks to be paired. The private key never leaves the machine. */
 export type PairStart = {

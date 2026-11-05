@@ -270,7 +270,8 @@ export function useTexJob(
  * is also what a gateway without machines answers, and reads as "no machines
  * here", never as an error.
  */
-export function useTexMachines(source: TexPageSource | null, chat: string, changes: Changes): Read<MachinesPage> | null {
+/** `again` reads once more each time it changes, for a screen waiting on a computer (a sign-in under way). */
+export function useTexMachines(source: TexPageSource | null, chat: string, changes: Changes, again = 0): Read<MachinesPage> | null {
   const [read, setRead] = useState<Read<MachinesPage> | null>(null);
   const version = useVersion(changes, ["machines"]);
   useEffect(() => {
@@ -282,6 +283,6 @@ export function useTexMachines(source: TexPageSource | null, chat: string, chang
     return () => {
       stale = true;
     };
-  }, [chat, source, version]);
+  }, [again, chat, source, version]);
   return read;
 }

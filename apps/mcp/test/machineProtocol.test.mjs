@@ -65,7 +65,11 @@ test("a runner frame is parsed only when it is valid", () => {
 test("the protocol has no message that runs a command", () => {
   // Design, "Security": the workspace object can only assign, deliver, mail, interrupt and cancel.
   const types = protocol.schema.$defs.ServerMessage.oneOf.map((o) => protocol.schema.$defs[o.$ref.replace("#/$defs/", "")].properties.type.const);
-  assert.deepEqual(types.sort(), ["assign", "cancel", "challenge", "goodbye", "interrupt", "mail", "message", "rules", "welcome"]);
+  assert.deepEqual(types.sort(), ["assign", "cancel", "challenge", "goodbye", "interrupt", "mail", "message", "rules", "signIn", "welcome"]);
+  // Signing a tool in from the app (2026-11-05) starts only that tool's own fixed sign-in on the runner
+  // (`sign_in.rs` `command`): it names the tool from the enum and carries the code typed into it, never a command.
+  assert.deepEqual(Object.keys(protocol.schema.$defs.SignIn.properties).sort(), ["code", "signInId", "tool", "type"]);
+  assert.deepEqual(protocol.schema.$defs.SignIn.properties.tool, { $ref: "#/$defs/Tool" });
   for (const key of Object.keys(protocol.schema.$defs.Assign.properties)) assert.doesNotMatch(key, /command|shell|exec|argv|env/i);
   // Mail to a whole machine is words for its session and nothing else (2026-11-04).
   for (const key of Object.keys(protocol.schema.$defs.Mail.properties)) assert.doesNotMatch(key, /command|shell|exec|argv|env|run/i);

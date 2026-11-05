@@ -287,6 +287,17 @@ describe("a job on the person's own computer", () => {
     expect(asked[0]).toMatchObject({ state: "running", ask: line, texts: [line] });
   });
 
+  it("a computer whose Claude Code signed out names the page to sign it back in", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const page = "https://context.example/tex/@seyi/machine?machine=mch_1";
+    const { deps, reports } = world({ assign: [{ ok: false, code: "not_ready", why: "signed_out", fixAt: page }] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    expect(reports[reports.length - 1].texts).toEqual([`Claude Code is signed out on Studio Mac, so I couldn't start "Fix the flaky test". Sign it back in at ${page} and text me to pick it back up.`]);
+    // Without the page (a group, or an older gateway) it says what it said before.
+    expect(refusedText("Fix", "Studio Mac", "not_ready", { why: "signed_out", fixAt: "javascript:alert(1)" })).toBe(refusedText("Fix", "Studio Mac", "not_ready"));
+  });
+
   it("an owner who doesn't answer, or says no, ends the job saying so", async () => {
     for (const [code, text] of [["ask_first", refusedText("Fix the flaky test", "Studio Mac", "ask_first")], ["declined", refusedText("Fix the flaky test", "Studio Mac", "declined")]]) {
       const storage = new MemoryStorage();

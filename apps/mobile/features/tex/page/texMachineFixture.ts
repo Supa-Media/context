@@ -107,6 +107,7 @@ function machinesFor(scenario: MachineScenario): MachinesPage {
             running: [],
             usedMin: 0,
             tools: { claude: "installed", codex: "missing" },
+            canSignIn: ["claude"],
             folders: [],
             chats: [{ key: "me", name: "Just you", who: "me", askFirst: true, slots: 2 }],
             slots: 2,
@@ -264,6 +265,20 @@ export function machineFixtureSource(scenario: MachineScenario = "full", options
         case "machine.chat.remove": {
           const m = find(action.id);
           if (m) m.chats = m.chats.filter((c) => c.key !== action.chat);
+          break;
+        }
+        case "machine.signIn": {
+          const m = find(action.id);
+          if (!m) return { ok: false, error: "not_found" };
+          m.signIn = { id: "si_fixture", tool: action.tool, state: "link", url: "https://claude.com/cai/oauth/authorize?code=true", at: now };
+          break;
+        }
+        case "machine.signInCode": {
+          const m = find(action.id);
+          if (!m?.signIn || m.signIn.id !== action.signInId) return { ok: false, error: "sign_in_ended" };
+          m.signIn = { ...m.signIn, state: "done" };
+          m.tools[m.signIn.tool] = "signedIn";
+          if (m.state === "notReady") m.state = "online";
           break;
         }
         case "machine.raise": {

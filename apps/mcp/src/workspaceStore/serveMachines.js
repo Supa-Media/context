@@ -31,6 +31,7 @@ export const MACHINE_OPS = Object.freeze({
   ANSWER: "ws.machine.answer",
   RAISE: "ws.machine.raise",
   MAIL: "ws.machine.mail",
+  SIGN_IN: "ws.machine.signIn",
 });
 const OPS = new Set(Object.values(MACHINE_OPS));
 
@@ -129,6 +130,41 @@ function mail(store, fields) {
   return Response.json({ ok: true, sent: store.machineSockets.send(machine.id, frame) });
 }
 
+/** How long a sign-in from the app waits for its code, as the runner waits (`sign_in.rs` `CODE_WAIT`), and a little more. */
+export const SIGN_IN_WAIT_MS = 16 * 60 * 1000;
+
+function signInId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return `si_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/**
+ * The owner signing a coding tool in from the app (`sign_in.rs` on the runner); who may was checked by the gateway
+ * (`machines/appRoutes.js`, the computer's own owner only). Without a code: a new sign-in, sent to the runner, which
+ * answers with the tool's link. With one: that code, for the sign-in waiting on it, handed straight on. The code is
+ * in the frame and nowhere else: not on the machine's row, not in a refusal, not in a log.
+ */
+function signIn(store, fields) {
+  const { machines, machineSockets } = store;
+  const machine = machines.get(fields.id);
+  if (!machine) return refused("unknown_machine");
+  if (typeof fields.code !== "string") {
+    if (!(machine.facts?.signIn ?? []).includes(fields.tool)) return refused("not_supported");
+    const frame = { type: "signIn", signInId: signInId(), tool: fields.tool };
+    if (invalid("ServerMessage", frame) !== null) return refused("bad_message");
+    if (!machineSockets.send(machine.id, frame)) return refused("offline");
+    return Response.json({ ok: true, machine: shown(store, machines.signIn(machine.id, { id: frame.signInId, tool: frame.tool, state: "starting" })) });
+  }
+  const held = machine.signIn;
+  const waiting = held && held.id === fields.signInId && held.state === "link" && machines.now() - held.at < SIGN_IN_WAIT_MS;
+  if (!waiting) return refused("sign_in_ended");
+  const frame = { type: "signIn", signInId: held.id, tool: held.tool, code: fields.code };
+  // Its reason names the field, never the value.
+  if (invalid("ServerMessage", frame) !== null) return refused("bad_code");
+  if (!machineSockets.send(machine.id, frame)) return refused("offline");
+  return Response.json({ ok: true, machine: shown(store, machines.signIn(machine.id, { id: held.id, tool: held.tool, state: "checking", ...(held.url ? { url: held.url } : {}) })) });
+}
+
 /** A `ws.machine.*` call, or null when `op` is not one. */
 export async function serveMachineCall(store, op, fields) {
   if (!OPS.has(op)) return null;
@@ -191,6 +227,8 @@ export async function serveMachineCall(store, op, fields) {
         }
         return Response.json({ ok: true, ask: answered });
       }
+      case MACHINE_OPS.SIGN_IN:
+        return signIn(store, fields);
       case MACHINE_OPS.RUN: {
         const run = store.machines.run(fields.runId);
         return run ? Response.json({ ok: true, run, online: store.machineSockets.online(run.machineId) }) : refused("unknown_run");

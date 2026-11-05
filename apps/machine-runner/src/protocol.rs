@@ -120,6 +120,9 @@ pub struct MachineFacts {
     pub tools: Vec<ToolFact>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repos: Option<Vec<String>>,
+    /// The tools this runner can sign in from the app (`signIn`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_in: Option<Vec<Tool>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,6 +281,49 @@ pub struct Cancel {
     pub reason: CancelReason,
 }
 
+/// The owner signs a coding tool in from the app: without a code, start the
+/// tool's own sign-in and send its link; with one, hand the tool that code.
+/// The code is never kept or logged.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SignIn {
+    pub sign_in_id: String,
+    pub tool: Tool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+}
+
+impl std::fmt::Debug for SignIn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignIn")
+            .field("sign_in_id", &self.sign_in_id)
+            .field("tool", &self.tool)
+            .field("code", &self.code.as_ref().map(|_| "<withheld>"))
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SignInStep {
+    Link,
+    Done,
+    Failed,
+}
+
+/// Where a sign-in from the app has got to; a fresh status follows an ending.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SignInState {
+    pub sign_in_id: String,
+    pub tool: Tool,
+    pub state: SignInStep,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Challenge {
@@ -328,6 +374,7 @@ pub enum ServerMsg {
     Mail(Mail),
     Interrupt(Interrupt),
     Cancel(Cancel),
+    SignIn(SignIn),
     Goodbye(Goodbye),
 }
 
@@ -472,6 +519,7 @@ pub enum RunnerMsg {
     Usage(Usage),
     Result(RunResult),
     Status(Status),
+    SignInState(SignInState),
 }
 
 // Pairing, over HTTPS.

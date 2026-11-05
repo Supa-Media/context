@@ -11,6 +11,7 @@ import type {
   MachineAsk,
   MachineChat,
   MachineRun,
+  MachineSignIn,
   MachinesPage,
   MachineState,
   MachineWho,
@@ -70,6 +71,17 @@ function readRun(v: unknown): MachineRun | null {
   return { job, title: str(r.title) ?? "", startedAt: num(r.startedAt) ?? 0, ...(str(r.for) ? { for: str(r.for) } : {}) };
 }
 
+const SIGN_IN_STATES: ReadonlySet<string> = new Set(["starting", "link", "checking", "done", "failed"]);
+
+export function readSignIn(v: unknown): MachineSignIn | null {
+  const r = rec(v);
+  const id = str(r?.id);
+  if (!r || !id || !SIGN_IN_STATES.has(r.state as string) || !(TOOL_NAMES as readonly string[]).includes(r.tool as string)) return null;
+  const url = str(r.url);
+  const error = str(r.error);
+  return { id, tool: r.tool as ToolName, state: r.state as MachineSignIn["state"], at: num(r.at) ?? 0, ...(url && url.startsWith("https://") ? { url } : {}), ...(error ? { error } : {}) };
+}
+
 export function readMachine(v: unknown): Machine | null {
   const r = rec(v);
   const id = str(r?.id);
@@ -98,6 +110,7 @@ export function readMachine(v: unknown): Machine | null {
     // Never on for a machine that is not the Mac app: only the Mac app can offer it.
     computerUse: r.kind === "mac" && r.computerUse === true,
     chats: list(r.chats, readMachineChat),
+    canSignIn: strings(r.canSignIn).filter((t): t is ToolName => (TOOL_NAMES as readonly string[]).includes(t)),
   };
   if (r.paused === "limit" || r.paused === "plan") machine.paused = r.paused;
   for (const key of ["since", "connectedAt", "lastEndedAt", "raisedMin"] as const) {
@@ -106,6 +119,8 @@ export function readMachine(v: unknown): Machine | null {
   }
   const code = str(r.code);
   if (code) machine.code = code;
+  const signIn = readSignIn(r.signIn);
+  if (signIn) machine.signIn = signIn;
   return machine;
 }
 
