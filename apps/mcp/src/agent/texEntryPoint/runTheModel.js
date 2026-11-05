@@ -43,7 +43,10 @@ import { replyJudge } from "../replyJudge.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function runTheModel(t) {
-  const { allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, computersRead, controlPlane, delegation: delegated, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, maker, meter, noteLinking, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, timeZone, tries } = t;
+  const { allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, computersRead, controlPlane, delegation: delegated, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, maker, meter, noteLinking, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, timeZone } = t;
+  // When the setup's reply judges read this turn, they replace the older word checks: tried_first does what `untriedWeb.js` did and followed_them what `doItChecks.js` did, so those two stay only for a setup without judges.
+  const gated = chatTurn && job === null && !runner && (texted || group !== null) && Boolean(production?.replyJudge) && typeof env.AI?.run === "function"; // no Workers AI binding, no gates: the word checks stay
+  const tries = gated ? null : t.tries;
   if (!tex.lean) await tex.wait("steer_begin", begun);
   const knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
   // A big ask the advisor plans and the gateway splits into jobs, when the setup says so (`planBigAsk.js`).
@@ -51,10 +54,10 @@ export async function runTheModel(t) {
   // Their computers, told to the turn, and code no longer delegated to the web while one is paired (`machines/forTurn.js`).
   const computers = computersRead === null || computersRead === undefined ? [] : await tex.wait("computers", computersRead);
   const delegation = delegationBeside(delegated, computers);
-  // A read offered back instead of done, and an advisor they asked for and nobody asked, go back once, on the front door too (`doItChecks.js`).
-  const doIt = chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
-  // The setup's reply judges, after those: ten Clef Flash gates read the reply against every action this turn took, at once, and send back what fails, at most twice (`replyJudge.js`). A job's report runs them too, less the texting-only ones.
-  const judge = chatTurn && !runner && (texted || group !== null) && production?.replyJudge ? replyJudge({ ai: env.AI, setting: production.replyJudge, job: job !== null, question: (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
+  // A read offered back instead of done, and an advisor they asked for and nobody asked, go back once, on the front door too, without judges (`doItChecks.js`).
+  const doIt = !gated && chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
+  // The setup's reply judges, after `claimCheck.js`: ten Clef Flash gates read the reply against every action this turn took, at once, and send back what fails, at most twice (`replyJudge.js`). Not on a job's report: every gate reads a person's text and the reply to it, and none was tuned on a report Tex reads (claimCheck.js and the hand-back judge check those).
+  const judge = chatTurn && job === null && !runner && (texted || group !== null) && production?.replyJudge ? replyJudge({ ai: env.AI, setting: production.replyJudge, job: job !== null, question: (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
   if (planning) background.plan = planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) });
   if (planning) splitFirst(background); // a lone job is offered the planner once
   // The advisor, when the setup names one this deployment can run: offered on every chat turn, a job's included (`advisor.js`).

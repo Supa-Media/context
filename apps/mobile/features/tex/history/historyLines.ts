@@ -172,6 +172,8 @@ export function judgeWords(e: LedgerEntry): string {
   const round = typeof e.round === "number" ? e.round : 0;
   const by = e.by === "code" ? "checks" : "judges";
   const outcome = e.went === true ? "went out" : "sent back";
+  // A passed draft a text that came in late held back: it never went (`turn.js`).
+  if (e.by === "late") return ["late text · held", oneLine(e.reason), `"${short(e.text, 160)}"`].filter(Boolean).join(" · ");
   const num = (v: unknown) => (typeof v === "number" ? v.toFixed(2) : "–");
   const failed = judges.filter((j) => j.passed !== true).map((j) => `${str(j.id)} ${num(j.yes)} ≥ ${num(j.at)}`);
   const passed = judges.length - failed.length;

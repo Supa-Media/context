@@ -78,7 +78,9 @@ Tainted words are still held back. Only the speaker is kept.
   door's included, a regex over their words and a flag, going back at most
   once: a question that names the advisor, in a turn that has one and has
   not asked it, is sent back to ask it. The gateway decides this from their
-  words, not the model.
+  words, not the model. Since 2026-11-05, when the setup's reply gates run
+  (`reply-judge.md`), the `followed_them` gate does this instead and this
+  check is off; it stays for a setup without gates.
 - **The offered-read regex is gone (owner's pick, 2026-11-05).** A second
   check sent back any answer matching "want me to read/search/draft …?". In
   the core benchmark (gh-178, q16) it sent back a right take that ended "Want

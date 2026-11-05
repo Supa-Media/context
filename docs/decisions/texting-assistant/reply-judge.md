@@ -60,10 +60,16 @@ above:
 - Every gate is its own decision call on the same packet (`judgeState`), all
   at once, so the wait is the slowest gate. Every gate at or over its
   threshold fails; all failed gates go back in one notice that names each and
-  says what it needs (`sendBackNotice`). Only the failed gates read the
-  rewrite. At most `MAX_SEND_BACKS` (2) send-backs a turn; then the reply goes.
-- A background job's report runs the gates too, less `short_and_clean` (it is
-  read by Tex, not texted).
+  says what it needs (`sendBackNotice`). Every gate reads the rewrite too
+  (at first only the failed ones did, until review found a rewrite can bring
+  in a new fault: "checked your email, nothing there" with no call made). At most `MAX_SEND_BACKS` (2) send-backs a turn; then the reply goes.
+- A background job's report does not run the gates (it did for a few hours
+  on 2026-11-05): each gate reads a person's text and the reply to it, and
+  none was tuned on a report Tex reads. `claimCheck.js` and the hand-back
+  judge check a report.
+- A draft the gates passed that a late text then holds is recorded in the
+  history as held (`by: "late"`), so the history never says a draft went
+  out that was not sent.
 - `judge_at`, when a setup names it, replaces every gate's own threshold.
 - Tuning: each gate has a labelled set (`apps/mcp/bench/gates/<gate>.json`),
   and is also scored on every other gate's good replies, since a gate that
@@ -73,6 +79,14 @@ above:
   picks the threshold that catches the most faults with at most 10% false
   alarms; a gate clears the bar at 80% caught. No set case may be one of its
   gate's own examples (a test fails if one is).
+- With the gates on, the front door's two word checks are off:
+  `untriedWeb.js` ("I can't open it" with nothing tried, now `tried_first`)
+  and `doItChecks.js` (an advisor asked for and not asked, now
+  `followed_them`). They still run for a setup without gates, or with no
+  Workers AI binding to run them. `claimCheck.js`
+  (later and job turns) still runs first, its own untried-web check
+  included; its word checks are next to go, its facts stay. Test: `apps/mcp/test/agentProduction.test.mjs` ("with reply judges,
+  the word checks they replace stay off").
 - Facts stay code, because they are not readings of words: an empty reply, a
   note link no tool gave, held approvals, send limits, step budgets.
 

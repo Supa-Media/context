@@ -117,6 +117,10 @@ before it is talked about, every time, and never pasted back to them
 (`prompt.js` `LINK_LINE`), because `DIRECT_LINE` ("if what's in front of you
 answers it, reply now") read an earlier failure as an answer.
 
+Since 2026-11-05, when the setup's reply gates run (`reply-judge.md`), the
+`tried_first` gate does this instead and `untriedWeb.js` is off; it stays for
+a setup without gates, or a deployment with no Workers AI binding.
+
 **What a simplification would cost:** dropping it brings back "paste the
 points" for a link nothing tried. `agentUntriedWeb.test.mjs` ("an untried
 can't-open on the front door gets one round to try") fails.
