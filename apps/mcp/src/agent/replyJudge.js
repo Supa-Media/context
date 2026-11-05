@@ -97,8 +97,16 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
     verdicts,
     async check(answer, turn = {}) {
       const before = typeof inner?.check === "function" ? await inner.check(answer, turn) : null;
-      if (before !== null && before !== undefined) return before;
-      if (decide === null || open.length === 0 || sentBack >= MAX_SEND_BACKS) return null;
+      if (before !== null && before !== undefined) {
+        // The code checks that run first: what they sent back, kept in the chat's history too.
+        turn.tell?.(judgeEvent({ by: "code", round: sentBack, draft: answer, went: false, notice: before }));
+        return before;
+      }
+      if (decide === null || open.length === 0) return null;
+      if (sentBack >= MAX_SEND_BACKS) {
+        turn.tell?.(judgeEvent({ by: "gates", model: pick.model, round: sentBack, draft: answer, went: true, reason: "sent back twice already, so it goes as it is" }));
+        return null;
+      }
       const state = judgeState({ question, history, messages: turn.messages, answer });
       const started = clock();
       const yes = await runGates(decide, state, open);
@@ -112,12 +120,28 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
       turn.mark?.({ verdict, confidence, ms, acted, ok: verdict !== null });
       // Gate names and numbers only: never the reply or the question (`docs/decisions/observability`).
       log(JSON.stringify({ event: "tex_reply_gates", model: pick.model, round: sentBack, ran: open, failed, ms, acted }));
+      const notice = acted ? sendBackNotice(failed) : null;
+      // Every judge's verdict on this draft, and whether it went, in the chat's history (Dev2, 2026-11-05: "so we can see how responses were shaped").
+      turn.tell?.(judgeEvent({ by: "gates", model: pick.model, round: sentBack, draft: answer, went: !acted, ms, notice, judges: open.map((name) => ({ id: name, yes: typeof yes[name] === "number" ? round2(yes[name]) : null, at: atOf(name), passed: !failed.includes(name) })) }));
       if (!acted) return null;
       sentBack += 1;
       open = failed; // the rewrite is read again only by the gates it failed
-      return sendBackNotice(failed);
+      return notice;
     },
   };
+}
+
+const round2 = (value) => Math.round(value * 100) / 100;
+
+/**
+ * One judging of a draft, as the turn tells it (`turn.js` `tell`) and the
+ * chat's ledger keeps it (`ledger.js` `judgeEntry`): who judged (`gates`, or
+ * `code` for the checks that run first), the round, the draft, each judge's
+ * id, yes and threshold, whether the draft went, and the notice it went back
+ * with. `judges` is empty for `code` and for a draft the send-back cap let go.
+ */
+export function judgeEvent({ by, model = null, round, draft, went, ms = null, notice = null, reason = null, judges = [] }) {
+  return { kind: "judge", by, ...(model ? { model } : {}), round, draft: String(draft ?? ""), went, ...(typeof ms === "number" ? { ms } : {}), ...(notice ? { notice } : {}), ...(reason ? { reason } : {}), judges, failed: judges.filter((judge) => !judge.passed).map((judge) => judge.id) };
 }
 
 /** Every gate at once, each its own call: `{ [gate]: yes }`, with no entry for a gate that failed or ran out of time. */

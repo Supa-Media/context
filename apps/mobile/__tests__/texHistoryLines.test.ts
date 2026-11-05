@@ -132,6 +132,20 @@ describe("the history's lines", () => {
     expect(lines[2]!.calls).toBeUndefined();
   });
 
+  test("a judging of a draft says which draft, whether it went, the judges that failed and the draft (2026-11-05)", () => {
+    const entries: LedgerEntry[] = [
+      { id: "j2", at: at(2, 9, 3), kind: "judge", turn: "t", by: "gates", round: 1, went: true, text: "Here's the logo.", judges: [{ id: "heard_them", yes: 0.12, at: 0.7, passed: true }] },
+      { id: "j1", at: at(2, 9, 2), kind: "judge", turn: "t", by: "gates", round: 0, went: false, text: "Here's the icon.", judges: [{ id: "heard_them", yes: 0.82, at: 0.7, passed: false }, { id: "finished", yes: 0.19, at: 0.35, passed: true }] },
+    ];
+    const lines = historyDays(entries, NOW)[0]!.turns[0]!.lines;
+    expect(lines.map((l) => l.text)).toEqual([
+      'judges · draft 1 · sent back · heard_them 0.82 ≥ 0.70 · 1 passed · "Here\'s the icon."',
+      'judges · draft 2 · went out · all 1 passed · "Here\'s the logo."',
+    ]);
+    expect(kindsFor({ ...DEFAULT_SHOWN, tools: false })).not.toContain("judge");
+    expect(kindsFor(DEFAULT_SHOWN)).toContain("judge");
+  });
+
   test("background lines say what each is", () => {
     const entries: LedgerEntry[] = [
       { id: "n4", at: at(2, 9, 4), kind: "job", job: "j1", title: "Code transactions", state: "keep_going" },
@@ -180,7 +194,7 @@ describe("the history's lines", () => {
   });
 
   test("days and kinds as the gateway is asked for them", () => {
-    expect(kindsFor(DEFAULT_SHOWN)).toEqual(["text", "tool", "note", "advisor", "mail_check", "job"]);
+    expect(kindsFor(DEFAULT_SHOWN)).toEqual(["text", "tool", "judge", "note", "advisor", "mail_check", "job"]);
     expect(kindsFor({ texts: false, tools: false, thinking: true, background: false })).toEqual(["thinking", "said"]);
     expect(dayAsked("today", "", NOW)).toBe("2026-11-02");
     expect(dayAsked("yesterday", "", new Date(2026, 10, 1, 9))).toBe("2026-10-31");

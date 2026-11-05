@@ -70,8 +70,9 @@ const history = [
 ];
 const question = "it's on filebox.example under resources then brand assets";
 
-function turn(ai, judge) {
+function turn(ai, judge, observe = null) {
   return runTurn({
+    observe,
     question,
     history,
     credential: { provider: BUILTIN_PROVIDER, apiKey: null },
@@ -136,6 +137,38 @@ test("an accepted reply goes in one round, and the gates read the turn's calls a
   assert.ok(state.includes("returned: brand-assets: garden-club-logo.png"));
   assert.ok(state.includes("Person: where's the garden club logo?"), "earlier texts are there");
   assert.ok(state.indexOf("Their text now") < state.indexOf("What the assistant did"), "the ask and the reply come first, so a cut never loses them");
+});
+
+test("every judging goes to the chat's history: the draft, each judge's score and threshold, and whether it went", async () => {
+  const ai = scripted(
+    [{ text: "one" }, { text: "two" }, { text: "three" }],
+    [{ finished: 0.9 }, { finished: 0.9, __ran: 1 }, { finished: 0.9, __ran: 1 }],
+  );
+  const told = [];
+  const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question, history, log: () => {} });
+  await turn(ai, judge, (event) => told.push(event));
+  const judged = told.filter((event) => event.kind === "judge");
+  assert.deepEqual(judged.map((event) => [event.draft, event.round, event.went]), [["one", 0, false], ["two", 1, false], ["three", 2, true]]);
+  assert.equal(judged[0].judges.length, Object.keys(GATES).length, "every judge's verdict on the first draft");
+  assert.deepEqual(judged[0].judges.find((j) => j.id === "finished"), { id: "finished", yes: 0.9, at: GATES.finished.at, passed: false });
+  assert.deepEqual(judged[0].failed, ["finished"]);
+  assert.equal(judged[0].notice, sendBackNotice(["finished"]), "what Tex was told");
+  assert.equal(judged[0].model, "@cf/cloudflare/clef-flash");
+  assert.deepEqual(judged[1].judges.map((j) => j.id), ["finished"], "the rewrite is read only by the judge it failed");
+  assert.deepEqual(judged[2].judges, [], "past the cap nothing judges it");
+  assert.match(judged[2].reason, /twice/);
+});
+
+test("a code check that sends a draft back is in the history too", async () => {
+  const ai = scripted([{ text: "one" }, { text: "two" }], [{}]);
+  const told = [];
+  let first = true;
+  const inner = { check: () => (first ? ((first = false), "Fix it.") : null) };
+  const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question, history, inner, log: () => {} });
+  await turn(ai, judge, (event) => told.push(event));
+  const judged = told.filter((event) => event.kind === "judge");
+  assert.deepEqual(judged.map((event) => [event.by, event.draft, event.went]), [["code", "one", false], ["gates", "two", true]]);
+  assert.equal(judged[0].notice, "Fix it.");
 });
 
 test("only the failed gates read the rewrite", async () => {

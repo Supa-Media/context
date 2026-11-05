@@ -30,7 +30,7 @@ export const SHOW_LABEL: Record<Show, string> = { texts: "Texts", tools: "Tool c
  */
 export const SHOW_KINDS: Record<Show, LedgerKind[]> = {
   texts: ["text"],
-  tools: ["tool"],
+  tools: ["tool", "judge"],
   thinking: ["thinking", "said"],
   background: ["note", "advisor", "mail_check", "job"],
 };
@@ -161,6 +161,24 @@ function toolWords(e: LedgerEntry): string {
   return [str(e.name) || "tool", how].filter(Boolean).join(" · ");
 }
 
+/**
+ * One judging of a draft reply (`apps/mcp/src/agent/replyJudge.js`): which
+ * draft, whether it went out or went back, the judges that failed with their
+ * score against their threshold, and the draft (Dev2, 2026-11-05: "so we can
+ * see how responses were shaped along the way").
+ */
+export function judgeWords(e: LedgerEntry): string {
+  const judges = Array.isArray(e.judges) ? (e.judges as unknown[]).map(record).filter((j): j is Record<string, unknown> => j !== null) : [];
+  const round = typeof e.round === "number" ? e.round : 0;
+  const by = e.by === "code" ? "checks" : "judges";
+  const outcome = e.went === true ? "went out" : "sent back";
+  const num = (v: unknown) => (typeof v === "number" ? v.toFixed(2) : "–");
+  const failed = judges.filter((j) => j.passed !== true).map((j) => `${str(j.id)} ${num(j.yes)} ≥ ${num(j.at)}`);
+  const passed = judges.length - failed.length;
+  const tally = judges.length === 0 ? "" : failed.length === 0 ? `all ${judges.length} passed` : `${failed.join(", ")}${passed ? ` · ${passed} passed` : ""}`;
+  return [`${by} · draft ${round + 1} · ${outcome}`, tally, oneLine(e.reason), `"${short(e.text, 160)}"`].filter(Boolean).join(" · ");
+}
+
 function lineOf(e: LedgerEntry, group: boolean): HistoryLine {
   const job = oneLine(e.jobTitle) || (typeof e.jobId === "string" ? "a job" : "");
   const line = lineOfKind(e, group);
@@ -186,6 +204,8 @@ function lineOfKind(e: LedgerEntry, group: boolean): HistoryLine {
       return quiet(e.check ? `advisor · ${oneLine(e.question)} ${oneLine(e.answer)}` : `advisor · asked: ${oneLine(e.question)}`);
     case "mail_check":
       return quiet(`mail checker · email to ${short(e.to, 60)} · ${str(e.verdict) || "checked"}${oneLine(e.why) ? ` · ${short(e.why, 120)}` : ""}`);
+    case "judge":
+      return quiet(judgeWords(e));
     case "job":
       return quiet(`job · ${oneLine(e.title) || str(e.job)} · ${str(e.state).replace(/_/g, " ")}`);
     case "note":

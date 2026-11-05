@@ -23,6 +23,7 @@
  * - `reply`: `{text, ms, model?, timing?}`, the turn's answer as it left the gateway; `timing` is where its time went (`turnTiming.js`)
  * - `advisor`: `{question, answer, ms, steps?}` / `mail_check`: `{to, subject, verdict, why, ref?}` / `job`: `{job, title?, state}`
  * - `note`: `{text}`, anything else worth keeping (a routine's text, a check-in)
+ * - `judge`: `{text, by, model?, round, went, ms?, notice?, reason?, judges: [{id, yes, at, passed}], failed}`, one judging of a draft reply (`replyJudge.js`): `text` is the draft, `went` whether it went out
  */
 
 import { gatewayTexStore } from "../texStore/wire.js";
@@ -211,5 +212,23 @@ export function ledgerObserver(writer, then = null, { turn = null, ownSlug = nul
     if (event?.kind === "thinking" && typeof event.text === "string" && event.text.trim() !== "") writer.write(wordsEntry("thinking", event.text, { ...at, ...roundCost(event) }));
     else if (event?.kind === "say" && typeof event.text === "string" && event.text.trim() !== "") writer.write(wordsEntry("said", event.text, at));
     else if (event?.kind === "tool") writer.write(toolEntry(event, { ownSlug, turn: at.turn }));
+    else if (event?.kind === "judge") writer.write(judgeEntry(event, at));
   };
+}
+
+/** A judging of a draft reply (`replyJudge.js` `judgeEvent`) as a `judge` entry: names, numbers and the draft, cut like any words. */
+export function judgeEntry(event, at = {}) {
+  const judges = (Array.isArray(event.judges) ? event.judges : []).map((judge) => ({ id: String(judge.id), yes: typeof judge.yes === "number" && Number.isFinite(judge.yes) ? judge.yes : null, at: typeof judge.at === "number" ? judge.at : null, passed: judge.passed === true }));
+  return wordsEntry("judge", event.draft ?? "", {
+    ...at,
+    by: event.by === "code" ? "code" : "gates",
+    ...(typeof event.model === "string" ? { model: event.model } : {}),
+    round: Number.isSafeInteger(event.round) ? event.round : 0,
+    went: event.went === true,
+    ...(Number.isFinite(event.ms) ? { ms: Math.round(event.ms) } : {}),
+    ...(typeof event.notice === "string" && event.notice ? { notice: cutText(event.notice, MAX_WORDS_CHARS).text } : {}),
+    ...(typeof event.reason === "string" && event.reason ? { reason: event.reason } : {}),
+    judges,
+    failed: judges.filter((judge) => !judge.passed).map((judge) => judge.id),
+  });
 }
