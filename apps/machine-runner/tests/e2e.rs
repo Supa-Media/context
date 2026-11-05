@@ -500,6 +500,31 @@ async fn a_background_process_never_holds_a_finished_run_open() {
     let _ = runner.kill().await;
 }
 
+/// The model and the wait after an answer come from the run's settings, so the
+/// production note changes them without a release (the owner, 2026-11-05).
+#[tokio::test]
+async fn a_runs_settings_name_its_model_and_its_wait_after_the_answer() {
+    let r = rig();
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut runner = start_runner(&r, l.local_addr().unwrap().port());
+    let (mut ws, hello) = accept(&r, &l, &[]).await;
+    assert_eq!(hello["facts"]["runSettings"], true, "{hello}");
+    let mut a = assignment("run_s", "job_s", &r.repo, "log in, linger");
+    a["settings"] = json!({ "claudeModel": "claude-test-model", "afterAnswerMs": 500 });
+    send(&mut ws, a).await;
+    let started = std::time::Instant::now();
+    let result = next(&mut ws, "result").await;
+    assert_eq!(result["outcome"], "finished", "{result}");
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "took {:?}",
+        started.elapsed()
+    );
+    let argv = std::fs::read_to_string(r.log.with_extension("argv")).unwrap();
+    assert!(argv.contains("--model\nclaude-test-model\n"), "{argv}");
+    let _ = runner.kill().await;
+}
+
 /// The same path with the real `claude` signed in on this machine. Run by hand:
 /// `cargo test --test e2e live_claude -- --ignored --nocapture`.
 #[tokio::test]

@@ -224,6 +224,11 @@ fn prepare_driver(
                 helpers: a.helpers,
                 network,
                 system_prompt: &system,
+                model: a
+                    .settings
+                    .as_ref()
+                    .and_then(|s| s.claude_model.as_deref())
+                    .unwrap_or(crate::claude::MODEL),
             });
             Ok(Driver::Claude {
                 exe,
@@ -276,6 +281,13 @@ pub fn first_message(a: &Assign, found: bool) -> String {
 /// the gateway opens with who the job is for and where it was started from (the
 /// owner, 2026-11-05: "tell claude code the context in which it's running").
 pub fn system_prompt(machine: &str, a: &Assign) -> String {
+    // The production note's words, when the gateway sent them (`RunSettings`).
+    if let Some(words) = a.settings.as_ref().and_then(|s| s.system_prompt.as_deref()) {
+        return words
+            .replace("{machine}", machine)
+            .replace("{job}", &a.job_id)
+            .replace("{part}", &a.part.to_string());
+    }
     format!(
         "You are running as one of Tex's background jobs on the computer {machine}, job {job}, part {part}. \
 Tex is the texting assistant the person talks to. Nobody is at this keyboard and nobody reads this terminal, so never wait on a prompt for input. \
@@ -330,6 +342,13 @@ mod tests {
         assert!(p.contains("Only Tex can reach the person: mail Tex"), "{p}");
         assert!(p.contains("call `orient` first"), "{p}");
         assert!(p.contains("ends when you give your final answer"), "{p}");
+        // The production note's words win, filled in on the computer, without a release.
+        let mut b = a.clone();
+        b.settings = Some(crate::protocol::RunSettings {
+            system_prompt: Some("Job {job}, part {part}, on {machine}.".into()),
+            ..Default::default()
+        });
+        assert_eq!(system_prompt("studio", &b), "Job job_1, part 2, on studio.");
     }
 
     #[test]

@@ -118,6 +118,7 @@ fn plan<'a>(cfg: &'a Path, cmds: &'a [String]) -> ClaudePlan<'a> {
         helpers: false,
         network: false,
         system_prompt: "p",
+        model: MODEL,
     }
 }
 
@@ -164,6 +165,17 @@ fn every_run_is_pinned_to_opus() {
     let cmds = vec![];
     let a = args(&plan(&cfg, &cmds)).join(" ");
     assert!(a.contains("--model claude-opus-5-5"), "{a}");
+}
+
+/// The run's settings name the model, so it changes without a release.
+#[test]
+fn the_model_comes_from_the_plan() {
+    let cfg = PathBuf::from("/c");
+    let cmds = vec![];
+    let mut p = plan(&cfg, &cmds);
+    p.model = "claude-sonnet-5-5";
+    let a = args(&p).join(" ");
+    assert!(a.contains("--model claude-sonnet-5-5"), "{a}");
 }
 
 #[test]

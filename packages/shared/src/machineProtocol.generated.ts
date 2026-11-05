@@ -56,6 +56,20 @@ export type MachineFacts = {
   signIn?: Tool[];
   /** The coding tools this runner can install when the owner asks from the app (`install`). */
   install?: Tool[];
+  /** This runner takes an assignment's `settings` (model, wait after the answer, system prompt). An older runner refuses a field it does not know, so the gateway sends them only when this is true. */
+  runSettings?: boolean;
+};
+
+/** How the run's tool runs, from the gateway's production note, so it changes without a runner release. Each absent field keeps the runner's built-in value. */
+export type RunSettings = {
+  /** The model Claude Code runs on. */
+  claudeModel?: string;
+  /** The model Codex runs on. */
+  codexModel?: string;
+  /** How long the tool may take to exit after its answer before what it left running is stopped. */
+  afterAnswerMs?: number;
+  /** The system prompt; {machine}, {job} and {part} are filled in by the runner. */
+  systemPrompt?: string;
 };
 
 /** Slot counts the runner works out from memory and cores. recommended: for a machine the person also uses. most: for a machine that only runs Tex. Never over 8. */
@@ -131,6 +145,7 @@ export type Assign = {
   asker?: string;
   /** The chat the job belongs to, as shown to the owner. */
   chat?: string;
+  settings?: RunSettings;
   /** Whether the run may reach the network. Off for others' runs unless the owner turned it on for that chat. */
   network: boolean;
   /** Whether the tool may start its own subagents inside the session. */

@@ -126,6 +126,24 @@ pub struct MachineFacts {
     /// The tools this runner can install from the app (`install`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install: Option<Vec<Tool>>,
+    /// This runner takes an assignment's `settings`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_settings: Option<bool>,
+}
+
+/// How a run's tool runs, from the gateway's production note, so it changes
+/// without a runner release. Each absent field keeps the built-in value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_answer_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -218,6 +236,8 @@ pub struct Assign {
     pub asker: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<RunSettings>,
     pub network: bool,
     pub helpers: bool,
     pub computer_use: bool,

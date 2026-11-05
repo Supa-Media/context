@@ -79,6 +79,7 @@ pub async fn gather() -> MachineFacts {
         tools,
         repos: None,
         sign_in: Some(vec![Tool::Claude, Tool::Codex]),
+        run_settings: Some(true),
         install: crate::install::tools_dir()
             .and(crate::install::platform_here())
             .map(|_| vec![Tool::Claude, Tool::Codex]),
