@@ -53,7 +53,7 @@ export async function runTheModel(t) {
   const delegation = delegationBeside(delegated, computers);
   // A read offered back instead of done, and an advisor they asked for and nobody asked, go back once, on the front door too (`doItChecks.js`).
   const doIt = chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
-  // The setup's reply judges, after those: nine Clef Flash gates read the reply against every action this turn took, at once, and send back what fails, at most twice (`replyJudge.js`). A job's report runs them too, less the texting-only ones.
+  // The setup's reply judges, after those: ten Clef Flash gates read the reply against every action this turn took, at once, and send back what fails, at most twice (`replyJudge.js`). A job's report runs them too, less the texting-only ones.
   const judge = chatTurn && !runner && (texted || group !== null) && production?.replyJudge ? replyJudge({ ai: env.AI, setting: production.replyJudge, job: job !== null, question: (logged ? loggedTapback(logged.question, quoted) : askedWith(question, quoted)), history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
   if (planning) background.plan = planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) });
   if (planning) splitFirst(background); // a lone job is offered the planner once
