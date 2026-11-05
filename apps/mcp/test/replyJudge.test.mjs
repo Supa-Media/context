@@ -235,6 +235,9 @@ test("a job's report runs the report set, never the text set, and the gates read
   assert.deepEqual(ai.judged.map((call) => call.gate).sort(), ["on_a_page", "reached_them"]);
   assert.ok(ai.judged[0].state.includes("#101 search rework"), "the report is in the packet");
   assert.match(notice, /reached them/);
+  const asking = scripted([], [{ reached_them: 0.9 }]);
+  assert.equal(await replyJudge({ ai: asking, setting: { model: "clef", at: null }, question: "(Not a text from them.)", report: { ...report, state: "running", ask: "ask" }, log: () => {} }).check("SKIP", { messages: [] }), null, "an owner's ask is sent as written, so nothing judges it");
+  assert.equal(asking.judged.length, 0);
 });
 
 test("short_and_clean and on_a_page read only a long draft, or one in a script they never write in", async () => {

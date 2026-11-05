@@ -95,7 +95,8 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
   const decide = pick ? decisionEngine(ai, pick) : null;
   const atOf = (name) => (typeof setting?.at === "number" ? setting.at : (GATES[name].at ?? DEFAULT_GATE_AT));
   const verdicts = [];
-  const set = gatesFor({ report: report !== null }); // every gate reads every draft it applies to: a rewrite can bring in a fault the first draft did not have
+  // A computer owner's ask goes out in the gateway's own words whatever the turn says (`jobReport.js`): nothing to judge.
+  const set = report?.ask ? [] : gatesFor({ report: report !== null }); // every gate reads every draft it applies to: a rewrite can bring in a fault the first draft did not have
   let sentBack = 0;
   return {
     verdicts,

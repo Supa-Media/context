@@ -274,7 +274,7 @@ export const GATES = {
     yes: "yes: the job's result does not reach them in this text",
     no: "no: the text gives them the result (or its link), or the job is still running and nothing new needs saying",
     notice: "Your text doesn't get the job's result to them: they can't see the job's report, only what you text. Give them the result itself, with every link the report gave, exactly as it wrote them; a long result goes on a page with its link.",
-    at: 0.5,
+    at: 0.5, // AI Gates 2026-11-05: 5/6 caught, 0/14 false alarms
   }),
   on_a_page: gate({
     on: "report",
@@ -292,7 +292,7 @@ export const GATES = {
     yes: "yes: a long result texted in full with no page or card to hold it",
     no: "no: the result is short, or it is on a page or card the text links",
     notice: "That's too much for a text. Put the full result on a page (write_note to a .page.md note), or a card, then text one or two lines with your take and the link.",
-    at: 0.5,
+    at: 0.15, // AI Gates 2026-11-05: 5/5 caught, 0/14 false alarms
     when: longDraft,
   }),
 };
