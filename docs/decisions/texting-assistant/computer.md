@@ -300,3 +300,28 @@ to draw. Blank, private and empty frames are left out.
 embedded document (an artifact, an embedded form or doc) read as empty.
 `read.test.ts` ("read, a page whose words are in a frame") fails.
 
+
+## Opening a page does not use up a browse call's time (2026-11-05)
+
+A browse call gets 20 seconds at the gateway, so a step starts only in the
+first 5 seconds of it. An airline's check-in pages took about 7 seconds to
+open, so every click or type sent after a `goto` in the same call came back
+"out of time; run it again"; Tex sent the open again, and a check-in job
+spent all ten of its parts in that loop (the owner's flight check-in,
+2026-11-05; the owner chose this fix and the next). Now the time a `goto` or
+`back` took does not count against the steps after it
+(`infra/site-shots/src/browse.ts` `runSteps`): those start within 5 seconds of
+the call's own work, and only while one still ends by `BROWSE_END_MS`, when the
+slowest step started at the last allowed moment would have, so the call still
+fits the gateway's 20 seconds. Opens, downloads and uploads still start only
+in the first 5 seconds; a click's download wait is cut to what is left.
+
+The same job asked for `wait`, `key` and `fill_login` steps and was told only
+that there were none. A step that isn't one is now answered with the step
+that does it and the list of real steps (`apps/mcp/src/agent/browseNotAStep.js`),
+and the tool's description says there is no wait step.
+
+**What a simplification would cost:** counting the open against the steps
+again brings back the loop on any slow site; dropping the end check lets a
+call outlive the gateway and lose its browser. `browse.test.ts` ("does not charge the
+steps after a page open...", "turns a short step away...") and `agentBrowseNotAStep.test.mjs` fail.
