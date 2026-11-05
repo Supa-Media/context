@@ -14,7 +14,7 @@
  * Sabotage record (applied, suite run, named test observed failing, reverted):
  *  1. `onJobs` called without `answer.heard` (`reply.ts`) → "a job started from a voice message is asked what was said".
  *  2. `outcomeOf` mapping a refused `unavailable` to `broken` → "a part the gateway turns down ends the job at once, with the reason".
- *  3. `agentAnswer` returning a plain `unavailable` for a 4xx → "a refusal is told apart from a break".
+ *  3. `refusalOf` (`agentRefusal.ts`) returning null for a 4xx → "a refusal is told apart from a break".
  */
 
 import { describe, expect, it } from "vitest";
