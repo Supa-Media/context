@@ -204,11 +204,6 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
       chatRead = { events };
       return events;
     },
-    /** Events this turn wrote again (a voice message once heard, `heardWords.js`): the day handed to the next turn carries them so. */
-    restate(events) {
-      const byId = new Map((Array.isArray(events) ? events : []).map((event) => [event.id, event]));
-      if (chatRead?.events) chatRead = { events: chatRead.events.map((event) => byId.get(event.id) ?? event) };
-    },
     /** Whether a turn record is clean, from the copy when it knows it. */
     async clean(turn, read) {
       const known = (await chat)?.clean?.[turn];
