@@ -2,7 +2,8 @@
 //!
 //! Proves the whole path offline, in the frames of the published protocol
 //! schema: the runner signs the challenge with its key, takes an assignment,
-//! runs the CLI in a worktree under the allowed folder, streams steps,
+//! runs the CLI plainly in the named checkout under the allowed folder (or
+//! the folder itself when the repo is not there yet), streams steps,
 //! survives the socket dropping mid-job, says on reconnect that the same
 //! session is still running, delivers the result, sends it again while the
 //! workspace object still wants it, and deletes the run grant afterwards.
@@ -243,7 +244,7 @@ fn now_ms() -> u64 {
 fn assignment(run: &str, job: &str, folder: &Path, brief: &str) -> Value {
     json!({
         "type": "assign", "runId": run, "jobId": job, "part": 1, "tool": "claude", "folder": folder, "repo": "repo",
-        "permission": "edits", "brief": brief, "doneWhen": "",
+        "permission": "full", "brief": brief, "doneWhen": "",
         "grant": { "token": "RUN-GRANT-SENTINEL", "expiresAt": now_ms() + 600_000, "mcpUrl": "https://context.example/mcp" },
         "deadline": now_ms() + 600_000, "fromOwner": true, "network": true, "helpers": true, "computerUse": false
     })
@@ -311,8 +312,8 @@ async fn pairs_runs_survives_a_drop_and_resumes_the_same_session() {
     let argv = std::fs::read_to_string(r.log.with_extension("argv")).unwrap();
     assert!(!argv.contains("RUN-GRANT-SENTINEL") && !argv.contains("fix it"));
     let cwd = std::fs::read_to_string(r.log.with_extension("cwd")).unwrap();
-    let work = r.root.join("code/.context-machine-work/job_1");
-    assert_eq!(Path::new(cwd.trim()), work, "ran in {cwd}");
+    // Plain Claude Code: in their own checkout, no copy made beside it.
+    assert_eq!(Path::new(cwd.trim()), r.repo, "ran in {cwd}");
 
     // The socket drops mid-job. The part keeps running.
     drop(ws);
@@ -335,12 +336,12 @@ async fn pairs_runs_survives_a_drop_and_resumes_the_same_session() {
     assert_eq!(result["session"].as_str(), Some(session.as_str()));
     assert!(
         result.get("branch").is_none(),
-        "a worktree with no work is not kept"
+        "no branch is made: {result}"
     );
     assert!(!mcp.exists(), "the run grant is deleted when the part ends");
     assert!(
-        !work.exists(),
-        "a clean worktree is removed when the part ends"
+        !r.root.join("code/.context-machine-work").exists(),
+        "nothing is copied into the folder"
     );
 
     // Still wanted, the result is sent again after the next hello.
@@ -397,6 +398,37 @@ async fn pairs_runs_survives_a_drop_and_resumes_the_same_session() {
     let _ = ws;
 }
 
+// 2026-11-04: the job named `context`, the allowed folder held no such repo,
+// and every part failed "repo not found in the folder" before Claude Code ran.
+#[tokio::test]
+async fn a_repo_missing_from_the_folder_still_runs_in_the_folder() {
+    let r = rig();
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut runner = start_runner(&r, l.local_addr().unwrap().port());
+    let (mut ws, _) = accept(&r, &l, &[]).await;
+    let folder = r.root.join("code");
+    let mut a = assignment("run_c", "job_c", &folder, "summarize the last PR");
+    a["repo"] = json!("context");
+    send(&mut ws, a).await;
+    let result = next(&mut ws, "result").await;
+    assert_eq!(result["outcome"], "finished", "{result}");
+    let cwd = std::fs::read_to_string(r.log.with_extension("cwd")).unwrap();
+    assert_eq!(Path::new(cwd.trim()), folder, "ran in {cwd}");
+    // The part cloned it. The next part resumes its session where it started,
+    // not inside the clone, where Claude Code would not find the session.
+    std::fs::create_dir_all(folder.join("context/.git")).unwrap();
+    let mut b = assignment("run_c2", "job_c", &folder, "keep going");
+    b["repo"] = json!("context");
+    b["part"] = json!(2);
+    b["resumeSession"] = result["session"].clone();
+    send(&mut ws, b).await;
+    let result = next(&mut ws, "result").await;
+    assert_eq!(result["outcome"], "finished", "{result}");
+    let cwd = std::fs::read_to_string(r.log.with_extension("cwd")).unwrap();
+    assert_eq!(Path::new(cwd.trim()), folder, "resumed in {cwd}");
+    let _ = runner.kill().await;
+}
+
 #[tokio::test]
 async fn mail_reaches_a_running_session() {
     let r = rig();
@@ -439,9 +471,9 @@ async fn live_claude() {
         println!("{:>5.1}s {}", started.elapsed().as_secs_f32(), v);
         if v["type"] == "result" {
             assert_eq!(v["outcome"], "finished");
-            assert_eq!(
-                v["branch"], "tex/job_live",
-                "a worktree with a commit is kept for the person"
+            assert!(
+                r.repo.join("hello.txt").exists(),
+                "worked in their checkout"
             );
             break;
         }

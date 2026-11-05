@@ -8,7 +8,7 @@
 //! narrow them further and nothing the gateway sends widens it.
 
 use crate::limits::Ledger;
-use crate::protocol::{Assign, PermissionMode, RefusalCode, Rules, Tool};
+use crate::protocol::{Assign, RefusalCode, Rules, Tool};
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
@@ -161,9 +161,6 @@ pub fn check(rules: &Rules, a: &Assign, s: &Snapshot) -> Result<PathBuf, Refused
     let folders: Vec<PathBuf> = rules.folders.iter().map(PathBuf::from).collect();
     let root = allowed_root(&folders, Path::new(&a.folder)).ok_or(no(Folder))?;
     if a.computer_use && (!a.from_owner || !rules.computer_use) {
-        return Err(no(Rule));
-    }
-    if !a.from_owner && a.permission == PermissionMode::Full {
         return Err(no(Rule));
     }
     let l = &rules.limits;

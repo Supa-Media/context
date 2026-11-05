@@ -101,7 +101,7 @@ describe("a job on the person's own computer", () => {
     expect(await runJob(storage, deps)).toEqual({ kind: "done" });
     const assign = calls.find((call) => call.path === "/agent/machine/assign")!;
     expect(assign.token).toBe("Bearer job_token");
-    expect(assign.body).toMatchObject({ workspaceId: "ws_seyi", machineId: "mch_1", jobId: "job-1234-abcd", part: 1, tool: "claude", folder: "/Users/seyi/code", permission: "edits", brief: run().brief, doneWhen: run().doneWhen });
+    expect(assign.body).toMatchObject({ workspaceId: "ws_seyi", machineId: "mch_1", jobId: "job-1234-abcd", part: 1, tool: "claude", folder: "/Users/seyi/code", permission: "full", brief: run().brief, doneWhen: run().doneWhen });
     expect(assign.body.resumeSession).toBeUndefined();
     // Each step once, in order, though the second read repeats the first.
     expect(reports.filter((update) => update.step).map((update) => update.step)).toEqual(["Bash run pnpm test", "Edit upload.ts", "Done on Studio Mac · checking the work"]);

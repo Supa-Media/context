@@ -80,18 +80,18 @@ The gateway checks the rules too, but the runner never trusts it to: every
 `assign` is checked locally first and refused with a schema refusal code.
 
 - **Folders.** A run starts only under an allowed folder, compared after
-  resolving symlinks and `..`; never `/` or a home folder itself. Work happens
-  in a git worktree (`<allowed>/.context-machine-work/<jobId>`, branch
-  `tex/<jobId>`) or an empty scratch folder, never in the person's checkout.
-  A worktree with no commits and no changes is removed when the part ends;
-  one with work is kept and its branch is reported on the result.
+  resolving symlinks and `..`; never `/` or a home folder itself. Inside it a
+  run is plain Claude Code or Codex (owner, 2026-11-04): it starts in the
+  checkout the job names when that is under the folder, or in the folder
+  itself, told to clone the repo, when it is not. Nothing is copied, no branch
+  is made, and nothing is removed when the part ends.
 - **Limits.** Agent time per day and week, others' share and runs per day,
   the longest run, an optional weekly token ceiling, slots (one kept for the
   owner if asked), free memory of at least 1 GB, and a pause while a plan is
   at 95% or rejected, until it resets. Days are the owner's time zone.
-- **Owner only.** Computer use and full permission.
-- **Repo settings.** A cloned repo's own `.claude` settings, hooks and MCP
-  servers load only for the owner's own ask in a repo they trusted.
+- **Owner only.** Computer use. Full permission and the folder's own
+  `.claude` settings, hooks and MCP servers are every run's, the owner's and
+  anyone's they let in: who may send work is the control.
 - **Credentials.** The machine key and grant are 0600 files in a 0700 folder.
   A run's grant goes into a 0600 file (Claude's `--mcp-config`, or the
   `mcp-proxy` Codex starts), never argv, the environment or a log, and is

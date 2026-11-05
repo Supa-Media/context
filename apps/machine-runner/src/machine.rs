@@ -295,7 +295,6 @@ impl Machine {
         let local = self.state.local();
         let ctx = RunContext {
             state: self.state.clone(),
-            trusted_repos: inner.rules.trusted_repos.clone().unwrap_or_default(),
             allowed_commands: rules::allowed_commands(&local),
             machine_name: self.name.clone(),
             runner_exe: self.runner_exe.clone(),
