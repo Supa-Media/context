@@ -7,17 +7,19 @@
  *
  * Before a texted reply goes, Clef (`decide.js`) reads what the person asked,
  * the last few texts, every action the turn took (each call with its
- * arguments and what came back) and the reply itself, and picks one verdict.
- * Anything but `accepted` goes back to the model once, with the verdict's
+ * arguments and what came back) and the reply itself, and answers eight
+ * yes/no checks in one call, one per fault (`CHECKS`; Dev2's pick 2026-11-04
+ * after one nine-way choice proved near guessing). The fault with the highest
+ * yes, at or above `judge_at`, goes back to the model once, with its
  * reason, and the model writes the reply again before anything is sent. The
  * second reply is sent as it is: one retry, never a loop (Dev2's pick, the
  * same day).
  *
  * Why a decision model and not a pattern over the words: the owner rejected
  * phrase-pattern checks on reply quality the same day ("pattern is not the
- * right fix"). Clef reads meaning, answers in a fixed set of verdicts (typed
+ * right fix"). Clef reads meaning, answers yes or no with a probability (typed
  * by construction, nothing to parse), and is fast enough to sit in front of
- * every reply. A verdict below the setup's confidence (`judge_at`) is not
+ * every reply. A yes below the setup's `judge_at` is not
  * acted on, and a judge that fails or times out is no verdict: the reply goes.
  *
  * Turned on per setup with `reply_judge: clef` or `reply_judge: clef-flash`
@@ -34,11 +36,11 @@ export const JUDGE_MODELS = {
 };
 
 /**
- * Below this confidence a verdict other than `accepted` is not acted on, unless the setup says otherwise.
- * Zero: Clef Flash spreads its confidence over the nine verdicts (0.03 to 0.09 on every judging in
- * benchmark round gh-168, 2026-11-04), so any cutoff near a half never acts. Its pick is the signal.
+ * A check is acted on when Clef's yes reaches this, unless the setup says otherwise. Clef answers each
+ * check yes or no with a probability, so a half is an even call (Dev2's pick 2026-11-04: one nine-way
+ * choice spread its confidence near evenly over the verdicts in rounds gh-168 and gh-170).
  */
-export const DEFAULT_JUDGE_AT = 0;
+export const DEFAULT_JUDGE_AT = 0.5;
 
 /** The judge never holds a reply longer than this; past it, the reply goes. */
 export const JUDGE_TIMEOUT_MS = 3_000;
@@ -46,26 +48,51 @@ export const JUDGE_TIMEOUT_MS = 3_000;
 /** The most the judge reads, in characters; the reply and the ask come first, so nothing that matters is cut. */
 const MAX_STATE_CHARS = 16_000;
 
-/** What each verdict means, as Clef is shown it. `accepted` first: it is the common case. */
-export const VERDICTS = {
-  accepted:
-    "The reply does what they asked, or truly needs something only they can give (a sign-in code, a payment, a choice that is theirs, a fact only they know), and says it plainly in a few lines.",
-  not_started:
-    "They asked for something to be done or found, and the actions show it was not attempted, or barely: one search and then 'couldn't find it', no other place looked (email, the chat, the web, a site or folder named).",
-  not_finished:
-    "The work started but stopped short of what they asked, with steps left the assistant could take itself (open the page, follow the folder, read the file, finish the form), and it neither took them nor handed them to a background job.",
-  offered_instead:
-    "The reply offers or asks permission to do something the assistant could just do itself and that reaches nobody else ('want me to look?', 'should I check?', 'I can search for it if you like').",
-  only_acknowledged:
-    "They gave something the earlier ask needed (where a file is, which site, a name, an answer to the assistant's question), and the reply only thanks or acknowledges it instead of acting on it.",
-  sent_elsewhere:
-    "The reply tells them someone else would know, or tells them to find, open, download or do the thing themselves, when the assistant could do it.",
-  unbacked_claim:
-    "The reply says something was found, opened, saved, sent, booked or done, but the actions do not show it (no such call, or the call failed).",
-  wrong_question:
-    "The reply answers a different question than the one they asked, or misses part of what they asked.",
-  too_verbose:
-    "The reply does the job but is far longer than a text should be: it retells what they already know, lists options nobody asked for, or explains the steps it took.",
+/**
+ * The yes/no checks Clef answers about the reply, each on its own: yes means the reply has that fault.
+ * One call asks them all; the fault with the highest yes, at or above `judge_at`, sends the reply back.
+ */
+export const CHECKS = {
+  not_started: {
+    ask: "Did they ask for something to be done or found, and the actions show it was not really attempted: one search or none, then 'couldn't find it', with no other place looked (their email, the chat, the web, a site or folder they named)?",
+    true: "yes, the ask was barely tried",
+    false: "no, it was tried properly, or nothing was asked to be done",
+  },
+  not_finished: {
+    ask: "Did the work stop short, with steps left the assistant could take itself (open the page, follow the folder, read the file, finish the form), neither taken nor handed to a background job?",
+    true: "yes, it stopped with steps it could take itself",
+    false: "no, it finished, or what is left needs the person",
+  },
+  offered_instead: {
+    ask: "Does the reply offer or ask permission to do something the assistant could just do itself and that reaches nobody else ('want me to look?', 'should I check?')?",
+    true: "yes, it offers instead of doing",
+    false: "no such offer",
+  },
+  only_acknowledged: {
+    ask: "Did their text give something an earlier ask needed (where a file is, which site, a name, an answer to the assistant's question), and the reply only thanks or acknowledges it with no action taken on it this turn?",
+    true: "yes, it only acknowledged what they gave",
+    false: "no, it acted on it, or their text gave nothing an ask needed",
+  },
+  sent_elsewhere: {
+    ask: "Does the reply tell them someone else would know, or ask them to find, open, send, download or do the thing themselves, when the assistant could do it (anything but a sign-in code, a payment, a choice that is theirs, or a fact only they know)?",
+    true: "yes, it hands the work back or sends them to someone",
+    false: "no",
+  },
+  unbacked_claim: {
+    ask: "Does the reply say something was found, opened, saved, sent, booked or done that the actions do not show (no such call, or the call failed)?",
+    true: "yes, it claims something the actions do not show",
+    false: "no, every claim is backed by an action",
+  },
+  wrong_question: {
+    ask: "Does the reply answer a different question from the one they asked, or leave out part of what they asked?",
+    true: "yes, it misses what they asked",
+    false: "no, it answers what they asked",
+  },
+  too_verbose: {
+    ask: "Is the reply far longer than a text should be: retelling what they know, listing options nobody asked for, or explaining the steps it took? A link or a short answer is never too long.",
+    true: "yes, far too long for a text",
+    false: "no, short enough",
+  },
 };
 
 /** What the model is told for each verdict, before it writes the reply again. */
@@ -88,16 +115,16 @@ export const VERDICT_NOTICES = {
     "A check found your reply too long for a text. Say the same thing in a sentence or two: the answer or result first, nothing they already know, no list of steps.",
 };
 
-const QUESTIONS = {
-  verdict: {
-    type: "choice",
-    instructions:
-      "A person texted their assistant, which can search their notes and email, browse the web, open sites with saved logins, write notes and start background jobs. " +
-      "Below are their text, what the assistant did this turn, and the reply it is about to send. " +
-      "Judge only the reply against what they asked and what was done. Pick accepted unless one of the other verdicts clearly applies.",
-    criteria: VERDICTS,
-  },
-};
+const ABOUT =
+  "A person texted their assistant, which can search their notes and email, browse the web, open sites with saved logins, write notes and start background jobs. " +
+  "The state has their text, the reply the assistant is about to send, everything the assistant did this turn, and earlier texts. Judge only the reply against what they asked and what was done. ";
+
+const QUESTIONS = Object.fromEntries(
+  Object.entries(CHECKS).map(([name, check]) => [
+    name,
+    { type: "noul", instructions: ABOUT + check.ask, criteria: { true: check.true, false: check.false } },
+  ]),
+);
 
 /** One line per action the turn took: each call with its arguments, then what came back, both cut short. */
 export function actionsOf(messages) {
@@ -156,9 +183,8 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
       const started = clock();
       const answers = await withTimeout(decide(state, QUESTIONS), JUDGE_TIMEOUT_MS);
       const ms = clock() - started;
-      const verdict = typeof answers?.verdict?.choice === "string" && answers.verdict.choice in VERDICTS ? answers.verdict.choice : null;
-      const confidence = typeof answers?.verdict?.confidence === "number" ? answers.verdict.confidence : null;
-      const acted = verdict !== null && verdict !== "accepted" && (confidence === null || confidence >= at);
+      const { verdict, confidence } = worstOf(answers, at);
+      const acted = verdict !== null && verdict !== "accepted";
       verdicts.push({ verdict, confidence, ms, acted, tokens: decisionTokens(state, QUESTIONS) });
       turn.mark?.({ verdict, confidence, ms, acted, ok: verdict !== null });
       // Ids and numbers only: never the reply or the question (`docs/decisions/observability`).
@@ -175,6 +201,21 @@ export function readReplyJudge(value, at) {
   if (at === undefined) return { model: value, at: DEFAULT_JUDGE_AT };
   if (typeof at !== "string" || !/^(?:0(?:\.\d{1,2})?|1(?:\.0{1,2})?)$/.test(at)) return undefined;
   return { model: value, at: Number(at) };
+}
+
+/**
+ * The fault with the highest yes, when it reaches `at`; otherwise `accepted`, with that highest yes as
+ * its confidence (how near the reply came to going back). No yes/no answered at all is no verdict.
+ */
+export function worstOf(answers, at) {
+  let worst = null;
+  for (const name of Object.keys(CHECKS)) {
+    const yes = answers?.[name]?.noul;
+    if (typeof yes !== "number" || !Number.isFinite(yes)) continue;
+    if (worst === null || yes > worst.confidence) worst = { verdict: name, confidence: yes };
+  }
+  if (worst === null) return { verdict: null, confidence: null };
+  return worst.confidence >= at ? worst : { verdict: "accepted", confidence: worst.confidence };
 }
 
 function argsText(args) {

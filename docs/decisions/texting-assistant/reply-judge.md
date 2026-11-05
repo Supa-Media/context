@@ -13,22 +13,30 @@ reply, with the model going back to correct itself before anything is sent.
 **What it is** (`apps/mcp/src/agent/replyJudge.js`):
 
 - A setup turns it on with `reply_judge: clef` or `reply_judge: clef-flash`,
-  and `judge_at` (0 to 1, default 0: Clef Flash spreads its confidence over the nine verdicts, so its pick is the signal) the confidence a verdict needs to be
-  acted on. Absent, there is no judge.
+  and `judge_at` (0 to 1, default 0.5) the yes a fault needs to be acted on.
+  Absent, there is no judge.
 - On a texted chat turn (one-to-one or group, front door included; not a
   background job), after the turn's other answer check, Clef reads the
   person's text, the reply about to be sent, every call the turn made with its
-  arguments and what came back, and the last few texts, and picks one verdict:
-  `accepted`, `not_started`, `not_finished`, `offered_instead`,
-  `only_acknowledged`, `sent_elsewhere`, `unbacked_claim`, `wrong_question`
-  or `too_verbose`.
-- Anything but `accepted`, at or above `judge_at`, goes back to the model once
-  with that verdict's reason (`VERDICT_NOTICES`), through the same recheck
-  note every answer check uses (`recheck.js`). The second reply is sent as it
-  is: one retry, never a loop (the owner's pick, the same day).
-- A judge that fails, answers with no verdict, or takes longer than 3 s is no
-  verdict: the reply goes. The log line `tex_reply_judge` carries the model,
-  verdict, confidence, time and whether it acted, never words.
+  arguments and what came back, and the last few texts, and answers eight
+  yes/no checks in one call, one per fault (`CHECKS`): `not_started`,
+  `not_finished`, `offered_instead`, `only_acknowledged`, `sent_elsewhere`,
+  `unbacked_claim`, `wrong_question`, `too_verbose`.
+- The fault with the highest yes, at or above `judge_at`, goes back to the
+  model once with that fault's reason (`VERDICT_NOTICES`), through the same
+  recheck note every answer check uses (`recheck.js`). Below it the reply is
+  `accepted`. The second reply is sent as it is: one retry, never a loop (the
+  owner's pick, the same day).
+- Why yes/no and not one choice (owner's pick, 2026-11-04): asked as one
+  nine-way choice, Clef and Clef Flash spread their confidence near evenly
+  over the verdicts (0.03 to 0.14, benchmark rounds gh-168 to gh-170),
+  accepted a reply asking the person to send the file herself, and sent good
+  one-line link replies back as too long. Clef is built for yes/no.
+- A judge that fails, answers no check, or takes longer than 3 s is no
+  verdict: the reply goes. The verdict is in the turn's trace (`kind:
+  "judge"`), so the turn log and the benchmark show it. The log line
+  `tex_reply_judge` carries the model, verdict, confidence, time and whether
+  it acted, never words.
 
 **What a simplification would cost:** a pattern over the reply's words is what
 the owner rejected; judging without the turn's actions cannot tell "found it"
