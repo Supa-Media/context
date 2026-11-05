@@ -37,7 +37,8 @@ export async function recheckDraft(
     deps,
     {
       prefix: "gpending:",
-      read: (item) => ({ from: item.message.from, ev: item.ev, at: item.at, byCode: item.byCode === true, ...(item.rechecked ? { rechecked: true as const } : {}) }),
+      // A tapback never holds a reply, as in a 1:1 chat (`lookAgainTexts`): the 2026-11-05 Tex Devs 👎 on an older link threw away a finished answer.
+      read: (item) => ({ from: item.message.from, ev: item.ev, at: item.at, byCode: item.byCode === true || item.message.reaction !== undefined, ...(item.rechecked ? { rechecked: true as const } : {}) }),
       // One turn answers both, the old ask and the newer words (`addressedTurn`: forced entries are its floor).
       mark: (item) => ({ ...item, force: true, rechecked: true }),
       chat: message.groupId,

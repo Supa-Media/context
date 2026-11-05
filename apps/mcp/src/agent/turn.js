@@ -49,6 +49,7 @@ import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
+import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -280,12 +281,13 @@ export async function runTurn(options) {
     progress = null,
     toolTimeouts = {},
     grants = null,
-    local = [],
+    local: localTools = [],
     aboutMe = null, identity = null, // who they are by their account (`identity.js`), told beside it
     jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
     voice = null, // `tex/voice.md`'s text on a texted turn (`personVoice.js`); null says nothing about it.
     answerCheck = null, // reads a final answer and the turn's messages, and may send one more round (`claimCheck.js`, `replyJudge.js`)
     endsTurn = null, // `(name, result) => string|null`: a call that settles the turn, answered with its line at once (`background.js`)
+    sayNothing = false, // offers `say_nothing`: a call ends the turn with nothing texted (`sayNothing.js`)
     roundNote = null, // `(round, elapsedMs) => string|null`: a line told before a round (`background.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
@@ -318,6 +320,7 @@ export async function runTurn(options) {
     it works. Dispatched here, like the web tools, never to the MCP: it reaches
     only the person who asked, on the channel their answer goes to anyway.
   */
+  const local = sayNothing ? [...localTools, sayNothingLocal] : localTools;
   const tools = [
     ...(options.tools ?? []),
     ...(web?.tools ?? []),
@@ -563,6 +566,7 @@ export async function runTurn(options) {
     });
 
     const settling = []; // calls this round that settle the turn, read once the whole round has run: one round may start several jobs
+    let quiet = false; // a `say_nothing` call this round (`sayNothing.js`)
     for (const made of answer.toolCalls) {
       // One of the six, as the granted tool that carries it; an older name as itself.
       const resolved = six.resolve(made.name, made.args);
@@ -665,7 +669,10 @@ export async function runTurn(options) {
         isError: failedCall(result),
       });
       if (typeof endsTurn === "function" && result?.isError !== true) settling.push(call);
+      if (sayNothing && call.name === SAY_NOTHING_TOOL && result?.isError !== true) quiet = true;
     }
+    // They chose silence: nothing is texted, and no judge reads a word that was never a reply (`sayNothing.js`).
+    if (quiet) return { answer: SAID_NOTHING, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: SAY_NOTHING_TOOL, saidNothing: true, live: { system: systemText(prompt.system), messages } };
     // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
     // Read after the round, not at its first start: a call after it in the same round (a second part) still runs (2026-11-04).
     for (const call of settling) {

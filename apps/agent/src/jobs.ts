@@ -136,7 +136,8 @@ const MAX_SHOWN = 6;
 /** Steps kept per job: what `job_status` answers "what is it doing?" from. The whole record is the person's Tex transcript. */
 export const MAX_STEPS_KEPT = 40;
 /** The most of a finished job's report kept with its entry, for the chat's turns (never the live view). */
-export const MAX_RESULT = 1_500;
+/** Tex Devs, 2026-11-05: at 1,500 a ten-PR report was cut after the fourth, and Tex said "I only have the first four in full". */
+export const MAX_RESULT = 8_000;
 const MAX_ADVICE = 600;
 const VERDICTS = new Set(["done", "keep_going", "waiting", "stuck"]);
 const STATES = new Set(["running", "done", "failed", "waiting", "stuck"]);

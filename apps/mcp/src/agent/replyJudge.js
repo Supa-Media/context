@@ -27,6 +27,7 @@
  */
 
 import { decisionEngine, decisionTokens } from "./decide.js";
+import { isControlWord } from "./jobReport.js";
 import { DEFAULT_GATE_AT, GATES, gateFact, gateQuestion, gateReads, gatesFor, sendBackNotice } from "./replyGates.js";
 
 /** The decision models a setup may name, by the word it uses. */
@@ -109,6 +110,8 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
       }
       const open = set.filter((name) => gateReads(name, answer, { question, history, messages: turn.messages }));
       if (decide === null || open.length === 0) return null;
+      // A quiet word is never a text: nothing is sent, so there is nothing to judge (Tex Devs, 2026-11-05: a SKIP sent back three times; `sayNothing.js`).
+      if (isControlWord(answer)) return null;
       if (sentBack >= MAX_SEND_BACKS) {
         turn.tell?.(judgeEvent({ by: "gates", model: pick.model, round: sentBack, draft: answer, went: true, reason: "sent back twice already, so it goes as it is" }));
         return null;

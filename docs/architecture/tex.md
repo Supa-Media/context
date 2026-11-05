@@ -28,7 +28,7 @@ flowchart LR
     W2["Group lane<br/>groupInbox.ts · groupTurn.ts<br/>style, chatter kept"]:::pipe
     H["Hear a group voice memo first<br/>groupVoice.ts"]:::pipe
     W2 --- H
-    LA["Shared step: lookAgain<br/>their newer words may change the answer<br/>lookAgain.ts"]:::shared
+    LA["Shared step: lookAgain<br/>their newer words may change the answer<br/>a tapback never holds a reply<br/>lookAgain.ts"]:::shared
     RT["Shared rule: a failed turn is tried 3 more times<br/>from 10 s, doubling, then one failed line<br/>1:1 by the queue's alarm, groups by groupTurnWorkflow.ts<br/>1:1 says a refusal or a turn past its time at once"]:::shared
     W1 --- RT
     W2 --- RT
@@ -134,6 +134,7 @@ flowchart TB
   IMG --> CC
 
   FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js, only without reply gates<br/>sent back once"]:::judge
+  FD -->|say_nothing: nothing to text| QT["Say nothing, a call<br/>ends the turn at once, no judge reads it<br/>never a word like SKIP<br/>sayNothing.js"]:::judge
   CHK -->|reply_judge: clef-flash| RJ["Reply gates, Clef Flash, all at once<br/>a reply to their text: ten gates<br/>a job report's text: reached them, on a page<br/>length gates only on long drafts<br/>each tuned, sent back at most twice<br/>verdicts kept in the chat history<br/>replyJudge.js · replyGates.js"]:::judge
   CHK -->|held back| SB["Send-back, from the turn's ledger<br/>each draft quoted, marked NOT sent<br/>every action taken, the judges that failed<br/>revise, don't restart; the same write is not rerun<br/>sendBack.js"]:::judge
   RJ -->|held back| SB
@@ -181,6 +182,7 @@ What each model costs is `jev/meter.ts`.
 
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-05: Tex chooses silence by calling `say_nothing` (front door, routines, check-ins, reports, job supervision), which ends the turn before any judge reads it; no prompt asks for SKIP any more, and a stray SKIP is never judged or texted. A group's last look ignores tapbacks, as a 1:1 chat's did. `job_status` shows up to 8,000 characters of a report.
 - 2026-11-05: what Tex texts about a job's report is judged by a report set of its own (reached_them: the result itself reaches them, links kept; on_a_page: a long result on a page or card with its link), never the text set; short_and_clean reads only a draft over 60 words (30 beside a page, card or picture it made) or one in a script they never write in, which code fails as a fact; on_a_page reads a report's text over 30 words. Fixes the wiring that sent report turns through every text gate.
 - 2026-11-05: with the reply gates on, the older word checks they replace (`doItChecks.js`, `untriedWeb.js`) no longer run; tried_first and followed_them do their job. They stay for a setup without gates. Every gate reads each rewrite, a job's report no longer runs the gates, and a draft a late text holds is recorded as held.
 - 2026-11-05: a 1:1 turn holds the person's own texts from their Mac's Messages backup (`search` with `{ texts: true, with, since }`, `fetch texts:<id>`; `sixTools.js`), so "what did Ada send me" is found; bare `texts:` stays this chat's history, and group chats never get them.

@@ -88,6 +88,7 @@ test/managedEncryption.test.mjs
 test/meaningCatchup.test.mjs
 test/meaningSearch.test.mjs
 test/meaningFromObjectGate.test.mjs
+test/sayNothing.test.mjs
 test/searchWordsRevamp.test.mjs
 test/appSearch.test.mjs
 test/meaningServe.test.mjs
