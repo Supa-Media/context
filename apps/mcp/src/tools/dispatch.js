@@ -48,6 +48,7 @@ import { toolMoveFolder } from "./moves/folder.js";
 import { toolMoveNote } from "./moves/note.js";
 import { toolMoveNotes } from "./moves/notes.js";
 import { toolOpenAiFetch, toolOpenAiSearch, toolSearchNotes } from "./search.js";
+import { toolSearchDated } from "./searchDates.js";
 import { toolRelatedNotes } from "./related.js";
 import { toolOrient, toolScopeInfo } from "../orient/tool.js";
 import { toolReadActivity } from "../activity/readActivity.js";
@@ -196,6 +197,8 @@ async function runTool(name, args, store, scope, options = {}) {
     case "fetch":
       return toolOpenAiFetch(store, scope, rules, overrides, args.id);
     case "search_notes":
+      // A range of days: what the notes say is on each, across workspaces (`searchDates.js`).
+      if (args.from !== undefined || args.to !== undefined) return toolSearchDated(store, scope, rules, overrides, args);
       return toolSearchNotes(store, scope, rules, overrides, args.query, args.prefix);
     case "related_notes":
       return toolRelatedNotes(store, scope, rules, overrides, args);

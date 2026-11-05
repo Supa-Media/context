@@ -73,15 +73,19 @@ Tainted words are still held back. Only the speaker is kept.
   that a few reads answer is not a task.
 - **The take-don't-offer prompt line** (`chatVoice.js`) now names reads,
   searches and drafts.
-- **The checks.** The front door runs no reply checks, so the line alone did
-  not hold. `doItChecks.js` adds two checks to every texted turn, the front
-  door's included. Each is a regex and a flag, and each goes back at most
-  once:
-  - An answer offering a read, search, check or draft is sent back to do it.
-    Sending, booking and paying still wait for a yes.
-  - A question that names the advisor, in a turn that has one and has not
-    asked it, is sent back to ask it. The gateway decides this from their
-    words, not the model.
+- **The check.** The front door runs no reply checks, so the line alone did
+  not hold. `doItChecks.js` adds one check to every texted turn, the front
+  door's included, a regex over their words and a flag, going back at most
+  once: a question that names the advisor, in a turn that has one and has
+  not asked it, is sent back to ask it. The gateway decides this from their
+  words, not the model.
+- **The offered-read regex is gone (owner's pick, 2026-11-05).** A second
+  check sent back any answer matching "want me to read/search/draft …?". In
+  the core benchmark (gh-178, q16) it sent back a right take that ended "Want
+  me to draft a message to the band?", and Tex replaced the take with only
+  the draft. A phrase cannot tell a finished answer with an offer from an
+  offer instead of an answer; the reply judge's `offered_instead` check
+  (`reply-judge.md`) reads the whole turn and decides that.
 
 **The test that fails if this is reversed:** `apps/mcp/test/morningChat.test.mjs`
 covers each failure above as a golden case. `apps/mobile/__tests__/texHistoryLines.test.ts`

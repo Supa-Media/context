@@ -64,6 +64,47 @@ export const COLUMN_WEIGHTS = [0.0, 0.0, 4.0, 2.5, 3.0, 1.0];
  */
 export const SNIPPET_TOKENS = 12;
 
+/** The most lines a whole-line snippet keeps, and the longest line it keeps whole. */
+export const SNIPPET_LINES = 3;
+export const SNIPPET_LINE_CHARS = 300;
+
+/**
+ * FTS5's window widened to the whole lines it touches, from the chunk it was cut from.
+ *
+ * Twelve tokens around a hit cut a line wherever they ended: "…40 m from Harbor
+ * Linen Mill, by October 20" came back without "Place the fabric order for the
+ * twill trousers:", and Tex, told the line was cut, answered without the word
+ * that mattered (core benchmark q14, 2026-11-05: 0 of 6 runs). The bucket path
+ * already quotes whole lines (`snippetLinesFor`), so this also makes the two
+ * paths read alike, as the marks above are meant to. A window that is not found
+ * in its chunk (or a row without one) is kept as FTS5 cut it.
+ */
+export function wholeLineSnippet(snippet, chunk) {
+  if (typeof snippet !== "string" || typeof chunk !== "string" || snippet === "") return snippet ?? "";
+  const window = snippet.replace(/^…/, "").replace(/…$/, "");
+  if (window.trim() === "") return snippet;
+  const at = chunk.indexOf(window);
+  if (at === -1) return snippet;
+  const start = chunk.lastIndexOf("\n", at) + 1;
+  const newline = chunk.indexOf("\n", at + window.length);
+  const end = newline === -1 ? chunk.length : newline;
+  const lines = chunk
+    .slice(start, end)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+    .slice(0, SNIPPET_LINES)
+    .map((line) => (line.length > SNIPPET_LINE_CHARS ? `${line.slice(0, SNIPPET_LINE_CHARS)}…` : line));
+  return lines.length === 0 ? snippet : lines.join("\n");
+}
+
+/** A search row with its snippet in whole lines and the chunk it was cut from left out, so only the lines travel on. */
+export function withWholeLines(row) {
+  if (!row || typeof row !== "object" || !("chunk" in row)) return row;
+  const { chunk, ...rest } = row;
+  return { ...rest, snippet: wholeLineSnippet(row.snippet ?? "", chunk) };
+}
+
 const quote = (token) => `"${token.replace(/"/g, '""')}"`;
 
 /**
@@ -228,7 +269,8 @@ export function searchSql(table, { limit = 25, prefix = null } = {}) {
                  ord,
                  title,
                  bm25(${table}, ${COLUMN_WEIGHTS.join(", ")}) AS score,
-                 snippet(${table}, 5, '${SNIPPET_OPEN}', '${SNIPPET_CLOSE}', '…', ${SNIPPET_TOKENS}) AS snippet
+                 snippet(${table}, 5, '${SNIPPET_OPEN}', '${SNIPPET_CLOSE}', '…', ${SNIPPET_TOKENS}) AS snippet,
+                 body AS chunk
             FROM ${table}
            WHERE ${where.join(" AND ")}
         ORDER BY score
@@ -271,7 +313,8 @@ export function searchParams(match, { limit = 25, prefix = null } = {}) {
  */
 export function mergeHits(rows, limit = 10) {
   const best = new Map();
-  for (const row of rows) {
+  for (const read of rows) {
+    const row = withWholeLines(read);
     if (!row || typeof row.path !== "string") continue;
     const score = typeof row.score === "number" ? -row.score : 0;
     const existing = best.get(row.path);

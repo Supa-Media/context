@@ -40,6 +40,13 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-05",
+    text:
+      'search takes args `{ from, to }` (YYYY-MM-DD, at most 14 days): every note line naming each day of that range, across the ' +
+      "workspaces a search reaches, day by day; words in query narrow it. Use it for a stretch of time (this week, the last week of " +
+      "October) instead of listing dates in query. read_notes now reads `@name/` paths, as search writes them, in the workspace each names.",
+  },
+  {
     date: "2026-11-04",
     newTool: true,
     text:
@@ -397,7 +404,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "0ebc890a";
+export const TOOL_SHAPE = "267c7aa1";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

@@ -11,6 +11,7 @@ import { recordAgentRead } from "../live/readLog.js";
 import { callTool } from "./dispatch.js";
 import { inWordsOf, translateV2Params } from "./v2/translate.js";
 import { SAVE_MANY_TOOL, saveMany } from "./v2/saveMany.js";
+import { readNotesAcross, readsAcross } from "./readNotesAcross.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
 import {
   FORM_TOOLS,
@@ -322,6 +323,10 @@ export async function callToolForSession(params, store, session, options = {}) {
   // `save_many` is one ordinary `write` per note, each back through this function and every gate in it (`saveMany.js`).
   if (v2 && call?.name === SAVE_MANY_TOOL) {
     return inWordsOf(v2, await saveMany(call.arguments, (one) => callToolForSession({ name: "write", arguments: one }, store, session)));
+  }
+  // Paths in other workspaces (`@band/...`, as search writes them): one read per workspace, each back through here (`readNotesAcross.js`).
+  if (readsAcross(call?.name, call?.arguments)) {
+    return inWordsOf(v2, await readNotesAcross(call.arguments, (args) => callToolForSession({ name: "read_notes", arguments: args }, store, session, { ...options, legacy: true })));
   }
   const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed, options));
   return inWordsOf(v2, result);

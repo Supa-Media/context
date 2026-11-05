@@ -22,6 +22,7 @@ import { loadPrivacyState } from "../privacy/state.js";
 import { folderPrefix } from "../search/indexable.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
+import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { holdSearchPasses } from "../search/heldPasses.js";
 import { notePrior } from "../search/priors.js";
 import { evidenceBonus } from "../search/evidence.js";
@@ -245,8 +246,15 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
  * person's setting (`everywhere`) decides, as for an AI client.
  */
 export async function findNotes(store, scope, rules, overrides, query, prefix = "", { only = null } = {}) {
+  // Context.LC's own pinned workspace is reached by every account for its guides and Tex's setup, never for the
+  // person's notes: a search everywhere leaves it out unless they run it (owner or editor), or it is asked by name.
+  // In the core benchmark (2026-11-05) Tex's own prompt, `@context-lc/ai/production/texting-assistant.md`, ranked
+  // among "What do I have on October 20?"'s hits.
   const reachable = typeof store.openContext === "function"
-    ? (store.contexts ?? []).filter((entry) => !entry.current && typeof entry.name === "string").map((entry) => entry.name)
+    ? (store.contexts ?? [])
+        .filter((entry) => !entry.current && typeof entry.name === "string")
+        .filter((entry) => entry.name !== PINNED_CONTEXT_NAME || entry.role === "owner" || entry.role === "editor" || (Array.isArray(only) && only.includes(entry.name)))
+        .map((entry) => entry.name)
     : [];
   const currentName = (store.contexts ?? []).find((entry) => entry.current)?.name ?? null;
   const asked = Array.isArray(only) ? new Set(only) : null;

@@ -31,7 +31,7 @@ import { conversationFromLedger } from "../src/agent/ledgerConversation.js";
 import { checkEvent } from "../src/agent/log.js";
 import { ATTENTION_QUESTION } from "../src/agent/attention.js";
 import { sentByItself } from "../src/agent/sentByItself.js";
-import { ADVISOR_NOTICE, doItChecks, offersARead, READ_NOTICE } from "../src/agent/doItChecks.js";
+import { ADVISOR_NOTICE, doItChecks } from "../src/agent/doItChecks.js";
 import { SLOW_TURN_NOTE } from "../src/agent/background.js";
 import { ADVISOR_TOOL } from "../src/agent/advisor.js";
 
@@ -120,19 +120,12 @@ test("a message another agent asked Tex to pass on is that agent's, never Tex's 
   assert.match(renderEvents(checkIn.events), /You: Did the dentist call back\?\n\s+\(sent on your own: You checked in on what they asked you to follow up on\.\)/);
 });
 
-test("an answer that offers a read, search, check or draft goes back once to do it; a send still waits", async () => {
-  for (const offered of [
-    "I haven't searched your inbox. Want me to check?",
-    "Mostly them. Want me to read that thread?",
-    "Want me to search it for their last message?",
-    "Want me to draft the email to Jo for your yes?",
-  ]) assert.equal(offersARead(offered), true, offered);
-  for (const fine of ["Want me to send it?", "Should I book the 7pm?", "Done. The SLA is three business days.", "Want me to email Jo?", "Can I check one thing: is it the 14th?"]) assert.equal(offersARead(fine), false, fine);
-
-  const checks = doItChecks({ question: "how long is the CASA review taking" });
+test("an answer that ends by offering a draft is not sent back by a phrase; the reply judge reads the turn instead", async () => {
+  // Core benchmark q16 (2026-11-05): a right take ending "Want me to draft a message to the band?" was sent back and lost its take.
+  const checks = doItChecks({ question: "Should I just skip the band session on the 15th?" });
   checks.wrapLocal([]);
-  assert.equal(await checks.check("Want me to read that thread?"), READ_NOTICE);
-  assert.equal(await checks.check("Want me to read that thread?"), null, "once");
+  assert.equal(await checks.check("Yes, skip it. You're in Lisbon then. Want me to draft a message to the band?"), null);
+  assert.equal(await checks.check("Want me to read that thread?"), null);
 });
 
 test("asking for the advisor makes the turn ask it, decided from their words by the gateway", async () => {

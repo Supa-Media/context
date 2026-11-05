@@ -19,7 +19,10 @@ export function searchAndMoveToolDefinitions() {
         "path that starts with @name/ is in that workspace (pass context: \"@name\" with the rest of " +
         "the path to read it). To search one workspace only, pass context: \"@name\"; pass a folder " +
         "prefix to narrow to one subtree of this one. Reuse the result for the session rather than " +
-        "repeating the same search before every write.",
+        "repeating the same search before every write. For a stretch of days (this week, the last week " +
+        "of October, before the trip), pass from and to (YYYY-MM-DD, at most 14 days) instead of " +
+        "listing dates in the query: it answers what every note says is on each day, across workspaces; " +
+        "a query beside them narrows it to those words.",
       inputSchema: {
         type: "object",
         properties: {
@@ -28,8 +31,10 @@ export function searchAndMoveToolDefinitions() {
             type: "string",
             description: "Optional folder prefix that narrows results to one subtree",
           },
+          from: { type: "string", description: "First day of a range, YYYY-MM-DD: every note line naming a day in it" },
+          to: { type: "string", description: "Last day of the range, YYYY-MM-DD, at most 14 days after from" },
         },
-        required: ["query"],
+        required: [],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
