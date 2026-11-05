@@ -232,7 +232,14 @@ export function machineSockets(state, sql, machines, deps = {}) {
         // Only the sign-in this machine's owner started last: an old or unknown id changes nothing.
         const held = machines.get(machineId)?.signIn;
         if (!held || held.id !== message.signInId || held.tool !== message.tool || held.state === "done" || held.state === "failed") return;
-        machines.signIn(machineId, { id: held.id, tool: held.tool, state: message.state, ...(message.url ? { url: message.url } : {}), ...(message.error ? { error: message.error } : {}) });
+        machines.signIn(machineId, { id: held.id, tool: held.tool, state: message.state, ...(message.url ? { url: message.url } : {}), ...(message.userCode ? { userCode: message.userCode } : {}), ...(message.error ? { error: message.error } : {}) });
+        return;
+      }
+      case "installState": {
+        // Only the install this machine's owner started last: an old or unknown id changes nothing.
+        const held = machines.get(machineId)?.install;
+        if (!held || held.id !== message.installId || held.tool !== message.tool || held.state === "done" || held.state === "failed") return;
+        machines.install(machineId, { id: held.id, tool: held.tool, state: message.state, step: message.step, percent: message.percent, version: message.version, error: message.error });
         return;
       }
       default:

@@ -89,6 +89,7 @@
               {"type": "cancel", "runId": "run_1", "reason": "stopped"},
               {"type": "signIn", "signInId": "si_1", "tool": "claude"},
               {"type": "signIn", "signInId": "si_1", "tool": "claude", "code": "fakeCode123#fakeState456"},
+              {"type": "install", "installId": "in_1", "tool": "codex"},
               {"type": "goodbye", "reason": "revoked"}
             ],
   "runner": [
@@ -139,7 +140,10 @@
               },
               {"type": "status", "ready": true, "busy": 1, "freeMemoryMb": 4200, "tools": [{"name": "claude", "installed": true, "signedIn": true}]},
               {"type": "signInState", "signInId": "si_1", "tool": "claude", "state": "link", "url": "https://claude.com/cai/oauth/authorize?code=true"},
-              {"type": "signInState", "signInId": "si_1", "tool": "claude", "state": "failed", "error": "That code wasn't accepted."}
+              {"type": "signInState", "signInId": "si_1", "tool": "claude", "state": "failed", "error": "That code wasn't accepted."},
+              {"type": "signInState", "signInId": "si_2", "tool": "codex", "state": "link", "url": "https://auth.openai.com/codex/device", "userCode": "7K2Q-M9XFD"},
+              {"type": "installState", "installId": "in_1", "tool": "codex", "state": "working", "step": "downloading", "percent": 62},
+              {"type": "installState", "installId": "in_1", "tool": "codex", "state": "done", "version": "0.166.0"}
             ],
   "pairing": {
               "PairStart": {

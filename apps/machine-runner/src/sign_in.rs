@@ -9,6 +9,11 @@
 //! app, which reaches the runner as `signIn` with a code. The runner types it
 //! into the waiting sign-in and reports `done` or `failed`, then a fresh status.
 //!
+//! Codex signs in the other way round (`codex login --device-auth`): it prints
+//! its sign-in page and a one-time code, and the owner types that code on the
+//! page; nothing comes back to the computer but the finished sign-in. The
+//! runner sends both in `link` (`userCode`) and waits for Codex to finish.
+//!
 //! The code is never written down: not to disk, not to a log, not into an
 //! error the runner sends (`failure_of` strips it). The link is only ever one
 //! on the tool maker's own site (`link_in`). Only one sign-in per tool runs at
@@ -29,20 +34,77 @@ pub const CODE_WAIT: Duration = Duration::from_secs(15 * 60);
 pub const FINISH_WAIT: Duration = Duration::from_secs(60);
 
 /// The sites a sign-in link may point at: the tool maker's own.
-const LINK_HOSTS: &[&str] = &["claude.com", "claude.ai", "anthropic.com"];
+fn link_hosts(tool: Tool) -> &'static [&'static str] {
+    match tool {
+        Tool::Claude => &["claude.com", "claude.ai", "anthropic.com"],
+        Tool::Codex => &["openai.com", "chatgpt.com"],
+    }
+}
 
 /// The command that signs a tool in, or None when the runner can't do it from the app.
 pub fn command(tool: Tool) -> Option<(&'static str, &'static [&'static str])> {
     match tool {
         Tool::Claude => Some(("claude", &["auth", "login"])),
-        Tool::Codex => None,
+        Tool::Codex => Some(("codex", &["login", "--device-auth"])),
     }
+}
+
+/// Whether the tool's sign-in shows a code to type on its page (a device
+/// sign-in) rather than one to paste back.
+pub fn device_flow(tool: Tool) -> bool {
+    tool == Tool::Codex
+}
+
+/// What a terminal would show: colour and cursor codes taken out.
+pub fn plain(output: &str) -> String {
+    let mut text = String::with_capacity(output.len());
+    let mut chars = output.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for c in chars.by_ref() {
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            } else {
+                chars.next();
+            }
+        } else {
+            text.push(c);
+        }
+    }
+    text
+}
+
+/// The one-time code a device sign-in printed: a word like `7K2Q-M9XFD`.
+pub fn user_code_in(output: &str) -> Option<String> {
+    let text = plain(output);
+    let after = text
+        .to_ascii_lowercase()
+        .find("one-time code")
+        .map(|i| &text[i..])
+        .unwrap_or(&text);
+    after.split_whitespace().find_map(|w| {
+        let w = w.trim_matches(|c: char| !c.is_ascii_alphanumeric());
+        let mut parts = w.split('-');
+        let ok = w.len() <= 16
+            && parts.clone().count() == 2
+            && parts.all(|p| {
+                (3..=8).contains(&p.len())
+                    && p.chars()
+                        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+            });
+        ok.then(|| w.to_string())
+    })
 }
 
 /// The sign-in link in what the tool printed: the first https link on the
 /// maker's own site. Anything else (another site, a lookalike host) is no link.
-pub fn link_in(output: &str) -> Option<String> {
-    for word in output.split_whitespace() {
+pub fn link_in(output: &str, tool: Tool) -> Option<String> {
+    let text = plain(output);
+    for word in text.split_whitespace() {
         let Some(rest) = word.strip_prefix("https://") else {
             continue;
         };
@@ -51,7 +113,7 @@ pub fn link_in(output: &str) -> Option<String> {
             .next()
             .unwrap_or("")
             .to_ascii_lowercase();
-        let ours = LINK_HOSTS
+        let ours = link_hosts(tool)
             .iter()
             .any(|h| host == *h || host.ends_with(&format!(".{h}")));
         if ours && word.len() <= 2048 {
@@ -100,6 +162,7 @@ fn state(id: &str, tool: Tool, step: SignInStep) -> SignInState {
         tool,
         state: step,
         url: None,
+        user_code: None,
         error: None,
     }
 }
@@ -185,8 +248,13 @@ pub async fn run(
             if seen.len() > 64 * 1024 {
                 break;
             }
-            if let Some(url) = link_in(&seen) {
-                return Some(url);
+            if let Some(url) = link_in(&seen, tool) {
+                if !device_flow(tool) {
+                    return Some((url, None));
+                }
+                if let Some(user_code) = user_code_in(&seen) {
+                    return Some((url, Some(user_code)));
+                }
             }
         }
         None
@@ -194,16 +262,63 @@ pub async fn run(
     .await
     .ok()
     .flatten();
-    let Some(url) = link else {
+    let Some((url, user_code)) = link else {
         let _ = out.send(failed(&id, tool, &failure_of(&seen, None))).await;
         return false;
     };
+    let device = user_code.is_some();
     let _ = out
         .send(RunnerMsg::SignInState(SignInState {
             url: Some(url),
+            user_code,
             ..state(&id, tool, SignInStep::Link)
         }))
         .await;
+
+    // A device sign-in: the owner types the code on the maker's page; the tool
+    // finishes by itself. A newer sign-in replacing this one ends it.
+    if device {
+        let mut code = code;
+        let mut listening = true;
+        let finished = tokio::time::timeout(CODE_WAIT, async {
+            loop {
+                tokio::select! {
+                    status = child.wait() => break Some(status),
+                    replaced = &mut code, if listening => {
+                        // A code isn't part of a device sign-in; only a replacement ends it.
+                        if replaced.is_err() {
+                            break None;
+                        }
+                        listening = false;
+                    }
+                }
+            }
+        })
+        .await;
+        let status = match finished {
+            Ok(Some(status)) => status,
+            Ok(None) => return false,
+            Err(_) => {
+                let _ = out
+                    .send(failed(&id, tool, "The sign-in timed out. Start again."))
+                    .await;
+                return false;
+            }
+        };
+        while let Ok(Some(chunk)) =
+            tokio::time::timeout(Duration::from_millis(200), text_rx.recv()).await
+        {
+            seen.push_str(&chunk);
+        }
+        let ok = matches!(status, Ok(s) if s.success());
+        let msg = if ok {
+            RunnerMsg::SignInState(state(&id, tool, SignInStep::Done))
+        } else {
+            failed(&id, tool, &failure_of(&plain(&seen), None))
+        };
+        let _ = out.send(msg).await;
+        return ok;
+    }
 
     // 2. The owner's code, typed into the waiting sign-in.
     let code = match tokio::time::timeout(CODE_WAIT, code).await {
@@ -270,17 +385,23 @@ mod tests {
     fn the_link_is_only_ever_on_the_makers_site() {
         let printed = "Opening browser to sign in…\nIf the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&state=x\nPaste code here if prompted > ";
         assert_eq!(
-            link_in(printed).as_deref(),
+            link_in(printed, Tool::Claude).as_deref(),
             Some("https://claude.com/cai/oauth/authorize?code=true&state=x")
         );
         assert_eq!(
-            link_in("visit: https://platform.claude.com/x").as_deref(),
+            link_in("visit: https://platform.claude.com/x", Tool::Claude).as_deref(),
             Some("https://platform.claude.com/x")
         );
-        assert_eq!(link_in("visit: https://claude.com.evil.example/x"), None);
-        assert_eq!(link_in("visit: https://evilclaude.com/x"), None);
-        assert_eq!(link_in("visit: http://claude.com/x"), None);
-        assert_eq!(link_in("nothing yet"), None);
+        assert_eq!(
+            link_in("visit: https://claude.com.evil.example/x", Tool::Claude),
+            None
+        );
+        assert_eq!(
+            link_in("visit: https://evilclaude.com/x", Tool::Claude),
+            None
+        );
+        assert_eq!(link_in("visit: http://claude.com/x", Tool::Claude), None);
+        assert_eq!(link_in("nothing yet", Tool::Claude), None);
     }
 
     #[test]
@@ -372,5 +493,60 @@ mod tests {
         let error = end.error.clone().unwrap();
         assert!(error.starts_with("Login failed"), "{error}");
         assert!(!error.contains("wrongCode9"), "{error}");
+    }
+    #[test]
+    fn a_device_sign_in_gives_its_page_and_code() {
+        let printed = "Follow these steps to sign in with ChatGPT using device code authorization:\n\n1. Open this link in your browser and sign in to your account\n   \u{1b}[94mhttps://auth.openai.com/codex/device\u{1b}[0m\n\n2. Enter this one-time code \u{1b}[90m(expires in 15 minutes)\u{1b}[0m\n   \u{1b}[94m7K2Q-M9XFD\u{1b}[0m\n";
+        assert_eq!(
+            link_in(printed, Tool::Codex).as_deref(),
+            Some("https://auth.openai.com/codex/device")
+        );
+        assert_eq!(user_code_in(printed).as_deref(), Some("7K2Q-M9XFD"));
+        assert_eq!(
+            link_in(printed, Tool::Claude),
+            None,
+            "Codex's page is not Claude's"
+        );
+        assert_eq!(
+            link_in(
+                "https://auth.openai.com.evil.example/codex/device",
+                Tool::Codex
+            ),
+            None
+        );
+        assert_eq!(user_code_in("2. Enter this one-time code\n   soon"), None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_device_sign_in_sends_link_and_code_then_waits_for_the_tool() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("sign-in-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let program = dir.join("fake-codex");
+        std::fs::write(
+            &program,
+            "#!/bin/sh\necho '1. Open this link in your browser and sign in'\necho '   https://auth.openai.com/codex/device'\necho '2. Enter this one-time code (expires in 15 minutes)'\necho '   AB12-CD345'\nsleep 0.3\necho 'Successfully logged in'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let (_code_tx, code_rx) = oneshot::channel();
+        let (out_tx, mut out_rx) = mpsc::channel(8);
+        let ok = run(program, &[], "si_2".into(), Tool::Codex, code_rx, out_tx).await;
+        assert!(ok);
+        let RunnerMsg::SignInState(link) = out_rx.recv().await.unwrap() else {
+            panic!()
+        };
+        assert_eq!(link.state, SignInStep::Link);
+        assert_eq!(
+            link.url.as_deref(),
+            Some("https://auth.openai.com/codex/device")
+        );
+        assert_eq!(link.user_code.as_deref(), Some("AB12-CD345"));
+        let RunnerMsg::SignInState(done) = out_rx.recv().await.unwrap() else {
+            panic!()
+        };
+        assert_eq!(done.state, SignInStep::Done);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

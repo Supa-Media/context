@@ -80,7 +80,13 @@
                                                          "type": "array",
                                                          "maxItems": 2,
                                                          "items": {"$ref": "#/$defs/Tool"}
-                                                       }
+                                                       },
+                                              "install": {
+                                                          "description": "The coding tools this runner can install when the owner asks from the app (`install`).",
+                                                          "type": "array",
+                                                          "maxItems": 2,
+                                                          "items": {"$ref": "#/$defs/Tool"}
+                                                        }
                                             }
                             },
             "SlotCounts": {
@@ -336,6 +342,17 @@
                                        "code": {"type": "string", "pattern": "^[A-Za-z0-9#_.~-]{1,512}$"}
                                      }
                      },
+            "Install": {
+                        "description": "The machine's owner installs a coding tool from the app. The runner downloads the maker's own published build for this computer, checks it against the published checksum and puts it where the runner finds it. Nothing in the frame says what to run or where to download from.",
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["type", "installId", "tool"],
+                        "properties": {
+                                        "type": {"const": "install"},
+                                        "installId": {"$ref": "#/$defs/Id"},
+                                        "tool": {"$ref": "#/$defs/Tool"}
+                                      }
+                      },
             "Challenge": {
                           "description": "The first frame on every connection. The runner signs it to prove it holds the machine's private key.",
                           "type": "object",
@@ -391,6 +408,7 @@
                                         {"$ref": "#/$defs/Interrupt"},
                                         {"$ref": "#/$defs/Cancel"},
                                         {"$ref": "#/$defs/SignIn"},
+                                        {"$ref": "#/$defs/Install"},
                                         {"$ref": "#/$defs/Goodbye"}
                                       ]
                             },
@@ -558,9 +576,26 @@
                                             "tool": {"$ref": "#/$defs/Tool"},
                                             "state": {"enum": ["link", "done", "failed"]},
                                             "url": {"description": "The tool's own sign-in page, on its maker's site.", "type": "string", "pattern": "^https://", "maxLength": 2048},
+                                            "userCode": {"description": "A one-time code the owner types on that page (a device sign-in, such as Codex's). Nothing is pasted back.", "type": "string", "pattern": "^[A-Z0-9-]{4,16}$"},
                                             "error": {"type": "string", "maxLength": 300}
                                           }
                           },
+            "InstallState": {
+                             "description": "Where an install the owner started from the app has got to: `working` with a step and how far, then `done` (with the version) or `failed`. A fresh status follows an ending.",
+                             "type": "object",
+                             "additionalProperties": false,
+                             "required": ["type", "installId", "tool", "state"],
+                             "properties": {
+                                             "type": {"const": "installState"},
+                                             "installId": {"$ref": "#/$defs/Id"},
+                                             "tool": {"$ref": "#/$defs/Tool"},
+                                             "state": {"enum": ["working", "done", "failed"]},
+                                             "step": {"enum": ["finding", "downloading", "checking", "unpacking"]},
+                                             "percent": {"type": "integer", "minimum": 0, "maximum": 100},
+                                             "version": {"type": "string", "maxLength": 64},
+                                             "error": {"type": "string", "maxLength": 300}
+                                           }
+                           },
             "RunnerMessage": {
                               "description": "Every frame a runner sends. Anything else closes the connection.",
                               "oneOf": [
@@ -572,7 +607,8 @@
                                         {"$ref": "#/$defs/Usage"},
                                         {"$ref": "#/$defs/Result"},
                                         {"$ref": "#/$defs/Status"},
-                                        {"$ref": "#/$defs/SignInState"}
+                                        {"$ref": "#/$defs/SignInState"},
+                                        {"$ref": "#/$defs/InstallState"}
                                       ]
                             },
             "PairStart": {

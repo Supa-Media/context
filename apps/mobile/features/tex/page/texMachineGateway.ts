@@ -29,7 +29,7 @@ const TOOLS: readonly ToolName[] = ["claude", "codex"];
 const OS_LABEL: Record<string, string> = { macos: "macOS", linux: "Linux", windows: "Windows" };
 const GROUP_KEY = /^[0-9a-f]{64}$/;
 
-export type MachineRoute = "list" | "set" | "disconnect" | "lend" | "unlend" | "answer" | "raise" | "chat-people" | "sign-in";
+export type MachineRoute = "list" | "set" | "disconnect" | "lend" | "unlend" | "answer" | "raise" | "chat-people" | "sign-in" | "install";
 
 /** A group chat's people with their ids (`/machines/app/chat-people`): a rule names people by id, the page by handle. */
 export type ChatPeople = ReadonlyMap<string, readonly { userId: string; handle: string }[]>;
@@ -145,6 +145,8 @@ function machineOf(raw: unknown, now: number, chats: { keys: string[]; names: Ma
     chats: ruleChats,
     canSignIn: Array.isArray(facts?.signIn) ? (facts?.signIn as unknown[]).filter((t) => t === "claude" || t === "codex") : [],
     ...(rec(m.signIn) ? { signIn: m.signIn } : {}),
+    canInstall: Array.isArray(facts?.install) ? (facts?.install as unknown[]).filter((t) => t === "claude" || t === "codex") : [],
+    ...(rec(m.install) ? { install: m.install } : {}),
   };
 }
 
@@ -202,6 +204,8 @@ export function machineCallOf(action: MachineAction, machine: (id: string) => Re
       return { route: "sign-in", body: { machineId: action.id, tool: action.tool } };
     case "machine.signInCode":
       return { route: "sign-in", body: { machineId: action.id, signInId: action.signInId, code: action.code.trim() } };
+    case "machine.install":
+      return { route: "install", body: { machineId: action.id, tool: action.tool } };
     case "job.allow": {
       const [machineId, askId] = action.job.split("/");
       if (!machineId || !askId) return { refused: "unknown_ask" };

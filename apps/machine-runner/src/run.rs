@@ -175,7 +175,7 @@ fn prepare_driver(
     session: &str,
     found: bool,
 ) -> Result<Driver, &'static str> {
-    let exe = crate::facts::which(a.tool.name()).ok_or("tool missing")?;
+    let exe = crate::facts::tool_path(a.tool.name()).ok_or("tool missing")?;
     let system = system_prompt(&ctx.machine_name, a);
     let network = a.network;
     let first = if resume {

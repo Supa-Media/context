@@ -78,7 +78,10 @@ pub async fn gather() -> MachineFacts {
         has_screen: Some(cfg!(target_os = "macos")),
         tools,
         repos: None,
-        sign_in: Some(vec![crate::protocol::Tool::Claude]),
+        sign_in: Some(vec![Tool::Claude, Tool::Codex]),
+        install: crate::install::tools_dir()
+            .and(crate::install::platform_here())
+            .map(|_| vec![Tool::Claude, Tool::Codex]),
     }
 }
 
@@ -257,7 +260,7 @@ async fn run_text(cmd: &str, args: &[&str]) -> Option<String> {
 
 /// Whether a coding CLI is installed and signed in, asked of the CLI itself.
 pub async fn cli_state(name: &str) -> ToolState {
-    let Some(path) = which(name) else {
+    let Some(path) = tool_path(name) else {
         return ToolState::Missing;
     };
     let args: &[&str] = match name {
@@ -297,6 +300,18 @@ pub fn signed_in(name: &str, exit_ok: bool, stdout: &str) -> bool {
             .unwrap_or(false);
     }
     exit_ok && !stdout.to_ascii_lowercase().contains("not logged in")
+}
+
+/// Where a coding tool is: the copy installed from the app (`install.rs`)
+/// first, so a broken copy elsewhere on PATH doesn't shadow it, else PATH.
+/// The installed copy is given by its real path, so it finds the files
+/// unpacked beside it.
+pub fn tool_path(name: &str) -> Option<PathBuf> {
+    crate::install::tools_dir()
+        .map(|d| d.join("bin").join(name))
+        .and_then(|link| link.canonicalize().ok())
+        .filter(|p| is_executable(p))
+        .or_else(|| which(name))
 }
 
 /// Finds an executable on PATH, as a shell would.

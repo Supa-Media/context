@@ -107,7 +107,8 @@ function machinesFor(scenario: MachineScenario): MachinesPage {
             running: [],
             usedMin: 0,
             tools: { claude: "installed", codex: "missing" },
-            canSignIn: ["claude"],
+            canSignIn: ["claude", "codex"],
+            canInstall: ["claude", "codex"],
             folders: [],
             chats: [{ key: "me", name: "Just you", who: "me", askFirst: true, slots: 2 }],
             slots: 2,
@@ -270,7 +271,17 @@ export function machineFixtureSource(scenario: MachineScenario = "full", options
         case "machine.signIn": {
           const m = find(action.id);
           if (!m) return { ok: false, error: "not_found" };
-          m.signIn = { id: "si_fixture", tool: action.tool, state: "link", url: "https://claude.com/cai/oauth/authorize?code=true", at: now };
+          m.signIn =
+            action.tool === "codex"
+              ? { id: "si_fixture", tool: "codex", state: "link", url: "https://auth.openai.com/codex/device", userCode: "7K2Q-M9XFD", at: now }
+              : { id: "si_fixture", tool: action.tool, state: "link", url: "https://claude.com/cai/oauth/authorize?code=true", at: now };
+          break;
+        }
+        case "machine.install": {
+          const m = find(action.id);
+          if (!m) return { ok: false, error: "not_found" };
+          m.install = { id: "in_fixture", tool: action.tool, state: "done", version: "1.0.0", at: now };
+          if (m.tools[action.tool] === "missing") m.tools[action.tool] = "installed";
           break;
         }
         case "machine.signInCode": {

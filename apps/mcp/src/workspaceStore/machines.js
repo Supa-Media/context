@@ -161,6 +161,25 @@ export function signInOf(raw) {
     state: raw.state,
     at: raw.at,
     ...(typeof raw.url === "string" && raw.url.startsWith("https://") && raw.url.length <= 2048 ? { url: raw.url } : {}),
+    ...(typeof raw.userCode === "string" && /^[A-Z0-9-]{4,16}$/.test(raw.userCode) ? { userCode: raw.userCode } : {}),
+    ...(typeof raw.error === "string" && raw.error !== "" ? { error: raw.error.slice(0, 300) } : {}),
+  };
+}
+
+const INSTALL_ID = /^in_[0-9a-f]{24}$/;
+const INSTALL_STATES = new Set(["starting", "working", "done", "failed"]);
+const INSTALL_STEPS = new Set(["finding", "downloading", "checking", "unpacking"]);
+/** An install the owner started from the app: its id, tool, where it got to, how far, the version it put in, why it failed. */
+export function installOf(raw) {
+  if (!raw || typeof raw !== "object" || !INSTALL_ID.test(raw.id ?? "") || !TOOLS.has(raw.tool) || !INSTALL_STATES.has(raw.state) || !Number.isSafeInteger(raw.at)) return null;
+  return {
+    id: raw.id,
+    tool: raw.tool,
+    state: raw.state,
+    at: raw.at,
+    ...(INSTALL_STEPS.has(raw.step) ? { step: raw.step } : {}),
+    ...(Number.isSafeInteger(raw.percent) && raw.percent >= 0 && raw.percent <= 100 ? { percent: raw.percent } : {}),
+    ...(typeof raw.version === "string" && raw.version !== "" ? { version: raw.version.slice(0, 64) } : {}),
     ...(typeof raw.error === "string" && raw.error !== "" ? { error: raw.error.slice(0, 300) } : {}),
   };
 }
@@ -199,6 +218,7 @@ function machineOf(raw, previous = null) {
     raise: raiseOf(base.raise ?? null),
     // Never from the app's settings either: only `signIn` below sets it.
     signIn: signInOf(base.signIn ?? null),
+    install: installOf(base.install ?? null),
     ...(mailOnly ? { mailOnly: true } : {}),
     // When a mail-only device leaves on its own, whatever else happens; fixed at add.
     ...(mailOnly && Number.isSafeInteger(base.expiresAt ?? given.expiresAt) ? { expiresAt: base.expiresAt ?? given.expiresAt } : {}),
@@ -286,6 +306,13 @@ export function workspaceMachines(sql, deps = {}) {
       const machine = get(id);
       if (!machine) return null;
       return save({ ...machine, signIn: signInOf({ ...next, at: now() }) });
+    },
+
+    /** Where an install from the app has got to (`serveMachines.js`, `machineSockets.js`). */
+    install(id, next) {
+      const machine = get(id);
+      if (!machine) return null;
+      return save({ ...machine, install: installOf({ ...next, at: now() }) });
     },
 
     /** What the runner reported: facts, slot counts, status. */

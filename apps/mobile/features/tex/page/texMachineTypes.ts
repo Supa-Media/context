@@ -36,6 +36,23 @@ export interface MachineSignIn {
   state: "starting" | "link" | "checking" | "done" | "failed";
   /** The tool maker's own sign-in page; only its own owner is sent it. */
   url?: string;
+  /** A device sign-in's one-time code (Codex): typed on `url`'s page, never pasted back here. */
+  userCode?: string;
+  error?: string;
+  at: number;
+}
+
+/**
+ * An install its owner started from the page (`/machines/app/install`): `starting` until the computer answers,
+ * `working` while it finds, downloads, checks and unpacks the maker's build, then `done` or `failed`.
+ */
+export interface MachineInstall {
+  id: string;
+  tool: ToolName;
+  state: "starting" | "working" | "done" | "failed";
+  step?: "finding" | "downloading" | "checking" | "unpacking";
+  percent?: number;
+  version?: string;
   error?: string;
   at: number;
 }
@@ -101,6 +118,9 @@ export interface Machine {
   /** The tools its runner can sign in from the page. */
   canSignIn?: ToolName[];
   signIn?: MachineSignIn;
+  /** The tools its runner can install from the page. */
+  canInstall?: ToolName[];
+  install?: MachineInstall;
 }
 
 /** A device code waiting for the person's yes (screen 3b). */
@@ -176,4 +196,5 @@ export type MachineAction =
   | { type: "machine.raise"; id: string; minutes: number }
   | { type: "machine.signIn"; id: string; tool: ToolName }
   | { type: "machine.signInCode"; id: string; signInId: string; code: string }
+  | { type: "machine.install"; id: string; tool: ToolName }
   | { type: "job.allow"; job: string; mode: "once" | "always" | "decline" };

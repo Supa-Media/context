@@ -11,6 +11,7 @@ import type {
   MachineAsk,
   MachineChat,
   MachineRun,
+  MachineInstall,
   MachineSignIn,
   MachinesPage,
   MachineState,
@@ -79,7 +80,38 @@ export function readSignIn(v: unknown): MachineSignIn | null {
   if (!r || !id || !SIGN_IN_STATES.has(r.state as string) || !(TOOL_NAMES as readonly string[]).includes(r.tool as string)) return null;
   const url = str(r.url);
   const error = str(r.error);
-  return { id, tool: r.tool as ToolName, state: r.state as MachineSignIn["state"], at: num(r.at) ?? 0, ...(url && url.startsWith("https://") ? { url } : {}), ...(error ? { error } : {}) };
+  const userCode = str(r.userCode);
+  return {
+    id,
+    tool: r.tool as ToolName,
+    state: r.state as MachineSignIn["state"],
+    at: num(r.at) ?? 0,
+    ...(url && url.startsWith("https://") ? { url } : {}),
+    ...(userCode && /^[A-Z0-9-]{4,16}$/.test(userCode) ? { userCode } : {}),
+    ...(error ? { error } : {}),
+  };
+}
+
+const INSTALL_STATES: ReadonlySet<string> = new Set(["starting", "working", "done", "failed"]);
+const INSTALL_STEPS: ReadonlySet<string> = new Set(["finding", "downloading", "checking", "unpacking"]);
+
+export function readInstall(v: unknown): MachineInstall | null {
+  const r = rec(v);
+  const id = str(r?.id);
+  if (!r || !id || !INSTALL_STATES.has(r.state as string) || !(TOOL_NAMES as readonly string[]).includes(r.tool as string)) return null;
+  const percent = num(r.percent);
+  const version = str(r.version);
+  const error = str(r.error);
+  return {
+    id,
+    tool: r.tool as ToolName,
+    state: r.state as MachineInstall["state"],
+    at: num(r.at) ?? 0,
+    ...(INSTALL_STEPS.has(r.step as string) ? { step: r.step as MachineInstall["step"] } : {}),
+    ...(percent !== undefined && percent >= 0 && percent <= 100 ? { percent: Math.round(percent) } : {}),
+    ...(version ? { version } : {}),
+    ...(error ? { error } : {}),
+  };
 }
 
 export function readMachine(v: unknown): Machine | null {
@@ -111,6 +143,7 @@ export function readMachine(v: unknown): Machine | null {
     computerUse: r.kind === "mac" && r.computerUse === true,
     chats: list(r.chats, readMachineChat),
     canSignIn: strings(r.canSignIn).filter((t): t is ToolName => (TOOL_NAMES as readonly string[]).includes(t)),
+    canInstall: strings(r.canInstall).filter((t): t is ToolName => (TOOL_NAMES as readonly string[]).includes(t)),
   };
   if (r.paused === "limit" || r.paused === "plan") machine.paused = r.paused;
   for (const key of ["since", "connectedAt", "lastEndedAt", "raisedMin"] as const) {
@@ -121,6 +154,8 @@ export function readMachine(v: unknown): Machine | null {
   if (code) machine.code = code;
   const signIn = readSignIn(r.signIn);
   if (signIn) machine.signIn = signIn;
+  const install = readInstall(r.install);
+  if (install) machine.install = install;
   return machine;
 }
 

@@ -123,6 +123,9 @@ pub struct MachineFacts {
     /// The tools this runner can sign in from the app (`signIn`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sign_in: Option<Vec<Tool>>,
+    /// The tools this runner can install from the app (`install`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install: Option<Vec<Tool>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -320,6 +323,53 @@ pub struct SignInState {
     pub state: SignInStep,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// A one-time code the owner types on that page (a device sign-in, such as Codex's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// The owner installs a coding tool from the app: the maker's own published
+/// build for this computer, checked against its published checksum. The frame
+/// names only the tool; what is downloaded and run is fixed in the runner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Install {
+    pub install_id: String,
+    pub tool: Tool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InstallStep {
+    Working,
+    Done,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InstallPhase {
+    Finding,
+    Downloading,
+    Checking,
+    Unpacking,
+}
+
+/// Where an install from the app has got to; a fresh status follows an ending.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InstallState {
+    pub install_id: String,
+    pub tool: Tool,
+    pub state: InstallStep,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<InstallPhase>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -375,6 +425,7 @@ pub enum ServerMsg {
     Interrupt(Interrupt),
     Cancel(Cancel),
     SignIn(SignIn),
+    Install(Install),
     Goodbye(Goodbye),
 }
 
@@ -520,6 +571,7 @@ pub enum RunnerMsg {
     Result(RunResult),
     Status(Status),
     SignInState(SignInState),
+    InstallState(InstallState),
 }
 
 // Pairing, over HTTPS.
