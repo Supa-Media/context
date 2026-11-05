@@ -323,7 +323,10 @@ mod tests {
         }))
         .unwrap();
         let p = system_prompt("studio", &a);
-        assert!(p.contains("on the computer studio, job job_1, part 2"), "{p}");
+        assert!(
+            p.contains("on the computer studio, job job_1, part 2"),
+            "{p}"
+        );
         assert!(p.contains("Only Tex can reach the person: mail Tex"), "{p}");
         assert!(p.contains("call `orient` first"), "{p}");
         assert!(p.contains("ends when you give your final answer"), "{p}");

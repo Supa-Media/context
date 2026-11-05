@@ -481,12 +481,22 @@ async fn a_background_process_never_holds_a_finished_run_open() {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut runner = start_runner(&r, l.local_addr().unwrap().port());
     let (mut ws, _) = accept(&r, &l, &[]).await;
-    send(&mut ws, assignment("run_l", "job_l", &r.repo, "log in, linger")).await;
+    send(
+        &mut ws,
+        assignment("run_l", "job_l", &r.repo, "log in, linger"),
+    )
+    .await;
     let started = std::time::Instant::now();
-    let result = tokio::time::timeout(Duration::from_secs(60), next(&mut ws, "result")).await.expect("the run ended at its answer");
+    let result = tokio::time::timeout(Duration::from_secs(60), next(&mut ws, "result"))
+        .await
+        .expect("the run ended at its answer");
     assert_eq!(result["outcome"], "finished", "{result}");
     assert_eq!(result["answer"], "all done", "{result}");
-    assert!(started.elapsed() < Duration::from_secs(45), "took {:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_secs(45),
+        "took {:?}",
+        started.elapsed()
+    );
     let _ = runner.kill().await;
 }
 
