@@ -37,6 +37,8 @@ import { wireSearchSettings } from "../src/search/settings.js";
 import { texStoreNamespace } from "../test/texStoreFixture.mjs";
 import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 import { calendarAnswer, calendarWrites } from "./calendar.mjs";
+import { chatEntries, modelLog } from "./modelLog.mjs";
+import { failedStatus, roundsOf } from "./trace.mjs";
 
 /** An invented paired computer, in the person's own workspace only, as its object lists it (`ws.machine.list`, `ws.machine.get`). */
 export function benchMachines({ name, tools, slots }, workspaceId) {
@@ -274,9 +276,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // the real web, so a run does too (decided 2026-10-09; until 2026-10-11 the
   // world refused the call, so every search_web in a result had failed).
   const below = globalThis.fetch;
+  const modelCalls = modelLog(models.gatewayFetch); // every model call kept, for the conversation's ledger file (`modelLog.mjs`)
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
-    if (url.startsWith("https://gateway.ai.cloudflare.com/")) return models.gatewayFetch(url, init);
+    if (url.startsWith("https://gateway.ai.cloudflare.com/")) return modelCalls.fetch(url, init);
     if (url.startsWith(BRAVE_SEARCH)) {
       if (web) {
         const results = web.search(new URL(url).searchParams.get("q") ?? "");
@@ -406,18 +409,6 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     }
     return { usage, usageByModel, model: reports.at(-1)?.model ?? null };
   };
-  /** How many model rounds each model ran, from the turn log's trace (`turn.js` records it per round). */
-  const roundsOf = (trace) => {
-    const rounds = {};
-    for (const entry of trace ?? []) if (entry.kind === "model" && entry.ok !== false && typeof entry.model === "string") rounds[entry.model] = (rounds[entry.model] ?? 0) + 1;
-    return rounds;
-  };
-  /** The status the failed round got, from the turn log's trace; null when none. */
-  const failedStatus = (trace) => {
-    const failed = (trace ?? []).find((entry) => entry.kind === "model" && entry.ok === false);
-    return typeof failed?.status === "number" ? failed.status : null;
-  };
-
   return {
     /** One texted message, answered with the conversation so far. */
     async text(message, attachments = [], { running = null } = {}) {
@@ -496,6 +487,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // What each model spent and how many rounds it ran: a planned turn is priced model by model.
         usageByModel: spent.usageByModel,
         rounds: roundsOf(turn.trace),
+        trace: turn.trace ?? [],
       };
     },
 
@@ -673,6 +665,12 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       await settle();
       const usage = controlPlane.builtinReports.at(-1) ?? {};
       return { status: response.status, body: answer, ms: realNow() - started, model: usage.model ?? null };
+    },
+
+    /** Every model call so far, and the chat's own ledger as its history file reads (`modelLog.mjs`). */
+    modelCalls: () => modelCalls.calls(),
+    async chatLedger() {
+      return chatEntries(await this.readThrough("tex/history.ledger.json"));
     },
 
     /** One JSON-RPC call to the MCP endpoint, as an AI client connected with this grant makes it. */
