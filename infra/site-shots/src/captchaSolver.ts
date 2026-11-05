@@ -37,19 +37,22 @@ export function solverLine(text: unknown): SolverState | null {
   return typeof text === "string" ? (LINES[text.trim()] ?? null) : null;
 }
 
-/** Start listening on `cdp` for the page attached as `sessionId`. */
-export async function watchSolver(cdp: CdpTransport, send: (method: string) => Promise<unknown>, sessionId?: string): Promise<Solver> {
+/**
+ * Start listening on `cdp`, whichever of the browser's pages or frames the line comes from: the solver may
+ * write in a captcha's own frame, and this connection drives one browser, the person's.
+ */
+export async function watchSolver(cdp: CdpTransport, send: (method: string) => Promise<unknown>): Promise<Solver> {
   let latest: SolverState | null = null;
-  const heard = (state: SolverState | null, via: string, from?: string) => {
-    if (state === null || (sessionId !== undefined && from !== undefined && from !== sessionId)) return;
+  const heard = (state: SolverState | null, via: string) => {
+    if (state === null) return;
     latest = state;
     // The state and the channel only, so production shows which one carries the solver's words.
     console.log(JSON.stringify({ event: "site_shots_captcha_solver", state, via }));
   };
-  cdp.on?.("Log.entryAdded", (params, from) => heard(solverLine((params as { entry?: { text?: unknown } } | null)?.entry?.text), "log", from));
-  cdp.on?.("Runtime.consoleAPICalled", (params, from) => {
+  cdp.on?.("Log.entryAdded", (params) => heard(solverLine((params as { entry?: { text?: unknown } } | null)?.entry?.text), "log"));
+  cdp.on?.("Runtime.consoleAPICalled", (params) => {
     const args = (params as { args?: Array<{ value?: unknown }> } | null)?.args ?? [];
-    heard(solverLine(args[0]?.value), "runtime", from);
+    heard(solverLine(args[0]?.value), "runtime");
   });
   await send("Log.enable").catch(() => undefined);
   return { state: () => latest };

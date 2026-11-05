@@ -29,16 +29,16 @@ describe("Browserbase's captcha solver", () => {
     for (const other of ["browserbase-solving-started and more", "solving", "", null, 3, { text: "browserbase-solving-started" }]) expect(solverLine(other)).toBeNull();
   });
 
-  it("hears the solver on the Log channel and on Runtime's, turns on Log only, and ignores other pages", async () => {
+  it("hears the solver on the Log channel and on Runtime's, from a captcha's frame too, and turns on Log only", async () => {
     const { cdp, sent, fire } = fakeCdp();
-    const solver = await watchSolver(cdp, (method) => cdp.send(method), "page-1");
+    const solver = await watchSolver(cdp, (method) => cdp.send(method));
     // Runtime.enable is a known bot-check tell: never sent.
     expect(sent).toEqual(["Log.enable"]);
     expect(solver.state()).toBeNull();
     fire("Log.entryAdded", { entry: { text: "browserbase-solving-started" } }, "page-1");
     expect(solver.state()).toBe("solving");
-    fire("Log.entryAdded", { entry: { text: "browserbase-solving-finished" } }, "another-page");
-    expect(solver.state()).toBe("solving");
+    fire("Runtime.consoleAPICalled", { args: [{ value: "browserbase-solving-errored" }] }, "captcha-frame");
+    expect(solver.state()).toBe("errored");
     fire("Runtime.consoleAPICalled", { args: [{ value: "browserbase-solving-finished" }] }, "page-1");
     expect(solver.state()).toBe("finished");
     fire("Runtime.consoleAPICalled", { args: [{ value: "the page's own words" }] }, "page-1");
