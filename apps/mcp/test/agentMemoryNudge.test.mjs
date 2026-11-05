@@ -5,8 +5,8 @@
  *
  * Sabotage these and a test here fails:
  *
- *  1. `textsSince` keeping a tainted exchange in `shown` → "an exchange that
- *     read from outside is never shown to the nudge".
+ *  1. `textsSince` keeping a tainted answer's words in `shown` → "an answer
+ *     that read from outside is never shown to the nudge, their text always is".
  *  2. `nudgeCallTool` passing another path or tool through → "the nudge's
  *     dispatcher refuses …".
  *  3. `memoryNudge` not moving its marker → "… and the next text doesn't
@@ -43,7 +43,7 @@ const exchange = (at, question, { tainted = false, theirs = true } = {}) => [
   { role: "assistant", text: `re ${question}`, ...(tainted ? { tainted: true } : {}) },
 ];
 
-test("an exchange that read from outside is never shown to the nudge, though its text is counted", () => {
+test("an answer that read from outside is never shown to the nudge, their text always is", () => {
   const history = [
     ...exchange(100, "old one"),
     ...exchange(200, "I'm vegetarian"),
@@ -53,10 +53,12 @@ test("an exchange that read from outside is never shown to the nudge, though its
   const since = textsSince(history, 150);
   assert.equal(since.count, 2);
   assert.equal(since.newest, 300);
-  assert.deepEqual(since.shown.map((e) => e.question), ["I'm vegetarian"]);
+  // The owner, 2026-11-05: their own words always reach About me, even beside an answer that read a page.
+  assert.deepEqual(since.shown.map((e) => e.question), ["I'm vegetarian", "what does this page say?"]);
   const asked = nudgeQuestion(since.shown);
   assert.match(asked, /They: I'm vegetarian\nYou: re I'm vegetarian/);
-  assert.ok(!asked.includes("this page"));
+  assert.match(asked, /what does this page say\?/);
+  assert.ok(!asked.includes("re what does this page say"), "the tainted answer's words are left out");
 });
 
 test("the nudge's dispatcher refuses anything but about-me in their own workspace, and writes once", async () => {
@@ -216,7 +218,7 @@ test("10 texts since the last nudge: about-me is written once, and the next text
   assert.equal(nudges().length, 2, "one nudge, two rounds");
   const asked = JSON.stringify(nudges()[0].body);
   assert.match(asked, /I'm vegetarian/);
-  assert.ok(!asked.includes("text 5") && !asked.includes("answer 5"), "a tainted exchange is left out whole");
+  assert.ok(asked.includes("text 5") && !asked.includes("answer 5"), "a tainted exchange shows their text, never its answer");
   assert.deepEqual(nudges()[0].body.tools.map((tool) => tool.name).sort(), ["fetch", "write"]);
   assert.match(bucket.get(ABOUT_ME_PATH)?.body ?? "", /Vegetarian/);
   assert.ok(marker().at >= START + (NUDGE_EVERY - 1) * 1_000);
