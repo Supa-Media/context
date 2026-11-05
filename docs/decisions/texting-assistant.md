@@ -322,7 +322,7 @@ credit, and nothing that costs money is spent while it lasts:
   text. The address is built from two ids checked against a strict shape, so
   nothing a caller sends can point the gateway's token at another host.
 - Prompt caching: tools, stable system prompt, slow context, then the chat,
-  each behind a five-minute mark; per-text facts (clock, model, nudge) ride in
+  each behind a one-hour mark (why: model-plan.md); per-text facts ride in
   the person's turn (`turnPrompt.js`, guarded by `agentPromptCache.test.mjs`).
 
 **What a simplification would cost:** dropping `cf-aig-collect-log` would

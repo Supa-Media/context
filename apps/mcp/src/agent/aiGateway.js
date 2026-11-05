@@ -200,19 +200,48 @@ function systemBlocks(system, mark) {
     .map((text) => ({ type: "text", text, cache_control: { ...mark } }));
 }
 
+/** Anthropic's one-hour cache mark (writes cost 2x input instead of 1.25x; reads are the same). */
+export const HOUR_MARK = Object.freeze({ type: "ephemeral", ttl: "1h" });
+
+/**
+ * The body with every one-hour mark made five-minute: what is resent when the
+ * gateway refuses a one-hour mark, so a refused field costs one slower round,
+ * never a texted turn.
+ */
+export function withoutHourMarks(body) {
+  return JSON.parse(JSON.stringify(body), (key, value) =>
+    key === "cache_control" && value && value.ttl !== undefined ? { type: "ephemeral" } : value);
+}
+
+/** Whether a body carries a one-hour mark. */
+function hasHourMarks(body) {
+  return JSON.stringify(body).includes('"ttl":"1h"');
+}
+
+/** Set once the gateway has refused a one-hour mark: later bodies go without them. */
+let hourMarksRefused = false;
+
+/** For tests: forget a remembered refusal. */
+export function resetHourMarks() {
+  hourMarksRefused = false;
+}
+
 /** Puts a breakpoint on the last block of message `index` of the API's message list. */
-function markLastBlock(wire, index) {
+function markLastBlock(wire, index, mark = { type: "ephemeral" }) {
   const message = wire[index];
   if (!message || !Array.isArray(message.content) || message.content.length === 0) return;
   const blocks = [...message.content];
-  blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: { type: "ephemeral" } };
+  blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: { ...mark } };
   wire[index] = { ...message, content: blocks };
 }
 
 export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display, cachedThrough = null }) {
   const layered = Number.isInteger(cachedThrough) && cachedThrough >= 0;
-  // Five-minute marks everywhere for now: a one-hour TTL through AI Gateway is unproven, and a refused field would fail every texted turn.
-  const stableMark = { type: "ephemeral" };
+  // A texted turn's prefix (tools, system, history) is kept an hour, since people reply minutes apart and a five-minute
+  // mark made the first round of almost every text rewrite ~80% of its prompt (owner, 2026-11-05: "just set it").
+  // The round's own end stays five minutes: the next round reads it seconds later, and Anthropic needs the longer
+  // marks first. One-off callers keep five minutes: nothing reads them back, so an hour's 2x write would be waste.
+  const stableMark = layered ? { ...HOUR_MARK } : { type: "ephemeral" };
   const toolList = tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -225,7 +254,7 @@ export function gatewayBody({ model, system, messages, tools, maxTokens, toolCho
     // Up to the history's last message, which is everything before the person's new text.
     // The wire is built message by message, so the history's own wire is a prefix of the whole.
     const historyEnd = anthropicMessages(messages.slice(0, cachedThrough)).length;
-    markLastBlock(wire, historyEnd - 1);
+    markLastBlock(wire, historyEnd - 1, HOUR_MARK);
     // And the round's last block, so the next round reads this one's tool results instead of sending them as new.
     if (wire.length > historyEnd) markLastBlock(wire, wire.length - 1);
   } else {
@@ -344,12 +373,27 @@ export async function requestViaGateway(call, config, options = {}) {
   const fetchImpl = options.fetchImpl || ((...args) => globalThis.fetch(...args));
   const now = options.now || Date.now;
   const wait = options.wait || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-  const body = gatewayBody(call);
+  let body = gatewayBody(call);
+  if (hourMarksRefused) body = withoutHourMarks(body);
+  // A 400 on a body with one-hour marks is resent once without them; when that
+  // goes through, the refusal is remembered for this isolate, so an unaccepted
+  // field never fails a turn.
+  const sendIt = async (withKey) => {
+    const answer = await sendWithRetry(config, body, { withKey, metadata: options.metadata }, fetchImpl, wait);
+    if (answer.status !== 400 || !hasHourMarks(body) || saysCreditSpent(answer.text)) return answer;
+    const plain = withoutHourMarks(body);
+    const again = await sendWithRetry(config, plain, { withKey, metadata: options.metadata }, fetchImpl, wait);
+    if (again.status === 200) {
+      hourMarksRefused = true; // only when the marks were what it refused
+      body = plain;
+    }
+    return again;
+  };
 
   let paidBy = "cloudflare";
   let answer = null;
   if (config.creditKey && now() >= creditRestingUntil) {
-    answer = await sendWithRetry(config, body, { withKey: true, metadata: options.metadata }, fetchImpl, wait);
+    answer = await sendIt(true);
     if (answer.status === 200) {
       paidBy = "credit";
     } else if (saysCreditSpent(answer.text) || answer.status === 402) {
@@ -365,7 +409,7 @@ export async function requestViaGateway(call, config, options = {}) {
     }
   }
   if (!answer) {
-    answer = await sendWithRetry(config, body, { withKey: false, metadata: options.metadata }, fetchImpl, wait);
+    answer = await sendIt(false);
   }
   if (answer.status !== 200) {
     throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status);
