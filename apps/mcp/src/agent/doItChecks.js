@@ -12,16 +12,18 @@
  * `DO_NOT_OFFER_LINE`), but the front door runs no reply checks
  * (`frontDoor.js`), so nothing held it to that.
  *
- * These two checks run on every texted turn, the front door's included, the
- * way the untried-web check does (`untriedWeb.js`): each is a regex over the
- * words and a flag on the turn's calls, so a turn that does the work pays
- * nothing, and each goes back at most once.
+ * This check runs on every texted turn, the front door's included, the way
+ * the untried-web check does (`untriedWeb.js`): a question that asks for the
+ * advisor, in a turn that has one and has not asked it, gets one more round,
+ * told to ask it now. The gateway decides this from their words, never the
+ * model, and it goes back at most once.
  *
- * - An answer that offers a read, search, check or draft (anything that
- *   reaches nobody else) gets one more round, told to do it now.
- * - A question that asks for the advisor, in a turn that has one and has not
- *   asked it, gets one more round, told to ask it now. The gateway decides
- *   this from their words, never the model.
+ * The regex over the answer that sent back any "want me to read/draft …?" is
+ * gone (Dev2's pick, 2026-11-05): in the core benchmark it sent back "Yes, skip
+ * it. You're in Lisbon … Want me to draft a message to the band?", a right
+ * answer, and Tex replaced the take with only the draft. Whether an answer
+ * offered work instead of doing it is the reply judge's `offered_instead`
+ * check (`replyJudge.js`), which reads the whole turn rather than a phrase.
  */
 
 import { ADVISOR_TOOL } from "./advisor.js";
@@ -32,27 +34,9 @@ import { ADVISOR_TOOL } from "./advisor.js";
  */
 const NAMES_ADVISOR = /\b(?:ask|check with|run (?:it|this|that) (?:by|past)|consult|loop in|get|what (?:does|would|did))\s+(?:the |your |ur |tex'?s )?advisor\b|\b(?:the|your|ur) advisor (?:think|say|says|said)\b/i;
 
-/** Work that reaches nobody else, offered back as a question instead of done. Sending, booking or paying is not here: that still waits. */
-const OFFERED_READ = [
-  /\b(?:want|would you like|do you want|should|shall)\s+(?:me\s+to|I)\s+(?:also\s+|go\s+(?:ahead\s+and\s+)?|quickly\s+)?(?:check|read|search|look|open|pull(?:\s+up)?|find|dig|scan|go\s+through|review|draft|write\s+(?:up|out)?|summari[sz]e)\b/i,
-  /\b(?:let me know|tell me|just say)\s+if\s+you(?:'d)?\s+(?:want|like)\s+me\s+to\s+(?:check|read|search|look|open|pull|find|dig|scan|go\s+through|review|draft|summari[sz]e)\b/i,
-  /\bI\s+(?:haven't|have not|didn't|did not)\s+(?:yet\s+)?(?:searched|checked|read|opened|looked(?:\s+(?:at|in|through))?)\b[^.?!\n]{0,80}[.?!]?\s*(?:want|should|shall)\b/i,
-];
-
-export const READ_NOTICE =
-  "Before this goes: you offered to read, search, check or draft something instead of doing it. That reaches nobody else, so it is yours to do: " +
-  "do it now with your tools and answer with what you found or the draft itself. Never ask whether to look something up. " +
-  "Only what reaches another person (sending, booking, paying, a call) waits for their yes.";
-
 export const ADVISOR_NOTICE =
   "Before this goes: they asked you to ask your advisor, and you haven't. Ask it now (ask_advisor; it sees this whole turn), " +
   "then answer with what it said, in your own words.";
-
-/** Whether an answer offers back a read, search, check or draft. */
-export function offersARead(answer) {
-  const words = String(answer ?? "").replace(/[‘’]/g, "'");
-  return OFFERED_READ.some((pattern) => pattern.test(words));
-}
 
 /** Whether their words ask for the advisor. */
 export function namesTheAdvisor(question) {
@@ -68,7 +52,6 @@ export function doItChecks({ question, inner = null }) {
   const advisorAsked = namesTheAdvisor(question);
   let hasAdvisor = false;
   let askedAdvisor = false;
-  let readNoticed = false;
   let advisorNoticed = false;
   return {
     wrapLocal(local) {
@@ -82,10 +65,6 @@ export function doItChecks({ question, inner = null }) {
       if (advisorAsked && hasAdvisor && !askedAdvisor && !advisorNoticed) {
         advisorNoticed = true;
         return ADVISOR_NOTICE;
-      }
-      if (!readNoticed && offersARead(answer)) {
-        readNoticed = true;
-        return READ_NOTICE;
       }
       return typeof inner?.check === "function" ? await inner.check(answer) : null;
     },

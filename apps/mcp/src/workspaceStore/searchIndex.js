@@ -21,7 +21,7 @@ import { effectiveVisibility } from "../privacy/engine.js";
 import { indexableText } from "../encryption/format.js";
 import { isIndexableNote } from "../search/indexable.js";
 import { deleteStatements, FTS_TABLE, projectNote, upsertStatements } from "../search/d1/project.js";
-import { searchParams, searchSql } from "../search/d1/query.js";
+import { searchParams, searchSql, withWholeLines } from "../search/d1/query.js";
 import { parsedRules } from "./serve.js";
 import { TEX_TABLES, texObjects } from "../texStore/objects.js";
 import { changeLog, PERSON_TEX_KEY } from "./changeLog.js";
@@ -262,7 +262,7 @@ export function workspaceSearch(sql, { rows, objects }) {
       if (before > 2 * QUERY_ROWS) return { served: false, waiting: before };
       const left = catchUp({ rows: QUERY_ROWS, bytes: QUERY_BYTES });
       if (left === null || left > 0) return { served: false, waiting: left };
-      return { served: true, answers: checked.map(({ table, match, options }) => all(sql.exec(searchSql(table, options), ...searchParams(match, options)))) };
+      return { served: true, answers: checked.map(({ table, match, options }) => all(sql.exec(searchSql(table, options), ...searchParams(match, options))).map(withWholeLines)) };
     },
   };
 }
