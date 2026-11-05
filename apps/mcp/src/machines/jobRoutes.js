@@ -38,6 +38,7 @@ import { workspaceStub } from "../workspaceStore/api.js";
 import { callTexStore } from "../texStore/wire.js";
 import { checkJob, jobFields } from "../agent/jobCheck.js";
 import { readProductionSetup } from "../agent/production.js";
+import { storeLedger } from "../agent/ledger.js";
 import { advisorRequest } from "../agent/advisor.js";
 import { aiGatewayConfig } from "../agent/aiGateway.js";
 import { builtinModel, canRunBuiltin } from "../agent/builtin.js";
@@ -150,7 +151,7 @@ async function assign(request, env, session, controlPlane, origin, now) {
   return json({ ok: true, runId: answer.runId, deadline: answer.deadline, powers: answer.powers });
 }
 
-async function readRun(request, env, session, controlPlane) {
+async function readRun(request, env, session, controlPlane, store) {
   const body = await bodyOf(request);
   if (body === null) return invalid("body");
   const covered = await reachedWorkspace(session, controlPlane, body.workspaceId);
@@ -159,7 +160,37 @@ async function readRun(request, env, session, controlPlane) {
   if (answer === null) return refused("unknown_run");
   // Ended before its grant ran out: the grant goes now, not at its expiry.
   if (answer.run.state === "ended") await controlPlane.texMachineRunRevoke(body.runId).catch(() => null);
+  await ledgerSteps(store, session, answer.run);
   return json({ ok: true, run: shownRun(answer.run), online: answer.online === true });
+}
+
+/**
+ * The part's steps on the computer, in the chat's one record as the job's tool calls (Dev2, 2026-11-05: "we can't
+ * show any logs or history?"). The job's object reads the run every ten seconds; each step is written once, its id
+ * made from the run and its number, so a read again or a restarted pass adds nothing (`texStore/ledger.js` keeps one
+ * copy of an id). A step is what the runner sends: the tool, an action, a target, never a result, which stays on the
+ * computer, so the entry claims no outcome (`ok` left out). Never in the way of the read: the writer never throws.
+ */
+async function ledgerSteps(store, session, run) {
+  const steps = Array.isArray(run.steps) ? run.steps : [];
+  const writer = steps.length > 0 && typeof run.jobId === "string" ? storeLedger(store, session) : null;
+  if (writer === null) return;
+  const runKey = run.runId.replace(/[^A-Za-z0-9]/g, "").slice(-40);
+  const entries = steps
+    .filter((step) => Number.isSafeInteger(step?.seq) && typeof step.tool === "string" && step.tool !== "")
+    .map((step) => ({
+      v: 1,
+      id: `mr${runKey}s${step.seq}`,
+      at: Number.isFinite(step.at) ? step.at : Date.now(),
+      kind: "tool",
+      name: step.tool.slice(0, 64),
+      args: { ...(step.action ? { action: String(step.action).slice(0, 200) } : {}), ...(step.target ? { target: String(step.target).slice(0, 200) } : {}) },
+      ms: 0,
+      computer: run.machineId,
+      jobId: run.jobId,
+    }));
+  writer.write(entries);
+  await writer.flush();
 }
 
 async function cancel(request, env, session, controlPlane) {
@@ -273,7 +304,7 @@ export async function handleMachineJob(request, env, session, { path, controlPla
   if ((session.actorClientId !== TEXTS_CLIENT_ID && session.actorClientId !== TEXTS_GROUP_CLIENT_ID) || !hasScope(session, SCOPE_WRITE) || jobChatOf(session) === null) return forbidden();
   if (!env.WORKSPACE_STORE) return json({ error: "machines_unavailable" }, 501);
   if (path === "/agent/machine/assign") return await assign(request, env, session, controlPlane, origin, now);
-  if (path === "/agent/machine/run") return await readRun(request, env, session, controlPlane);
+  if (path === "/agent/machine/run") return await readRun(request, env, session, controlPlane, store);
   if (path === "/agent/machine/cancel") return await cancel(request, env, session, controlPlane);
   if (path === "/agent/machine/deliver") return await deliver(request, env, session, controlPlane);
   if (path === "/agent/machine/check") return await check(request, env, session, controlPlane, store, advise);
