@@ -215,16 +215,8 @@ export interface FrameState {
   asideOpen: boolean;
   /** Medium and wide: the right panel's width, in points. */
   asideWidth: number;
-  /**
-   * The open right panel folded to a slim strip of its tabs down the right
-   * edge (Dev2, 2026-11-05: "i would also like the panel to be collapsable").
-   * A press on a tab there unfolds it; the top bar's button still shuts it.
-   */
-  asideFolded: boolean;
+  asideFolded: boolean; // Folded to a strip of its tabs (Dev2, 2026-11-05: "collapsable").
 }
-
-/** The folded right panel's width, in points: one column of tab buttons. */
-export const ASIDE_FOLDED_WIDTH = 48;
 
 export const initialFrame: FrameState = {
   drawerOpen: false,
@@ -327,16 +319,7 @@ export function regionsFor(
    * constellation and a phone would offer a drawer button that pulls in
    * nothing, which is worse than either pane simply being full width.
    */
-  options: {
-    hasExplorer?: boolean;
-    /**
-     * The page asks for the right panel beside it at medium too, never over
-     * it: the live map, whose panel holds its Activity and the clicked note
-     * and is used while the map moves (Dev2, 2026-11-05). There is no note
-     * behind it to protect, which is the overlay's whole reason.
-     */
-    asideBeside?: boolean;
-  } = {},
+  options: { hasExplorer?: boolean; asideBeside?: boolean } = {},
 ): Regions {
   const hasExplorer = options.hasExplorer ?? true;
 
@@ -415,10 +398,8 @@ export function regionsFor(
     for the explorer column beside the note and for nothing else" — is the
     reason this comes in over the note there rather than beside it.
 
-    There is deliberately no `hasExplorer` term. The panel is about the
-    context, not about the file tree, so Map and Connections may have it open
-    beside them; a route with no tree is a route with more room for it, not
-    less.
+    No `hasExplorer` term: the panel is about the context, not the tree. A
+    page with no note behind it (`asideBeside`, the map) gets it beside.
   */
   const aside: Regions["aside"] = !state.asideOpen
     ? "hidden"
