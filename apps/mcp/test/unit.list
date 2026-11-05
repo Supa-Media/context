@@ -463,3 +463,4 @@ test/agentBrowseNotAStep.test.mjs
 test/voiceJobs.test.mjs
 test/searchDates.test.mjs
 test/agentJobHaiku.test.mjs
+test/agentHourCache.test.mjs
