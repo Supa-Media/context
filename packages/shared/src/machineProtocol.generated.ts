@@ -289,6 +289,16 @@ export type Step = {
   at: Timestamp;
 };
 
+/** What the coding tool said or thought during a run, for the chat's history. Shares the run's step count, so a resend after a reconnect is recognised. */
+export type Said = {
+  type: "said";
+  runId: Id;
+  seq: number;
+  kind: "text" | "thinking";
+  text: string;
+  at: Timestamp;
+};
+
 export type TokenUsage = {
   input?: number;
   output?: number;
@@ -364,7 +374,7 @@ export type InstallState = {
 };
 
 /** Every frame a runner sends. Anything else closes the connection. */
-export type RunnerMessage = Hello | Accept | Refuse | Session | Step | Usage | Result | Status | SignInState | InstallState;
+export type RunnerMessage = Hello | Accept | Refuse | Session | Step | Said | Usage | Result | Status | SignInState | InstallState;
 
 /** POST /machines/pair: a runner asks to be paired. The private key never leaves the machine. */
 export type PairStart = {

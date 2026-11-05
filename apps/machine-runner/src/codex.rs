@@ -88,6 +88,9 @@ pub fn parse(line: &str) -> Vec<CliEvent> {
             let completed = v["type"] == "item.completed";
             match item.get("type").and_then(|t| t.as_str()) {
                 Some("agent_message") if completed => vec![CliEvent::Text(s(item, "text"))],
+                Some("reasoning") if completed && !s(item, "text").trim().is_empty() => {
+                    vec![CliEvent::Thinking(s(item, "text"))]
+                }
                 Some("command_execution") if !completed => {
                     vec![CliEvent::Step(StepLine::new(
                         "shell",
@@ -221,6 +224,21 @@ mod tests {
             }
         );
         assert!(matches!(ev[1], CliEvent::TurnDone { ok: true, .. }));
+    }
+
+    #[test]
+    fn reasoning_is_thinking() {
+        let ev = parse(
+            r#"{"type":"item.completed","item":{"id":"item_1","type":"reasoning","text":"Look at the failing test."}}"#,
+        );
+        assert_eq!(
+            ev,
+            vec![CliEvent::Thinking("Look at the failing test.".into())]
+        );
+        assert!(parse(
+            r#"{"type":"item.completed","item":{"id":"item_2","type":"reasoning","text":""}}"#
+        )
+        .is_empty());
     }
 
     #[test]

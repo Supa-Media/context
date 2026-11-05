@@ -38,7 +38,7 @@ printf '%s\n' "$@" > "$FAKE_LOG.argv"
 echo "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$sid\"}"
 IFS= read -r first
 echo "$first" > "$FAKE_LOG.first"
-echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"SECRET=x cargo test"}}]}}'
+echo '{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"Plan the fix."},{"type":"text","text":"Running the tests."},{"type":"tool_use","name":"Bash","input":{"command":"SECRET=x cargo test"}}]}}'
 secs=$(echo "$first" | sed -n 's/.*sleep:\([0-9]*\).*/\1/p')
 [ -n "$secs" ] && sleep "$secs"
 extra=""
@@ -293,7 +293,28 @@ async fn pairs_runs_survives_a_drop_and_resumes_the_same_session() {
         .as_str()
         .unwrap()
         .to_string();
+    // What the tool thought and said, for the chat's history, numbered with its steps.
+    let thought = next(&mut ws, "said").await;
+    assert_eq!(
+        (
+            thought["kind"].as_str(),
+            thought["text"].as_str(),
+            thought["seq"].as_u64()
+        ),
+        (Some("thinking"), Some("Plan the fix."), Some(1)),
+        "{thought}"
+    );
+    let words = next(&mut ws, "said").await;
+    assert_eq!(
+        (
+            words["kind"].as_str(),
+            words["text"].as_str(),
+            words["seq"].as_u64()
+        ),
+        (Some("text"), Some("Running the tests."), Some(2))
+    );
     let step = next(&mut ws, "step").await;
+    assert_eq!(step["seq"].as_u64(), Some(3));
     assert_eq!(
         (
             step["tool"].as_str(),

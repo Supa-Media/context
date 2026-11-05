@@ -173,22 +173,28 @@ async function readRun(request, env, session, controlPlane, store) {
   if (answer === null) return refused("unknown_run");
   // Ended before its grant ran out: the grant goes now, not at its expiry.
   if (answer.run.state === "ended") await controlPlane.texMachineRunRevoke(body.runId).catch(() => null);
-  await ledgerSteps(store, session, answer.run);
+  await ledgerSteps(store, session, answer.run, typeof answer.machineName === "string" ? answer.machineName : null);
   return json({ ok: true, run: shownRun(answer.run), online: answer.online === true });
 }
 
 /**
- * The part's steps on the computer, in the chat's one record as the job's tool calls (Dev2, 2026-11-05: "we can't
- * show any logs or history?"). The job's object reads the run every ten seconds; each step is written once, its id
- * made from the run and its number, so a read again or a restarted pass adds nothing (`texStore/ledger.js` keeps one
- * copy of an id). A step is what the runner sends: the tool, an action, a target, never a result, which stays on the
- * computer, so the entry claims no outcome (`ok` left out). Never in the way of the read: the writer never throws.
+ * The part's work on the computer, in the chat's one record (Dev2, 2026-11-05: "we can't show any logs or history?",
+ * and "we should be logging any claude code or codex turns, thoughts etc ... making sure we say what computer is
+ * running it"): its steps as the job's tool calls, what the tool said and thought as `said` and `thinking`, and how
+ * the part ended, each naming the computer. The job's object reads the run every few seconds; each entry is written
+ * once, its id made from the run and its number, so a read again or a restarted pass adds nothing
+ * (`texStore/ledger.js` keeps one copy of an id). A step is what the runner sends: the tool, an action, a target,
+ * never a result, which stays on the computer, so a step's entry claims no outcome (`ok` left out). Never in the way
+ * of the read: the writer never throws.
  */
-async function ledgerSteps(store, session, run) {
+async function ledgerSteps(store, session, run, machineName) {
   const steps = Array.isArray(run.steps) ? run.steps : [];
-  const writer = steps.length > 0 && typeof run.jobId === "string" ? storeLedger(store, session) : null;
+  const said = Array.isArray(run.said) ? run.said : [];
+  const ended = run.state === "ended" && run.result && typeof run.result === "object";
+  const writer = (steps.length > 0 || said.length > 0 || ended) && typeof run.jobId === "string" ? storeLedger(store, session) : null;
   if (writer === null) return;
   const runKey = run.runId.replace(/[^A-Za-z0-9]/g, "").slice(-40);
+  const where = { computer: run.machineId, ...(machineName ? { computerName: machineName.slice(0, 100) } : {}), jobId: run.jobId };
   const entries = steps
     .filter((step) => Number.isSafeInteger(step?.seq) && typeof step.tool === "string" && step.tool !== "")
     .map((step) => ({
@@ -199,9 +205,27 @@ async function ledgerSteps(store, session, run) {
       name: step.tool.slice(0, 64),
       args: { ...(step.action ? { action: String(step.action).slice(0, 200) } : {}), ...(step.target ? { target: String(step.target).slice(0, 200) } : {}) },
       ms: 0,
-      computer: run.machineId,
-      jobId: run.jobId,
+      ...where,
     }));
+  for (const line of said) {
+    if (!Number.isSafeInteger(line?.seq) || typeof line.text !== "string" || line.text === "") continue;
+    entries.push({ v: 1, id: `mr${runKey}s${line.seq}`, at: Number.isFinite(line.at) ? line.at : Date.now(), kind: line.kind === "thinking" ? "thinking" : "said", text: line.text.slice(0, 4000), ...where });
+  }
+  if (ended) {
+    // How the part ended, with the computer's own reason when it gave one (a short code, never the tool's text).
+    const { outcome, error } = run.result;
+    entries.push({
+      v: 1,
+      id: `mr${runKey}end`,
+      at: Number.isFinite(run.endedAt) ? run.endedAt : Date.now(),
+      kind: "tool",
+      name: "computer_part",
+      args: { outcome: typeof outcome === "string" ? outcome.slice(0, 32) : "unknown", ...(typeof error === "string" && error !== "" ? { error: error.slice(0, 300) } : {}) },
+      ok: outcome === "finished",
+      ms: Number.isFinite(run.wallMs) ? run.wallMs : 0,
+      ...where,
+    });
+  }
   writer.write(entries);
   await writer.flush();
 }

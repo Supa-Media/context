@@ -471,3 +471,14 @@ updates itself: it lives in the app's signed bundle, which updates as a whole
 Trust is the same as `install.sh`'s: GitHub over TLS. Reversing this means every
 headless computer stays on whatever version was first installed.
 Tests: `apps/machine-runner/src/update.rs`.
+
+## A computer's work is in the chat's history (owner, 2026-11-05)
+
+The owner asked that every Claude Code or Codex turn and thought be logged in the chat's history, saying which
+computer ran it. Since runner 0.2.6, the runner sends a `said` frame for each piece of text and each thought the
+tool shows (Claude Code `thinking` blocks, Codex `reasoning` items), at most 4,000 characters each, numbered with
+the run's steps. The workspace object keeps the last 30 on the run. When the job reads the run, these entries are
+written once to the chat's ledger: steps as `tool`, words as `said`, thoughts as `thinking`, and how the part
+ended (`computer_part`, with the runner's short error code). Each entry carries `computer`, `computerName` and
+`jobId`. Tool results and file contents still stay on the computer. Tests: `apps/mcp/test/machineJobs.test.mjs`
+and the runner's `tests/e2e.rs`.

@@ -257,7 +257,8 @@ export async function serveMachineCall(store, op, fields) {
         return install(store, fields);
       case MACHINE_OPS.RUN: {
         const run = store.machines.run(fields.runId);
-        return run ? Response.json({ ok: true, run, online: store.machineSockets.online(run.machineId) }) : refused("unknown_run");
+        // The computer's name too, so the chat's history says where the work ran.
+        return run ? Response.json({ ok: true, run, online: store.machineSockets.online(run.machineId), machineName: store.machines.get(run.machineId)?.name ?? null }) : refused("unknown_run");
       }
     }
   } catch (error) {

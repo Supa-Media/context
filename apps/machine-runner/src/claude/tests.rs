@@ -175,3 +175,14 @@ fn a_read_run_cannot_edit_or_run_commands() {
     assert!(a.contains("Edit,Write,MultiEdit,NotebookEdit,Bash"));
     assert!(!a.contains("Bash(git"));
 }
+
+#[test]
+fn thinking_is_read_and_an_empty_one_skipped() {
+    let ev = parse(
+        r#"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"Check the tests first."},{"type":"thinking","thinking":"  "}]}}"#,
+    );
+    assert_eq!(
+        ev,
+        vec![CliEvent::Thinking("Check the tests first.".into())]
+    );
+}

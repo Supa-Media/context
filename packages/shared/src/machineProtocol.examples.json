@@ -119,6 +119,7 @@
               {"type": "refuse", "runId": "run_2", "code": "limit_day", "until": 1793800000000},
               {"type": "session", "runId": "run_1", "session": "8f0c0d7e-claude-session"},
               {"type": "step", "runId": "run_1", "seq": 1, "tool": "Bash", "action": "run", "target": "pnpm test", "at": 1793771000000},
+              {"type": "said", "runId": "run_1", "seq": 2, "kind": "text", "text": "The tests pass now.", "at": 1793771001000},
               {
                 "type": "usage",
                 "runId": "run_1",

@@ -490,6 +490,20 @@
                                       "at": {"$ref": "#/$defs/Timestamp"}
                                     }
                     },
+            "Said": {
+                      "description": "What the coding tool said or thought during a run, for the chat's history. Shares the run's step count, so a resend after a reconnect is recognised.",
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["type", "runId", "seq", "kind", "text", "at"],
+                      "properties": {
+                                      "type": {"const": "said"},
+                                      "runId": {"$ref": "#/$defs/Id"},
+                                      "seq": {"type": "integer", "minimum": 1},
+                                      "kind": {"enum": ["text", "thinking"]},
+                                      "text": {"type": "string", "minLength": 1, "maxLength": 4000},
+                                      "at": {"$ref": "#/$defs/Timestamp"}
+                                    }
+                    },
             "TokenUsage": {
                             "type": "object",
                             "additionalProperties": false,
@@ -604,6 +618,7 @@
                                         {"$ref": "#/$defs/Refuse"},
                                         {"$ref": "#/$defs/Session"},
                                         {"$ref": "#/$defs/Step"},
+                                        {"$ref": "#/$defs/Said"},
                                         {"$ref": "#/$defs/Usage"},
                                         {"$ref": "#/$defs/Result"},
                                         {"$ref": "#/$defs/Status"},

@@ -12,6 +12,8 @@ import {
   OTHERS_PER_DAY,
   TOOL_LABEL,
   dotOf,
+  folderExample,
+  folderProblem,
   detailStatus,
   hm,
   hereOf,
@@ -66,6 +68,7 @@ export function MachinePage(props: ViewProps) {
   const [confirming, setConfirming] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [folderError, setFolderError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
 
@@ -165,10 +168,16 @@ export function MachinePage(props: ViewProps) {
 
   const openEditor = () => {
     setDraft(m.folders.join("\n"));
+    setFolderError(null);
     setEditing((open) => !open);
   };
   const saveFolders = () => {
-    set({ folders: draft.split("\n").map((line) => line.trim()).filter((line) => line.length > 0) });
+    const folders = draft.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+    // The computer keeps only full paths, and would drop any other without a word: say which and keep the box open.
+    const problem = folders.map(folderProblem).find((p) => p !== null) ?? null;
+    setFolderError(problem);
+    if (problem !== null) return;
+    set({ folders });
     setEditing(false);
   };
 
@@ -198,12 +207,17 @@ export function MachinePage(props: ViewProps) {
               value={draft}
               onChangeText={setDraft}
               multiline
-              placeholder="One folder per line, like ~/code/context"
+              placeholder={`One folder per line, like ${folderExample(m.kind)}`}
               placeholderTextColor={colors.muted}
               accessibilityLabel="Folders Tex may work in"
               style={[pageStyles(colors).input, field, styles.editorInput]}
               testID="tex-machine-folders-input"
             />
+            {folderError !== null ? (
+              <T size={13} tone="warn" testID="tex-machine-folders-error">
+                {folderError}
+              </T>
+            ) : null}
             <ButtonRow>
               <Button label="Save" look="outline" onPress={saveFolders} testID="tex-machine-folders-save" />
               <Button label="Cancel" look="outline" onPress={() => setEditing(false)} testID="tex-machine-folders-cancel" />

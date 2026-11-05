@@ -37,6 +37,8 @@ export const CLOSE_REAUTH = 4401;
 export const CLOSE_GONE = 4410;
 /** Steps kept on a run's row for the page and the job; the job also gets each one as it comes. */
 const STEPS_KEPT = 40;
+/** The tool's last words and thinking kept on a run, for the chat's history (`machines/jobRoutes.js` `ledgerSteps`). */
+const SAID_KEPT = 30;
 
 const SCHEMA = [`CREATE TABLE IF NOT EXISTS ws_machine_sockets (id TEXT PRIMARY KEY, machine TEXT NOT NULL, nonce TEXT NOT NULL, verified INTEGER NOT NULL DEFAULT 0, deadline INTEGER NOT NULL)`];
 
@@ -210,6 +212,15 @@ export function machineSockets(state, sql, machines, deps = {}) {
         if (!held || held.machineId !== machineId || message.seq <= (held.lastStep ?? 0)) return; // a resend after a reconnect
         const step = { seq: message.seq, tool: message.tool, action: message.action ?? null, target: message.target ?? null, at: message.at };
         await runEvent(machineId, message.runId, { kind: "step", step }, { lastStep: message.seq, steps: [...(held.steps ?? []), step].slice(-STEPS_KEPT) });
+        return;
+      }
+      case "said": {
+        // Numbered with the steps: a resend after a reconnect is recognised the same way. Kept on the run, not
+        // announced: the job's own reads carry it into the chat's history.
+        const held = machines.run(message.runId);
+        if (!held || held.machineId !== machineId || held.state === "ended" || message.seq <= (held.lastStep ?? 0)) return;
+        const said = { seq: message.seq, kind: message.kind, text: message.text, at: message.at };
+        machines.update(message.runId, { lastStep: message.seq, said: [...(held.said ?? []), said].slice(-SAID_KEPT) });
         return;
       }
       case "usage": {

@@ -207,3 +207,22 @@ export function askFacts(a: { tool: ToolName; folder?: string; slotsFor: number;
     .filter(Boolean)
     .join(" · ");
 }
+
+/**
+ * Why a folder typed on the page can't be kept, or null when it can. The same rule as the workspace object's
+ * `foldersOf` (`apps/mcp/src/workspaceStore/machines.js`), which drops a bad one without a word, so the page says so first.
+ */
+export function folderProblem(folder: string): string | null {
+  if (folder.startsWith("~")) return `Write the full path, like ${folderExample("cli")}, not ${folder}`;
+  const absolute = folder.startsWith("/") || /^[A-Za-z]:[\\/]/.test(folder);
+  if (!absolute) return `Write the full path, starting with /: ${folder}`;
+  if (folder.length > 1024 || folder.includes("\0")) return `That path is too long: ${folder.slice(0, 40)}…`;
+  if (/(^|[\\/])\.\.([\\/]|$)/.test(folder)) return `A path can't climb up with ..: ${folder}`;
+  if (/^(\/|[A-Za-z]:[\\/]?|\/home\/[^/]+\/?|\/Users\/[^/]+\/?|\/root\/?)$/.test(folder)) return `Pick a folder inside your home folder, not all of it: ${folder}`;
+  return null;
+}
+
+/** A full path to show as the folder box's example, for the kind of computer it is. */
+export function folderExample(kind: "mac" | "cli"): string {
+  return kind === "mac" ? "/Users/you/code" : "/home/you/code";
+}

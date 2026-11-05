@@ -20,6 +20,8 @@ pub enum CliEvent {
     Step(StepLine),
     /// Something the agent said; the last one of a turn is the part's answer.
     Text(String),
+    /// The agent's thinking, where the tool shows it.
+    Thinking(String),
     Usage {
         input: u64,
         output: u64,

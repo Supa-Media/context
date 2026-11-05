@@ -30,6 +30,7 @@ import { TexPageBody, type Place } from "../features/tex/page/TexPageBody";
 import { SIGN_IN_FRESH_MS, signInFor, signInLinkOk } from "../features/tex/page/TexMachineSignIn";
 import { INSTALL_FRESH_MS, installFor, installLine } from "../features/tex/page/TexMachineInstall";
 import { machineCallOf, machinesPageOf } from "../features/tex/page/texMachineGateway";
+import { folderExample, folderProblem } from "../features/tex/page/texMachineFormat";
 import { machineFixtureSource } from "../features/tex/page/texMachineFixture";
 import { fixtureNow } from "../features/tex/page/texPageFixture";
 import type { TexPageSource } from "../features/tex/page/texPageSource";
@@ -248,5 +249,44 @@ describe("renaming a computer", () => {
     await tick();
     expect(byTestId("tex-machine-name-input")).toBeNull();
     expect(byTestId("tex-machine")?.textContent).toContain("Studio box");
+  });
+});
+
+describe("choosing folders", () => {
+  test("a path the computer would drop is named, never saved quietly", () => {
+    expect(folderProblem("/home/dev2/code")).toBeNull();
+    expect(folderProblem("/Users/ada/code/context")).toBeNull();
+    expect(folderProblem("~/code")).toContain("full path");
+    expect(folderProblem("code")).toContain("full path");
+    expect(folderProblem("/home/dev2")).toContain("not all of it");
+    expect(folderProblem("/home/dev2/../x")).toContain("..");
+    expect(folderExample("mac")).toBe("/Users/you/code");
+    expect(folderExample("cli")).toBe("/home/you/code");
+  });
+
+  test("Save with ~/code says why and keeps the box open; a full path saves", async () => {
+    const source = machineFixtureSource("notReady");
+    const sent: PageAction[] = [];
+    const watched: TexPageSource = { ...source, act: async (chat, a) => (sent.push(a), source.act(chat, a)) };
+    act(() => root.render(createElement(SafeAreaProvider, { initialMetrics: METRICS }, createElement(Harness, { source: watched, start: { chat: "me", view: "machine", machine: "m-mbp" } }))));
+    await tick();
+    await press("tex-machine-folders-edit");
+    const input = byTestId("tex-machine-folders-input") as HTMLTextAreaElement;
+    expect(input.getAttribute("placeholder")).not.toContain("~");
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    const type = (text: string) =>
+      act(() => {
+        setValue.call(byTestId("tex-machine-folders-input"), text);
+        byTestId("tex-machine-folders-input")!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    type("~/code");
+    await press("tex-machine-folders-save");
+    expect(sent).toEqual([]);
+    expect(byTestId("tex-machine-folders-error")?.textContent).toContain("full path");
+    expect(byTestId("tex-machine-folders-input")).not.toBeNull();
+    type("/Users/ada/code");
+    await press("tex-machine-folders-save");
+    expect(sent).toEqual([{ type: "machine.set", id: "m-mbp", values: { folders: ["/Users/ada/code"] } }]);
+    expect(byTestId("tex-machine-folders-error")).toBeNull();
   });
 });
