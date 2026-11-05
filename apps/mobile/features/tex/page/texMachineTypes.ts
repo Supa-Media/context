@@ -178,6 +178,8 @@ export interface MachineValues {
   othersPerDay?: number;
   pauseNearPlan?: boolean;
   folders?: string[];
+  /** Its name on every page and in Tex's words ("on kazoo-whiskey"). */
+  name?: string;
 }
 
 export interface MachineChatValues {

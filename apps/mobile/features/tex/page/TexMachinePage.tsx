@@ -66,6 +66,8 @@ export function MachinePage(props: ViewProps) {
   const [confirming, setConfirming] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
 
   if (read === null || read.kind !== "ok") return null;
   const m = read.value.machines.find((x) => x.id === id);
@@ -315,12 +317,49 @@ export function MachinePage(props: ViewProps) {
     </Section>
   );
 
+  const saveName = () => {
+    const name = nameDraft.trim();
+    if (name !== "" && name !== m.name) set({ name });
+    setRenaming(false);
+  };
+  const nameRow = renaming ? (
+    <View style={styles.editor} testID="tex-machine-name-editor">
+      <TextInput
+        value={nameDraft}
+        onChangeText={setNameDraft}
+        maxLength={100}
+        autoFocus
+        onSubmitEditing={saveName}
+        returnKeyType="done"
+        accessibilityLabel="This computer's name"
+        style={[pageStyles(colors).input, field]}
+        testID="tex-machine-name-input"
+      />
+      <ButtonRow>
+        <Button label="Save" look="outline" onPress={saveName} testID="tex-machine-name-save" />
+        <Button label="Cancel" look="outline" onPress={() => setRenaming(false)} testID="tex-machine-name-cancel" />
+      </ButtonRow>
+    </View>
+  ) : (
+    <View style={styles.renameRow}>
+      <RowLink
+        label="Rename"
+        onPress={() => {
+          setNameDraft(m.name);
+          setRenaming(true);
+        }}
+        testID="tex-machine-rename"
+      />
+    </View>
+  );
+
   return (
     <SubPage title={m.name} testID="tex-machine">
       <View style={styles.status}>
         <DotLine tone={dotOf(m.state)} size={14} testID="tex-machine-status">
           {detailStatus(m, now)}
         </DotLine>
+        {nameRow}
       </View>
       {notReady ? (
         <Notice testID="tex-machine-not-ready">
@@ -406,7 +445,8 @@ function Section({ head, children }: { head: string; children: ReactNode }) {
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    status: { marginTop: -10 },
+    status: { marginTop: -10, gap: 6 },
+    renameRow: { flexDirection: "row" },
     row: { flexDirection: "row", gap: 12, alignItems: "center", paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: colors.line },
     grow: { flex: 1, minWidth: 0, gap: 2 },
     usedTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: 10 },

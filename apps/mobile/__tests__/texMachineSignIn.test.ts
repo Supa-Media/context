@@ -221,3 +221,32 @@ describe("on the computer's page", () => {
     expect(byTestId("tex-machine-signin-code")).toBeNull();
   });
 });
+
+describe("renaming a computer", () => {
+  test("the name goes as one patch, trimmed, and an empty or over-long one is refused", () => {
+    const one = (id: string) => (id === "m1" ? (listed({}) as Record<string, unknown>) : null);
+    expect(machineCallOf({ type: "machine.set", id: "m1", values: { name: "  kazoo box " } }, one)).toEqual({ route: "set", body: { machineId: "m1", patch: { name: "kazoo box" } } });
+    expect(machineCallOf({ type: "machine.set", id: "m1", values: { name: "   " } }, one)).toEqual({ refused: "bad_name" });
+    expect(machineCallOf({ type: "machine.set", id: "m1", values: { name: "x".repeat(101) } }, one)).toEqual({ refused: "bad_name" });
+  });
+
+  test("Rename on the computer's page saves the new name and shows it", async () => {
+    const source = machineFixtureSource("notReady");
+    const sent: PageAction[] = [];
+    const watched: TexPageSource = { ...source, act: async (chat, a) => (sent.push(a), source.act(chat, a)) };
+    act(() => root.render(createElement(SafeAreaProvider, { initialMetrics: METRICS }, createElement(Harness, { source: watched, start: { chat: "me", view: "machine", machine: "m-mbp" } }))));
+    await tick();
+    await press("tex-machine-rename");
+    const input = byTestId("tex-machine-name-input") as HTMLInputElement;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(input, " Studio box ");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await press("tex-machine-name-save");
+    expect(sent).toEqual([{ type: "machine.set", id: "m-mbp", values: { name: "Studio box" } }]);
+    await tick();
+    expect(byTestId("tex-machine-name-input")).toBeNull();
+    expect(byTestId("tex-machine")?.textContent).toContain("Studio box");
+  });
+});
