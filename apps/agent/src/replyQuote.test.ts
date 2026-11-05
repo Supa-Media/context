@@ -68,9 +68,20 @@ describe("a reply keeps what it answers", () => {
     expect(await replyFields(storage, GROUP, { handle: "tex-h-9" })).toEqual({ replyTo: sent, quoted: "Booked for 7 at Lilia." });
   });
 
-  it("quoted words match a text cut short either way, never a different one", () => {
-    expect(sameText("Drafted in the wrong account. Want me", "drafted in the wrong account…")).toBe(true);
+  it("quoted words match the same text, or its beginning when the quote was cut short, never a different one", () => {
+    expect(sameText("Drafted in the wrong account. Want me to fix it?", "drafted in the wrong account…")).toBe(true);
+    expect(sameText("Drafted in the wrong account. Want me to fix it?", "drafted in the wrong account")).toBe(false);
+    expect(sameText("Yes", "Yes, book it for 7 at Lilia")).toBe(false);
     expect(sameText("Booked for 7", "Booked for 8")).toBe(false);
     expect(sameText("", "x")).toBe(false);
+  });
+
+  it("a reply to a long text is never matched to a newer short one it starts with", async () => {
+    const storage = new MemoryStorage();
+    const long = await addEvent(storage, { at: NOW - 60_000, chat: CHAT, from: { kind: "tex" }, kind: "text", text: "Yes, book it for 7 at Lilia", turn: "turn-0000001", delivered: true });
+    await addEvent(storage, { at: NOW - 30_000, chat: CHAT, from: { kind: "tex" }, kind: "text", text: "Yes", turn: "turn-0000003", delivered: true });
+    const fields = await replyFields(storage, CHAT, { words: "Yes, book it for 7 at Lilia" });
+    expect(fields.quoted).toBe("Yes, book it for 7 at Lilia");
+    expect(fields.replyTo).toBe(long);
   });
 });

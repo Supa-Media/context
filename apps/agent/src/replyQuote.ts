@@ -41,13 +41,17 @@ export async function noteHandle(storage: InboxStorage, handle: string | undefin
   }
 }
 
-const folded = (text: string) => text.replace(/\s+/g, " ").replace(/[…]+$|\.{3}$/, "").trim().toLowerCase();
+const CUT = /(?:…|\.{3})\s*$/;
+const folded = (text: string) => text.replace(/\s+/g, " ").replace(CUT, "").trim().toLowerCase();
 
-/** Whether quoted words are this text's: the same, or one cut short of the other (a long text is quoted with its beginning). */
+/**
+ * Whether quoted words are this text's: the same, or the text's beginning when the quote was cut short (it ends
+ * with … or ...). One way only: a short text ("Yes", "ok") is never the match for a longer quote that starts with it.
+ */
 export function sameText(text: string, quoted: string): boolean {
   const [x, y] = [folded(text), folded(quoted)];
   if (x === "" || y === "") return false;
-  return x === y || x.startsWith(y) || y.startsWith(x);
+  return x === y || (CUT.test(quoted) && x.startsWith(y));
 }
 
 /**

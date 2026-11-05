@@ -19,7 +19,7 @@ What changed:
   handle, so the Worker keeps the last 200 handles of the chat's messages,
   theirs and Tex's, beside their event ids (`evhandles`; never words). A 1:1
   reply arrives with the quoted words, matched to the newest event with the
-  same words (or one cut short of the other). Not found: the provider's words
+  same words (or, when the quote was cut short with an ellipsis, the text it begins; never a shorter text the quote starts with). Not found: the provider's words
   are kept without an id.
 - **The model sees it on that line.** `renderEvents` adds
   `(replying to your 9:41 AM message: "…")` under the reply, and the turn's
