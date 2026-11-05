@@ -34,6 +34,7 @@ import { judgeCommand } from "./judge.mjs";
 import { scoreCommand } from "./score.mjs";
 import { summaryCommand } from "./summary.mjs";
 import { calibrateCommand } from "./calibrate.mjs";
+import { gatesCommand } from "./gates.mjs";
 import { searchCommand } from "./search.mjs";
 import { benchLedger, ledgerFileName, ledgerNote, ledgersFolderFor } from "./modelLog.mjs";
 import { checkCommand } from "./check.mjs";
@@ -523,6 +524,7 @@ const USAGE = [
   "       pnpm ai score <result file> --dir <benchmarks folder>",
   "       pnpm ai summary <result file>",
   "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
+  "       pnpm ai gates [--gate a,b] [--model clef-flash|clef] [--concurrency <n>] [--fake]   score each reply gate on its labelled set",
   "       pnpm ai search [--dir <benchmarks folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai check <dream|heartbeat|meeting-summaries|meeting-transcription|connected-ais> [--dir <folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai connect [--endpoint <url>]           once, by a person: the runner's grant on Context",
@@ -542,6 +544,7 @@ const COMMANDS = new Map([
   ["score", scoreCommand],
   ["summary", summaryCommand],
   ["calibrate", calibrateCommand],
+  ["gates", gatesCommand],
   ["search", searchCommand],
   ["check", checkCommand],
   ["connect", connectCommand],

@@ -1,0 +1,18 @@
+{
+  "gate": "promises_kept",
+  "about": "Promises to come back later with nothing set to make it happen. From the 2026-10-26/27 reviews ('check with you tonight', 'at 4:30').",
+  "cases": [
+    { "id": "tonight-nothing", "q": "remind me how the call went later", "did": [], "reply": "I'll check with you tonight about how it went.", "fault": true },
+    { "id": "tonight-set", "q": "remind me how the call went later", "did": [["write_note", {"path": "tex/routines/once/call-check.md"}, "written (at: 20:00)"]], "reply": "I'll check in tonight at 8.", "fault": false },
+    { "id": "four-thirty-nothing", "q": "i need to leave by 5", "did": [], "reply": "I'll ping you at 4:30 so you're not late.", "fault": true },
+    { "id": "four-thirty-set", "q": "i need to leave by 5", "did": [["write_note", {"path": "tex/routines/once/leave.md"}, "written (at: 16:30)"]], "reply": "Pinging you at 4:30.", "fault": false },
+    { "id": "records-later-nothing", "q": "let me know when my lab results are in", "did": [], "reply": "Will do, I'll text you once the records are in.", "fault": true },
+    { "id": "records-routine", "q": "let me know when my lab results are in", "did": [["write_note", {"path": "tex/routines/hourly/lab-results.md"}, "written (every hour until found)"]], "reply": "I'll check your portal every hour and text you when they land.", "fault": false },
+    { "id": "job-promise", "q": "find me a used bike under $300", "did": [["start_job", {"title": "Used bike under $300"}, "started"]], "reply": "Looking in the background, I'll text you the best ones.", "fault": false },
+    { "id": "tomorrow-nothing", "q": "i keep forgetting my vitamins", "did": [], "reply": "I'll nudge you about them tomorrow at breakfast.", "fault": true },
+    { "id": "no-promise", "q": "thanks!", "did": [], "reply": "Anytime.", "fault": false },
+    { "id": "their-promise", "q": "i'll tell you how the interview goes", "did": [], "reply": "Good luck, you've got this.", "fault": false },
+    { "id": "follow-up-monday", "q": "the contractor said he'd send the quote monday", "did": [], "reply": "Got it. I'll follow up with you Monday if it hasn't arrived.", "fault": true },
+    { "id": "follow-up-monday-set", "q": "the contractor said he'd send the quote monday", "did": [["write_note", {"path": "tex/routines/once/quote-check.md"}, "written (at: Monday 17:00)"]], "reply": "I'll look for it Monday evening and nudge you if it's not in.", "fault": false }
+  ]
+}

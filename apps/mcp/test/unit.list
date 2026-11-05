@@ -149,6 +149,7 @@ test/calendarKeyedDelete.test.mjs
 test/keyedNoteIdAt.test.mjs
 test/featureSwitches.test.mjs
 bench/test/calibrate.test.mjs
+bench/test/gates.test.mjs
 bench/test/context.test.mjs
 bench/test/folder.test.mjs
 bench/test/improve.test.mjs
