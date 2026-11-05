@@ -53,59 +53,148 @@ const MAX_STATE_CHARS = 16_000;
  * One call asks them all; the fault with the highest yes, at or above `judge_at`, sends the reply back.
  */
 export const CHECKS = {
-  not_started: {
-    ask: "Did they ask for something to be done or found, and the actions show it was not really attempted: one search or none, then 'couldn't find it', with no other place looked (their email, the chat, the web, a site or folder they named)?",
-    true: "yes, the ask was barely tried",
-    false: "no, it was tried properly, or nothing was asked to be done",
-  },
-  not_finished: {
-    ask: "Did the work stop short, with steps left the assistant could take itself (open the page, follow the folder, read the file, finish the form), neither taken nor handed to a background job?",
-    true: "yes, it stopped with steps it could take itself",
-    false: "no, it finished, or what is left needs the person",
-  },
-  offered_instead: {
-    ask: "Does the reply offer or ask permission to do something the assistant could just do itself and that reaches nobody else ('want me to look?', 'should I check?')?",
-    true: "yes, it offers instead of doing",
-    false: "no such offer",
-  },
-  only_acknowledged: {
-    ask: "Did their text give something an earlier ask needed (where a file is, which site, a name, an answer to the assistant's question), and the reply only thanks or acknowledges it with no action taken on it this turn?",
-    true: "yes, it only acknowledged what they gave",
-    false: "no, it acted on it, or their text gave nothing an ask needed",
-  },
-  sent_elsewhere: {
-    ask:
-      "Does the reply push work back onto them, or onto someone else, that the assistant could do itself? " +
-      "Bad: 'Jo would know where it is.' 'Can you send me the file?' when they named where it lives and it was not opened. 'You can download it from the site.' " +
-      "Fine, never this fault: a draft waiting for their yes before it goes to other people ('Here's the text: ... Say yes and I'll send it.'); " +
-      "something the assistant cannot do, with the next best thing ('I can't text Mina, but here's one you can send: ...'); " +
-      "asking a fact only they know ('Did you pay the balance?'), a sign-in code, a payment, or a choice that is theirs.",
-    true: "yes, it pushes work back that the assistant could do",
-    false: "no, or the hand-back is one of the fine kinds",
-  },
-  unbacked_claim: {
-    ask: "Does the reply say something was found, opened, saved, sent, booked or done that the actions do not show (no such call, or the call failed)?",
-    true: "yes, it claims something the actions do not show",
-    false: "no, every claim is backed by an action",
-  },
-  wrong_question: {
-    ask: "Does the reply answer a different question from the one they asked, or leave out part of what they asked?",
-    true: "yes, it misses what they asked",
-    false: "no, it answers what they asked",
-  },
-  too_verbose: {
-    ask:
-      "Is the reply wordy when it should not be? A text answers in a sentence or two, and extra lines are fine only when they are the details they asked for. " +
-      "Good, never this fault: 'No, you're in Lisbon that day. The show is at 8, load-in 6:30.' " +
-      "'Physio check-up on the 20th, and the credenza glue-up is planned that day.' 'Found it: https://files.example/logo.png' " +
-      "'Done, it's on your list for Friday.' A list of the dates, items or steps they asked for. " +
-      "Wordy: retelling every place it searched ('I looked through your notes, your email and your other workspaces and...'); " +
-      "explaining why or how it did something nobody asked about; repeating what they just said; options or caveats nobody asked for; " +
-      "two paragraphs where one line answers.",
-    true: "yes, wordy when it should not be",
-    false: "no, the length fits what they asked",
-  },
+  not_started: check(
+    "Did the assistant skip the work: answer 'couldn't find it', ask where something is, or promise to look, without really looking first (more than one place: notes, email, the chat, the web, a site or folder they named) and without starting a background job?",
+    {
+      allow: [
+        "Did: searched notes, searched email, opened the site. Reply: 'Found it: https://files.example/logo.png'",
+        "Did: searched notes, started a background job. Reply: 'Not in your notes, so I've got a job digging through Dropbox. I'll text you when I have it.'",
+        "Did: searched notes and email. Reply: 'Not in your notes or email. Where do you keep it, Drive or Dropbox?'",
+        "Did: opened the page, it failed twice, started a job. Reply: 'Filebox won't load right now, I'll keep trying in the background.'",
+        "Did: read the calendar. Reply: 'Nothing Friday.'",
+      ],
+      block: [
+        "Did: nothing. Reply: 'I couldn't find it.'",
+        "Did: one notes search. Reply: 'Not in your notes.'",
+        "Did: nothing. Reply: 'Where do you keep it?'",
+        "Did: searched notes, no job started. Reply: 'I'll look into it.'",
+      ],
+    },
+    ["yes, it skipped the work", "no, it looked properly, or started a job, or nothing needed doing"],
+  ),
+  not_finished: check(
+    "Did the work stop short of what they wanted, with a step left the assistant could take itself (give the file's own link, open the page, book it, read to the answer), not taken and not handed to a background job?",
+    {
+      allow: [
+        "Did: opened the folder. Reply: 'Here it is: https://files.example/club/brand/logo.png'",
+        "Did: opened the folder, started a job for the print version. Reply: 'Here's the logo: https://files.example/logo.png. Pulling the print version in the background.'",
+        "Did: filled the form up to payment. Reply: 'Form's filled, it needs your card to submit: https://site.example/pay'",
+      ],
+      block: [
+        "Did: opened the folder. Reply: 'Found it, the green one on white.' (no link to the file)",
+        "Did: opened the folder. Reply: 'It's in Brand assets on Filebox.' (the folder, when they wanted the file)",
+        "Did: found the booking page. Reply: 'You can book at 3 on their site.' (it could book it)",
+        "Did: read half the thread. Reply: 'Looks like they're still deciding.'",
+      ],
+    },
+    ["yes, it stopped short", "no, it finished, or handed the rest to a job, or what is left needs them"],
+  ),
+  offered_instead: check(
+    "Does the reply offer, or ask permission, to do something the assistant could just do now and that reaches nobody else?",
+    {
+      allow: [
+        "'Done, it's on your list for Friday.'",
+        "'Here's the email to Sam: ... Say yes and I'll send it.' (it reaches another person, so it waits for a yes)",
+        "'Want the Saturday or the Sunday slot?' (their choice)",
+      ],
+      block: ["'Want me to keep looking?'", "'Should I check your email?'", "'I can search the web for it if you like.'", "'Want me to open the folder?'"],
+    },
+    ["yes, it offers instead of doing", "no such offer"],
+  ),
+  only_acknowledged: check(
+    "Did their text give something an earlier ask needed (where a file is, which site, which one, an answer to the assistant's question), and the reply only thanks or acknowledges it, with nothing done with it this turn?",
+    {
+      allow: [
+        "They: 'it's in dropbox under brand assets'. Did: opened it, wrote the note. Reply: 'Got it: https://files.example/logo.png. Saved where it lives in your club notes.'",
+        "They: 'it's in dropbox'. Did: checked the vault, no login. Reply: 'I can't get into Dropbox without a login. Add one here and I'll grab it: https://context.example/vault'",
+        "They: 'the blue one'. Did: sent the blue file. Reply: the link.",
+      ],
+      block: [
+        "They: 'it's in dropbox under brand assets'. Did: nothing. Reply: 'Thanks, that helps.'",
+        "Same. Did: nothing. Reply: 'Got it, I'll remember that.'",
+        "Same. Did: nothing. Reply: 'Perfect, thanks!'",
+      ],
+    },
+    ["yes, it only acknowledged what they gave", "no, it acted on it, or their text gave nothing an ask needed"],
+  ),
+  sent_elsewhere: check(
+    "Does the reply push work back onto them, or onto someone else, that the assistant could do itself?",
+    {
+      allow: [
+        "'What's the code they texted you?' (only they have it)",
+        "'Did you already pay the balance?' (only they know)",
+        "'I can't text Mina, but here's one you can send: Bringing soup Sunday!' (it can't, and gives the next best thing)",
+        "'Here's the draft to the band: ... Say yes and I'll send it.' (it reaches other people)",
+        "Did: searched notes and email. Reply: 'Not in your notes or email. Who sent it?' (looked first, then asked)",
+      ],
+      block: [
+        "'Jo would know where it is.'",
+        "'You can download it from Filebox.' (it can open Filebox)",
+        "'Can you send me the file?' (they said where it lives, or it never looked)",
+        "'Check your email for it.' (it can search their email)",
+      ],
+    },
+    ["yes, it pushes work back that the assistant could do", "no, or the hand-back is one of the fine kinds"],
+  ),
+  unbacked_claim: check(
+    "Does the reply say something was found, opened, saved, sent, booked, started or done that the actions do not show (no such call, or the call failed)?",
+    {
+      allow: [
+        "Did: wrote the note. Reply: 'Saved.'",
+        "Did: started a background job. Reply: 'On it, I'll text you when it's done.'",
+        "Did: the send was held for their yes. Reply: 'Here's the draft. Say yes and it goes.'",
+      ],
+      block: [
+        "Did: nothing. Reply: 'Found it.'",
+        "Did: wrote nothing. Reply: 'Saved it to your notes.'",
+        "Did: the send failed. Reply: 'Sent!'",
+        "Did: no job started. Reply: 'Working on it in the background.'",
+      ],
+    },
+    ["yes, it claims something the actions do not show", "no, every claim is backed by an action"],
+  ),
+  wrong_question: check(
+    "Does the reply answer a different question from the one they asked, or leave out part of it?",
+    {
+      allow: [
+        "'Can I make the show on the 17th?' -> 'No, you're in Lisbon that day. The show is at 8.'",
+        "'What do I need before Lisbon?' -> a short list of exactly those to-dos.",
+      ],
+      block: [
+        "'Can I make the show on the 17th?' -> 'The show is at 8, load-in 6:30.' (skipped the yes or no)",
+        "'Where's the logo and what size is it?' -> only where it is.",
+      ],
+    },
+    ["yes, it misses what they asked", "no, it answers what they asked"],
+  ),
+  too_verbose: check(
+    "Is the reply wordy when it should not be? A text answers in a sentence or two; more is fine only when it is the detail they asked for.",
+    {
+      allow: [
+        "'No, you're in Lisbon that day. The show is at 8, load-in 6:30.'",
+        "'Physio on the 20th, and the credenza glue-up is planned that day.'",
+        "'Found it: https://files.example/logo.png'",
+        "A list of the dates, items or steps they asked for.",
+      ],
+      block: [
+        "'I looked through your notes, your email and your other workspaces, and...' (retelling where it searched)",
+        "Two paragraphs where one line answers.",
+        "Repeating what they just said, or caveats and options nobody asked for.",
+        "'My earlier \"can't find it\" was wrong because...' (explaining itself)",
+      ],
+    },
+    ["yes, wordy when it should not be", "no, the length fits what they asked"],
+  ),
 };
+
+/** One check: the question, then replies that pass and replies that fail it, so Clef judges by example (Dev2, 2026-11-05). */
+function check(ask, { allow, block }, [yes, no]) {
+  return {
+    ask: `${ask} Never this fault: ${allow.join(" | ")}. This fault: ${block.join(" | ")}.`,
+    true: yes,
+    false: no,
+  };
+}
 
 /** What the model is told for each verdict, before it writes the reply again. */
 export const VERDICT_NOTICES = {
