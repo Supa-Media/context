@@ -24,8 +24,8 @@ import { join } from "node:path";
  *    (`withSecurityHeaders`, the shell's script policy in
  *    `shellEnforcedPolicy`, and the sandbox page's own policy in
  *    `pluginSandbox.ts`), and `X-Frame-Options`;
- *  - where the router already enforces `script-src` (the shell), the copy
- *    below leaves it out, so one refusal is reported once as enforced;
+ *  - where the router already enforces `script-src` (the shell), `script`
+ *    mode adds no copy, so one refusal is reported once as enforced;
  *  - the report-only policy for that path (`reportOnlyPolicyFor`), or its
  *    `script-src` alone, is sent as a **second enforcing**
  *    `Content-Security-Policy` as well as staying report-only, which is what
@@ -122,12 +122,11 @@ export function candidateRules(mode: CandidateMode): CandidateRule[] {
     if (sent["content-security-policy-report-only"] !== reportOnly) {
       throw new Error(`the router's report-only policy for ${prefix} is not reportOnlyPolicyFor's`);
     }
-    // The shell already enforces its script-src; a second copy would report each refusal twice as enforced.
+    // The shell already enforces its script-src, so `script` mode adds no copy there. `full` mode keeps the whole
+    // policy, script-src included: a copy without it would fall back to its `default-src 'self'` for scripts and
+    // refuse the shell's own inline ones, which no policy production sends would do.
     const scriptEnforced = document === "shell" && directivesOf(sent["content-security-policy"] ?? "").includes("script-src");
-    const asked = (mode === "full" ? directivesOf(reportOnly) : mode === "script" ? ["script-src"] : []).filter(
-      (name) => !(scriptEnforced && name === "script-src"),
-    );
-    const candidate = asked.length === 0 ? null : mode === "full" && !scriptEnforced ? reportOnly : only(reportOnly, asked);
+    const candidate = mode === "full" ? reportOnly : mode === "script" && !scriptEnforced ? only(reportOnly, ["script-src"]) : null;
     // Its reports go to an address of their own: WebKit's reports carry no
     // disposition, so the address is the only way to tell an enforced
     // violation from one the report-only copy of the same policy sent.

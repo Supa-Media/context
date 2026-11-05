@@ -14,7 +14,7 @@ for (const mode of ["script", "full"] as const) {
   test(`${mode}: the enforced copy and the report-only policy report to different addresses`, () => {
     for (const rule of candidateRules(mode)) {
       const enforcing = rule.headers["content-security-policy"];
-      // The shell enforces its script-src already: script mode adds no copy there, and full mode adds the rest.
+      // The shell enforces its script-src already: script mode adds no copy there.
       if (rule.document === "shell" && mode === "script") {
         expect(Array.isArray(enforcing), rule.prefix).toBe(false);
         expect(enforcing as string).toContain(`script-src 'self'`);
@@ -28,11 +28,7 @@ for (const mode of ["script", "full"] as const) {
       expect(added, rule.prefix).toContain(`report-uri ${ENFORCED_REPORT_PATH}`);
       expect(reportOnly as string, rule.prefix).toContain(`report-uri ${REPORT_PATH}`);
       expect(reportOnly as string, rule.prefix).not.toContain(ENFORCED_REPORT_PATH);
-      if (mode === "full" && rule.document === "shell") {
-        const withoutScript = (reportOnly as string).split("; ").filter((part) => !part.startsWith("script-src ")).join("; ");
-        expect(added.replace(ENFORCED_REPORT_PATH, REPORT_PATH), rule.prefix).toBe(withoutScript);
-        expect((enforcing as string[])[0], rule.prefix).toContain("script-src 'self'");
-      } else if (mode === "full") {
+      if (mode === "full") {
         expect(added.replace(ENFORCED_REPORT_PATH, REPORT_PATH), rule.prefix).toBe(reportOnly);
       }
     }

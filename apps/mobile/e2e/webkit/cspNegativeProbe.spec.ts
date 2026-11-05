@@ -11,9 +11,9 @@ import { reportLines } from "./csp-report-log.mjs";
  * the browser side. It loads a shell path from the fixture's own server, so
  * the response carries exactly the headers that server sends for it, and
  * swaps only the body for one with an inline script no policy allows. In
- * every mode the script must not run, and exactly one enforced
- * `script-src-elem` refusal of `inline` in the shell must be reported, beside
- * its report-only duplicate: since 2026-11-05 production enforces the shell's
+ * every mode the script must not run, and each enforcing policy that names
+ * `script-src` must report one `script-src-elem` refusal of `inline` in the
+ * shell (one, or two under `full`), beside the report-only duplicate: since 2026-11-05 production enforces the shell's
  * script policy itself (`shellEnforcedPolicy`), so `production` blocks it too.
  *
  * The probe's own reports are caught here and never reach the run's report
@@ -58,6 +58,8 @@ test("an inline script the candidate does not allow is blocked, and reported as 
   const reported = rows.filter((row) => row.document === refusal.document && row.directive === refusal.directive && row.blocked === refusal.blocked);
   expect(sentHeaders["content-security-policy"], "the enforced script policy").toContain(`report-uri ${ENFORCED_REPORT_PATH}`);
   expect(ran, "the enforced script policy blocks the script").toBe(false);
-  expect(reported.map((row) => row.disposition).sort(), "one enforced refusal, and its report-only duplicate").toEqual(["enforce", "report"]);
+  // One enforced refusal per enforcing policy that names script-src (the shell's own, plus `full` mode's copy), and the report-only duplicate.
+  const enforcing = MODE === "full" ? ["enforce", "enforce"] : ["enforce"];
+  expect(reported.map((row) => row.disposition).sort(), "each enforced refusal, and its report-only duplicate").toEqual([...enforcing, "report"]);
   expect(rows.filter((row) => !reported.includes(row)), "nothing else was reported").toEqual([]);
 });
