@@ -1,42 +1,38 @@
 /**
  * A new note's title line, as board 3 draws it (`meeting-2026-10-17/
  * phone-inbox/`, approved by Dev2 on 2026-10-17): a grey **Title** where the
- * placeholder name is, and under it one line saying what happens next — "Your
- * agent will file it" for a note in the Inbox.
+ * title goes, and under it one line saying what happens next — "Your agent
+ * will file it" for a note in the Inbox.
  *
- * The file still says `# untitled-2026-10-17`: that is what names a note
- * before anybody has (`untitled.ts`), and the heading is what renames it once
- * somebody types one (`useLinkedTitle.ts`). This only changes how that line is
- * *drawn* while it still says the placeholder: the line's words are drawn as
- * "Title", and the first keystroke makes it the person's own words, drawn as
- * themselves.
+ * ## The title is empty, and nothing stands in for it in the text
  *
- * That first keystroke replaces the placeholder whatever the selection is.
- * Opening a new note selects the title's words, but a tap or click on the grey
- * "Title" — the obvious place to start typing — collapses that selection to
- * the end of the line, and typing there appended to a name nobody could see:
- * `# untitled-2026-10-19Is` (reported 2026-10-19). So typing or pasting into a
- * placeholder title replaces its words, and a backspace in it does nothing, as
- * in an empty field: there is nothing on screen to delete.
+ * A new note's text starts as `# ` and an empty line: a heading with no words
+ * yet. Its made-up name, `untitled-2026-11-05`, is the file's name on its row
+ * (`untitled.ts`) and nowhere in the note. The grey "Title" is drawn into the
+ * empty heading, and what is typed there is the title, by the editor's own
+ * ordinary typing. The heading renames the file once it has words
+ * (`useLinkedTitle.ts`).
+ *
+ * Until 2026-11-05 the text said `# untitled-2026-11-05` and this file drew
+ * that line as "Title" and guessed, from each typed change, which part was the
+ * person's. A browser typing over the selected words of a line drawn as
+ * something else hands CodeMirror the old words with the new letter on the end,
+ * and the guess took the lot: `# untitled-2026-10-19Is` (2026-10-19), then
+ * `# untitled-2026-11-04-2S` (2026-11-05) with the title selected on opening.
+ * Dev2 picked removing the stand-in text over patching the guess again. With
+ * nothing in the line, there is nothing to guess about.
+ *
+ * A backspace in the empty title does nothing, as in an empty field: there is
+ * nothing on screen to delete, and taking the `#` would leave a note whose
+ * first line is not its title.
  *
  * Both editors install it from `editorExtensions`, and the line under the
  * title comes in as a command (`titleHint`), so the phone's web view and the
  * web editor draw the same thing from the same code.
  */
-import {
-  EditorSelection,
-  EditorState,
-  StateEffect,
-  StateField,
-  Transaction,
-  type Extension,
-  type TransactionSpec,
-} from "@codemirror/state";
+import { EditorState, StateEffect, StateField, type Extension, type Transaction } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { titleRange } from "./liveEditorWeb/titleLine";
-
-/** `untitled-2026-10-17`, `untitled-2026-10-17-2`: `untitledStem` and its suffix. */
-const PLACEHOLDER = /^untitled-\d{4}-\d{2}-\d{2}(-\d+)?$/;
 
 export const TITLE_PLACEHOLDER = "Title";
 
@@ -94,53 +90,37 @@ class TitleHint extends WidgetType {
   }
 }
 
-/** Where the placeholder title is, when the note's title still is one. */
-export function placeholderTitle(state: EditorState): { from: number; to: number; textFrom: number } | null {
+/** Where the empty title is, while the note's title has no words yet. */
+export function emptyTitle(state: EditorState): { from: number; to: number; textFrom: number } | null {
   const range = titleRange(state);
   if (range === null) return null;
-  const words = state.doc.sliceString(range.textFrom, range.to).trim();
-  return PLACEHOLDER.test(words) ? range : null;
+  return state.doc.sliceString(range.textFrom, range.to).trim() === "" ? range : null;
 }
 
-/**
- * The person's own edit to a placeholder title, made to the whole placeholder:
- * text typed, pasted or dropped anywhere in the line replaces its words, and a
- * deletion inside it does not happen. Only the person's own input — a collaborator's
- * change or a rename arriving from the host is applied as it came.
- */
-function replacePlaceholder(transaction: Transaction): Transaction | readonly TransactionSpec[] {
-  if (!transaction.docChanged) return transaction;
-  const typing = transaction.isUserEvent("input");
-  if (!typing && !transaction.isUserEvent("delete")) return transaction;
-  const range = placeholderTitle(transaction.startState);
+/** A backspace or delete made inside the empty title, which has nothing to delete. */
+function keepEmptyTitle(transaction: Transaction): Transaction | readonly [] {
+  if (!transaction.docChanged || !transaction.isUserEvent("delete")) return transaction;
+  const range = emptyTitle(transaction.startState);
   if (range === null) return transaction;
-  let inserted = "";
   let inside = true;
-  transaction.changes.iterChanges((from, to, _fromB, _toB, text) => {
+  transaction.changes.iterChanges((from, to) => {
     if (from < range.from || to > range.to) inside = false;
-    inserted += text.toString();
   });
-  // Enter at the end of the title starts the body, and a change reaching past
-  // the line (select-all, a multi-line paste over it) is not a retitle.
-  if (!inside || inserted.includes("\n")) return transaction;
-  if (!typing) return [];
-  return [
-    {
-      changes: { from: range.textFrom, to: range.to, insert: inserted },
-      selection: EditorSelection.cursor(range.textFrom + inserted.length),
-      userEvent: transaction.annotation(Transaction.userEvent),
-      scrollIntoView: transaction.scrollIntoView,
-    },
-  ];
+  return inside ? [] : transaction;
 }
 
 function decorate(state: EditorState, hint: string | null): DecorationSet {
   const range = titleRange(state);
   if (range === null) return Decoration.none;
   const marks = [];
-  const placeholder = placeholderTitle(state);
-  // The whole line, its `# ` included: board 3 draws the word alone.
-  if (placeholder !== null) marks.push(Decoration.replace({ widget: new PlaceholderTitle() }).range(range.from, range.to));
+  const empty = emptyTitle(state);
+  // Board 3 draws the word alone: the `# ` is hidden and "Title" drawn after
+  // it, as a widget beside the caret rather than over any text, so typing
+  // there is typing into an empty line.
+  if (empty !== null) {
+    marks.push(Decoration.replace({}).range(empty.from, empty.to));
+    marks.push(Decoration.widget({ widget: new PlaceholderTitle(), side: 1 }).range(empty.to));
+  }
   // Only while nothing has been written under the title: it is a note about a
   // new note, and a note with words in it is not one any more.
   const rest = state.doc.sliceString(range.to).trim();
@@ -162,7 +142,7 @@ const field = StateField.define<{ hint: string | null; decorations: DecorationSe
 });
 
 export function untitledTitle(): Extension {
-  return [field, EditorState.transactionFilter.of(replacePlaceholder)];
+  return [field, EditorState.transactionFilter.of(keepEmptyTitle)];
 }
 
 /** Draw `text` under the title of a note that has none yet, or clear it. */
