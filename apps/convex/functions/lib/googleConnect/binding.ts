@@ -12,6 +12,7 @@ import type { ObjectType } from "convex/values";
 import type { MutationCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { recordAudit } from "../audit";
+import { refreshTexting } from "../textingRefresh";
 import { grantedScopesFor } from "../googleOAuth";
 import { planForBinding } from "./consentPlan";
 import { DEFAULT_MAIL_QUOTA_BYTES } from "./config";
@@ -198,5 +199,7 @@ export async function applyGmailConnectionBindingHandler(
     action: existing === null ? "mail.connected" : "mail.reconnected",
     details: { mailboxSlug: fields.gmail.mailboxSlug, backfillDays: args.backfillDays },
   });
+  // Tex is told every turn which Google accounts they have connected (`lib/texIdentity/identity.ts`): their person object hears now.
+  await refreshTexting(ctx, args.boundBy);
   return connectionId;
 }

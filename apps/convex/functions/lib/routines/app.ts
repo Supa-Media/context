@@ -10,6 +10,7 @@ import type { ActionCtx, MutationCtx, QueryCtx } from "../../../_generated/serve
 import { callerId, personalNameFor } from "../filesFns/access";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
 import { isTimeZone, scheduleFromNote } from "./model";
+import { refreshTexting } from "../textingRefresh";
 
 export type RoutineView = {
   cadence: { unit: "minute" | "hour" | "day" | "week" | "month" | "once"; every: number };
@@ -98,6 +99,8 @@ export async function setMyTimeZoneHandler(
     await ctx.db.patch(existing[0]!._id, { timeZone: args.timeZone, updatedAt: now });
     for (const extra of existing.slice(1)) await ctx.db.delete(extra._id);
   }
+  // A text's session answers with the zone the person object keeps: it hears the new one now, not ten minutes on (2026-11-05).
+  await refreshTexting(ctx, userId);
   return null;
 }
 

@@ -77,6 +77,9 @@ export function nudgeCallTool(dispatch) {
  * The person's texts since `since`, as exchanges oldest first, and the time of
  * the newest. `shown` is every one, a tainted answer's words left out.
  */
+const SENT_FILES = /^\[Sent with this text: .*\]$/;
+const withoutSentFiles = (text) => String(text ?? "").split("\n").filter((line) => !SENT_FILES.test(line.trim())).join("\n");
+
 export function textsSince(history, since) {
   const exchanges = [];
   for (let i = 0; i < history.length; i += 1) {
@@ -88,7 +91,8 @@ export function textsSince(history, since) {
   return {
     count: exchanges.length,
     newest: exchanges.reduce((most, exchange) => Math.max(most, exchange.at), since),
-    shown: exchanges.map((exchange) => (exchange.tainted ? { ...exchange, answer: "", tainted: false } : exchange)),
+    // A file's name is whoever made it's, not theirs: off a tainted exchange's question too. A voice message is their own words, said.
+    shown: exchanges.map((exchange) => (exchange.tainted ? { ...exchange, question: withoutSentFiles(exchange.question), answer: "", tainted: false } : exchange)),
   };
 }
 
