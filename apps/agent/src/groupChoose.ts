@@ -3,13 +3,14 @@
  * group by the control plane; moved out of `groupInbox.ts` whole.
  */
 
+import { GROUP_QUEUE, queueItem } from "./chatQueue";
 import { ServiceError } from "./clients";
 import { setEngagement, type GroupStyle } from "./decide";
 import type { ControlAnswer } from "./groupControl";
 import type { GroupDeps } from "./groupInbox";
 import { say } from "./groupSay";
 import { closeQuestion, engagementSet, keepStyle } from "./groupStyle";
-import { groupPendingKey as pendingKey, type GroupPending } from "./groupTurn";
+import type { GroupPending } from "./groupTurn";
 import type { InboxStorage } from "./inbox";
 import type { GroupMessage } from "./sendblueGroups";
 
@@ -21,9 +22,7 @@ export async function chooseStyle(storage: InboxStorage, deps: GroupDeps, messag
   await say(storage, deps, message, engagementSet(style, setBy), { system: true });
   const held = await closeQuestion<GroupPending>(storage);
   if (held === undefined) return;
-  const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
-  await storage.put("gseq", seq);
-  await storage.put<GroupPending>(pendingKey(seq), { ...held, attempts: 0, byCode: true, styleAsked: true });
+  await queueItem<GroupPending>(storage, GROUP_QUEUE, { ...held, attempts: 0, byCode: true, styleAsked: true });
   await storage.setAlarm(deps.now());
 }
 

@@ -58,7 +58,6 @@ export type GroupPending = {
   rechecked?: true;
 };
 export type GroupEntry = [string, GroupPending];
-export const groupPendingKey = (seq: number) => `gpending:${String(seq).padStart(12, "0")}`;
 
 /** Handles by the hash of a phone, as the control plane last named them, never a number: so events can say who spoke. */
 const NAMES_KEY = "gnames";

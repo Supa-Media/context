@@ -32,6 +32,9 @@ flowchart LR
     RT["Shared rule: a failed turn is tried 3 more times<br/>from 10 s, doubling, then one failed line<br/>1:1 by the queue's alarm, groups by groupTurnWorkflow.ts"]:::shared
     W1 --- RT
     W2 --- RT
+    Q["Shared step: the chat's queue<br/>each text waits in its chat's object, in order<br/>1:1 up to 20, a group up to 10<br/>chatQueue.ts"]:::shared
+    W1 --- Q
+    W2 --- Q
   end
   subgraph Control["Control plane · Convex"]
     D["decide · recheck<br/>Clef, @cf/cloudflare/clef<br/>jev/models.ts"]:::judge
@@ -162,6 +165,7 @@ What each model costs is `jev/meter.ts`.
 
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-05: the queue is shared: both lanes put a text in line the same way (`chatQueue.ts`).
 - 2026-11-05: retries are shared: a 1:1 turn that fails is tried 3 more times, as a group's.
 - 2026-11-05: lookAgain is shared: 1:1 replies get the last look groups had (recheck takes `direct`).
 - 2026-11-05: the reply judge becomes ten parallel Clef Flash gates, each
