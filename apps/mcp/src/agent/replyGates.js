@@ -142,7 +142,7 @@ export const GATES = {
     notice: "Your reply leaves part of their question unanswered. Read their newest text again (and any picture they sent) and answer that, all of it.",
   }),
   followed_them: gate({
-    ask: "Compare their newest text with the assistant's last text before it. When their newest text says that was wrong or not wanted ('no, the bigger one', 'make it Friday', 'not by bus', 'it's Jon, not John') or asks for the advisor, the reply must deliver the fix: the corrected thing, another way to what they still want, or the advisor's take. Does the reply fail to deliver it, for example only 'got it', a thank-you, or the old answer again?",
+    ask: "Their newest text may be one of three kinds, each needing an act in the reply: a correction ('no, the other one', 'make it 8') needs the corrected thing done or sent; turning down a way ('not by bus') needs another way to what they still want; asking for the advisor needs the advisor asked. Is their newest text one of these, and does the reply miss the act it needs (a thank-you, 'got it' or 'glad that worked' is a miss)?",
     allow: [
       "They: 'not that one, the blue one'. Did: sent the blue file. Reply: the link.",
       "They: 'no trains, I hate trains'. Did: looked up a car service. Reply: 'Then a car: $60, 40 minutes.'",
@@ -153,8 +153,8 @@ export const GATES = {
       "They: 'no trains'. Did: nothing. Reply: 'Okay, no trains.' (drops the trip)",
       "They: 'check with your advisor first'. Did: no advisor ask. Reply: an answer.",
     ],
-    yes: "yes: their text calls for something and the reply doesn't do it (saying 'got it' or 'okay' alone is not doing it)",
-    no: "no: the reply does what their text calls for (the fix, another way to the same goal, the advisor's take), or their text calls for nothing like that",
+    yes: "yes: they corrected or turned down the assistant's last answer, or asked for the advisor, and the reply doesn't deliver the fix, another way or the advisor's take",
+    no: "no: the reply delivers the fix, another way or the advisor's take; or their newest text corrects nothing, turns nothing down and asks for no advisor",
     notice: "Their text told you something to act on (a correction, a way they don't want, or to ask your advisor), and your reply doesn't. Act on it now: redo it their way, keep going toward what they still want, or ask your advisor first.",
   }),
   never_arrived: gate({
