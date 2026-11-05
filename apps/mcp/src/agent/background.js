@@ -639,18 +639,25 @@ export function jobSavedLine(job) {
 
 /**
  * The answer's `jobs`: what the Worker starts, with whether the turn that
- * planned them had read from outside, and `heard`, what the person said aloud
- * this turn, which the Worker adds to their typed words as the jobs' question; and `steers`: the running jobs the
- * Worker hands this text to.
+ * planned them had read from outside; `steers`: the running jobs the Worker
+ * hands this text to; and, with either, `heard` (what the person said aloud
+ * this turn) and `sent` (the gateway's line naming the files they sent and
+ * where each is kept), which the Worker adds to their typed words
+ * (`apps/agent/src/jobs.ts` `jobQuestion`).
  */
-export function startedJobs(background, tainted, heard = "") {
+export function startedJobs(background, tainted, { heard = "", sent = "" } = {}) {
   if (background === null) return {};
+  const reached = background.started.length + background.steered.length + background.resumed.length > 0;
   return {
     ...(background.started.length > 0
-      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })), ...(heard ? { heard } : {}) } // `heard`: a voice message's words, the jobs' question beside what they typed (`heardWords.js`)
+      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })) }
       : {}),
     ...(background.steered.length + background.resumed.length > 0
       ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true }))] }
       : {}),
+    // What they said aloud and the files they sent with this text, for every job it starts, changes or restarts (`heardWords.js`):
+    // a job's turn sees none of the chat, so a voice message or a picture would otherwise never reach it.
+    ...(reached && heard ? { heard } : {}),
+    ...(reached && sent ? { sent } : {}),
   };
 }

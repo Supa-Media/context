@@ -158,14 +158,18 @@ export const JOB_LINES = {
   refusedStatus: { daily_limit: "Paused: today's limit for background work is used up", no_model: "Paused: no model could run it" },
 } as const;
 
+/** What came with a text besides its typed words, as the gateway read it (`clients.ts` `heard`, `sent`). */
+export type JobSaid = { heard?: string; sent?: string };
+
 /**
- * What a job is asked: the person's own words, typed and said aloud. The model only names a job; its question
- * is always what they sent. A voice message has no typed words, and the gateway hears it inside the turn
- * (`clients.ts` `heard`), so a job started from one was asked nothing and every part was refused (2026-11-05,
- * the Morocco trip job). At most as long as the gateway takes a question (`apps/mcp/src/agent/turn.js`).
+ * What a job is asked, or told by a later text: the person's own words, typed and said aloud, and the gateway's
+ * line naming the files they sent (`clients.ts` `heard`, `sent`). The model only names a job; what it is handed is
+ * always what they sent. A job's turn sees none of the chat, so before these a job started from a voice message was
+ * asked nothing and every part was refused (2026-11-05, the Morocco trip job), and a change sent by voice or a
+ * picture never reached a running job. At most as long as the gateway takes a question (`apps/mcp/src/agent/turn.js`).
  */
-export function jobQuestion(typed: string, heard?: string): string {
-  return [typed.trim(), (heard ?? "").trim()].filter(Boolean).join("\n\n").slice(0, MAX_ASKED);
+export function jobQuestion(typed: string, said: JobSaid = {}): string {
+  return [typed.trim(), (said.heard ?? "").trim(), (said.sent ?? "").trim()].filter(Boolean).join("\n\n").slice(0, MAX_ASKED);
 }
 
 const line = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");

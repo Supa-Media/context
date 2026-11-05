@@ -234,8 +234,8 @@ export type AgentAnswer =
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
-  /** `heard`: what the person said aloud this turn, transcribed by the gateway: the jobs it started are asked it beside their typed words (`jobs.ts` `jobQuestion`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; heard?: string }
+  /** `heard`, `sent`: what the person said aloud this turn, and the gateway's line naming the files they sent: jobs it starts, changes or restarts get them beside their typed words (`jobs.ts` `jobQuestion`). */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -405,7 +405,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
       ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),
-      ...(typeof body.heard === "string" && body.heard.trim() ? { heard: body.heard.trim().slice(0, MAX_HEARD) } : {}),
+      ...(typeof body.heard === "string" && body.heard.trim() ? { heard: body.heard.trim().slice(0, MAX_HEARD) } : {}), ...(typeof body.sent === "string" && body.sent.trim() ? { sent: body.sent.trim().slice(0, MAX_HEARD) } : {}),
     };
   }
   if (status === 409) return { kind: "no_model" };

@@ -25,7 +25,7 @@ import { answerWithAsk, textedAsk } from "../textedApprovals.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 import { groupTimingLine, waitBefore } from "../turnLog.js";
 import { turnTiming } from "../turnTiming.js";
-import { heardWords } from "../heardWords.js";
+import { heardWords, sentLine } from "../heardWords.js";
 import { jobChecked, startedJobEntries } from "../workEntries.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
@@ -85,7 +85,7 @@ export async function sendTheReply(t) {
     ...(steer !== null && steer.taken.length > 0 ? { steered: steer.taken } : {}), // the Worker drops these from its queue
     ...(verbatim.length > 0 || offerText ? { verbatim: [...verbatim, ...(offerText ? [offerText] : [])] } : {}),
     ...(offerText ? { askFor: ledger.offered.who } : {}), // the Worker takes only their 👍 or yes
-    ...startedJobs(background, ledger.untrusted === true, heardWords(attachments)), // the Worker runs these (`background.js`), asked their words, voice included (`heardWords.js`)
+    ...startedJobs(background, ledger.untrusted === true, { heard: heardWords(attachments), sent: sentLine(attachments, attached) }), // the Worker runs these (`background.js`), asked their words, voice and files included (`heardWords.js`)
     ...(pictures.length > 0 ? { pictures, ...(choices.length > 0 ? { choices } : {}) } : {}), ...(offers.length > 0 ? { offers, ...hubField(offers, chatHubUrl(env, session, group)) } : {}), // choices, offers: `outgoingPictures.js`; `hub`: where "what I'm working on" points (`hubLinks.js`)
     ...(ledger.vaultLink === true && group === null ? { vaultWatch: true } : {}), // the Worker watches for the save (`vaultSaved.js`)
     provider: turn.provider,

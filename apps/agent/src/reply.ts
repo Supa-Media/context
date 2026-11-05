@@ -50,7 +50,7 @@ import { saveReviewSharing, sharingReply, sharingWords } from "./reviewSharing";
 import type { OutgoingPicture } from "./outgoing";
 import type { Choice } from "./pickCard";
 import type { Offer } from "./dataCards";
-import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
+import type { JobSaid, JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
 import type { WarmDeps } from "./warm";
 
@@ -123,9 +123,9 @@ export type ReplyDeps = {
    */
   running?: RunningJob[];
   /** Resolves to a line for the answer when a job Tex said it started never did (`notStartedText`). */
-  onJobs?: (jobs: StartedJob[], heard?: string) => Promise<string | undefined | void>; // `heard`: what they said aloud, part of the jobs' question (`jobs.ts` `jobQuestion`)
+  onJobs?: (jobs: StartedJob[], said?: JobSaid) => Promise<string | undefined | void>; // `said`: what they said aloud and the files they sent, part of the jobs' question (`jobs.ts` `jobQuestion`)
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
-  onSteers?: (asks: JobSteerAsk[]) => Promise<string | undefined | void>;
+  onSteers?: (asks: JobSteerAsk[], said?: JobSaid) => Promise<string | undefined | void>;
   /** "Tex, settings" (`texStyle.ts`): where the open menu is kept. Absent, settings texts go to the model like any other. */
   settings?: { state: () => Promise<MenuState | undefined>; open: (step?: SettingStep) => Promise<void>; close: () => Promise<void> };
   /** A texted yes to sharing with the devs: file what this chat keeps, once (`reviewWatch.ts` `watchShared`). */
@@ -316,8 +316,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();
-      const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs, answer.heard) : undefined;
-      const notResumed = answer.steers ? await deps.onSteers?.(answer.steers) : undefined;
+      const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs, answer) : undefined;
+      const notResumed = answer.steers ? await deps.onSteers?.(answer.steers, answer) : undefined;
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
       if (answer.offers) deps.onOffers?.(answer.offers, answer.hub);

@@ -42,6 +42,17 @@ export function heardWords(attachments) {
   return heard.map((attachment) => attachment.text.trim()).join(" ").slice(0, MAX_HEARD_CHARS);
 }
 
+/**
+ * The gateway's line naming the files sent with this text and where each is kept (`attachments.js`
+ * `attachmentsLine`'s first line), for a job this text starts or changes, or "" when only voice came:
+ * a job sees none of the chat, so without it a picture sent with the ask never reached the job
+ * (2026-11-05 bug hunt). Names, notes and `download:` ids only, never contents.
+ */
+export function sentLine(attachments, attached) {
+  const files = (Array.isArray(attachments) ? attachments : []).filter((attachment) => !attachment?.carried && attachment?.heard !== true);
+  return files.length > 0 && typeof attached === "string" ? (attached.split("\n")[0] ?? "").slice(0, MAX_HEARD_CHARS) : "";
+}
+
 const wordless = (event) => event?.from?.kind === "person" && event.kind === "file" && event.heard === undefined && String(event.text ?? "").trim() === "";
 
 /**
