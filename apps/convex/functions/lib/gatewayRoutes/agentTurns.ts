@@ -18,7 +18,7 @@ type TraceEntry = {
 };
 
 /**
- * The trace as the gateway's `wireTraceEntry` (`apps/mcp/src/agent/route.js`)
+ * The trace as the gateway's `wireTraceEntry` (`apps/mcp/src/agent/turnLog.js`)
  * sends it: kinds, names, numbers and flags. Anything else on an entry is
  * dropped here, before the mutation's validator ever sees it, so a field this
  * handler does not know can never carry a provider's words into the log.
@@ -29,6 +29,9 @@ function traceOf(value: unknown): TraceEntry[] | null {
   for (const entry of value) {
     if (typeof entry !== "object" || entry === null) return null;
     const { kind, tool, tier, confidence, model, status, retried, cut, held, ok, ms } = entry as Record<string, unknown>;
+    // A reply gate's verdict (`replyJudge.js` via `wireTraceEntry`): kept in the chat's history
+    // (`judgeEvent`), not in this log. Skipped, so a judged turn keeps its row and its priced usage.
+    if (kind === "judge") continue;
     if (kind !== "model" && kind !== "tool" && kind !== "router" && kind !== "fallback") return null;
     if (typeof ok !== "boolean" || typeof ms !== "number") return null;
     if (tool !== undefined && typeof tool !== "string") return null;
