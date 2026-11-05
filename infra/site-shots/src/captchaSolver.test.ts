@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { settleCaptcha } from "./captcha";
 import { solverLine, watchSolver, type SolverState } from "./captchaSolver";
-import type { CdpTransport } from "./cdp";
+import { attachPage, type CdpTransport } from "./cdp";
 
 /** A CDP connection that records what was sent and lets a test fire the browser's events. */
 function fakeCdp() {
@@ -56,5 +56,26 @@ describe("Browserbase's captcha solver", () => {
     const failing = { now: () => t, wait: async (ms: number) => void ((t += ms) >= 3_000 && (state = "errored")) };
     expect(await settleCaptcha(blank, { ...failing, solver: { state: () => state } })).toBe("unsolved");
     expect(await settleCaptcha(blank, { solver: { state: () => null } })).toBeNull();
+  });
+
+  it("is listening on every page /browse attaches to, before any step runs", async () => {
+    const sent: string[] = [];
+    const listeners = new Map<string, Array<(params: unknown) => void>>();
+    const cdp: CdpTransport = {
+      async send<T>(method: string) {
+        sent.push(method);
+        const answers: Record<string, unknown> = { "Target.getTargets": { targetInfos: [{ targetId: "t1", type: "page" }] }, "Target.attachToTarget": { sessionId: "s1" } };
+        return (answers[method] ?? {}) as T;
+      },
+      on(method, listener) {
+        listeners.set(method, [...(listeners.get(method) ?? []), listener]);
+      },
+      close() {},
+    };
+    const attached = await attachPage(cdp);
+    expect(sent).toContain("Log.enable");
+    expect(sent).not.toContain("Runtime.enable");
+    listeners.get("Log.entryAdded")?.forEach((l) => l({ entry: { text: "browserbase-solving-started" } }));
+    expect(attached.solver?.state()).toBe("solving");
   });
 });
