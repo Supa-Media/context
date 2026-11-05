@@ -16,6 +16,9 @@ const NEW = "0-inbox/untitled-2026-10-18.md";
 
 describe("a new note nobody wrote in", () => {
   test("is blank with only the heading it was made with, or nothing", () => {
+    expect(isBlankNewNote(NEW, "# \n\n")).toBe(true);
+    expect(isBlankNewNote(NEW, "#\n")).toBe(true);
+    // What a new note started as before 2026-11-05, still in a device's kept draft.
     expect(isBlankNewNote(NEW, "# untitled-2026-10-18\n\n")).toBe(true);
     expect(isBlankNewNote(NEW, "")).toBe(true);
     expect(isBlankNewNote(NEW, "  \n\n")).toBe(true);
@@ -26,6 +29,7 @@ describe("a new note nobody wrote in", () => {
     expect(isBlankNewNote(NEW, "# untitled-2026-10-18\n\nBuy milk\n")).toBe(false);
     expect(isBlankNewNote(NEW, "# Groceries\n")).toBe(false);
     expect(isBlankNewNote(NEW, "Buy milk")).toBe(false);
+    expect(isBlankNewNote(NEW, "# \n\nBuy milk\n")).toBe(false);
   });
 
   test("a note somebody named, or a drawing, is never one", () => {

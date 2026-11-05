@@ -10,11 +10,12 @@ import { untitledTitle } from "../features/console/files/untitledTitle";
 /**
  * A quick note, typed into, with both filters a real editor installs:
  * `untitledTitle` (the placeholder) and `titleLock` (the title's rules).
- * Reported 2026-10-19: typing after the grey Title appended to a name nobody
- * could see, and typing into an empty note renamed it instead of writing in it.
+ * Reported 2026-10-19 and again 2026-11-05: typing into the grey Title
+ * appended to a name nobody could see. A new note's title is empty now
+ * (`seedFor`), so there is no name to append to.
  *
- * SABOTAGE: removing `untitledTitle`'s transaction filter fails the first
- * case; putting back "typed into an empty note is the title" fails the last.
+ * SABOTAGE: putting back "typed into an empty note is the title" fails the
+ * last case; writing the untitled name into a heading-less note fails it too.
  */
 
 const PATH = "0-inbox/untitled-2026-10-19.md";
@@ -39,26 +40,33 @@ function type(view: EditorView, text: string): void {
 
 describe("typing into a new note", () => {
   test("after the grey Title, the title is what was typed", () => {
-    const view = mount("# untitled-2026-10-19\n\n", 21);
+    const view = mount("# \n\n", 2);
     type(view, "Is");
     expect(view.state.doc.toString()).toBe("# Is\n\n");
   });
 
   test("in the body, the title stays as it was", () => {
-    const view = mount("# untitled-2026-10-19\n\n", 23);
+    const view = mount("# \n\n", 4);
     type(view, "milk");
-    expect(view.state.doc.toString()).toBe("# untitled-2026-10-19\n\nmilk");
+    expect(view.state.doc.toString()).toBe("# \n\nmilk");
   });
 
   test("backspace on the grey Title leaves it", () => {
-    const view = mount("# untitled-2026-10-19\n\n", 21);
-    view.dispatch({ changes: { from: 20, to: 21 }, userEvent: "delete.backward" });
-    expect(view.state.doc.toString()).toBe("# untitled-2026-10-19\n\n");
+    const view = mount("# \n\n", 2);
+    view.dispatch({ changes: { from: 1, to: 2 }, userEvent: "delete.backward" });
+    expect(view.state.doc.toString()).toBe("# \n\n");
   });
 
   test("into an empty note, what is typed is the body", () => {
     const view = mount("", 0);
     type(view, "sdasd");
-    expect(view.state.doc.toString()).toBe("# untitled-2026-10-19\n\nsdasd");
+    expect(view.state.doc.toString()).toBe("# \n\nsdasd");
+  });
+
+  test("deleting a typed title leaves the empty title, not the made-up name", () => {
+    const view = mount("# \n\nbody", 2);
+    type(view, "Hi");
+    view.dispatch({ changes: { from: 2, to: 4 }, userEvent: "delete.backward" });
+    expect(view.state.doc.toString()).toBe("# \n\nbody");
   });
 });

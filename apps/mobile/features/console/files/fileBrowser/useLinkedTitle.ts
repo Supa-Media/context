@@ -63,7 +63,7 @@ type LinkedTitleDeps =
   & Pick<FileActionsValues, "readNote" | "workspaceId" | "workspaceGenerationRef">
   & Pick<BrowserStateValues, "editor" | "renamed" | "pendingMoveTo">
   & Pick<OfflineQueueValues, "listings">
-  & Pick<NoteCreateValues, "awaitingTitle">
+  & Pick<NoteCreateValues, "awaitingTitle" | "retargeted">
   & Pick<RowCommandsValues, "rename">
   & Pick<SharesValues, "shares">;
 
@@ -103,7 +103,7 @@ interface OwedRename {
 }
 
 export function useLinkedTitle(deps: LinkedTitleDeps) {
-  const { awaitingTitle, editor, listings, readNote, rename, renamed, shares, workspaceId, workspaceGenerationRef, pendingMoveTo } = deps;
+  const { awaitingTitle, retargeted, editor, listings, readNote, rename, renamed, shares, workspaceId, workspaceGenerationRef, pendingMoveTo } = deps;
   const epoch = workspaceGenerationRef.current.epoch;
   const openedEpoch = useRef(epoch);
 
@@ -183,6 +183,20 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
     owed.current = null;
     const sameWorkspace = openedEpoch.current === epoch;
     openedEpoch.current = epoch;
+    /*
+      A new note whose first save found its untitled name taken has moved to
+      the next one (`UnsentCreate.retarget`). It is the note still being
+      written, title and all: what was typed into the title, and whether it
+      was typed here, carry over, and the title is not selected again — that
+      would put the person's own words under the next keystroke.
+    */
+    const movedFrom = path === null ? undefined : retargeted.current.get(path);
+    if (path !== null && movedFrom !== undefined) retargeted.current.delete(path);
+    if (sameWorkspace && path !== null && opened !== null && movedFrom === opened.path) {
+      setOpened({ ...opened, path });
+      if (locallyEditedTitle.current?.path === opened.path) locallyEditedTitle.current = { ...locallyEditedTitle.current, path };
+      return;
+    }
     const ownRename = sameWorkspace && path !== null && opened !== null && acted !== null &&
       acted.path === path && renamed?.from === opened.path && renamed.to === path;
     const pendingLocalTitle = ownRename && locallyEditedTitle.current?.path === opened.path &&
