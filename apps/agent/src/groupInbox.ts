@@ -46,6 +46,7 @@
  * - `gnames` handles by the hash of a phone, never a number (`groupTurn.ts`).
  */
 
+import { GROUP_QUEUE, queueFull, queueItem } from "./chatQueue";
 import { reportRoutineResult, ServiceError, type Fetch, type RoutineOutcome } from "./clients";
 import { chatRoutineMessage, type ChatRoutineRun } from "./groupRoutines";
 import { askControlPlane, type ControlAnswer } from "./groupControl";
@@ -76,7 +77,7 @@ import { rememberChatReader } from "./chatRead";
 import { reactionFor } from "./reactEmoji";
 import { runningTurn } from "./steer";
 import { canWait, chatEvent, readChatState, stillGathering } from "./chatState";
-import { chooseGroupTurn, coversOf, decideBeside, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
+import { chooseGroupTurn, coversOf, decideBeside, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
 import { chooseStyle } from "./groupChoose";
 import { handedTurnWaits, handOff, TURN_KEY, type HandedTurn } from "./groupTurnRun";
 import { answerBesideTurn } from "./groupBeside";
@@ -119,7 +120,7 @@ export function groupInboxName(groupId: string): string {
 type Pending = GroupPending;
 
 const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
-const MAX_PENDING = 10;
+const MAX_PENDING = GROUP_QUEUE.max;
 const MAX_ATTEMPTS = 3;
 const RETRY_MS = 20_000;
 const seenKey = (eventId: string, words: string) => `gseen:${eventId}:${words}`;
@@ -239,14 +240,11 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
 }
 
 async function enqueue(storage: InboxStorage, message: GroupMessage, extra: Partial<Pending>, repliesToTex: boolean, seen: string, now: number): Promise<"queued" | "full"> {
-  const pending = await storage.list<Pending>({ prefix: "gpending:" });
-  if (pending.size >= MAX_PENDING) return "full";
-  const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
-  await storage.put("gseq", seq);
+  if (await queueFull(storage, GROUP_QUEUE)) return "full";
   await storage.put(seen, now);
   // Whether it replies to Tex is decided now, against the handles Tex sent; the turn reads the words it quotes.
   // A reaction goes on as its line alone: only a held one (`holdThumb`) reaches the gateway as a tapback, which can be a yes.
-  await storage.put<Pending>(pendingKey(seq), { message: { ...message, reaction: undefined, ...(repliesToTex ? {} : { replyTo: undefined }) }, attempts: 0, at: now, ...extra });
+  await queueItem<Pending>(storage, GROUP_QUEUE, { message: { ...message, reaction: undefined, ...(repliesToTex ? {} : { replyTo: undefined }) }, attempts: 0, at: now, ...extra });
   // The chat moved (a wait that began before this decides again: `stillGathering`), and the burst Tex owes an answer to
   // starts with its first waiting message: its deadline counts from here. A line kept only as chat changes neither.
   if (!extra.byCode) await chatEvent(storage, "message", "queued", { now, burst: true }); // a command is no part of a burst
@@ -265,11 +263,8 @@ export async function acceptGroupRoutine(storage: InboxStorage, run: ChatRoutine
 export async function queueGroupByCode(storage: InboxStorage, message: GroupMessage, now: number): Promise<"queued" | "full"> {
   const seen = seenKey(message.eventId, ""); // One run, one turn: handed here again, it is already queued or answered.
   if ((await storage.get<number>(seen)) !== undefined) return "queued";
-  const pending = await storage.list<Pending>({ prefix: "gpending:" });
-  if (pending.size >= MAX_PENDING) return "full";
-  const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
-  await storage.put("gseq", seq);
-  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0, at: now, byCode: true });
+  if (await queueFull(storage, GROUP_QUEUE)) return "full";
+  await queueItem<Pending>(storage, GROUP_QUEUE, { message, attempts: 0, at: now, byCode: true });
   await storage.put(seen, now);
   await storage.setAlarm(now);
   return "queued";
@@ -293,7 +288,7 @@ export async function routineDone(deps: GroupDeps, message: GroupMessage, outcom
 async function followsOwnTag(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
   // An SMS joins nothing: its sender can be faked.
   if (message.sms) return false;
-  const pending = [...(await storage.list<Pending>({ prefix: "gpending:" })).values()];
+  const pending = [...(await storage.list<Pending>({ prefix: GROUP_QUEUE.prefix })).values()];
   return pending.some((item) => item.message.from === message.from && item.attempts === 0 && !item.soft && now - (item.at ?? 0) < PICTURE_JOINS_MS);
 }
 
@@ -382,24 +377,16 @@ export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promis
 async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> {
   // A 👍 on the ask joins the queue as the asker's answer.
   const thumb = await dueThumb<GroupMessage>(storage, deps.now(), GROUP_THUMB_KEY);
-  if (thumb !== undefined) {
-    const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
-    await storage.put("gseq", seq);
-    await storage.put<Pending>(pendingKey(seq), { message: thumb, attempts: 0, at: deps.now(), byCode: true });
-  }
+  if (thumb !== undefined) await queueItem<Pending>(storage, GROUP_QUEUE, { message: thumb, attempts: 0, at: deps.now(), byCode: true });
   // A style question nobody answered in time: the message it held is answered after all.
   const unanswered = await expiredQuestion<Pending>(storage, deps.now());
-  if (unanswered !== undefined) {
-    const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
-    await storage.put("gseq", seq);
-    await storage.put<Pending>(pendingKey(seq), { ...unanswered, attempts: 0, byCode: true, styleAsked: true });
-  }
+  if (unanswered !== undefined) await queueItem<Pending>(storage, GROUP_QUEUE, { ...unanswered, attempts: 0, byCode: true, styleAsked: true });
   for (let pass = 0; pass < 3 * MAX_PENDING; pass += 1) {
     // One model turn at a time: while a workflow answers one, the rest wait for it (`groupTurnRun.ts`); a fixed line goes now (`groupBeside.ts`).
     if (deps.startTurn !== undefined && (await handedTurnWaits(storage, deps))) {
       return void (await answerBesideTurn(storage, deps, (await storage.get<HandedTurn>(TURN_KEY))?.keys ?? []));
     }
-    const pending = [...(await storage.list<Pending>({ prefix: "gpending:" }))];
+    const pending = [...(await storage.list<Pending>({ prefix: GROUP_QUEUE.prefix }))];
     if (pending.length === 0) break;
     let entries: GroupEntry[] = [pending[0]];
     if (!pending[0][1].byCode && pending[0][1].attempts === 0) {

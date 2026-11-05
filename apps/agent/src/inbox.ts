@@ -47,6 +47,7 @@
  *   them to the person's own bucket (`events.ts`).
  */
 
+import { queueItem, TEXTS_QUEUE } from "./chatQueue";
 import { partEvent, sendCardPart, threadFor } from "./sendParts";
 import type { Choice } from "./pickCard";
 import { settleCard, withCardsHere } from "./cardChats";
@@ -120,7 +121,7 @@ export const MAX_SEND_ATTEMPTS = 3;
 /** Tries at a text whose turn failed (`TryLater`), the last one saying so: three more after the first, from 10 s doubling, as a group's (`groupTurnWorkflow.ts`). */
 export const MAX_ANSWER_ATTEMPTS = 4;
 /** Most pending messages one sender may have queued; beyond it, new ones are dropped. */
-export const MAX_PENDING = 20;
+export const MAX_PENDING = TEXTS_QUEUE.max;
 
 /**
  * Where a routine's text goes: the chat this sender last texted from. The
@@ -167,7 +168,6 @@ async function isLatePreview(storage: InboxStorage, message: Message, now: numbe
 }
 
 const seenKey = (eventId: string) => `seen:${eventId}`;
-const pendingKey = (seq: number) => `pending:${String(seq).padStart(12, "0")}`;
 
 export async function accept(
   storage: InboxStorage,
@@ -181,7 +181,7 @@ export async function accept(
   }
   if (isSendblueChat(message.chatId) && WEB_ADDRESS.test(message.text)) await storage.put<number>(LINK_AT_KEY, now);
   message = await settleCard(storage, message, now);
-  const pending = await storage.list<Pending>({ prefix: "pending:" });
+  const pending = await storage.list<Pending>({ prefix: TEXTS_QUEUE.prefix });
   if (pending.size >= MAX_PENDING) return "full";
 
   const previous = await storage.get<RememberedChat>(CHAT_KEY);
@@ -190,12 +190,10 @@ export async function accept(
   if (quiet && !message.threaded && !message.tapback) message = { ...message, newTopic: true };
   // A settings text, or a reply the open menu reads, is answered by code before decide (Dev2, 2026-10-28; `texStyle.ts`).
   if (!message.sms && !message.tapback && (await isSettingsText(storage, message.text, now))) message = { ...message, setting: true };
-  const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
-  await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
   // An SMS is never logged as the person's words: anyone can send one that shows their number.
   const ev = message.sms ? undefined : await logInbound(storage, message, now);
-  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0, at: now, ...(ev ? { ev } : {}) });
+  const key = await queueItem<Pending>(storage, TEXTS_QUEUE, { message, attempts: 0, at: now, ...(ev ? { ev } : {}) });
   await rememberText(storage, message.chatId, message.messageId, message.text, now);
   const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
   if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && !isWhapiChat(previous.chatId) && isSendblueChat(message.chatId)) {
@@ -212,7 +210,7 @@ export async function accept(
   await storage.setAlarm(now + wait);
   // Anything sent while Tex works in this chat is decided with the turn running (`inboxTurn.ts`).
   try {
-    await decideWhileRunning(storage, pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text, emoji) => {
+    await decideWhileRunning(storage, key, { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text, emoji) => {
       const running = runningTurn(storage, text.chatId);
       if (running !== undefined && text.messageId && !text.tapback && text.channel !== "simulator") {
         await lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, reactionFor(emoji, ackEmoji(text.text)));
@@ -244,10 +242,8 @@ export async function carryOnAfterSave(storage: InboxStorage, deps: Pick<InboxDe
 /** Queue a turn this Worker asks for itself (a saved login's, a job's report), never a webhook; false when that event was queued already. */
 export async function queueByCode(storage: InboxStorage, message: Message, now: number): Promise<boolean> {
   if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return false;
-  const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
-  await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
-  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
+  await queueItem<Pending>(storage, TEXTS_QUEUE, { message, attempts: 0 });
   await storage.setAlarm(now);
   return true;
 }
@@ -298,7 +294,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   if (thumb !== undefined) await accept(storage, thumb, deps.now());
   // Each pass sends a reply kept for a retry, or decides and answers one turn; each takes at least one text.
   for (let pass = 0; pass < 3 * MAX_PENDING; pass += 1) {
-    const pending = [...(await storage.list<Pending>({ prefix: "pending:" }))];
+    const pending = [...(await storage.list<Pending>({ prefix: TEXTS_QUEUE.prefix }))];
     if (pending.length === 0) break;
     const kept = pending.find(([, item]) => item.reply !== undefined);
     if (kept !== undefined) {
