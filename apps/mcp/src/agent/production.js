@@ -212,7 +212,7 @@ async function parse(raw) {
   const frontDoor = readFrontDoor(front.front_door);
   if (frontDoor === null) return null;
 
-  // A decision model reads each texted reply before it goes (`replyJudge.js`): `reply_judge: clef | clef-flash` runs the nine gates, `judge_at` overrides their thresholds.
+  // A decision model reads each texted reply before it goes (`replyJudge.js`): `reply_judge: clef | clef-flash` runs the ten gates, `judge_at` overrides their thresholds.
   const replyJudge = readReplyJudge(front.reply_judge, front.judge_at);
   if (replyJudge === undefined) return null;
 

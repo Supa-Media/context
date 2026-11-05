@@ -1,5 +1,5 @@
 /**
- * THE REPLY GATES: NINE SMALL JUDGES, EACH WITH ONE JOB (Dev2, 2026-11-05).
+ * THE REPLY GATES: TEN SMALL JUDGES, EACH WITH ONE JOB (Dev2, 2026-11-05).
  *
  * "Remove these archaic pattern matching, that step should instead be a
  * series of parallel judges, fine tuned individually to make sure their gates
@@ -142,22 +142,36 @@ export const GATES = {
     notice: "Your reply leaves part of their question unanswered. Read their newest text again (and any picture they sent) and answer that, all of it.",
   }),
   followed_them: gate({
-    ask: "Their newest text may be one of four kinds, each needing an act in the reply: a correction ('no, the other one', 'make it 8') needs the corrected thing done or sent; turning down a way ('not by bus') needs another way to what they still want; saying a code, text or prompt never reached them needs another route, never a request to send it once it arrives; asking for the advisor needs the advisor asked. Is their newest text one of these, and does the reply miss the act it needs (a thank-you, 'got it' or 'glad that worked' is a miss)?",
+    ask: "Their newest text may be one of three kinds, each needing an act in the reply: a correction ('no, the other one', 'make it 8') needs the corrected thing done or sent; turning down a way ('not by bus') needs another way to what they still want; asking for the advisor needs the advisor asked. Is their newest text one of these, and does the reply miss the act it needs (a thank-you, 'got it' or 'glad that worked' is a miss)?",
     allow: [
       "They: 'not that one, the blue one'. Did: sent the blue file. Reply: the link.",
       "They: 'no trains, I hate trains'. Did: looked up a car service. Reply: 'Then a car: $60, 40 minutes.'",
-      "They: 'the code never came'. Did: asked for a code by email instead. Reply: 'Sent one to your email instead, what is it?'",
       "They: 'ask your advisor'. Did: asked the advisor. Reply: its take.",
     ],
     block: [
       "They: 'make it 8 instead'. Did: nothing. Reply: 'You're all set for 7.'",
       "They: 'no trains'. Did: nothing. Reply: 'Okay, no trains.' (drops the trip)",
-      "They: 'the approval never came through'. Reply: 'Approve it on your phone and I'll continue.'",
       "They: 'check with your advisor first'. Did: no advisor ask. Reply: an answer.",
     ],
     yes: "yes: their text calls for something and the reply doesn't do it (saying 'got it' or 'okay' alone is not doing it)",
-    no: "no: the reply does what their text calls for (the fix, another way to the same goal, another route past what never came, the advisor's take), or their text calls for nothing like that",
-    notice: "Their text told you something to act on (a correction, a way they don't want, a code or prompt that never reached them, or to ask your advisor), and your reply doesn't. Act on it now: redo it their way, keep going toward what they still want, find another way past what never arrived, or ask your advisor first.",
+    no: "no: the reply does what their text calls for (the fix, another way to the same goal, the advisor's take), or their text calls for nothing like that",
+    notice: "Their text told you something to act on (a correction, a way they don't want, or to ask your advisor), and your reply doesn't. Act on it now: redo it their way, keep going toward what they still want, or ask your advisor first.",
+  }),
+  never_arrived: gate({
+    ask: "Does their newest text say a code, text, email, approval prompt or link never reached them, while the reply still asks them to send it, approve it, wait for it or try again, instead of taking another route (a code by email or call, another sign-in option, a resend checked to have gone out)?",
+    allow: [
+      "They: 'the code never came'. Did: asked for a code by email instead. Reply: 'Sent one to your email instead, what is it?'",
+      "They: 'no reset link yet'. Did: resent it, the site confirmed it went to their work address. Reply: 'It went to your work email, check there.'",
+      "They: 'got it, 4471'. Reply: 'Signed in.' (nothing missing)",
+    ],
+    block: [
+      "They: 'the approval never came through'. Reply: 'Approve it on your phone and I'll continue.'",
+      "They: 'no text from the bank'. Did: nothing. Reply: 'Give it a minute, then send me the code.'",
+      "They: 'didn't get the link'. Did: nothing. Reply: 'Click the link in the email to finish.'",
+    ],
+    yes: "yes: something never reached them and the reply still waits on it",
+    no: "no: the reply takes another route past what never arrived, or nothing went missing",
+    notice: "They told you a code, text or prompt never reached them, and your reply still waits on it. Take another route now: ask for it another way (email, a call, another sign-in option) or resend and check it went out, then tell them where to look.",
   }),
   promises_kept: gate({
     ask: "Does the reply promise to text, check in, remind or follow up later (tonight, at 4:30, tomorrow, when it's done) with nothing in the actions that will make that happen (no reminder or routine written, no background job started)?",

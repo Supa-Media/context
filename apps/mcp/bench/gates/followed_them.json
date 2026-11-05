@@ -1,29 +1,7 @@
 {
   "gate": "followed_them",
-  "about": "Replies that ignore what the person told Tex to act on: a correction, a refused method (with the goal still wanted), a prompt or code that never arrived, or an ask to use the advisor. From the 2026-10-28/29 tester chats and the 2026-11-04 morning chat.",
+  "about": "Replies that ignore what the person told Tex to act on: a correction, a refused method (with the goal still wanted), or an ask to use the advisor. From the 2026-10-28/29 tester chats and the 2026-11-04 morning chat.",
   "cases": [
-    {
-      "id": "prompt-never-came",
-      "q": "the approval notification never showed up on my phone",
-      "did": [],
-      "reply": "Approve the request on your phone and I'll continue.",
-      "fault": true
-    },
-    {
-      "id": "prompt-never-came-handled",
-      "q": "the approval notification never showed up on my phone",
-      "did": [
-        [
-          "browse",
-          {
-            "url": "https://site.example/login"
-          },
-          "Other ways to sign in: text me a code"
-        ]
-      ],
-      "reply": "Switched to a texted code instead, it should hit your phone now. What's the code?",
-      "fault": false
-    },
     {
       "id": "advisor-skipped",
       "q": "ask your advisor whether I should take the offer",
@@ -180,11 +158,38 @@
       "fault": false
     },
     {
-      "id": "code-never-came-asks-again",
-      "q": "i never got the verification text",
+      "id": "wrong-name-kept",
+      "q": "it's Priya not Pria",
+      "earlier": [
+        [
+          "person",
+          "draft a thank-you to Pria for the intro"
+        ],
+        [
+          "tex",
+          "Draft: 'Hi Pria, thanks so much for the intro!'"
+        ]
+      ],
       "did": [],
-      "reply": "Send me the 6-digit code when it arrives and I'll finish.",
+      "reply": "Thanks! Want me to send it?",
       "fault": true
+    },
+    {
+      "id": "wrong-name-fixed",
+      "q": "it's Priya not Pria",
+      "earlier": [
+        [
+          "person",
+          "draft a thank-you to Pria for the intro"
+        ],
+        [
+          "tex",
+          "Draft: 'Hi Pria, thanks so much for the intro!'"
+        ]
+      ],
+      "did": [],
+      "reply": "Fixed: 'Hi Priya, thanks so much for the intro!' Send it?",
+      "fault": false
     }
   ]
 }
