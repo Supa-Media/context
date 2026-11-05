@@ -215,13 +215,13 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     await startJobs(storage, answer.jobs, {
       now: deps.now(),
       inbox: groupInboxName(message.groupId),
-      origin: { kind: "group", message: { ...message, text: jobQuestion(message.text, answer.heard) }, at: acceptedAt }, // typed and said aloud
+      origin: { kind: "group", message: { ...message, text: jobQuestion(message.text, answer) }, at: acceptedAt }, // typed, said aloud, and the files sent
       place: { line: message.line, groupId: message.groupId, messageId: message.messageId },
       spawn: deps.spawnJob,
     });
   }
   // A change to a job still running is handed to it, in the words of whoever texted it.
-  const theirWords = { id: message.eventId, text: message.jobReport ? "" : message.text }; // a report's turn passes only its own notes
+  const theirWords = { id: message.eventId, text: message.jobReport ? "" : jobQuestion(message.text, answer) }; // with a voice message's words and the files sent // a report's turn passes only its own notes
   if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, theirWords, deps.steerJob, deps.now());
   if (answer.steers && deps.steerJob) await resumeJobs(storage, answer.steers, theirWords, deps.steerJob, deps.now()); // "restart it": an ended job picks up where it stopped, with their words
 }

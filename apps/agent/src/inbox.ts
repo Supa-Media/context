@@ -595,18 +595,18 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
   const channel = message.channel === "simulator" ? { channel: "simulator" as const } : {};
   return {
     running: await chatJobs(storage, deps.now(), { results: true }),
-    onJobs: async (jobs, heard) =>
+    onJobs: async (jobs, said) =>
       notStartedText((await startJobs(storage, jobs, {
         now: deps.now(),
         inbox: message.from,
-        origin: { kind: "phone", phone: message.from, question: jobQuestion(message.text, heard), ...channel }, // typed and said aloud
+        origin: { kind: "phone", phone: message.from, question: jobQuestion(message.text, said), ...channel }, // typed, said aloud, and the files sent
         place: { chatId: message.chatId, ...(message.messageId ? { messageId: message.messageId } : {}), ...channel },
         spawn,
       })).notStarted),
     // The model only names the job: what the job is handed is always their own text.
-    onSteers: async (asks) => {
+    onSteers: async (asks, told) => {
       if (!deps.steerJob) return;
-      const said = { id: message.eventId, text: message.event ? "" : message.text.trim() }; await steerJobs(storage, asks, said, deps.steerJob, deps.now()); // a turn by code passes only its own notes
+      const said = { id: message.eventId, text: message.event ? "" : jobQuestion(message.text, told) }; await steerJobs(storage, asks, said, deps.steerJob, deps.now()); // a turn by code passes only its own notes; a voice message's words and the files sent reach the job too
       return notResumedText(await resumeJobs(storage, asks, said, deps.steerJob, deps.now())); // "restart it" picks an ended job back up, with their words
     },
   };
