@@ -58,9 +58,10 @@ export async function sendPicturePart<P>(line: PartLine<P>, picture: P): Promise
 }
 
 async function saidFailed<P>(line: PartLine<P>, reason: "upload_failed" | "send_refused"): Promise<false> {
-  await line.log({ kind: "picture", delivered: false, reason }, false);
+  // Logged once the line went: a send that fails retries the reply from this part, and nothing is logged twice.
   const handle = await line.sendText(PICTURE_FAILED, true);
   await line.remember(handle, PICTURE_FAILED);
+  await line.log({ kind: "picture", delivered: false, reason }, false);
   await line.log({ kind: "text", text: PICTURE_FAILED, delivered: true }, true);
   return false;
 }
