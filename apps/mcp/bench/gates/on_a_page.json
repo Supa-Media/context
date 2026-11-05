@@ -1,0 +1,198 @@
+{
+  "gate": "on_a_page",
+  "about": "A long job result texted in full instead of a page or card with one or two lines and its link (Dev2 2026-11-05: 'reports should have artifacts and a page.md most of the times'). Reads only drafts over LONG_DRAFT_WORDS words; a short one passes unread.",
+  "cases": [
+    {
+      "id": "prs-in-full",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Last ten merged PRs",
+        "state": "done",
+        "texts": [
+          "1. #2839 search rework, risk: index rebuild on deploy. 2. #2812 calendar sync, risk: duplicate events. 3. #2790 mail labels, risk: none. 4. #2754 billing page, risk: tax rounding. 5. #2731 sign-in, risk: session expiry. 6. #2702 export, risk: large files. 7. #2684 74-file rework, risk: high. 8. #2655 tests only. 9. #2610 docs. 10. #2563 queue retries, risk: double sends."
+        ]
+      },
+      "did": [],
+      "reply": "Your last ten merged PRs: #2839 search rework (risk: index rebuild on deploy), #2812 calendar sync (duplicate events), #2790 mail labels (none), #2754 billing page (tax rounding), #2731 sign-in (session expiry), #2702 export (large files), #2684 a 74-file rework (high), #2655 tests only, #2610 docs, #2563 queue retries (double sends).",
+      "fault": true
+    },
+    {
+      "id": "prs-on-page",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Last ten merged PRs",
+        "state": "done",
+        "texts": [
+          "1. #2839 search rework, risk: index rebuild on deploy. 2. #2812 calendar sync, risk: duplicate events. 3. #2790 mail labels, risk: none. 4. #2754 billing page, risk: tax rounding. 5. #2731 sign-in, risk: session expiry. 6. #2702 export, risk: large files. 7. #2684 74-file rework, risk: high. 8. #2655 tests only. 9. #2610 docs. 10. #2563 queue retries, risk: double sends."
+        ]
+      },
+      "did": [
+        [
+          "write_note",
+          {
+            "path": "jobs/merged-prs.page.md"
+          },
+          "written: https://context.example/note/jobs/merged-prs.page.md"
+        ]
+      ],
+      "reply": "Ten PRs, two worth watching: #2684 touches 74 files and #2563 could double-send on retry. All of them with risks: https://context.example/note/jobs/merged-prs.page.md",
+      "fault": false
+    },
+    {
+      "id": "meals-in-full",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Meal plan",
+        "state": "done",
+        "texts": [
+          "Mon: oats, lentil soup, salmon and rice. Tue: eggs, chicken wraps, chili. Wed: yogurt, leftover chili, pasta primavera. Thu: smoothie, tuna salad, stir fry. Fri: toast, grain bowl, pizza night. Sat: pancakes, sandwiches, tacos. Sun: omelette, soup, roast chicken."
+        ]
+      },
+      "did": [],
+      "reply": "Here's the week. Monday: oats, lentil soup, then salmon and rice. Tuesday: eggs, chicken wraps, chili. Wednesday: yogurt, leftover chili, pasta primavera. Thursday: a smoothie, tuna salad, stir fry. Friday: toast, a grain bowl, pizza night. Saturday: pancakes, sandwiches, tacos. Sunday: an omelette, soup and a roast chicken.",
+      "fault": true
+    },
+    {
+      "id": "meals-on-page",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Meal plan",
+        "state": "done",
+        "texts": [
+          "Mon: oats, lentil soup, salmon and rice. Tue: eggs, chicken wraps, chili. Wed: yogurt, leftover chili, pasta primavera. Thu: smoothie, tuna salad, stir fry. Fri: toast, grain bowl, pizza night. Sat: pancakes, sandwiches, tacos. Sun: omelette, soup, roast chicken."
+        ]
+      },
+      "did": [
+        [
+          "write_note",
+          {
+            "path": "food/week-plan.page.md"
+          },
+          "written: https://context.example/note/food/week-plan.page.md"
+        ]
+      ],
+      "reply": "Week's planned, mostly one-pot dinners and Friday's pizza night: https://context.example/note/food/week-plan.page.md",
+      "fault": false
+    },
+    {
+      "id": "crm-paragraphs",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "CRM research",
+        "state": "done",
+        "texts": [
+          "HubSpot: free tier, strong email, gets pricey at scale. Pipedrive: simplest pipeline, $14/seat. Salesforce: most powerful, heavy setup. Zoho: cheapest full suite. Attio: modern, flexible data model, young."
+        ]
+      },
+      "did": [],
+      "reply": "HubSpot has the best free tier and strong email tools, but it gets expensive as you grow. Pipedrive is the simplest pipeline at $14 a seat. Salesforce is the most powerful but takes real setup work.\n\nZoho is the cheapest full suite, and Attio is the modern pick with a flexible data model, though it's young. For a team your size I'd start with Pipedrive.",
+      "fault": true
+    },
+    {
+      "id": "crm-card",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "CRM research",
+        "state": "done",
+        "texts": [
+          "HubSpot: free tier, strong email, gets pricey at scale. Pipedrive: simplest pipeline, $14/seat. Salesforce: most powerful, heavy setup. Zoho: cheapest full suite. Attio: modern, flexible data model, young."
+        ]
+      },
+      "did": [
+        [
+          "draw_visual",
+          {
+            "template": "compare"
+          },
+          "card sent: 5 CRMs side by side"
+        ]
+      ],
+      "reply": "Pipedrive for a team your size, HubSpot if email matters most.",
+      "fault": false
+    },
+    {
+      "id": "short-confirmation",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Dinner booking",
+        "state": "done",
+        "texts": [
+          "Booked Lupa, Friday 7pm, party of 4, confirmation 4471."
+        ]
+      },
+      "did": [],
+      "reply": "Booked Lupa Friday at 7 for four, confirmation 4471.",
+      "fault": false
+    },
+    {
+      "id": "three-flights",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Flights to Denver",
+        "state": "done",
+        "texts": [
+          "Delta 8:10am $412, United noon $430, JetBlue 3pm $455."
+        ]
+      },
+      "did": [],
+      "reply": "Delta at 8:10 for $412 is the pick. United at noon is $430 and JetBlue at 3 is $455.",
+      "fault": false
+    },
+    {
+      "id": "quotes-explained",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Contractor quotes",
+        "state": "done",
+        "texts": [
+          "Alvarez $8,200, BuildRight $9,050, Oak & Iron $7,600 (no permits included)."
+        ]
+      },
+      "did": [],
+      "reply": "Three quotes in: Oak & Iron is lowest at $7,600 but leaves out permits, which usually run about $900 here, so Alvarez at $8,200 is really the cheapest. BuildRight is $9,050.",
+      "fault": false
+    },
+    {
+      "id": "steps-in-full",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Visa steps",
+        "state": "done",
+        "texts": [
+          "12 steps: form DS-160, photo, fee $185, interview booking, documents list (passport, photo, bank statements, letter), interview, passport pickup."
+        ]
+      },
+      "did": [],
+      "reply": "Here's everything: fill in the DS-160 online, get a 2x2 photo, pay the $185 fee, book the interview, gather your passport, the photo, three months of bank statements and an invitation letter, go to the interview, then pick up your passport about a week later at the courier office they name on the receipt.",
+      "fault": true
+    },
+    {
+      "id": "findings-retold-with-link",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Lease review",
+        "state": "done",
+        "texts": [
+          "Lease reviewed: early exit allowed with 60 days notice and 1 month fee; pets need deposit $500; rent increase capped 3%; notes https://context.example/note/home/lease.page.md"
+        ]
+      },
+      "did": [],
+      "reply": "The lease lets you leave early with 60 days notice and one month's fee, pets need a $500 deposit, increases are capped at 3%, repairs over $200 need landlord approval, and subletting needs written consent. Notes: https://context.example/note/home/lease.page.md",
+      "fault": true
+    },
+    {
+      "id": "lease-one-line",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Lease review",
+        "state": "done",
+        "texts": [
+          "Lease reviewed: early exit allowed with 60 days notice and 1 month fee; notes https://context.example/note/home/lease.page.md"
+        ]
+      },
+      "did": [],
+      "reply": "You can get out early with 60 days notice and a month's fee, rest is here: https://context.example/note/home/lease.page.md",
+      "fault": false
+    }
+  ]
+}

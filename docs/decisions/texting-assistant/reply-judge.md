@@ -63,10 +63,32 @@ above:
   says what it needs (`sendBackNotice`). Every gate reads the rewrite too
   (at first only the failed ones did, until review found a rewrite can bring
   in a new fault: "checked your email, nothing there" with no call made). At most `MAX_SEND_BACKS` (2) send-backs a turn; then the reply goes.
-- A background job's report does not run the gates (it did for a few hours
-  on 2026-11-05): each gate reads a person's text and the reply to it, and
-  none was tuned on a report Tex reads. `claimCheck.js` and the hand-back
-  judge check a report.
+- A background job's own turn (its answer, which Tex reads) runs no gates:
+  `claimCheck.js` and the hand-back judge check it. What Tex then texts about
+  the report is judged, by a set of its own (Dev2, 2026-11-05: "the judges
+  should run on everything sent to the user including reports ... maybe a
+  different set of judges? because reports should have artifacts and a
+  page.md most of the times"): `reached_them` (the job's result itself
+  reaches the person, its links kept; they never see the report) and
+  `on_a_page` (a long result goes on a page or card, with one or two lines and
+  its link). The packet carries the report. The text set never reads a report
+  turn: there is no text of theirs to answer, and on 2026-11-05
+  `short_and_clean` cut a ten-PR report to "the report has the details".
+  The wiring had passed `job: job !== null` on a turn built only when
+  `job === null`, so it was always false; `report` is passed now.
+- A gate may read only some drafts (`when`; Dev2: short and clean "should
+  also only be activated some times"). `short_and_clean` reads a draft over
+  `LONG_DRAFT_WORDS` (60) words, or over `MADE_LINE_WORDS` (30) beside a
+  page, card or picture the turn made, links not counted, and one with
+  letters in a script neither their text nor the chat uses. `on_a_page`
+  reads a report's text over 30 words. In Tex Devs on 2026-11-05 the gate
+  made 7 of 9 send-backs, on 30- to 55-word answers that were fine, and each
+  rewrite dropped content; every draft it was right about ran past 75. A
+  mid-length retelling now goes through: the cost of this choice. The bench
+  scores an unread case as passed, as production would.
+- A gate may name a `fact`, a fault code can see, which fails it with no
+  Clef call: a stray script fails `short_and_clean` this way, since Clef
+  scored one 0.04 (AI Gates, 2026-11-05). Facts stay code.
 - A draft the gates passed that a late text then holds is recorded in the
   history as held (`by: "late"`), so the history never says a draft went
   out that was not sent.
