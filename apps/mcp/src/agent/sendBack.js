@@ -73,6 +73,33 @@ export function repeatedWrite({ name, entries, isWrite }) {
   return earlier ? ALREADY_DONE : null;
 }
 
+/**
+ * The turn's ledger as `turn.js` keeps it: `keep` every told event (the
+ * `tool` and `judge` ones are kept), `sendBack(notice, draft)` for the note a
+ * send-back pushes, and `refusal(name)` for a call on a rewrite that repeats a
+ * write (an offered tool not marked `readOnlyHint`, and not one `ranHere`:
+ * the browser and the turn's own local tools may run again).
+ */
+export function turnLedger({ tools = [], ranHere = () => false } = {}) {
+  const entries = [];
+  const writes = new Set((tools ?? []).filter((tool) => tool?.annotations?.readOnlyHint !== true).map((tool) => tool.name));
+  let sentBack = 0;
+  return {
+    entries,
+    keep(event) {
+      if (event?.kind === "tool" || event?.kind === "judge") entries.push(event);
+    },
+    sendBack(notice, draft) {
+      sentBack += 1;
+      return sendBackNote({ entries, notice, draft });
+    },
+    refusal(name) {
+      if (sentBack === 0) return null;
+      return repeatedWrite({ name, entries, isWrite: (tool) => writes.has(tool) && !ranHere(tool) });
+    },
+  };
+}
+
 function heldBy(entry) {
   const judges = Array.isArray(entry.judges) ? entry.judges.filter((judge) => judge?.passed === false) : [];
   if (judges.length > 0) return judges.map((judge) => `${String(judge.id).replaceAll("_", " ")} (${judge.yes} against ${judge.at})`).join(", ");

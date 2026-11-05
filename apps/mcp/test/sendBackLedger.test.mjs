@@ -9,9 +9,9 @@
  *
  * Sabotage record (2026-11-05), each applied, this file run, named test failing, reverted:
  *  1. turn.js pushing the draft back as an assistant message again → "the rejected draft is never shown as said…".
- *  2. `repeatedWrite` check removed from turn.js → "a write already made this turn is not run again…".
+ *  2. `refusal` check removed from turn.js → "a write already made this turn is not run again…".
  *  3. `sendBackNote` leaving out the actions list → "the rewrite is shown every action…".
- *  4. `isMcpWrite` true for every tool (reads refused too) → "a write already made this turn is not run again…".
+ *  4. `turnLedger` treating every tool as a write (reads refused too) → "a write already made this turn is not run again…".
  */
 
 import assert from "node:assert/strict";
