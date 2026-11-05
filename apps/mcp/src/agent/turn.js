@@ -42,13 +42,13 @@ import { isPlainNoteWrite, settleNoteWrite, ToolTimeout, withinTime } from "./no
 import { isMove, MOVE_TIMED_OUT, MOVE_TIMEOUTS } from "./slowMoves.js";
 import { addModelUsage, failedCall, modelForRound, thinkRoundsFor, whyFailed } from "./modelPlan.js";
 import { PROGRESS_TOOL } from "./progress.js";
+import { repeatedWrite, sendBackNote } from "./sendBack.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
 import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
-import { recheckNote } from "./recheck.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -303,7 +303,10 @@ export async function runTurn(options) {
     // Never throws back into the turn, and asks the model for its thinking in words.
     observe = null,
   } = options;
+  // What the chat's ledger keeps of this turn, as it happens: a send-back is written from it (`sendBack.js`).
+  const ledger = [];
   const tell = (event) => {
+    if (event?.kind === "tool" || event?.kind === "judge") ledger.push(event);
     if (typeof observe !== "function") return;
     try {
       observe(event);
@@ -439,6 +442,9 @@ export async function runTurn(options) {
   };
   // The last round's tool calls included one that failed: the next one plans again.
   let escalate = false;
+  let sentBack = 0; // drafts the checks held back this turn; after one, a write already made is not run again
+  const writes = new Set((options.tools ?? []).filter((tool) => tool.annotations?.readOnlyHint !== true).map((tool) => tool.name));
+  const isMcpWrite = (name) => writes.has(name) && !webNames.has(name) && !localCalls.has(name);
   // The fallback is taken once a turn: a turn that moved models must never loop back to it.
   let fellBack = false;
 
@@ -548,7 +554,9 @@ export async function runTurn(options) {
         continue;
       }
       if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: { system: systemText(prompt.system), messages } }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
-      messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheckNote(recheck) });
+      // The draft is never put in as said: the note quotes it, marked NOT sent, beside what the turn already did (`sendBack.js`).
+      messages.push({ role: "user", text: sendBackNote({ entries: ledger, notice: recheck, draft: answer.text }) });
+      sentBack += 1;
       continue;
     }
 
@@ -592,6 +600,12 @@ export async function runTurn(options) {
         });
         escalate = true;
         tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
+        continue;
+      }
+      const repeated = sentBack > 0 ? repeatedWrite({ name: call.name, entries: ledger, isWrite: isMcpWrite }) : null;
+      if (repeated !== null) {
+        messages.push({ role: "tool", id: call.id, name: made.name, text: repeated, isError: true });
+        tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "already done this turn" });
         continue;
       }
       if (clock() - began >= toolBudgetMs) {
