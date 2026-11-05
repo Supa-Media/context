@@ -93,8 +93,9 @@ export function jobReportPrompt(report) {
     `${report.texts.join("\n\n") || "(nothing)"}\n>>>\n` +
     "Check it before anything goes: against this chat (what you or another job already told them) and against your notes when it claims a save " +
     "(read the page or note it names). Then do one of these:\n" +
-    "- Text them the result in your own words: one casual line with your take and the link, links exactly as the job wrote them. " +
-    "If it made a page, draw_visual template page with its path, so its first screen goes with the link.\n" +
+    "- Text them the result itself, in your own words, links exactly as the job wrote them: they never see this report, only what you text. " +
+    "A short result (a booking, a price, a yes) is a line or two. A long one (a list, findings, a breakdown) goes on a page: the job's own page if it made one " +
+    "(draw_visual template page with its path, so its first screen goes with the link), or one you write now (a .page.md note); then one or two lines with your take and its link.\n" +
     "- If it is wrong, contradicts what they were told, or stops short of what they asked, fix it yourself now, or start the job again " +
     '(send { action: "background" }) with a brief that says what to do differently, and tell them in one line which it is.\n' +
     '- A job still running that should change course gets your instruction with send { action: "steer_job", args: { title, note } }.\n' +

@@ -447,6 +447,7 @@ test/machineSignIn.test.mjs
 test/machineSockets.test.mjs
 test/machineRoutes.test.mjs
 test/machineJobs.test.mjs
+test/machineRunSettings.test.mjs
 test/machineApp.test.mjs
 test/machineGroupAsk.test.mjs
 test/machineForJobs.test.mjs

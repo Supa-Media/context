@@ -25,11 +25,10 @@ import {
   publicOrigin,
   unauthorizedResponse,
 } from "../oauth.js";
-import { resolvePresentedSession } from "./presentedToken.js";
+import { isRetiredTokenPath, resolvePresentedSession, retiredTokenPathResponse } from "./presentedToken.js";
 import { attachPinnedDoors } from "./pinnedDoors.js";
 import { attachContextOpener, onceEach } from "./contextOpener.js";
 import {
-  decodePathSegment,
   hasScope,
   SCOPE_CAPTURE,
   SCOPE_READ,
@@ -60,6 +59,7 @@ import { APP_SEARCH_PATH, handleAppSearch } from "./appSearch.js";
 import { handleTexPageLive, TEX_PAGE_SOCKET_PATH } from "./texPage/live.js";
 import { ACCESS_SOCKET_PATH, handleAccess, handleAgentActivity, handlePresence, handleTree, TREE_SOCKET_PATH } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
+import { handleLiveTicket, LIVE_TICKET_PATH } from "../live/ticket.js";
 import { FILE_OP_PATHS, handleFileOp } from "../live/fileOpsRoute.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
 import {
@@ -112,24 +112,18 @@ export async function route(request, env, ctx) {
     // the control plane's RESERVED_NAMES beside it, so this needs no exception.
     const { slug, path: afterSlug } = splitWorkspacePath(url.pathname);
 
-    // Token-in-path fallback: /t/<token>/mcp, or /@slug/t/<token>/mcp.
+    // The token-in-URL fallback (`/t/<token>/...`, `/@slug/t/<token>/...`)
+    // predates OAuth and is retired (the owner, 2026-11-05;
+    // docs/decisions/gateway-protocol/token-transport.md). It is refused here,
+    // before the origin check and before any session is resolved, so the
+    // token is never looked up and never sent to the control plane, and the
+    // answer is the same bytes whatever the token.
     //
-    // Kept for clients that genuinely cannot set an Authorization header. It is
-    // a TRANSPORT for an OAuth-issued access token and nothing else: the token
-    // is resolved by exactly the same code as a header token, gets exactly the
-    // same grant, and confers exactly the same authority. It is not, and has
-    // never been, the security boundary. A token in a URL lands in browser
-    // history, proxy logs, and referrer headers, so prefer the header.
-    let path = afterSlug;
-    let pathToken = null;
-    const tokenInPath = path.match(/^\/t\/([^/]+)(\/.*)?$/);
-    if (tokenInPath) {
-      // A malformed escape decodes to nothing rather than throwing out of
-      // `fetch`. An undecodable token is not a token; the route still resolves
-      // and the request gets the ordinary 401 instead of a Worker exception.
-      pathToken = decodePathSegment(tokenInPath[1]);
-      path = tokenInPath[2] || "/";
-    }
+    // The live sockets were the last exception; they open on one-use tickets
+    // now (`live/ticket.js`), so no route reads a token in the URL.
+    const path = afterSlug;
+    const pathToken = null;
+    if (isRetiredTokenPath(path)) return retiredTokenPathResponse();
 
     // MCP says a server MUST validate `Origin` on the Streamable HTTP
     // transport, to stop a page in a victim's browser from reaching an
@@ -201,6 +195,8 @@ export async function route(request, env, ctx) {
     // 101 rather than JSON, and needs no queue, no usage counter and no search
     // budget — it never reads a note and never writes one.
     if (path === "/presence") return await handlePresence(request, env, { slug, pathToken, origin });
+    // A one-use ticket for one of the sockets here, so none of them carries a token (`live/ticket.js`).
+    if (path === LIVE_TICKET_PATH) return await handleLiveTicket(request, env, { slug, pathToken, origin });
     // The app's live file tree and access screens from the objects (`live/treeRoute.js`, `live/accessRoute.js`): sockets, likewise.
     if (path === TREE_SOCKET_PATH || path === ACCESS_SOCKET_PATH) return await (path === TREE_SOCKET_PATH ? handleTree : handleAccess)(request, env, { slug, pathToken, origin });
 
@@ -224,7 +220,7 @@ export async function route(request, env, ctx) {
     if (MACHINE_PATHS.has(path)) return await handleMachines(request, env, { path, origin });
 
     // The MCP transport: every step timed by the MCP entry point (`mcpRoute.js`).
-    if (path === "/mcp" || path === "/mcp/chatgpt" || path === "/mcp/chatgpt/v2") return await serveMcp(request, env, ctx, { slug, pathToken, origin });
+    if (path === "/mcp" || path === "/mcp/chatgpt" || path === "/mcp/chatgpt/v2") return await serveMcp(request, env, ctx, { slug, origin });
 
     // A meeting route resolves a session exactly as `/mcp` does — same token,
     // same grant, same clamps — so it shares this block rather than growing a
@@ -268,7 +264,7 @@ export async function route(request, env, ctx) {
       const controlPlane = createControlPlane(env);
       let session;
       try {
-        session = await resolvePresentedSession(request, { pathToken, path, slug, controlPlane });
+        session = await resolvePresentedSession(request, { pathToken: null, path, slug, controlPlane });
       } catch (error) {
         if (!(error instanceof SessionRefusal)) throw error;
         // A 403 from workspace selection deliberately drops the slug from its

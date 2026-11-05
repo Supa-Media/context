@@ -81,12 +81,16 @@ test("a page written with no cover drawn still counts as the result", async () =
   assert.equal(watch.check(DESCRIBES_THE_PAGE.replace("\n[picture 1]", "")), RESULT_NOTICE);
 });
 
-test("a background job's result reaches them as one line and the link, never the page retold", () => {
+test("a background job's result reaches them itself, a long one on a page with one or two lines and the link", () => {
   // Since 2026-10-30 a job reports to the chat's own turn, which texts it (`jobReport.js`).
   const prompt = jobPrompt({ title: "Frameworks", brief: "compare four", doneWhen: "", attempt: 1, followUps: [], draft: "", unfinished: false });
   assert.match(prompt, /your report to the chat's own turn/);
   assert.doesNotMatch(prompt, /in a few lines/);
-  assert.match(jobReportPrompt({ title: "Frameworks", state: "done", texts: ["Wrote it."] }), /one casual line with your take and the link/);
+  // Dev2, 2026-11-05: a ten-PR report went out as "the report has the details", which nobody could see.
+  const report = jobReportPrompt({ title: "Frameworks", state: "done", texts: ["Wrote it."] });
+  assert.match(report, /they never see this report/);
+  assert.match(report, /A long one .* goes on a page/);
+  assert.match(report, /one or two lines with your take and its link/);
 });
 
 test("every texted turn is told to keep it short, a production setup's words included", () => {

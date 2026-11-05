@@ -13,7 +13,8 @@
  * the wait is the slowest gate, not the sum. A gate whose yes reaches its
  * threshold fails. Every failed gate goes back to the model in one notice that
  * names it and says what it needs (`sendBackNotice`); the model writes the
- * reply again and only the gates that failed read it again. At most
+ * reply again and every gate reads it again, since a rewrite can bring in a
+ * fault the first draft did not have (review, 2026-11-05). At most
  * `MAX_SEND_BACKS` send-backs a turn: after that the reply goes as it is, so
  * a judge can never hold a turn in a loop.
  *
@@ -26,7 +27,7 @@
  */
 
 import { decisionEngine, decisionTokens } from "./decide.js";
-import { DEFAULT_GATE_AT, GATES, gateQuestion, gatesFor, sendBackNotice } from "./replyGates.js";
+import { DEFAULT_GATE_AT, GATES, gateFact, gateQuestion, gateReads, gatesFor, sendBackNotice } from "./replyGates.js";
 
 /** The decision models a setup may name, by the word it uses. */
 export const JUDGE_MODELS = {
@@ -59,8 +60,8 @@ export function actionsOf(messages) {
   return lines;
 }
 
-/** What Clef reads: the ask and the reply first, then every action, then the earlier texts. */
-export function judgeState({ question, history = [], messages = [], answer }) {
+/** What Clef reads: the ask and the reply first, then a job's report when the turn is one, every action, then the earlier texts. */
+export function judgeState({ question, history = [], messages = [], answer, report = null }) {
   const actions = actionsOf(messages);
   const earlier = (Array.isArray(history) ? history : [])
     .slice(-6)
@@ -70,6 +71,7 @@ export function judgeState({ question, history = [], messages = [], answer }) {
     "",
     `The reply about to be sent: ${clip(String(answer ?? ""), 3_000)}`,
     "",
+    ...(report ? [`The job's report (job "${clip(String(report.title ?? ""), 120)}", ${String(report.state ?? "done")}), which the person has not seen:`, clip((Array.isArray(report.texts) ? report.texts : []).join("\n\n") || "(nothing)", 4_000), ""] : []),
     `What the assistant did this turn (${actions.length === 0 ? "nothing: no searches, reads or other actions" : `${actions.filter((line) => line.startsWith("- ")).length} actions`}):`,
     ...actions,
     "",
@@ -82,16 +84,19 @@ export function judgeState({ question, history = [], messages = [], answer }) {
 
 /**
  * `{ check, verdicts }` for `runTurn`'s `answerCheck`, around the turn's other
- * check (`doItChecks.js`, `claimCheck.js` or `untriedWeb.js`), which runs first.
+ * check (`claimCheck.js`; the word checks the gates replace, `doItChecks.js` and
+ * `untriedWeb.js`, are off when they run), which runs first.
  * `check(answer, { messages })` runs the gates; `verdicts` keeps each judging,
- * for the turn's log and the benchmark. `job` leaves out the texting-only gates.
+ * for the turn's log and the benchmark. `report`, a job's report (`jobReport.js`
+ * `jobReportOf`), runs the report set in place of the text set, and the gates read it.
  */
-export function replyJudge({ ai, setting, question, history = [], inner = null, job = false, clock = Date.now, log = console.log }) {
+export function replyJudge({ ai, setting, question, history = [], inner = null, report = null, clock = Date.now, log = console.log }) {
   const pick = JUDGE_MODELS[setting?.model];
   const decide = pick ? decisionEngine(ai, pick) : null;
   const atOf = (name) => (typeof setting?.at === "number" ? setting.at : (GATES[name].at ?? DEFAULT_GATE_AT));
   const verdicts = [];
-  let open = gatesFor({ job });
+  // A computer owner's ask goes out in the gateway's own words whatever the turn says (`jobReport.js`): nothing to judge.
+  const set = report?.ask ? [] : gatesFor({ report: report !== null }); // every gate reads every draft it applies to: a rewrite can bring in a fault the first draft did not have
   let sentBack = 0;
   return {
     verdicts,
@@ -102,14 +107,16 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
         turn.tell?.(judgeEvent({ by: "code", round: sentBack, draft: answer, went: false, notice: before }));
         return before;
       }
+      const open = set.filter((name) => gateReads(name, answer, { question, history, messages: turn.messages }));
       if (decide === null || open.length === 0) return null;
       if (sentBack >= MAX_SEND_BACKS) {
         turn.tell?.(judgeEvent({ by: "gates", model: pick.model, round: sentBack, draft: answer, went: true, reason: "sent back twice already, so it goes as it is" }));
         return null;
       }
-      const state = judgeState({ question, history, messages: turn.messages, answer });
+      const state = judgeState({ question, history, messages: turn.messages, answer, report });
       const started = clock();
-      const yes = await runGates(decide, state, open);
+      const facts = open.filter((name) => gateFact(name, answer, { question, history })); // seen by code: no Clef call
+      const yes = { ...(await runGates(decide, state, open.filter((name) => !facts.includes(name)))), ...Object.fromEntries(facts.map((name) => [name, 1])) };
       const ms = clock() - started;
       const failed = open.filter((name) => typeof yes[name] === "number" && yes[name] >= atOf(name));
       const acted = failed.length > 0;
@@ -125,7 +132,6 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
       turn.tell?.(judgeEvent({ by: "gates", model: pick.model, round: sentBack, draft: answer, went: !acted, ms, notice, judges: open.map((name) => ({ id: name, yes: typeof yes[name] === "number" ? round2(yes[name]) : null, at: atOf(name), passed: !failed.includes(name) })) }));
       if (!acted) return null;
       sentBack += 1;
-      open = failed; // the rewrite is read again only by the gates it failed
       return notice;
     },
   };

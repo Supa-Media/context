@@ -60,10 +60,38 @@ above:
 - Every gate is its own decision call on the same packet (`judgeState`), all
   at once, so the wait is the slowest gate. Every gate at or over its
   threshold fails; all failed gates go back in one notice that names each and
-  says what it needs (`sendBackNotice`). Only the failed gates read the
-  rewrite. At most `MAX_SEND_BACKS` (2) send-backs a turn; then the reply goes.
-- A background job's report runs the gates too, less `short_and_clean` (it is
-  read by Tex, not texted).
+  says what it needs (`sendBackNotice`). Every gate reads the rewrite too
+  (at first only the failed ones did, until review found a rewrite can bring
+  in a new fault: "checked your email, nothing there" with no call made). At most `MAX_SEND_BACKS` (2) send-backs a turn; then the reply goes.
+- A background job's own turn (its answer, which Tex reads) runs no gates:
+  `claimCheck.js` and the hand-back judge check it. What Tex then texts about
+  the report is judged, by a set of its own (Dev2, 2026-11-05: "the judges
+  should run on everything sent to the user including reports ... maybe a
+  different set of judges? because reports should have artifacts and a
+  page.md most of the times"): `reached_them` (the job's result itself
+  reaches the person, its links kept; they never see the report) and
+  `on_a_page` (a long result goes on a page or card, with one or two lines and
+  its link). The packet carries the report. The text set never reads a report
+  turn: there is no text of theirs to answer, and on 2026-11-05
+  `short_and_clean` cut a ten-PR report to "the report has the details".
+  The wiring had passed `job: job !== null` on a turn built only when
+  `job === null`, so it was always false; `report` is passed now.
+- A gate may read only some drafts (`when`; Dev2: short and clean "should
+  also only be activated some times"). `short_and_clean` reads a draft over
+  `LONG_DRAFT_WORDS` (60) words, or over `MADE_LINE_WORDS` (30) beside a
+  page, card or picture the turn made, links not counted, and one with
+  letters in a script neither their text nor the chat uses. `on_a_page`
+  reads a report's text over 30 words. In Tex Devs on 2026-11-05 the gate
+  made 7 of 9 send-backs, on 30- to 55-word answers that were fine, and each
+  rewrite dropped content; every draft it was right about ran past 75. A
+  mid-length retelling now goes through: the cost of this choice. The bench
+  scores an unread case as passed, as production would.
+- A gate may name a `fact`, a fault code can see, which fails it with no
+  Clef call: a stray script fails `short_and_clean` this way, since Clef
+  scored one 0.04 (AI Gates, 2026-11-05). Facts stay code.
+- A draft the gates passed that a late text then holds is recorded in the
+  history as held (`by: "late"`), so the history never says a draft went
+  out that was not sent.
 - `judge_at`, when a setup names it, replaces every gate's own threshold.
 - Tuning: each gate has a labelled set (`apps/mcp/bench/gates/<gate>.json`),
   and is also scored on every other gate's good replies, since a gate that
@@ -73,6 +101,14 @@ above:
   picks the threshold that catches the most faults with at most 10% false
   alarms; a gate clears the bar at 80% caught. No set case may be one of its
   gate's own examples (a test fails if one is).
+- With the gates on, the front door's two word checks are off:
+  `untriedWeb.js` ("I can't open it" with nothing tried, now `tried_first`)
+  and `doItChecks.js` (an advisor asked for and not asked, now
+  `followed_them`). They still run for a setup without gates, or with no
+  Workers AI binding to run them. `claimCheck.js`
+  (later and job turns) still runs first, its own untried-web check
+  included; its word checks are next to go, its facts stay. Test: `apps/mcp/test/agentProduction.test.mjs` ("with reply judges,
+  the word checks they replace stay off").
 - Facts stay code, because they are not readings of words: an empty reply, a
   note link no tool gave, held approvals, send limits, step budgets.
 

@@ -113,3 +113,27 @@ test("a key used through Context from a group is the workspace's too", async () 
     (error) => error instanceof ProxyRefused && error.code === "not_pinned",
   );
 });
+
+/*
+ * A job on a computer runs on a run grant minted from the chat's own grant (`machines/jobRoutes.js`), under the
+ * client `context_tex_machine_run`. Started from a group, it is the group's turn still: only what the workspace was
+ * given as a whole (the owner, 2026-11-05: "a group tex should have restrictions of the group"). Sabotage: drop the
+ * `groupChat` check in `access.js` `workspaceOnly` and the first assertion here fails.
+ */
+test("a computer job started from a group uses only the group's keys; one started 1:1 uses the person's", async () => {
+  const { actorFor } = await import("../src/context/identity.js");
+  const run = { actorClientId: "context_tex_machine_run", actorUserId: TAGGER, workspaceId: WORKSPACE, grantedGroups: ["@cy", "@crew"] };
+  const fromGroup = actorFor({ ...run, texChatId: "a".repeat(64) });
+  const fromTexts = actorFor(run);
+  assert.equal(fromGroup.groupChat, true);
+  assert.equal(fromTexts.groupChat, undefined);
+  const meta = (fields) => ({ name: "k", ...fields });
+  const own = meta({ people: [TAGGER], createdBy: TAGGER });
+  const toCrew = meta({ people: ["user_ada"], createdBy: "user_ada", shares: [{ to: "@crew", level: "use" }] });
+  const everyone = meta({ people: ["user_ada"], createdBy: "user_ada", shares: [{ to: "*", level: "see" }] });
+  assert.equal(actorAccessOf(own, fromGroup), null);
+  assert.equal(actorAccessOf(toCrew, fromGroup), null);
+  assert.equal(actorAccessOf(everyone, fromGroup), "use");
+  assert.equal(actorAccessOf(own, fromTexts), "see");
+  assert.equal(actorAccessOf(toCrew, fromTexts), "use");
+});

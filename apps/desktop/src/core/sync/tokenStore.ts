@@ -15,9 +15,8 @@
  *    web page, and this app loads its own HTML but the rule is not worth
  *    depending on that.
  *  - **The token is never part of a URL.** The contract's routes are paths; the
- *    credential is a header. `token-in-URL is a compatibility fallback and never
- *    the security boundary` applies to the gateway; a fresh client has no reason
- *    to use the fallback at all.
+ *    credential is a header. The gateway's token-in-URL fallback is retired
+ *    (docs/decisions/gateway-protocol/token-transport.md).
  */
 
 export interface TokenStore {

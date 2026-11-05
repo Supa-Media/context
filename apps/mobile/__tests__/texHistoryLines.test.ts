@@ -149,6 +149,7 @@ describe("the history's lines", () => {
 
   test("a judging of a draft says which draft, whether it went, the judges that failed and the draft (2026-11-05)", () => {
     const entries: LedgerEntry[] = [
+      { id: "j3", at: at(2, 9, 4), kind: "judge", turn: "t", by: "late", round: 0, went: false, text: "Here's the logo.", reason: "a text came in while it was written, so it was written again with it" },
       { id: "j2", at: at(2, 9, 3), kind: "judge", turn: "t", by: "gates", round: 1, went: true, text: "Here's the logo.", judges: [{ id: "heard_them", yes: 0.12, at: 0.7, passed: true }] },
       { id: "j1", at: at(2, 9, 2), kind: "judge", turn: "t", by: "gates", round: 0, went: false, text: "Here's the icon.", judges: [{ id: "heard_them", yes: 0.82, at: 0.7, passed: false }, { id: "finished", yes: 0.19, at: 0.35, passed: true }] },
     ];
@@ -156,6 +157,7 @@ describe("the history's lines", () => {
     expect(lines.map((l) => l.text)).toEqual([
       'judges · draft 1 · sent back · heard_them 0.82 ≥ 0.70 · 1 passed · "Here\'s the icon."',
       'judges · draft 2 · went out · all 1 passed · "Here\'s the logo."',
+      'late text · held · a text came in while it was written, so it was written again with it · "Here\'s the logo."',
     ]);
     expect(kindsFor({ ...DEFAULT_SHOWN, tools: false })).not.toContain("judge");
     expect(kindsFor(DEFAULT_SHOWN)).toContain("judge");

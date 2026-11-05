@@ -50,6 +50,15 @@ function shown(store, machine) {
   return { ...rest, asks: store.machines.pendingAsks(machine.id), online: store.machineSockets.online(machine.id), used: store.machines.used(machine.id), running: store.machines.liveRuns(machine.id).map((run) => ({ runId: run.runId, jobId: run.jobId, chat: run.chat, fromOwner: run.fromOwner, title: run.title ?? null, state: run.state, startedAt: run.startedAt })) };
 }
 
+/** The settings an assignment carries, or null when there are none (`production.js` `computerJobSettingsOf`). */
+function runSettings(settings) {
+  if (!settings || typeof settings !== "object") return null;
+  const kept = {};
+  for (const key of ["claudeModel", "codexModel", "systemPrompt"]) if (typeof settings[key] === "string" && settings[key] !== "") kept[key] = settings[key];
+  if (Number.isSafeInteger(settings.afterAnswerMs) && settings.afterAnswerMs >= 0) kept.afterAnswerMs = settings.afterAnswerMs;
+  return Object.keys(kept).length > 0 ? kept : null;
+}
+
 function assign(store, fields) {
   const { machines, machineSockets } = store;
   const machineId = fields.machineId;
@@ -94,6 +103,8 @@ function assign(store, fields) {
     network: powers.network,
     helpers: powers.helpers,
     computerUse: powers.computerUse,
+    // Only to a runner that says it takes them: an older one refuses a field it does not know.
+    ...(machine.facts?.runSettings === true && runSettings(fields.settings) ? { settings: runSettings(fields.settings) } : {}),
   };
   const why = invalid("Assign", frame);
   if (why !== null) return refused("bad_assign", { why });

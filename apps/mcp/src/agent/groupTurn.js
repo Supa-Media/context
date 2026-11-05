@@ -669,7 +669,7 @@ const WRITE_TOOL_NAMES = new Set(toolDefinitions().filter((tool) => tool.annotat
  * it (`groupRoutines.js`); one that wouldn't run is refused with the reason
  * rather than saved to sit there.
  */
-export function groupAwareCallTool(callTool, writeTools, { store = null, group = null, question = "" } = {}) {
+export function groupAwareCallTool(callTool, writeTools, { store = null, group = null, outside = () => false } = {}) {
   const texting = textingAwareCallTool(callTool, writeTools.filter((tool) => !GROUP_OWN_ACCOUNT_TOOLS.includes(tool.name)));
   const writes = new Set(writeTools.map((tool) => tool.name));
   const grouped = async (name, args) => {
@@ -681,8 +681,8 @@ export function groupAwareCallTool(callTool, writeTools, { store = null, group =
   };
   // A guest chat's narrower writes go first (`groupGuests.js`).
   if (group?.guestChat) return guestAwareCallTool(grouped, { store, group, guestTagger: group.guestTagger === true });
-  // The workspace's playbook changes only when the tagger asks to teach (`groupPlaybook.js`).
-  const taught = withPlaybookGate(grouped, question);
+  // Tex decides when to change the workspace's playbook, never on a turn that read from outside the chat (`groupPlaybook.js`).
+  const taught = withPlaybookGate(grouped, { outside });
   // An invited person's tag sends nothing from the binder's account: only from a member's, on their own yes.
   return group?.guestTagger === true ? noAccountTaggerCallTool(taught, group) : taught;
 }

@@ -1,6 +1,7 @@
 # URL tokens are counted, then retired route by route
 
-Decided 2026-10-28 (CASA round 2, token-in-URL finding).
+Decided 2026-10-28 (CASA round 2, token-in-URL finding). **Retired on every
+route by the owner, 2026-11-05** (below).
 
 The gateway takes an access token two ways: an `Authorization: Bearer`
 header, or `/t/<token>/...` in the path for a client that cannot set one. Both
@@ -24,14 +25,39 @@ whoever still depends on it without anyone knowing who that is. So:
    answers with `context.presence` alone, so the token is never echoed, and a
    token offered without `context.presence` is not read. Builds from before
    this still use the path form and still work.
-3. **Retire per route, on evidence.** A route's URL form is refused only after
+3. **Then no token on a socket at all** (decided by the owner, 2026-11-05,
+   for CASA). A subprotocol is still a request header that a proxy or a
+   handshake log can keep, and the console token in it is reusable. The app's
+   sockets (presence, the tree, access, the Tex page) now trade the token, in
+   an `Authorization` header, for a ticket at `POST /presence/ticket`, naming
+   the one socket it opens, and offer `context.ticket.<ticket>` instead
+   (`apps/mcp/src/live/ticket.js`). A ticket is the token sealed with AES-GCM
+   under a key derived from `GATEWAY_SECRET`, bound to that socket path and
+   workspace selector, good for one minute and spent once: its nonce is
+   marked in a `LiveTicket` Durable Object of its own, deleted by an alarm
+   after it expires. The socket resolves the token inside exactly as before,
+   so revocation and every clamp are unchanged, and a ticket that does not
+   open is refused, never passed over for a token offered beside it. Once the
+   app on tickets was live, the `context.token.<token>` subprotocol stopped
+   being read (the owner, 2026-11-05): a token offered there is no token.
+4. **Retire per route, on evidence.** A route's URL form is refused only after
    its census reads zero outside-client grants for 30 days and the console
    count has drained as old app builds age out. That date is the owner's call,
    made with the census in hand. It is not a fixed date written here.
+5. **Retired, 2026-11-05.** The owner retired the URL form: nobody uses it
+   and it predates OAuth. `route.js` answers `/t/...` and `/@slug/t/...`
+   with one fixed `410` that names the header, before the origin check and
+   before any session is resolved, so the token is never looked up or sent to
+   the control plane, valid or not. The live sockets were the last
+   exception, and since they open on tickets (step 3) they answer the same
+   `410`: no route reads a token in the URL.
 
-What a simplification would cost: refusing `/t/` outright breaks every
+What a simplification would cost: a ticket that is only signed (no spent
+mark) can be replayed for its whole minute; a ticket not bound to its socket
+opens any of them; refusing `/t/` outright breaks every
 connection that still uses it, unmeasured; counting by logging the path would
-put tokens or note paths in logs. `apps/mcp/test/tokenTransport.test.mjs`,
+put tokens or note paths in logs. `apps/mcp/test/tokenTransport.test.mjs` (which also fails if any `/t/` path but a live socket reaches a session, or the refusal varies with the token),
+`apps/mcp/test/liveTicket.test.mjs` (spent, expired, forged, wrong-socket and wrong-selector tickets refused),
 the presence route checks and `apps/convex/__tests__/controlPlane/tokenTransport.test.ts`
 fail if a header token is counted, a route is recorded as anything but its
 coarse name, the subprotocol answer echoes the token, or a revoked grant is

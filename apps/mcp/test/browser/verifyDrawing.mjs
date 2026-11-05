@@ -233,9 +233,9 @@ async function main() {
 
   let rpcId = 0;
   const callTool = async (token, name, args) => {
-    const response = await fetch(`${GATEWAY}/t/${token}/mcp`, {
+    const response = await fetch(`${GATEWAY}/mcp`, {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
       body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "tools/call", params: { name, arguments: args } }),
     });
     const text = await response.text();

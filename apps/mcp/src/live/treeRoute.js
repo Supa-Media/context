@@ -4,8 +4,8 @@
  *
  * ## It authorizes like `/presence`, and the client names nothing that matters
  *
- * Same token (the console grant, offered as a subprotocol so it never sits in
- * a URL), same session, same role clamp. The **workspace** is the one the
+ * Same token (the console grant, behind a one-use ticket offered as a
+ * subprotocol: `live/ticket.js`), same session, same role clamp. The **workspace** is the one the
  * grant resolved to, never one the URL names beyond the slug selector the
  * session already checked. The **reader** (scope, group names, deadline) is
  * written here into one header on a request built from nothing, so no header
@@ -46,7 +46,7 @@ export { TREE_SOCKET_PATH };
 const MEMBER_ROLES = new Set(["owner", "editor", "member"]);
 
 /**
- * The object's 101, naming the one subprotocol accepted, so the token offered beside it is never echoed.
+ * The object's 101, naming the one subprotocol accepted, so the ticket offered beside it is never echoed.
  * `upgraded` builds the answer (Node's `Response` cannot hold a 101, so tests pass their own).
  */
 function withTreeProtocol(response, upgraded) {
@@ -69,7 +69,7 @@ export async function handleTree(request, env, { slug, pathToken, origin }, deps
   const controlPlane = deps.controlPlane ?? createControlPlane(env);
   let session;
   try {
-    session = await resolvePresentedSession(request, { pathToken, path: TREE_SOCKET_PATH, slug, controlPlane });
+    session = await resolvePresentedSession(request, { pathToken, path: TREE_SOCKET_PATH, slug, controlPlane, env });
   } catch (error) {
     if (!(error instanceof SessionRefusal)) throw error;
     return error.status === 403 ? forbiddenResponse(origin, null, error) : unauthorizedResponse(origin, slug, error);

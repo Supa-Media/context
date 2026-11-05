@@ -221,7 +221,7 @@ export function judgeEntry(event, at = {}) {
   const judges = (Array.isArray(event.judges) ? event.judges : []).map((judge) => ({ id: String(judge.id), yes: typeof judge.yes === "number" && Number.isFinite(judge.yes) ? judge.yes : null, at: typeof judge.at === "number" ? judge.at : null, passed: judge.passed === true }));
   return wordsEntry("judge", event.draft ?? "", {
     ...at,
-    by: event.by === "code" ? "code" : "gates",
+    by: event.by === "code" || event.by === "late" ? event.by : "gates",
     ...(typeof event.model === "string" ? { model: event.model } : {}),
     round: Number.isSafeInteger(event.round) ? event.round : 0,
     went: event.went === true,

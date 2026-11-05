@@ -118,6 +118,7 @@ fn plan<'a>(cfg: &'a Path, cmds: &'a [String]) -> ClaudePlan<'a> {
         helpers: false,
         network: false,
         system_prompt: "p",
+        model: MODEL,
     }
 }
 
@@ -154,6 +155,27 @@ fn a_full_run_is_plain_claude_code_and_resume_uses_the_id() {
     assert!(!a.contains("--disallowedTools"));
     assert!(!a.contains("--allowedTools"));
     assert!(a.contains("--resume sid"));
+}
+
+/// Every part runs on Opus 5.5, never on whatever default the computer's Claude Code
+/// has (the owner, 2026-11-05).
+#[test]
+fn every_run_is_pinned_to_opus() {
+    let cfg = PathBuf::from("/c");
+    let cmds = vec![];
+    let a = args(&plan(&cfg, &cmds)).join(" ");
+    assert!(a.contains("--model claude-opus-5-5"), "{a}");
+}
+
+/// The run's settings name the model, so it changes without a release.
+#[test]
+fn the_model_comes_from_the_plan() {
+    let cfg = PathBuf::from("/c");
+    let cmds = vec![];
+    let mut p = plan(&cfg, &cmds);
+    p.model = "claude-sonnet-5-5";
+    let a = args(&p).join(" ");
+    assert!(a.contains("--model claude-sonnet-5-5"), "{a}");
 }
 
 #[test]

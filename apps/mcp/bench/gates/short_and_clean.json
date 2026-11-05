@@ -1,18 +1,310 @@
 {
   "gate": "short_and_clean",
-  "about": "Too long for a text, retelling what it made or where it looked, or a stray script. From Dev2 2026-10-29 ('TEX NEEDS TO STOP BEING SO WORDY') and the 2026-10-24 Chinese-character slip.",
+  "about": "Clearly too long for a text, retelling what it made or where it looked, or a stray script. From Dev2 2026-10-29 ('TEX NEEDS TO STOP BEING SO WORDY') and the 2026-10-24 Chinese-character slip. Retuned 2026-11-05 (Dev2: 'retune short and clean, it should also only be activated some times'): it reads only a draft over LONG_DRAFT_WORDS (60) words, or over MADE_LINE_WORDS (30) beside a page, card or picture the turn made, or one in a script they never write in (a fact code fails). In Tex Devs that day it sent back 30- to 55-word answers that were fine. Mid-length faults it used to catch (a 35-word retelling of where it searched) are now let through, by that choice; the long ones below are modelled on that chat's real long drafts.",
   "cases": [
-    { "id": "page-retold", "q": "research whether we should switch to cloudflare and give me your take", "did": [["write_note", {"path": "research/cloudflare.page.md"}, "written: https://context.example/note/research/cloudflare.page.md"]], "reply": "I made a research page covering Cloudflare's Workers, R2, Durable Objects and pricing, with a comparison table against our current setup and three diagrams. My take: keep what you have, because migration costs outweigh the savings, the team knows the current stack, and Cloudflare's limits on long jobs would hurt. But borrow their queueing approach. Here it is: https://context.example/note/research/cloudflare.page.md", "fault": true },
-    { "id": "page-one-line", "q": "research whether we should switch to cloudflare and give me your take", "did": [["write_note", {"path": "research/cloudflare.page.md"}, "written: https://context.example/note/research/cloudflare.page.md"]], "reply": "I'd keep what you've got and borrow their queueing, notes here: https://context.example/note/research/cloudflare.page.md", "fault": false },
-    { "id": "search-retold", "q": "when's mom's birthday?", "did": [["search_notes", {"query": "mom birthday"}, "family.md: Mom, March 3"]], "reply": "I looked through your notes, then your email, then your contacts, and in your family note it says March 3.", "fault": true },
-    { "id": "short-answer", "q": "when's mom's birthday?", "did": [["search_notes", {"query": "mom birthday"}, "family.md: Mom, March 3"]], "reply": "March 3.", "fault": false },
-    { "id": "stray-script", "q": "break down my spending", "did": [["read_file", {"path": "finance/oct.csv"}, "rows"]], "reply": "The bulk of that is 医保 and necessities, about $1,200.", "fault": true },
-    { "id": "asked-detail", "q": "give me the full step by step for resetting the router", "did": [["browse", {"url": "https://isp.example/reset"}, "steps"]], "reply": "1. Unplug it for 30 seconds. 2. Plug it back in and wait for the light to go solid. 3. Hold reset 10 seconds. 4. Reconnect to the default wifi on the sticker. 5. Set your network name and password again.", "fault": false },
-    { "id": "caveats-unasked", "q": "is it going to rain tomorrow?", "did": [["weather", {"day": "tomorrow"}, "70% rain after 2pm"]], "reply": "Probably, 70% after 2pm. Of course forecasts can change, and it depends on where exactly you'll be, so you may want to check again in the morning, or I can keep an eye on it, or you could bring an umbrella just in case, or plan indoor options.", "fault": true },
-    { "id": "rain-short", "q": "is it going to rain tomorrow?", "did": [["weather", {"day": "tomorrow"}, "70% rain after 2pm"]], "reply": "Likely after 2, 70%. Bring an umbrella.", "fault": false },
-    { "id": "card-described", "q": "compare these three couches", "did": [["draw_visual", {}, "card sent: 3 couches side by side"]], "reply": "Here's a card comparing the three. The first is the Burrow at $1,295 in navy, the second is the Article Sven at $1,499 in tan leather, and the third is the IKEA Kivik at $899 in grey. The Sven is the most durable but the Kivik is the best value.", "fault": true },
-    { "id": "card-one-line", "q": "compare these three couches", "did": [["draw_visual", {}, "card sent: 3 couches side by side"]], "reply": "Kivik's the value pick, Sven if you want it to last.", "fault": false },
-    { "id": "list-asked", "q": "what are all my deadlines this week?", "did": [["search_notes", {"from": "2026-11-03", "to": "2026-11-09"}, "lines"]], "reply": "Tue: slides to Maya. Wed: tax docs. Fri: grant report.", "fault": false },
-    { "id": "explains-itself", "q": "ok thanks", "earlier": [["tex", "Found the lease: https://drive.example/lease.pdf"]], "did": [], "reply": "You're welcome! My earlier reply said I couldn't find it because I had only searched your notes, but after looking in Drive I found it, which is why the link is there now.", "fault": true }
+    {
+      "id": "page-retold",
+      "q": "research whether we should switch to cloudflare and give me your take",
+      "did": [
+        [
+          "write_note",
+          {
+            "path": "research/cloudflare.page.md"
+          },
+          "written: https://context.example/note/research/cloudflare.page.md"
+        ]
+      ],
+      "reply": "I made a research page covering Cloudflare's Workers, R2, Durable Objects and pricing, with a comparison table against our current setup and three diagrams. My take: keep what you have, because migration costs outweigh the savings, the team knows the current stack, and Cloudflare's limits on long jobs would hurt. But borrow their queueing approach. Here it is: https://context.example/note/research/cloudflare.page.md",
+      "fault": true
+    },
+    {
+      "id": "page-one-line",
+      "q": "research whether we should switch to cloudflare and give me your take",
+      "did": [
+        [
+          "write_note",
+          {
+            "path": "research/cloudflare.page.md"
+          },
+          "written: https://context.example/note/research/cloudflare.page.md"
+        ]
+      ],
+      "reply": "I'd keep what you've got and borrow their queueing, notes here: https://context.example/note/research/cloudflare.page.md",
+      "fault": false
+    },
+    {
+      "id": "short-answer",
+      "q": "when's mom's birthday?",
+      "did": [
+        [
+          "search_notes",
+          {
+            "query": "mom birthday"
+          },
+          "family.md: Mom, March 3"
+        ]
+      ],
+      "reply": "March 3.",
+      "fault": false
+    },
+    {
+      "id": "stray-script",
+      "q": "break down my spending",
+      "did": [
+        [
+          "read_file",
+          {
+            "path": "finance/oct.csv"
+          },
+          "rows"
+        ]
+      ],
+      "reply": "The bulk of that is 医保 and necessities, about $1,200.",
+      "fault": true
+    },
+    {
+      "id": "asked-detail",
+      "q": "give me the full step by step for resetting the router",
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://isp.example/reset"
+          },
+          "steps"
+        ]
+      ],
+      "reply": "1. Unplug it for 30 seconds. 2. Plug it back in and wait for the light to go solid. 3. Hold reset 10 seconds. 4. Reconnect to the default wifi on the sticker. 5. Set your network name and password again.",
+      "fault": false
+    },
+    {
+      "id": "caveats-unasked",
+      "q": "is it going to rain tomorrow?",
+      "did": [
+        [
+          "weather",
+          {
+            "day": "tomorrow"
+          },
+          "70% rain after 2pm"
+        ]
+      ],
+      "reply": "Probably, 70% after 2pm. Of course forecasts can change a lot this far out, and it depends on where exactly you'll be, since the city and the coast often differ. You may want to check again in the morning, or I can keep an eye on it for you. You could also bring an umbrella just in case, or plan a few indoor options, or move the picnic to Sunday, which looks drier.",
+      "fault": true
+    },
+    {
+      "id": "rain-short",
+      "q": "is it going to rain tomorrow?",
+      "did": [
+        [
+          "weather",
+          {
+            "day": "tomorrow"
+          },
+          "70% rain after 2pm"
+        ]
+      ],
+      "reply": "Likely after 2, 70%. Bring an umbrella.",
+      "fault": false
+    },
+    {
+      "id": "card-described",
+      "q": "compare these three couches",
+      "did": [
+        [
+          "draw_visual",
+          {},
+          "card sent: 3 couches side by side"
+        ]
+      ],
+      "reply": "Here's a card comparing the three. The first is the Burrow at $1,295 in navy, the second is the Article Sven at $1,499 in tan leather, and the third is the IKEA Kivik at $899 in grey. The Sven is the most durable but the Kivik is the best value.",
+      "fault": true
+    },
+    {
+      "id": "card-one-line",
+      "q": "compare these three couches",
+      "did": [
+        [
+          "draw_visual",
+          {},
+          "card sent: 3 couches side by side"
+        ]
+      ],
+      "reply": "Kivik's the value pick, Sven if you want it to last.",
+      "fault": false
+    },
+    {
+      "id": "list-asked",
+      "q": "what are all my deadlines this week?",
+      "did": [
+        [
+          "search_notes",
+          {
+            "from": "2026-11-03",
+            "to": "2026-11-09"
+          },
+          "lines"
+        ]
+      ],
+      "reply": "Tue: slides to Maya. Wed: tax docs. Fri: grant report.",
+      "fault": false
+    },
+    {
+      "id": "three-sentences",
+      "q": "did the plumber confirm?",
+      "did": [
+        [
+          "search_email",
+          {
+            "query": "plumber"
+          },
+          "Plumber: confirmed Thursday 9-11am, $140 call-out, someone must be home"
+        ],
+        [
+          "calendar_event",
+          {
+            "title": "Plumber",
+            "start": "Thu 09:00"
+          },
+          "created"
+        ]
+      ],
+      "reply": "Yes, he confirmed Thursday between 9 and 11, and the call-out is $140. He needs someone home to let him in, so it's on your calendar with a reminder at 8:30.",
+      "fault": false
+    },
+    {
+      "id": "answer-with-why",
+      "q": "can I make Sam's dinner friday and still catch the 9pm train?",
+      "did": [
+        [
+          "search_notes",
+          {
+            "query": "Sam dinner friday"
+          },
+          "Dinner with Sam, Fri 6:30pm, Lupa"
+        ],
+        [
+          "browse",
+          {
+            "url": "https://maps.example/lupa-to-penn"
+          },
+          "15 min walk"
+        ]
+      ],
+      "reply": "Yes. Dinner's at 6:30 at Lupa, a 15 minute walk from the station, so you have about an hour of slack. Leave by 8:20 to be safe and you'll make the 9 easily.",
+      "fault": false
+    },
+    {
+      "id": "explain-asked",
+      "q": "explain why my build keeps failing",
+      "did": [
+        [
+          "read_file",
+          {
+            "path": "ci/log.txt"
+          },
+          "error: Node 18 is not supported, engines requires >=20"
+        ]
+      ],
+      "reply": "Your CI image runs Node 18, but the package now requires Node 20 or newer, so install stops before the build starts. It began when the engines line was bumped on Monday. Switching the workflow's node-version to 22 fixes it.",
+      "fault": false
+    },
+    {
+      "id": "draft-asked",
+      "q": "draft a reply to robin saying we'll be about 20 minutes late",
+      "did": [],
+      "reply": "Here's a draft to Robin:\n\nHi Robin, we're running about 20 minutes behind and should be there around 7:20. Sorry for the shuffle, see you soon.\n\nGive it a 👍 and I'll send it.",
+      "fault": false
+    },
+    {
+      "id": "paragraph-unasked",
+      "q": "what time is the dentist?",
+      "did": [
+        [
+          "search_notes",
+          {
+            "query": "dentist"
+          },
+          "Dentist, Tue 3pm, Dr. Ames, 40 Elm St"
+        ]
+      ],
+      "reply": "Your dentist appointment is Tuesday at 3pm with Dr. Ames at 40 Elm St. Parking there can be tricky in the afternoon, so you might want to leave a little early, and remember they ask you to arrive ten minutes ahead to fill in forms. Bring your insurance card too, since they changed systems last month. If anything changes I can help you reschedule, or look up their cancellation policy.",
+      "fault": true
+    },
+    {
+      "id": "style-retold",
+      "q": "why do you sound like a status report?",
+      "did": [
+        [
+          "read_note",
+          {
+            "path": "chat/voice.md"
+          },
+          "lowercase, short, slang, roasts, tapbacks"
+        ]
+      ],
+      "reply": "Here's how you all talk: lowercase, short, lots of slang, and roasts that are never meant seriously. You react with tapbacks more than full replies, and emoji show up as reactions rather than sentences.\n\nMine doesn't match that. I open with 'On it:' or 'Fair.', write long answers with caveats about what I can't verify, and hand you links with no lead-in. That's why it sounds like a status report. I tried to change my instructions to match, but the settings wanted the exact words, so I saved the style to the voice note instead and I'll go by it.",
+      "fault": true
+    },
+    {
+      "id": "quick-question-essay",
+      "q": "is the fix live yet?",
+      "did": [
+        [
+          "read_note",
+          {
+            "path": "jobs/fix-check.md"
+          },
+          "read main, not the deployment; fallback risk; tapbacks intentional"
+        ]
+      ],
+      "reply": "The check is back. Here's what I can confirm. Deployed or not: it read main, not what's running, so none of it is confirmed live. Reactions: the docs exempt acknowledgement tapbacks from the emoji setting, so fewer emoji won't stop them. Follow-along: untagged texts can reach the decider for up to 20 texts after I speak, and if that times out a text ending in a question mark can get a reply meant for someone else. That's the biggest risk, so I'd fix it first, then the reactions, then the rest.",
+      "fault": true
+    },
+    {
+      "id": "analysis-asked",
+      "q": "give me a full analysis of how we talk in here, with examples",
+      "did": [
+        [
+          "read_note",
+          {
+            "path": "chat/history.md"
+          },
+          "messages"
+        ]
+      ],
+      "reply": "How you three talk: casual and fast, mostly lowercase, with slang like bet, bro, lmao and smh. You roast each other and me, and a roast gets a roast back, not an apology. Asks are direct ('Tex, do X') and you want the answer first, with no 'Sure!', no restating the ask and no 'want me to?' when I can just do it. You're impatient with hedging and long caveats. Emoji mostly come as tapbacks, with a few 😭 and 😂 in text. Example: 'ight bet' closes most plans.",
+      "fault": false
+    },
+    {
+      "id": "prompt-drafted",
+      "q": "write me a prompt for my coding agent to install the desktop app",
+      "did": [
+        [
+          "search_notes",
+          {
+            "query": "desktop app install"
+          },
+          "releases page, v0.1.68"
+        ]
+      ],
+      "reply": "Here's one:\n\n\"Install the Context desktop app from https://github.example/context/releases/tag/v0.1.68 on this laptop. Sign in with my account. Don't connect it to shared compute or give any workspace access until I say so. When it's done, tell me the version it installed, whether sign-in worked, and the exact error if any step failed, with the command you ran.\"\n\nPaste it in and text me what it says.",
+      "fault": false
+    },
+    {
+      "id": "steps-asked-long",
+      "q": "walk me through setting up the new printer, every step",
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://printer.example/setup"
+          },
+          "steps"
+        ]
+      ],
+      "reply": "1. Unbox it and pull every orange tape strip, including the one inside the lid. 2. Plug it in and press power until the screen lights. 3. Pick your language and country. 4. Load paper face down to the line in the tray. 5. Snap in the four ink cartridges by color. 6. Let it print the alignment page. 7. On the screen pick Wi-Fi, choose your network and type the password. 8. On your laptop open Settings, Printers, Add, and pick it from the list.",
+      "fault": false
+    }
   ]
 }

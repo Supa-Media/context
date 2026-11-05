@@ -10,7 +10,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
 import { reportOnlyPolicyFor, SCRIPT_POLICY } from "./cspReport";
-import { ENFORCED_POLICY } from "./securityHeaders";
+import { shellEnforcedPolicy } from "./securityHeaders";
 import { NONCED_STYLE_IDS, freshNonce, policyWithNonce, withStyleNonce } from "./styleNonce";
 
 const SHELL = readFileSync(join(__dirname, "..", "..", "..", "apps", "mobile", "public", "index.html"), "utf8");
@@ -97,12 +97,13 @@ describe("the nonce", () => {
 });
 
 describe("a shell response", () => {
-  it("carries one fresh nonce in its styles and its report-only style-src, and the enforced policy is unchanged", async () => {
+  it("carries one fresh nonce in its styles and its report-only style-src, and enforces the shell's script policy", async () => {
     const nonces: string[] = [];
     for (const path of ["/console", "/console", "/note/@someone/a.md", "/"]) {
       const response = await navigate(path);
       expect(response.status).toBe(200);
-      expect(response.headers.get("Content-Security-Policy")).toBe(ENFORCED_POLICY);
+      // The nonce stays out of the enforced policy, which has no style-src yet.
+      expect(response.headers.get("Content-Security-Policy")).toBe(shellEnforcedPolicy(path === "/"));
       const [nonce, ...more] = styleNonces(response.headers.get("Content-Security-Policy-Report-Only"));
       expect(more).toEqual([]);
       expect(nonce).toBeTruthy();
@@ -110,7 +111,7 @@ describe("a shell response", () => {
       for (const id of NONCED_STYLE_IDS) expect(body).toContain(`<style id="${id}" nonce="${nonce}">`);
       expect(body.split(`nonce="${nonce}"`).length - 1).toBe(NONCED_STYLE_IDS.length);
       expect(response.headers.get("Content-Security-Policy-Report-Only")!.replace(` 'nonce-${nonce}'`, "")).toBe(
-        reportOnlyPolicyFor(path, CONVEX),
+        reportOnlyPolicyFor(path, CONVEX, path === "/"),
       );
       nonces.push(nonce!);
     }

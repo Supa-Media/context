@@ -47,10 +47,10 @@ function scripted(replies, verdicts) {
     async run(model, input) {
       if (model.startsWith("@cf/cloudflare/clef")) {
         const [name] = Object.keys(input.questions);
+        if (verdicts[0]?.__names?.has(name)) verdicts.shift(); // a gate asked again is the next judging
         const next = verdicts[0];
         if (next === undefined) return null;
-        next.__seen = (next.__seen ?? 0) + 1;
-        if (next.__seen >= (next.__ran ?? Object.keys(GATES).length)) verdicts.shift();
+        (next.__names ??= new Set()).add(name);
         return { answers: { [name]: { type: "noul", noul: next[name] ?? 0.05 } } };
       }
       calls.push(structuredClone(input.messages));
@@ -62,7 +62,7 @@ function scripted(replies, verdicts) {
   };
 }
 
-/** The 14:47 turn: two reads, a saved draft, the full answer held by short_and_clean, then a rewrite that tries the draft again. */
+/** The 14:47 turn: two reads, a saved draft, the full answer held by a gate (short_and_clean then; sourced here, since a 55-word answer is no longer read for length), then a rewrite that tries the draft again. */
 async function the1447Turn() {
   const ai = scripted(
     [
@@ -78,7 +78,7 @@ async function the1447Turn() {
       },
       { text: "No, three business days, not 48 hours; it closed Tuesday. Your follow-up to Robin is in Drafts." },
     ],
-    [{ short_and_clean: 0.71 }, { __ran: 1 }],
+    [{ sourced: 0.71 }, {}],
   );
   const ran = [];
   const told = [];
@@ -116,7 +116,7 @@ test("the rejected draft is never shown as said: it is quoted in the check's not
   assert.ok(note.includes(JSON.stringify(RECHECK_FROM).slice(1, 40)), "marked as the gateway's check, not a text from them");
   assert.ok(note.includes("Draft 1, NOT sent"));
   assert.ok(note.includes("> No, it's three business days, not 48 hours."), "the draft itself, quoted, so it can be revised");
-  assert.ok(note.includes(`short and clean (0.71 against ${GATES.short_and_clean.at})`), "which judge held it and by how much");
+  assert.ok(note.includes(`sourced (0.71 against ${GATES.sourced.at})`), "which judge held it and by how much");
   assert.ok(note.includes("Revise draft 1: keep its answer"), "asked to revise, not to start over");
 });
 

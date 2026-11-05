@@ -29,7 +29,7 @@ import { decodeElements, encodeElements } from "../../../../packages/drawings/sr
 
 const CHANNEL = "context.drawing.v1";
 
-window.joinCanvas = ({ gateway, token, note }) => {
+window.joinCanvas = async ({ gateway, token, note }) => {
   const state = {
     connected: false,
     /** The whole scene, as the editor last reported it. */
@@ -72,8 +72,16 @@ window.joinCanvas = ({ gateway, token, note }) => {
     frame.contentWindow?.postMessage({ channel: CHANNEL, ...message }, window.location.origin);
   };
 
-  const url = `${gateway.replace(/^http/, "ws")}/t/${encodeURIComponent(token)}/presence?note=${encodeURIComponent(note)}&seed=tab`;
-  const socket = new WebSocket(url);
+  // The app's own handoff: the token, in a header, for a one-use ticket the socket offers (`apps/mcp/src/live/ticket.js`).
+  const minted = await fetch(`${gateway}/presence/ticket`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ socket: "/presence" }),
+  });
+  if (!minted.ok) throw new Error(`no live ticket (${minted.status})`);
+  const { ticket } = await minted.json();
+  const url = `${gateway.replace(/^http/, "ws")}/presence?note=${encodeURIComponent(note)}&seed=tab`;
+  const socket = new WebSocket(url, ["context.presence", `context.ticket.${ticket}`]);
   const pointers = new Map();
   const byId = new Map();
 

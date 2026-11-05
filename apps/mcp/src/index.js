@@ -25,7 +25,7 @@
  * Endpoints:
  *   POST /mcp                  MCP streamable HTTP (Authorization: Bearer <access token>)
  *   POST /@<slug>/mcp          the same context, named in the URL — a selector, never a boundary
- *   POST /t/<token>/mcp        compatibility fallback for clients that cannot set headers
+ *   /t/<token>/...             retired 2026-11-05: 410, token never looked up (live sockets excepted, for now)
  *   POST /inbox                drop a capture into inbox/ (needs context:capture)
  *   GET  /.well-known/oauth-protected-resource[/…]    RFC 9728
  *   GET  /.well-known/oauth-authorization-server[/…]  RFC 8414
@@ -98,6 +98,7 @@
  * tools/advertised.js; IMAGE_MIME_TYPES and MAX_INLINE_IMAGE_BYTES are scraped
  * from tools/readImage.js by the email worker's and control plane's tests.
  */
+import { LiveTicketObject } from "./live/ticket.js";
 import { openTextsSession } from "./agent/textsSession.js";
 import { hearForTexts, TEXTS_HEAR_PATH } from "./agent/textsHear.js";
 import { decideForTexts, TEXTS_DECIDE_PATH, TEXTS_RECHECK_PATH } from "./agent/textsDecide.js";
@@ -164,6 +165,9 @@ class AuthorizedPresenceRoom extends PresenceRoomDurableObject {
 }
 
 export const PresenceRoom = AuthorizedPresenceRoom;
+
+/** One live-socket ticket's spent mark, one Durable Object per ticket (`live/ticket.js`). */
+export const LiveTicket = LiveTicketObject;
 
 /** Tex's notes, one Durable Object per person and per group chat (`texStore.js`). */
 export const TexStore = TexStoreDurableObject;

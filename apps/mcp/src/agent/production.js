@@ -114,6 +114,8 @@ export const PRODUCTION_HEARTBEAT_PATH = "ai/production/heartbeat.md";
 /** Tex's housekeeping (`housekeeping.js`): its model, and the words that say how to organize. */
 export const PRODUCTION_HOUSEKEEPING_PATH = "ai/production/housekeeping.md";
 /** Meeting summaries (`meetings/summarize.js`): the model, and the write and check prompts. */
+/** How a job on a person's computer runs, changed without a runner release (`readComputerJobSettings`). */
+export const PRODUCTION_COMPUTER_JOBS_PATH = "ai/production/computer-jobs.md";
 export const PRODUCTION_MEETING_SUMMARIES_PATH = "ai/production/meeting-summaries.md";
 
 /**
@@ -501,4 +503,43 @@ export function helperCallersOf(raw) {
     .split(",")
     .map((item) => item.trim().replace(/^["']|["']$/g, ""))
     .filter((item) => /^[a-z][a-z0-9-]{0,40}$/.test(item));
+}
+
+/**
+ * How a job on a person's computer runs, from `ai/production/computer-jobs.md`, so it changes without a runner release
+ * (the owner, 2026-11-05: "i'd like to be able to change those properties on the fly without a new update"):
+ *
+ *   claude_model          the model Claude Code runs on (`--model`)
+ *   codex_model           the model Codex runs on (`--model`)
+ *   after_answer_seconds  0-600: how long the tool may take to exit after its answer before what it left running is
+ *                         stopped (`apps/machine-runner/src/drive.rs`)
+ *   body                  the runner's system prompt; `{machine}`, `{job}` and `{part}` are filled in on the computer
+ *
+ * Each is sent only when set and valid; the runner keeps its built-in value for the rest. `{}` when the note is
+ * absent or unreadable. Never throws.
+ */
+export async function readComputerJobSettings(store, session) {
+  try {
+    return (await readInPin(store, session, PRODUCTION_COMPUTER_JOBS_PATH, computerJobSettingsOf)) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,99}$/;
+
+/** The note's text as the settings an assignment carries (`machineProtocol.schema.json` `RunSettings`). */
+export function computerJobSettingsOf(raw) {
+  if (typeof raw !== "string") return {};
+  const front = FRONT_MATTER.exec(raw);
+  const data = front ? readFront(front[1]) ?? {} : {};
+  const body = (front ? raw.slice(front[0].length) : raw).trim();
+  const settings = {};
+  if (typeof data.claude_model === "string" && MODEL_NAME.test(data.claude_model)) settings.claudeModel = data.claude_model;
+  if (typeof data.codex_model === "string" && MODEL_NAME.test(data.codex_model)) settings.codexModel = data.codex_model;
+  if (typeof data.after_answer_seconds === "string" && /^\d{1,3}$/.test(data.after_answer_seconds) && Number(data.after_answer_seconds) <= 600) {
+    settings.afterAnswerMs = Number(data.after_answer_seconds) * 1000;
+  }
+  if (body !== "" && body.length <= 8000) settings.systemPrompt = body;
+  return settings;
 }

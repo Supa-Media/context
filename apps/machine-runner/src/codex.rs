@@ -31,6 +31,8 @@ pub struct CodexPlan<'a> {
     pub network: bool,
     pub read_only: bool,
     pub prompt: &'a str,
+    /// The model, from the run's settings; Codex's own default when none.
+    pub model: Option<&'a str>,
 }
 
 /// The argv after `codex`. The prompt is the last argument: Codex has no other
@@ -41,6 +43,9 @@ pub fn args(p: &CodexPlan) -> Vec<String> {
         a.extend(["resume".into(), id.into()]);
     }
     a.extend(["--json".into(), "--skip-git-repo-check".into()]);
+    if let Some(model) = p.model {
+        a.extend(["--model".into(), model.into()]);
+    }
     if p.resume_thread.is_none() {
         a.extend(["--cd".into(), p.workdir.display().to_string()]);
     }
@@ -275,6 +280,7 @@ mod tests {
             network: false,
             read_only: false,
             prompt: "fix it",
+            model: None,
         };
         let a = args(&p);
         let joined = a.join(" ");

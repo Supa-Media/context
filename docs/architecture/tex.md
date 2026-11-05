@@ -124,7 +124,7 @@ flowchart TB
   JN -->|mail to tex| SEND
   JN -->|mail to advisor| JNA["Advisor on the mail<br/>Opus 5.5, ten asks a job<br/>jobNote.js"]:::opus
   JOB -->|a job's answer| JCK["claimCheck.js, code<br/>+ hand-back judge, Haiku 5.5<br/>handbackJudge.js"]:::judge
-  FD -->|delegate| DL["A person's computer<br/>Claude Code or Codex, supervised<br/>delegate.js · supervise.js"]:::tool
+  FD -->|delegate| DL["A person's computer<br/>Claude Code on Opus 5.5, or Codex<br/>told where it was started from (1:1 or group)<br/>delegate.js · supervise.js · jobBackground.js"]:::tool
 
   T -->|send_email| MC["Mail checker<br/>Haiku 5.5, reads the draft<br/>mailChecker.js"]:::judge
   MC --> YES([Waits for the person's yes, in code]):::rail
@@ -133,8 +133,8 @@ flowchart TB
   PIC --> CC["Card check<br/>Haiku 5.5 looks before it goes<br/>cardCheck.js"]:::judge
   IMG --> CC
 
-  FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js<br/>sent back once"]:::judge
-  CHK -->|reply_judge: clef-flash| RJ["Reply gates<br/>ten Clef Flash judges at once<br/>each tuned, sent back at most twice<br/>verdicts kept in the chat history<br/>replyJudge.js · replyGates.js"]:::judge
+  FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js, only without reply gates<br/>sent back once"]:::judge
+  CHK -->|reply_judge: clef-flash| RJ["Reply gates, Clef Flash, all at once<br/>a reply to their text: ten gates<br/>a job report's text: reached them, on a page<br/>length gates only on long drafts<br/>each tuned, sent back at most twice<br/>verdicts kept in the chat history<br/>replyJudge.js · replyGates.js"]:::judge
   CHK -->|held back| SB["Send-back, from the turn's ledger<br/>each draft quoted, marked NOT sent<br/>every action taken, the judges that failed<br/>revise, don't restart; the same write is not rerun<br/>sendBack.js"]:::judge
   RJ -->|held back| SB
   SB -->|revise the draft| FD
@@ -181,6 +181,8 @@ What each model costs is `jev/meter.ts`.
 
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-05: what Tex texts about a job's report is judged by a report set of its own (reached_them: the result itself reaches them, links kept; on_a_page: a long result on a page or card with its link), never the text set; short_and_clean reads only a draft over 60 words (30 beside a page, card or picture it made) or one in a script they never write in, which code fails as a fact; on_a_page reads a report's text over 30 words. Fixes the wiring that sent report turns through every text gate.
+- 2026-11-05: with the reply gates on, the older word checks they replace (`doItChecks.js`, `untriedWeb.js`) no longer run; tried_first and followed_them do their job. They stay for a setup without gates. Every gate reads each rewrite, a job's report no longer runs the gates, and a draft a late text holds is recorded as held.
 - 2026-11-05: a 1:1 turn holds the person's own texts from their Mac's Messages backup (`search` with `{ texts: true, with, since }`, `fetch texts:<id>`; `sixTools.js`), so "what did Ada send me" is found; bare `texts:` stays this chat's history, and group chats never get them.
 - 2026-11-05: a reply (inline, or a text in a thread; 1:1 or group) is logged with the id and full words of the message it answers (`replyQuote.ts`); the turn shows it on that line as "replying to …", and the vague thread note is gone when the ledger is read.
 - 2026-11-05: a text that comes in while Tex writes is handled like a send-back (the draft quoted as NOT sent, writes not repeated), and a reworded email to the same people counts as the same write.
@@ -191,6 +193,8 @@ Newest first. One line per pull request that changed the drawing.
 - 2026-11-05: decide and recheck move into the gateway; their daily cap and usage rows stay in Convex, off each text's path.
 - 2026-11-05: the reply gates are on in production (setup `reply_judge: clef-flash`), and every judging of a draft (each gate's score, threshold, and whether
   the draft went or went back) is kept in the chat's history as a `judge` entry.
+- 2026-11-05: a computer job's model, wait after its answer and runner prompt are read from `ai/production/computer-jobs.md` on every part and sent with it (runner 0.2.9), so they change without a release.
+- 2026-11-05: a computer job's brief opens with its background (`jobBackground.js`): started 1:1 (acts as the person) or from a group (the group's reach only), Context and `orient` first, keyed API calls through Context, only Tex reaches the person, a part ends at its answer. Claude Code is pinned to Opus 5.5, the runner ends a part ten seconds after its answer, and a run may make keyed API calls (`send` action `api`), a group's run with the group's keys only.
 - 2026-11-05: every job gets a job note (its project's note, or Tex's own `tex/jobs/`); the job, Tex and the advisor join its mail; mail to tex reaches the chat's report turn, mail to advisor is answered on the note; computer jobs read and send it with their run grant.
 - 2026-11-05: gatherTheTurn is shared: one rule for which waiting texts a turn answers (`gatherTheTurn.ts`).
 - 2026-11-05: isItForTex is shared: one step says whether a text is for Tex and whether code answers it (`isItForTex.ts`).

@@ -1,0 +1,205 @@
+{
+  "gate": "reached_them",
+  "about": "A report turn's text that does not get the job's result to the person. From Tex Devs 2026-11-05: a ten-PR report went out as 'The report has the details and risks', which nobody could see.",
+  "cases": [
+    {
+      "id": "report-pointer",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Last ten merged PRs",
+        "state": "done",
+        "texts": [
+          "1. #2839 search rework, risk: index rebuild on deploy. 2. #2812 calendar sync, risk: duplicate events. 3. #2790 mail labels, risk: none. 4. #2754 billing page, risk: tax rounding. 5. #2731 sign-in, risk: session expiry. 6. #2702 export, risk: large files. 7. #2684 74-file rework, risk: high. 8. #2655 tests only. 9. #2610 docs. 10. #2563 queue retries, risk: double sends."
+        ]
+      },
+      "did": [],
+      "reply": "Done. The ten PRs and their risks are in the job's report. Nothing was pushed.",
+      "fault": true
+    },
+    {
+      "id": "page-linked",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Last ten merged PRs",
+        "state": "done",
+        "texts": [
+          "1. #2839 search rework, risk: index rebuild on deploy. 2. #2812 calendar sync, risk: duplicate events. 3. #2790 mail labels, risk: none. 4. #2754 billing page, risk: tax rounding. 5. #2731 sign-in, risk: session expiry. 6. #2702 export, risk: large files. 7. #2684 74-file rework, risk: high. 8. #2655 tests only. 9. #2610 docs. 10. #2563 queue retries, risk: double sends."
+        ]
+      },
+      "did": [
+        [
+          "write_note",
+          {
+            "path": "jobs/merged-prs.page.md"
+          },
+          "written: https://context.example/note/jobs/merged-prs.page.md"
+        ]
+      ],
+      "reply": "The ten PRs are on a page, riskiest is #2684, a 74-file rework: https://context.example/note/jobs/merged-prs.page.md",
+      "fault": false
+    },
+    {
+      "id": "link-dropped",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Oven research",
+        "state": "done",
+        "texts": [
+          "Recommend the Breville Smart Oven Pro. Full notes: https://context.example/note/research/ovens.page.md"
+        ]
+      },
+      "did": [],
+      "reply": "Done, I'd go with the Breville, I wrote up why.",
+      "fault": true
+    },
+    {
+      "id": "link-kept",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Oven research",
+        "state": "done",
+        "texts": [
+          "Recommend the Breville Smart Oven Pro. Full notes: https://context.example/note/research/ovens.page.md"
+        ]
+      },
+      "did": [
+        [
+          "draw_visual",
+          {
+            "template": "page",
+            "path": "research/ovens.page.md"
+          },
+          "card sent"
+        ]
+      ],
+      "reply": "Breville's the one, notes here: https://context.example/note/research/ovens.page.md",
+      "fault": false
+    },
+    {
+      "id": "booking-confirmed",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Dinner booking",
+        "state": "done",
+        "texts": [
+          "Booked Lupa, Friday 7pm, party of 4, confirmation 4471."
+        ]
+      },
+      "did": [],
+      "reply": "Booked Lupa Friday at 7 for four, confirmation 4471.",
+      "fault": false
+    },
+    {
+      "id": "failed-as-running",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Passport renewal form",
+        "state": "failed",
+        "texts": [
+          "The form refused the travel date (must be 14+ days out). Stopped on page 3."
+        ]
+      },
+      "did": [],
+      "reply": "Still working on the passport form, I'll text you when it's in.",
+      "fault": true
+    },
+    {
+      "id": "failed-told",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Passport renewal form",
+        "state": "failed",
+        "texts": [
+          "The form refused the travel date (must be 14+ days out). Stopped on page 3."
+        ]
+      },
+      "did": [],
+      "reply": "The passport form won't take a travel date under 14 days out. Want the expedited in-person route instead, or a later date?",
+      "fault": false
+    },
+    {
+      "id": "price-changed",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Flights to Denver",
+        "state": "done",
+        "texts": [
+          "Cheapest nonstop: Delta 8:10am, $412. United noon $430."
+        ]
+      },
+      "did": [],
+      "reply": "Found flights from $380, Delta in the morning.",
+      "fault": true
+    },
+    {
+      "id": "price-kept",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Flights to Denver",
+        "state": "done",
+        "texts": [
+          "Cheapest nonstop: Delta 8:10am, $412. United noon $430."
+        ]
+      },
+      "did": [],
+      "reply": "Delta at 8:10 for $412 is the cheapest nonstop, United at noon is $430.",
+      "fault": false
+    },
+    {
+      "id": "running-quiet",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Insurance claim",
+        "state": "running",
+        "texts": [
+          "Signed in, uploading receipts, 2 of 5 done."
+        ]
+      },
+      "did": [],
+      "reply": "SKIP",
+      "fault": false
+    },
+    {
+      "id": "running-code",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Bank sign-in",
+        "state": "running",
+        "texts": [
+          "The bank texted a 6-digit code to their phone; waiting for it."
+        ]
+      },
+      "did": [],
+      "reply": "The bank just texted you a code, what is it?",
+      "fault": false
+    },
+    {
+      "id": "done-only",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "Contractor quotes",
+        "state": "done",
+        "texts": [
+          "Three quotes: Alvarez $8,200, BuildRight $9,050, Oak & Iron $7,600 (no permits included)."
+        ]
+      },
+      "did": [],
+      "reply": "All done, got the quotes!",
+      "fault": true
+    },
+    {
+      "id": "stuck-vague",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "report": {
+        "title": "DMV appointment",
+        "state": "stuck",
+        "texts": [
+          "No appointments in the next 90 days at any office within 30 miles; waitlist closed."
+        ]
+      },
+      "did": [],
+      "reply": "Hit a snag with the DMV, I'll keep at it.",
+      "fault": true
+    }
+  ]
+}

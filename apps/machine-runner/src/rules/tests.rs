@@ -69,6 +69,7 @@ fn assign(folder: &Path, from_owner: bool) -> Assign {
         from_owner,
         asker: None,
         chat: None,
+        settings: None,
         network: false,
         helpers: false,
         computer_use: false,
