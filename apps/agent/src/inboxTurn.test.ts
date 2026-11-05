@@ -33,7 +33,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDLE_DECIDE_MS } from "./decide";
 import { ACKNOWLEDGE_AFTER_MS, startPresence } from "./presence";
 import type { Line } from "./line";
-import { accept, drain, type InboxDeps } from "./inbox";
+import { accept, drain, MAX_ANSWER_ATTEMPTS, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -394,7 +394,8 @@ describe("decide in a person's own chat", () => {
       const fixed = (async (url: string, init?: RequestInit) =>
         new URL(url).pathname === "/agent" ? Response.json(body, { status }) : w.deps.fetch(url, init)) as unknown as Fetch;
       await accept(storage, msg("chat_1", "e1", "what's on"), 1_000);
-      await drain(storage, { ...w.deps, fetch: fixed });
+      // A failure is tried again first, as a group turn is (one door, 2026-11-05); its last try says so.
+      for (let i = 0; i < (status === 500 ? MAX_ANSWER_ATTEMPTS : 1); i++) await drain(storage, { ...w.deps, fetch: fixed });
       const out = (await keptEvents(storage, "chat_1")).filter((event) => event.from.kind !== "person");
       expect(out).toHaveLength(1);
       expect(out[0]).toMatchObject({ from: { kind: "system" }, delivered: true });

@@ -97,10 +97,13 @@ export type ReplyDeps = {
   /** Handed the data cards an answer offers (`dataCards.ts`); absent, none go. */
   onOffers?: (offers: Offer[], hub?: string) => void; // `hub`: the chat's Tex page, when the gateway named one (`jobs.ts` `readHub`)
   /**
-   * Not the last try (`inbox.ts`): a text that could not be started (the
+   * Not the last try (`inbox.ts`): a turn that could not be started (the
    * control plane unreachable, or the gateway answering 503 before the turn
-   * ran, as during a deploy) throws `TryLater` instead of saying something
-   * went wrong. Never for a turn that started: its tools may have run.
+   * ran, as during a deploy), or one that failed after it started, throws
+   * `TryLater` instead of saying something went wrong. A started turn is
+   * tried again as a group's is (Dev2's one-door plan, 2026-11-05: 1:1 gains
+   * the group's retries; `groupTurnWorkflow.ts`), though its tools may have
+   * run: a held send is asked again, never sent, and the same ask is deduped.
    */
   retry?: boolean;
   /**
@@ -329,7 +332,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // what they read (`apps/mcp/src/tools/emailGate.js`).
       return [...textsWithExact(answer.text, answer.verbatim), ...after];
     }
-    if (answer.kind === "not_started" && deps.retry) throw new TryLater();
+    if ((answer.kind === "not_started" || answer.kind === "unavailable") && deps.retry) throw new TryLater();
     // A job's report the chat's turn was refused for is never lost in silence: the result waits in the job list for their next text.
     if (message.event === "job_report" && (answer.kind === "no_model" || answer.kind === "daily_limit")) return [COPY.jobReportRefused];
     // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.
@@ -339,6 +342,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     if (answer.kind === "no_storage") return COPY.noStorage;
     return COPY.unavailable;
   } catch (error) {
+    if (error instanceof ServiceError && deps.retry) throw new TryLater();
     if (error instanceof ServiceError) return message.event !== undefined ? [] : COPY.unavailable;
     throw error;
   }
