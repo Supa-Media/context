@@ -143,7 +143,7 @@ export function ledgerFileName({ setup, question, run }) {
 
 /** A ledger as a note: a line on what it is, then the JSON in one block, so the app shows it and a reader can copy it out. */
 export function ledgerNote(ledger, { round = null } = {}) {
-  const json = JSON.stringify(ledger, null, 2).replaceAll("```", "`​``");
+  const json = JSON.stringify(ledger, null, 2).replaceAll("```", "`\u200b``");
   return [
     "---",
     "role: benchmark-ledger",

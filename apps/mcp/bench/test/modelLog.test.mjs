@@ -65,5 +65,5 @@ test("a ledger is a note named after its conversation, beside the result, with i
   const note = ledgerNote(benchLedger({ setup: "production", question: 1, run: 1, conversation: [{ from: "person", text: "a ``` fence" }] }), { round: "gh-180" });
   assert.match(note, /^---\nrole: benchmark-ledger\n/);
   const json = note.slice(note.indexOf("```json\n") + 8, note.lastIndexOf("\n```"));
-  assert.equal(JSON.parse(json).conversation[0].text.replace("​", ""), "a ``` fence", "a fence inside a text cannot end the block");
+  assert.equal(JSON.parse(json).conversation[0].text.replace("\u200b", ""), "a ``` fence", "a fence inside a text cannot end the block");
 });
