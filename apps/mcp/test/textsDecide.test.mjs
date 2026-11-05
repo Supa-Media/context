@@ -9,7 +9,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { decideForTexts, TEXTS_DECIDE_PATH, TEXTS_RECHECK_PATH } from "../src/agent/textsDecide.js";
-import { decideRequest } from "../../../packages/shared/src/textDecide.cjs";
+import { decideRequest, recheckRequest } from "../../../packages/shared/src/textDecide.cjs";
+import { MAX_DECISION_STATE_CHARS } from "../src/agent/decide.js";
 import { TexTexts } from "../src/index.js";
 
 const id = (n) => `${String(1_700_000_000_000 + n).padStart(13, "0")}-${String(n).padStart(6, "0")}`;
@@ -60,13 +61,14 @@ test("the last look: one question, the draft in the state", async () => {
   assert.ok(seen.state.includes("Here's the playbook."));
 });
 
-test("a model that fails is unavailable, never a guess; no engine is unconfigured", async () => {
+test("a model that fails is unavailable, never a guess; no engine sends the Worker back to the control plane", async () => {
   const failed = await (await decideForTexts(ask(TEXTS_DECIDE_PATH, body()), {}, { engine: async () => null })).json();
   assert.deepEqual([failed.ok, failed.reason, failed.cause, failed.meter.answered], [false, "unavailable", "model_failed", false]);
   const offSet = await (await decideForTexts(ask(TEXTS_DECIDE_PATH, body()), {}, { engine: async () => ({ act: { choice: "shout" } }) })).json();
   assert.deepEqual([offSet.ok, offSet.cause], [false, "bad_answer"]);
-  const none = await (await decideForTexts(ask(TEXTS_DECIDE_PATH, body()), {}, { engine: null })).json();
-  assert.deepEqual([none.ok, none.cause], [false, "unconfigured"]);
+  // No engine: 503, so the Worker falls back to the control plane rather than reading a final "unavailable".
+  const none = await decideForTexts(ask(TEXTS_DECIDE_PATH, body()), {}, { engine: null });
+  assert.equal(none.status, 503);
 });
 
 test("a malformed body is refused before any model call", async () => {
@@ -86,4 +88,17 @@ test("reached through the TexTexts entrypoint", async () => {
   const answer = await response.json();
   assert.equal(answer.ok, true);
   assert.equal(answer.act, "silent");
+});
+
+test("a long chat's last look still shows the model the draft: the transcript gives way from its oldest end", () => {
+  const lines = Array.from({ length: 2_000 }, (_, i) => `<e${i}> @a: message number ${i}`).join("\n");
+  const draft = "Booked for 7pm.";
+  const asked = recheckRequest({ transcript: lines.slice(-23_990), draft, draftFor: "e1990", newest: "e1999", style: "direct" });
+  assert.ok(asked.state.length <= MAX_DECISION_STATE_CHARS);
+  assert.ok(asked.state.endsWith(draft));
+  assert.ok(asked.state.includes("<e1999>"));
+  // It starts on a whole line, never half of one.
+  assert.match(asked.state, /^<e\d+> /);
+  const short = recheckRequest({ transcript: "<e1> @a: hi", draft, draftFor: "e1", newest: "e1", style: "direct" });
+  assert.ok(short.state.startsWith("<e1> @a: hi"));
 });
