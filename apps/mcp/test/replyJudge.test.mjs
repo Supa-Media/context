@@ -2,12 +2,12 @@
  * THE REPLY JUDGES (`src/agent/replyJudge.js` + `replyGates.js`, Dev2 2026-11-04,
  * made parallel gates 2026-11-05): each gate is its own Clef Flash yes/no call
  * on the same packet, all at once; every failed gate goes back to the model in
- * one notice naming it; only failed gates read the rewrite; at most two
+ * one notice naming it; every gate reads the rewrite too; at most two
  * send-backs a turn. The names and places are invented.
  *
  * Sabotage record (2026-11-05), each applied, suite run, named test failing, reverted:
  *  1. `MAX_SEND_BACKS` check removed from `check` → "at most two send-backs…".
- *  2. `open = failed` removed (every gate re-reads the rewrite) → "only the failed gates read the rewrite".
+ *  2. `open = failed` put back (only failed gates re-read; reversed by review 2026-11-05) → "every gate reads the rewrite…".
  *  3. failing on `>` instead of `>=` its threshold → "a gate fails at its threshold…".
  *  4. `gatesFor` ignoring `job` → "a job's report skips the texting-only gates".
  */
@@ -142,7 +142,7 @@ test("an accepted reply goes in one round, and the gates read the turn's calls a
 test("every judging goes to the chat's history: the draft, each judge's score and threshold, and whether it went", async () => {
   const ai = scripted(
     [{ text: "one" }, { text: "two" }, { text: "three" }],
-    [{ finished: 0.9 }, { finished: 0.9, __ran: 1 }, { finished: 0.9, __ran: 1 }],
+    [{ finished: 0.9 }, { finished: 0.9 }, { finished: 0.9 }],
   );
   const told = [];
   const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question, history, log: () => {} });
@@ -154,7 +154,7 @@ test("every judging goes to the chat's history: the draft, each judge's score an
   assert.deepEqual(judged[0].failed, ["finished"]);
   assert.equal(judged[0].notice, sendBackNotice(["finished"]), "what Tex was told");
   assert.equal(judged[0].model, "@cf/cloudflare/clef-flash");
-  assert.deepEqual(judged[1].judges.map((j) => j.id), ["finished"], "the rewrite is read only by the judge it failed");
+  assert.equal(judged[1].judges.length, Object.keys(GATES).length, "every judge reads the rewrite");
   assert.deepEqual(judged[2].judges, [], "past the cap nothing judges it");
   assert.match(judged[2].reason, /twice/);
 });
@@ -171,18 +171,19 @@ test("a code check that sends a draft back is in the history too", async () => {
   assert.equal(judged[0].notice, "Fix it.");
 });
 
-test("only the failed gates read the rewrite", async () => {
-  const ai = scripted([{ text: "Thanks." }, { text: "Still thanks." }, { text: "Here it is." }], [{ finished: 0.9, does_it: 0.8 }, { __ran: 2 }]);
+test("every gate reads the rewrite, so a fault the rewrite brings in is caught", async () => {
+  const ai = scripted([{ text: "Want me to check?" }, { text: "Checked your email, nothing there." }, { text: "Here it is." }], [{ does_it: 0.9 }, { did_what_it_says: 0.9 }]);
   const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question, history, log: () => {} });
-  await turn(ai, judge);
-  assert.deepEqual(ai.judged.slice(Object.keys(GATES).length).map((call) => call.gate).sort(), ["does_it", "finished"]);
-  assert.equal(judge.verdicts[1].verdict, "accepted");
+  const result = await turn(ai, judge);
+  assert.equal(ai.judged.length, Object.keys(GATES).length * 2, "all ten gates on both judged drafts (the third is past the cap)");
+  assert.deepEqual(judge.verdicts.map((v) => v.failed), [["does_it"], ["did_what_it_says"]], "the rewrite's new fault was caught");
+  assert.equal(result.answer, "Here it is.");
 });
 
 test("at most two send-backs: the third reply goes as it is", async () => {
   const ai = scripted(
     [{ text: "one" }, { text: "two" }, { text: "three" }],
-    [{ finished: 0.9 }, { finished: 0.9, __ran: 1 }, { finished: 0.9, __ran: 1 }],
+    [{ finished: 0.9 }, { finished: 0.9 }, { finished: 0.9 }],
   );
   const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question, history, log: () => {} });
   const result = await turn(ai, judge);
@@ -275,4 +276,17 @@ test("a setup names its judge", async () => {
   assert.deepEqual((await parseSetup(setup("reply_judge: clef-flash\njudge_at: 0.6\n")))?.replyJudge, { model: "clef-flash", at: 0.6 });
   assert.equal((await parseSetup(setup("")))?.replyJudge, null);
   assert.equal(await parseSetup(setup("reply_judge: opus\n")), null);
+});
+
+test("a draft the judges passed that a late text then holds is in the history as held, never as gone", async () => {
+  // Sabotage: drop the `by: "late"` tell in turn.js's late branch → the last judge entry for "one" says it went.
+  const ai = scripted([{ text: "one" }, { text: "two" }], [{}, {}]);
+  const told = [];
+  let late = true;
+  const steer = { get late() { return late; }, words: ["make it Friday"], next: async () => (late ? ((late = false), "make it Friday") : null) };
+  const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question, history, log: () => {} });
+  const result = await runTurn({ observe: (event) => told.push(event), question, history, credential: { provider: BUILTIN_PROVIDER, apiKey: null }, tools: [BROWSE], env: { AI: ai, AGENT_BUILTIN_MODEL: MAIN }, providerOptions: { ai }, texting: true, builtinModelOverride: MAIN, answerCheck: judge.check, steer, callTool: async () => ({ content: [] }) });
+  assert.equal(result.answer, "two");
+  const judged = told.filter((event) => event.kind === "judge");
+  assert.deepEqual(judged.map((event) => [event.by, event.draft, event.went]), [["gates", "one", true], ["late", "one", false], ["gates", "two", true]]);
 });

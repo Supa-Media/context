@@ -13,7 +13,8 @@
  * the wait is the slowest gate, not the sum. A gate whose yes reaches its
  * threshold fails. Every failed gate goes back to the model in one notice that
  * names it and says what it needs (`sendBackNotice`); the model writes the
- * reply again and only the gates that failed read it again. At most
+ * reply again and every gate reads it again, since a rewrite can bring in a
+ * fault the first draft did not have (review, 2026-11-05). At most
  * `MAX_SEND_BACKS` send-backs a turn: after that the reply goes as it is, so
  * a judge can never hold a turn in a loop.
  *
@@ -92,7 +93,7 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
   const decide = pick ? decisionEngine(ai, pick) : null;
   const atOf = (name) => (typeof setting?.at === "number" ? setting.at : (GATES[name].at ?? DEFAULT_GATE_AT));
   const verdicts = [];
-  let open = gatesFor({ job });
+  const open = gatesFor({ job }); // every gate reads every draft: a rewrite can bring in a fault the first draft did not have
   let sentBack = 0;
   return {
     verdicts,
@@ -126,7 +127,6 @@ export function replyJudge({ ai, setting, question, history = [], inner = null, 
       turn.tell?.(judgeEvent({ by: "gates", model: pick.model, round: sentBack, draft: answer, went: !acted, ms, notice, judges: open.map((name) => ({ id: name, yes: typeof yes[name] === "number" ? round2(yes[name]) : null, at: atOf(name), passed: !failed.includes(name) })) }));
       if (!acted) return null;
       sentBack += 1;
-      open = failed; // the rewrite is read again only by the gates it failed
       return notice;
     },
   };

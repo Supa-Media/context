@@ -546,6 +546,8 @@ export async function runTurn(options) {
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
       if (late !== null) {
         messages.push({ role: "assistant", text: answer.text }, { role: "user", text: `${LATE_TEXT}\n\n${late}` });
+        // A draft the judges passed did not go after all: the history says so (`ledger.js` judge entries).
+        if (answerCheck) tell({ kind: "judge", by: "late", draft: answer.text, went: false, reason: "a text came in while it was written, so it was written again with it" });
         tell({ kind: "steered", text: steer.words.at(-1) ?? "" });
         continue;
       }

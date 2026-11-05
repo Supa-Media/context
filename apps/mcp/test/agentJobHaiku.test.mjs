@@ -189,3 +189,20 @@ test("the setup before it put a job's first two rounds on Opus: the cost this ch
   await ask(TOKEN_GUEST, { job: JOB });
   assert.deepEqual(turnCalls().slice(0, 2).map(modelOf), [OPUS, OPUS]);
 });
+
+test("a job's report never runs the reply gates; an ordinary text does (review, 2026-11-05)", async () => {
+  // Sabotage: drop `job === null` from `judge` in runTheModel.js: the job turn asks Clef.
+  // Every gate reads a person's text and the reply to it, and none was tuned on a report Tex reads.
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: SETUP.replace("open_web: yes", "open_web: yes\nreply_judge: clef-flash"), etag: "s-gates" });
+  const clef = [];
+  env.AI = { async run(model, input) { clef.push(model); return { answers: Object.fromEntries(Object.keys(input?.questions ?? {}).map((name) => [name, { type: "noul", noul: 0.01 }])) }; } };
+  try {
+    script.push({ content: [{ type: "text", text: "Submitted it." }], stop_reason: "end_turn" });
+    assert.equal((await ask(TOKEN_GUEST, { job: JOB })).status, 200);
+    assert.equal(clef.length, 0, "no gate reads a job's report");
+    assert.equal((await ask(TOKEN_GUEST, { question: "what's on tomorrow" })).status, 200);
+    assert.ok(clef.length >= 10, "the ten gates read an ordinary text's reply");
+  } finally {
+    delete env.AI;
+  }
+});
