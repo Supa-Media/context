@@ -80,8 +80,8 @@ async function setup() {
     if (advisor.reply === null) throw new Error("unreachable");
     return advisor.reply;
   };
-  const ask = async (path, body, who = session()) => {
-    const response = await handleMachineJob(new Request(`${ORIGIN}${path}`, { method: "POST", body: JSON.stringify(body) }), env, who, { path, controlPlane, origin: ORIGIN, store: { contexts: [] }, now: () => w.clock.at, advise });
+  const ask = async (path, body, who = session(), store = { contexts: [] }) => {
+    const response = await handleMachineJob(new Request(`${ORIGIN}${path}`, { method: "POST", body: JSON.stringify(body) }), env, who, { path, controlPlane, origin: ORIGIN, store, now: () => w.clock.at, advise });
     return { status: response.status, body: response.status === 204 ? null : await response.json() };
   };
   const assignBody = (fields = {}) => ({ workspaceId: "ws_a", machineId: "mch_1", jobId: "job_1", part: 1, tool: "claude", folder: "/srv/code", permission: "edits", brief: "Fix the flaky test.", doneWhen: "It passes.", ...fields });
@@ -183,6 +183,31 @@ test("only the person whose job it is reads, steers or stops a run; an ended run
   assert.equal(read.run.result.answer, "Fixed.");
   assert.equal(read.run.session, "sess_1");
   assert.equal(controlPlane.grants.get(runId).revoked, true);
+});
+
+test("a part's steps on the computer reach the chat's record as the job's tool calls, each once", async () => {
+  const { w, server, ask, assignBody } = await setup();
+  const appended = [];
+  const store = { contexts: [], texLedger: () => ({ append: async (chat, entries) => void appended.push(...entries.map((e) => ({ chat, ...e }))) }) };
+  const me = session({ workspaceKind: "personal" });
+  const read = async () => (await ask("/agent/machine/run", { workspaceId: "ws_a", runId }, me, store)).body;
+  const { body } = await ask("/agent/machine/assign", assignBody(), me);
+  const runId = body.runId;
+  await w.frame(server, { type: "accept", runId });
+  await w.frame(server, { type: "step", runId, seq: 1, tool: "Bash", action: "git status", at: w.clock.at });
+  await w.frame(server, { type: "step", runId, seq: 2, tool: "Edit", target: "src/a.ts", at: w.clock.at });
+  await read();
+  await read();
+  // Read twice, written once: the id is the run's and the step's.
+  assert.equal(appended.length, 2 * 2);
+  const ids = new Set(appended.map((e) => e.id));
+  assert.equal(ids.size, 2);
+  const edit = appended.find((e) => e.name === "Edit");
+  assert.deepEqual({ chat: edit.chat, kind: edit.kind, args: edit.args, jobId: edit.jobId, computer: edit.computer, ok: edit.ok }, { chat: "texts", kind: "tool", args: { target: "src/a.ts" }, jobId: "job_1", computer: "mch_1", ok: undefined });
+  // Another person's read writes nothing to anyone's record.
+  const before = appended.length;
+  await ask("/agent/machine/run", { workspaceId: "ws_a", runId }, session({ actorUserId: "user_stranger", workspaceKind: "personal" }), store);
+  assert.equal(appended.length, before);
 });
 
 test("stopping a run cancels it on the machine and takes its grant back", async () => {
