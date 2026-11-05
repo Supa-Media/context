@@ -6,7 +6,7 @@
  * text, and Tex texted the same answer and link a second time.
  *
  * Sabotage record (2026-11-05), each applied, this file run, named test failing, reverted:
- *  1. turn.js not ending the turn on the call → "a say_nothing call ends the turn…" fails.
+ *  1. turn.js not settling the turn on the call (`withSayNothing`) → "a say_nothing call ends the turn…" fails.
  *  2. `isControlWord` check removed from replyJudge.js → "a typed SKIP is never judged…" fails.
  *  3. `sayNothing` offered whatever the option says → "only a turn that offers it…" fails.
  */
@@ -74,7 +74,7 @@ test("the quiet answer it hands on is the word every reader already treats as no
 test("a say_nothing call ends the turn at once: nothing is texted, no judge reads it, and no other round runs", async () => {
   const { ai, ran, result } = await turn([{ calls: [{ name: "send", args: { action: SAY_NOTHING_TOOL, args: { why: "a tapback on a message already answered" } } }] }]);
   assert.equal(result.answer, SAID_NOTHING);
-  assert.equal(result.saidNothing, true);
+  assert.equal(result.settled, SAY_NOTHING_TOOL);
   assert.equal(ai.calls.length, 1);
   assert.deepEqual(ai.judged, []);
   assert.deepEqual(ran, []); // answered here, never by the MCP

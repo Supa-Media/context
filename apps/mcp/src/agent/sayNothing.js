@@ -42,3 +42,8 @@ export const sayNothingLocal = {
  * (`QUIET_WORD` in `checkInGuards.js`, written out because that module reaches back to `turn.js`; a test holds them equal).
  */
 export const SAID_NOTHING = "SKIP";
+
+/** `runTurn`'s `endsTurn` with silence added: a `say_nothing` call settles the turn with nothing to text, before any judge reads it. */
+export function withSayNothing(endsTurn) {
+  return (name, args) => (name === SAY_NOTHING_TOOL ? SAID_NOTHING : typeof endsTurn === "function" ? endsTurn(name, args) : null);
+}

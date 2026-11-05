@@ -49,7 +49,7 @@ import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
-import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal } from "./sayNothing.js";
+import { sayNothingLocal, withSayNothing } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -320,7 +320,7 @@ export async function runTurn(options) {
     it works. Dispatched here, like the web tools, never to the MCP: it reaches
     only the person who asked, on the channel their answer goes to anyway.
   */
-  const local = sayNothing ? [...localTools, sayNothingLocal] : localTools;
+  const [local, settles] = sayNothing ? [[...localTools, sayNothingLocal], withSayNothing(endsTurn)] : [localTools, endsTurn]; // silence ends the turn like a started job (`sayNothing.js`)
   const tools = [
     ...(options.tools ?? []),
     ...(web?.tools ?? []),
@@ -566,7 +566,6 @@ export async function runTurn(options) {
     });
 
     const settling = []; // calls this round that settle the turn, read once the whole round has run: one round may start several jobs
-    let quiet = false; // a `say_nothing` call this round (`sayNothing.js`)
     for (const made of answer.toolCalls) {
       // One of the six, as the granted tool that carries it; an older name as itself.
       const resolved = six.resolve(made.name, made.args);
@@ -668,15 +667,12 @@ export async function runTurn(options) {
         // second, different copy of the email texted beside the one held (Dev, 2026-10-19).
         isError: failedCall(result),
       });
-      if (typeof endsTurn === "function" && result?.isError !== true) settling.push(call);
-      if (sayNothing && call.name === SAY_NOTHING_TOOL && result?.isError !== true) quiet = true;
+      if (typeof settles === "function" && result?.isError !== true) settling.push(call);
     }
-    // They chose silence: nothing is texted, and no judge reads a word that was never a reply (`sayNothing.js`).
-    if (quiet) return { answer: SAID_NOTHING, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: SAY_NOTHING_TOOL, saidNothing: true, live: { system: systemText(prompt.system), messages } };
     // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
     // Read after the round, not at its first start: a call after it in the same round (a second part) still runs (2026-11-04).
     for (const call of settling) {
-      const settled = endsTurn(call.name, call.args);
+      const settled = settles(call.name, call.args);
       if (typeof settled === "string" && settled !== "") {
         return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: { system: systemText(prompt.system), messages } };
       }
