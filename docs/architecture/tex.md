@@ -38,6 +38,9 @@ flowchart LR
     FT["Shared step: isItForTex<br/>1:1: always; group: a tag, the asker's yes, a setting<br/>and whether code answers it, never the model<br/>isItForTex.ts"]:::shared
     W1 --- FT
     W2 --- FT
+    GT["Shared step: gatherTheTurn<br/>what decide named is answered, an older must-answer first<br/>1:1 drops what's left, a group keeps it as chat<br/>gatherTheTurn.ts"]:::shared
+    W1 --- GT
+    W2 --- GT
   end
   subgraph Control["Control plane · Convex"]
     D["decide · recheck<br/>Clef, @cf/cloudflare/clef<br/>jev/models.ts"]:::judge
@@ -168,6 +171,7 @@ What each model costs is `jev/meter.ts`.
 
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-05: gatherTheTurn is shared: one rule for which waiting texts a turn answers (`gatherTheTurn.ts`).
 - 2026-11-05: isItForTex is shared: one step says whether a text is for Tex and whether code answers it (`isItForTex.ts`).
 - 2026-11-05: the queue is shared: both lanes put a text in line the same way (`chatQueue.ts`).
 - 2026-11-05: retries are shared: a 1:1 turn that fails is tried 3 more times, as a group's.
