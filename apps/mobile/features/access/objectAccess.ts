@@ -36,6 +36,7 @@ import {
   pingFrame,
   subFrame,
 } from "@context/shared/src/accessFrames.cjs";
+import { fetchLiveTicket, ticketProtocols } from "@context/shared/src/liveTicket.cjs";
 
 export type AccessSide = "workspace" | "person";
 
@@ -52,8 +53,9 @@ export function accessSocketUrl(gatewayOrigin: string, side: AccessSide): string
   return url.toString();
 }
 
-export function accessSocketProtocols(token: string): string[] {
-  return [ACCESS_PROTOCOL, `context.token.${token}`];
+/** The socket's subprotocols: its protocol and a one-use ticket, never the token (`apps/mcp/src/live/ticket.js`). */
+export function accessSocketProtocols(ticket: string): string[] {
+  return ticketProtocols(ACCESS_PROTOCOL, ticket);
 }
 
 export function backoffMs(failures: number): number {
@@ -87,6 +89,8 @@ export interface ObjectAccessOptions {
   onTopic: (topic: string, rows: unknown | undefined) => void;
   /** For tests: the socket and the clock. */
   open?: (url: string, protocols: string[]) => SocketLike;
+  /** For tests: trade the token for a socket ticket (`POST /presence/ticket`). */
+  ticket?: (token: string) => Promise<string>;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
 }
@@ -153,8 +157,19 @@ export function openObjectAccess(options: ObjectAccessOptions): ObjectAccess {
     }
     refresh = false;
     if (stopped) return;
+    // The socket carries a one-use ticket, never the token (`apps/mcp/src/live/ticket.js`).
+    let ticket: string;
+    try {
+      ticket = await (options.ticket ?? ((value: string) => fetchLiveTicket({ gatewayOrigin: options.gatewayOrigin, token: value, socket: ACCESS_SOCKET_PATH })))(token);
+    } catch (error) {
+      failures += 1;
+      // A token the gateway refused is minted afresh next time.
+      if ((error as { status?: number })?.status === 401) refresh = true;
+      return later(failures >= 3 ? NOT_SERVED_RETRY_MS : backoffMs(failures - 1));
+    }
+    if (stopped) return;
     let opened = false;
-    const live = open(accessSocketUrl(options.gatewayOrigin, side), accessSocketProtocols(token));
+    const live = open(accessSocketUrl(options.gatewayOrigin, side), accessSocketProtocols(ticket));
     socket = live;
     live.onopen = () => {
       opened = true;

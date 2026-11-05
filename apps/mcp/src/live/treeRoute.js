@@ -69,7 +69,7 @@ export async function handleTree(request, env, { slug, pathToken, origin }, deps
   const controlPlane = deps.controlPlane ?? createControlPlane(env);
   let session;
   try {
-    session = await resolvePresentedSession(request, { pathToken, path: TREE_SOCKET_PATH, slug, controlPlane });
+    session = await resolvePresentedSession(request, { pathToken, path: TREE_SOCKET_PATH, slug, controlPlane, env });
   } catch (error) {
     if (!(error instanceof SessionRefusal)) throw error;
     return error.status === 403 ? forbiddenResponse(origin, null, error) : unauthorizedResponse(origin, slug, error);

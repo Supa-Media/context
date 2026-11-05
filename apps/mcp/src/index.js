@@ -98,6 +98,7 @@
  * tools/advertised.js; IMAGE_MIME_TYPES and MAX_INLINE_IMAGE_BYTES are scraped
  * from tools/readImage.js by the email worker's and control plane's tests.
  */
+import { LiveTicketObject } from "./live/ticket.js";
 import { openTextsSession } from "./agent/textsSession.js";
 import { hearForTexts, TEXTS_HEAR_PATH } from "./agent/textsHear.js";
 import { decideForTexts, TEXTS_DECIDE_PATH, TEXTS_RECHECK_PATH } from "./agent/textsDecide.js";
@@ -164,6 +165,9 @@ class AuthorizedPresenceRoom extends PresenceRoomDurableObject {
 }
 
 export const PresenceRoom = AuthorizedPresenceRoom;
+
+/** One live-socket ticket's spent mark, one Durable Object per ticket (`live/ticket.js`). */
+export const LiveTicket = LiveTicketObject;
 
 /** Tex's notes, one Durable Object per person and per group chat (`texStore.js`). */
 export const TexStore = TexStoreDurableObject;

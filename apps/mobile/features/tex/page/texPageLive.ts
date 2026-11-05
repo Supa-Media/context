@@ -2,14 +2,16 @@
  * The Tex page's socket to the gateway (`GET /tex/page/live`), modelled on the
  * file tree's (`features/console/files/fileBrowser/objectTree.ts`).
  *
- * The console grant rides as a subprotocol beside `context.tex-page`, never in
- * the URL. On open the page says which chat it shows; the gateway pushes a
+ * The console grant is traded for a one-use ticket, offered as a subprotocol
+ * beside `context.tex-page`: no token is in the URL or on the socket. On open the page says which chat it shows; the gateway pushes a
  * patch whenever anything on it changes, someone else's edit in a group
  * included. Closed to be authorized again (4001): reconnect at once, the
  * grant re-checked at join, which is how a person taken out of a group stops seeing it.
  * Refused (4403/4404): the page re-reads on a timer instead and asks the socket
  * again after a while. Anything else: reconnect after a growing wait.
  */
+
+import { fetchLiveTicket, ticketProtocols } from "@context/shared/src/liveTicket.cjs";
 
 export const TEX_PAGE_PROTOCOL = "context.tex-page";
 export const TEX_PAGE_SOCKET_PATH = "/tex/page/live";
@@ -38,8 +40,9 @@ export function liveSocketUrl(gatewayOrigin: string, handle?: string, chat?: str
   return url.toString();
 }
 
-export function liveProtocols(token: string): string[] {
-  return [TEX_PAGE_PROTOCOL, `context.token.${token}`];
+/** The socket's subprotocols: its protocol and a one-use ticket, never the token (`apps/mcp/src/live/ticket.js`). */
+export function liveProtocols(ticket: string): string[] {
+  return ticketProtocols(TEX_PAGE_PROTOCOL, ticket);
 }
 
 export function backoffMs(failures: number): number {
@@ -80,6 +83,8 @@ export interface LiveOptions {
   /** Whether the socket is up: when it is not, the page re-reads on a timer. */
   onLive: (live: boolean) => void;
   open?: (url: string, protocols: string[]) => SocketLike;
+  /** For tests: trade the token for a socket ticket (`POST /presence/ticket`). */
+  ticket?: (token: string) => Promise<string>;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
 }
@@ -134,8 +139,20 @@ export function openLive(options: LiveOptions): Live {
     }
     refresh = false;
     if (stopped) return;
+    // The socket carries a one-use ticket, never the token (`apps/mcp/src/live/ticket.js`).
+    let ticket: string;
+    try {
+      ticket = await (options.ticket ?? ((value: string) => fetchLiveTicket({ gatewayOrigin: options.gatewayOrigin, token: value, socket: TEX_PAGE_SOCKET_PATH })))(token);
+    } catch (error) {
+      failures += 1;
+      // A token the gateway refused is minted afresh next time.
+      if ((error as { status?: number })?.status === 401) refresh = true;
+      options.onLive(false);
+      return later(failures >= 3 ? REFUSED_RETRY_MS : backoffMs(failures - 1));
+    }
+    if (stopped) return;
     let opened = false;
-    const live = open(liveSocketUrl(options.gatewayOrigin, options.handle, chat), liveProtocols(token));
+    const live = open(liveSocketUrl(options.gatewayOrigin, options.handle, chat), liveProtocols(ticket));
     socket = live;
     live.onopen = () => {
       if (socket !== live) return;

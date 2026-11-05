@@ -329,7 +329,7 @@ describe("the live socket", () => {
     expect(liveSocketUrl("https://mcp.example.test")).toBe("wss://mcp.example.test/tex/page/live");
     // The gateway decides whose page and which chat at the upgrade, from the query: without them every socket is refused.
     expect(liveSocketUrl("https://mcp.example.test", "ada", "g1")).toBe("wss://mcp.example.test/tex/page/live?handle=ada&chat=g1");
-    expect(liveProtocols("tok")).toEqual(["context.tex-page", "context.token.tok"]);
+    expect(liveProtocols("K")).toEqual(["context.tex-page", "context.ticket.K"]);
   });
 
   test("only patches are read", () => {
@@ -349,6 +349,7 @@ describe("the live socket", () => {
       handle: "ada",
       chat: "me",
       token: async () => "tok",
+      ticket: async (token) => `ticket-${token}`,
       onPatch: (p) => patches.push(p),
       onLive: (u) => ups.push(u),
       open: f.open,
@@ -401,6 +402,7 @@ describe("the live socket", () => {
       handle: "ada",
       chat: "g-not-mine",
       token: async () => "tok",
+      ticket: async (token) => `ticket-${token}`,
       onPatch: () => {},
       onLive: () => {},
       open: f.open,

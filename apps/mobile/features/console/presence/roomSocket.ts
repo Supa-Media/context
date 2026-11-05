@@ -23,6 +23,7 @@ import {
   type PresenceAction,
 } from "./session";
 import { isDefinitiveGrantRefusal, type GrantRefresh } from "../../agent/consoleGrantCache";
+import { fetchLiveTicket } from "@context/shared/src/liveTicket.cjs";
 import { peersFrom } from "./peers";
 import { agentCarets } from "./agentCarets";
 import { handleRoomFrame, type RoomFrameContext } from "./roomFrames";
@@ -296,6 +297,18 @@ export function openPresenceRoom({
     }
     if (cancelled || gen !== generation) return;
 
+    // The socket carries a one-use ticket, never the token (`apps/mcp/src/live/ticket.js`).
+    // A ticket refused for the token counts as an unopened socket, so two in a row refresh it.
+    let ticket: string;
+    try {
+      ticket = await fetchLiveTicket({ gatewayOrigin: origin as string, token, socket: "/presence" });
+    } catch (error) {
+      if (cancelled || gen !== generation) return;
+      fail(gen, (error as { status?: number })?.status !== 401, token);
+      return;
+    }
+    if (cancelled || gen !== generation) return;
+
     let live: WebSocket;
     try {
       live = new WebSocket(
@@ -305,7 +318,7 @@ export function openPresenceRoom({
           colorSeed: seed.current || "tab",
           ...(options.durable ? { collaborationVersion: 2 as const, documentId: options.documentId ?? undefined } : {}),
         }),
-        presenceSocketProtocols(token),
+        presenceSocketProtocols(ticket),
       );
     } catch {
       fail(gen, true, null);
