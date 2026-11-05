@@ -1,0 +1,155 @@
+# How Tex works
+
+The one architecture diagram of Tex: how a text reaches `texEntryPoint`, the
+steps it runs, and the answer maker inside it with every model it calls.
+**Any change to this architecture changes this file in the same pull request**
+(Dev2, 2026-11-05: "have a standing rule that any change to the architecture
+must change the diagram, that way I can always go to the diagram and see what
+changed"). `scripts/tex-diagram-check.mjs` enforces it in CI; see
+[the rule](#the-rule) at the bottom. What changed, and when, is the
+[change log](#change-log) and this file's history.
+
+Models named here are the production setup's
+(`@context-lc ai/production/texting-assistant.md`, read on every turn by
+`readTheSetup`) or the literal in the file named beside them.
+
+## 1. A text on its way to the door
+
+Every text, 1:1 or group, ends in the same `texEntryPoint`. What differs today
+is the texting Worker in front of it (`apps/agent`), which has a lane for each.
+The one-door plan folds the group lane into the door, step by step.
+
+```mermaid
+flowchart LR
+  P1([1:1 text]):::you --> W1
+  P2([Group text]):::you --> W2
+  subgraph Worker["Texting Worker · apps/agent"]
+    W1["1:1 lane<br/>inbox.ts · inboxTurn.ts<br/>queue, which texts, steer"]:::pipe
+    W2["Group lane<br/>groupInbox.ts · groupTurn.ts<br/>for Tex? · style · Workflow retries · last look"]:::pipe
+    H["Hear a group voice memo first<br/>groupVoice.ts"]:::pipe
+    W2 --- H
+  end
+  subgraph Control["Control plane · Convex"]
+    D["decide · recheck<br/>Clef, @cf/cloudflare/clef<br/>jev/models.ts"]:::judge
+  end
+  W1 -. which texts, wait or answer .-> D
+  W2 -. which texts, last look .-> D
+  W1 -->|POST /agent| E
+  W2 -->|POST /agent| E
+  E{{"texEntryPoint<br/>apps/mcp/src/agent/texEntryPoint.js"}}:::door
+  E --> S1["1:1 sender<br/>reply.ts · sendParts.ts<br/>cards, carousels, typing"]:::pipe
+  E --> S2["Group sender<br/>groupSay.ts<br/>plain parts, pictures, send once"]:::pipe
+  S1 --> Out([iMessage · WhatsApp · SMS]):::you
+  S2 --> Out
+  classDef you fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
+  classDef pipe fill:#fff0e2,stroke:#ff8a2a,color:#1d1838
+  classDef door fill:#dcf7f3,stroke:#11b5a4,stroke-width:3px,color:#1d1838
+  classDef judge fill:#fff5d6,stroke:#e09a00,color:#1d1838
+```
+
+## 2. The door: texEntryPoint, top to bottom
+
+One function (`apps/mcp/src/agent/texEntryPoint.js`), one file per step under
+`apps/mcp/src/agent/texEntryPoint/`. A step either hands the turn on or answers
+it; the first answer is the response. Every 1:1 text, group turn, background
+job, job report and routine run takes this path.
+
+<!-- tex-diagram: steps begin -->
+```mermaid
+flowchart TB
+  readTheText["readTheText<br/>who is asking, which chat, a group's chat"]:::step
+  runARoutine["runARoutine<br/>a routine's run: paused, or nothing to do"]:::step
+  checkTheQuestion["checkTheQuestion<br/>the question, its files, what it replies to"]:::step
+  settleAYesOrNo["settleAYesOrNo<br/>a yes or 👍 to a waiting send, in code, no model"]:::rail
+  watchWhatLeaves["watchWhatLeaves<br/>what this turn may read in and send out"]:::rail
+  checkItMayRun["checkItMayRun<br/>tools, history, may the model run here"]:::step
+  readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far"]:::step
+  openTheWeb["openTheWeb<br/>write tools and the browser"]:::step
+  readTheSetup["readTheSetup<br/>prompt, skills, models, fallback"]:::step
+  prepareBookkeeping["prepareBookkeeping<br/>usage, turn log, the chat's ledger"]:::step
+  prepareTheAnswer["prepareTheAnswer<br/>side reads, answer checks, pictures"]:::step
+  runTheModel["runTheModel<br/>THE ANSWER MAKER, section 3"]:::model
+  finishARoutine["finishARoutine<br/>a routine's run ends here"]:::step
+  sendTheReply["sendTheReply<br/>the reply, the ledger, self-review"]:::step
+  recoverFromFailure["recoverFromFailure<br/>a turn that threw"]:::fail
+  readTheText --> runARoutine --> checkTheQuestion --> settleAYesOrNo --> watchWhatLeaves --> checkItMayRun --> readTheHistory --> openTheWeb --> readTheSetup --> prepareBookkeeping --> prepareTheAnswer --> runTheModel --> finishARoutine --> sendTheReply
+  runTheModel -. throws .-> recoverFromFailure
+  classDef step fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
+  classDef rail fill:#e4e7ff,stroke:#3c4bd6,color:#1d1838
+  classDef model fill:#ece5ff,stroke:#7b4dff,stroke-width:3px,color:#1d1838
+  classDef fail fill:#ffe5e6,stroke:#e5484d,color:#1d1838
+```
+<!-- tex-diagram: steps end -->
+
+Blue steps are rails kept in code, never by a model: who may say yes, and what
+may leave the turn (`privacy/egress.js`).
+
+## 3. The answer maker: runTheModel and every model it calls
+
+```mermaid
+flowchart TB
+  Q([The question, the chat, About me, the setup]):::you --> FD
+  FD["Front door<br/>Haiku 5.5 · effort medium · up to 24 rounds<br/>turn.js runTurn"]:::haiku
+  FD <-->|tools| T["Tools: notes, search, web, browser,<br/>vault, email, calendar, apps<br/>the one dispatcher, callToolForSession"]:::tool
+  FD <-->|ask_advisor, when stuck or weighing| ADV["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js"]:::opus
+  FD -. model down .-> FB["Fallback<br/>GLM-4.7 Flash, @cf/zai-org/glm-4.7-flash<br/>builtin.js"]:::off
+  FD -. off in production .-> RT["Router<br/>Clef picks Haiku or Opus<br/>router.js"]:::off
+  FD -. off unless planBigAsks .-> PL["Big-ask planner<br/>the advisor splits it into jobs<br/>planBigAsk.js"]:::off
+
+  FD -->|send background| JOB["Background jobs, minions<br/>Haiku 5.5 + the advisor<br/>background.js"]:::haiku
+  JOB -->|every stop| JC["Job check<br/>the advisor, Opus 5.5<br/>jobCheck.js"]:::opus
+  JOB -->|a job's answer| JCK["claimCheck.js, code<br/>+ hand-back judge, Haiku 5.5<br/>handbackJudge.js"]:::judge
+  FD -->|delegate| DL["A person's computer<br/>Claude Code or Codex, supervised<br/>delegate.js · supervise.js"]:::tool
+
+  T -->|send_email| MC["Mail checker<br/>Haiku 5.5, reads the draft<br/>mailChecker.js"]:::judge
+  MC --> YES([Waits for the person's yes, in code]):::rail
+  T -->|draw_visual, draw_picture| PIC["Cards and graphics<br/>HTML, photographed by site-shots"]:::tool
+  T -->|make_picture| IMG["Photos<br/>Gemini 2.5 Flash Image<br/>pictureMaker.js"]:::tool
+  PIC --> CC["Card check<br/>Haiku 5.5 looks before it goes<br/>cardCheck.js"]:::judge
+  IMG --> CC
+
+  FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js<br/>sent back once"]:::judge
+  CHK -. off unless reply_judge .-> RJ["Reply judge<br/>Clef or Clef Flash<br/>replyJudge.js"]:::off
+  CHK --> SEND([sendTheReply]):::door
+  SEND -. behind the reply .-> SR["Self-review<br/>Haiku 5.5 scores the chat<br/>selfReview.js"]:::judge
+
+  classDef you fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
+  classDef haiku fill:#dcf7f3,stroke:#11b5a4,stroke-width:3px,color:#1d1838
+  classDef opus fill:#ece5ff,stroke:#7b4dff,stroke-width:3px,color:#1d1838
+  classDef judge fill:#fff5d6,stroke:#e09a00,color:#1d1838
+  classDef tool fill:#fff0e2,stroke:#ff8a2a,color:#1d1838
+  classDef rail fill:#e4e7ff,stroke:#3c4bd6,color:#1d1838
+  classDef door fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
+  classDef off fill:#efeef4,stroke:#9a97b0,stroke-dasharray:5 4,color:#5d5880
+```
+
+Grey dashed boxes are built but off in production today. Other models on the
+way: voice memos are heard by Whisper in the transcribe Worker
+(`ingestion/transcription.js`), and search by meaning uses BGE-M3 embeddings
+(`search/meaning/embed.js`). Clef's decide in the control plane is in
+section 1; `decide.js` here is the gateway's own call to the same model.
+What each model costs is `jev/meter.ts`.
+
+## The rule
+
+1. **A pull request that changes Tex's architecture changes this file.** That
+   covers a step added, removed, renamed or reordered in `texEntryPoint`; a
+   model, judge or check added, removed, switched on or off; a lane, queue or
+   sender in the Worker; and anything this file names moving. Redraw the part
+   that changed and add a line to the change log.
+2. **CI checks it** (`scripts/tex-diagram-check.mjs`, in Fast repository
+   guards):
+   - every step `texEntryPoint.js` runs is drawn in section 2, in its order;
+   - every file under `apps/mcp/src/agent/`, `apps/agent/src/` or
+     `apps/convex/functions/lib/jev/` that names a model is named here;
+   - a pull request that changes `texEntryPoint.js`, a file under
+     `texEntryPoint/`, or any file this page names in backticks must change
+     this page, or say why not in its description with a line
+     `Tex diagram: unchanged because <reason>` (a fix inside a file that
+     leaves the shape as drawn).
+
+## Change log
+
+Newest first. One line per pull request that changed the drawing.
+
+- 2026-11-05: first drawing, from main at `d88e2bc` (Dev2's ask).
