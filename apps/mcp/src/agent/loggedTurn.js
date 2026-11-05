@@ -12,16 +12,12 @@
  * history, never this. An old chat with no log, or a request naming events
  * not yet logged, is today's turn.
  *
- * A turn that read from outside the workspace taints what it said. The log's
- * events are the Worker's, so the Worker can never say an answer was clean:
- * `tainted` is not an Event field (`log.js` refuses it). The gateway keeps its
- * own record of every named turn it finishes, before it answers
- * (`.context/agent/turns/<turn>.json` = `{ clean }`, `recordTurn`), and it
- * fails closed: a Tex event shown is trusted only when its `turn` has a record
- * saying `clean: true`. No turn, no record, an unreadable one or `clean: false`
- * makes the new turn untrusted (`tainted`), as a tainted kept answer does
- * (`historyIsTainted`, which `texEntryPoint.js` still asks of today's history). The
- * Worker's fixed texts are `system` events (`log.js`), never Tex's.
+ * Trust is the turn's own (the owner, 2026-11-05): a turn that reads from
+ * outside the workspace is untrusted for what it sends, and nothing it said
+ * marks a later turn. Every earlier answer is shown as it was said, one to one
+ * as in a group, so Tex always sees the thread of its own chat
+ * (`docs/decisions/texting-assistant/turn-trust.md`). The Worker's fixed texts
+ * are `system` events (`log.js`), never Tex's.
  */
 
 import { conversationPath, readConversation } from "./conversation.js";
@@ -126,37 +122,6 @@ async function cleanTurn(store, turn) {
   }
 }
 
-/** Whether any of Tex's events shown is not proven clean; logs how many had no readable record, by count only. */
-async function showsTainted(store, events, workspace, warm = null, records = (read) => read(), replies = new Map()) {
-  const turns = [...new Set(events.filter((event) => event.from?.kind === "tex").map((event) => event.turn))];
-  // Tainted already by a reply the ledger holds: no record can make it clean again, so none is read.
-  if (turns.some((turn) => replies.get(turn) === false)) return true;
-  return records(() => readsTainted(store, turns.filter((turn) => !replies.has(turn)), workspace, warm));
-}
-
-/**
- * Whether each turn's answer was clean, by the gateway's own `reply` entries in the chat's ledger (`clean`, written
- * when the turn answered, `texEntryPoint/sendTheReply.js`), the record a later turn already trusts for the chat before
- * the day it holds (`ledgerHistory.js`). A turn with several replies (a retried id) is clean only if every one says so,
- * as a turn record only ever moves toward not clean (`recordTurn`). A turn the ledger has no reply for is absent, and
- * its turn record is read as before. On 2026-11-03 a cold text spent 419 ms reading the records one by one.
- */
-export function cleanByReply(entries) {
-  const replies = new Map();
-  for (const entry of Array.isArray(entries) ? entries : []) {
-    if (entry?.kind !== "reply" || typeof entry.turn !== "string" || typeof entry.clean !== "boolean") continue;
-    replies.set(entry.turn, replies.get(entry.turn) !== false && entry.clean);
-  }
-  return replies;
-}
-
-async function readsTainted(store, turns, workspace, warm) {
-  if (turns.length === 0) return false;
-  const records = await Promise.all(turns.map((turn) => (warm === null ? cleanTurn(store, turn) : warm.clean(turn, () => cleanTurn(store, turn)))));
-  const count = records.filter((clean) => clean === null).length;
-  if (count > 0) console.log(JSON.stringify({ event: "tex_turn_unproven", workspace: String(workspace), count }));
-  return records.some((clean) => clean !== true);
-}
 export const LOG_PREFACE = "(The chat so far, oldest first, as it happened. \"You\" is you. The newest messages, the ones you are answering, come next.)";
 
 /*
@@ -176,7 +141,7 @@ export async function turnHistory(store, session, body, { runner, group, dispatc
 }
 
 /** The log's history and question for a turn that names what it covers, or null for today's turn. */
-export async function loggedTurn(store, body, { group = null, timeZone = "UTC", workspace, warm = null, records, record = null, ledger = null } = {}) {
+export async function loggedTurn(store, body, { group = null, timeZone = "UTC", warm = null, record = null, ledger = null } = {}) {
   const covers = body?.covers;
   if (!Array.isArray(covers) || covers.length === 0 || covers.length > MAX_COVERS || !covers.every((id) => typeof id === "string" && EVENT_ID.test(id))) return null;
   if (!isChatKey(body.chat)) return null;
@@ -201,12 +166,12 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   if (question === "") return null;
   // A group is shown its whole log, whoever has joined or left since (the owner, 2026-11-02): no cut by the people a text was said in front of.
   const shown = events.filter((event) => !wanted.has(event.id));
-  // Everything before the day the turn holds, from the chat's ledger (`ledgerHistory.js`), proven clean or held back.
-  const earlier = Array.isArray(read?.entries) ? earlierFromLedger(read.entries, read.chat, { before: events.length > 0 ? events[0].at : Number.MAX_SAFE_INTEGER, chars: Math.max(0, READ_CHARS - shown.reduce((sum, event) => sum + String(event.text ?? "").length, 0)), known: new Set(events.map((event) => event.id)), untrusted: group !== null }) : { events: [], tools: new Map() };
+  // Everything before the day the turn holds, from the chat's ledger (`ledgerHistory.js`).
+  const earlier = Array.isArray(read?.entries) ? earlierFromLedger(read.entries, read.chat, { before: events.length > 0 ? events[0].at : Number.MAX_SAFE_INTEGER, chars: Math.max(0, READ_CHARS - shown.reduce((sum, event) => sum + String(event.text ?? "").length, 0)), known: new Set(events.map((event) => event.id)) }) : { events: [], tools: new Map() };
   // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
-  const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [], tainted: false };
+  const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [] };
   const transcript = renderEvents(withSentByItself([...earlier.events, ...shown], own.shown), { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools });
-  return { covered, history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: own.tainted || (await showsTainted(store, shown, workspace, warm, records, group === null ? cleanByReply(read?.entries) : new Map())) };
+  return { covered, history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question };
 }
 
 /**
@@ -225,12 +190,12 @@ export const JOB_HISTORY_ENTRIES = 30;
  * second a group's history takes is never guessed at (2026-11-04); by default nothing is timed.
  */
 const UNTIMED = { memory: (run) => run(), ledger: (run) => run(), log: (run) => run(), groupReads: (run) => run(), groupLedger: (run) => run() };
-export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, records, time = UNTIMED }) {
+export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, time = UNTIMED }) {
   const today = time.memory(() => turnHistory(store, session, body, { runner, group, dispatch, job, time: { reads: time.groupReads, ledger: time.groupLedger } }));
   const started = job ? null : chatLedger(store, session);
   // No ledger stays null: the log is then read from the bucket (`loggedTurn`).
   const ledger = started === null ? null : time.ledger(() => started);
-  return Promise.all([today, runner ? null : time.log(() => loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm, records, record: today.then((read) => read.history).catch(() => []), ledger }))]);
+  return Promise.all([today, runner ? null : time.log(() => loggedTurn(store, body, { group, timeZone, warm, record: today.then((read) => read.history).catch(() => []), ledger }))]);
 }
 
 /** The chat's ledger as a turn reads it (`ledgerHistory.js`), started now, or null when the session keeps none. */

@@ -211,7 +211,7 @@ describe("the chat's history file", () => {
     expect(byTestId("tex-sees-page")).not.toBeNull();
     expect(text()).toContain("Shown tool results");
     expect(byTestId("tex-sees-setting-toolResults")?.textContent).toContain("No");
-    expect(byTestId("tex-sees-setting-heldBack")?.textContent).toContain("Yes");
+    expect(byTestId("tex-sees-setting-heldBack")).toBeNull();
     expect(byTestId("tex-sees-text")?.textContent).toContain("(used: calendar_events, read_note)");
   });
 

@@ -25,7 +25,7 @@ import { texLedger } from "../src/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { eventEntry } from "../src/agent/ledger.js";
 import { heardEntry, heardEvents } from "../src/agent/heardWords.js";
-import { dayFromLedger, earlierFromLedger, HELD_BACK } from "../src/agent/ledgerHistory.js";
+import { dayFromLedger, earlierFromLedger } from "../src/agent/ledgerHistory.js";
 import { renderEvents } from "../src/agent/logRender.js";
 import { conversationFromLedger } from "../src/agent/ledgerConversation.js";
 import { checkEvent } from "../src/agent/log.js";
@@ -106,10 +106,9 @@ test("a message another agent asked Tex to pass on is that agent's, never Tex's 
   assert.match(shown, /another of their agents asked you to pass this on; it is that agent's message, not yours and not theirs/);
   assert.doesNotMatch(shown, /You: ChatGPT/);
 
-  // Kept tainted (an agent chose its words): its words are held back, still never as Tex's own.
+  // Kept tainted (an agent chose its words): shown in its words (the owner, 2026-11-05), still never as Tex's own.
   const held = renderEvents(earlierFromLedger([{ ...note, tainted: true }], CHAT).events);
-  assert.match(held, /Their other agent, passed on by you: /);
-  assert.ok(held.includes(HELD_BACK));
+  assert.match(held, /Their other agent, passed on by you: ChatGPT: Both connector/);
 
   // The same from the person's record, for the day the log holds.
   const fromRecord = sentByItself([{ role: "user", text: ATTENTION_QUESTION, at: AT - 400_000 }, { role: "assistant", text: relayed }], [], { chat: CHAT, newest: AT });

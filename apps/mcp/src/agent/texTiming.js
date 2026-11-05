@@ -43,7 +43,6 @@
 export const OFF_IN_CHATS = new Set([
   "kept_files_again", // files from earlier texts shown again
   "learned_skills", // the index of skills Tex wrote itself
-  "group_turn_records", // a group turn is always treated as having read from outside, so its turn records add nothing
 ]);
 
 import { goesToObject } from "../store/texRouting.js";

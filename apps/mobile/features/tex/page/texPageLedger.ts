@@ -104,7 +104,6 @@ export const SETTING_LABEL: Record<string, string> = {
   thinking: "Shown its own thinking",
   toolNames: "Shown which tools it used",
   toolResults: "Shown tool results",
-  heldBack: "Unproven older answers held back",
   budgetChars: "Characters of chat it reads",
   lastDayFrom: "Last day comes from",
   before: "Before that, from",

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { createUser, createWorkspace, setupTest, type TestConvex } from "./fixtures.helpers";
+import { asUser, createUser, createWorkspace, setupTest, type TestConvex } from "./fixtures.helpers";
 import { objectRecord, REFRESH_MS } from "../functions/textingObjects";
 import { TEXTS_CLIENT_ID } from "../functions/textLinks";
 import { textingPhoneHash } from "../../mcp/src/agent/textingPhone.js";
@@ -114,6 +114,21 @@ describe("a session the object opened", () => {
       await ctx.db.patch(row!._id, { textingPushedAt: Date.now() - REFRESH_MS - 1 });
     });
     await t.mutation(internal.functions.textingObjects.keepOpened, opened(workspaceId, PHONE, "c"));
+    expect(await scheduled()).toHaveLength(1);
+  });
+});
+
+describe("a change to what the record says reaches the object at once", () => {
+  // The zone a text's session answers with is the object's copy: a new one pushed only by a text ten minutes after the
+  // last push reached Tex a text late at best (2026-11-05).
+  test("a new time zone pushes the record again, for a switched person only", async () => {
+    const t = setupTest();
+    const { userId } = await person(t);
+    const scheduled = async () => (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((job) => job.name.includes("textingObjects") && job.name.includes("push"));
+    await asUser(t, userId).mutation(api.functions.routines.setMyTimeZone, { timeZone: "Europe/Paris" });
+    expect(await scheduled()).toHaveLength(1);
+    const other = await person(t, { switched: false, phone: OTHER, email: "bo@home.example", slug: "bo" });
+    await asUser(t, other.userId).mutation(api.functions.routines.setMyTimeZone, { timeZone: "Europe/Paris" });
     expect(await scheduled()).toHaveLength(1);
   });
 });
