@@ -17,6 +17,8 @@ import { badRequest, json, stringField } from "../gatewayAuth";
 import { withJev } from "../jev/client";
 // Routed beside decide (`http.ts` is at its size limit): the last look before a group answer sends.
 export { agentTextsRecheckHandler } from "./textRecheck";
+// And decide's cap and usage when the gateway asks Clef itself.
+export { agentTextsDecideGateHandler, agentTextsDecideUsageHandler } from "./textDecideMeter";
 
 export {
   ADDRESSED_RULE,

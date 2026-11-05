@@ -42,9 +42,11 @@ flowchart LR
     W1 --- GT
     W2 --- GT
   end
+  D["decide · recheck, in the gateway<br/>Clef, @cf/cloudflare/clef<br/>textsDecide.js · decideGateway.ts"]:::judge
   subgraph Control["Control plane · Convex"]
-    D["decide · recheck<br/>Clef, @cf/cloudflare/clef<br/>jev/models.ts"]:::judge
+    CAP["decide's daily cap and usage rows<br/>asked now and then, written after<br/>textDecideMeter.ts · jev/models.ts"]:::judge
   end
+  D -. cap kept 5 min, usage after .-> CAP
   W1 -. which texts, wait or answer .-> D
   W2 -. which texts .-> D
   E -. draft, before it sends .-> LA
@@ -148,8 +150,9 @@ flowchart TB
 Grey dashed boxes are built but off in production today. Other models on the
 way: voice memos are heard by Whisper in the transcribe Worker
 (`ingestion/transcription.js`), and search by meaning uses BGE-M3 embeddings
-(`search/meaning/embed.js`). Clef's decide in the control plane is in
-section 1; `decide.js` here is the gateway's own call to the same model.
+(`search/meaning/embed.js`). Decide's Clef is in section 1, asked in the
+gateway (`textsDecide.js`) through `decide.js`, the gateway's one call to it;
+its cap and usage rows stay in the control plane.
 What each model costs is `jev/meter.ts`.
 
 ## The rule
@@ -175,6 +178,7 @@ What each model costs is `jev/meter.ts`.
 Newest first. One line per pull request that changed the drawing.
 
 - 2026-11-05: a 1:1 turn reads the chat so far from its ledger every turn, as a group's does; the warm copy no longer carries the chat (it never held Tex's own replies).
+- 2026-11-05: decide and recheck move into the gateway; their daily cap and usage rows stay in Convex, off each text's path.
 - 2026-11-05: the reply gates are on in production (setup `reply_judge: clef-flash`), and every judging of a draft (each gate's score, threshold, and whether
   the draft went or went back) is kept in the chat's history as a `judge` entry.
 - 2026-11-05: every job gets a job note (its project's note, or Tex's own `tex/jobs/`); the job, Tex and the advisor join its mail; mail to tex reaches the chat's report turn, mail to advisor is answered on the note; computer jobs read and send it with their run grant.

@@ -12,6 +12,7 @@
  */
 
 import { post, record, type Fetch } from "./clients";
+import { askGateway, GATEWAY_DECIDE_URL, GATEWAY_RECHECK_URL, type MeterDeps } from "./decideGateway";
 
 export type Style = "quiet" | "attentive" | "followAlong" | "helpful" | "direct";
 export type GroupStyle = Exclude<Style, "direct">;
@@ -53,7 +54,8 @@ export type DecideAsk = {
   addressed?: true;
 };
 
-export type ControlDeps = { fetch: Fetch; controlPlaneOrigin: string; workerSecret: string };
+/** `texts`: the gateway's binding, where decide asks Clef itself (`decideGateway.ts`); without it, the control plane's route. */
+export type ControlDeps = { fetch: Fetch; controlPlaneOrigin: string; workerSecret: string } & Pick<MeterDeps, "texts" | "waitUntil">;
 
 const unavailable = (cause: string, ms: number) => ({ ok: false, reason: "unavailable", cause, ms }) as const;
 export const MAX_CANDIDATES = 32;
@@ -85,6 +87,14 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
   let reply: { status: number; json: unknown };
   const started = Date.now();
   const limit = timeoutMs ?? DEFAULT_DECIDE_MS;
+  // Asked of Clef in the gateway, under the control plane's cap (Dev2's pick, 2026-11-05); unreachable, the control plane's own route.
+  const gateway = await askGateway(deps, GATEWAY_DECIDE_URL, ask, body, limit);
+  if (gateway !== null) {
+    const ms = Date.now() - started;
+    if ("timedOut" in gateway) return unavailable("timeout", ms);
+    if ("refused" in gateway) return { ok: false, ...gateway.refused, ms };
+    return readDecision(gateway.json, candidates, waitingAsks, ms);
+  }
   try {
     reply = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/decide`, deps.workerSecret, body, limit);
   } catch {
@@ -93,7 +103,11 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
   }
   const ms = Date.now() - started;
   if (reply.status !== 200) return unavailable(`http_${reply.status}`, ms);
-  const json = record(reply.json);
+  return readDecision(record(reply.json), candidates, waitingAsks, ms);
+}
+
+/** Decide's answer, from the gateway or the control plane, checked like any trust boundary: ids it names must be ones it was given. */
+function readDecision(json: Record<string, unknown>, candidates: readonly string[], waitingAsks: readonly string[], ms: number): Decision {
   if (json.ok === false) {
     const reason = json.reason === "capped" || json.reason === "off" ? json.reason : "unavailable";
     // Convex names the failed check in `cause` (no_group, unconfigured, model_failed, bad_answer, ...); older answers only had `reason`.
@@ -125,11 +139,18 @@ export type Recheck = { ok: true; fits: boolean } | { ok: false; cause: string }
 /** `POST /agent-texts/recheck` (CONTRACT.md section 3b): decide's body for a group, plus the unsent reply and the message it answers. */
 export async function recheck(deps: ControlDeps, ask: Omit<DecideAsk, "running" | "waitingAsks">, draft: string, draftFor: string, timeoutMs = RUNNING_DECIDE_MS): Promise<Recheck> {
   const body = { ...ask, candidates: ask.candidates.slice(-MAX_CANDIDATES), transcript: ask.transcript.slice(-MAX_TRANSCRIPT), draft: draft.slice(0, MAX_DRAFT), draftFor };
+  // Asked of Clef in the gateway, under the control plane's cap, as decide is; unreachable, the control plane's own route.
+  const gateway = await askGateway(deps, GATEWAY_RECHECK_URL, ask, { ...body, running: false, waitingAsks: [] }, timeoutMs);
+  if (gateway !== null && "timedOut" in gateway) return { ok: false, cause: "timeout" };
+  if (gateway !== null && "refused" in gateway) return { ok: false, cause: gateway.refused.cause };
   let reply: { status: number; json: unknown };
-  try {
-    reply = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/recheck`, deps.workerSecret, body, timeoutMs);
-  } catch {
-    return { ok: false, cause: "unreachable" };
+  if (gateway !== null) reply = { status: 200, json: gateway.json };
+  else {
+    try {
+      reply = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/recheck`, deps.workerSecret, body, timeoutMs);
+    } catch {
+      return { ok: false, cause: "unreachable" };
+    }
   }
   if (reply.status !== 200) return { ok: false, cause: `http_${reply.status}` };
   const json = record(reply.json);
