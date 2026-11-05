@@ -39,8 +39,8 @@ export const ALREADY_DONE =
  * Keyed by the tool, then the arguments that name who it reaches.
  */
 const SAME_TARGET = {
-  send_email: ["to", "from", "account", "thread", "threadId", "reply_to"],
-  save_email_draft: ["to", "from", "account", "thread", "threadId", "reply_to"],
+  send_email: ["to", "from", "in_reply_to", "forward"],
+  save_email_draft: ["to", "from", "in_reply_to", "forward"],
 };
 
 /**
