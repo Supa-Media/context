@@ -13,6 +13,13 @@ use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
 pub const LONGEST_RUN_CEILING_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// The folder an assignment names when the owner chose none: the runner's own
+/// work folder in its app data (`work_dir`), made the first time a job needs it
+/// (owner, 2026-11-05: "isn't there some app data folder that we could just run
+/// out of"). The gateway sends it only while the machine has no folder of the
+/// owner's; it is never a path, so it can never name somewhere else.
+pub const WORK_FOLDER: &str = "@work";
 pub const MAX_SLOTS: u32 = 8;
 
 /// Narrowing the owner keeps on the machine itself. Every field is optional;
@@ -123,6 +130,9 @@ pub struct Snapshot<'a> {
     pub codex_ready: bool,
     pub ledger: &'a Ledger,
     pub utc_offset_minutes: i32,
+    /// The work folder, made and allowed (`ready_work_dir`), or None when it
+    /// could not be made or `local.json` narrows it out.
+    pub work: Option<&'a Path>,
 }
 
 /// A refusal, with when it stops holding where the runner knows.
@@ -158,8 +168,15 @@ pub fn check(rules: &Rules, a: &Assign, s: &Snapshot) -> Result<PathBuf, Refused
     if !ready {
         return Err(no(NotReady));
     }
-    let folders: Vec<PathBuf> = rules.folders.iter().map(PathBuf::from).collect();
-    let root = allowed_root(&folders, Path::new(&a.folder)).ok_or(no(Folder))?;
+    let root = if a.folder == WORK_FOLDER {
+        s.work
+            .and_then(|w| std::fs::canonicalize(w).ok())
+            .filter(|w| !is_too_broad(w))
+            .ok_or(no(Folder))?
+    } else {
+        let folders: Vec<PathBuf> = rules.folders.iter().map(PathBuf::from).collect();
+        allowed_root(&folders, Path::new(&a.folder)).ok_or(no(Folder))?
+    };
     if a.computer_use && (!a.from_owner || !rules.computer_use) {
         return Err(no(Rule));
     }
@@ -256,6 +273,39 @@ pub fn is_too_broad(p: &Path) -> bool {
         }
     }
     false
+}
+
+/// The runner's own work folder: `CONTEXT_MACHINE_WORK` when set, else
+/// `~/Library/Application Support/context-machine/work` on a Mac and
+/// `$XDG_DATA_HOME` (or `~/.local/share`) `/context-machine/work` elsewhere,
+/// beside the coding tools the app installs and apart from the runner's keys.
+pub fn work_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("CONTEXT_MACHINE_WORK").filter(|d| !d.is_empty()) {
+        return Some(PathBuf::from(dir));
+    }
+    let home = home_dir()?;
+    let data = if cfg!(target_os = "macos") {
+        home.join("Library/Application Support")
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|d| d.is_absolute())
+            .unwrap_or_else(|| home.join(".local/share"))
+    };
+    Some(data.join("context-machine").join("work"))
+}
+
+/// The work folder, made if it is missing, when `local.json` lets it in: a
+/// folder list there only takes away, so the work folder must sit under one.
+pub fn ready_work_dir(local: &LocalLimits) -> Option<PathBuf> {
+    let dir = work_dir().filter(|d| d.is_absolute())?;
+    if let Some(allowed) = &local.folders {
+        if !allowed.iter().any(|a| dir.starts_with(a)) {
+            return None;
+        }
+    }
+    crate::state::make_private_dir(&dir).ok()?;
+    Some(dir)
 }
 
 pub fn home_dir() -> Option<PathBuf> {

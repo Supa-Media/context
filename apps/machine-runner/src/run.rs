@@ -119,6 +119,10 @@ pub async fn run(
         Some(dir) if a.resume_session.is_some() && dir.is_dir() && dir.starts_with(&root) => {
             (dir, true)
         }
+        // The work folder is named by a word, not a path: it starts in the folder it resolved to.
+        _ if a.folder == crate::rules::WORK_FOLDER => {
+            workdir::start_dir(&root, &root, a.repo.as_deref())
+        }
         _ => workdir::start_dir(&root, Path::new(&a.folder), a.repo.as_deref()),
     };
     ctx.state.save_job_start(&a.job_id, &workdir);

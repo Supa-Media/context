@@ -69,7 +69,7 @@ function checkOf(answer: Record<string, unknown>): MachineCheck | undefined {
 /** The running part, for a later text to reach (`jobRun.ts` `steerJob`). */
 export type MachineLive = { workspaceId: string; runId: string; accessToken: string; delivered: string[] };
 
-type RunRead = { state: string; steps: { seq: number; tool: string; action: string | null; target: string | null }[]; result: { outcome: string; answer?: string; session?: string | null; error?: string | null } | null; session: string | null };
+type RunRead = { state: string; steps: { seq: number; tool: string; action: string | null; target: string | null }[]; result: { outcome: string; answer?: string; session?: string | null; error?: string | null; refused?: string } | null; session: string | null };
 
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -96,7 +96,9 @@ export function refusedText(title: string, name: string, code: string, fix: { wh
     case "limit_others":
       return `I paused ${where}: it has used the time you allowed Tex there. You can raise it in Tex's settings, then text me to pick it back up.`;
     case "folder":
-      return `I couldn't start ${where}: Tex may not work in that folder there. On that computer, open the Context app, Settings › Tex, and add it.`;
+      return `I couldn't start ${where}: that folder isn't on it, or Tex isn't allowed there. Fix the folder on its page, or clear it so Tex works in its own folder there, then text me to pick it back up.`;
+    case "memory":
+      return `I couldn't start ${where}: it's short on free memory right now. Text me to try again once it has some room.`;
     case "rule":
       return `I couldn't start ${where}: its owner hasn't let this chat use it.`;
     case "ask_first":
@@ -256,9 +258,15 @@ export async function machineTurn(
           }
           case "cancelled":
             return { kind: "stop" };
-          default:
-            // Failed or lost with the machine: the next part resumes the session if the tool named one.
+          default: {
+            // The computer refused the part: trying again gets the same refusal, so the job stops and says why (owner, 2026-11-05).
+            if (typeof read.result.refused === "string" && read.result.refused !== "") return { kind: "stop", text: refusedText(run.title, machine.name, read.result.refused) };
+            // Failed before it took a single step: the next part would fail the same way, so stop with the computer's own reason.
+            const why = typeof read.result.error === "string" ? read.result.error.replace(/\s+/g, " ").trim().slice(0, 300) : "";
+            if (read.result.outcome === "failed" && read.steps.length === 0 && why !== "") return { kind: "stop", text: `I couldn't run "${run.title}" on ${machine.name}: it said "${why}". Text me to try again once that's fixed.` };
+            // Failed or lost partway: the next part resumes the session if the tool named one.
             return { kind: "broken" };
+          }
         }
       }
       if (deps.now() > current.deadline + GRACE_MS) {

@@ -110,7 +110,7 @@ export type Assign = {
   part: number;
   title?: string;
   tool: Tool;
-  /** One of the rules' folders; the run makes a fresh worktree or scratch folder under it. */
+  /** One of the rules' folders, or the word @work for the runner's own work folder in its app data when the owner chose none. */
   folder: string;
   /** A repo the job names: the tool starts in its checkout under the folder, or in the folder itself, told to clone it, when it is not there. */
   repo?: string;

@@ -482,3 +482,22 @@ written once to the chat's ledger: steps as `tool`, words as `said`, thoughts as
 ended (`computer_part`, with the runner's short error code). Each entry carries `computer`, `computerName` and
 `jobId`. Tool results and file contents still stay on the computer. Tests: `apps/mcp/test/machineJobs.test.mjs`
 and the runner's `tests/e2e.rs`.
+
+## A job needs no folder, and a refusal ends it once, with the reason (owner, 2026-11-05)
+
+A machine whose owner chose no folder runs jobs in the runner's own work
+folder in its app data (`~/.local/share/context-machine/work`, or
+`~/Library/Application Support/context-machine/work` on a Mac), made on first
+use (owner: "isn't there some app data folder that we could just run out of").
+The gateway names it with the word `@work`, never a path, so it can never be
+bent into one of the person's own folders; the runner resolves it and refuses
+it when `local.json` narrows it out. A sign-in or scratch job then needs no
+setup; a job on the person's code still runs in a folder they chose.
+
+A part the computer refuses, or one that fails before its first step, ends the
+job with the computer's own reason in Tex's words, instead of trying again: on
+11-04 and 11-05 the same refusal was retried up to 96 times in two minutes and
+Tex said it "gave no reason". A part that fails partway is still carried on.
+Reversing either fails `rules/tests.rs` "a job with no folder of the owner's
+runs in the work folder" and `machineTurn.test.ts` "a part the computer itself
+refuses ends the job once".

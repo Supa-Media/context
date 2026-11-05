@@ -195,7 +195,7 @@ export function MachinePage(props: ViewProps) {
               </T>
             ) : (
               <T size={13} tone="muted">
-                None yet. Tex asks the first time
+                None chosen, so Tex works in its own folder here
               </T>
             )}
           </View>

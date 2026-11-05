@@ -205,7 +205,7 @@
                                         "title": {"type": "string", "maxLength": 200},
                                         "tool": {"$ref": "#/$defs/Tool"},
                                         "folder": {
-                                                    "description": "One of the rules' folders; the run makes a fresh worktree or scratch folder under it.",
+                                                    "description": "One of the rules' folders, or the word @work for the runner's own work folder in its app data when the owner chose none.",
                                                     "type": "string",
                                                     "minLength": 1,
                                                     "maxLength": 1024
