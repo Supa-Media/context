@@ -119,7 +119,7 @@ export async function runLiveTicketChecks() {
   check("an oversized body mints nothing", (await mint({ Authorization: `Bearer ${token}` }, { socket: "/presence", pad: "x".repeat(2048) })).status === 413);
   check("a ticket only for the app's sockets", (await mint({ Authorization: `Bearer ${token}` }, { socket: "/mcp" })).status === 400);
   const viaPath = await worker.fetch(new Request(`https://x/t/${token}/presence/ticket`, { method: "POST", body: JSON.stringify({ socket: "/presence" }) }), ticketEnv, { waitUntil() {} });
-  check("a token in the URL mints nothing", viaPath.status === 400);
+  check("a token in the URL mints nothing", viaPath.status === 410);
   check("a GET mints nothing", (await worker.fetch(new Request("https://x/presence/ticket", { headers: { Authorization: `Bearer ${token}` } }), ticketEnv, { waitUntil() {} })).status === 405);
   check("a deployment without the ticket objects says so", (await worker.fetch(new Request("https://x/presence/ticket", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ socket: "/presence" }) }), env, { waitUntil() {} })).status === 501);
 }
