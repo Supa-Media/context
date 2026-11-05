@@ -47,6 +47,7 @@
  */
 
 import { GROUP_QUEUE, queueFull, queueItem } from "./chatQueue";
+import { ASK_KEY, isAsker, isItForTexInGroup, type OpenAsk } from "./isItForTex";
 import { reportRoutineResult, ServiceError, type Fetch, type RoutineOutcome } from "./clients";
 import { chatRoutineMessage, type ChatRoutineRun } from "./groupRoutines";
 import { askControlPlane, type ControlAnswer } from "./groupControl";
@@ -54,11 +55,11 @@ import { dropKept, keepAnswer, keptAnswer, refreshKept } from "./groupKept";
 import { failedLine, GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { Command, ControlAnswer };
-import { log, MAX_SENT, say, SENT_KEY, timedReply, type ReplyClock } from "./groupSay";
+import { log, MAX_SENT, say, timedReply, type ReplyClock } from "./groupSay";
 import type { Picture } from "./line";
 import type { ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
-import { groupSettingReply, groupSettings } from "./groupSettings";
+import { groupSettings } from "./groupSettings";
 import { answers, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { ackEmoji } from "./ackEmoji";
 import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onMachineAsk, onTexText } from "./thumbs";
@@ -70,7 +71,7 @@ import type { NoteCardDrawer } from "./noteCards";
 import { isBound, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchFailed } from "./reviewWatch";
-import { addressesTex, groupCommand, namesTex, unquoted, type Command } from "./groupWords";
+import { addressesTex, groupCommand, namesTex, type Command } from "./groupWords";
 import type { JobRun, JobSteer } from "./jobs";
 import { armBy, flushChat, pruneEvents, type Conversation } from "./events";
 import { rememberChatReader } from "./chatRead";
@@ -82,7 +83,7 @@ import { chooseStyle } from "./groupChoose";
 import { handedTurnWaits, handOff, TURN_KEY, type HandedTurn } from "./groupTurnRun";
 import { answerBesideTurn } from "./groupBeside";
 import { groupTurn } from "./groupModelTurn";
-import { ENGAGEMENT_QUESTION, engagementChoice, engagementSet, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide } from "./groupStyle";
+import { ENGAGEMENT_QUESTION, engagementSet, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide } from "./groupStyle";
 import type { TimingDataset } from "./textTiming";
 
 export type GroupDeps = {
@@ -132,16 +133,10 @@ type Recent = { h: string; at: number };
 export const PICTURE_JOINS_MS = 2 * 60_000;
 /** The newest pictures and files a turn reads, its own and the chat's since Tex last answered. */
 export const MAX_GROUP_FILES = 4;
-/** How long a yes Tex asked for stays the asker's to give without its name. */
-export const ASK_OPEN_MS = 30 * 60_000;
-export const ASK_KEY = "gask";
-export type OpenAsk = { from: string; at: number };
-/** Words that only answer a yes Tex asked for: a yes, a no, or "send it" (`apps/mcp/src/agent/textedApprovals.js` decides what they settle). A bare "ok" stays chat: it is not a yes to a send there, and would only disarm the ask. */
-const ANSWERS_ASK =
-  /^\s*(?:yes|yes please|yep|yeah|yup|y|no|nope|cancel|send|send it|send that|file it|do it|go ahead|looks good)(?:[\s,.!-]+(?:send it|send|please|file it|do it|go ahead))*\s*[.!]*\s*$/i;
 
 
 export { addressesTex, groupCommand, peopleOf };
+export { ASK_KEY, type OpenAsk };
 
 /**
  * Accept a group message. Addressed (or a yes, a style choice, a command): it
@@ -160,22 +155,9 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     message = { ...message, text: read.line };
     answeringTex = read.answersTex;
   }
-  const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
-  const repliesToTex = message.replyTo !== undefined && sent.includes(message.replyTo);
-  const yes = await answersOpenAsk(storage, message, now);
-  // An SMS never sets the style: anyone can send one that shows a member's number.
-  const engagement = !message.sms && (await questionOpen(storage, now)) ? engagementChoice(message.text) : null;
-  const setting = !message.sms && engagement === null ? await groupSettingReply(storage, message.text, now) : null;
-  // A reply to one of Tex's texts that says more than thanks is addressed: its turn starts at once, decide beside it (Dev2, 2026-11-01, superseding 2026-10-27's decide-first).
-  // A reaction answering Tex's own question is answered as a message to Tex is (the 1:1's, #2469): never left silent.
-  // A voice message is addressed by what it says (`groupVoice.ts`): said aloud, Tex's name anywhere is the tag, since decide can't hear it.
-  const heard = message.reaction === undefined && message.heard !== undefined && (addressesTex(message.heard, repliesToTex) || namesTex(message.heard));
-  const addressed = message.reaction === undefined ? addressesTex(message.text, repliesToTex) || heard : answeringTex;
-  const tagged = addressed || yes || engagement !== null || setting !== null;
+  const { repliesToTex, engagement, setting, forTex: tagged, byCode } = await isItForTexInGroup(storage, message, now, answeringTex);
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
-  // Never the model's: an SMS (anyone can fake its sender), the asker's yes, a style choice, a command.
-  const byCode = message.sms === true || yes || engagement !== null || setting !== null || (addressed && groupCommand(message.text) !== null);
   const running = runningTurn(storage, message.groupId);
   // Untagged and idle: kept as chat if bound, and to decide as the style says. `ev` given: it was logged already.
   const idleUntagged = async (logged?: string): Promise<"kept" | "queued" | "ignored"> => {
@@ -334,12 +316,6 @@ async function acceptReaction(storage: InboxStorage, message: GroupMessage, reac
   return { kind: "line", line, answersTex };
 }
 
-/** Whether this is from the person Tex last asked for a yes, while that ask is open. */
-async function isAsker(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
-  const ask = await storage.get<OpenAsk>(ASK_KEY);
-  return ask !== undefined && now - ask.at < ASK_OPEN_MS && ask.from === (await sha256Hex(message.from));
-}
-
 /**
  * Whether this person tagged Tex with these same words a moment ago (Dev2,
  * 2026-10-21: the same bug report sent twice was written up twice). Kept as
@@ -353,15 +329,6 @@ async function askedJustNow(storage: InboxStorage, message: GroupMessage, now: n
   return again;
 }
 
-/**
- * A bare yes, no or "send" from the person Tex just asked, while that ask is
- * open (Dev2's "yes" to the bug report, 2026-10-21, kept as chat). Anyone
- * else's is chat: only the asker's yes can release what was held for them.
- */
-async function answersOpenAsk(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
-  if (!ANSWERS_ASK.test(unquoted(message.text))) return false;
-  return await isAsker(storage, message, now);
-}
 
 /** Answer what is waiting, oldest first: code's messages one by one, the rest as decide groups them. Called from the alarm. */
 export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promise<void> {
