@@ -8,8 +8,9 @@
  * Sabotage (temporary local edits, reverted):
  *  - the associated data dropped from `aad` (sealed under no session): "one
  *    person's copy never opens on another's turn" fails;
- *  - `warm: hot` dropped from `loggedTurn`'s call in `route.js`: "the second
- *    text reads none of it from storage" fails;
+ *  - `events` taking the copy's day again (`warm?.events ?? read()`), with
+ *    the copy carrying it: "a turn after Tex answered is shown that answer"
+ *    and "a copy never carries the chat's day" fail;
  *  - `mergeEvents` taking recent events without `checkEvent`: "events the log
  *    would refuse are left out" fails;
  *  - `keeps` in `warmTurn` answering yes for a missing setup: "a setup that
@@ -162,7 +163,9 @@ test("a turn not its own (a group, a job, a routine) never uses or makes one", a
   assert.equal(await hot.seal({}), null);
 });
 
-test("the second text reads none of it from storage, and still sees the first", async () => {
+test("a turn after Tex answered is shown that answer though the Worker no longer holds it", async () => {
+  // Dev2's chat, 2026-11-05: the copy was sealed before the reply went, the Worker forgot the reply once the gateway had
+  // it, and every later turn saw the person's texts and none of Tex's answers ("My last text was the Air France ...").
   const world = await createEgressWorld();
   try {
     const now = Date.now();
@@ -173,24 +176,34 @@ test("the second text reads none of it from storage, and still sees the first", 
     assert.match(one.body.warm, /^tw1\./, "the answer hands back a copy");
     await keepDeskKeys(world, { about: false, jobs: false }); // as the lookup behind the reply keeps them in a keyed workspace
 
-    const reply = event(now - 4_000, { from: { kind: "tex" }, text: "Hey Seyi.", turn: "turn-warm-0001", covers: [first.id] });
-    const second = event(now - 1_000, { text: "what did I just say?" });
-    world.model.install([{ text: "You said hi." }]);
-    const two = await readsDuring(() => request(world.env, TOKEN_TEXTS, "/agent", { question: "what did I just say?", conversation: "texts", covers: [second.id], chat: CHAT, recent: [first, reply, second], turn: "turn-warm-0002", warm: one.body.warm }));
+    // The Worker sends the reply and posts both texts to the gateway (`events.ts` `flushEvents`), then forgets them.
+    const reply = event(now - 4_000, { from: { kind: "tex" }, text: "Hey Seyi.", turn: "turn-warm-0001", covers: [first.id], delivered: true });
+    assert.equal((await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [first, reply] })).status, 200);
+    const second = event(now - 1_000, { text: "what did you just say?" });
+    world.model.install([{ text: "I said hey." }]);
+    const two = await readsDuring(() => request(world.env, TOKEN_TEXTS, "/agent", { question: "what did you just say?", conversation: "texts", covers: [second.id], chat: CHAT, recent: [second], turn: "turn-warm-0002", warm: one.body.warm }));
     assert.equal(two.result.status, 200, JSON.stringify(two.result.body));
     const shown = JSON.stringify(world.model.requests.at(-1).messages);
     assert.match(shown, /hi Tex/);
-    assert.match(shown, /Hey Seyi\./);
-    assert.deepEqual(two.reads, [], "the chat's log came from the copy and the Worker's newest events");
-
-    // The same text with no copy takes the day from the chat's ledger, never the bucket's old event log.
-    world.model.install([{ text: "You said hi." }]);
-    const cold = await readsDuring(() => request(world.env, TOKEN_TEXTS, "/agent", { question: "what did I just say?", conversation: "texts", covers: [second.id], chat: CHAT, recent: [first, reply, second], turn: "turn-warm-0003" }));
-    assert.equal(cold.result.status, 200, JSON.stringify(cold.result.body));
-    assert.deepEqual(cold.reads.filter((key) => key.includes(".context/agent/log/")), [], "never the bucket's old event log");
+    assert.match(shown, /Hey Seyi\./, "Tex's own answer, from the chat's ledger");
+    assert.deepEqual(two.reads.filter((key) => key.includes(".context/agent/log/")), [], "never the bucket's old event log");
   } finally {
     world.restore();
   }
+});
+
+test("a copy never carries the chat's day, and a day in an older copy is never used", async () => {
+  const now = Date.now();
+  const stale = event(now - 60_000, { from: { kind: "tex" }, text: "Air France check-in won't submit", turn: "turn-old-0001", delivered: true });
+  const sealed = await sealWarm(env, session, { v: 1, chat: { at: now, events: [stale] } });
+  const hot = warmTurn(env, session, { warm: sealed, recent: [] }, { eligible: true, now });
+  const answer = event(now - 2_000, { from: { kind: "tex" }, text: "Jo's email says three business days.", turn: "turn-new-0001", delivered: true });
+  let reads = 0;
+  const day = await hot.events(CHAT, async () => (reads += 1, [stale, answer]));
+  assert.equal(reads, 1, "the ledger's day is read on every turn");
+  assert.ok(day.some((entry) => entry.id === answer.id), "the answer the ledger holds is shown");
+  const opened = await openWarm(env, session, await hot.seal({}), now);
+  assert.equal(opened.chat.events, undefined, "no day goes on to the next turn");
 });
 
 test("a turn that wrote anything drops the skills from the copy it hands back, and never carries the history", async () => {
@@ -201,7 +214,7 @@ test("a turn that wrote anything drops the skills from the copy it hands back, a
   const opened = await openWarm(env, session, await hot.seal({ wrote: true }), now);
   assert.equal(opened.skills, undefined);
   assert.equal(opened.chat.history, undefined, "the history is the person's object's, never the copy's");
-  assert.deepEqual(opened.chat.events, [], "the chat's log is still carried");
+  assert.equal(opened.chat.events, undefined, "nor the chat's day: the next turn reads it from the ledger");
 });
 
 test("a turn record the copy knows is not read again, and an unknown one is", async () => {
