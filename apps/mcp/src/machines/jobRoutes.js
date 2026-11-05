@@ -37,7 +37,7 @@ import { hasScope, SCOPE_WRITE } from "../session.js";
 import { workspaceStub } from "../workspaceStore/api.js";
 import { callTexStore } from "../texStore/wire.js";
 import { checkJob, jobFields } from "../agent/jobCheck.js";
-import { readProductionSetup } from "../agent/production.js";
+import { readComputerJobSettings, readProductionSetup } from "../agent/production.js";
 import { storeLedger } from "../agent/ledger.js";
 import { advisorRequest } from "../agent/advisor.js";
 import { aiGatewayConfig } from "../agent/aiGateway.js";
@@ -100,7 +100,7 @@ const shownRun = (run) => ({
   result: run.result ?? null,
 });
 
-async function assign(request, env, session, controlPlane, origin, now) {
+async function assign(request, env, session, controlPlane, origin, now, store) {
   const body = await bodyOf(request);
   if (body === null) return invalid("body");
   if (typeof body.machineId !== "string" || !ID.test(body.machineId)) return invalid("machineId");
@@ -131,6 +131,9 @@ async function assign(request, env, session, controlPlane, origin, now) {
     advice: body.advice,
     resumeSession: body.resumeSession,
     deadline,
+    // The model, the wait after an answer and the runner's prompt, from the production note, so they change without a
+    // runner release (`production.js` `readComputerJobSettings`); sent only to a runner that takes them.
+    settings: store ? await readComputerJobSettings(store, session) : {},
     chatName: body.chatName,
     computerUse: body.computerUse === true,
     // Who asked comes from the grant, never the body: in their own texts the person, in a group the one who tagged Tex.
@@ -342,7 +345,7 @@ export async function handleMachineJob(request, env, session, { path, controlPla
   // A person's own texts, or a group chat's turn on the computers lent to it (`reach.js`).
   if ((session.actorClientId !== TEXTS_CLIENT_ID && session.actorClientId !== TEXTS_GROUP_CLIENT_ID) || !hasScope(session, SCOPE_WRITE) || jobChatOf(session) === null) return forbidden();
   if (!env.WORKSPACE_STORE) return json({ error: "machines_unavailable" }, 501);
-  if (path === "/agent/machine/assign") return await assign(request, env, session, controlPlane, origin, now);
+  if (path === "/agent/machine/assign") return await assign(request, env, session, controlPlane, origin, now, store);
   if (path === "/agent/machine/run") return await readRun(request, env, session, controlPlane, store);
   if (path === "/agent/machine/cancel") return await cancel(request, env, session, controlPlane);
   if (path === "/agent/machine/deliver") return await deliver(request, env, session, controlPlane);

@@ -86,9 +86,24 @@
                                                           "type": "array",
                                                           "maxItems": 2,
                                                           "items": {"$ref": "#/$defs/Tool"}
-                                                        }
+                                                        },
+                                              "runSettings": {
+                                                              "description": "This runner takes an assignment's `settings` (model, wait after the answer, system prompt). An older runner refuses a field it does not know, so the gateway sends them only when this is true.",
+                                                              "type": "boolean"
+                                                            }
                                             }
                             },
+            "RunSettings": {
+                            "description": "How the run's tool runs, from the gateway's production note, so it changes without a runner release. Each absent field keeps the runner's built-in value.",
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                            "claudeModel": {"description": "The model Claude Code runs on.", "type": "string", "minLength": 1, "maxLength": 100},
+                                            "codexModel": {"description": "The model Codex runs on.", "type": "string", "minLength": 1, "maxLength": 100},
+                                            "afterAnswerMs": {"description": "How long the tool may take to exit after its answer before what it left running is stopped.", "type": "integer", "minimum": 0, "maximum": 600000},
+                                            "systemPrompt": {"description": "The system prompt; {machine}, {job} and {part} are filled in by the runner.", "type": "string", "minLength": 1, "maxLength": 8000}
+                                          }
+                          },
             "SlotCounts": {
                             "description": "Slot counts the runner works out from memory and cores. recommended: for a machine the person also uses. most: for a machine that only runs Tex. Never over 8.",
                             "type": "object",
@@ -252,6 +267,7 @@
                                                   "type": "string",
                                                   "maxLength": 100
                                                 },
+                                        "settings": {"$ref": "#/$defs/RunSettings"},
                                         "network": {
                                                     "description": "Whether the run may reach the network. Off for others' runs unless the owner turned it on for that chat.",
                                                     "type": "boolean"

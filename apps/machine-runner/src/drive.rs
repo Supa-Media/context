@@ -53,7 +53,16 @@ const TICK: Duration = Duration::from_secs(30);
 /// it left running is killed and the answer stands: a backgrounded command that
 /// keeps the output open must never hold a finished part to its deadline
 /// (2026-11-05: a GitHub login job's one-time code waited 15 minutes, unsent).
+/// The run's settings may name another wait (`RunSettings::after_answer_ms`).
 const AFTER_ANSWER: Duration = Duration::from_secs(10);
+
+fn after_answer(a: &Assign) -> Duration {
+    a.settings
+        .as_ref()
+        .and_then(|s| s.after_answer_ms)
+        .map(|ms| Duration::from_millis(ms.min(600_000)))
+        .unwrap_or(AFTER_ANSWER)
+}
 
 pub async fn drive(
     d: Driver,
@@ -364,7 +373,7 @@ async fn claude(
                         } else {
                             last = Some(done);
                             stdin = None; // EOF: the tool exits after its turn.
-                            answered = Some(tokio::time::Instant::now() + AFTER_ANSWER);
+                            answered = Some(tokio::time::Instant::now() + after_answer(sink.a));
                         }
                     }
                 }
@@ -423,6 +432,11 @@ async fn codex(
             network: spec.network,
             read_only: spec.read_only,
             prompt: &prompt,
+            model: sink
+                .a
+                .settings
+                .as_ref()
+                .and_then(|s| s.codex_model.as_deref()),
         });
         let Ok((mut child, mut lines)) = spawn(&spec.exe, &args, &spec.cwd, false) else {
             return ended(Outcome::Failed, "the tool did not start");
@@ -439,7 +453,7 @@ async fn codex(
                         if let CliEvent::Session(id) = &ev { thread = Some(id.clone()); }
                         if let Some(d) = sink.event(ev).await {
                             done = Some(d);
-                            answered = Some(tokio::time::Instant::now() + AFTER_ANSWER);
+                            answered = Some(tokio::time::Instant::now() + after_answer(sink.a));
                         }
                     }
                 }

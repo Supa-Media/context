@@ -163,6 +163,17 @@ it's running". So:
   verdict is texted. Test: `a_background_process_never_holds_a_finished_run_open`.
 - **Claude Code runs on Opus 5.5** (`claude.rs` `MODEL`), never on whatever
   default the computer has.
+- **The model, the wait after an answer and the runner's prompt change without
+  a release** (owner, 2026-11-05: "i'd like to be able to change those
+  properties on the fly without a new update"). They are read from
+  `@context-lc` `ai/production/computer-jobs.md` (`claude_model`,
+  `codex_model`, `after_answer_seconds`, and the body as the system prompt with
+  `{machine}`, `{job}` and `{part}` filled in) on every part and sent as the
+  assignment's `settings` (`production.js` `readComputerJobSettings`). Only a
+  runner whose hello says `runSettings` (0.2.9 on) is sent them, because an
+  older runner refuses a field it does not know; a missing or invalid value
+  keeps the runner's built-in one. Test: `machineRunSettings.test.mjs`,
+  e2e `a_runs_settings_name_its_model_and_its_wait_after_the_answer`.
 - **Keyed API calls are allowed.** A run may use `send` action `api`
   (`vault_list` with `fetch`): Context adds the saved key on the way out and
   blanks it from the answer, so the key never reaches the computer, and the

@@ -35,9 +35,11 @@ pub struct ClaudePlan<'a> {
     pub helpers: bool,
     pub network: bool,
     pub system_prompt: &'a str,
+    /// The model, from the run's settings; `MODEL` when it names none.
+    pub model: &'a str,
 }
 
-/// The model every part runs on.
+/// The model a part runs on when the run's settings name none.
 pub const MODEL: &str = "claude-opus-5-5";
 
 /// The argv after `claude`. The brief is not here: it is the first stdin line,
@@ -58,7 +60,7 @@ pub fn args(p: &ClaudePlan) -> Vec<String> {
     .collect();
     a.push(p.mcp_config.display().to_string());
     // The model is ours to choose, never the computer's default (the owner, 2026-11-05).
-    a.extend(["--model".into(), MODEL.into()]);
+    a.extend(["--model".into(), p.model.into()]);
     if p.resume {
         a.extend(["--resume".into(), p.session_id.into()]);
     } else {
