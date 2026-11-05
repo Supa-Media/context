@@ -42,7 +42,7 @@ export function HistoryDayLines({ day, job, look = "page" }: { day: HistoryDay; 
   );
 }
 
-type Look = "page" | "file" | "phone";
+export type Look = "page" | "file" | "phone";
 
 /** `Today · Mon, Nov 2`: the day as the artboard heads it; a day already written out keeps its words. */
 export function dayHeading(day: HistoryDay): string {

@@ -20,9 +20,9 @@ const MINI_HEIGHT = { phone: 320, wide: 360 };
  * until asked for. A line opens to its entry exactly as kept. Read from the
  * gateway each time, a page at a time; nothing here keeps a copy.
  *
- * Drawn on the Tex page, newest day first. The history file
- * (`tex/history.ledger.json`, or a group home's) opened in the app reads the
- * same way, newest at the bottom (`HistoryFileLines`).
+ * Drawn on a job's page, newest day first. The Tex page's History and the
+ * history file (`tex/history.ledger.json`, or a group home's) opened in the
+ * app read as a chat does, live and newest at the bottom (`HistoryFileLines`).
  *
  * `mini` is the same history on the hub's first screen (Dev, 2026-11-04: "use
  * the same history component ... like a mini view but it can still scroll,

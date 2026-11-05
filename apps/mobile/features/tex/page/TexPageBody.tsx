@@ -122,17 +122,26 @@ export function TexPageBody({
     body = <TexHome {...props} overview={overview} pickChat={(chat: string) => go({ chat })} />;
   }
 
+  // History owns its scroller, so its filters stay put and it opens on the newest line (`HistoryPage`): the page around it holds still.
+  const ownsScroll = overview !== null && page.phase !== "notYours" && !place.job && place.view === "history";
+  const column = (
+    <View style={[styles.pg, wide ? styles.pgWide : null, ownsScroll ? styles.pgFill : null]} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+      {body}
+    </View>
+  );
+
   return (
     <NowContext.Provider value={now ?? Date.now}>
       <WideContext.Provider value={wide}>
-        <ScrollView style={styles.ground} contentContainerStyle={styles.scroll} testID="tex-page">
-          <View
-            style={[styles.pg, wide ? styles.pgWide : null]}
-            onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-          >
-            {body}
+        {ownsScroll ? (
+          <View style={styles.ground} testID="tex-page">
+            {column}
           </View>
-        </ScrollView>
+        ) : (
+          <ScrollView style={styles.ground} contentContainerStyle={styles.scroll} testID="tex-page">
+            {column}
+          </ScrollView>
+        )}
       </WideContext.Provider>
     </NowContext.Provider>
   );
@@ -200,5 +209,6 @@ const makeStyles = (colors: Colors) =>
     scroll: { flexGrow: 1 },
     pg: { width: "100%", maxWidth: 720, alignSelf: "center", paddingTop: 18, paddingHorizontal: 18, paddingBottom: 30, gap: 22 },
     pgWide: { paddingTop: 30, paddingHorizontal: 32, paddingBottom: 40 },
+    pgFill: { flex: 1, minHeight: 0, gap: 12, paddingBottom: 12 },
     wait: { paddingVertical: 60, alignItems: "center" },
   });
