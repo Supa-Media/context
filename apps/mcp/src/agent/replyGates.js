@@ -142,7 +142,7 @@ export const GATES = {
     notice: "Your reply leaves part of their question unanswered. Read their newest text again (and any picture they sent) and answer that, all of it.",
   }),
   followed_them: gate({
-    ask: "Read their newest text. Does it correct what the assistant just did, turn down a way of doing it, say a code or prompt never reached them, or ask for the advisor? If so, does the reply fail to act on it: only acknowledge it ('got it', 'glad that worked'), drop what they still want, carry on as before, ask again for the thing that never arrived, or answer without the advisor?",
+    ask: "Their newest text may be one of four kinds, each needing an act in the reply: a correction ('no, the other one', 'make it 8') needs the corrected thing done or sent; turning down a way ('not by bus') needs another way to what they still want; saying a code, text or prompt never reached them needs another route, never a request to send it once it arrives; asking for the advisor needs the advisor asked. Is their newest text one of these, and does the reply miss the act it needs (a thank-you, 'got it' or 'glad that worked' is a miss)?",
     allow: [
       "They: 'not that one, the blue one'. Did: sent the blue file. Reply: the link.",
       "They: 'no trains, I hate trains'. Did: looked up a car service. Reply: 'Then a car: $60, 40 minutes.'",
