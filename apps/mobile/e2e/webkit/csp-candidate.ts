@@ -21,8 +21,11 @@ import { join } from "node:path";
  * it, so the candidate cannot drift from what the router reports today:
  *
  *  - each document keeps the enforcing header it already has
- *    (`withSecurityHeaders`, and the sandbox page's own policy in
+ *    (`withSecurityHeaders`, the shell's script policy in
+ *    `shellEnforcedPolicy`, and the sandbox page's own policy in
  *    `pluginSandbox.ts`), and `X-Frame-Options`;
+ *  - where the router already enforces `script-src` (the shell), the copy
+ *    below leaves it out, so one refusal is reported once as enforced;
  *  - the report-only policy for that path (`reportOnlyPolicyFor`), or its
  *    `script-src` alone, is sent as a **second enforcing**
  *    `Content-Security-Policy` as well as staying report-only, which is what
@@ -77,6 +80,14 @@ function only(policy: string, names: string[]): string {
     .join("; ");
 }
 
+/** The directive names in `policy`, `report-uri` aside. */
+function directivesOf(policy: string): string[] {
+  return policy
+    .split(";")
+    .map((directive) => directive.trim().split(/\s+/)[0] ?? "")
+    .filter((name) => name !== "" && name !== "report-uri");
+}
+
 /** What the router would send for a document under `prefix`, plus the candidate `mode` enforces. */
 export function candidateRules(mode: CandidateMode): CandidateRule[] {
   const headers = router("securityHeaders.ts");
@@ -91,9 +102,11 @@ export function candidateRules(mode: CandidateMode): CandidateRule[] {
   const editorPrefix = value<string>(csp, "EDITOR_PATH_PREFIX", "string");
   const sandboxPrefix = value<string>(sandbox, "PLUGIN_SANDBOX_PREFIX", "string");
   const sandboxPolicy = value<string>(sandbox, "ENFORCED_SANDBOX_POLICY", "string");
+  // The shell document's enforcing policy is set where the router recognises the shell (`styleNonce.ts`).
+  const shellPolicy = value<(landing?: boolean) => string>(headers, "shellEnforcedPolicy", "function")(false);
 
   const documents: { prefix: string; document: string; enforced?: string }[] = [
-    { prefix: "/", document: "shell" },
+    { prefix: "/", document: "shell", enforced: shellPolicy },
     // The diagram renderer's page gets the shell's policy from the router;
     // a rule of its own here only names it in the report log.
     { prefix: "/drawing-assets/diagram/", document: "diagram" },
@@ -109,7 +122,12 @@ export function candidateRules(mode: CandidateMode): CandidateRule[] {
     if (sent["content-security-policy-report-only"] !== reportOnly) {
       throw new Error(`the router's report-only policy for ${prefix} is not reportOnlyPolicyFor's`);
     }
-    const candidate = mode === "full" ? reportOnly : mode === "script" ? only(reportOnly, ["script-src"]) : null;
+    // The shell already enforces its script-src; a second copy would report each refusal twice as enforced.
+    const scriptEnforced = document === "shell" && directivesOf(sent["content-security-policy"] ?? "").includes("script-src");
+    const asked = (mode === "full" ? directivesOf(reportOnly) : mode === "script" ? ["script-src"] : []).filter(
+      (name) => !(scriptEnforced && name === "script-src"),
+    );
+    const candidate = asked.length === 0 ? null : mode === "full" && !scriptEnforced ? reportOnly : only(reportOnly, asked);
     // Its reports go to an address of their own: WebKit's reports carry no
     // disposition, so the address is the only way to tell an enforced
     // violation from one the report-only copy of the same policy sent.
