@@ -152,6 +152,10 @@ test("only the same write with the same arguments is refused; a read, a failed w
   assert.equal(repeatedWrite({ name: "write_note", args: { path: "lisbon.page.md", content: "x" }, entries, isWrite }), null, "the page notice's rewrite as a page runs");
   assert.equal(repeatedWrite({ name: "calendar_event", args: { title: "A" }, entries, isWrite }), null, "a write that failed may be tried again");
   assert.equal(repeatedWrite({ name: "send_email", args: draft, entries: [{ kind: "tool", name: "send_email", args: draft, ok: false, held: true }], isWrite }), ALREADY_DONE, "a send held for their yes counts as done");
+  const reply = (id, body) => ({ to: ["robin@reviewer.example"], in_reply_to: id, body });
+  const replies = [{ kind: "tool", name: "save_email_draft", args: reply("email:me@example.com/1", "Thanks"), ok: true }];
+  assert.equal(repeatedWrite({ name: "save_email_draft", args: reply("email:me@example.com/2", "Thanks"), entries: replies, isWrite }), null, "a reply to another of their emails runs");
+  assert.equal(repeatedWrite({ name: "save_email_draft", args: reply("email:me@example.com/1", "Thanks, reworded"), entries: replies, isWrite }), ALREADY_DONE, "the same reply reworded does not");
   const ledger = turnLedger({ tools: [{ name: "save_email_draft", annotations: { readOnlyHint: false } }, { name: "job_status" }] });
   ledger.keep({ kind: "tool", name: "job_status", args: {}, ok: true });
   ledger.keep({ kind: "tool", name: "save_email_draft", args: draft, ok: true });

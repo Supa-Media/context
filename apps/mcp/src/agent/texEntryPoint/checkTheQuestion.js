@@ -27,7 +27,7 @@ export async function checkTheQuestion(t) {
   const quoted = quotedOf(session.actorClientId === TEXTS_CLIENT_ID || group !== null ? body : null); session.ledgerWork = chatTurn ? { turn: body.turn, from: job?.title ?? (group !== null ? "the group" : "your texts") } : null; // what the email gate's ledger lines say they came from (`workEntries.js`)
   const reacted = reactedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null); // tapbacks since their last text
   const steer = steerFor(store, session, body); // texts sent while it works (`steer.js`)
-  if (steer !== null) outcome.turn = body.turn; // only a texted turn the Worker named is recorded (`loggedTurn.js`)
+  if (steer !== null) outcome.turn = body.turn; // only a texted turn the Worker named
   Object.assign(t, { quoted, reacted, sent, steer });
 }
 // TEX ENTRY POINT: end

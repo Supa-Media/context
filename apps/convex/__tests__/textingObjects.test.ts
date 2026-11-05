@@ -131,6 +131,30 @@ describe("a change to what the record says reaches the object at once", () => {
     await asUser(t, other.userId).mutation(api.functions.routines.setMyTimeZone, { timeZone: "Europe/Paris" });
     expect(await scheduled()).toHaveLength(1);
   });
+
+  test("a Google account connected or disconnected pushes the record again, at once", async () => {
+    const t = setupTest();
+    const { userId, workspaceId } = await person(t);
+    const scheduled = async () => (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((job) => job.name.includes("textingObjects") && job.name.includes("push"));
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: userId,
+      address: "ada@gmail.example",
+      mailboxSlug: "ada-gmail",
+      googleAccountId: "g-ada",
+      scopes: [],
+      backfillDays: 0,
+      folders: ["inbox"],
+      attachmentMode: "metadata-only",
+      attachmentRetentionDays: 30,
+      encryptedRefreshToken: "sealed-refresh",
+      encryptedAccessToken: "sealed-access",
+      accessTokenExpiresAt: Date.now() + 3_600_000,
+    });
+    expect(await scheduled()).toHaveLength(1);
+    await asUser(t, userId).mutation(api.functions.googleConnect.disconnectGoogleConnection, { workspaceId, connectionId });
+    expect(await scheduled()).toHaveLength(2);
+  });
 });
 
 describe("the Worker is told whose object to ask", () => {

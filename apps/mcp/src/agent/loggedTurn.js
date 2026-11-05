@@ -33,44 +33,16 @@ import { deskLedger } from "./history.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
 
 const MAX_COVERS = 32;
-const TURN = /^[A-Za-z0-9_-]{8,64}$/;
 export const TURNS_PREFIX = ".context/agent/turns/";
-/** Older than this, a turn record or a running or cancel mark is pruned: twice the log's 24h window. */
+/** Older than this, a left-over turn record or a running or cancel mark is pruned: twice the log's 24h window. */
 const KEEP_MS = 48 * 3_600_000;
 const MAX_PRUNED = 100;
 
 /**
- * Record whether a named turn stayed inside the workspace. Throws when it
- * cannot: no record is untrusted. A record only ever moves toward not clean:
- * `clean: true` is written only where none exists (create-only, and read
- * first for a store that ignores the condition), and `clean: false` always
- * wins. So a caller that reuses a tainted turn's id on a clean exit never
- * launders it, and one that reuses a clean id on a tainted turn taints it.
- * On a store that ignores the condition (B2, Wasabi), the clean record is
- * read back, and a `clean: false` that landed meanwhile is written again.
- * Each call also prunes old records (`pruneTurns`).
- */
-export async function recordTurn(store, turn, clean, { now = Date.now() } = {}) {
-  if (typeof turn !== "string" || !TURN.test(turn)) return;
-  const key = `${TURNS_PREFIX}${turn}.json`;
-  const tainted = JSON.stringify({ clean: false });
-  if (clean !== true) await store.put(key, tainted);
-  else if ((await store.get(key)) === null) {
-    await store.put(key, JSON.stringify({ clean: true }), { onlyIf: { absent: true } });
-    const back = await store.get(key);
-    if (back !== null && JSON.parse(await back.text())?.clean !== true) await store.put(key, tainted);
-  }
-  // Left over, a record is only kept longer; after the answer where the host allows (a listing and up to 100 reads: about 10 s of a "hi Tex", 2026-10-31).
-  const prune = pruneTurns(store, now).catch(() => {});
-  if (typeof store.defer === "function") store.defer(prune);
-  else await prune;
-}
-
-/**
- * Delete `clean: true` turn records and stray running and cancel marks older
- * than 48h, at most 100 a call. One the store cannot date is kept, and so is
- * every `clean: false` record: gone, a reused turn id could record clean over
- * it and launder the events it said.
+ * Delete turn records (`.context/agent/turns/`, no longer written or read:
+ * a turn's trust is its own, `docs/decisions/texting-assistant/turn-trust.md`)
+ * and stray running and cancel marks older than 48h, at most 100 a call. One
+ * the store cannot date is kept.
  */
 export async function pruneTurns(store, now = Date.now()) {
   const old = async (prefix) => {
@@ -81,44 +53,26 @@ export async function pruneTurns(store, now = Date.now()) {
       return at > 0 && now - at > KEEP_MS;
     }).map((object) => object.key);
   };
-  const [turns, running, cancels] = await Promise.all([TURNS_PREFIX, RUNNING_PREFIX, CANCEL_PREFIX].map(old));
-  const marks = [...running, ...cancels].slice(0, MAX_PRUNED);
-  // lean: kept false records are read again each call, at most 100; skip them by a listing marker if that cost shows.
-  const checked = turns.slice(0, MAX_PRUNED - marks.length);
-  const clean = await Promise.all(checked.map((key) => cleanTurn(store, key.slice(TURNS_PREFIX.length, -".json".length))));
-  await Promise.all([...marks, ...checked.filter((_, i) => clean[i] === true)].map((key) => store.delete(key)));
+  const [marks, turns] = await Promise.all([Promise.all([RUNNING_PREFIX, CANCEL_PREFIX].map(old)).then((found) => found.flat()), old(TURNS_PREFIX)]);
+  await Promise.all([...marks, ...turns].slice(0, MAX_PRUNED).map((key) => store.delete(key)));
 }
 
 /**
- * Run a turn and record it on every exit (`recordTurn`), before its answer:
- * `run(outcome)` names the turn (`outcome.turn`) and says whether it stayed
- * clean (`outcome.clean`). Only a texted turn the Worker named, as steer
- * takes it (`steer.js` `steerFor`), sets `turn`. A texted yes or no answered
- * with no model is clean; a refusal before any model writes no record (its
- * fixed words are the Worker's `system` event); a turn that threw, or whose
- * `clean` was never set, is not clean.
+ * Run a turn, then prune old marks (`pruneTurns`) on every exit of a named
+ * turn (`outcome.turn`: a texted turn the Worker named, as steer takes it),
+ * after the response where the host allows (`defer`, a chat's lean text:
+ * `texTiming.js`). Nothing is recorded from `outcome`.
  */
 export async function recordedTurn(store, run, { defer = () => false } = {}) {
   const outcome = { turn: undefined, clean: false };
   try {
     return await run(outcome);
   } finally {
-    // After the response on a chat's lean text (`texTiming.js`): until it lands the turn has no record, which reads as not clean, so late fails closed.
-    const recorded = recordTurn(store, outcome.turn, outcome.clean === true).catch(() => {});
-    if (defer() && typeof store.defer === "function") store.defer(recorded);
-    else await recorded;
-  }
-}
-
-/** A turn's record: `true` clean, `false` recorded not clean, `null` none or unreadable (failed closed). */
-async function cleanTurn(store, turn) {
-  if (typeof turn !== "string" || !TURN.test(turn)) return null;
-  try {
-    const object = await store.get(`${TURNS_PREFIX}${turn}.json`);
-    const clean = object === null ? undefined : JSON.parse(await object.text())?.clean;
-    return typeof clean === "boolean" ? clean : null;
-  } catch {
-    return null;
+    if (typeof outcome.turn === "string") {
+      const prune = pruneTurns(store).catch(() => {});
+      if (defer() && typeof store.defer === "function") store.defer(prune);
+      else await prune;
+    }
   }
 }
 
