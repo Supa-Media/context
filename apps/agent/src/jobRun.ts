@@ -174,7 +174,13 @@ export async function resumeJob(
     if (!steers.some((kept) => kept.id === steer.id)) await storage.put(STEERS_KEY, [...steers, { id: steer.id, text: steer.text }].slice(-MAX_STEERS));
   }
   const resumes = (ended.run.resumes ?? 0) + 1;
-  await storage.put<Stored>(RUN_KEY, { ...ended.run, attempt: 1, tries: 0, startedAt: now, resumes, sent: 0, ...(ended.run.draft ? { unfinished: true as const } : {}) });
+  // On a computer: its settings as they are now (`background.js` `repick`), never the folder it was first handed. A new
+  // folder starts a new session there, since Claude Code keeps its sessions per folder.
+  const was = ended.run.machine;
+  const current = steer?.machine !== undefined && was !== undefined && steer.machine.machineId === was.machineId ? { ...steer.machine, ...(was.repo && !steer.machine.repo ? { repo: was.repo } : {}) } : was;
+  const moved = current !== undefined && was !== undefined && current.folder !== was.folder;
+  const { machineSession: _session, machineRun: _run, ...run } = ended.run;
+  await storage.put<Stored>(RUN_KEY, { ...(moved ? run : ended.run), ...(current ? { machine: current } : {}), attempt: 1, tries: 0, startedAt: now, resumes, sent: 0, ...(ended.run.draft ? { unfinished: true as const } : {}) });
   await storage.delete(ENDED_KEY);
   log("resumed", ended.run.id);
   if (start !== undefined) await start(ended.run.id, resumes);

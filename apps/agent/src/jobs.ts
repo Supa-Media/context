@@ -47,14 +47,14 @@ export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 export type JobAsk = { project?: JobProject; id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; mail?: Array<JobMail & { text: string }>; draft?: string; unfinished?: true; advice?: string };
 /** A later text handed to a running job (`jobRun.ts`): the person's own words and the event they came in; `stop` ends it. */
 /** `resume`: pick an ended job back up where it stopped (`jobRun.ts` `resumeJob`), never a new copy of it. */
-export type JobSteer = { id: string; text: string; stop?: true; resume?: true; mail?: JobMail };
+export type JobSteer = { id: string; text: string; stop?: true; resume?: true; mail?: JobMail; machine?: JobMachine };
 /** Note mail delivered to a job (`jobMail.ts`): who sent it, its kind and the note it is on. Another agent's words, never the person's. */
 export type JobMail = { from: string; app?: string; kind: "note" | "ask" | "interrupt"; path: string };
 /** What a turn asked of a running job: the job, whether to stop it, and the coordinating turn's own instruction for it (`note`). */
-export type JobSteerAsk = { id: string; stop?: true; note?: string; resume?: true };
+export type JobSteerAsk = { id: string; stop?: true; note?: string; resume?: true; machine?: JobMachine };
 /** What a job would have said, handed to its chat's own turn, which decides what is said (`jobTexts.ts`). */
 /** `ask`: the gateway's own line asking a computer's owner for a 👍, texted as it is (`machineTurn.ts`). */
-export type JobReport = { title: string; state: JobState; texts: string[]; ask?: string };
+export type JobReport = { id?: string; title: string; state: JobState; texts: string[]; ask?: string };
 /** `waiting`: it needs something only they can give; `stuck`: no way forward, or out of time (`jobRun.ts`). */
 export type JobState = "running" | "done" | "failed" | "waiting" | "stuck";
 
@@ -224,10 +224,12 @@ export function readSteers(value: unknown): JobSteerAsk[] {
   if (!Array.isArray(value)) return [];
   return value
     .flatMap((entry) => {
-      const { id, stop, note, resume } = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+      const { id, stop, note, resume, machine } = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
       const said = typeof note === "string" ? note.trim().slice(0, 4_000) : "";
       if (typeof id !== "string" || !ID.test(id)) return [];
-      return [resume === true ? { id, resume: true as const } : { id, ...(stop === true ? { stop: true as const } : {}), ...(said ? { note: said } : {}) }];
+      // A computer job picked back up carries the computer as its settings are now (`background.js` `repick`).
+      const computer = resume === true ? readJobMachine(machine) : null;
+      return [resume === true ? { id, resume: true as const, ...(computer ? { machine: computer } : {}) } : { id, ...(stop === true ? { stop: true as const } : {}), ...(said ? { note: said } : {}) }];
     })
     .slice(0, MAX_TURN_JOBS);
 }
@@ -235,9 +237,10 @@ export function readSteers(value: unknown): JobSteerAsk[] {
 /** `POST /job-steer`'s body, read strictly. */
 export function readJobSteer(value: unknown): JobSteer | null {
   if (!value || typeof value !== "object") return null;
-  const { id, text, stop, resume } = value as Record<string, unknown>;
+  const { id, text, stop, resume, machine } = value as Record<string, unknown>;
   if (typeof id !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(id) || typeof text !== "string" || text.trim() === "") return null;
-  return { id, text: text.trim().slice(0, 4_000), ...(stop === true ? { stop: true as const } : {}), ...(resume === true ? { resume: true as const } : {}) };
+  const computer = resume === true ? readJobMachine(machine) : null;
+  return { id, text: text.trim().slice(0, 4_000), ...(stop === true ? { stop: true as const } : {}), ...(resume === true ? { resume: true as const } : {}), ...(computer ? { machine: computer } : {}) };
 }
 
 /**
@@ -377,12 +380,12 @@ export async function resumeJobs(
   now: number,
 ): Promise<string[]> {
   const missed: string[] = [];
-  for (const { id } of asks.filter((ask) => ask.resume)) {
+  for (const { id, machine } of asks.filter((ask) => ask.resume)) {
     const entry = await storage.get<JobEntry>(entryKey(id));
     if (entry === undefined || entry.state === "running") continue;
     const running = (await chatJobs(storage, now, { all: true })).filter((job) => job.state === "running");
     // A finished job has nothing to pick up: its object kept no run (`resumeJob`).
-    const ok = entry.state !== "done" && fits(running, machineOfEntry(entry)) && (await send(id, { id: steer.id, text: steer.text.trim() || PICKED_UP, resume: true }).catch(() => false));
+    const ok = entry.state !== "done" && fits(running, machineOfEntry(entry)) && (await send(id, { id: steer.id, text: steer.text.trim() || PICKED_UP, resume: true, ...(machine && machine.machineId === entry.on ? { machine } : {}) }).catch(() => false));
     if (ok) {
       const { finishedAt: _f, finalPass: _p, verdict: _v, advice: _a, result: _r, stopped: _s, resumeAt: _ra, ...kept } = entry;
       await storage.put<JobEntry>(entryKey(id), { ...kept, state: "running", startedAt: now, status: "Picking up where it stopped" });
