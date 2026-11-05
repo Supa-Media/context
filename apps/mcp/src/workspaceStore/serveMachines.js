@@ -32,6 +32,7 @@ export const MACHINE_OPS = Object.freeze({
   RAISE: "ws.machine.raise",
   MAIL: "ws.machine.mail",
   SIGN_IN: "ws.machine.signIn",
+  INSTALL: "ws.machine.install",
 });
 const OPS = new Set(Object.values(MACHINE_OPS));
 
@@ -156,13 +157,36 @@ function signIn(store, fields) {
     return Response.json({ ok: true, machine: shown(store, machines.signIn(machine.id, { id: frame.signInId, tool: frame.tool, state: "starting" })) });
   }
   const held = machine.signIn;
-  const waiting = held && held.id === fields.signInId && held.state === "link" && machines.now() - held.at < SIGN_IN_WAIT_MS;
+  // A device sign-in (Codex) takes its code on the maker's page, never here.
+  const waiting = held && held.id === fields.signInId && held.state === "link" && !held.userCode && machines.now() - held.at < SIGN_IN_WAIT_MS;
   if (!waiting) return refused("sign_in_ended");
   const frame = { type: "signIn", signInId: held.id, tool: held.tool, code: fields.code };
   // Its reason names the field, never the value.
   if (invalid("ServerMessage", frame) !== null) return refused("bad_code");
   if (!machineSockets.send(machine.id, frame)) return refused("offline");
   return Response.json({ ok: true, machine: shown(store, machines.signIn(machine.id, { id: held.id, tool: held.tool, state: "checking", ...(held.url ? { url: held.url } : {}) })) });
+}
+
+/** How long an install may be under way before another may start (`install.rs` `INSTALL_WAIT`, and a little more). */
+export const INSTALL_WAIT_MS = 21 * 60 * 1000;
+
+/**
+ * The owner installing a coding tool from the app (`install.rs` on the runner); who may was checked by the gateway
+ * (`machines/appRoutes.js`, the computer's own owner only). The frame names the tool and nothing else: the runner
+ * alone decides what it downloads, checks and puts where. One install at a time.
+ */
+function install(store, fields) {
+  const { machines, machineSockets } = store;
+  const machine = machines.get(fields.id);
+  if (!machine) return refused("unknown_machine");
+  if (!(machine.facts?.install ?? []).includes(fields.tool)) return refused("not_supported");
+  const held = machine.install;
+  if (held && (held.state === "starting" || held.state === "working") && machines.now() - held.at < INSTALL_WAIT_MS) return refused("busy");
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  const frame = { type: "install", installId: `in_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`, tool: fields.tool };
+  if (invalid("ServerMessage", frame) !== null) return refused("bad_message");
+  if (!machineSockets.send(machine.id, frame)) return refused("offline");
+  return Response.json({ ok: true, machine: shown(store, machines.install(machine.id, { id: frame.installId, tool: frame.tool, state: "starting" })) });
 }
 
 /** A `ws.machine.*` call, or null when `op` is not one. */
@@ -229,6 +253,8 @@ export async function serveMachineCall(store, op, fields) {
       }
       case MACHINE_OPS.SIGN_IN:
         return signIn(store, fields);
+      case MACHINE_OPS.INSTALL:
+        return install(store, fields);
       case MACHINE_OPS.RUN: {
         const run = store.machines.run(fields.runId);
         return run ? Response.json({ ok: true, run, online: store.machineSockets.online(run.machineId) }) : refused("unknown_run");

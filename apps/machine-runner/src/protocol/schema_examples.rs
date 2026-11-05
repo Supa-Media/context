@@ -41,6 +41,7 @@ fn every_server_frame_round_trips() {
             "cancel",
             "challenge",
             "goodbye",
+            "install",
             "interrupt",
             "mail",
             "message",
@@ -65,6 +66,7 @@ fn every_runner_frame_round_trips() {
         [
             "accept",
             "hello",
+            "installState",
             "refuse",
             "result",
             "session",

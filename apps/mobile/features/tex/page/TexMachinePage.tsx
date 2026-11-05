@@ -24,6 +24,7 @@ import {
 } from "./texMachineFormat";
 import type { MachineValues, ToolName, ToolState } from "./texMachineTypes";
 import { useTexMachines } from "./useTexPage";
+import { InstallBar, installBusy, installFor, installLine } from "./TexMachineInstall";
 import { SignInPanel, signInBusy, signInFor } from "./TexMachineSignIn";
 
 /** Where each coding tool's sign-in and install instructions are. */
@@ -52,8 +53,8 @@ export function MachinePage(props: ViewProps) {
   // The coding tool being signed in from here, while its panel is open.
   const [signingIn, setSigningIn] = useState<ToolName | null>(null);
   const shownMachine = read?.kind === "ok" ? read.value.machines.find((x) => x.id === id) : undefined;
-  const busy = shownMachine ? signInBusy(shownMachine, Date.now()) : false;
-  // While the computer works on a sign-in, read again every two seconds: its link, then whether it took.
+  const busy = shownMachine ? signInBusy(shownMachine, Date.now()) || installBusy(shownMachine, Date.now()) : false;
+  // While the computer works on a sign-in or an install, read again every two seconds: its link or progress, then the end.
   useEffect(() => {
     if (!busy) return;
     const timer = setTimeout(() => setAgain((n) => n + 1), 2000);
@@ -85,6 +86,9 @@ export function MachinePage(props: ViewProps) {
     setSigningIn(tool);
     void page.act({ type: "machine.signIn", id: m.id, tool }).then(() => setAgain((n) => n + 1));
   };
+  const startInstall = (tool: ToolName) => {
+    void page.act({ type: "machine.install", id: m.id, tool }).then(() => setAgain((n) => n + 1));
+  };
   const notReady = m.state === "notReady";
   const paused = m.state === "paused";
   const total = m.limitMin + (m.raisedMin ?? 0);
@@ -94,8 +98,18 @@ export function MachinePage(props: ViewProps) {
   const toolRow = (tool: ToolName) => {
     const state: ToolState = m.tools[tool];
     const title = TOOL_LABEL[tool];
+    const online = m.state !== "offline" && m.state !== "pending";
+    const installing = state === "missing" ? installFor(m, tool, now) : null;
     let right: ReactNode = null;
-    if (state === "signedIn" || state === "off") {
+    let sub = toolLine(state, m);
+    if (installing && installing.state !== "done") {
+      sub = installLine(installing, hereOf(m));
+      if (installing.state === "failed" && online) {
+        right = <Button label="Try again" look="primary" onPress={() => startInstall(tool)} testID={`tex-machine-tool-${tool}-install`} />;
+      }
+    } else if (state === "missing" && (m.canInstall ?? []).includes(tool) && online) {
+      right = <Button label="Install" look="primary" onPress={() => startInstall(tool)} testID={`tex-machine-tool-${tool}-install`} />;
+    } else if (state === "signedIn" || state === "off") {
       right = (
         <Switch
           value={state === "signedIn"}
@@ -105,13 +119,22 @@ export function MachinePage(props: ViewProps) {
           testID={`tex-machine-tool-${tool}-switch`}
         />
       );
-    } else if (state === "installed" && (m.canSignIn ?? []).includes(tool) && m.state !== "offline") {
+    } else if (state === "installed" && (m.canSignIn ?? []).includes(tool) && online) {
       right = <Button label="Sign in" look="primary" onPress={() => startSignIn(tool)} testID={`tex-machine-tool-${tool}-signin`} />;
     } else {
       const label = state === "installed" ? "How to sign in" : "How to add it";
       right = <RowLink label={label} onPress={() => void Linking.openURL(TOOL_HELP[tool])} testID={`tex-machine-tool-${tool}-link`} />;
     }
-    const row = <ListRow key={tool} title={title} sub={toolLine(state, m)} right={right} testID={`tex-machine-tool-${tool}`} />;
+    const listed = <ListRow key={tool} title={title} sub={sub} right={right} testID={`tex-machine-tool-${tool}`} />;
+    const row =
+      installing && (installing.state === "starting" || installing.state === "working") ? (
+        <View key={tool}>
+          {listed}
+          <InstallBar percent={installing.step === "downloading" ? installing.percent : undefined} />
+        </View>
+      ) : (
+        listed
+      );
     if (signingIn !== tool) return row;
     return (
       <View key={tool}>
@@ -303,7 +326,9 @@ export function MachinePage(props: ViewProps) {
         <Notice testID="tex-machine-not-ready">
           {m.tools.claude === "installed" && (m.canSignIn ?? []).includes("claude")
             ? `Claude Code is signed out on ${hereOf(m)}. Sign it in below and Tex can run jobs here again.`
-            : `Sign in to Claude Code or Codex on ${hereOf(m)} and Tex can start running jobs here. This page updates on its own.`}
+            : m.tools.claude === "missing" && m.tools.codex === "missing" && (m.canInstall ?? []).length > 0
+              ? `Install Claude Code or Codex below, then sign in, and Tex can start running jobs on ${hereOf(m)}.`
+              : `Sign in to Claude Code or Codex on ${hereOf(m)} and Tex can start running jobs here. This page updates on its own.`}
         </Notice>
       ) : null}
       {paused && m.paused === "limit" ? (

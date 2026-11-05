@@ -38,6 +38,8 @@ pub struct Machine {
     sign_ins: Arc<Mutex<SignIns>>,
     /// One `auth status` at a time: several at once can race the tool's own token refresh.
     probe: Arc<Mutex<()>>,
+    /// The tools being installed from the app now: one install per tool at a time.
+    installs: Arc<Mutex<std::collections::HashSet<Tool>>>,
 }
 
 pub fn now_ms() -> u64 {
@@ -83,6 +85,7 @@ impl Machine {
             name,
             sign_ins: Arc::new(Mutex::new(HashMap::new())),
             probe: Arc::new(Mutex::new(())),
+            installs: Arc::new(Mutex::new(std::collections::HashSet::new())),
         }
     }
 
@@ -214,6 +217,7 @@ impl Machine {
                 }
             }
             ServerMsg::SignIn(s) => self.sign_in(s).await,
+            ServerMsg::Install(i) => self.install(i).await,
             ServerMsg::Goodbye(g) => return Stop::Goodbye(g.reason),
         }
         Stop::No
@@ -227,6 +231,7 @@ impl Machine {
                 tool: s.tool,
                 state: SignInStep::Failed,
                 url: None,
+                user_code: None,
                 error: Some(why.to_string()),
             })
         };
@@ -257,7 +262,7 @@ impl Machine {
                 .await;
             return;
         };
-        let Some(program) = crate::facts::which(name) else {
+        let Some(program) = crate::facts::tool_path(name) else {
             drop(held);
             let _ = self
                 .out
@@ -282,6 +287,40 @@ impl Machine {
             }
             eprintln!("sign-in {id}: {}", if ok { "done" } else { "ended" });
             me.recheck(tool).await;
+            let status = me.status().await;
+            let _ = me.out.send(RunnerMsg::Status(status)).await;
+        });
+    }
+
+    /// The owner installing a tool from the app (`install.rs`). A second ask
+    /// while one runs is refused; the first one reports.
+    async fn install(&self, i: Install) {
+        if !self.installs.lock().await.insert(i.tool) {
+            let _ = self
+                .out
+                .send(RunnerMsg::InstallState(InstallState {
+                    install_id: i.install_id,
+                    tool: i.tool,
+                    state: InstallStep::Failed,
+                    step: None,
+                    percent: None,
+                    version: None,
+                    error: Some("It's already being installed.".into()),
+                }))
+                .await;
+            return;
+        }
+        eprintln!("install {}: started for {}", i.install_id, i.tool.name());
+        let me = self.clone();
+        tokio::spawn(async move {
+            let ok = crate::install::run(i.install_id.clone(), i.tool, me.out.clone()).await;
+            me.installs.lock().await.remove(&i.tool);
+            eprintln!(
+                "install {}: {}",
+                i.install_id,
+                if ok.is_some() { "done" } else { "failed" }
+            );
+            me.recheck(i.tool).await;
             let status = me.status().await;
             let _ = me.out.send(RunnerMsg::Status(status)).await;
         });

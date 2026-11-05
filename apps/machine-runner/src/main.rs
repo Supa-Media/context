@@ -9,6 +9,7 @@ mod conn;
 mod drive;
 mod facts;
 mod hook;
+mod install;
 mod join;
 mod limits;
 mod machine;

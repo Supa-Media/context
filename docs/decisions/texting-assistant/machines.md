@@ -429,3 +429,29 @@ whose headers record their sabotage.
   computer goes to the gateway…" (`groupReactions.test.ts`), "a group's ask
   goes to the chat's Tex once…" (`machineTurn.test.ts`).
 - **Not yet**: a phone push for an ask from someone's own texts.
+
+## Installing a coding tool from the app (owner, 2026-11-05)
+
+The owner asked for one-click install of Claude Code and Codex from the
+computer's page, then sign-in. The page's Install button sends `install`
+naming only the tool. The runner (`install.rs`) asks the npm registry for the
+maker's latest version and this computer's own build of it
+(`@anthropic-ai/claude-code-<platform>`, `@openai/codex@<version>-<platform>`),
+downloads it only from the registry under that package's own name, refuses it
+unless its sha512 matches the registry's `dist.integrity`, unpacks it with the
+system `tar` into `~/.local/share/context-machine/tools`, and links
+`tools/bin/<name>`. No installer script runs and nothing outside that folder
+changes. The runner looks there before PATH, so a broken copy elsewhere (an npm
+install missing its platform binary) no longer shadows a working one.
+
+Codex signs in with its device flow (`codex login --device-auth`): the runner
+sends its page and one-time code (`signInState.userCode`), the owner types the
+code on OpenAI's page, and Codex finishes by itself. Nothing is pasted back,
+and the gateway refuses a code for such a sign-in. The one-time code, like the
+link, is shown only to the computer's own owner.
+
+What a simplification would cost: letting the frame carry a URL, a version or
+a command turns the owner's phone into a remote shell on their computer.
+`machineInstall.test.mjs` checks the frame carries only the tool, and
+`install.rs` tests refuse any tarball not on the registry under that package.
+

@@ -54,6 +54,8 @@ export type MachineFacts = {
   repos?: string[];
   /** The coding tools this runner can sign in when the owner asks from the app (`signIn`). */
   signIn?: Tool[];
+  /** The coding tools this runner can install when the owner asks from the app (`install`). */
+  install?: Tool[];
 };
 
 /** Slot counts the runner works out from memory and cores. recommended: for a machine the person also uses. most: for a machine that only runs Tex. Never over 8. */
@@ -193,6 +195,13 @@ export type SignIn = {
   code?: string;
 };
 
+/** The machine's owner installs a coding tool from the app. The runner downloads the maker's own published build for this computer, checks it against the published checksum and puts it where the runner finds it. Nothing in the frame says what to run or where to download from. */
+export type Install = {
+  type: "install";
+  installId: Id;
+  tool: Tool;
+};
+
 /** The first frame on every connection. The runner signs it to prove it holds the machine's private key. */
 export type Challenge = {
   type: "challenge";
@@ -223,7 +232,7 @@ export type Goodbye = {
 };
 
 /** Every frame the workspace object sends a runner. Nothing here runs a command: assign hands words to an agent the runner starts under its own rules. */
-export type ServerMessage = Challenge | Welcome | RulesChanged | Assign | Deliver | Mail | Interrupt | Cancel | SignIn | Goodbye;
+export type ServerMessage = Challenge | Welcome | RulesChanged | Assign | Deliver | Mail | Interrupt | Cancel | SignIn | Install | Goodbye;
 
 /** A run the runner still has after a reconnect, so the job resumes instead of starting over. */
 export type HeldRun = {
@@ -337,11 +346,25 @@ export type SignInState = {
   state: "link" | "done" | "failed";
   /** The tool's own sign-in page, on its maker's site. */
   url?: string;
+  /** A one-time code the owner types on that page (a device sign-in, such as Codex's). Nothing is pasted back. */
+  userCode?: string;
+  error?: string;
+};
+
+/** Where an install the owner started from the app has got to: `working` with a step and how far, then `done` (with the version) or `failed`. A fresh status follows an ending. */
+export type InstallState = {
+  type: "installState";
+  installId: Id;
+  tool: Tool;
+  state: "working" | "done" | "failed";
+  step?: "finding" | "downloading" | "checking" | "unpacking";
+  percent?: number;
+  version?: string;
   error?: string;
 };
 
 /** Every frame a runner sends. Anything else closes the connection. */
-export type RunnerMessage = Hello | Accept | Refuse | Session | Step | Usage | Result | Status | SignInState;
+export type RunnerMessage = Hello | Accept | Refuse | Session | Step | Usage | Result | Status | SignInState | InstallState;
 
 /** POST /machines/pair: a runner asks to be paired. The private key never leaves the machine. */
 export type PairStart = {

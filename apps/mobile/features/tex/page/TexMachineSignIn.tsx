@@ -24,12 +24,14 @@ export function signInBusy(m: Pick<Machine, "signIn">, now: number): boolean {
   return !!s && (s.state === "starting" || s.state === "checking") && now - s.at < 2 * 60 * 1000;
 }
 
-/** Only ever the tool maker's own page: anything else the page won't open. */
+const MAKER_HOSTS = ["claude.com", "claude.ai", "anthropic.com", "openai.com", "chatgpt.com"];
+
+/** Only ever a tool maker's own page (Anthropic's for Claude Code, OpenAI's for Codex): anything else the page won't open. */
 export function signInLinkOk(url: string | undefined): url is string {
   if (!url) return false;
   try {
     const host = new URL(url).hostname.toLowerCase();
-    return url.startsWith("https://") && ["claude.com", "claude.ai", "anthropic.com"].some((h) => host === h || host.endsWith(`.${h}`));
+    return url.startsWith("https://") && MAKER_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
   } catch {
     return false;
   }
@@ -103,6 +105,41 @@ export function SignInPanel({
     );
   }
 
+  // A device sign-in (Codex): the code is typed on the maker's page, and the computer finishes on its own.
+  if (signIn.userCode) {
+    return (
+      <View style={styles.panel} testID="tex-machine-signin-device">
+        <View style={styles.step}>
+          <T size={12} weight="600" tone="muted" upper>Step 1</T>
+          <T size={14} line={1.5}>{`Open ${label}'s sign-in page and sign in with the account you use for it.`}</T>
+          <ButtonRow aside="It works on this phone or any browser.">
+            <Button
+              label={`Open ${label} sign-in`}
+              look="primary"
+              disabled={!signInLinkOk(signIn.url)}
+              onPress={() => {
+                if (signInLinkOk(signIn.url)) void Linking.openURL(signIn.url);
+              }}
+              testID="tex-machine-signin-open"
+            />
+          </ButtonRow>
+        </View>
+        <View style={styles.step}>
+          <T size={12} weight="600" tone="muted" upper>Step 2</T>
+          <T size={14} line={1.5}>When it asks for a code, type this one:</T>
+          <View style={styles.code}>
+            <T size={24} weight="600" mono selectable testID="tex-machine-signin-usercode">
+              {signIn.userCode}
+            </T>
+          </View>
+          <ButtonRow aside={`${here} finishes signing in by itself once you do. The code works for 15 minutes.`}>
+            <Button label="Cancel" look="quiet" onPress={onClose} testID="tex-machine-signin-cancel" />
+          </ButtonRow>
+        </View>
+      </View>
+    );
+  }
+
   const send = async () => {
     const typed = code.trim();
     if (typed === "") return;
@@ -165,4 +202,5 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     panel: { gap: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.line },
     step: { gap: 8 },
+    code: { alignSelf: "flex-start", paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, backgroundColor: colors.line },
   });

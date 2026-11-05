@@ -13,6 +13,9 @@
  *   `signInLinkOk` accepting any https host                        1 failing
  *   the Sign in button drawn for a runner that can't sign in        1 failing
  *   the code sent untrimmed                                         1 failing
+ *   (2026-11-05, install and Codex's device sign-in)
+ *   the Install button drawn for a runner that can't install         1 failing
+ *   Codex's code panel offering a paste box                          1 failing
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -25,6 +28,7 @@ jest.mock("expo-router", () => ({ Redirect: () => null, Stack: () => null, route
 
 import { TexPageBody, type Place } from "../features/tex/page/TexPageBody";
 import { SIGN_IN_FRESH_MS, signInFor, signInLinkOk } from "../features/tex/page/TexMachineSignIn";
+import { INSTALL_FRESH_MS, installFor, installLine } from "../features/tex/page/TexMachineInstall";
 import { machineCallOf, machinesPageOf } from "../features/tex/page/texMachineGateway";
 import { machineFixtureSource } from "../features/tex/page/texMachineFixture";
 import { fixtureNow } from "../features/tex/page/texPageFixture";
@@ -72,10 +76,26 @@ describe("a sign-in, read and sent", () => {
   test("only the tool maker's own page is opened", () => {
     expect(signInLinkOk(LINK)).toBe(true);
     expect(signInLinkOk("https://platform.claude.com/oauth")).toBe(true);
+    expect(signInLinkOk("https://auth.openai.com/codex/device")).toBe(true);
+    expect(signInLinkOk("https://auth.openai.com.evil.example/codex/device")).toBe(false);
     expect(signInLinkOk("https://claude.com.evil.example/x")).toBe(false);
     expect(signInLinkOk("https://evil.example/claude.com")).toBe(false);
     expect(signInLinkOk("http://claude.com/x")).toBe(false);
     expect(signInLinkOk(undefined)).toBe(false);
+  });
+
+  test("an install is read into the page, and sent as the tool alone", () => {
+    const m = machinesPageOf(
+      { ok: true, machines: [listed({ facts: { signIn: ["claude", "codex"], install: ["claude", "codex"] }, install: { id: "in_1", tool: "codex", state: "working", step: "downloading", percent: 62, at: NOW } })] },
+      { now: NOW },
+    )?.machines[0];
+    expect(m?.canInstall).toEqual(["claude", "codex"]);
+    expect(m?.install).toEqual({ id: "in_1", tool: "codex", state: "working", step: "downloading", percent: 62, at: NOW });
+    expect(machineCallOf({ type: "machine.install", id: "m1", tool: "codex" }, () => null)).toEqual({ route: "install", body: { machineId: "m1", tool: "codex" } });
+    const install = { id: "in_1", tool: "codex" as const, state: "working" as const, step: "downloading" as const, percent: 62, at: NOW };
+    expect(installLine(install, "Ada's MacBook Pro")).toBe("Downloading on Ada's MacBook Pro… 62%");
+    expect(installFor({ install }, "codex", NOW + INSTALL_FRESH_MS + 1)).toBeNull();
+    expect(installFor({ install }, "claude", NOW)).toBeNull();
   });
 
   test("a sign-in older than the computer waits is not drawn", () => {
@@ -157,5 +177,47 @@ describe("on the computer's page", () => {
     await tick();
     expect(byTestId("tex-machine-tool-claude-signin")).toBeNull();
     expect(byTestId("tex-machine-tool-claude-link")?.textContent).toContain("How to sign in");
+  });
+
+  test("a missing tool installs from its row, then offers Sign in", async () => {
+    const source = machineFixtureSource("notReady");
+    const sent: PageAction[] = [];
+    const watched: TexPageSource = { ...source, act: async (chat, a) => (sent.push(a), source.act(chat, a)) };
+    act(() => root.render(createElement(SafeAreaProvider, { initialMetrics: METRICS }, createElement(Harness, { source: watched, start: { chat: "me", view: "machine", machine: "m-mbp" } }))));
+    await tick();
+    expect(byTestId("tex-machine-tool-codex-link")).toBeNull();
+    await press("tex-machine-tool-codex-install");
+    expect(sent).toEqual([{ type: "machine.install", id: "m-mbp", tool: "codex" }]);
+    await tick();
+    expect(byTestId("tex-machine-tool-codex-install")).toBeNull();
+    expect(byTestId("tex-machine-tool-codex-signin")).not.toBeNull();
+  });
+
+  test("a runner that can't install keeps the how-to link", async () => {
+    const source = machineFixtureSource("notReady");
+    const plain: TexPageSource = {
+      ...source,
+      machines: async (chat) => {
+        const read = await source.machines(chat);
+        if (read.kind === "ok") for (const m of read.value.machines) m.canInstall = [];
+        return read;
+      },
+    };
+    act(() => root.render(createElement(SafeAreaProvider, { initialMetrics: METRICS }, createElement(Harness, { source: plain, start: { chat: "me", view: "machine", machine: "m-mbp" } }))));
+    await tick();
+    expect(byTestId("tex-machine-tool-codex-install")).toBeNull();
+    expect(byTestId("tex-machine-tool-codex-link")?.textContent).toContain("How to add it");
+  });
+
+  test("Codex shows its one-time code to type on OpenAI's page, with nothing to paste", async () => {
+    const source = machineFixtureSource("notReady");
+    act(() => root.render(createElement(SafeAreaProvider, { initialMetrics: METRICS }, createElement(Harness, { source, start: { chat: "me", view: "machine", machine: "m-mbp" } }))));
+    await tick();
+    await press("tex-machine-tool-codex-install");
+    await press("tex-machine-tool-codex-signin");
+    expect(byTestId("tex-machine-signin-device")).not.toBeNull();
+    expect(byTestId("tex-machine-signin-usercode")?.textContent).toBe("7K2Q-M9XFD");
+    expect(byTestId("tex-machine-signin-open")?.textContent).toContain("Open Codex sign-in");
+    expect(byTestId("tex-machine-signin-code")).toBeNull();
   });
 });

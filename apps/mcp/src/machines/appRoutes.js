@@ -40,6 +40,10 @@
  *   (`signIn`); then `{ workspaceId, machineId, signInId, code }` hands it the
  *   code that link's page showed. The code goes to the computer and is kept
  *   nowhere on the way.
+ * - `POST /machines/app/install` `{ workspaceId, machineId, tool }` → `{ ok,
+ *   machine }`: its own owner installs a coding tool on it from the app. The
+ *   runner downloads the maker's own build, checks it and reports how far it
+ *   got (`install`). The request names the tool, never what to run.
  *
  * Pairing a computer is approved in the control plane itself
  * (`approveTexMachinePairing`); the runner's poll then adds it to the object.
@@ -54,7 +58,7 @@ import { groupChatId } from "./reach.js";
 const CONSOLE_CLIENT_ID = "context_console";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-export const MACHINE_APP_PATHS = new Set(["/machines/app/list", "/machines/app/set", "/machines/app/disconnect", "/machines/app/lend", "/machines/app/unlend", "/machines/app/answer", "/machines/app/raise", "/machines/app/chat-people", "/machines/app/sign-in"]);
+export const MACHINE_APP_PATHS = new Set(["/machines/app/list", "/machines/app/set", "/machines/app/disconnect", "/machines/app/lend", "/machines/app/unlend", "/machines/app/answer", "/machines/app/raise", "/machines/app/chat-people", "/machines/app/sign-in", "/machines/app/install"]);
 const CHAT_KEY = /^[0-9a-f]{64}$/;
 
 const forbidden = () => json({ error: "forbidden" }, 403);
@@ -118,7 +122,7 @@ async function list(env, session, body, controlPlane) {
   if (answer === null) return json({ error: "machines_unavailable" }, 501);
   if (answer.ok !== true) return refused(answer.code ?? "server_error");
   // A sign-in's link is the computer's own owner's: a workspace owner who runs it sees that one is under way, not the link.
-  const own = (machine) => (machine.ownerId === session.actorUserId || !machine.signIn ? machine : { ...machine, signIn: { ...machine.signIn, url: undefined } });
+  const own = (machine) => (machine.ownerId === session.actorUserId || !machine.signIn ? machine : { ...machine, signIn: { ...machine.signIn, url: undefined, userCode: undefined } });
   const run = answer.machines.filter((machine) => runsMachine(session, row, machine)).map((machine) => ({ ...own(machine), runs: true }));
   const named = new Map((await namedAsks(run, session, controlPlane)).map((machine) => [machine.id, machine]));
   return json({ ok: true, machines: answer.machines.map((machine) => named.get(machine.id) ?? glimpse(machine)) });
@@ -227,6 +231,15 @@ async function signIn(env, session, body) {
   return answer?.ok === true ? json({ ok: true, machine: { ...answer.machine, runs: true } }) : refused(answer?.code ?? "server_error");
 }
 
+async function install(env, session, body) {
+  // Their own computer only: a workspace owner never installs software on somebody else's.
+  const found = await ownComputer(env, session, body);
+  if (found === null) return refused("unknown_machine");
+  if (!TOOLS.has(body.tool)) return invalid("tool");
+  const answer = await call(env, found.row.workspaceId, "ws.machine.install", { id: found.machine.id, tool: body.tool });
+  return answer?.ok === true ? json({ ok: true, machine: { ...answer.machine, runs: true } }) : refused(answer?.code ?? "server_error");
+}
+
 /** One of `MACHINE_APP_PATHS`, for a session already resolved from the app's own token. */
 export async function handleMachineApp(request, env, session, { path, controlPlane }) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
@@ -244,5 +257,6 @@ export async function handleMachineApp(request, env, session, { path, controlPla
   if (path === "/machines/app/answer") return await answerAsk(env, session, body);
   if (path === "/machines/app/raise") return await raise(env, session, body);
   if (path === "/machines/app/sign-in") return await signIn(env, session, body);
+  if (path === "/machines/app/install") return await install(env, session, body);
   return new Response(null, { status: 404 });
 }
