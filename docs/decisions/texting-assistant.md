@@ -240,7 +240,7 @@ Tex's own jobs, each with its record:
 - [Background jobs](./texting-assistant/background-jobs.md): a long ask runs in
   an object of its own, up to three at once, its status shown to every turn,
   and always writes its deliverable; a later text steers or stops it; its steps
-  are shown on asking; [machines](./texting-assistant/machines.md) run jobs on a person's own computer.
+  are shown on asking; [machines](./texting-assistant/machines.md) run jobs on a person's own computer; [job notes](./texting-assistant/job-notes.md) put the job, Tex and the advisor on one mail.
 - [Golden tasks](./texting-assistant/golden-tasks.md): jobs Tex must always
   get right, gating a setup; the task skills it reads before doing one, and
   why a read skill may vouch for an address.

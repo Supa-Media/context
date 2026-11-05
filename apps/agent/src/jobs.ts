@@ -23,6 +23,7 @@
  * text would get, never one carried over from the turn that started it.
  */
 
+import type { JobNote } from "./jobNote";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
 import { readPictures, type OutgoingPicture } from "./outgoing";
@@ -44,7 +45,7 @@ export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
 /** `draft`: the last part's answer, never texted because a later text changed the job, or (`unfinished`) because it stopped short of the ask; the next part builds on it. */
 /** `mail`: note mail that came for it since its last part, oldest first (`jobMail.ts`), never among `followUps`. */
-export type JobAsk = { project?: JobProject; id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; mail?: Array<JobMail & { text: string }>; draft?: string; unfinished?: true; advice?: string };
+export type JobAsk = { roster?: string; project?: JobProject; id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; mail?: Array<JobMail & { text: string }>; draft?: string; unfinished?: true; advice?: string };
 /** A later text handed to a running job (`jobRun.ts`): the person's own words and the event they came in; `stop` ends it. */
 /** `resume`: pick an ended job back up where it stopped (`jobRun.ts` `resumeJob`), never a new copy of it. */
 export type JobSteer = { id: string; text: string; stop?: true; resume?: true; mail?: JobMail; machine?: JobMachine };
@@ -64,7 +65,8 @@ export type JobOrigin =
   | { kind: "group"; message: GroupMessage; at: number };
 
 /** Everything a job's object needs to run it. */
-export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true; advice?: string; resumes?: number; idle?: true; machineRun?: MachineRunRef; machineSession?: string };
+/** `note`: the job's note and who it is on its mail (`jobNote.ts`); `noteAsked`: the note was asked for once, made or not. */
+export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true; advice?: string; resumes?: number; idle?: true; machineRun?: MachineRunRef; machineSession?: string; note?: JobNote; noteAsked?: true };
 /** The part running on the machine now, kept so a pass that restarts reads the same run instead of assigning another. */
 export type MachineRunRef = { runId: string; part: number; deadline: number };
 

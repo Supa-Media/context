@@ -14,7 +14,7 @@ import { internalQuery } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import type { QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
-import { addressable, contextsForGrant, resolveLiveGrant } from "./lib/controlPlane/liveGrants";
+import { addressable, contextsForGrant, resolveLiveGrant, resolveRunGrant } from "./lib/controlPlane/liveGrants";
 import { deviceStillLive } from "./texMachineDevices";
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
@@ -40,9 +40,18 @@ function view(row: Doc<"noteMailboxes">) {
   };
 }
 
+/**
+ * The grant a mail call acts as: a live grant, or a job part's run grant on the person's computer, which acts as the
+ * job's own texting grant (`liveGrants.ts` `resolveRunGrant`). So a part reads and sends on the job note's mail with
+ * the mailbox its job joined (the owner, 2026-11-05: the job, Tex and the advisor on one job note's mail).
+ */
+async function mailGrant(ctx: QueryCtx, hashedAccessToken: string) {
+  return (await resolveLiveGrant(ctx, hashedAccessToken)) ?? (await resolveRunGrant(ctx, hashedAccessToken));
+}
+
 /** The live mailbox this token's grant joined, or null for anything else. */
 async function ownMailbox(ctx: QueryCtx, hashedAccessToken: string, mailboxId: string) {
-  const live = await resolveLiveGrant(ctx, hashedAccessToken);
+  const live = await mailGrant(ctx, hashedAccessToken);
   if (live === null) return null;
   const row = await ctx.db
     .query("noteMailboxes")
@@ -83,7 +92,7 @@ export const joinMailbox = internalMutation({
     if (!NAME_RE.test(args.name) || args.name === "everyone") return refused;
     if (!args.path || args.path.length > MAX_PATH || !/^mb_[a-z0-9]{8,32}$/.test(args.mailboxId)) return refused;
     if (args.jobId !== undefined && !JOB_ID_RE.test(args.jobId)) return refused;
-    const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+    const live = await mailGrant(ctx, args.hashedAccessToken);
     if (live === null) return refused;
     let machineId: Id<"texMachines"> | undefined;
     if (args.machineId !== undefined) {
@@ -169,7 +178,7 @@ export const jobMailboxes = internalQuery({
   ),
   handler: async (ctx, args) => {
     if (!args.path || args.path.length > MAX_PATH) return [];
-    const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+    const live = await mailGrant(ctx, args.hashedAccessToken);
     if (live === null) return [];
     const target = addressable(await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === args.workspaceId);
     if (!target) return [];

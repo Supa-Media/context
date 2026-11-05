@@ -117,6 +117,9 @@ flowchart TB
 
   FD -->|send background| JOB["Background jobs, minions<br/>Haiku 5.5 + the advisor<br/>background.js"]:::haiku
   JOB -->|every stop| JC["Job check<br/>the advisor, Opus 5.5<br/>jobCheck.js"]:::opus
+  JOB <-->|first, then all along| JN["Job note and its mail<br/>the job, tex, advisor, coworker jobs<br/>jobNote.js · jobNote.ts · deliver.js"]:::tool
+  JN -->|mail to tex| SEND
+  JN -->|mail to advisor| JNA["Advisor on the mail<br/>Opus 5.5, ten asks a job<br/>jobNote.js"]:::opus
   JOB -->|a job's answer| JCK["claimCheck.js, code<br/>+ hand-back judge, Haiku 5.5<br/>handbackJudge.js"]:::judge
   FD -->|delegate| DL["A person's computer<br/>Claude Code or Codex, supervised<br/>delegate.js · supervise.js"]:::tool
 
@@ -171,6 +174,7 @@ What each model costs is `jev/meter.ts`.
 
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-05: every job gets a job note (its project's note, or Tex's own `tex/jobs/`); the job, Tex and the advisor join its mail; mail to tex reaches the chat's report turn, mail to advisor is answered on the note; computer jobs read and send it with their run grant.
 - 2026-11-05: gatherTheTurn is shared: one rule for which waiting texts a turn answers (`gatherTheTurn.ts`).
 - 2026-11-05: isItForTex is shared: one step says whether a text is for Tex and whether code answers it (`isItForTex.ts`).
 - 2026-11-05: the queue is shared: both lanes put a text in line the same way (`chatQueue.ts`).

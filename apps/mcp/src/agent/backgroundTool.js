@@ -34,8 +34,10 @@ export const TOOL = {
       mail: {
         type: "object",
         description:
-          "For one part of a split ask: the project note whose mail every part's job joins (path, and context \"@name\" when it is in another workspace), " +
-          "and this job's short name there (\"pricing\", \"research\").",
+          "The job's note: the project note it belongs to, in the workspace that makes most sense (path, and context \"@name\" when it is in another " +
+          "workspace; write a new project note there first when none fits), and this job's short name there (\"pricing\", \"research\"). " +
+          "The job, you and your advisor all join its mail, so the job can mail you what the person must see (a sign-in link, a question) and " +
+          "ask the advisor when stuck. Leave it out only when nothing fits: the job then keeps its note in your own notes. Every part of a split ask names the same project note.",
         properties: {
           path: { type: "string" },
           context: { type: "string" },
@@ -48,7 +50,8 @@ export const TOOL = {
         description:
           "Run it on one of their own paired computers (in a group chat, one lent to the chat) instead of the cloud, with Claude Code or Codex signed in to its owner's plan: " +
           "always for what a computer with Claude Code or Codex is good at: code (a question about how a codebase works, theirs or a public one on GitHub; finding something in a repo; a change to their code), and heavy computing (running scripts, crunching big data or many files, builds, long analysis); never the cloud for those when they have a computer, so try it first and the answer says if they have none. Also anything that needs their machine. name: the computer as they call it (left out when they have one); " +
-          "tool: claude or codex; folder and repo: where on it, when they said. Runs up to four hours, checked every fifteen minutes.",
+          "tool: claude or codex; folder and repo: where on it, when they said. Runs up to four hours, checked every fifteen minutes. " +
+          "A job there can't open the vault: never tell it to use a saved login. A sign-in it needs (GitHub, a command line tool) runs as a one-time link and code it mails you on its note while it waits, and you text it to them.",
         properties: {
           name: { type: "string" },
           tool: { type: "string", enum: ["claude", "codex"] },
