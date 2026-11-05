@@ -26,8 +26,8 @@
  * the person's own words.
  */
 
-/** The most of a quoted message the model is shown; the texting Worker caps it too. */
-export const MAX_QUOTED = 500;
+/** The most of a quoted message the model is shown, a whole email draft (2026-11-05); the texting Worker caps it too. */
+export const MAX_QUOTED = 3_000;
 
 /**
  * What a texted body says about an inline reply: `words`, the quoted words as

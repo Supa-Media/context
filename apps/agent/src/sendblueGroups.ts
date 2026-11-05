@@ -17,7 +17,7 @@
 import { MAX_REPLY_TEXT, post, ServiceError, type Fetch } from "./clients";
 import { MAX_INBOUND_TEXT } from "./inbound";
 import { readRemovedTapback, readTapback, type Reaction } from "./reactions";
-import { call, E164, getJson, handleOf, isLinkPreview, isRecord, line, sendCall, TAPBACK, type SendblueKeys } from "./sendblue";
+import { call, E164, getJson, handleOf, isLinkPreview, isRecord, line, sendCall, MAX_QUOTED_TEXT, TAPBACK, type SendblueKeys } from "./sendblue";
 import type { InboundAttachment } from "./inbound";
 import type { JobReport } from "./jobs";
 
@@ -213,7 +213,7 @@ export async function readOwnGroupMessage(fetcher: Fetch, keys: SendblueKeys, ha
   if (parent === null || parent.group_id !== chat.groupId || parent.is_outbound !== true) return null;
   if (parent.from_number !== chat.line && parent.sendblue_number !== chat.line) return null;
   const content = typeof parent.content === "string" ? parent.content.trim() : "";
-  return content === "" ? null : content.slice(0, 500);
+  return content === "" ? null : content.slice(0, MAX_QUOTED_TEXT);
 }
 
 /** The longest chat name kept; iMessage's own cap is shorter. */

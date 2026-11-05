@@ -17,7 +17,8 @@
  *   it means nothing on a phone;
  * - paragraphs become separate texts, the way people text, with a list kept
  *   in the same text as the line that introduces it, and never more than
- *   `MAX_TEXTS` of them.
+ *   `MAX_TEXTS` of them; an email draft, from its first From:, To: or Cc:
+ *   line on, is one text (`draftStart`).
  */
 
 export const MAX_TEXTS = 3;
@@ -66,6 +67,10 @@ export function textsFromAnswer(answer: string, maxTexts = MAX_TEXTS): string[] 
     .map((paragraph) => paragraph.trim())
     .filter((paragraph) => paragraph.length > 0);
 
+  // An email draft, from its first header line to the end, is one text (`draftStart`).
+  const draft = draftStart(paragraphs);
+  if (draft !== -1) paragraphs.splice(draft, paragraphs.length - draft, paragraphs.slice(draft).join("\n\n"));
+
   const texts: string[] = [];
   for (const paragraph of paragraphs) {
     if (texts.length > 0 && (LIST_ITEM.test(paragraph) || texts.length >= maxTexts)) {
@@ -77,6 +82,25 @@ export function textsFromAnswer(answer: string, maxTexts = MAX_TEXTS): string[] 
 
   const sent = texts.length > 0 || links.length > 0 ? texts : [answer.trim()];
   return [...sent, ...links.slice(0, MAX_LINKS)].filter((part) => part.length > 0);
+}
+
+/*
+  AN EMAIL DRAFT GOES AS ONE TEXT (Dev2, 2026-11-05, picked "one bubble per
+  email"). Tex showed a draft to Jo as three texts: "Softer version…", "To:
+  jo.thomas@… Subject: …", and the body ending "Send it? 👍 or 👎?". The 👍 was
+  on the body, and only the words a 👍 is on can send an email without a
+  second ask (`apps/mcp/src/tools/likedPreview.js` needs every address and
+  the whole body in them), so the address in the other text failed it and the
+  same email was asked about again. So from the first line that names an
+  address as From:, To: or Cc: to the end of the answer is one text: whatever
+  they tap holds who it goes to and every word of it. Paragraphs before it
+  stay texts of their own.
+*/
+const HEADER_LINE = /^(?:from|to|cc):[ \t]*\S+@\S+/im;
+
+/** The index of the paragraph an email draft starts at, or -1 when the answer shows none. */
+function draftStart(paragraphs: readonly string[]): number {
+  return paragraphs.findIndex((paragraph) => HEADER_LINE.test(paragraph));
 }
 
 /**
