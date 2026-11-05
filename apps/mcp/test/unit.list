@@ -450,3 +450,4 @@ test/replyJudge.test.mjs
 
 test/directoryEndpoint.test.mjs
 test/chatgptParity.test.mjs
+test/agentBrowseNotAStep.test.mjs
