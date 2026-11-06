@@ -260,7 +260,11 @@ export async function handleDream(request, env, store, session, controlPlane) {
   // that wrote nothing must not leave them without one.
   const first = before === "";
   // Nothing new to read and a note already started: tonight is quiet, and costs no model turn.
-  if (chat === "" && memories.length === 0 && !first) return json({ outcome: "nothing_new" });
+  if (chat === "" && memories.length === 0 && !first) {
+    // A quiet night still catches up the summaries of older days (`daySummaries.js`).
+    await summarizeDays(env, store, session, Date.now(), timeZone);
+    return json({ outcome: "nothing_new" });
+  }
 
   try {
     await openProvider(controlPlane, session, undefined, env);
@@ -364,9 +368,13 @@ export async function handleDream(request, env, store, session, controlPlane) {
     }).catch(() => null);
   }
   // Each finished day with no summary yet, summed up into the chat's ledger for later turns (`daySummaries.js`).
-  if (env.DAY_SUMMARIES !== "off") {
-    await writeDaySummaries({ store, session, now, timeZone, config: aiGatewayConfig(env), metadata: { feature: "day-summary", workspace: String(session.workspaceId) } }).catch(() => null);
-  }
+  await summarizeDays(env, store, session, now, timeZone);
   if (outcome === "failed") return json({ error: "model_unavailable", outcome }, 502);
   return json({ outcome, steps: turn?.steps ?? [] });
+}
+
+/** Each finished day with no summary yet, summed up into the chat's ledger for later turns (`daySummaries.js`). Best effort. */
+async function summarizeDays(env, store, session, now, timeZone) {
+  if (env.DAY_SUMMARIES === "off") return;
+  await writeDaySummaries({ store, session, now, timeZone, config: aiGatewayConfig(env), metadata: { feature: "day-summary", workspace: String(session.workspaceId) } }).catch(() => null);
 }

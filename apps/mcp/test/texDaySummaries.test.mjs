@@ -13,7 +13,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MAX_DAYS_PER_NIGHT, finishedDays, readSummary, writeDaySummaries } from "../src/agent/daySummaries.js";
+import { MAX_DAYS_PER_NIGHT, chatDays, readSummary, writeDaySummaries } from "../src/agent/daySummaries.js";
 import { earlierFromLedger, readLedger, summaryLines } from "../src/agent/ledgerHistory.js";
 import { eventEntry } from "../src/agent/ledger.js";
 import { texLedger } from "../src/texStore/ledger.js";
@@ -29,51 +29,48 @@ const said = (at, who, text) => {
 const summary = (day, at, text) => ({ v: 1, id: `day-${day}`, at, kind: "day", day, text });
 const session = { workspaceKind: "personal", workspaceId: "ws_maya" };
 
-test("a summary is one paragraph, cut; the finished days are never today nor the first day read", () => {
+test("a summary is one paragraph, cut; the finished days are never today, nor a day they never texted", async () => {
   assert.equal(readSummary("  They asked\n\nyou things. "), "They asked you things.");
   assert.equal(readSummary(""), null);
   assert.equal(readSummary("x".repeat(2_000)).length, 700);
-  const entries = [
-    said(NOW - 4 * DAY, "them", "part of a day"),
+  const ledger = texLedger(durableSql());
+  ledger.append("texts", [
+    said(NOW - 40 * DAY, "them", "long ago"),
     said(NOW - 3 * DAY, "them", "book the dentist"),
     said(NOW - 3 * DAY + 1000, "tex", "Booked."),
     said(NOW - 2 * DAY, "tex", "a check-in nobody answered"),
     said(NOW - 1000, "them", "today"),
-  ];
-  const days = finishedDays(entries, { now: NOW, timeZone: "UTC" });
-  assert.deepEqual(days.map((day) => day.day), ["2026-11-03"]);
-  assert.equal(days[0].at, NOW - 3 * DAY + 1000, "a summary is placed at its day's last entry");
+  ]);
+  const days = await chatDays(ledger, { now: NOW, timeZone: "UTC" });
+  assert.deepEqual(days.map((day) => day.day), ["2026-11-03", "2026-09-27"], "newest first, however old");
+  assert.equal(days[0].last, NOW - 3 * DAY + 1000);
 });
 
-test("the night after, each finished day with no summary gets one, and a kept one is never redone", async () => {
+test("each night sums up the newest days with no summary, back through the whole chat, and never redoes one", async () => {
   const ledger = texLedger(durableSql());
-  ledger.append("texts", [
-    said(NOW - 6 * DAY, "them", "start of the read"),
-    said(NOW - 5 * DAY, "them", "DAY-A plan the trip"),
-    said(NOW - 4 * DAY, "them", "DAY-B find a dentist"),
-    said(NOW - 3 * DAY, "them", "DAY-C"),
-    said(NOW - 1000, "them", "today"),
-    summary("2026-11-02", NOW - 4 * DAY, "already summed up"),
-  ]);
+  const old = Array.from({ length: MAX_DAYS_PER_NIGHT + 5 }, (_, i) => said(NOW - (i + 2) * DAY, "them", `DAY-${i + 2} ask`));
+  ledger.append("texts", [...old.reverse(), said(NOW - DAY, "them", "DAY-1 ask"), said(NOW - DAY + 1000, "tex", "DAY-1 answer"), said(NOW - 1000, "them", "today"), summary("2026-11-03", NOW - 3 * DAY, "already summed up")]);
   const asked = [];
   const request = async (call) => {
     asked.push(call.messages[0].text);
-    return { text: `Summary of ${call.messages[0].text.match(/DAY-[A-C]/)[0]}.` };
+    return { text: `Summary of ${call.messages[0].text.match(/DAY-\d+/)[0]}.` };
   };
   const lines = [];
   const store = { texLedger: () => ledger };
   const done = await writeDaySummaries({ store, session, now: NOW, timeZone: "UTC", config: {}, request, metadata: { workspace: "ws_maya" }, log: (line) => lines.push(line) });
-  assert.deepEqual(done, { written: 2, missing: 2 });
-  assert.equal(asked.length, 2);
-  assert.ok(asked.every((text) => !/today|start of the read/.test(text)), "neither today nor the part-day the read began in");
-  const kept = ledger.read("texts", { kinds: ["day"] }).entries;
-  assert.deepEqual(kept.map((entry) => [entry.id, entry.text]).sort(), [["day-2026-11-01", "Summary of DAY-A."], ["day-2026-11-02", "already summed up"], ["day-2026-11-03", "Summary of DAY-C."]]);
+  assert.deepEqual(done, { written: MAX_DAYS_PER_NIGHT, missing: MAX_DAYS_PER_NIGHT });
+  assert.ok(asked.every((text) => !/today/.test(text)), "never today");
+  assert.match(asked.find((text) => /DAY-1 ask/.test(text)), /DAY-1 answer/, "a day is read whole, Tex's side included");
+  const kept = () => new Map(ledger.read("texts", { kinds: ["day"] }).entries.map((entry) => [entry.day, entry.text]));
+  assert.equal(kept().get("2026-11-05"), "Summary of DAY-1.");
+  assert.equal(kept().get("2026-11-03"), "already summed up");
   assert.doesNotMatch(lines.join("\n"), /Summary of/, "the log counts, never words");
 
-  const again = await writeDaySummaries({ store, session, now: NOW, timeZone: "UTC", config: {}, request, log: () => {} });
-  assert.deepEqual(again, { written: 0, missing: 0 });
+  const next = await writeDaySummaries({ store, session, now: NOW, timeZone: "UTC", config: {}, request, log: () => {} });
+  assert.equal(next.written, 5, "the next night catches up the rest");
+  assert.equal(kept().size, MAX_DAYS_PER_NIGHT + 6);
+  assert.deepEqual(await writeDaySummaries({ store, session, now: NOW, timeZone: "UTC", config: {}, request, log: () => {} }), { written: 0, missing: 0 });
   assert.equal(await writeDaySummaries({ store, session: { workspaceKind: "shared", workspaceId: "ws" }, now: NOW, timeZone: "UTC", config: {}, request }), null, "only a person's own chat");
-  assert.ok(MAX_DAYS_PER_NIGHT >= 1);
 });
 
 test("a turn is shown the summaries of days before every text it shows, never of one it shows", () => {
