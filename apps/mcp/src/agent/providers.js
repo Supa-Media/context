@@ -24,6 +24,9 @@
 
 import { anthropicAttachmentBlocks, plainAttachmentText } from "./attachments.js";
 
+// A 400 whose body names thinking or a signature: the request carried blocks the provider would not take (`turn.js` strips them once).
+export const THINKING_REFUSED = "status 400 thinking";
+
 export class ProviderError extends Error {
   /**
    * @param {string} reason a short phrase written for an operator's log, never
